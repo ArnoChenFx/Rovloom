@@ -12,6 +12,7 @@ const result = await Bun.build({
     'src/native-contract/index.ts',
     'src/wire/index.ts',
     'src/integration/luvus-wire.ts',
+    'src/integration/persistence.ts',
   ],
   outdir: 'dist/src',
   root: 'src',
