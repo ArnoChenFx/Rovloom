@@ -13,6 +13,7 @@ import re
 import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 from urllib.parse import urlsplit
 
@@ -79,6 +80,7 @@ def main():
         env = {'PATH': str(tools), 'HOME': str(home), 'SHELL': '/bin/sh',
                'LANG': 'C.UTF-8', 'NO_COLOR': '1', 'CI': '1',
                'BUN_INSTALL_CACHE_DIR': str(root / 'empty-cache'),
+               'LUVUS_P0_TEST_ROOT': str(repo.parent),
                'BLOCKED_EXEC_LOG': str(root / 'blocked.log')}
         # 云环境出口可能依赖平台代理/CA；仅继承这些设置。
         # 拒绝含凭据的代理 URL，不记录任何配置值。
@@ -123,6 +125,7 @@ def main():
             if (root / 'blocked.log').exists():
                 raise RuntimeError(f'{label}: blocked executable invoked')
             if process.returncode != expected:
+                print(combined[-12000:], file=sys.stderr)
                 raise RuntimeError(f'{label}: exit {process.returncode}, expected {expected}; see {output}')
             records.append({'label': label, 'command': arguments, 'exit': process.returncode,
                             'executables': executables, 'logSha256': sha(output / (label + '.log')),
