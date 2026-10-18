@@ -43,5 +43,13 @@ jobs:
             "$RUNNER_TEMP/strace/usr/bin/strace" --version
             echo "$RUNNER_TEMP/strace/usr/bin" >> "$GITHUB_PATH"
           fi
+      - name: Maintenance regression tests and repository checks
+        run: |
+          python3 scripts/maintenance/run_python_tests.py --output "$RUNNER_TEMP/python-tests.json"
+          python3 scripts/maintenance/check.py
+      - name: Audit versioned native contract inputs
+        run: python3 scripts/native-contract/audit-fixtures.py
       - name: Frozen install, strict types, all tests, build, smoke; trace without Node
         run: python3 scripts/bun/verify.py --output "$RUNNER_TEMP/bun-verification"
+      - name: Check every tracked test file was executed
+        run: python3 scripts/maintenance/check.py --evidence "$RUNNER_TEMP/bun-verification" --python-report "$RUNNER_TEMP/python-tests.json"
