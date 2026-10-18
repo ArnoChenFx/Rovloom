@@ -19,7 +19,8 @@ Implemented:
 - Single-writer lock and database file permissions on POSIX.
 - Authorized Router and durable profile/session/method/deadline context.
 - Deduplicated result handles with byte pagination, payload quota, TTL and revocation cleanup.
-- Explicit response discard preserving call metadata and request-key tombstones.
+- Explicit response discard preserving call metadata and request-key tombstones, with a separate deletion permission.
+- Draft versioned business-envelope codec and unit tests; not integrated with any transport.
 
 Not implemented: WSS, MCP facade, UHP adapter/schema validation, credential rotation,
 global database retention/quotas, streaming, HTTP OAuth, CLI, or deployment. Store methods are
@@ -39,6 +40,10 @@ npm run build
 ```
 
 See [docs/PROGRESS.md](docs/PROGRESS.md) for evidence and limitations.
+For the 2026-10-18 development handover, start with [docs/HANDOVER.md](docs/HANDOVER.md).
+The current implementation is on `feat/reviewed-core-foundation` / Draft PR #1;
+automated Pi development and follow-up are stopped. The draft codec does not yet
+validate the full installed UHP schema or implement negotiated minor versions.
 
 ## Storage safety
 

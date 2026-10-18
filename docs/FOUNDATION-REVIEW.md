@@ -1,4 +1,30 @@
-# Foundation reviews: batches 1–5
+# Foundation reviews: batches 1–6 (handover snapshot)
+
+## Sixth-batch handover snapshot: 6cf5960
+
+2026-10-18: the user chose to hand further development to another person. Pi was stopped, a process check found zero matching Pi processes, and the ten-minute follow-up routine was paused. No agent was restarted.
+
+Decision: preserve the interrupted work as an explicitly **draft** development handover, not as a finished transport or protocol approval. Four source/test files were inspected and committed locally as `6cf59601d79c7be4855f024036d911fb11b54259` after independent validation. Publication uses a separate GitHub-plugin commit identity. Main remains unmerged.
+
+Verified before committing:
+- Host Node 25.9.0: typecheck and build passed; 20 tests passed, 0 failed.
+- Node 24.22.0: 20 tests passed, 0 failed.
+- Staged whitespace check passed; the four-file delta is 145 additions and 3 deletions.
+
+Changes preserved:
+- `discardResponse` now additionally requires explicit `principal.permissions.discard_response === true`; method policy/ownership checks still run. The regression denies the default reader and allows the explicitly permitted principal. This closes the earlier internal read-versus-delete permission gap, but authenticated permission sourcing is still unimplemented.
+- `src/protocol.ts` defines a version-1.0 business-envelope draft for request/accepted/response/cancel/heartbeat, with bounded JSON, correlation identifiers, expected epoch and field checks. Three new tests cover round trips and selected rejection cases.
+
+Unfinished protocol work (do not mistake passing draft tests for conformance):
+- No authentication/enrollment/welcome handshake, WSS listener, connector loop, message replay protection, delivery scheduling, stream framing or runtime Router/Store integration exists.
+- The codec accepts only exact minor version 0; negotiated minor-capability intersection required by the design is not implemented.
+- Native response validation only checks the result/error exclusive choice. The installed schema read during review also requires native response id and more detailed result/error shapes; the current codec does not enforce these and its fixtures are not native conformance evidence.
+- Epoch matching in this helper does not bind a socket to an authenticated machine or prove target ownership, freshness, or deadline enforcement. These must be supplied and tested by the transport/runtime.
+- Existing P0, retention, credential, admin, audit and deployment gates remain. Read `docs/HANDOVER.md` before continuing.
+
+Earlier review sections below are historical snapshots.
+
+---
 
 ## Fourth and fifth batches: 58302d4 / 3d58cd3
 

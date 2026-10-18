@@ -3,7 +3,7 @@ import type { NativeRequest, Policy, Target } from './contracts.js';
 import { Store } from './store.js';
 
 // 身份必须由已认证的传输层提供，不能从工具参数中反序列化。
-export type Principal = { id: string; policy: Policy };
+export type Principal = { id: string; policy: Policy; permissions?: { discard_response?: boolean } };
 export type LocalPolicies = (machineId: string) => Policy;
 
 export class Router {
@@ -42,6 +42,8 @@ export class Router {
 
   discardResponse(principal: Principal, callId: string): void {
     this.get(principal, callId);
+    // 原生方法的读取许可不代表拥有网关保存数据的删除许可。
+    if (principal.permissions?.discard_response !== true) throw new GatewayError('discard_forbidden');
     this.store.discardResponse(principal.id, callId);
   }
 

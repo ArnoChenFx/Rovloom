@@ -118,6 +118,31 @@ reopen and cleanup after expiry. Total: 17 tests. Commands: `npm run typecheck`,
 `npm test`, `npm run build` pass on the host; Node 24 suite and staged whitespace
 check rerun before committing. No native Luvus or remote-machine evidence is added.
 
+## Follow-up: sixth-batch draft preserved for handover
+
+On 2026-10-18 the user chose to hand development to another person. The interrupted
+four-file change was independently inspected and saved as local source commit
+`6cf59601d79c7be4855f024036d911fb11b54259`. Pi was stopped and the ten-minute
+follow-up routine paused. See `docs/HANDOVER.md` for the takeover branch and gates.
+
+`discardResponse` now additionally requires explicit
+`principal.permissions.discard_response === true`, rather than deriving deletion
+authority from read access. Its authenticated permission source is still pending.
+
+`src/protocol.ts` is a draft 1.0 business-envelope codec, not a transport. It bounds
+JSON and checks fields, correlation IDs, expected epoch and selected payload
+shapes. It only accepts exact minor 0; capability negotiation is not implemented.
+Native responses are only checked for result/error exclusivity, not the full
+installed UHP schema (including required native id and detailed response shapes).
+There is no authenticated socket binding, machine-target enforcement, replay
+protection, deadline scheduler, handshake, streaming or Router/Store integration.
+Do not treat the codec fixtures as P0 native conformance evidence.
+
+Independent validation of this snapshot: typecheck and build passed; host Node
+25.9.0 and Node 24.22.0 each passed 20 tests with 0 failures; staged whitespace
+check passed. Dependencies were not reinstalled for this handover. Node 26 and
+real two-machine end-to-end behavior remain unverified.
+
 ## Remaining gaps
 
 P1 is partial: total database quotas, audit, rejection states,

@@ -63,14 +63,17 @@ test('discard is reauthorized, removes inline response and handles, preserves de
     policy = { ...policy, methods: [] };
     assert.throws(() => r.discardResponse(principal, call), /forbidden/);
     policy = principal.policy;
-    r.discardResponse(principal, call);
+    assert.throws(() => r.discardResponse(principal, call), /discard_forbidden/);
+    assert.notEqual(s.call('p', call).response, null);
+    const manager = { ...principal, permissions: { discard_response: true } };
+    r.discardResponse(manager, call);
     assert.equal(s.call('p', call).response, null);
     assert.equal(s.call('p', call).state, 'responded');
     assert.equal(s.createCall('p', f.target, { method: 'pane.read' }, 'retained-key').call_id, call);
     assert.throws(() => r.readResult(principal, meta.result_id), /result_not_found/);
     assert.throws(() => r.saveResult(principal, call), /result_not_ready/);
     assert.throws(() => s.dispatch('p', call, 'old'), /dispatch_rejected/);
-    r.discardResponse(principal, call);
+    r.discardResponse(manager, call);
   } finally { s.close(); }
 });
 
