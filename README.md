@@ -6,6 +6,8 @@
 
 # Rovloom
 
+[MIT License](LICENSE)
+
 Connect MCP agents to local Luvus and Herdr runtimes across your devices.
 Rovloom is designed around one Gateway and one outbound Connector per device,
 so runtimes stay on their own machines while clients use a common entry point.

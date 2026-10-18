@@ -6,6 +6,8 @@
 
 # Rovloom
 
+[MIT 许可证](LICENSE)
+
 让 MCP Agent 通过统一入口访问多台设备上的本地 Luvus 与 Herdr runtime。
 Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构，
 让 runtime 留在各自机器上，客户端通过同一入口访问。
