@@ -13,6 +13,8 @@ import unicodedata
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
+from run_python_tests import test_files as python_test_files
+
 
 ROOT = Path(__file__).resolve().parents[2]
 TEST_FILE = re.compile(r'[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$')
@@ -142,13 +144,44 @@ def code_blocks(text, languages):
 
 
 def other_runtime_commands(command):
+    # Recognize direct commands and common explicit wrappers. This is static
+    # inspection, not shell evaluation or a complete shell language parser.
     lexer = shlex.shlex(command, posix=True, punctuation_chars=';&|\n')
+    lexer.whitespace = ' \t\r'
     lexer.whitespace_split = True
-    executable = True
+    groups, current = [], []
     for token in lexer:
-        if executable and PurePosixPath(token).name in {'node', 'nodejs', 'npm', 'npx', 'yarn', 'pnpm'}:
-            return True
-        executable = token in {'&&', '||', ';', '|', '&'} or '\n' in token
+        if token and set(token) <= set(';&|\n'):
+            groups.append(current)
+            current = []
+        else:
+            current.append(token)
+    groups.append(current)
+    for tokens in groups:
+        while tokens:
+            if re.match(r'^[A-Za-z_][A-Za-z_0-9]*=', tokens[0]):
+                tokens.pop(0)
+                continue
+            name = PurePosixPath(tokens.pop(0)).name
+            if name in {'node', 'nodejs', 'npm', 'npx', 'yarn', 'pnpm'}:
+                return True
+            if name not in {'env', 'command', 'exec'}:
+                break
+            while tokens and tokens[0].startswith('-'):
+                option = tokens.pop(0)
+                if option == '--':
+                    break
+                if name == 'command' and option in {'-v', '-V'}:
+                    tokens = []  # Lookup-only forms do not execute the named command.
+                    break
+                if name == 'env' and option in {'-u', '--unset', '-C', '--chdir'}:
+                    tokens = tokens[1:]
+                elif name == 'env' and option in {'-S', '--split-string'} and tokens:
+                    tokens = shlex.split(tokens.pop(0)) + tokens
+                elif name == 'env' and option.startswith('--split-string='):
+                    tokens = shlex.split(option.split('=', 1)[1]) + tokens
+                elif name == 'exec' and option == '-a':
+                    tokens = tokens[1:]
     return False
 
 
@@ -175,7 +208,8 @@ def toolchain_and_readmes(root):
     if not commands[0] or commands[0] != commands[1]:
         errors.append('README.md / README-zh.md: shell command blocks differ or are missing')
     for name, text in zip(('README.md', 'README-zh.md'), readmes):
-        if f'Bun {version}' not in text:
+        versions = re.findall(r'\bBun\s+(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)(?![\w.+-])', text)
+        if set(versions) != {version}:
             errors.append(f'{name}: Bun version differs from .bun-version')
         for block in code_blocks(text, {'sh', 'bash', 'shell'}):
             if any(other_runtime_commands(line) for line in block.splitlines()):
@@ -223,36 +257,33 @@ def test_discovery(files, evidence):
             [f'{path}: reported test file is not tracked source' for path in sorted(actual - expected)])
 
 
-def python_test_discovery(root, files, evidence):
-    package = json.loads((root / 'package.json').read_text())
-    report = json.loads((evidence / 'verification.json').read_text())
-    executed = set()
-    for record in report['records']:
-        tokens = record['command']
-        if tokens[0] == 'bun' and 'run' in tokens:
-            script = tokens[tokens.index('run') + 1]
-            tokens = shlex.split(package['scripts'][script])
-        for index, token in enumerate(tokens[:-1]):
-            if token == 'python3' and tokens[index + 1].endswith('.py'):
-                executed.add(tokens[index + 1])
-    # CI also runs unittest discovery in this flat directory. Subdirectories must
-    # be explicitly wired in, rather than assuming unittest recurses into them.
-    executed |= {path for path in files if PurePosixPath(path).parent == PurePosixPath('scripts/maintenance')
-                 and PurePosixPath(path).match('test_*.py')}
-    expected = {path for path in files if not path.startswith('fixtures/') and
-                (PurePosixPath(path).match('test_*.py') or PurePosixPath(path).match('*_test.py'))}
-    return [f'{path}: Python test file has no verification command' for path in sorted(expected - executed)]
+def python_test_discovery(files, report_path):
+    report = json.loads(report_path.read_text())
+    if report.get('format') != 1 or not isinstance(report.get('files'), dict):
+        raise ValueError('invalid Python execution report')
+    expected, records = python_test_files(files), report['files']
+    errors = [f'{path}: Python test file was not executed' for path in sorted(expected - records.keys())]
+    errors += [f'{path}: reported Python file is not tracked test source' for path in sorted(records.keys() - expected)]
+    for path, record in records.items():
+        cases = record['cases']
+        if (record['exit'] != 0 or not cases or
+                any(case['status'] != 'passed' or case['file'] != path for case in cases)):
+            errors.append(f'{path}: Python tests skipped, failed, empty or not executed from this file')
+    return errors
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence', type=Path, help='completed scripts/bun/verify.py output; also check discovery')
+    parser.add_argument('--python-report', type=Path, help='actual run_python_tests.py execution results')
     args = parser.parse_args()
     files = tracked_files(ROOT)
     errors = transient_paths(files) + document_links(files, documents(ROOT, files)) + toolchain_and_readmes(ROOT)
     if args.evidence:
+        if not args.python_report:
+            parser.error('--evidence requires --python-report from run_python_tests.py')
         errors += test_discovery(files, args.evidence)
-        errors += python_test_discovery(ROOT, files, args.evidence)
+        errors += python_test_discovery(files, args.python_report)
     if errors:
         print('\n'.join(errors), file=sys.stderr)
         return 1

@@ -8,11 +8,11 @@ Python 3 and Linux strace are also required for the complete verification.
 Run the same gates as [CI](.github/workflows/bun.yml) from the repository root:
 
 ```sh
-python3 -m unittest discover -s scripts/maintenance -p 'test_*.py' -v
+python3 scripts/maintenance/run_python_tests.py --output /tmp/rovloom-python-tests-new.json
 python3 scripts/maintenance/check.py
 python3 scripts/native-contract/audit-fixtures.py
 python3 scripts/bun/verify.py --output /tmp/rovloom-verification-new
-python3 scripts/maintenance/check.py --evidence /tmp/rovloom-verification-new
+python3 scripts/maintenance/check.py --evidence /tmp/rovloom-verification-new --python-report /tmp/rovloom-python-tests-new.json
 ```
 
 Choose a fresh output directory outside the checkout. The verifier performs a
@@ -22,8 +22,9 @@ commands. Preserve the original acceptance test inventory and
 wire new suites into verification; every tracked `*.test.*`, `*_test.*`,
 `*.spec.*` or `*_spec.*` JavaScript/TypeScript file must appear in its run evidence.
 Code examples under `fixtures/` remain data.
-Python `test_*.py` / `*_test.py` suites must have a verification command; flat
-`scripts/maintenance/test_*.py` modules run through unittest discovery in CI.
+All tracked Python `test_*.py` / `*_test.py` modules run in separate unittest
+processes. The gate checks actual per-file cases; skips, failures, empty modules
+and missing execution results fail without relying on fixed test totals.
 The independent native-contract data audit checks versioned schema bytes,
 offline references, method/terminal mappings and matrix inputs; it does not run
 the validator or establish runtime authorization.

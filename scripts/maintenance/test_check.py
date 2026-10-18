@@ -6,8 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from check import (ROOT, documents, document_links, executed_test_files, python_test_discovery,
-                   test_discovery, transient_paths)
+from check import ROOT, documents, document_links, executed_test_files, test_discovery, transient_paths
 
 
 class RepositoryChecks(unittest.TestCase):
@@ -27,7 +26,7 @@ class RepositoryChecks(unittest.TestCase):
             self.write(name, f'# Rovloom\n\nBun 1.4.3\n\n```sh\nbun install\nbun run build\n```\n'
                             f'\n```mermaid\nflowchart TB\n  A[{locale}]\n```\n')
             self.write(f'docs/assets/architecture/target.{locale}.mmd', f'flowchart TB\n  A[{locale}]\n')
-        for name in ('check.py', 'render-markdown.mjs'):
+        for name in ('check.py', 'render-markdown.mjs', 'run_python_tests.py'):
             self.write(f'scripts/maintenance/{name}', (ROOT / 'scripts/maintenance' / name).read_text())
 
     def write(self, path, content, force=False):
@@ -92,12 +91,32 @@ class RepositoryChecks(unittest.TestCase):
         original = path.read_text()
         for old, new, message in [('bun run build', 'npm run build', 'shell command blocks differ'),
                                   ('Bun 1.4.3', 'Bun 9.9.9', 'Bun version differs'),
+                                  ('Bun 1.4.3', 'Bun 1.4.30', 'Bun version differs'),
                                   ('A[zh]', 'A[changed]', 'Mermaid fence differs')]:
             with self.subTest(message=message):
                 self.write('README-zh.md', original.replace(old, new))
                 result = self.cli()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(message, result.stderr)
+
+    def test_environment_assignments_wrappers_and_newlines_do_not_hide_node(self):
+        for command in ('FOO=1 node build.mjs', 'env node build.mjs',
+                        'FOO=1 /usr/bin/env -u UNUSED FOO=2 node build.mjs',
+                        'env --chdir=/tmp -- node build.mjs', 'command node build.mjs',
+                        'exec -a synthetic node build.mjs', 'env -S "node build.mjs"',
+                        'bun first.mjs\nnode second.mjs'):
+            with self.subTest(command=command):
+                package = {**self.package, 'scripts': {'build': command}}
+                self.write('package.json', json.dumps(package))
+                result = self.cli()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('pinned Bun runtime', result.stderr)
+        self.write('package.json', json.dumps(self.package))
+        for name in ('README.md', 'README-zh.md'):
+            self.write(name, (self.root / name).read_text().replace('bun install', 'FOO=1 node install.mjs'))
+        result = self.cli()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('development commands must use Bun', result.stderr)
 
     def test_dependency_ranges_runtime_drift_and_direct_node_commands_fail(self):
         for mutate, message in [
@@ -119,6 +138,15 @@ class RepositoryChecks(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('development commands must use Bun', result.stderr)
 
+    def test_bun_environment_wrappers_literal_arguments_and_lookup_are_allowed(self):
+        for command in ('FOO=1 bun build.mjs', 'env -u UNUSED FOO=1 bun build.mjs',
+                        'command bun build.mjs', 'exec bun build.mjs', 'command -v node',
+                        'bun -e "console.log(\'node\')"', 'bun first.mjs\nbun second.mjs'):
+            with self.subTest(command=command):
+                self.write('package.json', json.dumps({**self.package, 'scripts': {'build': command}}))
+                result = self.cli()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_reintroduced_transient_record_fails_even_if_force_added(self):
         self.write('docs/issue4/integration-verification.json', '{}\n', force=True)
         result = self.cli()
@@ -138,6 +166,8 @@ class RepositoryChecks(unittest.TestCase):
         evidence = self.root / 'evidence'
         evidence.mkdir()
         (evidence / 'verification.json').write_text('{"records": []}')
+        report = self.root / 'python-tests.json'
+        report.write_text('{"format": 1, "files": {}}')
         (evidence / 'foundation.junit.xml').write_text(
             '<testsuites><testcase file="test/base.test.ts" name="base"/></testsuites>')
         for label, path in [('p0', 'scripts/p0/fixtures.test.mjs'),
@@ -145,9 +175,9 @@ class RepositoryChecks(unittest.TestCase):
             (evidence / f'{label}.log').write_text(f'{path}:\n(pass) real test\n')
             self.write(path, '// already executed test source\n')
         self.write('test/base.test.ts', '// already executed test source\n')
-        self.assertEqual(self.cli('--evidence', str(evidence)).returncode, 0)
+        self.assertEqual(self.cli('--evidence', str(evidence), '--python-report', str(report)).returncode, 0)
         self.write('scripts/bun/nested/new.test.mjs', '// omitted from the run\n')
-        result = self.cli('--evidence', str(evidence))
+        result = self.cli('--evidence', str(evidence), '--python-report', str(report))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('scripts/bun/nested/new.test.mjs: test file was not executed', result.stderr)
 
@@ -201,19 +231,6 @@ class DiscoveryChecks(unittest.TestCase):
 
     def test_reported_untracked_test_is_rejected(self):
         self.assertIn('not tracked source', test_discovery(self.files - {'test/base.test.ts'}, self.evidence)[0])
-
-    def test_python_suites_must_be_invoked_and_new_flat_maintenance_modules_are_discovered(self):
-        root = self.evidence
-        (root / 'package.json').write_text(json.dumps({'scripts': {
-            'test:p0': 'bun test ./scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py'}}))
-        (root / 'verification.json').write_text(json.dumps({'records': [
-            {'command': ['python3', 'scripts/bun/test_verify.py']},
-            {'command': ['bun', '--no-env-file', 'run', 'test:p0']}]}))
-        files = {'scripts/p0/test_endpoint.py', 'scripts/bun/test_verify.py', 'scripts/maintenance/test_new.py'}
-        self.assertEqual(python_test_discovery(root, files, self.evidence), [])
-        for path in ('scripts/p0/test_new.py', 'scripts/maintenance/nested/test_new.py', 'test/new_test.py'):
-            with self.subTest(path=path):
-                self.assertIn(path, python_test_discovery(root, files | {path}, self.evidence)[0])
 
     def test_script_skip_todo_failure_or_empty_file_is_rejected(self):
         for result in ('(pass) earlier\n(skip) case', '(pass) earlier\n(todo) case',
