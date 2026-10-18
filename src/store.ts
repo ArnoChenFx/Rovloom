@@ -1,0 +1,224 @@
+import { DatabaseSync } from 'node:sqlite';
+import { closeSync, openSync, unlinkSync, chmodSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { canonical, digest, GatewayError, validateRequest, validateTarget } from './contracts.js';
+import type { CallState, NativeRequest, Target } from './contracts.js';
+
+type Machine = { machine_id: string; name: string; status: string };
+export type Call = {
+  call_id: string; principal: string; machine_id: string; state: CallState;
+  epoch: string | null; attempt_id: string | null; response: string | null;
+};
+const id = (prefix: string) => `${prefix}_${randomUUID()}`;
+const secret = () => randomBytes(32).toString('base64url');
+
+export class Store {
+  private db!: DatabaseSync;
+  private lock: number | undefined;
+  private closed = false;
+
+  constructor(private readonly path: string, private readonly now = Date.now) {
+    // A stale lock requires explicit operator recovery, never automatic takeover.
+    if (path !== ':memory:') this.lock = openSync(path + '.lock', 'wx', 0o600);
+    try {
+      this.db = new DatabaseSync(path);
+      if (path !== ':memory:') chmodSync(path, 0o600);
+      this.db.exec(`
+        PRAGMA foreign_keys = ON;
+        PRAGMA journal_mode = DELETE;
+        CREATE TABLE IF NOT EXISTS metadata (version INTEGER NOT NULL);
+        INSERT INTO metadata SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM metadata);
+        CREATE TABLE IF NOT EXISTS machines (
+          machine_id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+          status TEXT NOT NULL, credential_hash TEXT, epoch TEXT
+        );
+        CREATE TABLE IF NOT EXISTS enrollments (
+          token_hash TEXT PRIMARY KEY, machine_id TEXT NOT NULL REFERENCES machines,
+          expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS calls (
+          call_id TEXT PRIMARY KEY, principal TEXT NOT NULL,
+          machine_id TEXT NOT NULL REFERENCES machines, request_hash TEXT NOT NULL,
+          request_key TEXT, state TEXT NOT NULL, epoch TEXT, attempt_id TEXT, response TEXT,
+          UNIQUE(principal, request_key)
+        );
+      `);
+      const version = this.db.prepare('SELECT version FROM metadata').get() as { version: number };
+      if (version.version !== 1) throw new GatewayError('unsupported_database_version');
+      this.db.exec(`BEGIN IMMEDIATE;
+        UPDATE machines SET status='offline', epoch=NULL WHERE status='online';
+        UPDATE calls SET state='not_dispatched' WHERE state='created';
+        UPDATE calls SET state='outcome_unknown' WHERE state IN ('dispatching','connector_accepted');
+        COMMIT;`);
+    } catch (error) {
+      this.db!?.close();
+      this.releaseLock();
+      throw error;
+    }
+  }
+
+  private releaseLock(): void {
+    if (this.lock !== undefined) {
+      closeSync(this.lock);
+      unlinkSync(this.path + '.lock');
+      this.lock = undefined;
+    }
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.db.close();
+    this.releaseLock();
+    this.closed = true;
+  }
+
+  private transaction<T>(fn: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private name(value: string): string {
+    const normalized = value.normalize('NFKC').trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(normalized)) throw new GatewayError('invalid_name');
+    return normalized;
+  }
+
+  register(name: string): Machine {
+    const machine_id = id('m');
+    const normalized = this.name(name);
+    this.db.prepare("INSERT INTO machines(machine_id,name,status) VALUES (?,?,'pending')")
+      .run(machine_id, normalized);
+    return this.machine(machine_id);
+  }
+
+  machine(machine_id: string): Machine {
+    const row = this.db.prepare('SELECT machine_id,name,status FROM machines WHERE machine_id=?').get(machine_id);
+    if (!row) throw new GatewayError('machine_not_found');
+    return row as Machine;
+  }
+
+  rename(machine_id: string, name: string): Machine {
+    this.machine(machine_id);
+    this.db.prepare('UPDATE machines SET name=? WHERE machine_id=?').run(this.name(name), machine_id);
+    return this.machine(machine_id);
+  }
+
+  // Administrative channel only: these secrets must never become MCP tool output.
+  issueEnrollment(machine_id: string, ttlMs = 600_000): string {
+    if (this.machine(machine_id).status !== 'pending') throw new GatewayError('invalid_machine_state');
+    if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) throw new GatewayError('invalid_ttl');
+    const token = secret();
+    this.db.prepare('INSERT INTO enrollments(token_hash,machine_id,expires) VALUES (?,?,?)')
+      .run(digest(token), machine_id, this.now() + ttlMs);
+    return token;
+  }
+
+  redeem(token: string): { machine_id: string; credential: string } {
+    return this.transaction(() => {
+      const row = this.db.prepare(`SELECT e.machine_id FROM enrollments e JOIN machines m USING(machine_id)
+        WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`).get(digest(token), this.now()) as
+        { machine_id: string } | undefined;
+      if (!row) throw new GatewayError('invalid_enrollment');
+      const credential = secret();
+      this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id);
+      this.db.prepare("UPDATE machines SET credential_hash=?, status='offline' WHERE machine_id=?")
+        .run(digest(credential), row.machine_id);
+      return { machine_id: row.machine_id, credential };
+    });
+  }
+
+  connect(machine_id: string, credential: string): string {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT status,credential_hash FROM machines WHERE machine_id=?')
+        .get(machine_id) as { status: string; credential_hash: string } | undefined;
+      if (!row || row.status === 'revoked' || row.credential_hash !== digest(credential)) {
+        throw new GatewayError('invalid_device_credential');
+      }
+      if (row.status === 'online') throw new GatewayError('duplicate_device_connection');
+      const epoch = id('epoch');
+      this.db.prepare("UPDATE machines SET status='online',epoch=? WHERE machine_id=?").run(epoch, machine_id);
+      return epoch;
+    });
+  }
+
+  disconnect(machine_id: string, epoch: string): void {
+    this.transaction(() => {
+      const changed = this.db.prepare("UPDATE machines SET status='offline',epoch=NULL WHERE machine_id=? AND epoch=?")
+        .run(machine_id, epoch);
+      if (changed.changes !== 1) return;
+      this.db.prepare("UPDATE calls SET state='not_dispatched' WHERE machine_id=? AND state='created'")
+        .run(machine_id);
+      this.db.prepare(`UPDATE calls SET state='outcome_unknown' WHERE machine_id=? AND epoch=?
+        AND state IN ('dispatching','connector_accepted')`).run(machine_id, epoch);
+    });
+  }
+
+  revoke(machine_id: string): void {
+    this.transaction(() => {
+      this.machine(machine_id);
+      this.db.prepare("UPDATE machines SET status='revoked',credential_hash=NULL,epoch=NULL WHERE machine_id=?")
+        .run(machine_id);
+      this.db.prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
+        WHERE machine_id=? AND state IN ('created','dispatching','connector_accepted')`).run(machine_id);
+    });
+  }
+
+  createCall(principal: string, target: Target, request: NativeRequest, key?: string): Call {
+    validateTarget(target);
+    validateRequest(request);
+    if (!principal.trim() || (key !== undefined && (!key || key.length > 256))) throw new GatewayError('invalid_caller_key');
+    const hash = digest(canonical({ target, request }));
+    return this.transaction(() => {
+      if (key !== undefined) {
+        const existing = this.db.prepare('SELECT call_id,request_hash FROM calls WHERE principal=? AND request_key=?')
+          .get(principal, key) as { call_id: string; request_hash: string } | undefined;
+        if (existing) {
+          if (existing.request_hash !== hash) throw new GatewayError('request_key_conflict');
+          return this.call(principal, existing.call_id);
+        }
+      }
+      if (this.machine(target.machine_id).status !== 'online') throw new GatewayError('machine_offline');
+      const call_id = id('call');
+      this.db.prepare(`INSERT INTO calls(call_id,principal,machine_id,request_hash,request_key,state)
+        VALUES (?,?,?,?,?,'created')`).run(call_id, principal, target.machine_id, hash, key ?? null);
+      return this.call(principal, call_id);
+    });
+  }
+
+  call(principal: string, call_id: string): Call {
+    const row = this.db.prepare(`SELECT c.call_id,c.principal,c.machine_id,c.state,c.epoch,c.attempt_id,c.response
+      FROM calls c JOIN machines m USING(machine_id) WHERE call_id=? AND principal=? AND m.status!='revoked'`)
+      .get(call_id, principal);
+    if (!row) throw new GatewayError('call_not_found');
+    return row as Call;
+  }
+
+  dispatch(principal: string, call_id: string, epoch: string): string {
+    return this.transaction(() => {
+      const call = this.call(principal, call_id);
+      const attempt = id('attempt');
+      const changed = this.db.prepare(`UPDATE calls SET state='dispatching',epoch=?,attempt_id=?
+        WHERE call_id=? AND state='created' AND EXISTS
+        (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
+        .run(epoch, attempt, call_id, call.machine_id, epoch);
+      if (changed.changes !== 1) throw new GatewayError('dispatch_rejected');
+      return attempt;
+    });
+  }
+
+  receive(machine_id: string, call_id: string, attempt: string, epoch: string, response: unknown): void {
+    const json = canonical(response);
+    const changed = this.db.prepare(`UPDATE calls SET state='responded',response=?
+      WHERE machine_id=? AND call_id=? AND attempt_id=? AND epoch=? AND state IN ('dispatching','connector_accepted')
+      AND EXISTS (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
+      .run(json, machine_id, call_id, attempt, epoch, machine_id, epoch);
+    if (changed.changes !== 1) throw new GatewayError('stale_response');
+  }
+}
