@@ -49,6 +49,7 @@ export type HistoryScope = {
   accept_new_until: number;
   frozen_dedup_ttl: number;
 };
+
 export type HistoryRecord = {
   history_epoch: string;
   recovery_generation: string;
@@ -58,9 +59,11 @@ export type HistoryRecord = {
   call_created_at: number;
   dedup_expires_at: number;
 };
+
 export type HistoryDecision =
   | { action: 'return_existing'; call_id: string }
   | { action: 'register_new'; dedup_expires_at: number };
+
 // scope/key 查询及本判断必须由 #5 在同一 writer 事务内使用；不发放范围、不改绑旧重试。
 export function planHistoryAdmission(
   reference: HistoryReference,
@@ -93,6 +96,8 @@ export function planHistoryAdmission(
   )
     fail('invalid_history_scope');
   if (now < scope.scope_created_at) fail('clock_untrusted');
+
+  // 退役范围仍可查询有效墓碑；只有缺 key 的新登记才受 active/accept_new_until 限制。
   if (record) {
     id(record.call_id);
     uint(record.call_created_at);
@@ -116,6 +121,7 @@ export function planHistoryAdmission(
     if (record.request_digest !== requestDigest) fail('request_key_conflict');
     return { action: 'return_existing', call_id: record.call_id };
   }
+
   if (scope.status !== 'active' || now >= scope.accept_new_until) fail('dedup_history_unavailable');
   const dedup_expires_at = now + scope.frozen_dedup_ttl;
   if (!Number.isSafeInteger(dedup_expires_at)) fail('invalid_history_scope');

@@ -5,6 +5,7 @@ import { canonical, digest, GatewayError, validateRequest, validateTarget } from
 import type { CallState, NativeRequest, Target } from './contracts.js';
 
 type Machine = { machine_id: string; name: string; status: string };
+
 export type Call = {
   call_id: string;
   principal: string;
@@ -78,16 +79,19 @@ export class Store {
         this.db.exec(`BEGIN IMMEDIATE;
           CREATE TABLE results (
             result_id TEXT PRIMARY KEY, call_id TEXT NOT NULL REFERENCES calls,
-            payload BLOB NOT NULL, bytes INTEGER NOT NULL, hash TEXT NOT NULL, expires INTEGER NOT NULL
+            payload BLOB NOT NULL, bytes INTEGER NOT NULL,
+            hash TEXT NOT NULL, expires INTEGER NOT NULL
           );
           CREATE INDEX results_expiry ON results(expires);
           UPDATE metadata SET version=3;
           COMMIT;`);
       }
+      // 重启只收敛本地状态；可能已经送达的调用保持 unknown，不能据此重派。
       this.db.exec(`BEGIN IMMEDIATE;
         UPDATE machines SET status='offline', epoch=NULL WHERE status='online';
         UPDATE calls SET state='not_dispatched' WHERE state='created';
-        UPDATE calls SET state='outcome_unknown' WHERE state IN ('dispatching','connector_accepted');
+        UPDATE calls SET state='outcome_unknown'
+          WHERE state IN ('dispatching','connector_accepted');
         COMMIT;`);
     } catch (error) {
       this.db?.close();
@@ -175,6 +179,7 @@ export class Store {
         .get(digest(token), this.now()) as { machine_id: string } | undefined;
       if (!row) throw new GatewayError('invalid_enrollment');
       const credential = secret();
+      // 同一事务消费该机器的全部配对码并设置凭据，避免其它未消费码再次换取身份。
       this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id);
       this.db
         .prepare("UPDATE machines SET credential_hash=?, status='offline' WHERE machine_id=?")
@@ -206,6 +211,7 @@ export class Store {
         .prepare("UPDATE machines SET status='offline',epoch=NULL WHERE machine_id=? AND epoch=?")
         .run(machine_id, epoch);
       if (changed.changes !== 1) return;
+      // 旧 epoch 的断线通知不能覆盖新连接，也不能把已送达的调用标成未派发。
       this.db
         .prepare("UPDATE calls SET state='not_dispatched' WHERE machine_id=? AND state='created'")
         .run(machine_id);
@@ -230,8 +236,9 @@ export class Store {
         )
         .run(machine_id);
       this.db
-        .prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
-        WHERE machine_id=? AND state IN ('created','dispatching','connector_accepted')`)
+        .prepare(`UPDATE calls
+          SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
+          WHERE machine_id=? AND state IN ('created','dispatching','connector_accepted')`)
         .run(machine_id);
     });
   }
@@ -250,7 +257,9 @@ export class Store {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 600_000)
       throw new GatewayError('invalid_timeout');
     const hash = digest(canonical({ target, request, timeoutMs }));
+
     return this.transaction(() => {
+      // 同 key 先比对原意图，再返回原调用；机器当前离线也不应让旧请求重新登记。
       if (key !== undefined) {
         const existing = this.db
           .prepare('SELECT call_id,request_hash FROM calls WHERE principal=? AND request_key=?')
@@ -264,8 +273,9 @@ export class Store {
         throw new GatewayError('machine_offline');
       const call_id = id('call');
       this.db
-        .prepare(`INSERT INTO calls(call_id,principal,machine_id,request_hash,request_key,state,target_json,method,deadline)
-        VALUES (?,?,?,?,?,'created',?,?,?)`)
+        .prepare(`INSERT INTO calls(
+          call_id,principal,machine_id,request_hash,request_key,state,target_json,method,deadline
+        ) VALUES (?,?,?,?,?,'created',?,?,?)`)
         .run(
           call_id,
           principal,
@@ -282,8 +292,10 @@ export class Store {
 
   call(principal: string, call_id: string): Call {
     const row = this.db
-      .prepare(`SELECT c.call_id,c.principal,c.machine_id,c.state,c.epoch,c.attempt_id,c.response,c.target_json,c.method,c.deadline
-      FROM calls c JOIN machines m USING(machine_id) WHERE call_id=? AND principal=? AND m.status!='revoked'`)
+      .prepare(`SELECT c.call_id,c.principal,c.machine_id,c.state,c.epoch,c.attempt_id,
+        c.response,c.target_json,c.method,c.deadline
+        FROM calls c JOIN machines m USING(machine_id)
+        WHERE call_id=? AND principal=? AND m.status!='revoked'`)
       .get(call_id, principal);
     if (!row) throw new GatewayError('call_not_found');
     return row as Call;
@@ -293,6 +305,7 @@ export class Store {
     return this.transaction(() => {
       const call = this.call(principal, call_id);
       const attempt = id('attempt');
+      // 状态、deadline 与当前连接 epoch 在同一次更新中判定；事务提交后才返回 attempt。
       const changed = this.db
         .prepare(`UPDATE calls SET state='dispatching',epoch=?,attempt_id=?
         WHERE call_id=? AND state='created' AND deadline>? AND EXISTS
@@ -408,8 +421,9 @@ export class Store {
   stop(principal: string, call_id: string): Call {
     this.call(principal, call_id);
     this.db
-      .prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
-      WHERE call_id=? AND state IN ('created','dispatching','connector_accepted')`)
+      .prepare(`UPDATE calls
+        SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
+        WHERE call_id=? AND state IN ('created','dispatching','connector_accepted')`)
       .run(call_id);
     return this.call(principal, call_id);
   }
@@ -417,8 +431,9 @@ export class Store {
   expire(): void {
     this.db.prepare('DELETE FROM results WHERE expires<=?').run(this.now());
     this.db
-      .prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
-      WHERE deadline<=? AND state IN ('created','dispatching','connector_accepted')`)
+      .prepare(`UPDATE calls
+        SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
+        WHERE deadline<=? AND state IN ('created','dispatching','connector_accepted')`)
       .run(this.now());
   }
 
@@ -432,7 +447,8 @@ export class Store {
     const json = canonical(response);
     const changed = this.db
       .prepare(`UPDATE calls SET state='responded',response=?
-      WHERE machine_id=? AND call_id=? AND attempt_id=? AND epoch=? AND state IN ('dispatching','connector_accepted')
+      WHERE machine_id=? AND call_id=? AND attempt_id=? AND epoch=?
+        AND state IN ('dispatching','connector_accepted')
       AND EXISTS (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
       .run(json, machine_id, call_id, attempt, epoch, machine_id, epoch);
     if (changed.changes !== 1) throw new GatewayError('stale_response');

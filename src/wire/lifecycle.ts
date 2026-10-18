@@ -15,6 +15,7 @@ export type StreamState = {
   next_data_sequence: number;
   next_input_sequence: number;
 };
+
 // 仅维护外层流顺序；原生 generation/lease/ack 的状态必须由 native adapter 另行验证。
 export function advanceStream(
   state: StreamState | undefined,
@@ -31,6 +32,7 @@ export function advanceStream(
     connection_epoch: valid.connection_epoch,
     ...p.attempt,
   };
+
   if (!state) {
     if (valid.type !== 'stream_open') fail('stream_not_open');
     return {
@@ -50,11 +52,14 @@ export function advanceStream(
     fail('stream_binding_mismatch');
   if (state.state === 'closed' || valid.type === 'stream_open') fail('invalid_stream_transition');
   if (valid.type === 'stream_close') return { ...state, state: 'closed' };
+
+  // 两个方向各自计序；首个合法 data 将流从 opening 推进到 open，之后才接收 input。
   uint(state.next_data_sequence);
   uint(state.next_input_sequence);
   const key = valid.type === 'stream_data' ? 'next_data_sequence' : 'next_input_sequence';
   if (valid.type === 'stream_input' && state.state !== 'open') fail('stream_not_ready');
   if (p.sequence !== state[key] || !Number.isSafeInteger(state[key] + 1))
     fail('stream_sequence_mismatch');
+
   return { ...state, state: 'open', [key]: state[key] + 1 };
 }
