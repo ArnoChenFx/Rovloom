@@ -1,3 +1,4 @@
+// 定义原生契约校验、能力、派发许可及仅响应上下文的类型边界。
 import type { Policy, Target } from '../contracts.js'
 
 export type Json = null | boolean | number | string | readonly Json[] | JsonObject
@@ -174,6 +175,8 @@ export type DispatchPermit = Readonly<{
   classification_revision: string
   raw_grant_id?: string
 }>
+// 只能由真实 permit seal；独立 WeakMap 校验，不能用于派发、开流或读取原文。
+export type ResponseOnlyContext = Readonly<{ kind: 'response_context'; retained_bytes: number }>
 export type NativeRequestGate = Readonly<{
   classification_status: 'trusted_complete' | 'missing' | 'unknown' | 'invalid' | 'untrusted'
   schema_status: 'complete' | 'incomplete' | 'unavailable'
@@ -193,17 +196,34 @@ export type ResultAuthorization = Readonly<{
 }>
 
 export interface NativeValidator {
+  // 把独立验证的原生来源与能力广告绑定为当前契约的内存视图。
   bindCapabilities(response: unknown, source: TrustedNativeContext): Check<CapabilityView>
+  // 返回能力视图中的方法描述，描述信息本身不授予执行权限。
   describe(view: CapabilityView, method: string): Check<MethodDescriptor>
+  // 按现行参数 schema 校验请求，保留 schema/generic 覆盖状态供派发门禁判断。
   checkRequest(view: CapabilityView, request: unknown): Check<CheckedRequest>
+  // 允许未收录方法产生 unavailable 候选，已有 schema/generic 结果不降级，raw 授权另过门禁。
   checkRawRequest(view: CapabilityView, request: unknown): Check<CheckedRequest | RawRequestCandidate>
+  // 只校验指定响应族的结构，不声称其已与请求、许可或原生来源绑定。
   checkResponseShape(response: unknown, family?: 'general' | 'terminal'): Check<CheckedResponse>
+  // 复核原请求上下文、来源、在线帧预算及结果约束，登记绑定后的响应句柄。
   checkResponse(
     context: CheckedRequest | DispatchPermit,
     response: unknown,
     source: TrustedNativeContext
   ): Check<CheckedResponse>
+  // 仅从真实 RPC 派发许可密封最小响应约束，不能从 JSON 重建。
+  sealResponseContext(permit: DispatchPermit): Check<ResponseOnlyContext>
+  // 用密封元数据校验迟到响应并仅返回校验结论，不产生读取或派发能力。
+  checkResponseOnly(context: ResponseOnlyContext, response: unknown, source: TrustedNativeContext): Check<void>
+  // 撤销同一 RPC 候选的全部许可及请求登记，让内部关联不再持有原请求正文。
+  releaseRequestContext(permit: DispatchPermit): Check<void>
+  // 删除密封响应句柄的私有登记，使其不能继续验证迟到响应。
+  releaseResponseContext(context: ResponseOnlyContext): Check<void>
+  // 要求 acknowledgement 来自同一真实派发许可，再建立固定模式的原生流。
   openStream(permit: DispatchPermit, acknowledgement: CheckedResponse): Check<CheckedStream>
+  // 核验流句柄、原生来源、事件 schema 及身份，阻止跨流或跨目标事件混入。
   checkEvent(stream: CheckedStream, event: unknown, source: TrustedNativeContext): Check<CheckedEvent>
+  // 在已打开的控制流内校验输入帧及原生身份，生成需另行授权的控制候选。
   checkControl(stream: CheckedStream, frame: unknown): Check<CheckedControl>
 }

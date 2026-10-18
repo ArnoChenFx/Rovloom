@@ -1,5 +1,18 @@
+// 按固定原生契约校验能力、请求、响应与流，并管理不可序列化的可信句柄。
 import { validateTarget } from '../contracts.js'
-import { candidates, contracts, permits, responses, SCOPES, STREAM_METHODS, streams, UHP, views } from './internal.js'
+import {
+  candidates,
+  contracts,
+  permits,
+  responses,
+  responseContexts,
+  SCOPES,
+  STREAM_METHODS,
+  streams,
+  UHP,
+  views
+} from './internal.js'
+import type { ResponseRules } from './internal.js'
 import { attempt, equal, fail, object, snapshot, text } from './json.js'
 import type {
   CapabilityView,
@@ -21,6 +34,7 @@ import type {
   TrustedNativeContext
 } from './types.js'
 
+// 拒绝未登记的契约对象，并取得已编译的校验器和固定限额。
 function data(contract: CompiledContract) {
   const value = contracts.get(contract)
   if (!value) {
@@ -29,6 +43,7 @@ function data(contract: CompiledContract) {
   return value
 }
 
+// 核验独立认证的原生来源及完整绑定，必要时与预期身份逐项比对。
 export function verifySource(source: TrustedNativeContext, expected?: NativeBinding): NativeBinding {
   if (!source || source.authenticated !== true || source.source_verified !== true) {
     fail('native_source_untrusted', 'source')
@@ -86,6 +101,7 @@ export function verifySource(source: TrustedNativeContext, expected?: NativeBind
   return binding
 }
 
+// 按契约 URI 运行对应 schema，缺失校验器或数据不符均返回固定错误。
 function validate(contract: CompiledContract, uri: string, value: unknown, code: string): void {
   const check = data(contract).validators.get(uri)
   if (!check) {
@@ -96,10 +112,12 @@ function validate(contract: CompiledContract, uri: string, value: unknown, code:
   }
 }
 
+// 在契约 JSON 限额内复制输入，避免后续校验依赖调用方可变对象。
 function copy(contract: CompiledContract, value: unknown): JsonObject {
   return object(snapshot(value, data(contract).limits))
 }
 
+// 只接受当前契约创建的能力句柄，拒绝同形对象或另一契约的视图。
 function viewData(contract: CompiledContract, view: CapabilityView) {
   const stored = views.get(view)
   if (!stored || stored.contract !== contract) {
@@ -108,6 +126,7 @@ function viewData(contract: CompiledContract, view: CapabilityView) {
   return stored
 }
 
+// 从已登记能力视图取得方法描述，未广告的方法不能进入请求校验。
 function method(contract: CompiledContract, view: CapabilityView, name: string): MethodDescriptor {
   const descriptor = viewData(contract, view).methods.get(name)
   if (!descriptor) {
@@ -116,13 +135,17 @@ function method(contract: CompiledContract, view: CapabilityView, name: string):
   return descriptor
 }
 
+// 核对终端能力清单及数值限额，拒绝重复、未知或超限广告。
 function validateTerminalCapabilities(value: JsonObject): void {
   const terminal = object(value.terminal, 'capability_invalid')
   for (const key of ['capabilities', 'features']) {
     const items = terminal[key]
     if (
       !Array.isArray(items) ||
-      !items.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 128) ||
+      !items.every(
+        /* 限定每个终端能力项为非空短字符串，防止任意值或超长广告进入视图。 */ (x) =>
+          typeof x === 'string' && x.length > 0 && x.length <= 128
+      ) ||
       new Set(items).size !== items.length
     ) {
       fail('capability_invalid', 'discovery', 'terminal')
@@ -147,6 +170,25 @@ function validateTerminalCapabilities(value: JsonObject): void {
   }
 }
 
+// 按终端族及请求方向求有效在线帧预算，结合契约与能力广告取较小值。
+function frameBytes(
+  contract: CompiledContract,
+  view: CapabilityView,
+  terminal: boolean,
+  direction: 'request' | 'response'
+): number | null {
+  if (view.binding.target.profile !== 'session') {
+    return null
+  }
+  const caps = viewData(contract, view).capabilities
+  let maxBytes = object(caps.limits).frame_bytes as number
+  if (terminal) {
+    const limits = object(object(caps.terminal).limits)
+    maxBytes = Math.min(maxBytes, limits[`${direction}_bytes`] as number)
+  }
+  return maxBytes
+}
+// 计入结尾 LF 后检查完整原生帧字节数，防止仅计算 JSON 而越过在线限额。
 function frameLimit(
   contract: CompiledContract,
   view: CapabilityView,
@@ -155,21 +197,14 @@ function frameLimit(
   terminal: boolean,
   direction: 'request' | 'response'
 ): void {
-  if (view.binding.target.profile !== 'session') {
-    return
-  }
-  const caps = viewData(contract, view).capabilities
-  let maxBytes = object(caps.limits).frame_bytes as number
-  if (terminal) {
-    const limits = object(object(caps.terminal).limits)
-    maxBytes = Math.min(maxBytes, limits[`${direction}_bytes`] as number)
-  }
-  // 固定 UHP 的 request/response/event/control 都以 LF 结束；分隔符也占原生帧预算。
-  if (Buffer.byteLength(JSON.stringify(value)) + 1 > maxBytes) {
+  const maxBytes = frameBytes(contract, view, terminal, direction)
+  // 固定 UHP 的完整帧包含结尾 LF。
+  if (maxBytes !== null && Buffer.byteLength(JSON.stringify(value)) + 1 > maxBytes) {
     fail(code, 'validation', 'frame_limit')
   }
 }
 
+// 校验协议、目标身份、方法目录与访问提示的一致性，生成可信方法索引。
 function shapeCapabilities(value: JsonObject, binding: NativeBinding): Map<string, NativeMethodContract> {
   if (!equal(value.protocol, { name: 'luvus-uhp', major: 1, minor: 0 })) {
     fail('capability_invalid', 'discovery', 'protocol')
@@ -178,7 +213,10 @@ function shapeCapabilities(value: JsonObject, binding: NativeBinding): Map<strin
     !Array.isArray(value.methods) ||
     !value.methods.length ||
     value.methods.length > 1024 ||
-    !value.methods.every((m) => typeof m === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(m)) ||
+    !value.methods.every(
+      /* 只接受协议允许字符集与长度范围内的方法名。 */ (m) =>
+        typeof m === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(m)
+    ) ||
     new Set(value.methods).size !== value.methods.length ||
     !Array.isArray(value.method_contracts) ||
     value.method_contracts.length !== value.methods.length
@@ -221,7 +259,9 @@ function shapeCapabilities(value: JsonObject, binding: NativeBinding): Map<strin
       !['read_only', 'control'].includes(access.mode as string) ||
       !Array.isArray(access.allowed_methods) ||
       new Set(access.allowed_methods).size !== access.allowed_methods.length ||
-      !access.allowed_methods.every((m) => methodList.includes(m))
+      !access.allowed_methods.every(
+        /* 要求访问广告中的每个方法均已出现在当前方法目录中。 */ (m) => methodList.includes(m)
+      )
     ) {
       fail('capability_invalid', 'discovery', 'access')
     }
@@ -232,6 +272,7 @@ function shapeCapabilities(value: JsonObject, binding: NativeBinding): Map<strin
   return result
 }
 
+// 补充 schema 之外的 UTF-8 字节限额及请求中的原生 generation 绑定。
 function requestSemantics(request: JsonObject, view: CapabilityView): void {
   const params = object(request.params, 'native_request_invalid')
   for (const [methodName, field, max] of [
@@ -268,36 +309,61 @@ const TERMINAL_RESULTS: Record<string, string> = {
   close: 'terminal_backend_action'
 }
 
-function validateResponseResult(candidate: DispatchCandidate, terminal: boolean, result: JsonObject): void {
-  const expected =
-    candidate.kind === 'control'
+// 从已校验候选提取结果类型、流模式及三个原生身份字段，不携带请求正文。
+function responseRules(candidate: DispatchCandidate): ResponseRules {
+  const terminal = candidate.kind === 'control' || candidate.method.startsWith('terminal.backend.')
+  const expected = !terminal
+    ? undefined
+    : candidate.kind === 'control'
       ? 'terminal_backend_action'
       : TERMINAL_RESULTS[candidate.method.slice('terminal.backend.'.length)]
-  if (terminal && result.type !== expected) {
-    fail('native_result_mismatch', 'response')
-  }
-  if (candidate.method === 'events.subscribe' && result.type !== 'subscription_started') {
-    fail('native_result_mismatch', 'response')
-  }
-  if (
-    candidate.kind !== 'control' &&
-    (candidate.method === 'terminal.backend.observe' || candidate.method === 'terminal.backend.control')
-  ) {
-    if (result.mode !== (candidate.method.endsWith('observe') ? 'observe' : 'control')) {
-      fail('native_result_mismatch', 'response')
-    }
-  }
+  const identities: Record<string, import('./types.js').Json> = {}
   if (terminal && candidate.kind !== 'control') {
     const params = object(candidate.request.params)
-    for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
-      if (result[key] !== undefined && params[key] !== undefined && result[key] !== params[key]) {
+    for (const name of ['server_generation', 'terminal_id', 'pane_id']) {
+      if (params[name] !== undefined) {
+        identities[name] = params[name]!
+      }
+    }
+  }
+  return {
+    terminal,
+    bind_native_identity: terminal && candidate.kind !== 'control',
+    ...(expected ? { expected_type: expected } : {}),
+    ...(candidate.method === 'events.subscribe' ? { expected_type: 'subscription_started' } : {}),
+    ...(candidate.kind !== 'control' &&
+    ['terminal.backend.observe', 'terminal.backend.control'].includes(candidate.method)
+      ? { expected_mode: candidate.method.endsWith('observe') ? 'observe' : 'control' }
+      : {}),
+    identities
+  }
+}
+// 使用原请求固定的结果约束核对成功响应，拒绝方法或原生身份错配。
+function validateBoundResult(rules: ResponseRules, binding: NativeBinding, result: JsonObject): void {
+  if ((rules.terminal || rules.expected_type) && result.type !== rules.expected_type) {
+    fail('native_result_mismatch', 'response')
+  }
+  if (rules.expected_mode && result.mode !== rules.expected_mode) {
+    fail('native_result_mismatch', 'response')
+  }
+  if (rules.bind_native_identity) {
+    for (const name of ['server_generation', 'terminal_id', 'pane_id']) {
+      if (
+        result[name] !== undefined &&
+        rules.identities[name] !== undefined &&
+        result[name] !== rules.identities[name]
+      ) {
         fail('native_identity_mismatch', 'response')
       }
     }
-    if (result.server_generation !== undefined && result.server_generation !== candidate.binding.server_generation) {
+    if (result.server_generation !== undefined && result.server_generation !== binding.server_generation) {
       fail('native_identity_mismatch', 'response')
     }
   }
+}
+// 把正常请求候选映射为同一套最小响应约束，保持两条响应路径的校验一致。
+function validateResponseResult(candidate: DispatchCandidate, result: JsonObject): void {
+  validateBoundResult(responseRules(candidate), candidate.binding, result)
 }
 
 // 实时广告与离线 schema 共同决定描述信息；描述本身不授予执行权限。
@@ -328,6 +394,7 @@ function describeCapability(
   })
 }
 
+// 将已支持的订阅、观察及控制方法映射到固定流模式，拒绝其它方法。
 function streamModeFor(method: string): CheckedStream['mode'] {
   if (method === 'events.subscribe') {
     return 'general_events'
@@ -338,6 +405,7 @@ function streamModeFor(method: string): CheckedStream['mode'] {
   return method.endsWith('observe') ? 'observe' : 'control'
 }
 
+// 从真实请求或派发句柄查询原候选，拒绝伪造或已释放的上下文。
 function candidateOf(context: CheckedRequest | DispatchPermit): DispatchCandidate {
   if (context.kind === 'permit') {
     const value = permits.get(context)
@@ -352,8 +420,10 @@ function candidateOf(context: CheckedRequest | DispatchPermit): DispatchCandidat
   return context
 }
 
+// 为一个已登记契约创建校验入口，所有可信状态均保存在私有句柄表中。
 export function createNativeValidator(contract: CompiledContract): NativeValidator {
   data(contract)
+  // 复制并校验响应族 schema；只有流 ack 保留开流所需关联，RPC 响应不反向强引原请求。
   function responseShape(
     input: unknown,
     family: 'general' | 'terminal',
@@ -367,9 +437,11 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
       validate(contract, `${UHP}schema/terminal/response.schema.json`, response, 'native_response_invalid')
     }
     const result = Object.freeze({ response, identity: contract.identity, bound })
-    responses.set(result, { candidate, contract, permit })
+    const streamAck = candidate !== null && permit !== null && STREAM_METHODS.has(candidate.method)
+    responses.set(result, { candidate: streamAck ? candidate : null, contract, permit: streamAck ? permit : null })
     return result
   }
+  // 校验能力、请求外壳及参数，只有显式 raw 模式才返回不完整 schema 候选。
   function checkedRequest(
     view: CapabilityView,
     input: unknown,
@@ -383,7 +455,10 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
       validate(contract, `${UHP}request.schema.json`, request, 'native_request_invalid')
     } else {
       if (
-        Object.keys(request).some((k) => !['id', 'method', 'params', 'auth'].includes(k)) ||
+        Object.keys(request).some(
+          /* 检测请求外壳中的未知字段，避免额外权限或身份数据被静默接纳。 */ (k) =>
+            !['id', 'method', 'params', 'auth'].includes(k)
+        ) ||
         typeof request.id !== 'string' ||
         !/^[A-Za-z0-9._:-]{1,128}$/.test(request.id) ||
         !/^[A-Za-z0-9._:-]{1,128}$/.test(name) ||
@@ -416,223 +491,375 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     return result
   }
   const api: NativeValidator = {
+    // 把独立验证的原生来源与能力广告绑定为当前契约的内存视图。
     bindCapabilities(input, source) {
-      return attempt('capabilities', () => {
-        const binding = verifySource(source)
-        if (!equal(binding.contract, contract.identity)) {
-          fail('capability_stale', 'discovery', 'contract')
+      return attempt(
+        'capabilities',
+        /* 在统一错误边界内核对契约身份、广告 schema 和方法目录，再登记冻结能力视图。 */ () => {
+          const binding = verifySource(source)
+          if (!equal(binding.contract, contract.identity)) {
+            fail('capability_stale', 'discovery', 'contract')
+          }
+          const response = responseShape(input, 'general', false, null).response
+          const value = object(response.result, 'capability_invalid')
+          const hints = shapeCapabilities(value, binding)
+          const methods = new Map<string, MethodDescriptor>()
+          for (const [name, hint] of hints) {
+            const paths = data(contract).branches.get(name)
+            const descriptor = describeCapability(binding, name, hint, paths)
+            methods.set(name, descriptor)
+          }
+          const view = Object.freeze({ binding, methods: Object.freeze([...methods.values()]) })
+          views.set(view, { contract, capabilities: value, methods })
+          return view
         }
-        const response = responseShape(input, 'general', false, null).response
-        const value = object(response.result, 'capability_invalid')
-        const hints = shapeCapabilities(value, binding)
-        const methods = new Map<string, MethodDescriptor>()
-        for (const [name, hint] of hints) {
-          const paths = data(contract).branches.get(name)
-          const descriptor = describeCapability(binding, name, hint, paths)
-          methods.set(name, descriptor)
-        }
-        const view = Object.freeze({ binding, methods: Object.freeze([...methods.values()]) })
-        views.set(view, { contract, capabilities: value, methods })
-        return view
-      })
+      )
     },
+    // 返回能力视图中的方法描述，描述信息本身不授予执行权限。
     describe(view, name) {
-      return attempt('describe', () => method(contract, view, name))
+      return attempt(
+        'describe',
+        /* 在统一错误边界内查询当前视图的方法，保留不可用与未广告的拒绝结果。 */ () => method(contract, view, name)
+      )
     },
+    // 按现行参数 schema 校验请求，保留 schema/generic 覆盖状态供派发门禁判断。
     checkRequest(view, input) {
-      return attempt('request', () => checkedRequest(view, input, false) as CheckedRequest)
+      return attempt(
+        'request',
+        /* 校验 bundle 已收录方法的参数并保留覆盖状态，不创建 validation=unavailable 候选。 */ () =>
+          checkedRequest(view, input, false) as CheckedRequest
+      )
     },
+    // 允许未收录方法产生 unavailable 候选，已有 schema/generic 结果不降级，raw 授权另过门禁。
     checkRawRequest(view, input) {
-      return attempt('request', () => checkedRequest(view, input, true))
+      return attempt(
+        'request',
+        /* 显式允许通用参数候选，但仍执行能力身份、帧预算及请求语义检查。 */ () => checkedRequest(view, input, true)
+      )
     },
+    // 只校验指定响应族的结构，不声称其已与请求、许可或原生来源绑定。
     checkResponseShape(input, family = 'general') {
-      return attempt('response', () => {
-        if (!['general', 'terminal'].includes(family)) {
-          fail('invalid_context')
+      return attempt(
+        'response',
+        /* 先限定响应族，再生成尚未绑定原请求的结构校验句柄。 */ () => {
+          if (!['general', 'terminal'].includes(family)) {
+            fail('invalid_context')
+          }
+          return responseShape(input, family, false, null)
         }
-        return responseShape(input, family, false, null)
-      })
+      )
     },
+    // 复核原请求上下文、来源、在线帧预算及结果约束，登记绑定后的响应句柄。
     checkResponse(context, input, source) {
-      return attempt('response', () => {
-        const candidate = candidateOf(context)
-        const stored = candidates.get(candidate)!
-        viewData(contract, stored.view)
-        verifySource(source, candidate.binding)
-        const terminal = candidate.kind === 'control' || candidate.method.startsWith('terminal.backend.')
-        const checked = responseShape(
-          input,
-          terminal ? 'terminal' : 'general',
-          true,
-          candidate,
-          context.kind === 'permit' ? context : null
-        )
-        frameLimit(contract, stored.view, checked.response, 'native_response_invalid', terminal, 'response')
-        const request = candidate.kind === 'control' ? candidate.frame : candidate.request
-        // schema 合法之后仍须绑定原请求 ID、结果类型和适用的原生实例标识。
-        if (checked.response.id !== request.id) {
-          fail('native_id_mismatch', 'response')
+      return attempt(
+        'response',
+        /* 从真实候选查回能力视图，核对来源和 ID 后验证成功结果与完整帧大小。 */ () => {
+          const candidate = candidateOf(context)
+          const stored = candidates.get(candidate)!
+          viewData(contract, stored.view)
+          verifySource(source, candidate.binding)
+          const terminal = candidate.kind === 'control' || candidate.method.startsWith('terminal.backend.')
+          const checked = responseShape(
+            input,
+            terminal ? 'terminal' : 'general',
+            true,
+            candidate,
+            context.kind === 'permit' ? context : null
+          )
+          frameLimit(contract, stored.view, checked.response, 'native_response_invalid', terminal, 'response')
+          const request = candidate.kind === 'control' ? candidate.frame : candidate.request
+          // schema 合法之后仍须绑定原请求 ID、结果类型和适用的原生实例标识。
+          if (checked.response.id !== request.id) {
+            fail('native_id_mismatch', 'response')
+          }
+          if (checked.response.result !== undefined) {
+            validateResponseResult(candidate, object(checked.response.result))
+          }
+          return checked
         }
-        if (checked.response.result !== undefined) {
-          validateResponseResult(candidate, terminal, object(checked.response.result))
-        }
-        return checked
-      })
+      )
     },
+    // 仅从真实 RPC 派发许可密封最小响应约束，不能从 JSON 重建。
+    sealResponseContext(permit) {
+      return attempt(
+        'response_context',
+        /* 拒绝流与控制候选，并只复制绑定、ID、方法、帧预算和有界身份匹配字段。 */ () => {
+          const stored = permits.get(permit)
+          if (!stored) {
+            fail('invalid_permit_handle')
+          }
+          const candidate = stored.candidate
+          const original = candidates.get(candidate)
+          if (!original) {
+            fail('invalid_request_handle')
+          }
+          viewData(contract, original.view)
+          if (candidate.kind === 'control' || STREAM_METHODS.has(candidate.method) || original.stream) {
+            fail('response_context_unavailable')
+          }
+          const rules = responseRules(candidate)
+          if (
+            Object.values(rules.identities).some(
+              /* 要求保留的身份约束为最多 256 字节的字符串，防止借 matcher 保存任意正文。 */ (value) =>
+                typeof value !== 'string' || Buffer.byteLength(value) > 256
+            )
+          ) {
+            fail('response_context_unavailable')
+          }
+          const retained = {
+            contract,
+            binding: snapshot(candidate.binding) as unknown as NativeBinding,
+            native_id: text(candidate.request.id),
+            method: candidate.method,
+            frame_bytes: frameBytes(contract, original.view, rules.terminal, 'response'),
+            rules: snapshot(rules) as unknown as ResponseRules
+          }
+          const bytes = Buffer.byteLength(JSON.stringify({ ...retained, contract: contract.identity }))
+          if (bytes > data(contract).limits.object_bytes) {
+            fail('response_context_limit')
+          }
+          const context = Object.freeze({ kind: 'response_context' as const, retained_bytes: bytes })
+          responseContexts.set(context, retained)
+          return context
+        }
+      )
+    },
+    // 用密封元数据校验迟到响应并仅返回校验结论，不产生读取或派发能力。
+    checkResponseOnly(context, input, source) {
+      return attempt(
+        'response_context',
+        /* 要求句柄属于同一编译契约，独立核验来源后按固定帧预算与结果约束检查。 */ () => {
+          const retained = responseContexts.get(context)
+          if (!retained || retained.contract !== contract) {
+            fail('invalid_response_context')
+          }
+          verifySource(source, retained.binding)
+          const checked = responseShape(input, retained.rules.terminal ? 'terminal' : 'general', true, null)
+          if (
+            retained.frame_bytes !== null &&
+            Buffer.byteLength(JSON.stringify(checked.response)) + 1 > retained.frame_bytes
+          ) {
+            fail('native_response_invalid', 'response', 'frame_limit')
+          }
+          if (checked.response.id !== retained.native_id) {
+            fail('native_id_mismatch', 'response')
+          }
+          if (checked.response.result !== undefined) {
+            validateBoundResult(retained.rules, retained.binding, object(checked.response.result))
+          }
+          // 只返回验证结果，不能取得 CheckedResponse/payload 或用它开流。
+        }
+      )
+    },
+    // 撤销同一 RPC 候选的全部许可及请求登记，让内部关联不再持有原请求正文。
+    releaseRequestContext(permit) {
+      return attempt(
+        'response_context',
+        /* 确认许可与候选属于当前契约后，断开整个候选分组并删除请求登记。 */ () => {
+          const stored = permits.get(permit)
+          if (!stored) {
+            fail('invalid_permit_handle')
+          }
+          const candidate = stored.candidate
+          const original = candidates.get(candidate)
+          if (!original) {
+            fail('invalid_request_handle')
+          }
+          viewData(contract, original.view)
+          if (candidate.kind === 'control' || STREAM_METHODS.has(candidate.method) || original.stream) {
+            fail('response_context_unavailable')
+          }
+          permits.revoke(candidate)
+          candidates.delete(candidate)
+        }
+      )
+    },
+    // 删除密封响应句柄的私有登记，使其不能继续验证迟到响应。
+    releaseResponseContext(context) {
+      return attempt(
+        'response_context',
+        /* 确认密封句柄属于当前契约后删除登记，复制对象不能替代原句柄。 */ () => {
+          const retained = responseContexts.get(context)
+          if (!retained || retained.contract !== contract) {
+            fail('invalid_response_context')
+          }
+          responseContexts.delete(context)
+        }
+      )
+    },
+    // 要求 acknowledgement 来自同一真实派发许可，再建立固定模式的原生流。
     openStream(permit, acknowledgement) {
-      return attempt('stream', () => {
-        const state = permits.get(permit)
-        const received = responses.get(acknowledgement)
-        // ack 必须由同一 permit 的响应校验产生；同形响应对象不能替代内存句柄。
-        if (
-          !state ||
-          !received ||
-          received.contract !== contract ||
-          received.candidate !== state.candidate ||
-          received.permit !== permit ||
-          !acknowledgement.bound ||
-          !STREAM_METHODS.has(permit.method) ||
-          acknowledgement.response.result === undefined
-        ) {
-          fail('invalid_stream_context', 'stream')
+      return attempt(
+        'stream',
+        /* 复核响应的私有许可关联及固定开流结果，生成不可伪造的流句柄。 */ () => {
+          const state = permits.get(permit)
+          const received = responses.get(acknowledgement)
+          // ack 必须由同一 permit 的响应校验产生；同形响应对象不能替代内存句柄。
+          if (
+            !state ||
+            !received ||
+            received.contract !== contract ||
+            received.candidate !== state.candidate ||
+            received.permit !== permit ||
+            !acknowledgement.bound ||
+            !STREAM_METHODS.has(permit.method) ||
+            acknowledgement.response.result === undefined
+          ) {
+            fail('invalid_stream_context', 'stream')
+          }
+          const result = object(acknowledgement.response.result)
+          const mode = streamModeFor(permit.method)
+          if (!Number.isSafeInteger(result.sequence) || (result.sequence as number) < 0) {
+            fail('native_response_invalid', 'stream')
+          }
+          const stream = Object.freeze({
+            binding: permit.binding,
+            method: permit.method,
+            mode,
+            sequence: result.sequence as number
+          })
+          streams.set(stream, {
+            permit,
+            identity: mode === 'observe' || mode === 'control' ? result : null
+          })
+          return stream
         }
-        const result = object(acknowledgement.response.result)
-        const mode = streamModeFor(permit.method)
-        if (!Number.isSafeInteger(result.sequence) || (result.sequence as number) < 0) {
-          fail('native_response_invalid', 'stream')
-        }
-        const stream = Object.freeze({
-          binding: permit.binding,
-          method: permit.method,
-          mode,
-          sequence: result.sequence as number
-        })
-        streams.set(stream, {
-          permit,
-          identity: mode === 'observe' || mode === 'control' ? result : null
-        })
-        return stream
-      })
+      )
     },
+    // 核验流句柄、原生来源、事件 schema 及身份，阻止跨流或跨目标事件混入。
     checkEvent(stream, input, source) {
-      return attempt('event', () => {
-        const state = streams.get(stream)
-        if (!state) {
-          fail('invalid_stream_context', 'event')
-        }
-        const candidate = permits.get(state.permit)?.candidate
-        if (!candidate) {
-          fail('invalid_stream_context')
-        }
-        viewData(contract, candidates.get(candidate)!.view)
-        verifySource(source, stream.binding)
-        const event = copy(contract, input)
-        const name = text(event.event, 'native_event_invalid')
-        const terminal = name.startsWith('terminal.')
-        frameLimit(contract, candidates.get(candidate)!.view, event, 'native_event_invalid', terminal, 'response')
-        if (name === 'terminal.frame' || name === 'terminal.resync_required') {
-          if (stream.mode === 'general_events' || (name === 'terminal.frame' && stream.mode === 'terminal_events')) {
+      return attempt(
+        'event',
+        /* 按通用事件或终端事件分别检查 schema、订阅身份和有效在线帧预算。 */ () => {
+          const state = streams.get(stream)
+          if (!state) {
+            fail('invalid_stream_context', 'event')
+          }
+          const candidate = permits.get(state.permit)?.candidate
+          if (!candidate) {
+            fail('invalid_stream_context')
+          }
+          viewData(contract, candidates.get(candidate)!.view)
+          verifySource(source, stream.binding)
+          const event = copy(contract, input)
+          const name = text(event.event, 'native_event_invalid')
+          const terminal = name.startsWith('terminal.')
+          frameLimit(contract, candidates.get(candidate)!.view, event, 'native_event_invalid', terminal, 'response')
+          if (name === 'terminal.frame' || name === 'terminal.resync_required') {
+            if (stream.mode === 'general_events' || (name === 'terminal.frame' && stream.mode === 'terminal_events')) {
+              fail('native_event_invalid', 'event', 'stream_family')
+            }
+          } else {
+            validate(contract, `${UHP}event.schema.json`, event, 'native_event_invalid')
+          }
+          if (terminal) {
+            validate(contract, `${UHP}schema/terminal/event.schema.json`, event, 'native_event_invalid')
+          } else if (stream.mode !== 'general_events') {
             fail('native_event_invalid', 'event', 'stream_family')
           }
-        } else {
-          validate(contract, `${UHP}event.schema.json`, event, 'native_event_invalid')
-        }
-        if (terminal) {
-          validate(contract, `${UHP}schema/terminal/event.schema.json`, event, 'native_event_invalid')
-        } else if (stream.mode !== 'general_events') {
-          fail('native_event_invalid', 'event', 'stream_family')
-        }
-        const checker = data(contract).validators.get(`event:${name}`)
-        if (checker ? !checker(event.data) : !['terminal.frame', 'terminal.resync_required'].includes(name)) {
-          fail('native_event_invalid', 'event', 'payload')
-        }
-        const payload = object(event.data, 'native_event_invalid')
-        if (payload.server_generation !== undefined && payload.server_generation !== stream.binding.server_generation) {
-          fail('native_identity_mismatch', 'event')
-        }
-        // resync 通知不承诺旧终端标识仍有效；其它终端事件必须匹配开流时的实例。
-        if (state.identity && terminal && name !== 'terminal.resync_required') {
-          for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
-            if (payload[key] !== state.identity[key]) {
-              fail('native_identity_mismatch', 'event')
+          const checker = data(contract).validators.get(`event:${name}`)
+          if (checker ? !checker(event.data) : !['terminal.frame', 'terminal.resync_required'].includes(name)) {
+            fail('native_event_invalid', 'event', 'payload')
+          }
+          const payload = object(event.data, 'native_event_invalid')
+          if (
+            payload.server_generation !== undefined &&
+            payload.server_generation !== stream.binding.server_generation
+          ) {
+            fail('native_identity_mismatch', 'event')
+          }
+          // resync 通知不承诺旧终端标识仍有效；其它终端事件必须匹配开流时的实例。
+          if (state.identity && terminal && name !== 'terminal.resync_required') {
+            for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
+              if (payload[key] !== state.identity[key]) {
+                fail('native_identity_mismatch', 'event')
+              }
             }
           }
-        }
-        if (name === 'terminal.frame') {
-          const bytes = Buffer.byteLength(payload.text as string)
-          if (
-            bytes > 65536 ||
-            payload.bytes !== bytes ||
-            payload.lines !== (payload.text as string).split('\n').length ||
-            Buffer.byteLength(JSON.stringify(event)) > data(contract).limits.terminal_frame_bytes
-          ) {
-            fail('native_event_invalid', 'event', 'utf8_frame_limit')
+          if (name === 'terminal.frame') {
+            const bytes = Buffer.byteLength(payload.text as string)
+            if (
+              bytes > 65536 ||
+              payload.bytes !== bytes ||
+              payload.lines !== (payload.text as string).split('\n').length ||
+              Buffer.byteLength(JSON.stringify(event)) > data(contract).limits.terminal_frame_bytes
+            ) {
+              fail('native_event_invalid', 'event', 'utf8_frame_limit')
+            }
           }
+          return Object.freeze({
+            event,
+            requires_resync: name === 'terminal.resync_required' || name === 'events.resync_required'
+          })
         }
-        return Object.freeze({
-          event,
-          requires_resync: name === 'terminal.resync_required' || name === 'events.resync_required'
-        })
-      })
+      )
     },
+    // 在已打开的控制流内校验输入帧及原生身份，生成需另行授权的控制候选。
     checkControl(stream, input) {
-      return attempt('control', () => {
-        const state = streams.get(stream)
-        if (!state) {
-          fail('invalid_stream_context', 'control')
-        }
-        const permit = permits.get(state.permit)
-        if (!permit) {
-          fail('invalid_stream_context', 'control')
-        }
-        const parent = candidates.get(permit.candidate)!
-        viewData(contract, parent.view)
-        const frame = copy(contract, input)
-        frameLimit(contract, parent.view, frame, 'native_control_invalid', true, 'request')
-        validate(contract, `${UHP}schema/terminal/control-frame.schema.json`, frame, 'native_control_invalid')
+      return attempt(
+        'control',
+        /* 限定控制流的输入 ID 与动作，并绑定原终端和会话身份后登记控制候选。 */ () => {
+          const state = streams.get(stream)
+          if (!state) {
+            fail('invalid_stream_context', 'control')
+          }
+          const permit = permits.get(state.permit)
+          if (!permit) {
+            fail('invalid_stream_context', 'control')
+          }
+          const parent = candidates.get(permit.candidate)!
+          viewData(contract, parent.view)
+          const frame = copy(contract, input)
+          frameLimit(contract, parent.view, frame, 'native_control_invalid', true, 'request')
+          validate(contract, `${UHP}schema/terminal/control-frame.schema.json`, frame, 'native_control_invalid')
 
-        // control candidate 只证明帧合法；派发仍须由 safety 模块逐次授权。
-        if (stream.mode !== 'control') {
-          fail('forbidden', 'control', 'read_only_stream', 'authorization')
+          // control candidate 只证明帧合法；派发仍须由 safety 模块逐次授权。
+          if (stream.mode !== 'control') {
+            fail('forbidden', 'control', 'read_only_stream', 'authorization')
+          }
+          const action = text(frame.action)
+          const caps = object(viewData(contract, parent.view).capabilities.terminal)
+          if (
+            !Array.isArray(caps.capabilities) ||
+            !caps.capabilities.includes(action) ||
+            !permit.supportedActions.includes(action)
+          ) {
+            fail('unsupported_stream_feature', 'control')
+          }
+          if (Buffer.byteLength(JSON.stringify(frame)) > data(contract).limits.terminal_frame_bytes) {
+            fail('native_control_invalid', 'control', 'frame_limit')
+          }
+          const candidate: CheckedControl = Object.freeze({
+            kind: 'control',
+            frame,
+            binding: stream.binding,
+            method: 'terminal.backend.control',
+            action,
+            validation: 'schema'
+          })
+          candidates.set(candidate, { ...parent, stream })
+          return candidate
         }
-        const action = text(frame.action)
-        const caps = object(viewData(contract, parent.view).capabilities.terminal)
-        if (
-          !Array.isArray(caps.capabilities) ||
-          !caps.capabilities.includes(action) ||
-          !permit.supportedActions.includes(action)
-        ) {
-          fail('unsupported_stream_feature', 'control')
-        }
-        if (Buffer.byteLength(JSON.stringify(frame)) > data(contract).limits.terminal_frame_bytes) {
-          fail('native_control_invalid', 'control', 'frame_limit')
-        }
-        const candidate: CheckedControl = Object.freeze({
-          kind: 'control',
-          frame,
-          binding: stream.binding,
-          method: 'terminal.backend.control',
-          action,
-          validation: 'schema'
-        })
-        candidates.set(candidate, { ...parent, stream })
-        return candidate
-      })
+      )
     }
   }
   return Object.freeze(api)
 }
 
+// 要求安全整数序号严格递增，拒绝回退、重复及非整数序号。
 export function checkSequence(previous: number, incoming: number): Check<void> {
-  return attempt('sequence', () => {
-    if (!Number.isSafeInteger(previous) || !Number.isSafeInteger(incoming) || previous < 0 || incoming < 0) {
-      fail('invalid_sequence', 'stream')
+  return attempt(
+    'sequence',
+    /* 比较前后序号的整数范围及大小关系，将异常转换为固定序号错误。 */ () => {
+      if (!Number.isSafeInteger(previous) || !Number.isSafeInteger(incoming) || previous < 0 || incoming < 0) {
+        fail('invalid_sequence', 'stream')
+      }
+      if (incoming <= previous) {
+        fail('duplicate_stream_frame', 'stream')
+      }
+      if (incoming !== previous + 1) {
+        fail('resync_required', 'stream')
+      }
     }
-    if (incoming <= previous) {
-      fail('duplicate_stream_frame', 'stream')
-    }
-    if (incoming !== previous + 1) {
-      fail('resync_required', 'stream')
-    }
-  })
+  )
 }

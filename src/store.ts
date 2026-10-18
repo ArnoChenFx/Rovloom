@@ -1,3 +1,4 @@
+// 实现 SQLite 调用账本的原子派发、受保护设备生命周期、内容保留、预算及恢复治理。
 import { DatabaseSync } from 'node:sqlite'
 import { closeSync, existsSync, openSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -28,10 +29,12 @@ import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, privateFile, privatePath } from './storage/files.js'
 
 export { DEFAULT_RETENTION }
-export type { Call, CallOptions, ManagementRequest, StoreOptions } from './storage/model.js'
-import type { Call, CallOptions, Machine, Metadata, Row, StoreOptions } from './storage/model.js'
+export type { Call, CallOptions, ManagementRequest, DeviceLifecycleRequest, StoreOptions } from './storage/model.js'
+import type { Call, CallOptions, Machine, Metadata, Row, StoreOptions, LedgerInvalidation } from './storage/model.js'
 import { publicCall } from './storage/model.js'
+// 为本地账本实体生成带类别前缀的随机标识，避免顺序 ID 产生关联。
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
+// 生成一次性注册或设备凭据的随机原文，持久化路径只保存其摘要。
 const secret = () => randomBytes(32).toString('base64url')
 
 export class Store {
@@ -41,8 +44,46 @@ export class Store {
   private degraded = false
   private observed = 0
   private transactionTime?: number
+  private invalidationListeners = new Set<(event: LedgerInvalidation) => void>()
+  private pendingInvalidations: LedgerInvalidation[] = []
+  // 注册有界的本进程回收监听器，关闭后的账本拒绝新增监听。
+  subscribeInvalidation(listener: (event: LedgerInvalidation) => void): () => void {
+    if (this.closed) {
+      throw new GatewayError('storage_closed')
+    }
+    if (this.invalidationListeners.size >= 128) {
+      throw new GatewayError('listener_limit')
+    }
+    this.invalidationListeners.add(listener)
+    return /* 删除当前监听器，重复取消也不会触及其它宿主订阅。 */ () => {
+      this.invalidationListeners.delete(listener)
+    }
+  }
+  // 在成功提交后逐项通知宿主回收，监听器异常不改变已持久化的事务结论。
+  private publishInvalidations(events: LedgerInvalidation[]): void {
+    for (const event of events) {
+      for (const listener of this.invalidationListeners) {
+        try {
+          listener(event)
+        } catch {
+          /* 宿主回收失败不能把已提交账本改报失败。 */
+        }
+      }
+    }
+  }
+  // 收集受影响调用的最小失效通知，延迟到本事务 COMMIT 后发布。
+  private invalidateWhere(where: string, values: (string | number)[], kind: 'content' | 'fence'): void {
+    if (!this.invalidationListeners.size) {
+      return
+    }
+    const rows = this.db.prepare(`SELECT call_id,machine_id FROM calls WHERE ${where}`).all(...values)
+    for (const row of rows) {
+      this.pendingInvalidations.push({ kind, machine_id: String(row.machine_id), call_id: String(row.call_id) })
+    }
+  }
   private maintenance?: ReturnType<typeof setInterval>
   readonly limits: Retention
+  // 打开独占的私有 SQLite 账本，检查规范 schema、完整性与恢复状态并启动期限清理。
   constructor(
     private readonly path: string,
     private readonly now = Date.now,
@@ -108,13 +149,16 @@ export class Store {
         this.db.exec('ROLLBACK')
         throw error
       }
-      this.maintenance = setInterval(() => {
-        try {
-          this.expire()
-        } catch {
-          /* health 已保存降级事实，后台不打印内容或原始异常。 */
-        }
-      }, interval)
+      this.maintenance = setInterval(
+        /* 周期推进 deadline 与分层 TTL 清理；异常已由 health 锁存，不输出业务原文。 */ () => {
+          try {
+            this.expire()
+          } catch {
+            /* health 已保存降级事实，后台不打印内容或原始异常。 */
+          }
+        },
+        interval
+      )
       this.maintenance.unref()
     } catch (error) {
       this.db?.close()
@@ -125,6 +169,7 @@ export class Store {
       throw new GatewayError('database_open_failed')
     }
   }
+  // 验证宿主时钟为非负安全整数，拒绝无效时间进入账本期限计算。
   private rawTime(): number {
     const value = this.now()
     if (!Number.isSafeInteger(value) || value < 0) {
@@ -132,12 +177,15 @@ export class Store {
     }
     return value
   }
+  // 读取单例元数据中的恢复 generation、运行模式和已持久化时钟。
   private meta(): Metadata {
     return this.db.prepare('SELECT generation,mode,clock FROM metadata').get() as Metadata
   }
+  // 取得当前账本恢复 generation，供连接及管理操作的 fence 核对。
   generation(): string {
     return this.meta().generation
   }
+  // 要求账本可运行，并逐项核对设备在线状态、epoch 和恢复 generation。
   assertConnection(connection: { machine_id: string; recovery_generation: string; connection_epoch: string }): void {
     this.active()
     this.time()
@@ -151,6 +199,7 @@ export class Store {
     }
   }
 
+  // 返回不含业务内容的运行模式与恢复 generation，供宿主判断隔离或降级状态。
   health() {
     return {
       mode:
@@ -162,9 +211,11 @@ export class Store {
       generation: this.generation()
     }
   }
+  // 提供经过单调性核验的账本时钟，事务内保持同一时间锚点。
   clock(): number {
     return this.time()
   }
+  // 固定事务时钟并检测相对内存及持久化高水位的回退，失败时进入降级。
   private time(): number {
     if (this.transactionTime !== undefined) {
       return this.transactionTime
@@ -183,7 +234,11 @@ export class Store {
     }
     return value
   }
+  // 阻止关闭、恢复隔离或存储降级中的新业务准入。
   private active(): void {
+    if (this.closed) {
+      throw new GatewayError('storage_closed')
+    }
     if (this.meta().mode === 'recovery_quarantined') {
       throw new GatewayError('recovery_quarantined')
     }
@@ -191,6 +246,7 @@ export class Store {
       throw new GatewayError('storage_degraded')
     }
   }
+  // 锁存内存和持久化降级标记，写入失败时仍保留独立降级哨兵。
   private markDegraded(): void {
     this.degraded = true
     try {
@@ -206,6 +262,7 @@ export class Store {
       }
     }
   }
+  // 关闭并删除本实例持有的 writer 锁，允许正常退出后的新实例打开。
   private releaseLock(): void {
     if (this.lock !== undefined) {
       closeSync(this.lock)
@@ -213,16 +270,20 @@ export class Store {
       this.lock = undefined
     }
   }
+  // 停止维护定时器，通知宿主销毁上下文，再关闭数据库并释放 writer 锁。
   close(): void {
     if (!this.closed) {
       if (this.maintenance) {
         clearInterval(this.maintenance)
       }
+      this.closed = true
+      this.publishInvalidations([{ kind: 'closed' }])
+      this.invalidationListeners.clear()
       this.db.close()
       this.releaseLock()
-      this.closed = true
     }
   }
+  // 在单一 writer 事务内固定时钟和预算，成功提交才发布回收通知，存储失败锁存降级。
   private transaction<T>(fn: (now: number) => T, admission = true): T {
     if (this.transactionTime !== undefined) {
       throw new GatewayError('transaction_in_progress')
@@ -233,6 +294,7 @@ export class Store {
     const now = this.time()
     if (
       Object.entries(this.limits).some(
+        // 检查各层期限相加仍在安全整数范围，防止时间溢出造成永久保留。
         ([key, value]) =>
           (key.endsWith('_ttl') || key === 'history_epoch_max_age') && !Number.isSafeInteger(now + value)
       )
@@ -246,12 +308,15 @@ export class Store {
       throw new GatewayError('storage_degraded')
     }
     this.transactionTime = now
+    this.pendingInvalidations = []
+    let committed = false
     try {
       const value = fn(now)
       this.db.prepare('UPDATE metadata SET clock=?').run(now)
       this.budget(admission)
       this.options.fault?.('before_commit')
       this.db.exec('COMMIT')
+      committed = true
       return value
     } catch (error) {
       try {
@@ -272,11 +337,18 @@ export class Store {
       throw new GatewayError('storage_degraded')
     } finally {
       this.transactionTime = undefined
+      const events = this.pendingInvalidations
+      this.pendingInvalidations = []
+      if (committed) {
+        this.publishInvalidations(events)
+      }
     }
   }
+  // 结合逻辑子额、物理文件与备份检查预算，为准入保留在途完成空间。
   private budget(admission: boolean): void {
     assertBudget(this.db, this.path, this.limits, this.options.backupDirectory, admission)
   }
+  // 按固定白名单构造脱敏审计记录，并与对应业务变化在同一事务写入。
   private audit(
     action: string,
     actor: string,
@@ -288,6 +360,7 @@ export class Store {
     const record = auditRecord(eventId, action, actor, now, this.limits.audit_ttl, this.generation(), row, extra)
     this.db.prepare('INSERT INTO audit VALUES(?,?,?,?,?,?,?)').run(...Object.values(record))
   }
+  // 核验受保护宿主的独立授权与一次性确认，绑定精确 fence 并写入审计。
   private manage(action: string, target: string, fence: string, now: number): void {
     const proof = this.options.management?.({ action, target, fence })
     if (!proof?.actor || !proof.confirmation_id) {
@@ -305,6 +378,7 @@ export class Store {
       confirmation_id: proof.confirmation_id
     })
   }
+  // 规范化设备名称并限制字符与长度，拒绝不可作为稳定设备名的输入。
   private name(value: string): string {
     const normalized = value.normalize('NFKC').trim().toLowerCase()
     if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(normalized)) {
@@ -312,16 +386,20 @@ export class Store {
     }
     return normalized
   }
+  // 创建待注册设备并记录审计，注册本身不授予在线或执行能力。
   register(name: string): Machine {
-    return this.transaction((now) => {
-      const machine = id('m')
-      this.db
-        .prepare("INSERT INTO machines(machine_id,name,status) VALUES(?,?,'pending')")
-        .run(machine, this.name(name))
-      this.audit('machine_registered', 'local', now, undefined, { machine_id: machine })
-      return this.machine(machine)
-    })
+    return this.transaction(
+      /* 插入 pending 设备及同事务审计，再返回设备公开状态。 */ (now) => {
+        const machine = id('m')
+        this.db
+          .prepare("INSERT INTO machines(machine_id,name,status) VALUES(?,?,'pending')")
+          .run(machine, this.name(name))
+        this.audit('machine_registered', 'local', now, undefined, { machine_id: machine })
+        return this.machine(machine)
+      }
+    )
   }
+  // 按设备 ID 查询公开状态，缺失设备返回稳定错误。
   machine(machine_id: string): Machine {
     const row = this.db.prepare('SELECT machine_id,name,status FROM machines WHERE machine_id=?').get(machine_id)
     if (!row) {
@@ -329,95 +407,204 @@ export class Store {
     }
     return row as Machine
   }
+  // 在事务中规范化并更新设备名，同时保留管理审计。
   rename(machine: string, name: string): Machine {
-    return this.transaction((now) => {
-      this.machine(machine)
-      this.db.prepare('UPDATE machines SET name=? WHERE machine_id=?').run(this.name(name), machine)
-      this.audit('machine_renamed', 'local', now, undefined, { machine_id: machine })
-      return this.machine(machine)
-    })
+    return this.transaction(
+      /* 核对设备存在后更新规范名称，并写入重命名审计。 */ (now) => {
+        this.machine(machine)
+        this.db.prepare('UPDATE machines SET name=? WHERE machine_id=?').run(this.name(name), machine)
+        this.audit('machine_renamed', 'local', now, undefined, { machine_id: machine })
+        return this.machine(machine)
+      }
+    )
   }
+  // 仅为待注册设备签发有界期限的一次性注册令牌，数据库只存摘要。
   issueEnrollment(machine: string, ttlMs = 600_000): string {
-    return this.transaction((now) => {
-      if (this.machine(machine).status !== 'pending') {
-        throw new GatewayError('invalid_machine_state')
+    return this.transaction(
+      /* 限制注册状态、期限和安全子额后保存令牌摘要及签发审计。 */ (now) => {
+        if (this.machine(machine).status !== 'pending') {
+          throw new GatewayError('invalid_machine_state')
+        }
+        if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
+          throw new GatewayError('invalid_ttl')
+        }
+        if (
+          this.db.prepare('SELECT needs_confirmation FROM machines WHERE machine_id=?').get(machine)!
+            .needs_confirmation === 1
+        ) {
+          this.manage('device_reenroll', machine, this.generation(), now)
+          this.db.prepare('UPDATE machines SET needs_confirmation=0 WHERE machine_id=?').run(machine)
+        }
+        const token = secret()
+        this.db
+          .prepare('INSERT INTO enrollments(token_hash,machine_id,expires) VALUES(?,?,?)')
+          .run(digest(token), machine, now + ttlMs)
+        this.audit('enrollment_issued', 'local', now, undefined, { machine_id: machine })
+        return token
       }
-      if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
-        throw new GatewayError('invalid_ttl')
-      }
-      if (
-        this.db.prepare('SELECT needs_confirmation FROM machines WHERE machine_id=?').get(machine)!
-          .needs_confirmation === 1
-      ) {
-        this.manage('device_reenroll', machine, this.generation(), now)
-        this.db.prepare('UPDATE machines SET needs_confirmation=0 WHERE machine_id=?').run(machine)
-      }
-      const token = secret()
-      this.db
-        .prepare('INSERT INTO enrollments(token_hash,machine_id,expires) VALUES(?,?,?)')
-        .run(digest(token), machine, now + ttlMs)
-      this.audit('enrollment_issued', 'local', now, undefined, { machine_id: machine })
-      return token
-    })
+    )
   }
+  // 原子消费有效注册令牌并轮换设备凭据，防止重复兑换。
   redeem(token: string): { machine_id: string; credential: string } {
-    return this.transaction((now) => {
-      const row = this.db
-        .prepare(`SELECT e.machine_id FROM enrollments e JOIN machines m USING(machine_id)
+    return this.transaction(
+      /* 查询未过期令牌，消费令牌并保存新凭据摘要及兑换审计。 */ (now) => {
+        const row = this.db
+          .prepare(`SELECT e.machine_id FROM enrollments e JOIN machines m USING(machine_id)
         WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`)
-        .get(digest(token), now) as { machine_id: string } | undefined
-      if (!row) {
-        throw new GatewayError('invalid_enrollment')
+          .get(digest(token), now) as { machine_id: string } | undefined
+        if (!row) {
+          throw new GatewayError('invalid_enrollment')
+        }
+        const credential = secret()
+        this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id)
+        this.db
+          .prepare("UPDATE machines SET credential_hash=?,status='offline' WHERE machine_id=?")
+          .run(digest(credential), row.machine_id)
+        this.audit('enrollment_consumed', 'local', now, undefined, { machine_id: row.machine_id })
+        return { ...row, credential }
       }
-      const credential = secret()
-      this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id)
-      this.db
-        .prepare("UPDATE machines SET credential_hash=?,status='offline' WHERE machine_id=?")
-        .run(digest(credential), row.machine_id)
-      this.audit('enrollment_consumed', 'local', now, undefined, { machine_id: row.machine_id })
-      return { ...row, credential }
-    })
+    )
   }
+  // 核验设备凭据并生成新连接 epoch，旧连接不继承新会话身份。
   connect(machine: string, credential: string): string {
-    return this.transaction((now) => {
-      const row = this.db.prepare('SELECT status,credential_hash FROM machines WHERE machine_id=?').get(machine)
-      if (!row || row.status === 'revoked' || row.credential_hash !== digest(credential)) {
-        throw new GatewayError('invalid_device_credential')
+    return this.transaction(
+      /* 校验凭据与设备状态，替换连接 epoch 并记录连接审计。 */ (now) => {
+        const row = this.db.prepare('SELECT status,credential_hash FROM machines WHERE machine_id=?').get(machine)
+        if (!row || row.status === 'revoked' || row.credential_hash !== digest(credential)) {
+          throw new GatewayError('invalid_device_credential')
+        }
+        if (row.status === 'online') {
+          throw new GatewayError('duplicate_device_connection')
+        }
+        const epoch = id('epoch')
+        this.db.prepare("UPDATE machines SET status='online',epoch=? WHERE machine_id=?").run(epoch, machine)
+        this.audit('connected', machine, now, undefined, {
+          machine_id: machine,
+          epoch,
+          generation: this.generation()
+        })
+        return epoch
       }
-      if (row.status === 'online') {
-        throw new GatewayError('duplicate_device_connection')
-      }
-      const epoch = id('epoch')
-      this.db.prepare("UPDATE machines SET status='online',epoch=? WHERE machine_id=?").run(epoch, machine)
-      this.audit('connected', machine, now, undefined, {
-        machine_id: machine,
-        epoch,
-        generation: this.generation()
-      })
-      return epoch
-    })
+    )
   }
+  // 仅为独立身份库已验证的已配对离线设备建立 epoch；普通调用不能自行声明 verified。
+  connectVerifiedDevice(machineId: string, recoveryGeneration: string): string {
+    return this.transaction(
+      // 在同一 writer 事务核对代次、离线配对状态和一次性宿主证明，预算与审计提交后才返回 epoch。
+      (now) => {
+        validateId(machineId)
+        if (recoveryGeneration !== this.generation()) {
+          throw new GatewayError('recovery_generation_mismatch')
+        }
+        const row = this.db
+          .prepare('SELECT status,epoch,needs_confirmation FROM machines WHERE machine_id=?')
+          .get(machineId)
+        if (row?.status === 'online') {
+          throw new GatewayError('duplicate_device_connection')
+        }
+        if (!row || row.status !== 'offline' || row.epoch !== null || row.needs_confirmation !== 0) {
+          throw new GatewayError('invalid_device_state')
+        }
+        if (
+          this.options.deviceLifecycle?.(
+            Object.freeze({ action: 'connect', machine_id: machineId, recovery_generation: recoveryGeneration })
+          ) !== true
+        ) {
+          throw new GatewayError('device_verification_required')
+        }
+        const epoch = id('epoch')
+        this.db.prepare("UPDATE machines SET status='online',epoch=? WHERE machine_id=?").run(epoch, machineId)
+        this.audit('connected', machineId, now, undefined, {
+          machine_id: machineId,
+          epoch,
+          generation: recoveryGeneration,
+          identity_source: 'protected_host'
+        })
+        return epoch
+      }
+    )
+  }
+  // 同 ID 重配先要求独立管理确认与旧 epoch fence；prepare 只能持久化阻断外部身份，不能激活新身份。
+  resetDeviceEnrollment(
+    machineId: string,
+    recoveryGeneration: string,
+    expectedEpoch: string | null,
+    prepare: () => void
+  ): void {
+    this.transaction(
+      // 先暂存本库变更并预检预算，再恰好一次执行同步阻断；之后失败只回滚 Store，不解除外部 blocked。
+      (now) => {
+        validateId(machineId)
+        if (recoveryGeneration !== this.generation()) {
+          throw new GatewayError('recovery_generation_mismatch')
+        }
+        if (expectedEpoch !== null) {
+          validateId(expectedEpoch)
+        }
+        if (typeof prepare !== 'function' || !this.options.deviceLifecycle) {
+          throw new GatewayError('device_verification_required')
+        }
+        const row = this.db.prepare('SELECT epoch FROM machines WHERE machine_id=?').get(machineId)
+        if (!row || row.epoch !== expectedEpoch) {
+          throw new GatewayError('device_epoch_mismatch')
+        }
+        const fence = boundedJson({ recovery_generation: recoveryGeneration, connection_epoch: expectedEpoch })
+        this.manage('device_enrollment_reset', machineId, fence, now)
+        this.stopWhere('machine_id=?', [machineId], 'device_enrollment_reset', now)
+        // 仅在本库 COMMIT 后通知该设备全部上下文失效；即使没有调用行也回收尚无法归属调用的分片。
+        this.pendingInvalidations.push({ kind: 'device_fence', machine_id: machineId })
+        this.db.prepare('DELETE FROM enrollments WHERE machine_id=?').run(machineId)
+        this.db
+          .prepare(
+            "UPDATE machines SET status='pending',credential_hash=NULL,epoch=NULL,needs_confirmation=0 WHERE machine_id=?"
+          )
+          .run(machineId)
+        this.budget(true)
+        const prepared: unknown = prepare()
+        if (prepared !== undefined) {
+          throw new GatewayError('synchronous_prepare_required')
+        }
+        if (
+          this.options.deviceLifecycle(
+            Object.freeze({
+              action: 'reset_enrollment',
+              machine_id: machineId,
+              recovery_generation: recoveryGeneration,
+              expected_epoch: expectedEpoch
+            })
+          ) !== true
+        ) {
+          throw new GatewayError('device_block_required')
+        }
+      }
+    )
+  }
+  // 为设备登记唯一且完整的 provider 绑定，拒绝覆盖既有身份。
   defineProvider(binding: ProviderBinding): ProviderBinding {
     validateProvider(binding)
-    return this.transaction((now) => {
-      this.machine(binding.machine_id)
-      if (this.provider(binding.machine_id, binding.provider_id)) {
-        throw new GatewayError('provider_exists')
+    return this.transaction(
+      /* 核对独立 provider 管理确认后插入唯一绑定，管理审计在同一事务提交。 */ (now) => {
+        this.machine(binding.machine_id)
+        if (this.provider(binding.machine_id, binding.provider_id)) {
+          throw new GatewayError('provider_exists')
+        }
+        if (binding.binding_revision !== 1) {
+          throw new GatewayError('invalid_initial_revision')
+        }
+        this.manage('providers_manage', binding.machine_id + '/' + binding.provider_id, 'new', now)
+        this.db
+          .prepare('INSERT INTO providers VALUES(?,?,?,?,?,?)')
+          .run(binding.machine_id, binding.provider_id, binding.kind, binding.config_ref, 1, Number(binding.enabled))
+        return { ...binding }
       }
-      if (binding.binding_revision !== 1) {
-        throw new GatewayError('invalid_initial_revision')
-      }
-      this.manage('providers_manage', binding.machine_id + '/' + binding.provider_id, 'new', now)
-      this.db
-        .prepare('INSERT INTO providers VALUES(?,?,?,?,?,?)')
-        .run(binding.machine_id, binding.provider_id, binding.kind, binding.config_ref, 1, Number(binding.enabled))
-      return { ...binding }
-    })
+    )
   }
+  // 按设备和 provider 双重作用域查询绑定，避免同设备方法同名发生串用。
   provider(machine: string, provider: string): ProviderBinding | undefined {
     const row = this.db.prepare('SELECT * FROM providers WHERE machine_id=? AND provider_id=?').get(machine, provider)
     return row ? ({ ...row, enabled: row.enabled === 1 } as ProviderBinding) : undefined
   }
+  // 要求调用所属设备未撤销且 provider 仍启用，并保持原 binding revision。
   private current(row: Pick<Row, 'machine_id' | 'provider_id' | 'binding_revision' | 'provider_kind'>): void {
     if (this.machine(row.machine_id).status === 'revoked') {
       throw new GatewayError('call_not_found')
@@ -430,22 +617,27 @@ export class Store {
       throw new GatewayError('provider_binding_mismatch')
     }
   }
+  // 以预期 revision 修改 provider 状态并推进 fence，使旧尝试不可继续使用。
   setProviderEnabled(machine: string, providerId: string, revision: number, enabled: boolean): ProviderBinding {
-    return this.transaction((now) => {
-      const provider = this.provider(machine, providerId)
-      if (!provider || provider.binding_revision !== revision) {
-        throw new GatewayError('provider_binding_mismatch')
+    return this.transaction(
+      /* 核对旧 revision 后推进绑定，停止旧调用并排队发布 fence。 */ (now) => {
+        const provider = this.provider(machine, providerId)
+        if (!provider || provider.binding_revision !== revision) {
+          throw new GatewayError('provider_binding_mismatch')
+        }
+        this.manage('providers_manage', machine + '/' + providerId, String(revision), now)
+        this.db
+          .prepare(
+            'UPDATE providers SET enabled=?,binding_revision=binding_revision+1 WHERE machine_id=? AND provider_id=?'
+          )
+          .run(Number(enabled), machine, providerId)
+        this.stopWhere('machine_id=? AND provider_id=?', [machine, providerId], 'provider_changed', now)
+        this.invalidateWhere('machine_id=? AND provider_id=?', [machine, providerId], 'fence')
+        return this.provider(machine, providerId)!
       }
-      this.manage('providers_manage', machine + '/' + providerId, String(revision), now)
-      this.db
-        .prepare(
-          'UPDATE providers SET enabled=?,binding_revision=binding_revision+1 WHERE machine_id=? AND provider_id=?'
-        )
-        .run(Number(enabled), machine, providerId)
-      this.stopWhere('machine_id=? AND provider_id=?', [machine, providerId], 'provider_changed', now)
-      return this.provider(machine, providerId)!
-    })
+    )
   }
+  // 将匹配的未完成调用改为未派发或结果未知，保留最小锚点用于可靠对账。
   private stopWhere(where: string, values: string[], reason: string, now: number): void {
     const rows = this.db
       .prepare(`SELECT * FROM calls WHERE ${where} AND state IN ('created','dispatching','connector_accepted')`)
@@ -457,83 +649,97 @@ export class Store {
       this.audit(reason, 'system', now, this.row(row.call_id))
     }
   }
+  // 只断开指定 epoch，停止相关未完成调用并发布绑定失效通知。
   disconnect(machine: string, epoch: string): void {
-    this.transaction((now) => {
-      const changed = this.db
-        .prepare("UPDATE machines SET status='offline',epoch=NULL WHERE machine_id=? AND epoch=?")
-        .run(machine, epoch)
-      if (changed.changes === 1) {
-        this.stopWhere('machine_id=? AND (epoch=? OR epoch IS NULL)', [machine, epoch], 'disconnect', now)
-      }
-    }, false)
+    this.transaction(
+      /* 仅更新匹配 epoch 的在线设备，终止该连接调用并排队发布 fence。 */ (now) => {
+        const changed = this.db
+          .prepare("UPDATE machines SET status='offline',epoch=NULL WHERE machine_id=? AND epoch=?")
+          .run(machine, epoch)
+        if (changed.changes === 1) {
+          this.stopWhere('machine_id=? AND (epoch=? OR epoch IS NULL)', [machine, epoch], 'disconnect', now)
+          this.invalidateWhere('machine_id=? AND epoch=?', [machine, epoch], 'fence')
+        }
+      },
+      false
+    )
   }
+  // 通过受保护确认撤销设备，终止调用并清除凭据、注册令牌及内容。
   revoke(machine: string): void {
-    this.transaction((now) => {
-      this.machine(machine)
-      this.manage('devices_revoke', machine, this.generation(), now)
-      this.stopWhere('machine_id=?', [machine], 'device_revoked', now)
-      this.db
-        .prepare("UPDATE machines SET status='revoked',credential_hash=NULL,epoch=NULL WHERE machine_id=?")
-        .run(machine)
-      this.db.prepare('DELETE FROM enrollments WHERE machine_id=?').run(machine)
-      this.db
-        .prepare('DELETE FROM results WHERE call_id IN (SELECT call_id FROM calls WHERE machine_id=?)')
-        .run(machine)
-      this.db
-        .prepare("UPDATE calls SET response=NULL,request_json=NULL,content_status='unavailable' WHERE machine_id=?")
-        .run(machine)
-    }, false)
+    this.transaction(
+      /* 消费撤销确认，停止设备调用并删除所有可用凭据及内容。 */ (now) => {
+        this.machine(machine)
+        this.manage('devices_revoke', machine, this.generation(), now)
+        this.stopWhere('machine_id=?', [machine], 'device_revoked', now)
+        this.invalidateWhere('machine_id=?', [machine], 'fence')
+        this.db
+          .prepare("UPDATE machines SET status='revoked',credential_hash=NULL,epoch=NULL WHERE machine_id=?")
+          .run(machine)
+        this.db.prepare('DELETE FROM enrollments WHERE machine_id=?').run(machine)
+        this.db
+          .prepare('DELETE FROM results WHERE call_id IN (SELECT call_id FROM calls WHERE machine_id=?)')
+          .run(machine)
+        this.db
+          .prepare("UPDATE calls SET response=NULL,request_json=NULL,content_status='unavailable' WHERE machine_id=?")
+          .run(machine)
+      },
+      false
+    )
   }
+  // 在 principal、provider、revision 和恢复 generation 范围内建立固定期限的去重历史。
   openHistory(principal: string, target: V2Target, revision: number, retire?: string): HistoryScope {
     validateTarget(target)
     validateId(principal)
-    return this.transaction((now) => {
-      const provider = this.provider(target.machine_id, target.provider_id)
-      if (!provider?.enabled || provider.binding_revision !== revision) {
-        throw new GatewayError('provider_binding_mismatch')
-      }
-      if (retire) {
-        const changed = this.db
-          .prepare(
-            "UPDATE history SET status='retired' WHERE history_epoch=? AND principal=? AND machine_id=? AND provider_id=? AND binding_revision=? AND recovery_generation=?"
-          )
-          .run(retire, principal, target.machine_id, target.provider_id, revision, this.generation())
-        if (changed.changes !== 1) {
-          throw new GatewayError('dedup_history_unavailable')
+    return this.transaction(
+      /* 退休指定旧 scope 后建立新的有界 history epoch，冻结其去重期限。 */ (now) => {
+        const provider = this.provider(target.machine_id, target.provider_id)
+        if (!provider?.enabled || provider.binding_revision !== revision) {
+          throw new GatewayError('provider_binding_mismatch')
         }
+        if (retire) {
+          const changed = this.db
+            .prepare(
+              "UPDATE history SET status='retired' WHERE history_epoch=? AND principal=? AND machine_id=? AND provider_id=? AND binding_revision=? AND recovery_generation=?"
+            )
+            .run(retire, principal, target.machine_id, target.provider_id, revision, this.generation())
+          if (changed.changes !== 1) {
+            throw new GatewayError('dedup_history_unavailable')
+          }
+        }
+        const scope: HistoryScope = {
+          history_epoch: id('history'),
+          recovery_generation: this.generation(),
+          status: 'active',
+          scope_created_at: now,
+          accept_new_until: now + this.limits.history_epoch_max_age,
+          frozen_dedup_ttl: this.limits.dedup_ttl
+        }
+        this.db
+          .prepare('INSERT INTO history VALUES(?,?,?,?,?,?,?,?,?,?)')
+          .run(
+            scope.history_epoch,
+            scope.recovery_generation,
+            principal,
+            target.machine_id,
+            target.provider_id,
+            revision,
+            scope.status,
+            now,
+            scope.accept_new_until,
+            scope.frozen_dedup_ttl
+          )
+        this.audit('history_opened', principal, now, undefined, {
+          machine_id: target.machine_id,
+          provider_id: target.provider_id,
+          binding_revision: revision,
+          history_epoch: scope.history_epoch,
+          retired: retire ?? null
+        })
+        return scope
       }
-      const scope: HistoryScope = {
-        history_epoch: id('history'),
-        recovery_generation: this.generation(),
-        status: 'active',
-        scope_created_at: now,
-        accept_new_until: now + this.limits.history_epoch_max_age,
-        frozen_dedup_ttl: this.limits.dedup_ttl
-      }
-      this.db
-        .prepare('INSERT INTO history VALUES(?,?,?,?,?,?,?,?,?,?)')
-        .run(
-          scope.history_epoch,
-          scope.recovery_generation,
-          principal,
-          target.machine_id,
-          target.provider_id,
-          revision,
-          scope.status,
-          now,
-          scope.accept_new_until,
-          scope.frozen_dedup_ttl
-        )
-      this.audit('history_opened', principal, now, undefined, {
-        machine_id: target.machine_id,
-        provider_id: target.provider_id,
-        binding_revision: revision,
-        history_epoch: scope.history_epoch,
-        retired: retire ?? null
-      })
-      return scope
-    })
+    )
   }
+  // 查询调用内部账本行，缺失时返回固定错误而不暴露 SQL 细节。
   private row(callId: string): Row {
     const row = this.db.prepare('SELECT * FROM calls WHERE call_id=?').get(callId) as Row | undefined
     if (!row) {
@@ -541,6 +747,7 @@ export class Store {
     }
     return row
   }
+  // 核对调用归属、元数据期限及恢复隔离状态，再允许访问内部账本。
   private owned(principal: string, callId: string, now = this.time()): Row {
     if (this.meta().mode === 'recovery_quarantined') {
       throw new GatewayError('recovery_quarantined')
@@ -552,6 +759,7 @@ export class Store {
     this.current(row)
     return row
   }
+  // 返回当前 principal 的公开调用投影，降级时保守呈现尚未确定的执行结论。
   call(principal: string, callId: string): Call {
     const now = this.time()
     const result = publicCall(this.owned(principal, callId, now), now)
@@ -560,173 +768,181 @@ export class Store {
     }
     return result
   }
+  // 验证目标、请求与历史去重作用域，按预算原子登记调用及不可延长的期限。
   createCall(principal: string, target: V2Target, request: NativeRequest, options: CallOptions): Call {
     validateTarget(target)
     validateRequest(request)
-    return this.transaction((now) => {
-      const provider = this.provider(target.machine_id, target.provider_id)
-      if (!provider || !provider.enabled || provider.binding_revision !== options.binding_revision) {
-        throw new GatewayError('provider_binding_mismatch')
-      }
-      if (provider.kind === 'herdr') {
-        throw new GatewayError('provider_support_candidate')
-      }
-      const timeout = options.timeoutMs ?? 30_000
-      if (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 600_000) {
-        throw new GatewayError('invalid_timeout')
-      }
-      const identity: AttemptIdentity = {
-        call_id: id('call'),
-        attempt_id: id('attempt'),
-        native_request_id: id('native'),
-        target,
-        provider_kind: provider.kind,
-        binding_revision: provider.binding_revision,
-        contract_ref: options.contract_ref,
-        registration: {
-          deadline: now + timeout,
-          history: options.history ?? null,
-          caller_policy_revision: options.caller_policy_revision,
-          local_policy_revision: options.local_policy_revision
+    return this.transaction(
+      /* 校验完整登记条件与历史准入，重复键返回原调用，否则按子额登记新调用。 */ (now) => {
+        const provider = this.provider(target.machine_id, target.provider_id)
+        if (!provider || !provider.enabled || provider.binding_revision !== options.binding_revision) {
+          throw new GatewayError('provider_binding_mismatch')
         }
-      }
-      validateAttempt(identity)
-      let hash = registeredRequestDigest(
-        {
-          attempt: identity,
-          expected_binding_revision: provider.binding_revision,
-          native_request: request,
-          validation: options.validation ?? 'strict'
-        },
-        principal
-      )
-      let dedupExpires = now + this.limits.dedup_ttl
-      if (options.history) {
-        const scope = this.db
-          .prepare(
-            'SELECT * FROM history WHERE history_epoch=? AND principal=? AND machine_id=? AND provider_id=? AND binding_revision=?'
-          )
-          .get(
-            options.history.history_epoch,
-            principal,
-            target.machine_id,
-            target.provider_id,
-            provider.binding_revision
-          ) as HistoryScope | undefined
-        const old = this.db
-          .prepare('SELECT * FROM calls WHERE history_epoch=? AND key_digest=?')
-          .get(options.history.history_epoch, digest(options.history.client_request_key)) as Row | undefined
-        if (old) {
-          // deadline 是初次登记的绝对值，重送不能以当前时刻刷新；其余条件仍逐项摘要核对。
-          const prior = JSON.parse(old.identity_json) as AttemptIdentity
-          identity.registration.deadline = prior.registration.deadline
-          hash = registeredRequestDigest(
-            {
-              attempt: identity,
-              expected_binding_revision: provider.binding_revision,
-              native_request: request,
-              validation: options.validation ?? 'strict'
-            },
-            principal
-          )
-          if (prior.registration.deadline - old.created !== timeout) {
-            throw new GatewayError('request_key_conflict')
+        if (provider.kind === 'herdr') {
+          throw new GatewayError('provider_support_candidate')
+        }
+        const timeout = options.timeoutMs ?? 30_000
+        if (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 600_000) {
+          throw new GatewayError('invalid_timeout')
+        }
+        const identity: AttemptIdentity = {
+          call_id: id('call'),
+          attempt_id: id('attempt'),
+          native_request_id: id('native'),
+          target,
+          provider_kind: provider.kind,
+          binding_revision: provider.binding_revision,
+          contract_ref: options.contract_ref,
+          registration: {
+            deadline: now + timeout,
+            history: options.history ?? null,
+            caller_policy_revision: options.caller_policy_revision,
+            local_policy_revision: options.local_policy_revision
           }
         }
-        const record: HistoryRecord | undefined = old
-          ? {
-              history_epoch: old.history_epoch!,
-              recovery_generation:
-                JSON.parse(old.binding_json ?? '{}').recovery_generation ?? scope?.recovery_generation,
-              key_digest: old.key_digest!,
-              request_digest: old.request_hash,
-              call_id: old.call_id,
-              call_created_at: old.created,
-              dedup_expires_at: old.dedup_expires
+        validateAttempt(identity)
+        let hash = registeredRequestDigest(
+          {
+            attempt: identity,
+            expected_binding_revision: provider.binding_revision,
+            native_request: request,
+            validation: options.validation ?? 'strict'
+          },
+          principal
+        )
+        let dedupExpires = now + this.limits.dedup_ttl
+        if (options.history) {
+          const scope = this.db
+            .prepare(
+              'SELECT * FROM history WHERE history_epoch=? AND principal=? AND machine_id=? AND provider_id=? AND binding_revision=?'
+            )
+            .get(
+              options.history.history_epoch,
+              principal,
+              target.machine_id,
+              target.provider_id,
+              provider.binding_revision
+            ) as HistoryScope | undefined
+          const old = this.db
+            .prepare('SELECT * FROM calls WHERE history_epoch=? AND key_digest=?')
+            .get(options.history.history_epoch, digest(options.history.client_request_key)) as Row | undefined
+          if (old) {
+            // deadline 是初次登记的绝对值，重送不能以当前时刻刷新；其余条件仍逐项摘要核对。
+            const prior = JSON.parse(old.identity_json) as AttemptIdentity
+            identity.registration.deadline = prior.registration.deadline
+            hash = registeredRequestDigest(
+              {
+                attempt: identity,
+                expected_binding_revision: provider.binding_revision,
+                native_request: request,
+                validation: options.validation ?? 'strict'
+              },
+              principal
+            )
+            if (prior.registration.deadline - old.created !== timeout) {
+              throw new GatewayError('request_key_conflict')
             }
-          : undefined
-        const decision = planHistoryAdmission(options.history, this.generation(), hash, scope, record, now)
-        if (decision.action === 'return_existing') {
-          return publicCall(this.owned(principal, decision.call_id, now), now)
+          }
+          const record: HistoryRecord | undefined = old
+            ? {
+                history_epoch: old.history_epoch!,
+                recovery_generation:
+                  JSON.parse(old.binding_json ?? '{}').recovery_generation ?? scope?.recovery_generation,
+                key_digest: old.key_digest!,
+                request_digest: old.request_hash,
+                call_id: old.call_id,
+                call_created_at: old.created,
+                dedup_expires_at: old.dedup_expires
+              }
+            : undefined
+          const decision = planHistoryAdmission(options.history, this.generation(), hash, scope, record, now)
+          if (decision.action === 'return_existing') {
+            return publicCall(this.owned(principal, decision.call_id, now), now)
+          }
+          dedupExpires = decision.dedup_expires_at
         }
-        dedupExpires = decision.dedup_expires_at
-      }
-      if (this.machine(target.machine_id).status !== 'online') {
-        throw new GatewayError('machine_offline')
-      }
-      this.db
-        .prepare(`INSERT INTO calls(call_id,principal,machine_id,provider_id,binding_revision,provider_kind,
+        if (this.machine(target.machine_id).status !== 'online') {
+          throw new GatewayError('machine_offline')
+        }
+        this.db
+          .prepare(`INSERT INTO calls(call_id,principal,machine_id,provider_id,binding_revision,provider_kind,
         request_hash,key_digest,history_epoch,state,identity_json,target_json,method,mode,request_json,
         created,deadline,content_expires,metadata_expires,dedup_expires,content_status)
         VALUES(?,?,?,?,?,?,?,?,?,'created',?,?,?,?,?,?,?,?,?,?,'available')`)
-        .run(
-          identity.call_id,
-          principal,
-          target.machine_id,
-          target.provider_id,
-          provider.binding_revision,
-          provider.kind,
-          hash,
-          options.history ? digest(options.history.client_request_key) : null,
-          options.history?.history_epoch ?? null,
-          boundedJson(identity),
-          boundedJson(target),
-          request.method,
-          options.validation ?? 'strict',
-          canonical(request),
-          now,
-          identity.registration.deadline,
-          now + this.limits.content_ttl,
-          Math.max(now + this.limits.call_metadata_ttl, dedupExpires),
-          dedupExpires
-        )
-      const row = this.row(identity.call_id)
-      this.audit('created', principal, now, row)
-      return publicCall(row, now)
-    })
+          .run(
+            identity.call_id,
+            principal,
+            target.machine_id,
+            target.provider_id,
+            provider.binding_revision,
+            provider.kind,
+            hash,
+            options.history ? digest(options.history.client_request_key) : null,
+            options.history?.history_epoch ?? null,
+            boundedJson(identity),
+            boundedJson(target),
+            request.method,
+            options.validation ?? 'strict',
+            canonical(request),
+            now,
+            identity.registration.deadline,
+            now + this.limits.content_ttl,
+            Math.max(now + this.limits.call_metadata_ttl, dedupExpires),
+            dedupExpires
+          )
+        const row = this.row(identity.call_id)
+        this.audit('created', principal, now, row)
+        return publicCall(row, now)
+      }
+    )
   }
+  // 核对当前连接、期限及宿主提供的策略 revision，在发送前固定完整 attempt 锚点与完成预留。
   dispatch(
     principal: string,
     callId: string,
     epoch: string,
     policies?: { caller: string; local: string }
   ): AttemptBinding {
-    const binding = this.transaction((now) => {
-      const row = this.owned(principal, callId, now)
-      const machine = this.db.prepare('SELECT status,epoch FROM machines WHERE machine_id=?').get(row.machine_id)!
-      if (
-        row.state !== 'created' ||
-        row.deadline <= now ||
-        row.content_expires <= now ||
-        machine.status !== 'online' ||
-        machine.epoch !== epoch
-      ) {
-        throw new GatewayError('dispatch_rejected')
+    const binding = this.transaction(
+      /* 核对调用状态、连接与可选策略 revision，写入一次性完整 attempt 绑定及完成空间预留。 */ (now) => {
+        const row = this.owned(principal, callId, now)
+        const machine = this.db.prepare('SELECT status,epoch FROM machines WHERE machine_id=?').get(row.machine_id)!
+        if (
+          row.state !== 'created' ||
+          row.deadline <= now ||
+          row.content_expires <= now ||
+          machine.status !== 'online' ||
+          machine.epoch !== epoch
+        ) {
+          throw new GatewayError('dispatch_rejected')
+        }
+        const registered = JSON.parse(row.identity_json) as AttemptIdentity
+        if (
+          policies &&
+          (registered.registration.caller_policy_revision !== policies.caller ||
+            registered.registration.local_policy_revision !== policies.local)
+        ) {
+          throw new GatewayError('policy_revision_mismatch')
+        }
+        const binding: AttemptBinding = {
+          ...registered,
+          machine_id: row.machine_id,
+          recovery_generation: this.generation(),
+          connection_epoch: epoch
+        }
+        this.db
+          .prepare(
+            "UPDATE calls SET state='dispatching',epoch=?,attempt_id=?,binding_json=?,reserved=? WHERE call_id=?"
+          )
+          .run(epoch, binding.attempt_id, boundedJson(binding), this.limits.attempt_reserve_bytes, callId)
+        this.audit('dispatching', principal, now, this.row(callId))
+        const completion = completionReservation(this.row(callId), this.limits, this.generation())
+        this.db
+          .prepare('UPDATE calls SET reserved=? WHERE call_id=?')
+          .run(Math.max(this.limits.attempt_reserve_bytes, completion.audit + completion.metadata), callId)
+        return binding
       }
-      const registered = JSON.parse(row.identity_json) as AttemptIdentity
-      if (
-        policies &&
-        (registered.registration.caller_policy_revision !== policies.caller ||
-          registered.registration.local_policy_revision !== policies.local)
-      ) {
-        throw new GatewayError('policy_revision_mismatch')
-      }
-      const binding: AttemptBinding = {
-        ...registered,
-        machine_id: row.machine_id,
-        recovery_generation: this.generation(),
-        connection_epoch: epoch
-      }
-      this.db
-        .prepare("UPDATE calls SET state='dispatching',epoch=?,attempt_id=?,binding_json=?,reserved=? WHERE call_id=?")
-        .run(epoch, binding.attempt_id, boundedJson(binding), this.limits.attempt_reserve_bytes, callId)
-      this.audit('dispatching', principal, now, this.row(callId))
-      const completion = completionReservation(this.row(callId), this.limits, this.generation())
-      this.db
-        .prepare('UPDATE calls SET reserved=? WHERE call_id=?')
-        .run(Math.max(this.limits.attempt_reserve_bytes, completion.audit + completion.metadata), callId)
-      return binding
-    })
+    )
     try {
       this.options.fault?.('after_anchor')
     } catch {
@@ -735,6 +951,7 @@ export class Store {
     }
     return binding
   }
+  // 仅返回尚可使用的 RPC 或流原请求记录，过期、删除或失效绑定不能重建派发上下文。
   attempt(callId: string, attemptId: string): TrustedAttempt | undefined {
     this.active()
     const now = this.time()
@@ -759,6 +976,7 @@ export class Store {
       native_request: JSON.parse(row.request_json)
     }
   }
+  // 按完整绑定查询最小持久化响应锚点，固定原 deadline、内容期限和去重期限。
   responseAnchor(binding: AttemptBinding): ResponseAnchor {
     this.active()
     const row = this.row(binding.call_id)
@@ -788,52 +1006,60 @@ export class Store {
         : {})
     }
   }
+  // 仅在原 attempt 尚未过期且处于派发中时记录连接器接受，不把接受视为执行成功。
   accepted(binding: AttemptBinding): void {
-    this.transaction((now) => {
-      const anchor = this.responseAnchor(binding)
-      if (anchor.state !== 'dispatching' || now >= binding.registration.deadline) {
-        throw new GatewayError('stale_acceptance')
-      }
-      this.db.prepare("UPDATE calls SET state='connector_accepted' WHERE call_id=?").run(binding.call_id)
-      this.audit('connector_accepted', 'connector', now, this.row(binding.call_id))
-    }, false)
+    this.transaction(
+      /* 核对尚未过期的 dispatching 锚点后写入接受状态及审计。 */ (now) => {
+        const anchor = this.responseAnchor(binding)
+        if (anchor.state !== 'dispatching' || now >= binding.registration.deadline) {
+          throw new GatewayError('stale_acceptance')
+        }
+        this.db.prepare("UPDATE calls SET state='connector_accepted' WHERE call_id=?").run(binding.call_id)
+        this.audit('connector_accepted', 'connector', now, this.row(binding.call_id))
+      },
+      false
+    )
   }
   // planner 必须是宿主闭包，调用真实 adapter.planEvidence；不接收可序列化 EvidencePlan 作为证明。
   commitEvidence(binding: AttemptBinding, planner: () => ResponseEvidencePlan): Call {
-    const outcome = this.transaction((now) => {
-      this.stopWhere('call_id=? AND deadline<=?', [binding.call_id, String(now)], 'deadline_exceeded', now)
-      const anchor = this.responseAnchor(binding)
-      try {
-        return this.applyEvidence(binding, anchor, planner(), now)
-      } catch (error) {
-        // Wire planner 仅在原生 schema/来源/完整锚点已验证后报告可信内容冲突。
-        if (!(error instanceof GatewayError) || error.code !== 'response_evidence_conflict' || !anchor.evidence) {
-          throw error
+    const outcome = this.transaction(
+      /* 先落实截止期限，再执行真实证据规划；可信冲突仅追加有界脱敏审计。 */ (now) => {
+        this.stopWhere('call_id=? AND deadline<=?', [binding.call_id, String(now)], 'deadline_exceeded', now)
+        const anchor = this.responseAnchor(binding)
+        try {
+          return this.applyEvidence(binding, anchor, planner(), now)
+        } catch (error) {
+          // Wire planner 仅在原生 schema/来源/完整锚点已验证后报告可信内容冲突。
+          if (!(error instanceof GatewayError) || error.code !== 'response_evidence_conflict' || !anchor.evidence) {
+            throw error
+          }
+          const eventId = 'response_conflict_' + binding.call_id
+          if (!this.db.prepare('SELECT 1 FROM audit WHERE event_id=?').get(eventId)) {
+            this.audit(
+              'response_conflict',
+              'connector',
+              now,
+              this.row(binding.call_id),
+              {
+                code: 'response_evidence_conflict',
+                expected_response_hash: anchor.evidence.response_hash
+              },
+              eventId
+            )
+          }
+          // 每个调用在审计保留窗内最多一条；不保存冲突 payload，也不改写原结果。
+          return { conflict: true } as const
         }
-        const eventId = 'response_conflict_' + binding.call_id
-        if (!this.db.prepare('SELECT 1 FROM audit WHERE event_id=?').get(eventId)) {
-          this.audit(
-            'response_conflict',
-            'connector',
-            now,
-            this.row(binding.call_id),
-            {
-              code: 'response_evidence_conflict',
-              expected_response_hash: anchor.evidence.response_hash
-            },
-            eventId
-          )
-        }
-        // 每个调用在审计保留窗内最多一条；不保存冲突 payload，也不改写原结果。
-        return { conflict: true } as const
-      }
-    }, false)
+      },
+      false
+    )
     if ('conflict' in outcome) {
       // 只有审计事务已提交，才返回通常的冲突拒绝；失败由 transaction 返回降级错误。
       throw new GatewayError('response_evidence_conflict')
     }
     return outcome
   }
+  // 检查宿主证据计划和摘要一致性，按内容预算写入响应或最小证据并释放完成预留。
   private applyEvidence(
     binding: AttemptBinding,
     anchor: ResponseAnchor,
@@ -907,51 +1133,66 @@ export class Store {
     this.options.fault?.('evidence_commit')
     return publicCall(this.row(binding.call_id), now)
   }
+  // 停止本 principal 的调用并保留未知结果锚点，不能据此声称远端副作用已取消。
   stop(principal: string, callId: string): Call {
-    return this.transaction((now) => {
-      this.owned(principal, callId, now)
-      this.stopWhere('call_id=?', [callId], 'cancelled', now)
-      return publicCall(this.row(callId), now)
-    }, false)
+    return this.transaction(
+      /* 核验调用归属后停止未完成调用，返回保留原期限的公开状态。 */ (now) => {
+        this.owned(principal, callId, now)
+        this.stopWhere('call_id=?', [callId], 'cancelled', now)
+        return publicCall(this.row(callId), now)
+      },
+      false
+    )
   }
+  // 按分层期限清除内容、结果句柄、历史与审计，并在提交后通知宿主释放相应上下文。
   expire(): void {
-    this.transaction((now) => {
-      this.stopWhere('deadline<=?', [String(now)], 'deadline_exceeded', now)
-      this.db
-        .prepare(
-          "DELETE FROM results WHERE expires<=? OR call_id IN (SELECT call_id FROM calls WHERE content_expires<=? OR content_status!='available')"
+    this.transaction(
+      /* 删除各层过期对象并排队发布内容或 fence 通知，回滚时不通知宿主。 */ (now) => {
+        this.stopWhere('deadline<=?', [String(now)], 'deadline_exceeded', now)
+        this.invalidateWhere(
+          "content_expires<=? AND (content_status='available' OR request_json IS NOT NULL OR response IS NOT NULL)",
+          [now],
+          'content'
         )
-        .run(now, now)
-      this.db
-        .prepare(
-          "UPDATE calls SET response=NULL,request_json=NULL,content_status=CASE WHEN content_status='available' THEN 'expired' ELSE content_status END WHERE content_expires<=?"
-        )
-        .run(now)
-      this.db.prepare('DELETE FROM calls WHERE metadata_expires<=? AND dedup_expires<=?').run(now, now)
-      this.db.prepare("UPDATE history SET status='retired' WHERE accept_new_until<=?").run(now)
-      this.db
-        .prepare(
-          'DELETE FROM history WHERE accept_new_until+frozen_dedup_ttl<=? AND NOT EXISTS(SELECT 1 FROM calls WHERE calls.history_epoch=history.history_epoch)'
-        )
-        .run(now)
-      this.db.prepare('DELETE FROM audit WHERE expires<=?').run(now)
-      this.db.prepare('DELETE FROM enrollments WHERE expires<=?').run(now)
-      for (const row of this.db.prepare('SELECT path FROM backups WHERE expires<=?').all(now)) {
-        const path = String(row.path)
-        if (dirname(path) !== this.options.backupDirectory) {
-          throw new GatewayError('unsafe_backup_path')
+        this.invalidateWhere('dedup_expires<=?', [now], 'fence')
+        this.db
+          .prepare(
+            "DELETE FROM results WHERE expires<=? OR call_id IN (SELECT call_id FROM calls WHERE content_expires<=? OR content_status!='available')"
+          )
+          .run(now, now)
+        this.db
+          .prepare(
+            "UPDATE calls SET response=NULL,request_json=NULL,content_status=CASE WHEN content_status='available' THEN 'expired' ELSE content_status END WHERE content_expires<=?"
+          )
+          .run(now)
+        this.db.prepare('DELETE FROM calls WHERE metadata_expires<=? AND dedup_expires<=?').run(now, now)
+        this.db.prepare("UPDATE history SET status='retired' WHERE accept_new_until<=?").run(now)
+        this.db
+          .prepare(
+            'DELETE FROM history WHERE accept_new_until+frozen_dedup_ttl<=? AND NOT EXISTS(SELECT 1 FROM calls WHERE calls.history_epoch=history.history_epoch)'
+          )
+          .run(now)
+        this.db.prepare('DELETE FROM audit WHERE expires<=?').run(now)
+        this.db.prepare('DELETE FROM enrollments WHERE expires<=?').run(now)
+        for (const row of this.db.prepare('SELECT path FROM backups WHERE expires<=?').all(now)) {
+          const path = String(row.path)
+          if (dirname(path) !== this.options.backupDirectory) {
+            throw new GatewayError('unsafe_backup_path')
+          }
+          if (existsSync(path + '.lock')) {
+            continue
+          }
+          if (existsSync(path)) {
+            privateFile(path)
+            unlinkSync(path)
+          }
+          this.db.prepare('DELETE FROM backups WHERE path=?').run(path)
         }
-        if (existsSync(path + '.lock')) {
-          continue
-        }
-        if (existsSync(path)) {
-          privateFile(path)
-          unlinkSync(path)
-        }
-        this.db.prepare('DELETE FROM backups WHERE path=?').run(path)
-      }
-    }, false)
+      },
+      false
+    )
   }
+  // 只为已提交且当前可见的响应创建有界结果句柄，拒绝过期、删除或超配额内容。
   saveResult(
     principal: string,
     callId: string,
@@ -968,50 +1209,58 @@ export class Store {
     ) {
       throw new GatewayError('invalid_result_limits')
     }
-    return this.transaction((now) => {
-      const row = this.owned(principal, callId, now)
-      if (
-        row.state !== 'responded' ||
-        !row.response ||
-        row.content_status !== 'available' ||
-        row.content_expires <= now
-      ) {
-        throw new GatewayError('result_not_ready')
+    return this.transaction(
+      /* 核对响应可见性及句柄子额，写入不超过原内容期限的结果句柄。 */ (now) => {
+        const row = this.owned(principal, callId, now)
+        if (
+          row.state !== 'responded' ||
+          !row.response ||
+          row.content_status !== 'available' ||
+          row.content_expires <= now
+        ) {
+          throw new GatewayError('result_not_ready')
+        }
+        this.db.prepare('DELETE FROM results WHERE expires<=?').run(now)
+        const existing = this.db.prepare('SELECT * FROM results WHERE call_id=?').get(callId)
+        if (existing) {
+          const { call_id: _call, ...result } = existing
+          return result as { result_id: string; bytes: number; hash: string; expires: number }
+        }
+        const used = Number(this.db.prepare('SELECT COALESCE(SUM(bytes),0) n FROM results').get()!.n)
+        const bytes = Buffer.byteLength(row.response)
+        if (used + bytes > quotaBytes) {
+          throw new GatewayError('result_quota')
+        }
+        const result = {
+          result_id: id('result'),
+          bytes,
+          hash: row.response_hash!,
+          expires: Math.min(now + ttlMs, row.content_expires)
+        }
+        this.db
+          .prepare('INSERT INTO results VALUES(?,?,?,?,?)')
+          .run(result.result_id, callId, result.bytes, result.hash, result.expires)
+        this.audit('result_handle', principal, now, row)
+        return result
       }
-      this.db.prepare('DELETE FROM results WHERE expires<=?').run(now)
-      const existing = this.db.prepare('SELECT * FROM results WHERE call_id=?').get(callId)
-      if (existing) {
-        const { call_id: _call, ...result } = existing
-        return result as { result_id: string; bytes: number; hash: string; expires: number }
-      }
-      const used = Number(this.db.prepare('SELECT COALESCE(SUM(bytes),0) n FROM results').get()!.n)
-      const bytes = Buffer.byteLength(row.response)
-      if (used + bytes > quotaBytes) {
-        throw new GatewayError('result_quota')
-      }
-      const result = {
-        result_id: id('result'),
-        bytes,
-        hash: row.response_hash!,
-        expires: Math.min(now + ttlMs, row.content_expires)
-      }
-      this.db
-        .prepare('INSERT INTO results VALUES(?,?,?,?,?)')
-        .run(result.result_id, callId, result.bytes, result.hash, result.expires)
-      this.audit('result_handle', principal, now, row)
-      return result
-    })
+    )
   }
+  // 原子删除调用的请求、响应与结果句柄，提交后通知宿主移除可执行上下文。
   discardResponse(principal: string, callId: string): void {
-    this.transaction((now) => {
-      const row = this.owned(principal, callId, now)
-      this.db.prepare('DELETE FROM results WHERE call_id=?').run(callId)
-      this.db
-        .prepare("UPDATE calls SET response=NULL,request_json=NULL,content_status='discarded' WHERE call_id=?")
-        .run(callId)
-      this.audit('discard_response', principal, now, row)
-    }, false)
+    this.transaction(
+      /* 删除结果句柄并清空请求响应正文，排队发布不可回滚的提交后回收通知。 */ (now) => {
+        const row = this.owned(principal, callId, now)
+        this.db.prepare('DELETE FROM results WHERE call_id=?').run(callId)
+        this.db
+          .prepare("UPDATE calls SET response=NULL,request_json=NULL,content_status='discarded' WHERE call_id=?")
+          .run(callId)
+        this.audit('discard_response', principal, now, row)
+        this.pendingInvalidations.push({ kind: 'content', machine_id: row.machine_id, call_id: callId })
+      },
+      false
+    )
   }
+  // 核对结果句柄归属及期限，并要求调用内容仍可见。
   resultCall(principal: string, resultId: string): Call {
     const now = this.time()
     const row = this.db.prepare('SELECT call_id FROM results WHERE result_id=? AND expires>?').get(resultId, now) as
@@ -1026,6 +1275,7 @@ export class Store {
     }
     return call
   }
+  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标和原内容摘要。
   readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536) {
     const call = this.resultCall(principal, resultId)
     if (
@@ -1056,37 +1306,49 @@ export class Store {
   }
   // 审计/恢复只供独立受保护管理面；普通 Principal 不持有此入口。
   auditRecords() {
-    return this.transaction((now) => {
-      this.manage('audit_read', 'database', this.generation(), now)
-      return this.db.prepare('SELECT * FROM audit ORDER BY at,event_id').all()
-    }, false)
+    return this.transaction(
+      /* 先登记一次性审计读取确认，再按稳定顺序返回脱敏记录。 */ (now) => {
+        this.manage('audit_read', 'database', this.generation(), now)
+        return this.db.prepare('SELECT * FROM audit ORDER BY at,event_id').all()
+      },
+      false
+    )
   }
+  // 经受保护确认及完整性、预算检查后解除降级，并删除独立降级哨兵。
   resumeStorage(): void {
-    this.transaction((now) => {
-      if (this.meta().mode === 'recovery_quarantined') {
-        throw new GatewayError('recovery_quarantined')
-      }
-      if (this.db.prepare('PRAGMA quick_check').get()!.quick_check !== 'ok') {
-        throw new GatewayError('database_integrity_failed')
-      }
-      this.manage('storage_resume', 'database', this.generation(), now)
-      this.budget(true)
-      this.db.prepare("UPDATE metadata SET mode='active'").run()
-    }, false)
+    this.transaction(
+      /* 检查数据库完整性并消费恢复确认，只有预算恢复正常才切回 active。 */ (now) => {
+        if (this.meta().mode === 'recovery_quarantined') {
+          throw new GatewayError('recovery_quarantined')
+        }
+        if (this.db.prepare('PRAGMA quick_check').get()!.quick_check !== 'ok') {
+          throw new GatewayError('database_integrity_failed')
+        }
+        this.manage('storage_resume', 'database', this.generation(), now)
+        this.budget(true)
+        this.db.prepare("UPDATE metadata SET mode='active'").run()
+      },
+      false
+    )
     if (this.path !== ':memory:' && existsSync(this.path + '.degraded')) {
       unlinkSync(this.path + '.degraded')
     }
     this.degraded = false
   }
+  // 经精确恢复 generation 的受保护确认解除恢复隔离，旧连接和旧调用不会重放。
   completeRecovery(): void {
-    this.transaction((now) => {
-      if (this.meta().mode !== 'recovery_quarantined') {
-        throw new GatewayError('invalid_recovery_state')
-      }
-      this.manage('recovery_complete', 'database', this.generation(), now)
-      this.db.prepare("UPDATE metadata SET mode='active'").run()
-    }, false)
+    this.transaction(
+      /* 要求当前处于恢复隔离，消费独立确认后切回 active。 */ (now) => {
+        if (this.meta().mode !== 'recovery_quarantined') {
+          throw new GatewayError('invalid_recovery_state')
+        }
+        this.manage('recovery_complete', 'database', this.generation(), now)
+        this.db.prepare("UPDATE metadata SET mode='active'").run()
+      },
+      false
+    )
   }
+  // 在独立私有目录中导出有期限的内容脱敏备份，并将受保护确认与备份登记原子提交。
   backup(destination: string): void {
     privatePath(destination)
     if (
@@ -1101,25 +1363,28 @@ export class Store {
     let exported = false
     let locked = false
     try {
-      this.transaction((now) => {
-        this.manage('backup_create', 'database', this.generation(), now)
-        if (Number(this.db.prepare('SELECT COUNT(*) n FROM backups').get()!.n) >= this.limits.backup_max_count) {
-          throw new GatewayError('backup_count_quota')
-        }
-        if (existsSync(destination)) {
-          throw new GatewayError('backup_exists')
-        }
-        const estimate =
-          Number(this.db.prepare('PRAGMA page_count').get()!.page_count) *
-            Number(this.db.prepare('PRAGMA page_size').get()!.page_size) +
-          65_536
-        assertBudget(this.db, this.path, this.limits, this.options.backupDirectory, false, estimate)
-        createPrivate(destination + '.lock')
-        locked = true
-        exportSnapshot(this.db, destination, now, this.limits)
-        exported = true
-        this.db.prepare('INSERT INTO backups VALUES(?,?,?)').run(destination, now, now + this.limits.backup_ttl)
-      }, false)
+      this.transaction(
+        /* 消费备份确认并检查数量与物理预算，锁住目的文件后导出并登记到期时间。 */ (now) => {
+          this.manage('backup_create', 'database', this.generation(), now)
+          if (Number(this.db.prepare('SELECT COUNT(*) n FROM backups').get()!.n) >= this.limits.backup_max_count) {
+            throw new GatewayError('backup_count_quota')
+          }
+          if (existsSync(destination)) {
+            throw new GatewayError('backup_exists')
+          }
+          const estimate =
+            Number(this.db.prepare('PRAGMA page_count').get()!.page_count) *
+              Number(this.db.prepare('PRAGMA page_size').get()!.page_size) +
+            65_536
+          assertBudget(this.db, this.path, this.limits, this.options.backupDirectory, false, estimate)
+          createPrivate(destination + '.lock')
+          locked = true
+          exportSnapshot(this.db, destination, now, this.limits)
+          exported = true
+          this.db.prepare('INSERT INTO backups VALUES(?,?,?)').run(destination, now, now + this.limits.backup_ttl)
+        },
+        false
+      )
     } catch (error) {
       if (exported && existsSync(destination)) {
         unlinkSync(destination)
