@@ -44,7 +44,7 @@ def validate_foundation(project, report):
         discovered[(str(path.resolve().relative_to(project.resolve())), case.attrib['name'])] += 1
     if files != {file for file, _ in discovered}:
         raise RuntimeError('foundation: discovered test files differ from source')
-    inventory = json.loads((project / 'docs/bun/review/original-test-inventory.json').read_text())
+    inventory = json.loads((project / 'fixtures/acceptance/original-test-inventory.json').read_text())
     baseline = Counter((item['file'], title) for item in inventory for title in item['discovered'])
     if sum(baseline.values()) != 20 or baseline - discovered:
         raise RuntimeError('foundation: original 20 acceptance tests missing')
@@ -90,11 +90,6 @@ def main():
                     shutil.copyfile(source, destination)
         for name in ('package.json', 'bun.lock', 'bunfig.toml', '.bun-version', 'tsconfig.json'):
             shutil.copyfile(repo / name, project / name)
-        (project / 'docs' / 'p0').mkdir(parents=True)
-        shutil.copyfile(repo / 'docs/p0/coverage.json', project / 'docs/p0/coverage.json')
-        inventory = Path('docs/bun/review/original-test-inventory.json')
-        (project / inventory).parent.mkdir(parents=True)
-        shutil.copyfile(repo / inventory, project / inventory)
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'bun').symlink_to(bun)

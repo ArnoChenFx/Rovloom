@@ -150,7 +150,7 @@ export function coverage(root = fixtureRoot) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const totals = inspectFixtures();
   const ledger = coverage();
-  if (process.argv.includes('--write')) writeFileSync(new URL('../../docs/p0/coverage.json', import.meta.url), JSON.stringify(ledger, null, 2) + '\n');
-  else assert.deepEqual(JSON.parse(readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url))), ledger);
+  if (process.argv.includes('--write')) writeFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), JSON.stringify(ledger, null, 2) + '\n');
+  else assert.deepEqual(JSON.parse(readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url))), ledger);
   console.log(JSON.stringify({ native_fixture_validation: totals, coverage: ledger.counts }, null, 2));
 }
