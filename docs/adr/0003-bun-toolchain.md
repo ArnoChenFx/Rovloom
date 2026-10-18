@@ -1,37 +1,21 @@
-# ADR 0003: Rovloom Bun 1.4.3 development and execution baseline
+# ADR 0003：Bun 执行与开发工具链
 
-Status: accepted and merged into main for issue #15 (PR #17).
-Date: 2026-10-18 UTC. Base: `4f963d1997751a4f392604cc060d0a99f157998a`.
+状态：采纳。工具链命令与精确锁定值由 [开发指引](../DEVELOPMENT.md)、[.bun-version](../../.bun-version)、package/lock 及 CI 维护；本 ADR 记录运行时与构建选择的理由。
 
-Use official Bun 1.4.3 for installs, TypeScript execution, tests, P0 JavaScript
-harnesses and Bun-targeted ESM builds. Keep the SDK 1.32.1 contract and all retained
-dependency versions/integrities. Replace the npm lock with text `bun.lock` and
-remove only tsx/esbuild and their optional platform dependencies. The independent
-TypeScript 7.0.2 dispatcher runs explicitly through Bun, then its existing pinned
-native TypeScript executable; no Node shebang fallback is needed. Do not equate
-Bun transpilation or bundling with strict typechecking.
+## 决策
 
-Keep the `node:sqlite` import: Bun supplies the implementation and the real-file,
-memory, migration, recovery, rollback, bindings, BLOB paging and writer-lock tests
-pass. `process.version` is a Node compatibility string, not evidence of a running
-Node executable. Record Bun revision and `SELECT sqlite_version()` explicitly.
+使用官方 Bun 执行安装、TypeScript、测试、P0 JavaScript harness 和 Bun 目标 ESM 构建，使用冻结文本 lock；不依赖 Node/npm/npx 回退。不把 Bun 转译/打包成功当严格类型检查，独立由锁定的 TypeScript 编译器检查。
 
-Build four existing module entrypoints to `dist/src/`, ESM, target Bun, packages
-external, external source maps and shared chunks. Sharing is necessary to keep
-`GatewayError` identity consistent across entrypoints. Clean old `dist` first.
-No runnable Gateway/Connector entrypoint is invented. Declaration emission and a
-Node-target artifact are not current deliverables.
+保留 `node:sqlite` 接口，由 Bun 提供实现，避免同时维护两套存储后端。SQLite 文件、事务、migration、绑定、分页和 writer 语义须在实际执行运行时验证；`process.version` 的 Node 兼容字符串不是 Node 执行证据。
 
-Disable automatic `.env` loading in configuration and explicit workflow/child
-arguments; no user env files or state directories enter verification. Disable
-install lifecycle scripts; no trust-all or native-addon exception is needed.
-Prove the workflow in a disposable project with empty dependency cache, minimal
-environment, Node/npm/npx failure shims and Linux exec tracing. Platform proxy/CA
-configuration may be inherited without credentials or logging its values.
+构建按源码入口列表输出模块，依赖外置，共享 chunk 保持错误/handle 所需模块身份一致，先清理旧产物，再执行真实文件数据库和跨模块 smoke。模块入口清单以构建脚本为准，不在文档复制易失效的入口数量；模块产物不等于服务 CLI。
 
-Historical Node P0 evidence remains immutable. Keep reproducible native inputs;
-put individual verification receipts in CI/PR output. The official release and
-observed revision, development commands and limits are in
-[the maintenance guide](../bun/README.md). Linux success does not establish macOS/Windows,
-commercial Host, OAuth or P1 transport correctness. Design v0.4 requirements are
-unchanged and are not implemented by this runtime migration.
+禁用自动 `.env` 加载与 install lifecycle scripts，验证使用新临时项目、空缓存和受限环境，不读用户状态/凭据。Linux 验证使用 Node/npm/npx 失败探针与 exec 追踪证明执行路径；平台 proxy/CA 可以按验证器规则继承，凭据和值不写日志。
+
+## 理由与边界
+
+单一执行工具链减少运行/构建差异，保留既有 SQLite API 和依赖锁可以缩小迁移面。独立类型检查和构建 smoke 分别覆盖转译无法保证的类型正确性及产物行为，不能互相替代。
+
+外部发行来源、binary hash/revision 和不可变测试 provenance 保留在 [工具链来源](../../fixtures/toolchain/bun-1.4.3-provenance.json)；每轮输出与验收状态留在 CI/PR。历史 Node 原生采集不改写成 Bun 采集，两条路径的原始证据独立维护。
+
+工具链验证只证明其平台与测试范围，不证明其它 OS、商业 MCP Host、OAuth、多 provider 生产后端或服务部署已完成。系统架构与待交付项分别以 DESIGN、实施计划为准。

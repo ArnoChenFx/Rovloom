@@ -1,60 +1,29 @@
-# ADR 0001：Rovloom P0 版本、契约来源与协商基线
+# ADR 0001：安装契约与独立协议版本
 
-日期：2026-10-18 UTC。状态：Linux P0 范围已由父会话验收，提交 `d2455e878f93e162a2a54bb58c1e5785aecd0949`；其余平台/产品能力仍受下述限制。
-依据：issue #3、DESIGN v0.2、IMPLEMENTATION-PLAN v0.2；基线提交 `916cae2412b69f3432caf264fd411ea1a4b3093f`。
+状态：采纳。系统要求以 [DESIGN](../DESIGN.md)为准；本 ADR 记录契约选择理由，固定原生输入及其来源维护在 [P0 指引](../DEVELOPMENT.md#固定输入与维护用途)，当前工具链选择见 [ADR 0003](0003-bun-toolchain.md)。
 
-后续工具链决策：[迁移 #15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 已独立验收并合入 main，当前使用 Bun 1.4.3，保留其 `node:sqlite` 实现，见 [ADR 0003](0003-bun-toolchain.md)。本文件的 Node/npm 版本是 P0 实际历史记录，不能改成 Bun 通过，也不代表当前工具链默认值。迁移基于 d2455e8 的真实 package/lock，保留 SDK 1.32.1/Ajv/ws 版本与 integrity；没有升级 SDK 2.x。
+## 决策
 
-## 决策与已验证范围
+以安装 binary 导出的原生 schema 原文、binary 身份及对应运行实例能力建立契约来源。Luvus 的 `luvus uhp schema` 不是在线权限表；session 与 Host 能力分别发现，专用 access_machines 不映射到 Rovloom 设备注册。网页可以帮助理解协议，不能覆盖安装版约束。
 
-| 项目 | 固定值 | 证据与限制 |
-|---|---|---|
-| Luvus binary / server | `0.14.3`，Linux x86_64 musl release | 官方校验文件匹配；CLI version、server status、原生 ping 一致 |
-| UHP | `luvus-uhp` major 1 / minor 0 | session 与 Host 实时 capabilities；不同 profile 分开缓存 |
-| Node（历史采集） | 精确复验 `24.19.0`；当时支持分支 `>=24.19.0 <25` | 当时由 `.node-version` 固定；当前该文件已由 `.bun-version` 替代，不承诺 Node 26 支持 |
-| npm | `11.9.0` | 本环境实测；没有自动升级 |
-| MCP SDK | `@modelcontextprotocol/sdk@1.32.1` | npm 官方 registry 包、完整 lockfile integrity；独立 stdio 子进程验证 |
-| JSON Schema validator | `ajv@8.20.0`，`Ajv2020` | 29 个安装文档全部离线编译；使用 JSON Schema 2020-12 |
-| WebSocket | `ws@8.22.0` | 精确锁定，尚未实现或验收 Gateway WSS、TLS 或重连 |
-| SQLite | Node 内置 `node:sqlite`，该 Node 的 SQLite `3.53.3` | 复用已有 Store；20 个基础回归通过。不引入另一套 SQLite 实现 |
-| 开发兼容客户端 | 同版本 SDK 的 `Client` + `StdioClientTransport` | initialize / initialized / tools/list / ping / close 实测；商业 MCP Host 尚未选择 |
-| MCP wire revision | `2025-11-25` | SDK 源码常量与 stdio 实际协商相同；不宣称支持 `2026-07-28` |
+使用支持安装版方言的离线 JSON Schema 校验，保留完整根、条件和传递引用，不改写原生数据。bundle documents 的 URL 仅是本地索引，禁止联网补引用或当文件路径读取。缺文档/fragment、未知方言或无法应用的约束失败关闭。
 
-这三个新增 npm 包暂放在 devDependencies，供 P0 调查、schema 回放和客户端兼容测试使用；正式 adapter 引入时再决定运行依赖边界。已有 TypeScript/tsx/@types/node 锁保持不变；`@types/node@26.6.5` 是历史编译类型包，不代表 Node 26 运行时已测试。
+原生响应、事件及终端帧使用各自适用的完整契约；结构成立还需原请求、身份和方法/模式关联。参数枚举/通用 object 不证明方法参数完整，有条件分支也不证明业务语义完备；安全分类与参数覆盖的系统门禁由 DESIGN 统一定义。
 
-Node 官方发布表在本次核验时列出 v24 为 LTS、v26 为 Current；没有因官网有更高 patch 而替换 #2 已通过的 `24.19.0`。[Node 发布表](https://nodejs.org/en/about/previous-releases)、[精确版本 SQLite 文档](https://nodejs.org/download/release/v24.19.0/docs/api/sqlite.html)。
+MCP、Rovloom Wire、Luvus UHP 和 Herdr JSON 分别版本化。MCP 采用 SDK 实证协商的 `2025-11-25` 路径；升级 revision 必须评审实现及客户端兼容，不能把网页 latest 或依赖类型版本当支持证明。Wire 的 provider 破坏性版本选择理由见 [ADR 0004](0004-multi-runtime-provider.md)。
 
-## MCP 规范适用性
+## 理由与取舍
 
-正式设计的 S5/S6 `2026-07-28` 页面**确实存在**。该 revision 的 transport 使用逐请求元数据，并单列对旧 initialize 模式的兼容规则。所锁 SDK 1.32.1 的实际 `LATEST_PROTOCOL_VERSION` 是 `2025-11-25`，支持列表没有 `2026-07-28`。因此本次固定旧 revision 的开发 stdio 路径，不能套用新版元数据模型后继续声称该 SDK 自动兼容。
+安装 binary、运行 server 与网站可能不同步；固定原文和独立实时发现可以让差异可追踪，同时避免错误地向未知方法派发。离线引用闭包减少网络/文件解析面，但新增契约形式需要明确支持和重验证，不能静默忽略。
 
-- [2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)：本次 initialize → initialized 协商路径的规范依据。
-- [2025-11-25 transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)：stdio 的 LF JSON-RPC 与 stdout/stderr 分离。
-- [2025-11-25 authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)：将来采用该 revision 的 HTTP 入口时需据此实现；本次没有 OAuth 验收。
-- [2026-07-28 transports](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports)、[authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)：本次核验存在，不能据此推断 SDK 支持。
+固定 Luvus 版本的证据揭示了参数覆盖缺口、原生语义拒绝、endpoint 身份与终端 ack 边界，因此方法总数不能作为“全功能”或参数验证的替代指标。精确方法覆盖、版本/hash 和原始记录只维护在测试输入/来源说明，避免 ADR 与 fixture 漂移。
 
-[SDK 实际协商记录](../p0/sdk-compatibility.json)保留 wire；执行脚本不接入 Luvus，也不是 Gateway。SDK 声称的其它旧 revisions 本次没有逐一联调。选定商业 MCP Host 后必须记录其具体版本与协商结果；要求 2026-07-28 时需另外选择兼容实现并做迁移评审。
+MCP SDK stdio 兼容探针只能证明记录中的客户端和 revision，不证明商业 Host、HTTP/OAuth、其它 revision 或产品 Gateway 已接线。历史 Node 采集与 Bun 回放分别保留 provenance，不能互相改写成通过证据。当前依赖精确版本以 package/lock 为准，类型包不代表执行运行时。
 
-## UHP 契约与外部引用
+## 证据入口
 
-1. 以安装 binary 的 `luvus uhp schema` 原文作为版本化契约。原文 SHA-256 为 `00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6`。其 29 个 `documents` 与官方 `v0.14.3` 对应源码逐文档 JSON 相等，见 [provenance.json](../p0/provenance.json)。网页不覆盖它。
-2. schema 文件不是能力/权限清单。实时 session 197 方法，Host 17 方法，另有 9 个 `machine.*` 仅出现在 schema/专用 access profile 文档中。`access --machines` 未启动，不能把其 machine 身份作为网关设备注册。
-3. `documents` URL 是**本地 bundle 内的索引键**。使用 Ajv2020 `addSchema(document, URL)`，保留完整根约束、`allOf`、`oneOf` 和传递引用；不提供 `loadSchema`，不联网取 `$ref`，不把未知 URL 当文件路径。缺失引用/未知 dialect 必须失败关闭。
-4. Ajv 的 `strict:false` 只关闭对原生 schema 写法的 lint 告警；`coerceTypes/useDefaults/removeAdditional` 均关闭，原生数据不被修改。缺 id、result/error 并存、额外根字段、条件分支不符、缺失/外部引用都有拒绝测试。[Ajv draft 文档](https://ajv.js.org/json-schema.html)。
-5. **144/223 方法只有通用 params object；79/223 有条件参数分支。**存在分支也不等于其全部业务语义已经形式化。#4 不得把枚举发现、通用 object 验证称作完整方法参数验证；`parameter_schema_incomplete` 在严格模式中拒绝。v0.3 的 [ADR 0002](0002-safety-retention-recovery-late-evidence.md) 已进一步明确：未知安全分类默认拒绝，只有分类完整且其余门禁满足时，Owner 才能显式放宽参数验证；不能自行从网页拼 schema，也不能静默启用 raw-contract。此为设计约束，非新增原生验收结论。
-6. 普通 response 使用全局 response schema；终端 response 再应用 terminal response；一般 event 同时验证 envelope 与 event_catalog payload；`terminal.frame` 属 terminal event schema，并不在一般 event_catalog 中。不能把缺 catalog 键误判成未知普通事件后丢弃。
-7. 缓存键须至少含 binary hash/schema hash、profile、session、原生 generation；未知版本/能力变化要重新发现。P0 没有实现这个生产缓存，脚本仅提供固定版本证据。
+- [P0 来源](../../fixtures/native-contract/luvus-0.14.3-provenance.json)与 [SDK 实际协商](../../fixtures/mcp/sdk-1.32.1-node-stdio.json)：不可变外部契约/测试 provenance。
+- MCP `2025-11-25`：[生命周期](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)、[传输](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[授权](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)。
+- [固定 Luvus endpoint 规则](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/protocol/uhp/v1/terminal/endpoint-validation.md)：平台验证输入，不是所有平台已通过的证明。
 
-## Endpoint、framing 与能力协商
-
-Linux endpoint 只来自新实例 `luvus --session p0-issue3 session list --json` 的精确 running 行；使用 `endpoint.address`，不使用 `server status` 展示的 client socket，不拼内部命名。采集器对每次连接重复检查绝对路径、无 symlink、父目录不可组/全局写、私有目录 0700、socket 0600、有效 UID、设备/inode/ctime，随后检查 Linux `SO_PEERCRED` 的 UID 和本任务 server PID。
-
-该采集器额外限制 endpoint 必须在自己刚创建的状态根内，不能充当接受远端任意 endpoint 的通用 adapter。Linux `/tmp` 长路径别名、macOS peer credentials/规范化、Windows 本地 pipe DACL 与 server token SID 尚未验证，不能放宽判断来假称支持。固定标签的[官方 endpoint 规则](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/protocol/uhp/v1/terminal/endpoint-validation.md)是未来各平台调查输入。
-
-普通 proxy 单次请求/响应，双帧输入只处理首帧；无 LF/非法 JSON 是进程错误，原生 UHP error 则保留原始 id/error 且 CLI 退出 1。持续流必须连接发现的 endpoint。终端需要 server_generation + terminal_id + pane_id；本次原生拒绝 stale_server/stale_terminal/control_conflict 均保留。控制写 ack 的 queued 不代表消费，测试另用子进程变换输出证明消费。关闭流释放 lease，关闭 pane 需要显式原生 close；不能混为一事。
-
-Gateway↔Connector 的协议仍是已有内部 1.0 草稿，不是 UHP 或 MCP。major 拒绝、minor 能力交集、方向约束和认证握手仍待 #4/#5 实现；本 ADR 不把历史 exact-minor 检查提升成生产协商。父会话随后确认的四项语义记录在 ADR 0002：unknown 在缺少证据时保留，同一有效 attempt 的可靠晚到结果允许补证，旧 epoch/恢复代次/其它 attempt 隔离；取消/超时不等于回滚，不重放写入。
-
-## 仍需用户选择/后续验收
-
-Gateway 部署位置/可达地址、目标 OS、具体 MCP Host 与版本、OAuth 服务、两台真实机器未指定。当前无需这些输入即可完成 Linux P0；这些缺项阻断对应的跨平台、客户端正式兼容、HTTP/OAuth 和双机发行门禁。没有创建持久凭据、配置网络安全设置或部署服务。四项已采纳语义以 ADR 0002 和正式文档 v0.3 为准，其实现验收仍未完成。
+平台/版本/部署的未完成项由实施计划维护，不在本 ADR 追加测试批次或仓库提交状态。
