@@ -1,8 +1,42 @@
-# luvus-mcp 开发交接
+# Rovloom 开发交接
 
 日期：2026-10-18（UTC）
 
-## Issue #15 本地 Bun 迁移交接（当前）
+## Rovloom 品牌文案交接（当前）
+
+用户已确定展示名 **Rovloom**，要求更新项目文本物料，同时暂不更改仓库实际名称。品牌增量在 task/multi-runtime-provider-design 上独立提交，父提交保持多 provider 设计 `71ce53a37712bf9ccbc4ace8689249ae51c5e346`，不改写该提交。
+
+当前标题、简介、package.description、正式设计/实施计划、ADR 标题与管理 UI 产品文案统一使用 Rovloom；小写文本 slug 为 rovloom。仓库仍为 ArnoChenFx/luvus-mcp，现有 URL/remote/checkout 路径不变；package.name、锁文件中的 workspace name、设计中的 CLI 标识 luvus-mcp、luvus_* 工具/环境变量/协议字段均保留兼容。Luvus/Herdr 原生名称、原作者 Luvus Tester、历史命令/报告/日志/fixtures/hash 与旧目录记录保留，不把它们改写成新品牌证据。命名边界见 [README](../README.md#name-and-compatibility-identifiers)。
+
+本次只有人读文案和 package.description 变更，没有功能/机器接口修改，没有发布 npm、注册域名、更改仓库设置、远端发布或合并。多 provider 冻结候选和待决冲突仍以下节与 ADR 0004 为准；品牌变更不表示实现通过。完整改动清单、残留扫描与最终提交以交付消息为准。
+
+品牌核验：扫描109份受版本控制的UTF-8文本，旧项目名35处残留均已分类（仓库名/URL18、显式兼容说明7、package/测试标识3、历史命令/路径7），旧产品标题与未分类残留均为0。57个本地链接/锚点、2个JSON示例及whitespace检查通过；package除description外结构相同，各ADR正文、原代码围栏、外部URL及历史交接/进度正文保持原样，源码/测试/锁/历史原始证据无差异。此文案检查不替代功能或原生验收。
+
+## 多 runtime provider 设计 v0.5 交接（设计基线）
+
+用户已答“要的”，批准同一 Gateway 同时支持 Luvus/Herdr 并先统一身份与适配边界。本轮从已 fetch 核实的 main `5124d459fa0f712fd1dbb9f164a3513e3e538716` 建立本地 `task/multi-runtime-provider-design`。当前依据为 [DESIGN v0.5](DESIGN.md)、[IMPLEMENTATION-PLAN v0.5 §4.3](IMPLEMENTATION-PLAN.md#43-多-runtime-provider-的交付门禁)、[ADR 0004](adr/0004-multi-runtime-provider.md) 和更新后的 [Web UI 设计](GATEWAY-WEBUI.md)。以下 v0.4/Bun“待验收/未发布”段落是历史；main 已有安全设计与 Bun 1.4.3，不能再当成本轮阻碍。
+
+**先供 #4/wire/native 协调的冻结候选**（具体字段权威在 ADR 0004 首节）：
+
+- `Target={machine_id,provider_id,profile,session}`；host 无 session 且仅 Luvus，Herdr 只 session。
+- `ProviderBinding={machine_id,provider_id,kind,config_ref,binding_revision,enabled}`；同设备一套凭据/一个出站 Connector，多适配器。新实例不可复用 ID，kind/root 替换须新 ID，配置/启停变更递增 revision；每次新调用/开流必填 expected_binding_revision。
+- 精确 provider scope 的 caller/local 双层授权；方法/分类/去重/history scope/句柄/流/晚到回复/缓存/审计都带 provider+binding revision。禁止独立 allowlist 笛卡尔积、跨 provider failover 或同名原生 ID 共享权限。
+- `ContractSource` 记录 kind/family、安装 binary/schema 哈希与命令、server/protocol、原生 generation（无则 null）、adapter/classification revision、support_basis；不可变 contract_ref 固定进 attempt。原生 `native_request/native_response` 分 kind 保留，安全分类/schema/传输/支持状态与逐方法 guarantees 独立。
+- wire **2.0** 承载必填新字段，v1 严格 decoder 不松绑，major 不兼容在业务前失败。默认无 v1 业务执行；仅显式确认唯一 legacy Luvus binding 才可设受限兼容入口，缺历史范围/恢复证明仍拒绝。旧 luvus_* 只作 Luvus 别名，新增 runtime_* 与 providers_list/get；不把 Herdr 当 UHP。
+
+数据迁移由 #5 与其它 P1 变更共同分配新 schema 版本，本轮未改 Store。只对来源可证明的旧 Luvus 实例创建唯一默认 legacy binding，初始禁用待双端确认；旧 ACL/call/attempt/句柄/墓碑一并映射，保留旧 key 索引/摘要版本与原 TTL/discard。不明来源 migration_unresolved、多个候选 root 或缺历史证据时禁用/拒绝，不自动绑定 Herdr、不造 active scope。旧 writer 拒绝升级库，备份恢复仍先隔离，所有 bindings 重新确认。
+
+设备撤销影响全部 providers；暂时断开只关设备 epoch。provider 禁用须独立 providers_manage、真实确认及新 revision，只阻断本实例的派发/读取/补证与流，不撤设备凭据、不影响其它 adapter、不声称终止原生工作。重新启用不复活旧句柄/attempt/队列；历史内容仍有效且明确授权历史 binding 才能新建短句柄。Web UI/API 已补这三种操作及设备/实例独立状态，trusted binary/root 配置不放进网页输入。
+
+Herdr 仅核对官方 v0.9.5 commit `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01` 的固定源码/文档及官网，**未运行 binary**。研究确认 JSON socket/schema CLI/ping22 的有限能力、无等价独立 Host/通用 cancel/通用原子 terminal fence、events_lost 后仅当前状态重建；recent 读取可能有输入/滚动副作用，prompt wait 不证明本 turn 完成。独立 P0-H 原生证据通过前保持 candidate/不可执行；首切片仅发现/状态/核实被动只读/事件重建，写入/终端另设验证。Luvus P0 与 Bun 证据未改。
+
+剩余协调：#4/wire/native 需共同采纳 ADR 0004 的 v2/类型，现有 v1 `request/uhp_response`、Target/Policy 与 Store v3 均待后续迁移，不能靠默认 provider 拼接。P0-H 尚无 binary/endpoint/被动读实证。#14 仍依赖 #5/#6/#8，不能先开管理写旁路；本轮未修改 GitHub issue。
+
+本轮范围为 ADR/DESIGN/PLAN/HANDOVER/WebUI 文档与本地提交；未改 src、test、package、lock、脚本、fixture；未创建凭据、安装/运行 Herdr、部署、远端发布或合并。验证结果与最终 commit 以交付消息为准。当前工具不支持读取旧研究 source thread，跨线程消息目标也不可用；已提前用进度消息及 ADR 首节提供冻结候选，父会话需直接读取该文档协调。
+
+本地文档验证：5 份文档的 37 个本地链接/锚点及 2 个 JSON 示例检查通过，代码围栏配对正常；git diff --check 通过。相对基线 src/test/scripts/fixtures/package/lock/config 无差异。未运行业务测试或 Herdr 原生实验，以上检查不构成功能验收。
+
+## Issue #15 本地 Bun 迁移交接（历史）
 
 已补做[验收视角复核](bun/REVIEW.md)，实际采集与重放的零Node执行链均通过；原39项日志、729项归档不改，新采集727项与实装审计证据独立保存。修复纳入第三个Bun提交，原885cc6a保留备份。用户已批准设计+Bun发布/PR，发布由本任务使用既有ArnoChenFx连接完成；合并main仍仅由父会话协调，不能把以下“未发布”历史交付状态当作当前授权边界。最终SHA/tree/PR见交付消息。
 
@@ -12,7 +46,7 @@
 
 P0 发布阻碍已解除：用户批准 ArnoChenFx 正常 Git 对象 API 后，只发布 P0 分支；原 d2455e8 对应远端 6d4ef0c4d4daaf200a7ce1cc5b229850fda8978f，tree 完全一致。可直接读取 [P0 报告](https://github.com/ArnoChenFx/luvus-mcp/blob/6d4ef0c4d4daaf200a7ce1cc5b229850fda8978f/docs/p0/REPORT.md)。后文 CLI 403、未发布和附件失败状态保留为历史，不能作为当前发布结论。Bun 交付无开发阻断，待父会话验收；不自动继续 #4。
 
-## 本地设计 v0.4 修订交接（2026-10-18 UTC）
+## 本地设计 v0.4 修订交接（历史，2026-10-18 UTC）
 
 父会话已确认 #3 Linux 范围通过；本轮从 `d2455e878f93e162a2a54bb58c1e5785aecd0949` 新建本地分支 `docs/adopted-safety-retention-recovery`，只修订文档。当前正式依据为 [DESIGN v0.4](DESIGN.md)、[IMPLEMENTATION-PLAN v0.4](IMPLEMENTATION-PLAN.md) 与 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。初次 v0.3 本地提交为 dfa26ea；本轮补严其边界并加入以下用户新需求。后文关于 v0.2/旧门禁的内容保留为历史交接，不能当成当前实施结论。
 

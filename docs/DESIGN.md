@@ -1,26 +1,30 @@
-# Luvus 多机器通用 MCP：系统设计
+# Rovloom：多机器通用 MCP 系统设计
 
-版本：0.4 · 日期：2026-10-18 · 原作者：Luvus Tester
-状态：四项安全/保留/恢复/迟到回复原则、Gateway 内置管理 UI 需求和 Bun 开发工具链要求已确认；具体设计待父会话验收，尚未实现。
+版本：0.5 · 日期：2026-10-18 · 原作者：Luvus Tester
+状态：用户已批准同一 Gateway 支持 Luvus 与 Herdr；多 runtime provider 公共契约为冻结候选，具体实现待父会话协调。四项安全原则与管理 UI 要求沿用，Bun 工具链已在 main 验收；多 provider 尚未实现。
 范围：仅文档，不启动编码 Agent，不变更已有实现和运行中 Luvus 会话。
 配套：《IMPLEMENTATION-PLAN.md》。本文替代此前讨论中的概念草案，不覆盖旧编码 Agent 文件。
 
-修订基线：已验收的 Linux P0 提交 `d2455e878f93e162a2a54bb58c1e5785aecd0949`。本次只修订文档；决策及实现缺口见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。
+项目展示名为 **Rovloom**，仓库暂名 `luvus-mcp`。Luvus/Herdr 是受支持的原生 runtime 名；package、CLI、工具/环境变量/协议字段等既有机器标识保持兼容，详见 [README 命名说明](../README.md#name-and-compatibility-identifiers)。原作者署名与历史证据保持原文。
+
+修订基线：main `5124d459fa0f712fd1dbb9f164a3513e3e538716`（含 Linux Luvus P0、安全设计与 Bun 基线）。本次只修订文档；安全原则见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)，公共字段、迁移与分阶段边界以 [ADR 0004](adr/0004-multi-runtime-provider.md) 为准。
 
 v0.4 补充：历史范围/恢复/预留耗尽保证边界、[内置 Web UI 设计](GATEWAY-WEBUI.md)（issue #14），并记录先行 Bun 迁移 #15。P0 中 Node/npm/SDK 的真实历史证据不改写为 Bun 通过。
 
+v0.5 补充：同设备一套身份/一条 Connector 出站连接、多 runtime adapters；显式 provider Target、可信 binding、独立权限/契约/恢复保证和 wire v2。文中 UHP/Host/native replay 条款专属已验证的 Luvus，不套用到 Herdr；Provider key 等历史措辞指 model provider 的密钥，不是 runtime provider 身份。
+
 ## 1. 设计结论
 
-构建一个项目、一套可执行程序 `luvus-mcp`，提供 `gateway` 与 `connector` 两种运行模式：
+构建一个项目、一套 Rovloom 程序，提供 gateway 与 connector 两种运行模式；设计中的可执行标识 `luvus-mcp` 暂作兼容标识保留，不在本轮重命名：
 
 - Gateway 集成 MCP Server、设备注册、身份与权限、请求路由、结果账本和订阅管理。
-- Connector 部署在每台 Luvus 主机，主动出站连接 Gateway，适配本地 UHP。
-- 主 Agent 按稳定 `machine_id` 指定机器，按 `name` 查询和展示，按显式 session 指定 Luvus 服务。
+- Connector 部署在每台目标主机，一套设备身份、一个主动 WSS 出站连接，运行多个可信配置的 Luvus/Herdr adapters。
+- 主 Agent 按稳定 `machine_id + provider_id + profile + session` 指定实例，机器/provider 展示名只用于查询展示；新 provider 不继承另一实例的授权。
 - 对外是少量通用 MCP 工具；功能目录和参数按远端发现，不为数百个 UHP 方法逐一包装工具。
 - 普通调用、持续事件/终端通道、Host profile 分别适配，共用路由和权限机制。
-- 全功能表示“可表达、可路由所有受支持的 UHP 能力”，不表示默认授予所有权限，也不表示覆盖所有 CLI 安装/下载操作。
+- Luvus 全功能口径仍为受支持 UHP 能力；Herdr 首个切片仅发现/状态/核实被动只读/事件状态重建，不宣称等价 UHP、终端控制或全部写入。所有能力均须明确授权。
 
-本文所有新增工具名、CLI、网络帧、错误码和默认值都是拟议网关协议，不是 Luvus 已有接口。
+本文所有新增工具名、CLI、网络帧、错误码和默认值都是拟议网关协议，不是 Luvus/Herdr 已有接口。
 
 ## 2. 用户需求与边界
 
@@ -34,6 +38,7 @@ R5. 支持多轮 agent 对话、长等待、持续事件、终端观察和获授
 R6. 显式目标，防止跨机器、跨 session、跨终端误操作；断线不可盲目重放变更。
 R7. 不泄露 Provider key、设备凭据和 UHP delegated token；有审计和资源上限。
 R8. 机器增删和配对可由获授权主 Agent 发起，但目标机器的本地安装与授权不能由注册动作凭空代替。
+R9. 同 Gateway/同设备可同时有 Luvus、Herdr 及多个同 kind 实例；同名 method/session/terminal ID 的路由、权限、结果与去重彼此隔离，不跨 provider 自动 failover。
 
 ### 2.2 不在首版承诺内
 
@@ -52,6 +57,7 @@ F1. Luvus UHP 使用结构化请求和响应，普通请求可通过 `luvus uhp 
 F2. `luvus uhp schema` 输出安装版本的 schema bundle，不需启动 server；`uhp.capabilities` 是运行中服务的能力发现。不能假定存在 `uhp.schema` 这个 RPC 方法。[S2]
 F3. UHP 有并发 revision、终端身份及事件恢复要求；客户端需处理 generation 变化与事件缺口。[S3][S4]
 F4. MCP 可通过 stdio 或 Streamable HTTP 承载；HTTP 授权和本地 stdio 凭据获取方式不同。[S5][S6]
+F5. Herdr v0.9.5 固定源码 commit `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01` 使用 JSON socket id/method/params，安装 schema 来自 `herdr api schema --json`，ping 协议号 22 与有限能力不等于完整在线方法目录；无等价独立 Host/通用 cancel/通用原子 terminal fence。事件缺口只能重建当前状态，recent 读取副作用与 prompt 完成归属须单独验证。[ADR 0004 官方来源](adr/0004-multi-runtime-provider.md#官方来源与核验边界)
 
 v0.2 最初只读核对 Luvus 0.14.3；随后 #3 的 Linux 原生 RPC、Host、事件和终端控制已获验收，范围与证据见 [P0 复核](p0/REVIEW.md)。安装 schema 223 个方法中 144 个仅有通用 params object；不能把存在方法枚举当作完整参数约束。网页文档可能领先安装版本，以安装契约与实时能力为准。本次 v0.3 修订未新增运行测试。
 
@@ -70,10 +76,11 @@ v0.2 最初只读核对 Luvus 0.14.3；随后 #3 的 Linux 原生 RPC、Host、�
        ┌──────┴──────┐  ┌──────┴──────┐
        │ Connector A │  │ Connector B │
        │ 本地策略    │  │ 本地策略    │
-       │ UHP adapter │  │ UHP adapter │
+       │ Luvus/Herdr │  │ Luvus/Herdr │
+       │ adapters    │  │ adapters    │
        └──────┬──────┘  └──────┬──────┘
               ▼                ▼
-       Luvus host/session  Luvus host/session
+       各 provider 实例    各 provider 实例
               ▼                ▼
          Pi / 其他 agent   Pi / 其他 agent
 ```
@@ -81,9 +88,9 @@ v0.2 最初只读核对 Luvus 0.14.3；随后 #3 的 Linux 原生 RPC、Host、�
 三条边界独立认证：
 1. MCP caller → Gateway：谁可以控制哪些机器和能力。
 2. Connector → Gateway：哪一个已注册设备在连接；不是靠 hostname/name 自报决定身份。
-3. Connector → 本地 Luvus：本地账号权限与可选 delegated scope。
+3. Connector → 本地 runtime：各 binding 的本地账号权限与适用的原生 delegated scope。
 
-Connector 只允许管理员固定的 Luvus 可执行路径、状态根和 session 访问策略。主 Agent 不得提交可执行文件路径、环境变量或任意本地 endpoint 来绕过这些边界。
+Connector 只允许管理员固定的各 runtime binary、状态根和 session 策略，由非秘密 config_ref/revision 绑定；主 Agent 不得提交路径、环境、endpoint 或任意 SSH 目标来选 adapter。设备广告不自动创建/重绑 provider；双方 binding 不一致拒绝派发。
 
 ### 4.1 两种 Gateway 部署
 
@@ -117,19 +124,20 @@ Connector 只允许管理员固定的 Luvus 可执行路径、状态根和 sessi
 
 `name` 查询必须返回精确结果；无唯一结果则要求澄清。实际 `call`、stream 和危险管理工具必须传 machine_id，不提供隐式 current machine。改名不会改变 ID 和在途路由。
 
-### 5.2 Luvus Instance / Session
+### 5.2 Runtime Provider Binding / Session
 
-首版约束：一个 Connector 管理一个固定 LUVUS_HOME/安装实例，内含多个 session。不同状态根作为不同注册目标，避免共享一台物理机上的身份混淆；将来可增加 instance_id，不在首版暗中支持。
+同一 machine 下有多个 provider_id；每个绑定一个固定 runtime 实例（kind=luvus|herdr）及可信 config_ref、单调 binding_revision、enabled。provider_id 不复用，kind/状态根/实例身份不能原地换成另一实例；替换须新 ID，原地升级须新 revision/重发现。runtime 与 model provider 命名空间分离。字段与生命周期详见 ADR 0004。
 
-路由键：`(machine_id, profile, session)`。
+路由键：`(machine_id, provider_id, profile, session)`。新调用/开流必须带 expected_binding_revision，实际 revision 固定进 attempt；缺失不默认选择任一 runtime。
 - profile=session：显式 session 名必填，包括 default；不继承当前 shell 的目标。
-- profile=host：无 session endpoint；目标 session 等参数遵循 Host 方法自身 schema，不凭外层值猜测。
+- profile=host：仅适用于 Luvus；无 session endpoint，目标 session 等参数遵循 Host 自身 schema。Herdr 仅 profile=session，不将 server.* 当 Host。
 - 结果句柄再绑定 server_generation、terminal_id、workspace_id 等原生身份（若适用）。
 - Gateway 自身 machine_id 与 Luvus 的 machine.* 方法记录完全不同，不复用 ID 命名空间。官方方法目录中，部分 machine.* 只存在于 `uhp access --machines`；首版 host/session 接入不能假称支持该专用 profile。覆盖账本将其标为 profile_not_exposed，后续如有需求再独立接入，不把它用作本 Gateway 设备注册后端。[S2]
+- Herdr 的 machine/SSH federation 同样不作为 Gateway 注册、出站通道或隐式跨机器转发后端。所有原生 ID、session、句柄、分类与契约缓存均带 provider/revision。
 
 ### 5.3 持久化建议
 
-Gateway 使用 SQLite（事务、schema migration、单活 writer），保存 machines、enrollment、credential hashes、policy、calls、result metadata、audit、stream metadata。大结果保存受限文件对象，数据库只存引用和摘要。
+Gateway 使用 SQLite（事务、schema migration、单活 writer），保存 machines、provider bindings/revisions、enrollment、credential hashes、policy、calls、contract sources、result metadata、audit、stream metadata。大结果保存受限文件对象，数据库只存引用和摘要。现有 v3 待 #5 原子迁移；来源可证明的旧记录仅映射唯一 legacy Luvus binding，ACL/去重/句柄一同迁移，不明来源禁用、旧摘要/TTL/墓碑不丢，详见 ADR 0004。恢复后的 binding 默认禁用重新确认。
 Connector 使用权限受限状态目录保存设备凭据及最小调用日志；Linux/macOS 建议目录 0700/文件 0600，Windows 使用等效 ACL，不把 POSIX mode 当跨平台安全保证。
 
 在线状态、WS 对象不从数据库“恢复为 online”。Gateway 重启后一律等待设备重新认证；不执行持久化的待发变更。
@@ -170,6 +178,7 @@ Connector 使用权限受限状态目录保存设备凭据及最小调用日志�
 - 撤销：立即拒绝新请求、断通道并关闭订阅；已送入 Luvus 的工作不保证自动停止。
 - 重装：凭据丢失需人工批准重新配对，不能凭同 hostname 自动接管旧 ID。
 - 克隆：同一设备身份并发连接默认返回 duplicate_device_connection，不静默“后连接踢前连接”。明确 takeover 必须有授权并更新 epoch；旧 epoch 响应隔离；同一有效 epoch 的晚到证据另按 §11.1 处理。
+- provider 禁用：独立 providers_manage 权限、真实管理确认、新 binding revision，阻止该实例的调用/流/结果读取与补证；设备身份及其它 providers 不受影响。不停止原生工作、不复活旧句柄，重新启用须重发现/重授权。设备撤销则覆盖全部 providers。
 
 ## 7. MCP 工具面
 
@@ -191,55 +200,58 @@ Connector 使用权限受限状态目录保存设备凭据及最小调用日志�
 
 | 工具（拟议） | 职责 |
 |---|---|
-| luvus_discover | 指定 machine_id/profile/session，返回版本、方法摘要、effective permissions、limits、generation、schema hash |
-| luvus_describe | 按 method 或关键词查参数、结果 schema、调用语义；按需分页，不返回全部数百项 |
-| luvus_call | 发送一条普通 UHP 请求；支持短等待或返回 call_id，保留原生结果 |
-| luvus_call_get | 读取调用状态；结果大时分页/结果句柄，不暗中重试 |
-| luvus_call_cancel | 请求停止等待/桥接，返回可确认的取消程度，不声称撤销远端动作 |
-| luvus_result_read | 读取授权范围内的结果句柄，支持 cursor、字节上限和 TTL |
+| providers_list / providers_get | 返回当前 caller 可见的已配置实例、kind、binding revision、启停/可达状态；不返回秘密配置 |
+| runtime_discover | 指定完整 Target，返回 ContractSource、方法摘要、独立分类/schema/传输/支持状态、保证与有效权限 |
+| runtime_describe | 按 method 或关键词查对应 provider 的契约与调用语义；按需分页 |
+| runtime_call | 发送一条 native_request；短等待或返回 call_id，保留该 provider 原生结果 |
+| runtime_call_get | 读取调用状态；结果大时分页/句柄，不暗中重试 |
+| runtime_call_cancel | 请求停止等待/桥接，返回实际取消程度，不声称撤销原生动作 |
+| runtime_result_read | 按原 provider/binding 重授权读取结果句柄，支持 cursor、字节上限和 TTL |
 
-`luvus_call` 概念输入：
+新工具使用 runtime_*；旧 luvus_* 仅为明确 Luvus 兼容别名，不可静默路由 Herdr。以下为 runtime_call 的 Luvus 示例；request id/凭据仍由 adapter 管理：
 
 ```json
 {
-  "machine_id": "m_01",
-  "profile": "session",
-  "session": "agent-lab",
-  "request": {"method": "agent.list", "params": {}},
+  "target": {"machine_id":"m_01","provider_id":"p_luvus_01","profile":"session","session":"agent-lab"},
+  "expected_binding_revision": 1,
+  "native_request": {"method": "agent.list", "params": {}},
   "wait_ms": 10000,
   "execution_timeout_ms": 30000,
   "expected_server_generation": "optional-observed-generation"
 }
 ```
 
-`request` 保留 UHP schema 允许的并发/幂等字段，具体位置按安装 schema。Gateway 分配原生 request id；`auth` 属保留字段，由 Connector 注入，禁止 caller 读取/传入原生 token。绝不合成自动确认字段。
+`native_request` 保留对应 schema 的并发/幂等字段；Luvus 与 Herdr 分别验证，不能互相补字段。Gateway 分配原生 request id；auth/凭据/目标注入字段保留，禁止 caller 传入或读取。绝不合成自动确认字段。带 key 调用另须 ADR 0002 的 history_epoch/recovery_generation（示例省略）；provider_kind/contract_ref 由可信 binding/契约解析而非 caller 自证。
 
 响应外壳示意：
 
 ```json
 {
   "call_id": "call_01",
-  "target": {"machine_id":"m_01","name":"home-linux","profile":"session","session":"agent-lab"},
+  "target": {"machine_id":"m_01","provider_id":"p_luvus_01","profile":"session","session":"agent-lab"},
+  "provider_kind": "luvus",
+  "binding_revision": 1,
+  "contract_ref": "sha256:example-contract-reference",
   "state": "responded",
   "delivery": "response_received",
-  "uhp_response": {"id":"u_01","result":{}},
+  "native_response": {"id":"u_01","result":{}},
   "truncated": false
 }
 ```
 
-Gateway 错误放 `gateway_error`，原生错误保留在 `uhp_response.error`，不混为一个命名空间。无原生回复时不伪造 UHP result。原生内容只在安全分类允许且 §12.3 内容期限内提供；过期/显式清理后仅返回状态、受保护的最小证据元数据及 content_status，不从旧内联响应重新生成 result_id。
+Gateway 错误放 gateway_error，原生错误保留在 native_response.error，不混命名空间；uhp_response 仅供显式 legacy Luvus 兼容入口。无原生回复不伪造 result。原生内容只在安全分类允许且 §12.3 期限内提供；过期/discard 后仅返回状态与最小证据，不再生 result_id。
 
 ### 7.3 流与终端控制
 
 | 工具（拟议） | 职责 |
 |---|---|
-| luvus_stream_open | 指定原生 streaming method、params 和目标，打开订阅或终端通道 |
-| luvus_stream_read | stream_id、cursor、max_bytes、wait_ms，有界读取与缺口状态 |
-| luvus_stream_write | stream_id、frame；仅向已授权双向通道写入官方 schema 允许的输入帧 |
-| luvus_stream_close | 释放订阅、本地连接和控制 lease；不默认关闭 pane/agent |
+| runtime_stream_open | 完整 Target、expected_binding_revision、原生 streaming method/params，打开已适配通道 |
+| runtime_stream_read | stream_id、cursor、max_bytes、wait_ms，有界读取与缺口状态 |
+| runtime_stream_write | stream_id、frame；仅向已验证获授权双向通道写入原生允许帧，Herdr MVP 禁用 |
+| runtime_stream_close | 释放订阅、本地连接和适用的原生 lease；不默认关闭 pane/agent |
 
 不把无限流作为一直不返回的 MCP 工具调用。MCP Host 通过句柄分批读；协议通知可作优化，但不能作为唯一可靠结果渠道。
-终端 control 的双向输入不是普通 RPC：仅 open/read 不足以覆盖，因此明确 stream_write；capture 等一次调用仍走 luvus_call。
+Luvus 终端 control 的双向输入不是普通 RPC：仅 open/read 不足以覆盖，因此明确 stream_write；capture 等一次调用仍走 runtime_call。Herdr 不因工具同名继承该控制协议。
 二进制/图片上传只在远端公布且已完成帧/容量验证后宣告支持；未适配的子协议返回 unsupported_stream_feature，而不是宣称全覆盖。
 
 ## 8. 能力发现和 schema
@@ -249,17 +261,23 @@ Gateway 错误放 `gateway_error`，原生错误保留在 `uhp_response.error`�
 发现步骤：
 1. Connector 获取安装 binary version 和本地 `luvus uhp schema` bundle，计算 hash。
 2. session 通道查询实时 uhp.capabilities；host 通道查询 host.capabilities；两者不混为一张权限表。
-3. 按 machine/profile/session/generation/binary/schema hash/policy revision/安全分类 revision 缓存；重启/升级或契约不匹配则失效。
+3. 按 machine/provider/binding revision/kind/profile/session/generation（原生有则使用）/binary/schema hash/adapter revision/双方 policy revision/安全分类 revision 缓存；重启/升级或契约不匹配则失效。
 4. describe 从 schema 提取方法相关分支，同时保留所有传递引用、根约束、条件约束及外部 document 依赖；不能只剪出一个 properties。
 5. 每次变更前重新确认目标在线、epoch、generation 和策略；过期发现返回 capability_stale，不透明降级。
 
+以上 CLI/capabilities 流程属于 Luvus。Herdr 用自己的安装 schema 与 ping 版本/有限能力；support_basis=schema_and_version，候选方法不得伪报在线验证。公共 ContractSource 必须可追踪 binary/schema 哈希、命令、server/protocol、原生 generation（没有则 null）、adapter/classification revision；describe 逐方法声明 event_recovery/terminal_fence/cancel/prompt_completion 保证，枚举见 ADR 0004。schema 状态与安全分类不得跨 kind、实例或同名方法继承。
+
 安全分类与参数 schema 是两个独立维度。分类必须来自绑定确切版本/契约的受信本地评审资料及已核验原生 method_contracts，至少说明：作用（读/写/外部副作用、是否幂等及传输类型）、高权限（Owner、Host admin、任意终端/agent 执行、凭据管理和所需确认）、结果是否可能包含秘密及其保存/交付方式。字段缺失、来源不受信或互相冲突即 `classification_unavailable`；不能凭方法前缀、通用 object schema、客户端自报或远端广告自行补齐。原生声明不能提升本地授权。
+
+若 provider 没有等价完整的原生 method_contracts（Herdr 当前即属此类），必须由固定 binary/schema 的可信本地评审补足全部安全维度；未齐全仍拒绝，不能拿有限 ping/schema 当安全声明。
 
 未知/未完整分类的方法允许被发现，但默认拒绝执行，Owner 和 raw-contract 也不能绕过。应分别展示 classification_status、schema_status、transport_status 和策略拒绝原因。凭据/令牌类秘密结果需要专门 custody 或默认拒绝该调用；一般潜在敏感内容需明确的读取授权、保留与交付规则，不声称能自动识别所有秘密。“只读”不代表结果可直接交给模型，也不能把真实 token 混入普通结果句柄/日志。通用 action.invoke 或流控制的子动作也必须分类，不能以已知容器方法包住未知作用。
 
 旧 binary、新 server 或相反的情况：返回版本及 schema 来源。严格模式中，参数契约缺失/不完整时拒绝。只有安全分类完整、传输已适配、当前双方策略允许且秘密结果路径已落实的方法，Owner 才能显式选择仅放宽参数校验的 raw-contract；标注 validation=unavailable，仍执行 envelope、大小、保留字段和安全检查。它不能替代完整参数验证，不能把网页 schema 冒充安装版，也不能自动允许新增流帧。P0 的 144 个参数缺口不能自动等同于 144 个安全分类未知，反之亦然。
 
-## 9. Connector 的本地 UHP 适配
+## 9. Connector 的原生适配
+
+§9.1–9.3 是 Luvus adapter；各 adapter 共用设备连接与有界调度/预算，保持自己的原生契约。单 provider 故障不冒充设备断线。
 
 ### 9.1 普通调用
 
@@ -278,16 +296,20 @@ Gateway 错误放 `gateway_error`，原生错误保留在 `uhp_response.error`�
 host.call 仍经 profile=host 的通用调用，不另建任意命令执行入口。Host 能力、普通 session 能力及 schema 来源分别报告；Host 的安装、删除等确认字段只能由获授权且确有确认的操作携带。[S1][S2]
 Gateway 停止/重启目标 session 的回复丢失时，采用 Host 只读状态查询对账，不重新发一次 stop/restart。
 
+### 9.4 Herdr JSON adapter 的分阶段范围
+
+只读研究 v0.9.5/协议22不等于原生运行验收；先经独立 P0-H 验证固定 binary/schema、endpoint 归属/peer、framing、被动只读与事件恢复。首个切片仅发现、状态、核实被动只读、事件失效后当前状态重建；排除未核实 recent 读取、prompt/run/input、Host 模拟及 UI renderer。外层 binding/generation 检查不能补造原子终端 fence；prompt wait 仅为状态观察，不保证本 prompt 完成；取消仅释放可确认的桥接资源。写入/终端后续单独验证，具体边界见 ADR 0004。
+
 ## 10. Gateway ↔ Connector 自定义协议
 
-传输：WSS；一个 WebSocket message 对应一个 UTF-8 JSON envelope，不再称作“每行一个 WebSocket 帧”。此协议不同于 UHP 的本地 LF framing。
+传输：WSS；一个 WebSocket message 对应一个 UTF-8 JSON envelope。新业务协议 major=2/minor=0；必填 provider/native/契约字段不塞入严格 v1。旧 v1 默认不开业务执行；需要兼容须显式锁定迁移证明的唯一 legacy Luvus binding，缺少安全历史证明仍拒绝，禁止失败后自动降级/跨 runtime 重试。完整兼容规则见 ADR 0004。此 wire 版本与 MCP revision 独立。
 
 Envelope 基本字段：protocol_major/minor、type、message_id、connection_epoch、payload。
 类别：enroll、authenticate、welcome、request、accepted、response、stream_open/data/input/close、cancel、heartbeat、error。
 - TLS 验证必需；只有显式本机开发模式可用 loopback ws。
 - credential 不在 URL query、日志或 MCP 输出里；按受保护的握手流程传输。
-- major 不兼容拒绝连接；minor 能力协商后使用交集，不静默猜字段。
-- 所有响应绑定认证 machine、recovery_generation、call_id、attempt_id、connection_epoch 和 native request id；重复/迟到处置见 §11.1，旧 epoch/恢复代次或其它 attempt 不改变当前结果。
+- major 在业务前协商，不兼容拒绝；minor 仅协商显式 feature 交集，未知字段/枚举拒绝，不静默剥除；安全必需字段变化升级 major。
+- request/accepted/response/cancel/流均关联认证 machine、provider_id、binding_revision、provider_kind、profile/session、contract_ref、recovery_generation、call/attempt/epoch/native id；v2 用 native_request/native_response。旧 binding/provider 或 epoch/恢复代次/其它 attempt 的回复不能补写结果。
 - 去重范围使用由 Gateway 发放的 history_epoch（§11.2）；它不是设备 credential、连接身份或 Luvus generation。字段名/编码与能力协商由 #4 冻结，客户端不能自行创造有效范围。
 - frame 和并发有限额，校验 type、大小、嵌套深度和 deadline；Connector 不可无限 spawn。
 - 心跳只证明通道健康，不证明本地 Luvus/Provider 健康；健康报告分别列出。
@@ -320,6 +342,8 @@ Gateway client_request_key 在 §11.2 的受信历史范围内，去重同一 ca
 取消 MCP 等待不会回滚远端命令；发送取消请求仅尽力释放观察/本地子进程资源，若已执行返回 cancel_unconfirmed。终端 stream_write 同样区分 queue admission 与原生 ack；断线丢 ack 时不能自动重发输入。
 
 Gateway 的 expected_server_generation 只提供桥接层的目标核对：若原生方法不支持同一临界区内的身份/revision 前置条件，就不能保证检查与执行间绝无重启竞态。严格控制应使用原生 fence；缺少 fence 的操作必须在 describe 中标注保证强度，不能宣传外层字段具有原子性。
+
+该边界逐 provider/方法适用。Herdr 普通 JSON 输入不提供等价通用原子 terminal incarnation fence，写入/控制未验收即禁用。只读重试也须证明 method+params 无输入/滚动等副作用；不能按 read 前缀自动换 attempt，更不能跨 provider failover。unknown 补证另外要求原 provider binding 仍可信有效且未禁用，不能把同名原生 id 的其它 adapter 回复接纳。
 
 ### 11.1 可靠晚到回复只能补充原 attempt 的证据
 
@@ -357,6 +381,8 @@ Gateway 只接受自己仍登记且绑定当前恢复代次的范围；旧/未�
 
 遵循原生 subscribe → 另连接 snapshot → 丢弃 snapshot 之前缓冲事件 → 顺序应用；缺口、overflow、EOF、generation 变化后标记 resync_required 并重取快照。[S3]
 
+上述序号规则仅用于已验证的 Luvus。Herdr 的事件与 snapshot 没有共同序号边界；events_lost/断线时显式 gap，重新订阅后另连接 snapshot 整体替换缓存，事件只作失效信号，串行刷新且读取中有事件则再读。不把缓存事件载荷重放到快照上，不编造 sequence/replay 或历史连续性；state_rebuild_only 只恢复当前状态。两种游标/恢复状态均按 provider/binding/session 隔离。
+
 保留两种游标：原生 event_sequence 与网关 delivery_cursor。delivery_cursor 不代替原生连续性。多机器的序号没有全局时序意义。
 流重连不宣称无损：原生重放窗口不够时明确 gap；终端 observe 不支持重放时重新 capture。
 
@@ -365,6 +391,7 @@ Gateway 只接受自己仍登记且绑定当前恢复代次的范围；旧/未�
 - 普通 MCP 返回默认最多 64 KiB；较大完整 UHP 回复保存为 result_id，返回摘要、长度、hash、截断标记和读取方式，不静默丢字段。
 - 传输 envelope 分片后重组，且单个 UHP payload 不超过远端广告上限；schema bundle 作为独立有界对象传输，不受 session frame 限制猜测。
 - 每设备普通在途 8、等待 4、订阅 8；均可配置且受原生限制进一步约束。
+- 同设备多 providers 共用上述设备上限，并可分配更窄 provider 子限额；§12.3 总量不按 provider 倍增，单实例拥塞不得无限挤占其它实例。
 - 默认普通执行超时 30 秒，长等上限 10 分钟；Caller 只控制更窄范围，不能越过管理员上限。
 - 每订阅缓存默认 4 MiB；满时报告 overflow、停止或要求 resync，不无界增长。
 - 原始内容、句柄和去重墓碑分别按 §12.3 保留；内容可能敏感，权限校验同原调用，撤销后立即不可读。
@@ -411,12 +438,12 @@ Gateway 只接受自己仍登记且绑定当前恢复代次的范围；旧/未�
 
 ### 13.1 授权模型
 
-按 principal × machine_id × profile × session × method/contract scope 授权，必要时追加确认规则。
+按 principal × machine_id × provider_id/binding_revision/kind × profile × session × method/contract/classification scope 授权，必要时追加确认规则。按完整 provider scope 分组求交，不能让独立 allowlist 的笛卡尔积扩大权限；设备权限不隐含未来新 provider 权限。
 - observer：只读能力；“只读”按契约和风险分类，不只看方法前缀。
 - orchestrator：明确授权的 agent/task/worktree 编排；能给 agent 发任意 prompt 也可能导致任意代码执行，不能称安全沙箱。
 - owner：配置目标范围内所有允许的 UHP；Host admin 和凭据管理独立授予。
 
-最外层 ACL 是上限，Connector 本地策略再次检查。禁止通过 luvus_call 绕过 machine revoke、原生 token 管理或 admin 审批；凭据类方法如开放则使用专门 secret custody 流程，不原样把 token result 交给模型。
+最外层 ACL 是上限，Connector 本地策略再次检查。禁止通过 runtime_call/旧别名绕过 machine revoke、provider disable、原生 token 管理或 admin 审批；凭据类方法如开放则使用专门 custody，不原样交给模型。结果/流/清理/晚到路径同样校验完整 provider 关联。
 
 三种角色共同受 §8 的安全分类门禁限制：Owner 不代表允许未知作用、未知高权限要求或未知秘密结果处理。只有分类完整而参数 schema 缺失时，才可能在显式 raw-contract 下讨论调用；两个缺口须分别拒绝/说明。派发、流写入和结果交付均重新核对分类 revision 与双方当前策略，不能只在 discover 时检查一次。
 
@@ -432,20 +459,20 @@ Gateway 被攻陷可影响已授权设备，Connector 失陷可伪造该设备�
 
 ### 13.4 审计
 
-默认记录 caller、machine/profile/session、method、call_id、epoch、generation、policy revision、时间、状态、大小；参数只记录经过脱敏的摘要。prompt、终端输出、配置可能含秘密，默认不进入普通日志。
+默认记录 caller、machine/provider/binding revision/kind/profile/session、method、contract_ref、call_id、epoch、原生 generation（若有）、policy/classification revision、时间、状态、大小；参数只记录脱敏摘要。prompt、终端输出、配置可能含秘密，默认不进日志。
 设备/配对/UHP/OAuth secret 永不写日志、URL、进程参数或 MCP content。结果保存无法保证自动识别所有秘密，所以限制访问、存留、导出；可配置磁盘加密/系统加密卷。
 Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销权限先阻断新动作，再关闭流，报告仍可能运行的工作。
 审计和结果分池保留，具体期限与预算按 §12.3。保留可信晚到证据或恢复管理记录不授予内容读取权限；审计也不能成为秘密结果的旁路。
 
 ## 14. 兼容性、模块和可观测性
 
-拟议模块：cli、mcp-facade、registry/enrollment、identity-policy、router-call-ledger、result-store、schema-index、connector-transport、local-uhp-rpc、local-uhp-stream、audit-health。
+拟议模块：cli、mcp-facade、registry/enrollment、provider-bindings、identity-policy、router-call-ledger、result-store、schema-index、connector-transport、runtime-adapter 接口、luvus-uhp-rpc/stream、herdr-json、audit-health。契约来源与恢复保证留在各 adapter，业务核心不将 Herdr 转写为 UHP。
 
-实现语言保持 TypeScript；未来开发工具链按用户要求改用 Bun，由 [issue #15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 在 #4 前单独迁移验收。本轮不改 package/lock、测试、构建或脚本；Bun 1.4.3 只是 issue 建议的待核验精确版本，尚未验证官方来源/环境可用性。是否仍需 Node 运行时、如何替换或保留 node:sqlite，须验证 SQLite、SDK、类型检查、测试/构建与脚本后决定，不因工具链变更直接宣称运行时全迁移。
+实现语言保持 TypeScript；#15 Bun 1.4.3 工具链已验收并合入 main=5124d45，node:sqlite 由 Bun 提供，精确证据见 [ADR 0003](adr/0003-bun-toolchain.md) 与 [报告](bun/REPORT.md)。本轮不改 package/lock、源码、测试或脚本。Linux 的通过不扩展为跨平台或新 adapters 已验收。
 
-[ADR 0001](adr/0001-p0-version-and-contract-baseline.md) 保留 Node 24.19.0/npm 11.9.0/SQLite 3.53.3 的 P0 历史证据；它不是未来工具链默认值。迁移从 d2455e8 的真实 package.json/lock 出发，其中已经有 MCP SDK 1.32.1、Ajv 8.20.0 和 ws 8.22.0，不能用旧 916cae2 中“没有 SDK”的观察代替。保持 SDK 1.32.1 已测基线，不借迁移升级 SDK 2.x 或重写 MCP 架构。已验证的 MCP revision 仍只是 2025-11-25；其它运行时/客户端须分别联调。
+[ADR 0001](adr/0001-p0-version-and-contract-baseline.md) 保留 Node 24.19.0/npm 11.9.0/SQLite 3.53.3 的 P0 历史证据；它不是当前工具链默认值。#15 已从真实 package/lock 保留 MCP SDK 1.32.1、Ajv 8.20.0 和 ws 8.22.0；不因多 provider 升级 SDK 2.x 或重写 MCP 架构。已验证 MCP revision 仍为 2025-11-25；其它运行时/客户端须分别联调。
 
-公开 health 分层：Gateway ready、设备 link、Connector ready、Host profile 可用、各 session reachable；Provider 错误属于 agent 任务层，不能显示成 Gateway 不在线。
+公开 health 分层：Gateway ready、设备 link/认证、Connector ready、各 runtime provider enabled/binding readiness、profile/session reachable、model provider/agent 任务错误。一个 adapter 故障不代表设备离线；model provider 错误不代表 Gateway 不在线。
 指标：在途数、队列拒绝、请求延迟、unknown 计数、连接重试、流缺口/背压、schema 缓存命中、凭据失败；不以 machine 高基数无限生成标签。
 
 ## 15. 关键设计选择（ADR 摘要）
@@ -453,6 +480,8 @@ Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销�
 | 决策 | 理由 / 取舍 |
 |---|---|
 | 单项目双模式 | 共用协议和版本，不把角色强迫合成同一进程 |
+| 一设备身份/一连接、多 provider adapters | Target 显式 provider，权限/去重/结果隔离；原生契约与恢复保证分别表达 |
+| Wire major 2 与明确 legacy Luvus 迁移 | 必需路由字段不以默认值兼容，旧调用不转其它 runtime |
 | Connector 主动 WSS | 适合出站可达的内网；不自动解决出口被拦或代理限制 |
 | 通用元工具 | 保持丰富功能，按需 schema，避免静态工具爆炸 |
 | 写调用只接受 machine_id | 防改名、同名、上下文漂移串机 |
@@ -472,12 +501,12 @@ Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销�
 2. Gateway 部署：建议单机常驻 HTTPS；本地 stdio 作为开发/个人模式。
 3. 身份服务：由部署方选择兼容 OAuth 服务；决定前不对公网开放 HTTP MCP。
 4. 是否授予 Owner/Host admin：默认只读，显式扩大；这是部署选择，不削减协议可表达能力。
-5. 单机多 LUVUS_HOME：首版按不同注册目标处理。
+5. 单机多 LUVUS_HOME/Herdr 状态根：同 machine 下不同 provider_id；新实例显式配置/授权，不复用身份。
 6. 原生 endpoint 的平台实证和高级终端帧：协议实验阶段冻结。
 
 四项 v0.3 原则已采纳，不再列作未决问题；§12.3 为供实现与父会话验收的可配置默认值，不是已运行的策略。#4/#5 的具体实现、CLI 配置编码和迁移尚待开发；本次仅文档修订不授予开发/凭据/部署或远端发布权限。
 
-内置 Web UI 与未来 Bun 工具链也是已确认需求；#14/#15 的实现需独立派发。尚待技术验证的是 Bun 精确版本和运行时/SQLite/SDK 兼容，不再把 Node+npm 写成未来默认选择。
+多 runtime provider 与内置 Web UI 已确认；Bun 基线已合入。待父会话协调 #4 的 v2/公共字段，#5 的迁移及 P0-H 的原生证据；未实证 Herdr 被动读 allowlist、写入/终端能力不开放。常规技术默认由实现方按 ADR 0004 落实，无需用户重复批准已采纳方向。
 
 ## 17. 完整性验收口径
 
@@ -489,6 +518,8 @@ Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销�
 - 尚不支持且写明原因。
 
 全功能就绪要求：所有目标版本能力都有分类、授权允许的功能有实际调用路径，普通方法通用透传不必逐个写业务代码；高风险、流、安装辅助等不能被一句“raw call”掩盖。
+
+上述账本按 runtime kind/provider/版本/profile 分开生成；Herdr 首切片仅以其明确范围验收，不因 Luvus 全功能通过而继承支持。跨 provider 同名授权/去重/句柄隔离、迁移来源证明、wire major/strict 字段拒绝、provider 禁用与设备撤销差异须另有证据，见实施方案 §4.3。
 
 后续验收还必须分别证明：未知安全分类在所有角色下拒绝；内容到期/discard 后所有读取和重建路径关闭且墓碑保留；有限去重范围到期/恢复回滚时旧 key 不会新建派发；恢复前撤销与配对消费不复活；同一有效 attempt 的可靠晚到结果可补证，旧 epoch/恢复代次/其他 attempt 不污染结果。#4/#5 的具体验收清单见实施方案 §4.1。
 
