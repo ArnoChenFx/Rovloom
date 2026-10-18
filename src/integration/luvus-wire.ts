@@ -164,6 +164,44 @@ export function createLuvusWireAdapter(
     handles = new WeakMap<object, State>();
   const assemblers = new Map<Direction, { connection: string; assembler: ObjectAssembler }>();
   const windows = new Map<Direction, { connection: string; window: MessageWindow }>();
+  let undo: Map<string, State | undefined> | undefined;
+  function remember(name: string): void {
+    if (!undo || undo.has(name)) return;
+    const state = states.get(name);
+    undo.set(
+      name,
+      state && {
+        ...state,
+        controls: new Map([...state.controls].map(([nativeId, input]) => [nativeId, { ...input }])),
+      },
+    );
+  }
+  // codec/native callbacks may write before later envelope, sequence or dedup checks fail.
+  // Keep successful earlier operations; roll back only states touched by this operation.
+  function atomic<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+    return (...args) => {
+      if (undo) fail('native_adapter_unavailable');
+      const pending = new Map<string, State | undefined>(),
+        before = retainedBytes;
+      undo = pending;
+      try {
+        return fn(...args);
+      } catch (error) {
+        for (const [name, saved] of pending) {
+          const current = states.get(name);
+          if (current) handles.delete(current.handle);
+          if (saved) {
+            states.set(name, saved);
+            handles.set(saved.handle, saved);
+          } else states.delete(name);
+        }
+        retainedBytes = before;
+        throw error;
+      } finally {
+        undo = undefined;
+      }
+    };
+  }
   function record(value: AttemptIdentity): TrustedAttempt {
     validateAttempt(value);
     const found = backend.attempt(value.call_id, value.attempt_id);
@@ -292,6 +330,7 @@ export function createLuvusWireAdapter(
       ctx = context('gateway_to_connector', attempt.principal_id);
     const current = source(attempt, ctx);
     let state = states.get(key(value));
+    remember(key(value));
     if (!state) {
       if (states.size >= limits.attempts) fail('adapter_limit');
       const native = createNativeValidator(current.registry.compiled);
@@ -335,6 +374,7 @@ export function createLuvusWireAdapter(
     if (!c.native_handle || typeof c.native_handle !== 'object') fail('native_handle_unavailable');
     const state = handles.get(c.native_handle);
     if (!state) fail('native_handle_mismatch');
+    remember(key(state.attempt.binding));
     assertBinding(c.binding, state.attempt.binding);
     if (
       c.method !== state.attempt.method ||
@@ -462,8 +502,10 @@ export function createLuvusWireAdapter(
   });
   function close(frame: WireEnvelope): void {
     if (frame.type !== 'stream_close' || !('connection_epoch' in frame)) return;
-    const state = states.get(key(frame.payload.attempt));
+    const name = key(frame.payload.attempt),
+      state = states.get(name);
     if (state) {
+      remember(name);
       state.closed = true;
       state.controls.clear();
     }
@@ -598,6 +640,7 @@ export function createLuvusWireAdapter(
     release(binding: AttemptBinding) {
       const state = states.get(key(binding));
       if (!state) return;
+      remember(key(binding));
       assertBinding(binding, state.attempt.binding);
       retainedBytes -= state.snapshotBytes;
       handles.delete(state.handle);
@@ -605,15 +648,15 @@ export function createLuvusWireAdapter(
     },
   };
   return Object.freeze({
-    decode: guarded(api.decode),
-    encode: guarded(api.encode),
-    decodeObject: guarded(api.decodeObject),
-    acceptChunk: guarded(api.acceptChunk),
-    checkResult: guarded(api.checkResult),
-    advanceStream: guarded(api.advanceStream),
-    observeMessage: guarded(api.observeMessage),
-    planEvidence: guarded(api.planEvidence),
-    release: guarded(api.release),
+    decode: guarded(atomic(api.decode)),
+    encode: guarded(atomic(api.encode)),
+    decodeObject: guarded(atomic(api.decodeObject)),
+    acceptChunk: guarded(atomic(api.acceptChunk)),
+    checkResult: guarded(atomic(api.checkResult)),
+    advanceStream: guarded(atomic(api.advanceStream)),
+    observeMessage: guarded(atomic(api.observeMessage)),
+    planEvidence: guarded(atomic(api.planEvidence)),
+    release: guarded(atomic(api.release)),
   });
 }
 type PayloadWithAttempt = { attempt: AttemptIdentity };

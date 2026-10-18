@@ -30,6 +30,19 @@ import {
   view,
 } from './helpers.js';
 
+test('选用 custody 通道时必须当前可用，普通分类不能把失效 custody 标为已授权', () => {
+  const candidate = request(view(), {
+    id: 'custody',
+    method: 'task.add',
+    params: { title: 'synthetic' },
+  });
+  const context = { ...auth(candidate), result_channel: 'custody' as const };
+  assert.equal(unwrap(inspectRequestGate(candidate, context)).secret_result_authorized, false);
+  rejects(checkDispatch(candidate, context), 'secret_boundary_required');
+  unwrap(checkDispatch(candidate, { ...context, custody_available: true }));
+  unwrap(checkDispatch(candidate, { ...context, result_channel: 'ordinary' }));
+});
+
 test('raw 需要 Owner 显式选择及独立 grant，不能放宽身份/恢复代次/契约', () => {
   const candidate = request(view(), { id: 'raw', method: 'ping', params: {} });
   rejects(
