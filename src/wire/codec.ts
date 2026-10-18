@@ -54,9 +54,11 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   error: ['gateway_to_connector', 'connector_to_gateway'],
   object_chunk: ['gateway_to_connector', 'connector_to_gateway'],
 });
+
 function connection(v: JsonObject): void {
   for (const k of CONNECTION) id(v[k]);
 }
+
 export function validateAttempt(value: unknown): asserts value is AttemptIdentity {
   const a = object(value);
   fields(a, ATTEMPT);
@@ -82,6 +84,7 @@ export function validateAttempt(value: unknown): asserts value is AttemptIdentit
     id(h.client_request_key);
   }
 }
+
 function pickAttempt(a: AttemptBinding): AttemptIdentity {
   return {
     call_id: a.call_id,
@@ -94,6 +97,7 @@ function pickAttempt(a: AttemptBinding): AttemptIdentity {
     registration: a.registration,
   };
 }
+
 export function assertBinding(actual: AttemptBinding, expected: AttemptBinding): void {
   connection(object(actual));
   connection(object(expected));
@@ -107,6 +111,7 @@ export function assertBinding(actual: AttemptBinding, expected: AttemptBinding):
   )
     fail('attempt_binding_mismatch');
 }
+
 function bind(frame: JsonObject, attempt: unknown): AttemptBinding {
   validateAttempt(attempt);
   if (attempt.target.machine_id !== frame.machine_id) fail('target_machine_mismatch');
@@ -117,6 +122,7 @@ function bind(frame: JsonObject, attempt: unknown): AttemptBinding {
     ...attempt,
   };
 }
+
 function errorPayload(p: JsonObject): void {
   fields(p, ['source', 'code', 'retryable'], ['cause_message_id']);
   oneOf(p.source, ['gateway', 'transport']);
@@ -128,6 +134,7 @@ function errorPayload(p: JsonObject): void {
     fail('invalid_error');
   if (Object.hasOwn(p, 'cause_message_id')) id(p.cause_message_id);
 }
+
 function gate(g: RequestGate, mode: 'strict' | 'raw-contract'): void {
   if (!g || typeof g !== 'object' || g.classification_status !== 'trusted_complete')
     fail('classification_unavailable');
@@ -164,7 +171,9 @@ function gate(g: RequestGate, mode: 'strict' | 'raw-contract'): void {
     );
   }
 }
+
 type AuthContext = Extract<CodecContext, { phase: 'authenticated' }>;
+
 function nativeCall<T>(fn: () => T, fallback: string): T {
   try {
     return fn();
@@ -173,10 +182,13 @@ function nativeCall<T>(fn: () => T, fallback: string): T {
     fail(typeof code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(code) ? code : fallback);
   }
 }
+
 function nativeVoid(fn: () => void, fallback: string): void {
   if (nativeCall(fn, fallback) !== undefined) fail('invalid_native_validator_result');
 }
+
 function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeValidationContext {
+  // attempt 必须来自独立 resolver；消息里的字段不能自行建立调用身份。
   const binding = bind(frame, p.attempt);
   const anchor = ctx.resolveAttempt?.(p.attempt as AttemptIdentity);
   if (!anchor) fail('attempt_anchor_unavailable');
@@ -204,50 +216,146 @@ function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeVal
     native_handle: anchor.native_handle,
   };
 }
+
 function nativeContext(n: NativeValidationContext, ctx: AuthContext): NativeValidationContext {
   if (n.native_handle === undefined || n.native_handle === null) fail('native_handle_unavailable');
   const source = ctx.resolveNativeSource?.(n.binding);
   if (source === undefined || source === null) fail('native_source_unavailable');
   return { ...n, trusted_source: source };
 }
-function request(frame: JsonObject, p: JsonObject, ctx: AuthContext, stream: boolean): void {
-  fields(p, stream ? [...REQUEST, 'stream_id', 'feature'] : REQUEST);
-  const r = object(p.native_request);
-  if (Object.hasOwn(r, 'auth') || Object.hasOwn(r, 'id')) fail('reserved_request_field');
-  const n = anchored(frame, p, ctx);
-  uint(p.expected_binding_revision, true);
-  if (p.expected_binding_revision !== n.binding.binding_revision) fail('provider_binding_mismatch');
-  oneOf(p.validation, ['strict', 'raw-contract']);
-  text(r.method, 256);
-  if (r.method !== n.method || p.validation !== n.mode) fail('attempt_binding_mismatch');
+
+function validateRequestPayload(
+  frame: JsonObject,
+  payload: JsonObject,
+  ctx: AuthContext,
+  stream: boolean,
+): void {
+  fields(payload, stream ? [...REQUEST, 'stream_id', 'feature'] : REQUEST);
+  const nativeRequest = object(payload.native_request);
+  if (Object.hasOwn(nativeRequest, 'auth') || Object.hasOwn(nativeRequest, 'id'))
+    fail('reserved_request_field');
+
+  // 先从受信账本找回 attempt，再核对消息中的方法、revision 与传输。
+  const native = anchored(frame, payload, ctx);
+  uint(payload.expected_binding_revision, true);
+  if (payload.expected_binding_revision !== native.binding.binding_revision)
+    fail('provider_binding_mismatch');
+  oneOf(payload.validation, ['strict', 'raw-contract']);
+  text(nativeRequest.method, 256);
+  if (nativeRequest.method !== native.method || payload.validation !== native.mode)
+    fail('attempt_binding_mismatch');
   if (stream) {
-    id(p.stream_id);
-    streamFeature(p, ctx);
-    if (p.stream_id !== n.stream_id) fail('stream_binding_mismatch');
+    id(payload.stream_id);
+    streamFeature(payload, ctx);
+    if (payload.stream_id !== native.stream_id) fail('stream_binding_mismatch');
   }
-  if (n.transport !== (stream ? 'stream' : 'rpc') || (stream && n.feature !== p.feature))
-    fail('attempt_transport_mismatch');
-  assertProviderAccess(n.binding, n.method, 'dispatch', ctx);
   if (
-    ctx.policies!.caller.revision !== n.binding.registration.caller_policy_revision ||
-    ctx.policies!.local.revision !== n.binding.registration.local_policy_revision
+    native.transport !== (stream ? 'stream' : 'rpc') ||
+    (stream && native.feature !== payload.feature)
+  )
+    fail('attempt_transport_mismatch');
+
+  assertProviderAccess(native.binding, native.method, 'dispatch', ctx);
+  if (
+    ctx.policies!.caller.revision !== native.binding.registration.caller_policy_revision ||
+    ctx.policies!.local.revision !== native.binding.registration.local_policy_revision
   )
     fail('policy_revision_stale');
-  const validator = validatorFor(n.binding, ctx),
-    full = { ...r, id: n.binding.native_request_id };
+
+  // Wire 授权通过后仍须执行原生分类 gate 和参数校验。
+  const validator = validatorFor(native.binding, ctx);
+  const full = { ...nativeRequest, id: native.binding.native_request_id };
   gate(
-    nativeCall(() => validator.requestGate(full, n), 'native_gate_failed'),
-    p.validation,
+    nativeCall(() => validator.requestGate(full, native), 'native_gate_failed'),
+    payload.validation,
   );
-  nativeVoid(() => validator.validateRequest(full, n), 'native_request_invalid');
+  nativeVoid(() => validator.validateRequest(full, native), 'native_request_invalid');
 }
+
 function capability(ctx: AuthContext, name: string): void {
   if (!(ctx.connection.negotiated.capabilities as string[]).includes(name))
     fail('unsupported_capability');
 }
+
 function streamFeature(p: JsonObject, ctx: AuthContext): void {
   oneOf(p.feature, STREAM);
   capability(ctx, p.feature);
+}
+
+// 握手只检查消息与协商关联；认证事实仍由宿主建立。
+function decodeHandshake(
+  frame: JsonObject,
+  p: JsonObject,
+  context: Extract<CodecContext, { phase: 'preauth' }>,
+): PreAuthResult {
+  fields(frame, BASE);
+  if (frame.type === 'enroll' || frame.type === 'authenticate') {
+    const enroll = frame.type === 'enroll';
+    fields(
+      p,
+      enroll
+        ? ['registration_id', 'connector_instance_id', 'enrollment_credential', 'offer']
+        : [
+            'machine_id',
+            'recovery_generation',
+            'connector_instance_id',
+            'device_credential',
+            'offer',
+          ],
+    );
+    id(p.connector_instance_id);
+    if (enroll) id(p.registration_id);
+    else {
+      id(p.machine_id);
+      id(p.recovery_generation);
+    }
+    text(p[enroll ? 'enrollment_credential' : 'device_credential'], 4096);
+    validateOffer(p.offer);
+    if (p.offer.major !== frame.protocol_major || p.offer.minor !== frame.protocol_minor)
+      fail('invalid_negotiation');
+  } else if (frame.type === 'welcome') {
+    fields(p, [...CONNECTION, 'in_reply_to', 'selected']);
+    connection(p);
+    id(p.in_reply_to);
+    if (!context.offer || !context.handshake_message_id) fail('handshake_context_required');
+    if (p.in_reply_to !== context.handshake_message_id) fail('handshake_mismatch');
+    validateNegotiated(p.selected, context.offer);
+    if (p.selected.major !== frame.protocol_major || p.selected.minor !== frame.protocol_minor)
+      fail('invalid_negotiation');
+  } else if (frame.type === 'error') errorPayload(p);
+  else fail('authentication_required');
+  return frame as PreAuthResult;
+}
+
+function validateObjectChunk(p: JsonObject, context: AuthContext): void {
+  capability(context, 'objects');
+  fields(p, ['object_id', 'kind', 'total_bytes', 'sha256', 'chunk_count', 'index', 'data']);
+  id(p.object_id);
+  oneOf(p.kind, ['envelope', 'schema_bundle']);
+  sha(p.sha256);
+  uint(p.total_bytes, true);
+  uint(p.chunk_count, true);
+  uint(p.index);
+  if (p.kind === 'schema_bundle' && context.direction !== 'connector_to_gateway')
+    fail('wrong_direction');
+  if (
+    p.total_bytes >
+      (p.kind === 'schema_bundle' ? LIMITS.schema_bundle_bytes : LIMITS.object_bytes) ||
+    p.chunk_count !== Math.ceil(p.total_bytes / LIMITS.chunk_bytes) ||
+    p.index >= p.chunk_count
+  )
+    fail('object_limit', 'transport');
+  if (
+    typeof p.data !== 'string' ||
+    p.data.length > 4 * Math.ceil(LIMITS.chunk_bytes / 3) ||
+    Buffer.from(p.data, 'base64').toString('base64') !== p.data
+  )
+    fail('invalid_chunk', 'transport');
+  if (
+    Buffer.from(p.data, 'base64').length !==
+    Math.min(LIMITS.chunk_bytes, p.total_bytes - p.index * LIMITS.chunk_bytes)
+  )
+    fail('invalid_chunk', 'transport');
 }
 
 // context 是受信外部输入；逐帧检查 active/epoch 不代替 TLS、认证或撤销查询。
@@ -261,45 +369,9 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   if (!DIRECTIONS[frame.type]!.includes(context.direction)) fail('wrong_direction');
   if (frame.protocol_major !== WIRE_MAJOR) fail('protocol_major_unsupported');
   const p = object(frame.payload);
-  if (context.phase === 'preauth') {
-    fields(frame, BASE);
-    if (frame.type === 'enroll' || frame.type === 'authenticate') {
-      const enroll = frame.type === 'enroll';
-      fields(
-        p,
-        enroll
-          ? ['registration_id', 'connector_instance_id', 'enrollment_credential', 'offer']
-          : [
-              'machine_id',
-              'recovery_generation',
-              'connector_instance_id',
-              'device_credential',
-              'offer',
-            ],
-      );
-      id(p.connector_instance_id);
-      if (enroll) id(p.registration_id);
-      else {
-        id(p.machine_id);
-        id(p.recovery_generation);
-      }
-      text(p[enroll ? 'enrollment_credential' : 'device_credential'], 4096);
-      validateOffer(p.offer);
-      if (p.offer.major !== frame.protocol_major || p.offer.minor !== frame.protocol_minor)
-        fail('invalid_negotiation');
-    } else if (frame.type === 'welcome') {
-      fields(p, [...CONNECTION, 'in_reply_to', 'selected']);
-      connection(p);
-      id(p.in_reply_to);
-      if (!context.offer || !context.handshake_message_id) fail('handshake_context_required');
-      if (p.in_reply_to !== context.handshake_message_id) fail('handshake_mismatch');
-      validateNegotiated(p.selected, context.offer);
-      if (p.selected.major !== frame.protocol_major || p.selected.minor !== frame.protocol_minor)
-        fail('invalid_negotiation');
-    } else if (frame.type === 'error') errorPayload(p);
-    else fail('authentication_required');
-    return frame as PreAuthResult;
-  }
+
+  if (context.phase === 'preauth') return decodeHandshake(frame, p, context);
+
   if (
     context.phase !== 'authenticated' ||
     context.connection?.authenticated !== true ||
@@ -317,13 +389,14 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
     fail('protocol_version_unsupported');
   if (CONNECTION.some((k) => frame[k] !== context.connection[k as keyof typeof context.connection]))
     fail('connection_binding_mismatch');
+
   switch (frame.type) {
     case 'request':
       capability(context, 'rpc');
-      request(frame, p, context, false);
+      validateRequestPayload(frame, p, context, false);
       break;
     case 'stream_open':
-      request(frame, p, context, true);
+      validateRequestPayload(frame, p, context, true);
       break;
     case 'heartbeat':
       fields(p, ['sequence']);
@@ -333,34 +406,7 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
       errorPayload(p);
       break;
     case 'object_chunk':
-      capability(context, 'objects');
-      fields(p, ['object_id', 'kind', 'total_bytes', 'sha256', 'chunk_count', 'index', 'data']);
-      id(p.object_id);
-      oneOf(p.kind, ['envelope', 'schema_bundle']);
-      sha(p.sha256);
-      uint(p.total_bytes, true);
-      uint(p.chunk_count, true);
-      uint(p.index);
-      if (p.kind === 'schema_bundle' && context.direction !== 'connector_to_gateway')
-        fail('wrong_direction');
-      if (
-        p.total_bytes >
-          (p.kind === 'schema_bundle' ? LIMITS.schema_bundle_bytes : LIMITS.object_bytes) ||
-        p.chunk_count !== Math.ceil(p.total_bytes / LIMITS.chunk_bytes) ||
-        p.index >= p.chunk_count
-      )
-        fail('object_limit', 'transport');
-      if (
-        typeof p.data !== 'string' ||
-        p.data.length > 4 * Math.ceil(LIMITS.chunk_bytes / 3) ||
-        Buffer.from(p.data, 'base64').toString('base64') !== p.data
-      )
-        fail('invalid_chunk', 'transport');
-      if (
-        Buffer.from(p.data, 'base64').length !==
-        Math.min(LIMITS.chunk_bytes, p.total_bytes - p.index * LIMITS.chunk_bytes)
-      )
-        fail('invalid_chunk', 'transport');
+      validateObjectChunk(p, context);
       break;
     case 'accepted':
       fields(p, ['attempt']);
@@ -407,6 +453,7 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
           }),
         'native_stream_frame_invalid',
       );
+      // 输入帧即使形状合法也须逐次取得派发许可，不能沿用开流时的授权。
       if (frame.type === 'stream_input') {
         if (!validator.checkDispatch) fail('dispatch_validator_unavailable');
         nativeVoid(() => validator.checkDispatch!(r, n), 'native_dispatch_forbidden');
@@ -428,18 +475,22 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   }
   return frame as AuthenticatedEnvelope;
 }
+
 type PreAuthResult = Extract<
   WireEnvelope,
   { type: 'enroll' | 'authenticate' | 'welcome' | 'error' }
 >;
+
 export function encodeWireFrame(frame: WireEnvelope, context: CodecContext): string {
   const raw = boundedJson(frame);
   decodeWireFrame(raw, context);
   return raw;
 }
+
 export function decodeWireFrame(input: string | Uint8Array, context: CodecContext): WireEnvelope {
   return decode(input, context, LIMITS.frame_bytes);
 }
+
 // 仅供有界重组使用；逻辑对象仍须完整执行所有 envelope/原生/授权检查。
 export function decodeWireObject(input: Uint8Array, context: CodecContext): AuthenticatedEnvelope {
   if (context.phase !== 'authenticated') fail('authentication_required');

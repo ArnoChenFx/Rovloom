@@ -17,6 +17,7 @@ import type {
   CheckedControl,
   CheckedRequest,
   CheckedResponse,
+  CheckedStream,
   CompiledContract,
   DispatchCandidate,
   DispatchPermit,
@@ -25,6 +26,7 @@ import type {
   NativeBinding,
   NativeMethodContract,
   NativeValidator,
+  ParameterValidation,
   RawRequestCandidate,
   TrustedNativeContext,
 } from './types.js';
@@ -34,6 +36,7 @@ function data(contract: CompiledContract) {
   if (!value) fail('invalid_contract_handle');
   return value;
 }
+
 export function verifySource(
   source: TrustedNativeContext,
   expected?: NativeBinding,
@@ -83,19 +86,23 @@ export function verifySource(
   if (expected && !equal(binding, expected)) fail('native_identity_mismatch', 'binding');
   return binding;
 }
+
 function validate(contract: CompiledContract, uri: string, value: unknown, code: string): void {
   const check = data(contract).validators.get(uri);
   if (!check) fail('schema_unavailable', 'validation', 'missing_document');
   if (!check(value)) fail(code, 'schema', check.errors?.[0]?.keyword);
 }
+
 function copy(contract: CompiledContract, value: unknown): JsonObject {
   return object(snapshot(value, data(contract).limits));
 }
+
 function viewData(contract: CompiledContract, view: CapabilityView) {
   const stored = views.get(view);
   if (!stored || stored.contract !== contract) fail('invalid_capability_handle');
   return stored;
 }
+
 function method(contract: CompiledContract, view: CapabilityView, name: string): MethodDescriptor {
   const descriptor = viewData(contract, view).methods.get(name);
   if (!descriptor)
@@ -105,6 +112,26 @@ function method(contract: CompiledContract, view: CapabilityView, name: string):
     );
   return descriptor;
 }
+
+function validateTerminalCapabilities(value: JsonObject): void {
+  const terminal = object(value.terminal, 'capability_invalid');
+  for (const key of ['capabilities', 'features']) {
+    const items = terminal[key];
+    if (
+      !Array.isArray(items) ||
+      !items.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 128) ||
+      new Set(items).size !== items.length
+    )
+      fail('capability_invalid', 'discovery', 'terminal');
+  }
+  for (const source of [value.limits, terminal.limits]) {
+    for (const limit of Object.values(object(source, 'capability_invalid'))) {
+      if (!Number.isSafeInteger(limit) || (limit as number) < 0)
+        fail('capability_invalid', 'discovery', 'limits');
+    }
+  }
+}
+
 function shapeCapabilities(
   value: JsonObject,
   binding: NativeBinding,
@@ -162,26 +189,10 @@ function shapeCapabilities(
     )
       fail('capability_invalid', 'discovery', 'access');
   }
-  if (binding.target.profile === 'session') {
-    const terminal = object(value.terminal, 'capability_invalid');
-    for (const key of ['capabilities', 'features']) {
-      const items = terminal[key];
-      if (
-        !Array.isArray(items) ||
-        !items.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 128) ||
-        new Set(items).size !== items.length
-      )
-        fail('capability_invalid', 'discovery', 'terminal');
-    }
-    for (const source of [value.limits, terminal.limits]) {
-      for (const limit of Object.values(object(source, 'capability_invalid'))) {
-        if (!Number.isSafeInteger(limit) || (limit as number) < 0)
-          fail('capability_invalid', 'discovery', 'limits');
-      }
-    }
-  }
+  if (binding.target.profile === 'session') validateTerminalCapabilities(value);
   return result;
 }
+
 function requestSemantics(request: JsonObject, view: CapabilityView): void {
   const params = object(request.params, 'native_request_invalid');
   for (const [methodName, field, max] of [
@@ -224,6 +235,72 @@ const TERMINAL_RESULTS: Record<string, string> = {
   notify: 'terminal_backend_action',
   close: 'terminal_backend_action',
 };
+
+function validateResponseResult(
+  candidate: DispatchCandidate,
+  terminal: boolean,
+  result: JsonObject,
+): void {
+  const expected =
+    candidate.kind === 'control'
+      ? 'terminal_backend_action'
+      : TERMINAL_RESULTS[candidate.method.slice('terminal.backend.'.length)];
+  if (terminal && result.type !== expected) fail('native_result_mismatch', 'response');
+  if (candidate.method === 'events.subscribe' && result.type !== 'subscription_started')
+    fail('native_result_mismatch', 'response');
+  if (
+    candidate.kind !== 'control' &&
+    (candidate.method === 'terminal.backend.observe' ||
+      candidate.method === 'terminal.backend.control')
+  ) {
+    if (result.mode !== (candidate.method.endsWith('observe') ? 'observe' : 'control'))
+      fail('native_result_mismatch', 'response');
+  }
+  if (terminal && candidate.kind !== 'control') {
+    const params = object(candidate.request.params);
+    for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
+      if (result[key] !== undefined && params[key] !== undefined && result[key] !== params[key])
+        fail('native_identity_mismatch', 'response');
+    }
+    if (
+      result.server_generation !== undefined &&
+      result.server_generation !== candidate.binding.server_generation
+    )
+      fail('native_identity_mismatch', 'response');
+  }
+}
+
+// 实时广告与离线 schema 共同决定描述信息；描述本身不授予执行权限。
+function describeCapability(
+  binding: NativeBinding,
+  name: string,
+  hint: NativeMethodContract,
+  paths: readonly string[] | undefined,
+): MethodDescriptor {
+  let transport: MethodDescriptor['transport'] = 'unclassified';
+  let schemaStatus: MethodDescriptor['schema_status'] = 'unavailable';
+  if (paths) {
+    if (binding.target.profile === 'host') transport = 'host_stdio_proxy';
+    else transport = STREAM_METHODS.has(name) ? 'persistent_local_stream' : 'single_request_rpc';
+    schemaStatus = paths.length ? 'conditional_branch' : 'generic_params_only';
+  }
+  return Object.freeze({
+    method: name,
+    profile: binding.target.profile,
+    transport,
+    schema_status: schemaStatus,
+    branch_paths: paths ?? Object.freeze([]),
+    classification_status: 'not_evaluated',
+    native_contract: hint,
+  });
+}
+
+function streamModeFor(method: string): CheckedStream['mode'] {
+  if (method === 'events.subscribe') return 'general_events';
+  if (method === 'terminal.backend.events.subscribe') return 'terminal_events';
+  return method.endsWith('observe') ? 'observe' : 'control';
+}
+
 function candidateOf(context: CheckedRequest | DispatchPermit): DispatchCandidate {
   if (context.kind === 'permit') {
     const value = permits.get(context);
@@ -289,12 +366,9 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
       view.binding.target.profile === 'session' ? object(cap.limits).frame_bytes : undefined;
     if (typeof nativeLimit === 'number' && Buffer.byteLength(JSON.stringify(request)) > nativeLimit)
       fail('native_request_invalid', 'request', 'frame_limit');
-    const validation =
-      descriptor.schema_status === 'conditional_branch'
-        ? 'schema'
-        : descriptor.schema_status === 'generic_params_only'
-          ? 'generic'
-          : 'unavailable';
+    let validation: ParameterValidation = 'unavailable';
+    if (descriptor.schema_status === 'conditional_branch') validation = 'schema';
+    else if (descriptor.schema_status === 'generic_params_only') validation = 'generic';
     const result = Object.freeze({
       kind: validation === 'unavailable' ? 'raw_request' : 'request',
       request,
@@ -318,25 +392,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         const methods = new Map<string, MethodDescriptor>();
         for (const [name, hint] of hints) {
           const paths = data(contract).branches.get(name);
-          const descriptor: MethodDescriptor = Object.freeze({
-            method: name,
-            profile: binding.target.profile,
-            transport: !paths
-              ? 'unclassified'
-              : binding.target.profile === 'host'
-                ? 'host_stdio_proxy'
-                : STREAM_METHODS.has(name)
-                  ? 'persistent_local_stream'
-                  : 'single_request_rpc',
-            schema_status: paths
-              ? paths.length
-                ? 'conditional_branch'
-                : 'generic_params_only'
-              : 'unavailable',
-            branch_paths: paths ?? Object.freeze([]),
-            classification_status: 'not_evaluated',
-            native_contract: hint,
-          });
+          const descriptor = describeCapability(binding, name, hint, paths);
           methods.set(name, descriptor);
         }
         const view = Object.freeze({ binding, methods: Object.freeze([...methods.values()]) });
@@ -361,8 +417,8 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     },
     checkResponse(context, input, source) {
       return attempt('response', () => {
-        const candidate = candidateOf(context),
-          stored = candidates.get(candidate)!;
+        const candidate = candidateOf(context);
+        const stored = candidates.get(candidate)!;
         viewData(contract, stored.view);
         verifySource(source, candidate.binding);
         const terminal =
@@ -375,48 +431,19 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           context.kind === 'permit' ? context : null,
         );
         const request = candidate.kind === 'control' ? candidate.frame : candidate.request;
+        // schema 合法之后仍须绑定原请求 ID、结果类型和适用的原生实例标识。
         if (checked.response.id !== request.id) fail('native_id_mismatch', 'response');
         if (checked.response.result !== undefined) {
-          const result = object(checked.response.result);
-          const expected =
-            candidate.kind === 'control'
-              ? 'terminal_backend_action'
-              : TERMINAL_RESULTS[candidate.method.slice('terminal.backend.'.length)];
-          if (terminal && result.type !== expected) fail('native_result_mismatch', 'response');
-          if (candidate.method === 'events.subscribe' && result.type !== 'subscription_started')
-            fail('native_result_mismatch', 'response');
-          if (
-            candidate.kind !== 'control' &&
-            (candidate.method === 'terminal.backend.observe' ||
-              candidate.method === 'terminal.backend.control')
-          ) {
-            if (result.mode !== (candidate.method.endsWith('observe') ? 'observe' : 'control'))
-              fail('native_result_mismatch', 'response');
-          }
-          if (terminal && candidate.kind !== 'control') {
-            const params = object(candidate.request.params);
-            for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
-              if (
-                result[key] !== undefined &&
-                params[key] !== undefined &&
-                result[key] !== params[key]
-              )
-                fail('native_identity_mismatch', 'response');
-            }
-            if (
-              result.server_generation !== undefined &&
-              result.server_generation !== candidate.binding.server_generation
-            )
-              fail('native_identity_mismatch', 'response');
-          }
+          validateResponseResult(candidate, terminal, object(checked.response.result));
         }
         return checked;
       });
     },
     openStream(permit, acknowledgement) {
       return attempt('stream', () => {
-        const state = permits.get(permit),
-          received = responses.get(acknowledgement);
+        const state = permits.get(permit);
+        const received = responses.get(acknowledgement);
+        // ack 必须由同一 permit 的响应校验产生；同形响应对象不能替代内存句柄。
         if (
           !state ||
           !received ||
@@ -429,14 +456,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         )
           fail('invalid_stream_context', 'stream');
         const result = object(acknowledgement.response.result);
-        const mode =
-          permit.method === 'events.subscribe'
-            ? 'general_events'
-            : permit.method === 'terminal.backend.events.subscribe'
-              ? 'terminal_events'
-              : permit.method.endsWith('observe')
-                ? 'observe'
-                : 'control';
+        const mode = streamModeFor(permit.method);
         if (!Number.isSafeInteger(result.sequence) || (result.sequence as number) < 0)
           fail('native_response_invalid', 'stream');
         const stream = Object.freeze({
@@ -492,6 +512,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           payload.server_generation !== stream.binding.server_generation
         )
           fail('native_identity_mismatch', 'event');
+        // resync 通知不承诺旧终端标识仍有效；其它终端事件必须匹配开流时的实例。
         if (state.identity && terminal && name !== 'terminal.resync_required') {
           for (const key of ['server_generation', 'terminal_id', 'pane_id'])
             if (payload[key] !== state.identity[key]) fail('native_identity_mismatch', 'event');
@@ -527,6 +548,8 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           frame,
           'native_control_invalid',
         );
+
+        // control candidate 只证明帧合法；派发仍须由 safety 模块逐次授权。
         if (stream.mode !== 'control')
           fail('forbidden', 'control', 'read_only_stream', 'authorization');
         const action = text(frame.action);

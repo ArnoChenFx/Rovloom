@@ -66,8 +66,10 @@ const SINGLES = new Set([
 ]);
 const escaped = (key: string) => key.replace(/~/g, '~0').replace(/\//g, '~1');
 
+type SchemaEdges = Map<string, Array<{ key: string; weight: number }>>;
+
 function preflight(documents: Record<string, unknown>, budget: Limits): void {
-  const edges = new Map<string, Array<{ key: string; weight: number }>>();
+  const edges: SchemaEdges = new Map();
   let refs = 0;
   const visit = (schema: unknown, uri: string, path: string): string => {
     const key = uri + '#' + path;
@@ -155,9 +157,15 @@ function preflight(documents: Record<string, unknown>, budget: Limits): void {
     }
     return key;
   };
+
   for (const [uri, schema] of Object.entries(documents)) visit(schema, uri, '');
-  const active = new Set<string>(),
-    lengths = new Map<string, number>();
+  checkReferenceDepth(edges, budget.reference_depth);
+}
+
+// 结构边权重为 0，$ref 边权重为 1；限制引用链长度，同时拒绝任何递归环。
+function checkReferenceDepth(edges: SchemaEdges, maxDepth: number): void {
+  const active = new Set<string>();
+  const lengths = new Map<string, number>();
   const depth = (key: string): number => {
     if (active.has(key)) fail('schema_unavailable', 'compile', 'reference_cycle');
     const cached = lengths.get(key);
@@ -168,7 +176,7 @@ function preflight(documents: Record<string, unknown>, budget: Limits): void {
     let longest = 0;
     for (const edge of next) longest = Math.max(longest, edge.weight + depth(edge.key));
     active.delete(key);
-    if (longest > budget.reference_depth) fail('schema_unavailable', 'compile', 'reference_limit');
+    if (longest > maxDepth) fail('schema_unavailable', 'compile', 'reference_limit');
     lengths.set(key, longest);
     return longest;
   };
@@ -268,6 +276,8 @@ export function compileBundle(
       if (id !== uri) fail('schema_unavailable', 'compile', 'duplicate_id');
       if (doc.$schema !== DIALECT) fail('schema_unavailable', 'compile', 'unsupported_dialect');
     }
+
+    // 只在已提供的文档闭包内解析引用；预检和别名核对完成后才交给 Ajv。
     preflight(documents, budget);
     aliases(bundle, documents);
     const validators = new Map<string, ValidateFunction>();
@@ -298,8 +308,8 @@ export function compileBundle(
       if (error instanceof ContractFault) throw error;
       fail('schema_unavailable', 'compile', 'invalid_schema');
     }
-    const request = object(bundle.request),
-      props = object(request.properties);
+    const request = object(bundle.request);
+    const props = object(request.properties);
     const methodEnum = object(props.method).enum;
     if (
       !Array.isArray(methodEnum) ||
@@ -308,6 +318,8 @@ export function compileBundle(
     ) {
       fail('schema_unavailable', 'compile', 'invalid_method_catalog');
     }
+
+    // 空分支表示仅有 generic params，不能因方法在 enum 中就声称参数完整校验。
     const requestMethods = methodEnum as readonly string[];
     const branches = new Map<string, readonly string[]>();
     if (!Array.isArray(request.allOf))

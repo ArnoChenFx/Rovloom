@@ -19,6 +19,7 @@ export const LIMITS = Object.freeze({
   transfer_timeout_ms: 30_000,
   dedup_entries: 4096,
 });
+
 export class WireError extends GatewayError {
   readonly source: 'gateway' | 'transport';
   constructor(code: string, source: 'gateway' | 'transport' = 'gateway') {
@@ -27,9 +28,11 @@ export class WireError extends GatewayError {
     this.source = source;
   }
 }
+
 export function fail(code: string, source?: 'gateway' | 'transport'): never {
   throw new WireError(code, source);
 }
+
 export function object(v: unknown): JsonObject {
   if (
     v === null ||
@@ -40,6 +43,7 @@ export function object(v: unknown): JsonObject {
     fail('invalid_frame');
   return v as JsonObject;
 }
+
 export function fields(
   v: JsonObject,
   required: readonly string[],
@@ -51,17 +55,21 @@ export function fields(
   )
     fail('invalid_frame_fields');
 }
+
 export function id(v: unknown): asserts v is string {
   if (typeof v !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(v)) fail('invalid_frame_id');
 }
+
 export function uint(v: unknown, positive = false): asserts v is number {
   if (!Number.isSafeInteger(v) || (v as number) < (positive ? 1 : 0)) fail('invalid_integer');
 }
+
 export function sha(v: unknown): asserts v is string {
   if (typeof v !== 'string' || !/^[a-f0-9]{64}$/.test(v)) fail('invalid_digest');
 }
+
 export function text(v: unknown, max = 4096): asserts v is string {
-  // Text identifiers must reject ASCII control characters at the wire boundary.
+  // Wire 文本标识在边界拒绝 ASCII 控制字符，不能让它们混入日志或路由上下文。
   // oxlint-disable no-control-regex
   if (
     typeof v !== 'string' ||
@@ -72,22 +80,26 @@ export function text(v: unknown, max = 4096): asserts v is string {
     fail('invalid_text');
   // oxlint-enable no-control-regex
 }
+
 export function oneOf<T extends string>(v: unknown, values: readonly T[]): asserts v is T {
   if (!values.includes(v as T)) fail('invalid_enum');
 }
-// 规范化不调用 getter/toJSON，计量完整 JSON；对象/大 bundle 独立于 frame 上限。
+
 function wellFormed(v: string): boolean {
   return !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(v);
 }
+
+// 规范化不调用 getter/toJSON，计量完整 JSON；对象/大 bundle 独立于 frame 上限。
 export function boundedJson(value: unknown, maxBytes: number = LIMITS.frame_bytes): string {
-  let nodes = 0,
-    bytes = 0;
+  let nodes = 0;
+  let bytes = 0;
   const seen = new Set<object>();
   const emit = (s: string) => {
     bytes += Buffer.byteLength(s);
     if (bytes > maxBytes) fail('json_size_limit', 'transport');
     return s;
   };
+
   const visit = (v: unknown, depth: number): string => {
     if (++nodes > LIMITS.nodes || depth > LIMITS.depth) fail('json_depth_limit', 'transport');
     if (v === null || typeof v === 'boolean') return emit(JSON.stringify(v));
@@ -129,6 +141,7 @@ export function boundedJson(value: unknown, maxBytes: number = LIMITS.frame_byte
   };
   return visit(value, 0);
 }
+
 export function parseJson(
   input: string | Uint8Array,
   maxBytes: number = LIMITS.frame_bytes,
@@ -169,6 +182,7 @@ export function parseJson(
   boundedJson(value, maxBytes);
   return value;
 }
+
 export function hash(text: string | Uint8Array): string {
   return createHash('sha256').update(text).digest('hex');
 }

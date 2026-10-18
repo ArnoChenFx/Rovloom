@@ -10,7 +10,9 @@ export class GatewayError extends Error {
 export type Target =
   | { machine_id: string; profile: 'session'; session: string }
   | { machine_id: string; profile: 'host'; session?: never };
+
 export type NativeRequest = { method: string; params?: unknown; [key: string]: unknown };
+
 export type CallState =
   | 'created'
   | 'dispatching'
@@ -18,6 +20,7 @@ export type CallState =
   | 'responded'
   | 'not_dispatched'
   | 'outcome_unknown';
+
 export type Policy = { machines: string[]; sessions: string[]; methods: string[]; host: boolean };
 
 export function validateTarget(value: Target): void {
@@ -55,6 +58,7 @@ export function authorize(target: Target, method: string, caller: Policy, local:
 }
 
 export function canonical(value: unknown): string {
+  // 只跟踪当前递归链：共享子对象可重复编码，真正的循环引用必须拒绝。
   const ancestors = new Set<object>();
   let nodes = 0;
   let bytes = 0;
@@ -76,6 +80,7 @@ export function canonical(value: unknown): string {
     ancestors.add(item);
     try {
       const descriptors = Object.getOwnPropertyDescriptors(item);
+      // 先检查数据描述符，再读取内容，避免规范化触发 getter。
       if (Object.values(descriptors).some((d) => !('value' in d)))
         throw new GatewayError('invalid_json');
       if (Array.isArray(item)) {

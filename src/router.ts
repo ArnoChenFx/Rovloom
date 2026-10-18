@@ -14,6 +14,7 @@ export type Principal = {
   policy: Policy;
   permissions?: { discard_response?: boolean };
 };
+
 export type LocalPolicies = (machineId: string) => Policy;
 
 export class Router {
@@ -49,6 +50,7 @@ export class Router {
     const call = this.store.call(principal.id, callId);
     if (!call.target_json || !call.method)
       throw new GatewayError('legacy_call_context_unavailable');
+    // 归属检查之后仍须按当前双端策略授权；创建时获准不代表之后始终可读或操作。
     this.check(principal, JSON.parse(call.target_json) as Target, call.method);
     return call;
   }

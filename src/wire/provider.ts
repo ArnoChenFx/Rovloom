@@ -34,6 +34,7 @@ export function validateTarget(value: unknown): asserts value is V2Target {
   id(t.provider_id);
   if (t.profile === 'session') text(t.session, 256);
 }
+
 export function validateProvider(value: unknown): asserts value is ProviderBinding {
   const b = object(value);
   fields(b, ['machine_id', 'provider_id', 'kind', 'config_ref', 'binding_revision', 'enabled']);
@@ -44,6 +45,7 @@ export function validateProvider(value: unknown): asserts value is ProviderBindi
   oneOf(b.kind, ['luvus', 'herdr']);
   if (typeof b.enabled !== 'boolean') fail('invalid_provider_binding');
 }
+
 export function validateContractSource(value: unknown): asserts value is ContractSource {
   const c = object(value);
   fields(c, [
@@ -86,11 +88,14 @@ export function validateContractSource(value: unknown): asserts value is Contrac
   )
     fail('contract_provider_mismatch');
 }
+
 export function contractRef(source: ContractSource): string {
   validateContractSource(source);
   return hash(boundedJson(source));
 }
+
 export function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext): ProviderBinding {
+  // 消息中的 kind/revision 只参与核对；实例及契约必须从受信 registry 独立解析。
   const b = ctx.resolveProvider?.(binding.target);
   if (!b) fail('provider_binding_unavailable');
   validateProvider(b);
@@ -113,15 +118,17 @@ export function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext):
     fail('contract_unavailable');
   return b;
 }
+
 export function validatorFor(
   binding: AttemptBinding,
   ctx: AuthenticatedContext,
 ): NativePayloadValidator {
-  const provider = providerFor(binding, ctx),
-    validator = ctx.validators?.[provider.kind];
+  const provider = providerFor(binding, ctx);
+  const validator = ctx.validators?.[provider.kind];
   if (!validator) fail('native_validator_unavailable');
   return validator;
 }
+
 export function validatePolicies(policies: ProviderPolicies): void {
   const pair = object(policies);
   fields(pair, ['caller', 'local']);
@@ -146,6 +153,7 @@ export function validatePolicies(policies: ProviderPolicies): void {
     }
   }
 }
+
 export function providerScopeAllowed(
   binding: AttemptBinding,
   method: string,
@@ -155,6 +163,7 @@ export function providerScopeAllowed(
   if (!policies) return false;
   validatePolicies(policies);
   const target = boundedJson(binding.target);
+  // 每一端都须有一条完整匹配的 grant；不能拼接不同目标或不同 grant 的权限。
   return [policies.caller, policies.local].every((side) =>
     side.grants.some(
       (g) =>
@@ -164,6 +173,7 @@ export function providerScopeAllowed(
     ),
   );
 }
+
 export function assertProviderAccess(
   binding: AttemptBinding,
   method: string,

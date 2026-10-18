@@ -20,6 +20,7 @@ export type ResponseAnchor = {
   dedup_expires_at: number;
   evidence?: { response_hash: string; response_bytes: number };
 };
+
 export type ResponseEvidencePlan = {
   action: 'append' | 'duplicate';
   late_evidence: boolean;
@@ -38,11 +39,13 @@ export type ResponseEvidencePlan = {
     native_response?: JsonObject;
   };
 };
+
 // 当前可信分类与保存权限，不能取自持久化旧 ACL、response 内容或 caller 自报。
 export type ResponseContentPolicy = {
   classification_status: RequestGate['classification_status'];
   retain_content_authorized: boolean;
 };
+
 // 返回待提交意图；可靠持久化、历史保留、当前读取授权和最终发布由 #5 负责。
 export function planResponseEvidence(
   frame: Extract<AuthenticatedEnvelope, { type: 'response' }>,
@@ -80,8 +83,9 @@ export function planResponseEvidence(
   if (!['dispatching', 'connector_accepted', 'outcome_unknown', 'responded'].includes(anchor.state))
     fail('evidence_not_applicable');
   const raw = boundedJson(checked.payload.native_response, LIMITS.object_bytes);
-  const response_hash = hash(raw),
-    response_bytes = Buffer.byteLength(raw);
+  const response_hash = hash(raw);
+  const response_bytes = Buffer.byteLength(raw);
+
   if (anchor.evidence) {
     sha(anchor.evidence.response_hash);
     uint(anchor.evidence.response_bytes, true);
@@ -91,6 +95,7 @@ export function planResponseEvidence(
     )
       fail('response_evidence_conflict');
   } else if (anchor.state === 'responded') fail('evidence_anchor_unavailable');
+  // 证据能否追加与原文能否保存分别判断；晚到结果不会恢复过期或 discarded 内容。
   const status =
     anchor.content_status === 'available' && now >= anchor.content_expires_at
       ? 'expired'

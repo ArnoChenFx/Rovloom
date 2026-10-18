@@ -19,6 +19,7 @@ export class ContractFault extends Error {
     super(failure.code);
   }
 }
+
 export function fail(
   code: string,
   stage = 'validation',
@@ -27,6 +28,7 @@ export function fail(
 ): never {
   throw new ContractFault(Object.freeze({ origin, code, stage, ...(reason ? { reason } : {}) }));
 }
+
 export function attempt<T>(stage: string, fn: () => T): Check<T> {
   try {
     return { ok: true, value: fn() };
@@ -40,6 +42,7 @@ export function attempt<T>(stage: string, fn: () => T): Check<T> {
     };
   }
 }
+
 export function limits(overrides: Partial<Limits> = {}): Limits {
   const result = { ...DEFAULT_LIMITS };
   for (const [key, value] of Object.entries(overrides)) {
@@ -55,17 +58,21 @@ export function limits(overrides: Partial<Limits> = {}): Limits {
   }
   return Object.freeze(result);
 }
+
 export function hash(bytes: string | Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
+
 export function object(value: unknown, code = 'invalid_context'): JsonObject {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(code);
   return value as JsonObject;
 }
+
 export function text(value: unknown, code = 'invalid_context'): string {
   if (typeof value !== 'string' || !value.length) fail(code);
   return value;
 }
+
 export function equal(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (
@@ -76,8 +83,8 @@ export function equal(a: unknown, b: unknown): boolean {
     Array.isArray(a) !== Array.isArray(b)
   )
     return false;
-  const left = Object.keys(a).sort(),
-    right = Object.keys(b).sort();
+  const left = Object.keys(a).sort();
+  const right = Object.keys(b).sort();
   return (
     left.length === right.length &&
     left.every(
@@ -87,6 +94,7 @@ export function equal(a: unknown, b: unknown): boolean {
     )
   );
 }
+
 function unicode(value: string): void {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
@@ -97,14 +105,16 @@ function unicode(value: string): void {
       fail('invalid_json', 'parse', 'unpaired_surrogate');
   }
 }
+
 export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json {
   const active = new Set<object>();
-  let nodes = 0,
-    bytes = 0;
+  let nodes = 0;
+  let bytes = 0;
   const spend = (count: number): void => {
     bytes += count;
     if (bytes > budget.object_bytes) fail('object_limit', 'parse');
   };
+
   const stringBytes = (value: string): void => {
     // 逐项计入 JSON 编码预算，不能先 stringify 整个对象再判断，避免超额分配。
     if (value.length + 2 > budget.object_bytes - bytes) fail('object_limit', 'parse');
@@ -123,6 +133,7 @@ export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json 
       else spend(code < 128 ? 1 : code < 2048 ? 2 : 3);
     }
   };
+
   const visit = (item: unknown, depth: number): Json => {
     if (++nodes > budget.object_nodes || depth > budget.object_depth) fail('object_limit', 'parse');
     if (item === null || typeof item === 'boolean') {
@@ -201,11 +212,12 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
     }
   } else fail('invalid_json', 'parse');
   if (Buffer.byteLength(input) > budget.object_bytes) fail('object_limit', 'parse');
-  let position = 0,
-    nodes = 0;
+  let position = 0;
+  let nodes = 0;
   const whitespace = () => {
     while (/[\x20\t\r\n]/.test(input[position] ?? '\u0000')) position++;
   };
+
   const string = (): string => {
     const start = position++;
     while (position < input.length) {
@@ -227,6 +239,7 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
     }
     fail('invalid_json', 'parse');
   };
+
   const value = (depth: number): Json => {
     if (++nodes > budget.object_nodes || depth > budget.object_depth) fail('object_limit', 'parse');
     whitespace();
@@ -245,6 +258,7 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
         whitespace();
         if (input[position] !== '"') fail('invalid_json', 'parse');
         const key = string();
+        // 必须在写入对象前拒绝重复键；JSON.parse 会覆盖旧值，无法保留这一边界。
         if (keys.has(key)) fail('duplicate_json_key', 'parse');
         keys.add(key);
         whitespace();
@@ -293,17 +307,20 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
       fail('json_number_precision', 'parse');
     return decoded;
   };
+
   const result = value(0);
   whitespace();
   if (position !== input.length) fail('invalid_json', 'parse');
   return result;
 }
+
 export function parseNativeJson(
   bytes: Uint8Array | string,
   overrides: Partial<Limits> = {},
 ): Check<Json> {
   return attempt('parse', () => parse(bytes, limits(overrides)));
 }
+
 export function pointer(value: unknown, path: string): unknown {
   if (path === '') return value;
   if (!path.startsWith('/') || /~(?![01])/.test(path))

@@ -18,10 +18,10 @@ function reject(code: string, reason?: string): never {
 }
 const TOKENS = new Set(['uhp.token.create', 'uhp.token.list', 'uhp.token.revoke']);
 
-function classification(
+function selectClassification(
   candidate: DispatchCandidate,
   context: DispatchAuthorization,
-): SafetyClassification {
+): JsonObject {
   if (context.classification_source_verified !== true) reject('safety_classification_untrusted');
   if (!Array.isArray(context.classifications)) reject('safety_classification_missing');
   const rows = snapshot(context.classifications) as readonly JsonObject[];
@@ -33,6 +33,7 @@ function classification(
       (candidate.kind === 'control' ? row.action === candidate.action : row.action === undefined),
   );
   if (!selected.length) reject('safety_classification_missing');
+  // 同一请求只能命中一条分类；缺少匹配或多条同时命中都拒绝。
   const matching = selected.filter((row) => {
     if (row.sub_action === undefined) return true;
     try {
@@ -53,7 +54,14 @@ function classification(
   });
   if (!matching.length) reject('safety_classification_missing', 'sub_action');
   if (matching.length !== 1) reject('safety_classification_invalid', 'conflict');
-  const row = matching[0]!;
+  return matching[0]!;
+}
+
+function classification(
+  candidate: DispatchCandidate,
+  context: DispatchAuthorization,
+): SafetyClassification {
+  const row = selectClassification(candidate, context);
   const required = [
     'method',
     'revision',
@@ -98,6 +106,7 @@ function classification(
     !['ordinary', 'custody'].includes(result.delivery as string)
   )
     reject('safety_classification_unknown');
+  // 分类绑定当前契约、原生广告和 revision；原生 read/write 提示不能自行授予安全许可。
   const stored = candidates.get(candidate)!;
   if (
     row.revision !== candidate.binding.classification_revision ||
@@ -149,6 +158,7 @@ function checkedAuthorization(
     reject('invalid_authorization_context');
   return context;
 }
+
 function checkTransport(
   candidate: DispatchCandidate,
   context: DispatchAuthorization,
@@ -174,6 +184,7 @@ function checkTransport(
   )
     reject('unsupported_stream_feature');
 }
+
 function checkPolicies(
   candidate: DispatchCandidate,
   context: DispatchAuthorization,
@@ -227,6 +238,7 @@ function checkPolicies(
   if (row.confirmation_required && context.confirmation_verified !== true)
     reject('confirmation_required');
 }
+
 function checkSecret(context: DispatchAuthorization, row: SafetyClassification): void {
   if (
     (row.result.boundary === 'protected_secret' && context.result_channel !== 'custody') ||
@@ -236,6 +248,7 @@ function checkSecret(context: DispatchAuthorization, row: SafetyClassification):
   if (!['ordinary', 'custody'].includes(context.result_channel))
     reject('invalid_authorization_context');
 }
+
 function checkRaw(candidate: DispatchCandidate, context: DispatchAuthorization): void {
   const grant = context.raw_grant;
   if (
@@ -284,6 +297,7 @@ export function checkDispatch(
     checkTransport(candidate, context, row);
     checkPolicies(candidate, context, row);
     checkSecret(context, row);
+    // raw 只放宽参数 schema 覆盖要求；前面的分类、传输、策略和秘密边界仍须全部通过。
     if (context.mode === 'strict') {
       if (candidate.validation === 'generic') reject('parameter_schema_incomplete');
       if (candidate.validation === 'unavailable') reject('schema_unavailable');
