@@ -35,6 +35,17 @@ export class Router {
     return this.store.dispatch(principal.id, callId, epoch);
   }
 
+  saveResult(principal: Principal, callId: string) {
+    this.get(principal, callId);
+    return this.store.saveResult(principal.id, callId);
+  }
+
+  readResult(principal: Principal, resultId: string, cursor = 0, maxBytes = 65_536) {
+    const call = this.store.resultCall(principal.id, resultId);
+    this.get(principal, call.call_id);
+    return this.store.readResult(principal.id, resultId, cursor, maxBytes);
+  }
+
   cancel(principal: Principal, callId: string) {
     this.get(principal, callId);
     // Stops bridging only; outcome_unknown never claims the native action rolled back.

@@ -17,9 +17,11 @@ Implemented:
 - Duplicate-device rejection, connection epochs, revocation and principal-owned call records.
 - Canonical request-key deduplication, response correlation and conservative restart/disconnect recovery.
 - Single-writer lock and database file permissions on POSIX.
+- Authorized Router and durable profile/session/method/deadline context.
+- Result handles with byte pagination, payload quota, TTL and revocation cleanup.
 
 Not implemented: WSS, MCP facade, UHP adapter/schema validation, credential rotation,
-result pagination/TTL, streaming, HTTP OAuth, CLI, or deployment. Store methods are
+global database retention/quotas, streaming, HTTP OAuth, CLI, or deployment. Store methods are
 internal primitives, not remotely accessible or independently authorized APIs.
 P0 live protocol gates remain open; this foundation does not imply P0/P1 completion.
 

@@ -27,7 +27,7 @@ export class Store {
       const hasMetadata = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").get();
       if (hasMetadata) {
         const versions = this.db.prepare('SELECT version FROM metadata').all() as { version: number }[];
-        if (versions.length !== 1 || ![1, 2].includes(versions[0]!.version)) {
+        if (versions.length !== 1 || ![1, 2, 3].includes(versions[0]!.version)) {
           throw new GatewayError('unsupported_database_version');
         }
       }
@@ -58,6 +58,16 @@ export class Store {
           ALTER TABLE calls ADD COLUMN method TEXT;
           ALTER TABLE calls ADD COLUMN deadline INTEGER;
           UPDATE metadata SET version=2;
+          COMMIT;`);
+      }
+      if (version.version < 3) {
+        this.db.exec(`BEGIN IMMEDIATE;
+          CREATE TABLE results (
+            result_id TEXT PRIMARY KEY, call_id TEXT NOT NULL REFERENCES calls,
+            payload BLOB NOT NULL, bytes INTEGER NOT NULL, hash TEXT NOT NULL, expires INTEGER NOT NULL
+          );
+          CREATE INDEX results_expiry ON results(expires);
+          UPDATE metadata SET version=3;
           COMMIT;`);
       }
       this.db.exec(`BEGIN IMMEDIATE;
@@ -178,6 +188,8 @@ export class Store {
   revoke(machine_id: string): void {
     this.transaction(() => {
       this.machine(machine_id);
+      this.db.prepare('DELETE FROM results WHERE call_id IN (SELECT call_id FROM calls WHERE machine_id=?)')
+        .run(machine_id);
       this.db.prepare("UPDATE machines SET status='revoked',credential_hash=NULL,epoch=NULL WHERE machine_id=?")
         .run(machine_id);
       this.db.prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
@@ -230,6 +242,49 @@ export class Store {
     });
   }
 
+  saveResult(principal: string, callId: string, ttlMs = 3_600_000,
+    quotaBytes = 16_777_216): { result_id: string; bytes: number; hash: string; expires: number } {
+    if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 3_600_000 ||
+      !Number.isSafeInteger(quotaBytes) || quotaBytes <= 0 || quotaBytes > 16_777_216) {
+      throw new GatewayError('invalid_result_limits');
+    }
+    return this.transaction(() => {
+      const call = this.call(principal, callId);
+      if (call.state !== 'responded' || call.response === null) throw new GatewayError('result_not_ready');
+      const payload = Buffer.from(call.response);
+      this.db.prepare('DELETE FROM results WHERE expires<=?').run(this.now());
+      const used = this.db.prepare('SELECT COALESCE(SUM(bytes),0) AS bytes FROM results').get() as { bytes: number };
+      if (used.bytes + payload.length > quotaBytes) throw new GatewayError('result_quota');
+      const result = { result_id: id('result'), bytes: payload.length,
+        hash: digest(payload.toString('utf8')), expires: this.now() + ttlMs };
+      this.db.prepare('INSERT INTO results VALUES (?,?,?,?,?,?)')
+        .run(result.result_id, callId, payload, result.bytes, result.hash, result.expires);
+      return result;
+    });
+  }
+
+  resultCall(principal: string, resultId: string): Call {
+    const row = this.db.prepare('SELECT call_id FROM results WHERE result_id=? AND expires>?')
+      .get(resultId, this.now()) as { call_id: string } | undefined;
+    if (!row) throw new GatewayError('result_not_found');
+    return this.call(principal, row.call_id);
+  }
+
+  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536) {
+    this.resultCall(principal, resultId);
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(maxBytes) ||
+      maxBytes <= 0 || maxBytes > 65_536) throw new GatewayError('invalid_result_cursor');
+    const row = this.db.prepare('SELECT bytes,hash FROM results WHERE result_id=?').get(resultId) as
+      { bytes: number; hash: string };
+    if (cursor > row.bytes) throw new GatewayError('invalid_result_cursor');
+    // Byte cursors and base64 preserve UTF-8 even when a page splits a code point.
+    const chunk = this.db.prepare('SELECT substr(payload,?,?) AS chunk FROM results WHERE result_id=?')
+      .get(cursor + 1, maxBytes, resultId) as { chunk: Uint8Array };
+    const data = Buffer.from(chunk.chunk);
+    return { result_id: resultId, encoding: 'base64' as const, data: data.toString('base64'),
+      next_cursor: cursor + data.length, eof: cursor + data.length === row.bytes, ...row };
+  }
+
   accepted(machine_id: string, call_id: string, attempt: string, epoch: string): void {
     const changed = this.db.prepare(`UPDATE calls SET state='connector_accepted'
       WHERE machine_id=? AND call_id=? AND attempt_id=? AND epoch=? AND state='dispatching'
@@ -246,6 +301,7 @@ export class Store {
   }
 
   expire(): void {
+    this.db.prepare('DELETE FROM results WHERE expires<=?').run(this.now());
     this.db.prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
       WHERE deadline<=? AND state IN ('created','dispatching','connector_accepted')`).run(this.now());
   }

@@ -15,7 +15,7 @@ implementation plan are unchanged.
 - Toolchain: TypeScript 7.0.2, tsx 4.23.15, @types/node 26.6.5, exact lockfile.
   Node type definitions being newer is not evidence of Node 26 runtime support.
 - Names: NFKC, trimmed, lowercase ASCII `[a-z0-9._-]`, maximum 63 characters.
-- Schema version 1, fail on unknown version; no upgrade path claimed yet.
+- Schema version 3; transactional v1/v2 upgrades, unknown versions fail before DDL.
 - Exact policy allowlists; no read-only classification guessed from prefixes.
 - Lockfile intentionally fails closed after a crash, requiring operator recovery.
 
@@ -79,14 +79,35 @@ before committing. New tests cover policy revocation on reads/dispatch/cancel,
 durable context, acceptance fencing, deadline and cancellation semantics, JSON
 bounds and unknown-version rejection without schema mutation.
 
+## Follow-up: bounded result handles
+
+The third change adds SQLite-backed result handles derived only from a call's
+stored native response (callers cannot substitute arbitrary result content).
+Reads recheck ownership, machine revocation and both current Router policies.
+Byte cursors and base64 chunks preserve UTF-8 when boundaries split code points.
+Metadata includes byte length, SHA-256 and expiry. Defaults: 64 KiB read pages,
+one-hour TTL, 16 MiB aggregate result-payload quota. Expiry cleanup runs on writes
+and `expire()`; revocation deletes the machine's result objects. Runtime scheduling
+of cleanup is not implemented. Stored inline call responses remain outside this
+result-object quota, so this is NOT a total database/disk quota.
+
+Schema v3 adds result storage; real v1 fixtures now verify migration, legacy
+Router rejection and unknown outcomes across reopen. Existing v2 fixtures are
+covered by the prior implementation, but an explicit v2-to-v3 regression fixture
+is still pending. Tests total 14, including byte-perfect multi-page reconstruction,
+TTL, quotas, policy changes and cross-principal denial. Typecheck/build and Node 24
+regression commands are rerun for this change.
+
 ## Remaining gaps
 
-P1 is partial: result objects/quotas/TTL, audit, rejection states,
+P1 is partial: total database quotas, audit, rejection states,
 approval and backup tooling are not implemented. Policy checks are wired through
 an internal Router but not yet bound to an actual authenticated transport. A machine marked online
 here represents a storage-level authenticated binding, not full connector readiness.
-No full UHP request schema or response schema is validated yet. No response size
-limit is enforced in these internal primitives; transport must enforce it before use.
+No full UHP request schema or response schema is validated yet. Canonicalization
+limits individual JSON values to 1 MiB, while result handles have their own aggregate
+payload quota and TTL. Inline call responses and ledger growth still lack aggregate
+quotas/retention; transport framing and global disk limits remain required.
 Tests simulate two device identities, not two physical machines. SQLite operations
 are synchronous. Credential rotation, constant-time verification hardening,
 Windows ACLs and runtime Node 26 testing remain pending. No production deployment

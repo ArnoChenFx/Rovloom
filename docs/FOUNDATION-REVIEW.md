@@ -1,4 +1,25 @@
-# Foundation reviews: 7ed9ef7 and d1b8011
+# Foundation reviews: 7ed9ef7, d1b8011 and 2e0b9cd
+
+## Third batch: 2e0b9cd
+
+Decision: suitable for another **draft** PR update, not deployment or P0/P1 completion. Source delta: five files, 179 additions and 6 deletions; local worktree clean. Remote baseline before publication: PR branch `09325e6`, main `afe1cb4`.
+
+Independently reproduced: typecheck passed; build passed; 14 tests passed / 0 failed on host Node 25.9.0 and on Node 24.22.0; `git diff d1b8011..2e0b9cd --check` passed.
+
+Reviewed additions:
+- Result handles derive from the stored call response, with byte cursors/base64 chunks, SHA-256, expiry and aggregate handle-payload quota.
+- Router result access rechecks principal ownership and caller/local policies; machine revocation deletes handle rows.
+- A populated real-v1-schema migration and legacy Router fail-closed/reopen regression is now committed and passes.
+- Progress text now distinguishes schema v3, per-value JSON bounds, result-handle quotas and missing total database retention.
+
+Remaining gates / caveats:
+- **TTL is handle availability, not source-response retention.** Inline `calls.response` remains readable through the internal call API and can create another handle after expiry; revocation removes handles and denies access but does not erase original response bytes. Do not advertise TTL/revocation as physical data erasure or all-data retention enforcement.
+- Handle payload quota is not a global SQLite/disk quota. Repeated saveResult calls can create duplicate objects until quota is hit; any future idempotent/unique-per-call reuse policy must be explicit.
+- Cleanup runs on writes/expire, not a scheduler; deletion is not secure erase or guaranteed disk reclamation.
+- Explicit populated v2-to-v3 migration, exact aggregate-quota boundary/reclamation, cursor-at/end/after-end and restart preservation of result objects need dedicated regressions. Existing byte reconstruction/expiry/ownership tests pass but do not establish every edge case.
+- First/second batch integration and P0 gates remain unless specifically resolved above. There is still no WSS/MCP/UHP transport or authenticated caller integration.
+
+---
 
 ## Second batch: d1b8011
 
