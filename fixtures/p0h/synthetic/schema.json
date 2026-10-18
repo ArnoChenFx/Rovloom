@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:rovloom:p0h:synthetic","description":"Synthetic closure-auditor input, not an installed Herdr schema.","$defs":{"empty":{"type":"object","maxProperties":0}},"type":"object","properties":{"params":{"$ref":"#/$defs/empty"}}}

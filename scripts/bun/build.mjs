@@ -1,8 +1,8 @@
-import { rmSync } from 'node:fs';
-import { toolchain } from './toolchain.mjs';
+import { rmSync } from 'node:fs'
+import { toolchain } from './toolchain.mjs'
 
-toolchain();
-rmSync(new URL('../../dist/', import.meta.url), { recursive: true, force: true });
+toolchain()
+rmSync(new URL('../../dist/', import.meta.url), { recursive: true, force: true })
 const result = await Bun.build({
   entrypoints: [
     'src/contracts.ts',
@@ -12,7 +12,7 @@ const result = await Bun.build({
     'src/native-contract/index.ts',
     'src/wire/index.ts',
     'src/integration/luvus-wire.ts',
-    'src/integration/persistence.ts',
+    'src/integration/persistence.ts'
   ],
   outdir: 'dist/src',
   root: 'src',
@@ -20,9 +20,11 @@ const result = await Bun.build({
   format: 'esm',
   packages: 'external',
   splitting: true,
-  sourcemap: 'external',
-});
-if (!result.success) throw new AggregateError(result.logs, 'Bun build failed');
+  sourcemap: 'external'
+})
+if (!result.success) {
+  throw new AggregateError(result.logs, 'Bun build failed')
+}
 console.log(
-  `Built ${result.outputs.length} ESM files/maps for Bun; foundation, native, wire and integration entrypoints`,
-);
+  `Built ${result.outputs.length} ESM files/maps for Bun; foundation, native, wire and integration entrypoints`
+)

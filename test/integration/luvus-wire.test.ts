@@ -1,34 +1,24 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js';
-import type { NativeWireBackend, TrustedAttempt } from '../../src/integration/luvus-wire.js';
-import { boundedJson, contractRef, hash, LIMITS } from '../../src/wire/index.js';
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
+import type { NativeWireBackend, TrustedAttempt } from '../../src/integration/luvus-wire.js'
+import { boundedJson, contractRef, hash, LIMITS } from '../../src/wire/index.js'
 import type {
   AttemptBinding,
   AuthenticatedEnvelope,
   ContractSource,
   Payloads,
-  ProviderPolicies,
-} from '../../src/wire/types.js';
-import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js';
-import {
-  auth,
-  clone,
-  compiled,
-  G,
-  identity,
-  json,
-  request,
-  T,
-  view,
-} from '../native-contract/helpers.js';
+  ProviderPolicies
+} from '../../src/wire/types.js'
+import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js'
+import { auth, clone, compiled, G, identity, json, request, T, view } from '../native-contract/helpers.js'
 
 // 全部是隔离 P0 fixture 与明确的测试权限；生产模块不导入本工厂或测试 gate。
 function fixture(
   method = 'task.add',
   raw = false,
   stream = false,
-  limits?: Parameters<typeof createLuvusWireAdapter>[1],
+  limits?: Parameters<typeof createLuvusWireAdapter>[1]
 ) {
   const params =
     method === 'ping'
@@ -39,12 +29,10 @@ function fixture(
             server_generation: G,
             terminal_id: T,
             pane_id: '3',
-            ...(method === 'terminal.backend.capture'
-              ? { mode: 'visible', lines: 1, ansi: false }
-              : {}),
-          };
-  const candidate = request(view(), { id: 'native_1', method, params });
-  const initial = auth(candidate);
+            ...(method === 'terminal.backend.capture' ? { mode: 'visible', lines: 1, ansi: false } : {})
+          }
+  const candidate = request(view(), { id: 'native_1', method, params })
+  const initial = auth(candidate)
   const origin: ContractSource = {
     provider_kind: 'luvus',
     protocol_family: 'uhp',
@@ -58,8 +46,8 @@ function fixture(
     runtime_generation: G,
     adapter_revision: 'integration_test',
     classification_revision: 'review1',
-    support_basis: 'live_catalog',
-  };
+    support_basis: 'live_catalog'
+  }
   const binding: AttemptBinding = {
     machine_id: 'm1',
     recovery_generation: 'recovery1',
@@ -75,9 +63,9 @@ function fixture(
       deadline: 1000,
       history: null,
       caller_policy_revision: 'caller1',
-      local_policy_revision: 'local1',
-    },
-  };
+      local_policy_revision: 'local1'
+    }
+  }
   const row: TrustedAttempt = {
     binding,
     principal_id: 'synthetic',
@@ -85,9 +73,9 @@ function fixture(
     mode: raw ? 'raw-contract' : 'strict',
     native_request: { method, params },
     transport: stream ? 'stream' : 'rpc',
-    ...(stream ? { feature: 'terminal_control', stream_id: 'stream1' } : {}),
-  };
-  const rows = new Map([[binding.call_id, row]]);
+    ...(stream ? { feature: 'terminal_control', stream_id: 'stream1' } : {})
+  }
+  const rows = new Map([[binding.call_id, row]])
   const policies: ProviderPolicies = {
     caller: {
       revision: 'caller1',
@@ -95,13 +83,13 @@ function fixture(
         {
           target: clone(binding.target),
           methods: [method],
-          actions: ['dispatch', 'read', 'stream_input', 'cancel'],
-        },
-      ],
+          actions: ['dispatch', 'read', 'stream_input', 'cancel']
+        }
+      ]
     },
-    local: { revision: 'local1', grants: [] },
-  };
-  policies.local.grants = clone(policies.caller.grants);
+    local: { revision: 'local1', grants: [] }
+  }
+  policies.local.grants = clone(policies.caller.grants)
   const state = {
     active: true,
     enabled: true,
@@ -116,17 +104,17 @@ function fixture(
     localConfig: 'config1',
     now: 100,
     custody: false,
-    channel: 'ordinary' as 'ordinary' | 'custody',
-  };
-  const capabilities = json('session-capabilities.json');
-  capabilities.result.session = 'synthetic';
-  capabilities.result.server_generation = G;
+    channel: 'ordinary' as 'ordinary' | 'custody'
+  }
+  const capabilities = json('session-capabilities.json')
+  capabilities.result.session = 'synthetic'
+  capabilities.result.server_generation = G
   const nativeBinding = (record: TrustedAttempt): NativeBinding => ({
     ...candidate.binding,
     provider_id: record.binding.target.provider_id,
     binding_revision: record.binding.binding_revision,
-    contract_source_ref: record.binding.contract_ref,
-  });
+    contract_source_ref: record.binding.contract_ref
+  })
   const backend: NativeWireBackend = {
     connection: () => ({
       machine_id: 'm1',
@@ -137,12 +125,12 @@ function fixture(
       negotiated: {
         major: 2,
         minor: 0,
-        capabilities: ['rpc', 'objects', 'late_evidence', 'terminal_observe', 'terminal_control'],
-      },
+        capabilities: ['rpc', 'objects', 'late_evidence', 'terminal_observe', 'terminal_control']
+      }
     }),
     attempt: (call, attempt) => {
-      const found = rows.get(call);
-      return found?.binding.attempt_id === attempt ? found : undefined;
+      const found = rows.get(call)
+      return found?.binding.attempt_id === attempt ? found : undefined
     },
     provider: (target) => ({
       machine_id: 'm1',
@@ -150,7 +138,7 @@ function fixture(
       binding_revision: state.revision,
       kind: 'luvus',
       enabled: state.enabled,
-      config_ref: 'config1',
+      config_ref: 'config1'
     }),
     localProvider: (target) => ({
       machine_id: 'm1',
@@ -158,7 +146,7 @@ function fixture(
       binding_revision: state.revision,
       kind: 'luvus',
       enabled: state.enabled,
-      config_ref: state.localConfig,
+      config_ref: state.localConfig
     }),
     contract: (ref) =>
       ref === contractRef(origin)
@@ -166,18 +154,18 @@ function fixture(
             wire: { source: origin, support_status: 'validated' },
             compiled,
             capabilities,
-            capability_revision: 'caps1',
+            capability_revision: 'caps1'
           }
         : undefined,
     nativeSource: (call) => {
-      const found = rows.get(call);
+      const found = rows.get(call)
       return found
         ? {
             authenticated: true,
             source_verified: state.sourceVerified,
-            binding: nativeBinding(found),
+            binding: nativeBinding(found)
           }
-        : undefined;
+        : undefined
     },
     policies: () => policies,
     authority: (record, native) => {
@@ -189,7 +177,7 @@ function fixture(
         mode: _mode,
         now: _now,
         ...authority
-      } = initial;
+      } = initial
       return {
         ...authority,
         classifications: state.classifications,
@@ -206,11 +194,11 @@ function fixture(
                 principal_id: record.principal_id,
                 binding: native,
                 methods: [method],
-                expires_at: 200,
-              },
+                expires_at: 200
+              }
             }
-          : {}),
-      };
+          : {})
+      }
     },
     currentPrincipal: () => state.reader,
     contentStatus: () => state.content,
@@ -222,20 +210,17 @@ function fixture(
       state: 'outcome_unknown',
       content_status: state.content,
       content_expires_at: 500,
-      dedup_expires_at: 2000,
-    }),
-  };
-  const adapter = createLuvusWireAdapter(backend, limits);
+      dedup_expires_at: 2000
+    })
+  }
+  const adapter = createLuvusWireAdapter(backend, limits)
   const attempt = ({
     machine_id: _machine,
     recovery_generation: _recovery,
     connection_epoch: _epoch,
     ...rest
-  }: AttemptBinding) => rest;
-  function frame<K extends keyof Payloads>(
-    type: K,
-    payload: Payloads[K],
-  ): Extract<AuthenticatedEnvelope, { type: K }> {
+  }: AttemptBinding) => rest
+  function frame<K extends keyof Payloads>(type: K, payload: Payloads[K]): Extract<AuthenticatedEnvelope, { type: K }> {
     return {
       protocol_major: 2,
       protocol_minor: 0,
@@ -244,8 +229,8 @@ function fixture(
       machine_id: 'm1',
       recovery_generation: 'recovery1',
       connection_epoch: 'e1',
-      payload,
-    } as Extract<AuthenticatedEnvelope, { type: K }>;
+      payload
+    } as Extract<AuthenticatedEnvelope, { type: K }>
   }
   const opening = stream
     ? frame('stream_open', {
@@ -254,14 +239,14 @@ function fixture(
         native_request: row.native_request,
         validation: row.mode,
         stream_id: 'stream1',
-        feature: 'terminal_control',
+        feature: 'terminal_control'
       })
     : frame('request', {
         attempt: attempt(binding),
         expected_binding_revision: 1,
         native_request: row.native_request,
-        validation: row.mode,
-      });
+        validation: row.mode
+      })
   const response = frame('response', {
     attempt: attempt(binding),
     native_response: {
@@ -269,14 +254,14 @@ function fixture(
       error: {
         code: 'synthetic',
         message: 'preserve',
-        data: { deep: ['汉字', { native: true }] },
-      },
-    },
-  });
+        data: { deep: ['汉字', { native: true }] }
+      }
+    }
+  })
   const decode = (
     value: unknown,
-    direction: 'gateway_to_connector' | 'connector_to_gateway' = 'gateway_to_connector',
-  ) => adapter.decode(JSON.stringify(value), direction);
+    direction: 'gateway_to_connector' | 'connector_to_gateway' = 'gateway_to_connector'
+  ) => adapter.decode(JSON.stringify(value), direction)
   return {
     adapter,
     backend,
@@ -291,22 +276,21 @@ function fixture(
     decode,
     frame,
     attempt,
-    nativeBinding,
-  };
+    nativeBinding
+  }
 }
-const rejects = (run: () => unknown, code: string) =>
-  assert.throws(run, (e: any) => e.code === code, code);
+const rejects = (run: () => unknown, code: string) => assert.throws(run, (e: any) => e.code === code, code)
 
 function controlFixture(limits?: Parameters<typeof createLuvusWireAdapter>[1]) {
-  const f = fixture('terminal.backend.control', false, true, limits);
+  const f = fixture('terminal.backend.control', false, true, limits)
   const data = (frame: Record<string, unknown>, sequence = 0) =>
     f.frame('stream_data', {
       attempt: f.attempt(f.binding),
       stream_id: 'stream1',
       feature: 'terminal_control',
       sequence,
-      frame,
-    });
+      frame
+    })
   const ack = {
     id: 'native_1',
     result: {
@@ -322,155 +306,128 @@ function controlFixture(limits?: Parameters<typeof createLuvusWireAdapter>[1]) {
       lines: 1,
       frame_bytes: 65536,
       queue_capacity: 2,
-      loss_behavior: 'resync_required_then_close',
-    },
-  };
-  f.adapter.advanceStream(f.opening, 'gateway_to_connector');
-  f.adapter.advanceStream(data(ack), 'connector_to_gateway');
+      loss_behavior: 'resync_required_then_close'
+    }
+  }
+  f.adapter.advanceStream(f.opening, 'gateway_to_connector')
+  f.adapter.advanceStream(data(ack), 'connector_to_gateway')
   const input = (id: string) =>
     f.frame('stream_input', {
       attempt: f.attempt(f.binding),
       stream_id: 'stream1',
       feature: 'terminal_control',
       sequence: 0,
-      frame: { id, action: 'type_literal', params: { text: 'synthetic' } },
-    });
+      frame: { id, action: 'type_literal', params: { text: 'synthetic' } }
+    })
   const inputAck = {
     id: 'input1',
-    result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' },
-  };
-  return { ...f, data, input, inputAck, ack };
+    result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' }
+  }
+  return { ...f, data, input, inputAck, ack }
 }
 
 test('外层输入顺序失败不留下控制许可或 ID 冲突，纠正后仍可使用原 ID', () => {
-  const f = controlFixture();
-  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
-  const bad = f.input('input1');
-  bad.payload.sequence = 7;
-  rejects(() => f.adapter.advanceStream(bad, 'gateway_to_connector'), 'stream_sequence_mismatch');
-  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'control_ack_unbound');
-  rejects(
-    () => f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway'),
-    'control_ack_unbound',
-  );
-  const corrected = f.input('input1');
-  corrected.payload.frame.params = { text: 'corrected' };
-  assert.equal(f.adapter.advanceStream(corrected, 'gateway_to_connector').next_input_sequence, 1);
-  assert.equal(
-    f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway').next_data_sequence,
-    2,
-  );
-});
+  const f = controlFixture()
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
+  const bad = f.input('input1')
+  bad.payload.sequence = 7
+  rejects(() => f.adapter.advanceStream(bad, 'gateway_to_connector'), 'stream_sequence_mismatch')
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'control_ack_unbound')
+  rejects(() => f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway'), 'control_ack_unbound')
+  const corrected = f.input('input1')
+  corrected.payload.frame.params = { text: 'corrected' }
+  assert.equal(f.adapter.advanceStream(corrected, 'gateway_to_connector').next_input_sequence, 1)
+  assert.equal(f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway').next_data_sequence, 2)
+})
 
 test('失败输入返还控制 ID 和精确快照预算，已成功输入的许可仍保留', () => {
-  const base = controlFixture(),
-    frame = base.input('input1');
-  const source = base.backend.nativeSource(base.binding.call_id, base.binding.attempt_id);
-  const capabilities = base.backend.contract(base.binding.contract_ref)!.capabilities;
+  const base = controlFixture()
+  const frame = base.input('input1')
+  const source = base.backend.nativeSource(base.binding.call_id, base.binding.attempt_id)
+  const capabilities = base.backend.contract(base.binding.contract_ref)!.capabilities
   const bytes =
     2 * Buffer.byteLength(boundedJson({ attempt: base.row, source, capabilities })) +
-    2 * Buffer.byteLength(boundedJson(frame.payload.frame));
-  const f = controlFixture({ attempts: 1, control_ids: 1, snapshot_bytes: bytes });
-  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
-  const bad = f.input('input2');
-  bad.payload.sequence = 7;
-  rejects(() => f.adapter.advanceStream(bad, 'gateway_to_connector'), 'stream_sequence_mismatch');
-  assert.equal(
-    f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence,
-    1,
-  );
-  rejects(
-    () => f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector'),
-    'stream_sequence_mismatch',
-  );
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
-});
+    2 * Buffer.byteLength(boundedJson(frame.payload.frame))
+  const f = controlFixture({ attempts: 1, control_ids: 1, snapshot_bytes: bytes })
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
+  const bad = f.input('input2')
+  bad.payload.sequence = 7
+  rejects(() => f.adapter.advanceStream(bad, 'gateway_to_connector'), 'stream_sequence_mismatch')
+  assert.equal(f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence, 1)
+  rejects(() => f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector'), 'stream_sequence_mismatch')
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck))
+})
 
 test('顺序失败的开流 ack 不建立原生流或固定其摘要，后续合法 ack 可以恢复', () => {
-  const f = controlFixture();
-  f.adapter.release(f.binding);
-  f.adapter.advanceStream(f.opening, 'gateway_to_connector');
-  rejects(
-    () => f.adapter.advanceStream(f.data(f.ack, 7), 'connector_to_gateway'),
-    'stream_sequence_mismatch',
-  );
-  rejects(() => f.decode(f.input('input1')), 'stream_not_ready');
-  const corrected = { ...f.ack, result: { ...f.ack.result, lines: 2 } };
-  assert.equal(f.adapter.advanceStream(f.data(corrected), 'connector_to_gateway').state, 'open');
-});
+  const f = controlFixture()
+  f.adapter.release(f.binding)
+  f.adapter.advanceStream(f.opening, 'gateway_to_connector')
+  rejects(() => f.adapter.advanceStream(f.data(f.ack, 7), 'connector_to_gateway'), 'stream_sequence_mismatch')
+  rejects(() => f.decode(f.input('input1')), 'stream_not_ready')
+  const corrected = { ...f.ack, result: { ...f.ack.result, lines: 2 } }
+  assert.equal(f.adapter.advanceStream(f.data(corrected), 'connector_to_gateway').state, 'open')
+})
 
 test('消息 ID 冲突回滚 native 校验产生的输入许可和容量，不撤销既有去重项', () => {
-  const f = controlFixture({ attempts: 1, control_ids: 1 });
-  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
-  const heartbeat = f.frame('heartbeat', { sequence: 0 });
-  assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'new');
-  rejects(
-    () => f.adapter.observeMessage(f.input('input2'), 'gateway_to_connector'),
-    'message_id_conflict',
-  );
-  rejects(
-    () => f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'input2' }),
-    'control_ack_unbound',
-  );
-  assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'duplicate');
-  assert.equal(
-    f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence,
-    1,
-  );
-});
+  const f = controlFixture({ attempts: 1, control_ids: 1 })
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
+  const heartbeat = f.frame('heartbeat', { sequence: 0 })
+  assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'new')
+  rejects(() => f.adapter.observeMessage(f.input('input2'), 'gateway_to_connector'), 'message_id_conflict')
+  rejects(() => f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'input2' }), 'control_ack_unbound')
+  assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'duplicate')
+  assert.equal(f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence, 1)
+})
 
 test('首次请求授权失败不占 attempt 名额或保存请求候选', () => {
-  const f = fixture('task.add', false, false, { attempts: 1, control_ids: 1 });
-  const classifications = f.state.classifications;
-  f.state.classifications = [];
-  rejects(() => f.decode(f.opening), 'classification_unavailable');
-  const second = clone(f.row);
-  second.binding.call_id = 'call2';
-  f.rows.set('call2', second);
-  f.state.classifications = classifications;
+  const f = fixture('task.add', false, false, { attempts: 1, control_ids: 1 })
+  const classifications = f.state.classifications
+  f.state.classifications = []
+  rejects(() => f.decode(f.opening), 'classification_unavailable')
+  const second = clone(f.row)
+  second.binding.call_id = 'call2'
+  f.rows.set('call2', second)
+  f.state.classifications = classifications
   const opening = {
     ...f.opening,
-    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) },
-  };
-  assert.doesNotThrow(() => f.decode(opening));
-  assert.doesNotThrow(() => f.adapter.checkResult(second.binding));
-});
+    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }
+  }
+  assert.doesNotThrow(() => f.decode(opening))
+  assert.doesNotThrow(() => f.adapter.checkResult(second.binding))
+})
 
 test('错误入口拒绝请求帧后不留下已生成的派发许可，正常入口仍可重新校验', () => {
-  const f = fixture();
-  rejects(
-    () => f.adapter.advanceStream(f.opening, 'gateway_to_connector'),
-    'invalid_stream_transition',
-  );
-  rejects(() => f.adapter.checkResult(f.binding), 'dispatch_permit_unavailable');
-  assert.doesNotThrow(() => f.decode(f.opening));
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
-});
+  const f = fixture()
+  rejects(() => f.adapter.advanceStream(f.opening, 'gateway_to_connector'), 'invalid_stream_transition')
+  rejects(() => f.adapter.checkResult(f.binding), 'dispatch_permit_unavailable')
+  assert.doesNotThrow(() => f.decode(f.opening))
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding))
+})
 
 test('控制分类拒绝不缓存输入内容，重新授权后可使用同一 ID 的纠正请求', () => {
-  const f = controlFixture({ attempts: 1, control_ids: 1 });
-  rejects(() => f.decode(f.input('input1')), 'safety_classification_missing');
-  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
-  const corrected = f.input('input1');
-  corrected.payload.frame.params = { text: 'corrected' };
-  assert.doesNotThrow(() => f.decode(corrected));
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
-});
+  const f = controlFixture({ attempts: 1, control_ids: 1 })
+  rejects(() => f.decode(f.input('input1')), 'safety_classification_missing')
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
+  const corrected = f.input('input1')
+  corrected.payload.frame.params = { text: 'corrected' }
+  assert.doesNotThrow(() => f.decode(corrected))
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck))
+})
 
 test('backend 回调不能重入修改正在验证的 adapter，外层校验仍能完成', () => {
-  const f = fixture(),
-    authority = f.backend.authority;
+  const f = fixture()
+  const authority = f.backend.authority
   f.backend.authority = (...args) => {
-    rejects(() => f.adapter.release(f.binding), 'native_adapter_unavailable');
-    return authority(...args);
-  };
-  assert.doesNotThrow(() => f.decode(f.opening));
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
-});
+    rejects(() => f.adapter.release(f.binding), 'native_adapter_unavailable')
+    return authority(...args)
+  }
+  assert.doesNotThrow(() => f.decode(f.opening))
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding))
+})
 
 test('RPC 原秘密许可在当前分类降级后仍要求 custody 可用，证据原文不得旁路', () => {
-  const f = fixture(),
-    ordinary = clone(f.state.classifications[0]!);
+  const f = fixture()
+  const ordinary = clone(f.state.classifications[0]!)
   f.state.classifications = [
     {
       ...ordinary,
@@ -478,51 +435,51 @@ test('RPC 原秘密许可在当前分类降级后仍要求 custody 可用，证�
         ...ordinary.result,
         boundary: 'protected_secret',
         sensitivity: 'credential',
-        delivery: 'custody',
-      },
-    },
-  ];
-  f.state.custody = true;
-  f.state.channel = 'custody';
-  f.decode(f.opening);
-  f.state.classifications = [ordinary];
-  f.state.custody = false;
-  rejects(() => f.adapter.checkResult(f.binding), 'secret_boundary_required');
-  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
-  f.state.custody = true;
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
-  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload');
-  f.state.channel = 'ordinary';
-  rejects(() => f.adapter.checkResult(f.binding), 'secret_boundary_required');
-});
+        delivery: 'custody'
+      }
+    }
+  ]
+  f.state.custody = true
+  f.state.channel = 'custody'
+  f.decode(f.opening)
+  f.state.classifications = [ordinary]
+  f.state.custody = false
+  rejects(() => f.adapter.checkResult(f.binding), 'secret_boundary_required')
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
+  f.state.custody = true
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding))
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload')
+  f.state.channel = 'ordinary'
+  rejects(() => f.adapter.checkResult(f.binding), 'secret_boundary_required')
+})
 
 test('控制输入原秘密许可在当前分类降级后仍要求 custody 可用', () => {
-  const f = controlFixture(),
-    ordinary = { ...clone(f.state.classifications[0]!), action: 'type_literal' };
+  const f = controlFixture()
+  const ordinary = { ...clone(f.state.classifications[0]!), action: 'type_literal' }
   f.state.classifications.push({
     ...ordinary,
     result: {
       ...ordinary.result,
       boundary: 'protected_secret',
       sensitivity: 'credential',
-      delivery: 'custody',
-    },
-  });
-  f.state.custody = true;
-  f.state.channel = 'custody';
-  f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector');
-  f.state.classifications[1] = ordinary;
-  f.state.custody = false;
-  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'secret_boundary_required');
-  f.state.custody = true;
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
-});
+      delivery: 'custody'
+    }
+  })
+  f.state.custody = true
+  f.state.channel = 'custody'
+  f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector')
+  f.state.classifications[1] = ordinary
+  f.state.custody = false
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'secret_boundary_required')
+  f.state.custody = true
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck))
+})
 
 test('retention:none 可读取但证据计划只保留元数据，普通/秘密 result 与 error 均不复活原文', () => {
-  for (const secret of [false, true])
+  for (const secret of [false, true]) {
     for (const error of [false, true]) {
-      const f = fixture();
-      const row = f.state.classifications[0]!;
+      const f = fixture()
+      const row = f.state.classifications[0]!
       f.state.classifications = [
         {
           ...row,
@@ -533,15 +490,15 @@ test('retention:none 可读取但证据计划只保留元数据，普通/秘密 
               ? ({
                   boundary: 'protected_secret',
                   sensitivity: 'credential',
-                  delivery: 'custody',
+                  delivery: 'custody'
                 } as const)
-              : {}),
-          },
-        },
-      ];
-      f.state.custody = secret;
-      f.state.channel = secret ? 'custody' : 'ordinary';
-      f.decode(f.opening);
+              : {})
+          }
+        }
+      ]
+      f.state.custody = secret
+      f.state.channel = secret ? 'custody' : 'ordinary'
+      f.decode(f.opening)
       const response = error
         ? f.response
         : {
@@ -550,36 +507,31 @@ test('retention:none 可读取但证据计划只保留元数据，普通/秘密 
               ...f.response.payload,
               native_response: {
                 id: 'native_1',
-                result: { synthetic: 'SYNTHETIC_PRIVATE_CONTENT' },
-              },
-            },
-          };
-      f.decode(response, 'connector_to_gateway');
-      assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
-      const anchor = clone(f.backend.responseAnchor!(f.binding));
-      const plan = f.adapter.planEvidence(response);
-      assert.equal(plan.content.delivery, 'metadata_only');
-      assert.equal(plan.content.native_response, undefined);
-      assert.equal(Object.hasOwn(plan.content, 'native_response'), false);
-      assert.equal(Object.hasOwn(plan.content, 'result_id'), false);
-      assert.equal(
-        plan.evidence.response_hash,
-        hash(boundedJson(response.payload.native_response)),
-      );
-      assert.equal(
-        plan.evidence.response_bytes,
-        Buffer.byteLength(boundedJson(response.payload.native_response)),
-      );
-      assert.equal(plan.evidence.category, error ? 'error' : 'result');
-      assert.equal(plan.content.expires_at, anchor!.content_expires_at);
-      assert.equal(plan.dispatch, false);
-      assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor);
+                result: { synthetic: 'SYNTHETIC_PRIVATE_CONTENT' }
+              }
+            }
+          }
+      f.decode(response, 'connector_to_gateway')
+      assert.doesNotThrow(() => f.adapter.checkResult(f.binding))
+      const anchor = clone(f.backend.responseAnchor!(f.binding))
+      const plan = f.adapter.planEvidence(response)
+      assert.equal(plan.content.delivery, 'metadata_only')
+      assert.equal(plan.content.native_response, undefined)
+      assert.equal(Object.hasOwn(plan.content, 'native_response'), false)
+      assert.equal(Object.hasOwn(plan.content, 'result_id'), false)
+      assert.equal(plan.evidence.response_hash, hash(boundedJson(response.payload.native_response)))
+      assert.equal(plan.evidence.response_bytes, Buffer.byteLength(boundedJson(response.payload.native_response)))
+      assert.equal(plan.evidence.category, error ? 'error' : 'result')
+      assert.equal(plan.content.expires_at, anchor!.content_expires_at)
+      assert.equal(plan.dispatch, false)
+      assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor)
     }
-});
+  }
+})
 
 test('控制 ack 读取选自己的 permit/当前分类，不能借普通开流许可走普通通道', () => {
-  const f = controlFixture(),
-    row = f.state.classifications[0]!;
+  const f = controlFixture()
+  const row = f.state.classifications[0]!
   const control = {
     ...clone(row),
     action: 'type_literal',
@@ -587,65 +539,62 @@ test('控制 ack 读取选自己的 permit/当前分类，不能借普通开流�
       ...row.result,
       boundary: 'protected_secret',
       sensitivity: 'credential',
-      delivery: 'custody',
-    },
-  } as const;
-  f.state.classifications.push(control);
-  f.state.custody = true;
-  f.state.channel = 'custody';
-  f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector');
-  f.state.channel = 'ordinary';
+      delivery: 'custody'
+    }
+  } as const
+  f.state.classifications.push(control)
+  f.state.custody = true
+  f.state.channel = 'custody'
+  f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector')
+  f.state.channel = 'ordinary'
   const error = {
     id: 'input1',
-    error: { code: 'send_failed', message: 'synthetic', metadata: { marker: 'SYNTHETIC_SECRET' } },
-  };
-  f.adapter.advanceStream(f.data(error, 1), 'connector_to_gateway');
-  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required');
-  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'secret_boundary_required');
-  rejects(() => f.adapter.checkResult(f.binding), 'result_selector_required');
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.ack));
-  f.state.channel = 'custody';
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, error));
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
-  f.state.custody = false;
-  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required');
-  f.state.custody = true;
-  f.state.classifications = [row];
-  rejects(() => f.adapter.checkResult(f.binding, error), 'classification_unavailable');
+    error: { code: 'send_failed', message: 'synthetic', metadata: { marker: 'SYNTHETIC_SECRET' } }
+  }
+  f.adapter.advanceStream(f.data(error, 1), 'connector_to_gateway')
+  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required')
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'secret_boundary_required')
+  rejects(() => f.adapter.checkResult(f.binding), 'result_selector_required')
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.ack))
+  f.state.channel = 'custody'
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, error))
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck))
+  f.state.custody = false
+  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required')
+  f.state.custody = true
+  f.state.classifications = [row]
+  rejects(() => f.adapter.checkResult(f.binding, error), 'classification_unavailable')
   // 当前分类降为 ordinary 也不能覆盖当初控制 permit 的秘密边界。
-  f.state.classifications.push({ ...control, result: row.result });
-  f.state.channel = 'ordinary';
-  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required');
-});
+  f.state.classifications.push({ ...control, result: row.result })
+  f.state.channel = 'ordinary'
+  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required')
+})
 
 test('流结果 frame 精确选择控制 ID/事件，未派发或其它 attempt 的 ID 不回退到开流许可', () => {
-  const f = controlFixture(),
-    row = f.state.classifications[0]!;
-  f.state.classifications.push({ ...clone(row), action: 'type_literal' });
-  f.decode(f.input('input1'));
-  f.decode(f.data(f.inputAck), 'connector_to_gateway');
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
+  const f = controlFixture()
+  const row = f.state.classifications[0]!
+  f.state.classifications.push({ ...clone(row), action: 'type_literal' })
+  f.decode(f.input('input1'))
+  f.decode(f.data(f.inputAck), 'connector_to_gateway')
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck))
   for (const id of ['unknown', 'input2']) {
-    rejects(() => f.adapter.checkResult(f.binding, { ...f.inputAck, id }), 'control_ack_unbound');
+    rejects(() => f.adapter.checkResult(f.binding, { ...f.inputAck, id }), 'control_ack_unbound')
   }
-  const second = clone(f.row);
-  second.binding.call_id = 'call2';
-  f.rows.set('call2', second);
+  const second = clone(f.row)
+  second.binding.call_id = 'call2'
+  f.rows.set('call2', second)
   const otherOpening = {
     ...f.opening,
-    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) },
-  };
-  f.decode(otherOpening);
-  rejects(() => f.adapter.checkResult(second.binding, f.inputAck), 'control_ack_unbound');
+    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }
+  }
+  f.decode(otherOpening)
+  rejects(() => f.adapter.checkResult(second.binding, f.inputAck), 'control_ack_unbound')
   rejects(
     () => f.adapter.checkResult({ ...f.binding, native_request_id: 'input1' }, f.inputAck),
-    'attempt_binding_mismatch',
-  );
+    'attempt_binding_mismatch'
+  )
   // 不能把开流 native ID 写在控制 ack 上借其普通分类。
-  rejects(
-    () => f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'native_1' }),
-    'native_result_mismatch',
-  );
+  rejects(() => f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'native_1' }), 'native_result_mismatch')
   const event = {
     event: 'terminal.frame',
     sequence: 0,
@@ -659,40 +608,40 @@ test('流结果 frame 精确选择控制 ID/事件，未派发或其它 attempt 
       text: 'synthetic',
       lines: 1,
       bytes: 9,
-      truncated: false,
-    },
-  };
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, event));
+      truncated: false
+    }
+  }
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, event))
   rejects(
     () =>
       f.adapter.checkResult(f.binding, {
         ...event,
-        data: { ...event.data, terminal_id: '9'.repeat(32) },
+        data: { ...event.data, terminal_id: '9'.repeat(32) }
       }),
-    'native_identity_mismatch',
-  );
-  f.state.reader = 'other';
-  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'forbidden');
-  f.state.reader = 'synthetic';
-  f.state.content = 'discarded';
-  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'content_unavailable');
-  f.state.content = 'available';
-  f.policies.local.grants[0]!.actions = ['dispatch', 'stream_input'];
-  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'forbidden');
-});
+    'native_identity_mismatch'
+  )
+  f.state.reader = 'other'
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'forbidden')
+  f.state.reader = 'synthetic'
+  f.state.content = 'discarded'
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'content_unavailable')
+  f.state.content = 'available'
+  f.policies.local.grants[0]!.actions = ['dispatch', 'stream_input']
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'forbidden')
+})
 
 test('证据原文保留同时服从原 permit 和当前分类，当前 custody 与读取授权仍独立生效', () => {
   for (const initialRetention of ['caller_policy', 'none'] as const) {
-    const f = fixture(),
-      row = f.state.classifications[0]!;
-    f.state.classifications = [{ ...row, result: { ...row.result, retention: initialRetention } }];
-    f.decode(f.opening);
-    const current = initialRetention === 'none' ? 'caller_policy' : 'none';
-    f.state.classifications = [{ ...row, result: { ...row.result, retention: current } }];
-    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
+    const f = fixture()
+    const row = f.state.classifications[0]!
+    f.state.classifications = [{ ...row, result: { ...row.result, retention: initialRetention } }]
+    f.decode(f.opening)
+    const current = initialRetention === 'none' ? 'caller_policy' : 'none'
+    f.state.classifications = [{ ...row, result: { ...row.result, retention: current } }]
+    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
   }
-  const f = fixture(),
-    row = f.state.classifications[0]!;
+  const f = fixture()
+  const row = f.state.classifications[0]!
   f.state.classifications = [
     {
       ...row,
@@ -700,172 +649,169 @@ test('证据原文保留同时服从原 permit 和当前分类，当前 custody 
         ...row.result,
         boundary: 'protected_secret',
         sensitivity: 'credential',
-        delivery: 'custody',
-      },
-    },
-  ];
-  f.state.channel = 'custody';
-  f.state.custody = true;
-  f.decode(f.opening);
-  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload');
-  f.state.channel = 'ordinary';
-  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
-  f.state.channel = 'custody';
-  f.state.reader = 'other';
-  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
-  f.state.reader = 'synthetic';
-  f.state.trustedClassification = false;
-  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
-  f.state.trustedClassification = true;
-  f.state.classifications = [];
-  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
-});
+        delivery: 'custody'
+      }
+    }
+  ]
+  f.state.channel = 'custody'
+  f.state.custody = true
+  f.decode(f.opening)
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload')
+  f.state.channel = 'ordinary'
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
+  f.state.channel = 'custody'
+  f.state.reader = 'other'
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
+  f.state.reader = 'synthetic'
+  f.state.trustedClassification = false
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
+  f.state.trustedClassification = true
+  f.state.classifications = []
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
+})
 
 test('真实 validator 接入 Wire：完整参数、独立 source 和原生 error.data 保真，结果读取另过当前门禁', () => {
-  const f = fixture();
-  assert.deepEqual(f.decode(f.opening), f.opening);
+  const f = fixture()
+  assert.deepEqual(f.decode(f.opening), f.opening)
   assert.deepEqual(
     f.adapter.decode(f.adapter.encode(f.opening, 'gateway_to_connector'), 'gateway_to_connector'),
-    f.opening,
-  );
-  assert.deepEqual(f.decode(f.response, 'connector_to_gateway'), f.response);
-  assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
+    f.opening
+  )
+  assert.deepEqual(f.decode(f.response, 'connector_to_gateway'), f.response)
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding))
   rejects(
     () =>
       f.decode(
         {
           ...f.response,
-          payload: { ...f.response.payload, native_response: { id: 'other', result: {} } },
+          payload: { ...f.response.payload, native_response: { id: 'other', result: {} } }
         },
-        'connector_to_gateway',
+        'connector_to_gateway'
       ),
-    'native_id_mismatch',
-  );
-  f.state.reader = 'other';
-  rejects(() => f.adapter.checkResult(f.binding), 'forbidden');
-  f.state.reader = 'synthetic';
-  const classifications = f.state.classifications;
-  f.state.classifications = [];
-  rejects(() => f.adapter.checkResult(f.binding), 'classification_unavailable');
-  f.state.classifications = classifications;
-  f.policies.local.grants[0]!.actions = ['dispatch'];
-  rejects(() => f.adapter.checkResult(f.binding), 'forbidden');
-});
+    'native_id_mismatch'
+  )
+  f.state.reader = 'other'
+  rejects(() => f.adapter.checkResult(f.binding), 'forbidden')
+  f.state.reader = 'synthetic'
+  const classifications = f.state.classifications
+  f.state.classifications = []
+  rejects(() => f.adapter.checkResult(f.binding), 'classification_unavailable')
+  f.state.classifications = classifications
+  f.policies.local.grants[0]!.actions = ['dispatch']
+  rejects(() => f.adapter.checkResult(f.binding), 'forbidden')
+})
 
 test('真实 generic 只能标 incomplete；raw 仍要求精确 grant、完整分类与当前双方权限', () => {
-  const strict = fixture('ping');
-  rejects(() => strict.decode(strict.opening), 'parameter_schema_incomplete');
-  const raw = fixture('ping', true);
-  assert.deepEqual(raw.decode(raw.opening), raw.opening);
-  raw.state.grant = false;
-  rejects(() => raw.decode(raw.opening), 'raw_contract_forbidden');
-  raw.state.grant = true;
-  raw.state.classifications = [];
-  rejects(() => raw.decode(raw.opening), 'classification_unavailable');
+  const strict = fixture('ping')
+  rejects(() => strict.decode(strict.opening), 'parameter_schema_incomplete')
+  const raw = fixture('ping', true)
+  assert.deepEqual(raw.decode(raw.opening), raw.opening)
+  raw.state.grant = false
+  rejects(() => raw.decode(raw.opening), 'raw_contract_forbidden')
+  raw.state.grant = true
+  raw.state.classifications = []
+  rejects(() => raw.decode(raw.opening), 'classification_unavailable')
   raw.state.classifications = clone(
-    auth(request(view(), { id: 'id', method: 'ping', params: {} })).classifications,
-  ) as SafetyClassification[];
-  raw.state.trustedClassification = false;
-  rejects(() => raw.decode(raw.opening), 'classification_unavailable');
-});
+    auth(request(view(), { id: 'id', method: 'ping', params: {} })).classifications
+  ) as SafetyClassification[]
+  raw.state.trustedClassification = false
+  rejects(() => raw.decode(raw.opening), 'classification_unavailable')
+})
 
 test('消息不能覆盖已登记参数、principal、权限、provider 或原生来源；双端配置必须完全一致', () => {
-  const f = fixture();
-  const altered = clone(f.opening);
-  altered.payload.native_request.params = { server_generation: G, terminal_id: T, pane_id: '4' };
-  rejects(() => f.decode(altered), 'attempt_request_mismatch');
-  rejects(
-    () => f.decode({ ...f.opening, payload: { ...f.opening.payload, owner: true } }),
-    'invalid_frame_fields',
-  );
+  const f = fixture()
+  const altered = clone(f.opening)
+  altered.payload.native_request.params = { server_generation: G, terminal_id: T, pane_id: '4' }
+  rejects(() => f.decode(altered), 'attempt_request_mismatch')
+  rejects(() => f.decode({ ...f.opening, payload: { ...f.opening.payload, owner: true } }), 'invalid_frame_fields')
   rejects(
     () =>
       f.decode({
         ...f.opening,
         payload: {
           ...f.opening.payload,
-          native_request: { ...f.row.native_request, id: 'caller' },
-        },
+          native_request: { ...f.row.native_request, id: 'caller' }
+        }
       }),
-    'reserved_request_field',
-  );
-  f.state.sourceVerified = false;
-  rejects(() => f.decode(f.opening), 'native_source_untrusted');
-  f.state.sourceVerified = true;
-  f.state.localConfig = 'other_root';
-  rejects(() => f.decode(f.opening), 'provider_binding_mismatch');
-  f.state.localConfig = 'config1';
-  f.state.enabled = false;
-  rejects(() => f.decode(f.opening), 'provider_disabled');
-  f.state.enabled = true;
-  f.state.revision = 2;
-  rejects(() => f.decode(f.opening), 'provider_binding_mismatch');
-  f.state.revision = 1;
-  f.state.active = false;
-  rejects(() => f.decode(f.opening), 'authentication_required');
-  f.state.active = true;
+    'reserved_request_field'
+  )
+  f.state.sourceVerified = false
+  rejects(() => f.decode(f.opening), 'native_source_untrusted')
+  f.state.sourceVerified = true
+  f.state.localConfig = 'other_root'
+  rejects(() => f.decode(f.opening), 'provider_binding_mismatch')
+  f.state.localConfig = 'config1'
+  f.state.enabled = false
+  rejects(() => f.decode(f.opening), 'provider_disabled')
+  f.state.enabled = true
+  f.state.revision = 2
+  rejects(() => f.decode(f.opening), 'provider_binding_mismatch')
+  f.state.revision = 1
+  f.state.active = false
+  rejects(() => f.decode(f.opening), 'authentication_required')
+  f.state.active = true
   f.backend.nativeSource = () => {
-    throw Error('synthetic-private-payload');
-  };
+    throw Error('synthetic-private-payload')
+  }
   assert.throws(
     () => f.decode(f.opening),
-    (e: any) =>
-      e.code === 'native_adapter_unavailable' && !e.message.includes('synthetic-private-payload'),
-  );
-});
+    (e: any) => e.code === 'native_adapter_unavailable' && !e.message.includes('synthetic-private-payload')
+  )
+})
 
 test('同设备同名方法/native ID 的多个 provider 独立，错 endpoint 来源和 Herdr 冒充均拒绝', () => {
-  const f = fixture();
-  f.decode(f.opening);
-  const second = clone(f.row);
+  const f = fixture()
+  f.decode(f.opening)
+  const second = clone(f.row)
   second.binding = {
     ...second.binding,
     call_id: 'call2',
-    target: { ...second.binding.target, provider_id: 'p2' },
-  };
-  f.rows.set('call2', second);
-  for (const side of [f.policies.caller, f.policies.local])
-    side.grants.push({ ...clone(side.grants[0]!), target: second.binding.target });
+    target: { ...second.binding.target, provider_id: 'p2' }
+  }
+  f.rows.set('call2', second)
+  for (const side of [f.policies.caller, f.policies.local]) {
+    side.grants.push({ ...clone(side.grants[0]!), target: second.binding.target })
+  }
   const request2 = {
     ...f.opening,
-    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) },
-  };
-  assert.deepEqual(f.decode(request2), request2);
+    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }
+  }
+  assert.deepEqual(f.decode(request2), request2)
   f.backend.nativeSource = () => ({
     authenticated: true,
     source_verified: true,
-    binding: f.nativeBinding(second),
-  });
-  rejects(() => f.decode(f.response, 'connector_to_gateway'), 'native_identity_mismatch');
-  const herdr = clone(f.row);
+    binding: f.nativeBinding(second)
+  })
+  rejects(() => f.decode(f.response, 'connector_to_gateway'), 'native_identity_mismatch')
+  const herdr = clone(f.row)
   herdr.binding = {
     ...herdr.binding,
     call_id: 'call3',
     provider_kind: 'herdr',
-    target: { ...herdr.binding.target, provider_id: 'p3' },
-  };
-  f.rows.set('call3', herdr);
+    target: { ...herdr.binding.target, provider_id: 'p3' }
+  }
+  f.rows.set('call3', herdr)
   f.backend.provider = (target) => ({
     machine_id: 'm1',
     provider_id: target.provider_id,
     kind: 'herdr',
     binding_revision: 1,
     config_ref: 'config1',
-    enabled: true,
-  });
-  f.backend.localProvider = f.backend.provider;
+    enabled: true
+  })
+  f.backend.localProvider = f.backend.provider
   rejects(
     () =>
       f.decode({
         ...f.opening,
-        payload: { ...f.opening.payload, attempt: f.attempt(herdr.binding) },
+        payload: { ...f.opening.payload, attempt: f.attempt(herdr.binding) }
       }),
-    'contract_binding_mismatch',
-  );
-});
+    'contract_binding_mismatch'
+  )
+})
 
 test('同一 permit 的原生流 ack 才能开流，逐输入重新分类/授权，控制 ack 绑定输入 ID', () => {
-  const f = fixture('terminal.backend.control', false, true);
+  const f = fixture('terminal.backend.control', false, true)
   const ack = {
     id: 'native_1',
     result: {
@@ -881,21 +827,21 @@ test('同一 permit 的原生流 ack 才能开流，逐输入重新分类/授权
       lines: 1,
       frame_bytes: 65536,
       queue_capacity: 2,
-      loss_behavior: 'resync_required_then_close',
-    },
-  };
+      loss_behavior: 'resync_required_then_close'
+    }
+  }
   const data = (frame: Record<string, unknown>) =>
     f.frame('stream_data', {
       attempt: f.attempt(f.binding),
       stream_id: 'stream1',
       feature: 'terminal_control',
       sequence: 0,
-      frame,
-    });
-  rejects(() => f.decode(data(ack), 'connector_to_gateway'), 'dispatch_permit_unavailable');
-  f.decode(f.opening);
-  f.decode(f.opening);
-  assert.deepEqual(f.decode(data(ack), 'connector_to_gateway'), data(ack));
+      frame
+    })
+  rejects(() => f.decode(data(ack), 'connector_to_gateway'), 'dispatch_permit_unavailable')
+  f.decode(f.opening)
+  f.decode(f.opening)
+  assert.deepEqual(f.decode(data(ack), 'connector_to_gateway'), data(ack))
   const event = {
     event: 'terminal.frame',
     sequence: 0,
@@ -909,86 +855,92 @@ test('同一 permit 的原生流 ack 才能开流，逐输入重新分类/授权
       text: 'synthetic',
       lines: 1,
       bytes: 9,
-      truncated: false,
-    },
-  };
-  assert.deepEqual(f.decode(data(event), 'connector_to_gateway'), data(event));
+      truncated: false
+    }
+  }
+  assert.deepEqual(f.decode(data(event), 'connector_to_gateway'), data(event))
   rejects(
-    () =>
-      f.decode(
-        data({ ...event, data: { ...event.data, terminal_id: '9'.repeat(32) } }),
-        'connector_to_gateway',
-      ),
-    'native_identity_mismatch',
-  );
+    () => f.decode(data({ ...event, data: { ...event.data, terminal_id: '9'.repeat(32) } }), 'connector_to_gateway'),
+    'native_identity_mismatch'
+  )
   const input = f.frame('stream_input', {
     attempt: f.attempt(f.binding),
     stream_id: 'stream1',
     feature: 'terminal_control',
     sequence: 0,
-    frame: { id: 'input1', action: 'type_literal', params: { text: 'synthetic' } },
-  });
-  rejects(() => f.decode(input), 'safety_classification_missing');
-  const row = { ...clone(f.state.classifications[0]!), action: 'type_literal' };
-  f.state.classifications.push(row);
-  assert.deepEqual(f.decode(input), input);
-  assert.equal(f.adapter.advanceStream(f.opening, 'gateway_to_connector').state, 'opening');
-  assert.equal(f.adapter.advanceStream(data(ack), 'connector_to_gateway').state, 'open');
-  assert.equal(f.adapter.observeMessage(input, 'gateway_to_connector'), 'new');
-  assert.equal(f.adapter.observeMessage(input, 'gateway_to_connector'), 'duplicate');
-  assert.equal(f.adapter.advanceStream(input, 'gateway_to_connector').next_input_sequence, 1);
-  rejects(() => f.adapter.advanceStream(input, 'gateway_to_connector'), 'stream_sequence_mismatch');
+    frame: { id: 'input1', action: 'type_literal', params: { text: 'synthetic' } }
+  })
+  rejects(() => f.decode(input), 'safety_classification_missing')
+  const row = { ...clone(f.state.classifications[0]!), action: 'type_literal' }
+  f.state.classifications.push(row)
+  assert.deepEqual(f.decode(input), input)
+  assert.equal(f.adapter.advanceStream(f.opening, 'gateway_to_connector').state, 'opening')
+  assert.equal(f.adapter.advanceStream(data(ack), 'connector_to_gateway').state, 'open')
+  assert.equal(f.adapter.observeMessage(input, 'gateway_to_connector'), 'new')
+  assert.equal(f.adapter.observeMessage(input, 'gateway_to_connector'), 'duplicate')
+  assert.equal(f.adapter.advanceStream(input, 'gateway_to_connector').next_input_sequence, 1)
+  rejects(() => f.adapter.advanceStream(input, 'gateway_to_connector'), 'stream_sequence_mismatch')
   const inputAck = {
     id: 'input1',
-    result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' },
-  };
-  assert.deepEqual(f.decode(data(inputAck), 'connector_to_gateway'), data(inputAck));
-  rejects(
-    () => f.decode(data({ ...inputAck, id: 'unknown' }), 'connector_to_gateway'),
-    'control_ack_unbound',
-  );
-  rejects(
-    () => f.decode({ ...input, payload: { ...input.payload, stream_id: 'other' } }),
-    'stream_binding_mismatch',
-  );
-  f.policies.local.grants[0]!.actions = ['dispatch', 'read'];
-  rejects(() => f.decode(input), 'provider_scope_forbidden');
-  f.policies.local.grants[0]!.actions.push('stream_input');
+    result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' }
+  }
+  assert.deepEqual(f.decode(data(inputAck), 'connector_to_gateway'), data(inputAck))
+  rejects(() => f.decode(data({ ...inputAck, id: 'unknown' }), 'connector_to_gateway'), 'control_ack_unbound')
+  rejects(() => f.decode({ ...input, payload: { ...input.payload, stream_id: 'other' } }), 'stream_binding_mismatch')
+  f.policies.local.grants[0]!.actions = ['dispatch', 'read']
+  rejects(() => f.decode(input), 'provider_scope_forbidden')
+  f.policies.local.grants[0]!.actions.push('stream_input')
   f.decode(
     f.frame('stream_close', {
       attempt: f.attempt(f.binding),
       stream_id: 'stream1',
-      reason: 'normal',
-    }),
-  );
-  rejects(() => f.decode(input), 'stream_closed');
-});
+      reason: 'normal'
+    })
+  )
+  rejects(() => f.decode(input), 'stream_closed')
+})
 
 test('结果内容过期/discard 仅补最小可靠证据；原锚点不变、不派发、不续期限', () => {
-  const f = fixture();
-  f.decode(f.opening);
-  const original = clone(f.backend.responseAnchor!(f.binding));
-  const available = f.adapter.planEvidence(f.response);
-  assert.equal(available.content.delivery, 'payload');
-  assert.equal(available.dispatch, false);
+  const f = fixture()
+  f.decode(f.opening)
+  const original = clone(f.backend.responseAnchor!(f.binding))
+  const available = f.adapter.planEvidence(f.response)
+  assert.equal(available.content.delivery, 'payload')
+  assert.equal(available.dispatch, false)
   for (const status of ['expired', 'discarded', 'unavailable'] as const) {
-    f.state.content = status;
-    rejects(() => f.adapter.checkResult(f.binding), 'content_unavailable');
-    const plan = f.adapter.planEvidence(f.response);
-    assert.equal(plan.content.delivery, 'metadata_only');
-    assert.equal(plan.content.native_response, undefined);
-    assert.equal(plan.content.expires_at, original!.content_expires_at);
-    assert.equal(plan.dispatch, false);
+    f.state.content = status
+    rejects(() => f.adapter.checkResult(f.binding), 'content_unavailable')
+    const plan = f.adapter.planEvidence(f.response)
+    assert.equal(plan.content.delivery, 'metadata_only')
+    assert.equal(plan.content.native_response, undefined)
+    assert.equal(plan.content.expires_at, original!.content_expires_at)
+    assert.equal(plan.dispatch, false)
   }
-  f.adapter.release(f.binding);
-  rejects(() => f.adapter.checkResult(f.binding), 'dispatch_permit_unavailable');
-  rejects(() => f.decode(f.response, 'connector_to_gateway'), 'dispatch_permit_unavailable');
-});
+  f.adapter.release(f.binding)
+  rejects(() => f.adapter.checkResult(f.binding), 'dispatch_permit_unavailable')
+  rejects(() => f.decode(f.response, 'connector_to_gateway'), 'dispatch_permit_unavailable')
+})
+
+test('迟到证据先执行完整原生较低帧预算，过期内容也不能绕过边界', () => {
+  const f = fixture()
+  const registry = f.backend.contract(f.binding.contract_ref)!
+  const caps = registry.capabilities as ReturnType<typeof json>
+  caps.result.limits.frame_bytes = Buffer.byteLength(JSON.stringify(f.response.payload.native_response))
+  f.decode(f.opening)
+  const anchor = clone(f.backend.responseAnchor!(f.binding))
+  for (const status of ['available', 'expired', 'discarded', 'unavailable'] as const) {
+    f.state.content = status
+    rejects(() => f.adapter.planEvidence(f.response), 'native_response_invalid')
+  }
+  f.state.content = 'available'
+  assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor)
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding))
+})
 
 test('分片重组真实响应仍经过原生许可/完整 schema，传输限额及私有句柄不暴露', () => {
-  const f = fixture();
-  f.decode(f.opening);
-  const raw = Buffer.from(boundedJson(f.response));
+  const f = fixture()
+  f.decode(f.opening)
+  const raw = Buffer.from(boundedJson(f.response))
   const chunk = f.frame('object_chunk', {
     object_id: 'object1',
     kind: 'envelope',
@@ -996,49 +948,39 @@ test('分片重组真实响应仍经过原生许可/完整 schema，传输限额
     sha256: hash(raw),
     chunk_count: 1,
     index: 0,
-    data: raw.toString('base64'),
-  });
+    data: raw.toString('base64')
+  })
   assert.deepEqual(f.adapter.acceptChunk(JSON.stringify(chunk), 'connector_to_gateway'), {
     kind: 'envelope',
-    envelope: f.response,
-  });
+    envelope: f.response
+  })
+  rejects(() => f.adapter.decode('x'.repeat(LIMITS.frame_bytes + 1), 'connector_to_gateway'), 'frame_limit')
+  assert.equal('context' in f.adapter, false)
+  assert.equal('validators' in f.adapter, false)
   rejects(
-    () => f.adapter.decode('x'.repeat(LIMITS.frame_bytes + 1), 'connector_to_gateway'),
-    'frame_limit',
-  );
-  assert.equal('context' in f.adapter, false);
-  assert.equal('validators' in f.adapter, false);
-  rejects(
-    () =>
-      f.decode(
-        { ...f.response, payload: { ...f.response.payload, native_handle: {} } },
-        'connector_to_gateway',
-      ),
-    'invalid_frame_fields',
-  );
-});
+    () => f.decode({ ...f.response, payload: { ...f.response.payload, native_handle: {} } }, 'connector_to_gateway'),
+    'invalid_frame_fields'
+  )
+})
 
 test('Wire 外壳使用原生有界 JSON parser：重复键/精度损失在解码前拒绝', () => {
-  const f = fixture();
-  const raw = JSON.stringify(f.opening).replace(
-    '"message_id":"msg1"',
-    '"message_id":"old","message_id":"msg1"',
-  );
-  rejects(() => f.adapter.decode(raw, 'gateway_to_connector'), 'duplicate_json_key');
-  const heartbeat = f.frame('heartbeat', { sequence: 0 });
+  const f = fixture()
+  const raw = JSON.stringify(f.opening).replace('"message_id":"msg1"', '"message_id":"old","message_id":"msg1"')
+  rejects(() => f.adapter.decode(raw, 'gateway_to_connector'), 'duplicate_json_key')
+  const heartbeat = f.frame('heartbeat', { sequence: 0 })
   rejects(
     () =>
       f.adapter.decode(
         JSON.stringify(heartbeat).replace('"sequence":0', '"sequence":9007199254740993'),
-        'gateway_to_connector',
+        'gateway_to_connector'
       ),
-    'invalid_integer',
-  );
-});
+    'invalid_integer'
+  )
+})
 
 test('原生流打开失败保留完整错误并维持未就绪，不制造成功流', () => {
-  const f = fixture('terminal.backend.control', false, true);
-  f.decode(f.opening);
+  const f = fixture('terminal.backend.control', false, true)
+  f.decode(f.opening)
   const error = f.frame('stream_data', {
     attempt: f.attempt(f.binding),
     stream_id: 'stream1',
@@ -1049,11 +991,11 @@ test('原生流打开失败保留完整错误并维持未就绪，不制造成�
       error: {
         code: 'control_conflict',
         message: 'synthetic conflict',
-        metadata: { retained: true },
-      },
-    },
-  });
-  assert.deepEqual(f.decode(error, 'connector_to_gateway'), error);
+        metadata: { retained: true }
+      }
+    }
+  })
+  assert.deepEqual(f.decode(error, 'connector_to_gateway'), error)
   rejects(
     () =>
       f.decode(
@@ -1062,32 +1004,32 @@ test('原生流打开失败保留完整错误并维持未就绪，不制造成�
           stream_id: 'stream1',
           feature: 'terminal_control',
           sequence: 0,
-          frame: { id: 'input', action: 'type_literal', params: { text: 'synthetic' } },
-        }),
+          frame: { id: 'input', action: 'type_literal', params: { text: 'synthetic' } }
+        })
       ),
-    'stream_not_ready',
-  );
-});
+    'stream_not_ready'
+  )
+})
 
 test('私有 attempt/快照预算满额拒绝，显式释放后不继承旧 permit', () => {
-  const f = fixture();
+  const f = fixture()
   const tiny = createLuvusWireAdapter(f.backend, {
     attempts: 1,
     control_ids: 1,
-    snapshot_bytes: 1,
-  });
-  rejects(() => tiny.decode(JSON.stringify(f.opening), 'gateway_to_connector'), 'adapter_limit');
-  const limited = createLuvusWireAdapter(f.backend, { attempts: 1, control_ids: 1 });
-  limited.decode(JSON.stringify(f.opening), 'gateway_to_connector');
-  const second = clone(f.row);
-  second.binding.call_id = 'call2';
-  f.rows.set('call2', second);
+    snapshot_bytes: 1
+  })
+  rejects(() => tiny.decode(JSON.stringify(f.opening), 'gateway_to_connector'), 'adapter_limit')
+  const limited = createLuvusWireAdapter(f.backend, { attempts: 1, control_ids: 1 })
+  limited.decode(JSON.stringify(f.opening), 'gateway_to_connector')
+  const second = clone(f.row)
+  second.binding.call_id = 'call2'
+  f.rows.set('call2', second)
   const next = {
     ...f.opening,
-    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) },
-  };
-  rejects(() => limited.decode(JSON.stringify(next), 'gateway_to_connector'), 'adapter_limit');
-  limited.release(f.binding);
-  assert.deepEqual(limited.decode(JSON.stringify(next), 'gateway_to_connector'), next);
-  rejects(() => limited.checkResult(f.binding), 'dispatch_permit_unavailable');
-});
+    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }
+  }
+  rejects(() => limited.decode(JSON.stringify(next), 'gateway_to_connector'), 'adapter_limit')
+  limited.release(f.binding)
+  assert.deepEqual(limited.decode(JSON.stringify(next), 'gateway_to_connector'), next)
+  rejects(() => limited.checkResult(f.binding), 'dispatch_permit_unavailable')
+})

@@ -1,0 +1,74 @@
+{
+  "format": 1,
+  "runtime": "herdr",
+  "production_allowlist": [],
+  "research_ref": {
+    "repository": "herdrdev/herdr",
+    "release": "v0.9.5",
+    "commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+    "protocol_constant": 22,
+    "sources": [
+      "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/api/schema.rs",
+      "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/api/schema/server.rs",
+      "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/api/schema/response.rs",
+      "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/app/api/panes.rs",
+      "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/pane/terminal.rs",
+      "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/docs/next/website/src/content/docs/socket-api.mdx"
+    ]
+  },
+  "offline_replay_candidates": [
+    {
+      "method": "ping",
+      "params": {},
+      "classification": "unverified",
+      "dispatch_allowed": false
+    },
+    {
+      "method": "session.snapshot",
+      "params": {},
+      "classification": "unverified",
+      "dispatch_allowed": false
+    }
+  ],
+  "excluded": [
+    {
+      "methods": [
+        "pane.read",
+        "agent.read"
+      ],
+      "params": "all, including recent/recent-unwrapped/visible/detection/viewport variants",
+      "reason": "unverified per-method and per-parameter side effects; no observer permission"
+    },
+    {
+      "methods": [
+        "events.subscribe",
+        "events.wait"
+      ],
+      "params": "all",
+      "reason": "subscription resource and runtime side effects require independent native evidence"
+    },
+    {
+      "methods": [
+        "*"
+      ],
+      "params": "all other methods or params",
+      "reason": "outside reviewed readonly scope"
+    }
+  ],
+  "required_native_evidence": [
+    "official_binary_origin_and_sha256",
+    "installed_version_and_raw_cli_schema",
+    "dialect_and_offline_reference_closure",
+    "dedicated_instance_authorization",
+    "local_endpoint_owner_permissions_and_peer",
+    "native_framing_size_and_disconnect",
+    "method_params_side_effect_comparison",
+    "subscription_ack_gap_and_separate_connection_snapshot"
+  ],
+  "guarantees": {
+    "event_recovery": "unavailable",
+    "terminal_fence": "unavailable",
+    "cancel": "unavailable",
+    "prompt_completion": "unavailable"
+  }
+}

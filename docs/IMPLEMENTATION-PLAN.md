@@ -13,7 +13,7 @@
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack 与 frame 读取、原文保留门禁 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、真实 native/Wire 事务晚到接线 | 生产管理/认证来源、跨平台验证、重启/原请求到期后的原生响应上下文恢复；旧库设计承诺统一清理 |
 | 产品服务 | 模块接口及测试 backend | Gateway/Connector 角色 CLI、MCP facade、设备 transport、原生 adapters、管理 UI 和部署发行 |
-| Herdr | 固定官方源码研究与 candidate 来源表达 | P0-H、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
+| Herdr | 固定官方源码研究、candidate 来源表达、离线归档/审计与合成状态重建回放 | 专用实例 P0-H、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -52,7 +52,7 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 
 - 将业务 registry、Store、Router、策略、摘要及句柄统一到 DESIGN 的 provider/binding/contract 模型；保留 Wire/native 显式接缝，避免给旧类型加 optional provider 默认值。
 - 为集成 backend 提供独立当前认证、登记 attempt、双端配置、契约/分类、endpoint 来源、policy、真实确认、custody、可信时间及 durable response anchor。缺任一必要来源拒绝，不从消息构造 true。
-- schema 编译移入可终止的独立 worker，落实 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)的硬时间/heap 预算，超限必须终止并拒绝。CPU/heap 隔离仍待实现；同步检查、快照冻结、结构限额或 Promise 超时均不能替代硬隔离。只接纳已审核 bundle，不开放任意外部 schema 自动编译。
+- schema 编译移入可终止的独立 worker，落实 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)的硬时间/heap 预算，超限必须终止并拒绝。CPU/heap 隔离仍待实现；同步检查、快照冻结、结构限额或 Promise 超时均不能替代硬隔离。需同时处理同步 NativeValidator/adapter 与进程内 opaque handle 的边界，不能把跨进程复制对象恢复成许可。只接纳已审核 bundle，不开放任意外部 schema 自动编译。
 - 确认完全无 bundle 的 raw 路径之前维持拒绝；已有 generic 参数 raw 保留现有约束及实际 validation 标记，不借此降低分类/来源标准。
 
 交付：统一数据模型、可信来源工厂、隔离编译宿主及自动化正反例。Wire 编码与 native 签名只在各自规范维护。
@@ -97,6 +97,10 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 交付：真实事件/终端证据、资源测量与持续/双向流 MCP 工具。
 
 ### 3.6 Herdr 原生验证与有限切片
+
+离线输入、方法门禁与归档命令见[开发指引](DEVELOPMENT.md#herdr-p0-h-离线输入)。
+生产允许集保持为空；合成回放通过不减少以下原生证据要求，归档审计也不建立
+可信 endpoint、安装来源或执行许可。
 
 - P0-H 固定官方 binary 来源/hash、安装 schema/方言/闭包、实际 ping/protocol、endpoint 归属/peer、framing/大小及断线行为，使用自建隔离实例。
 - 按 method+params+版本核实被动读，断言焦点、viewport、输入、agent 状态/通知均无未声明副作用；recent 等未经证明不进 allowlist。

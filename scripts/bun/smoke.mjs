@@ -1,33 +1,33 @@
-import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { toolchain } from './toolchain.mjs';
+import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { toolchain } from './toolchain.mjs'
 
-toolchain();
+toolchain()
 // 必须导入构建后的 JavaScript，不能回到源码 .ts。
-const contracts = await import('../../dist/src/contracts.js');
-const { Store } = await import('../../dist/src/store.js');
-const { Router } = await import('../../dist/src/router.js');
-const protocol = await import('../../dist/src/protocol.js');
-const native = await import('../../dist/src/native-contract/index.js');
-const wire = await import('../../dist/src/wire/index.js');
-const integration = await import('../../dist/src/integration/luvus-wire.js');
-const persistence = await import('../../dist/src/integration/persistence.js');
-assert.equal(typeof persistence.persistentBackend, 'function');
-assert.equal(typeof persistence.commitLuvusResponse, 'function');
+const contracts = await import('../../dist/src/contracts.js')
+const { Store } = await import('../../dist/src/store.js')
+const { Router } = await import('../../dist/src/router.js')
+const protocol = await import('../../dist/src/protocol.js')
+const native = await import('../../dist/src/native-contract/index.js')
+const wire = await import('../../dist/src/wire/index.js')
+const integration = await import('../../dist/src/integration/luvus-wire.js')
+const persistence = await import('../../dist/src/integration/persistence.js')
+assert.equal(typeof persistence.persistentBackend, 'function')
+assert.equal(typeof persistence.commitLuvusResponse, 'function')
 assert.deepEqual(
   Object.keys(contracts).sort(),
-  ['GatewayError', 'authorize', 'canonical', 'digest', 'validateRequest', 'validateTarget'].sort(),
-);
+  ['GatewayError', 'authorize', 'canonical', 'digest', 'validateRequest', 'validateTarget'].sort()
+)
 assert.deepEqual(
   Object.keys(protocol).sort(),
-  ['MAX_FRAME_BYTES', 'PROTOCOL_MAJOR', 'PROTOCOL_MINOR', 'decodeFrame', 'encodeFrame'].sort(),
-);
-assert.equal(typeof Router, 'function');
-assert.equal(protocol.PROTOCOL_MAJOR, 2);
-assert.equal(typeof integration.createLuvusWireAdapter, 'function');
-assert.equal(typeof wire.decodeWireObject, 'function');
+  ['MAX_FRAME_BYTES', 'PROTOCOL_MAJOR', 'PROTOCOL_MINOR', 'decodeFrame', 'encodeFrame'].sort()
+)
+assert.equal(typeof Router, 'function')
+assert.equal(protocol.PROTOCOL_MAJOR, 2)
+assert.equal(typeof integration.createLuvusWireAdapter, 'function')
+assert.equal(typeof wire.decodeWireObject, 'function')
 assert.deepEqual(
   Object.keys(native).sort(),
   [
@@ -38,34 +38,30 @@ assert.deepEqual(
     'compileBundle',
     'createNativeValidator',
     'inspectRequestGate',
-    'parseNativeJson',
-  ].sort(),
-);
-const bytes = readFileSync(
-  new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url),
-);
+    'parseNativeJson'
+  ].sort()
+)
+const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
 const compiled = native.compileBundle(bytes, {
   identity: {
     binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
     schema_sha256: contracts.digest(bytes.toString('utf8')),
-    revision: 'artifact-smoke',
-  },
-});
-assert(compiled.ok);
-assert.equal(compiled.value.documents.length, 29);
+    revision: 'artifact-smoke'
+  }
+})
+assert(compiled.ok)
+assert.equal(compiled.value.documents.length, 29)
 const response = {
   id: 'artifact',
-  error: { code: 'synthetic', message: 'synthetic', data: { preserved: true } },
-};
-const checked = native.createNativeValidator(compiled.value).checkResponseShape(response);
-assert(checked.ok);
-assert.deepEqual(checked.value.response, response);
+  error: { code: 'synthetic', message: 'synthetic', data: { preserved: true } }
+}
+const checked = native.createNativeValidator(compiled.value).checkResponseShape(response)
+assert(checked.ok)
+assert.deepEqual(checked.value.response, response)
 // 仅用 P0 fixture 测试跨构建入口的私有 handle 身份，不建立网络或真实权限。
 const capabilities = JSON.parse(
-  readFileSync(
-    new URL('../../fixtures/p0/linux-luvus-0.14.3/session-capabilities.json', import.meta.url),
-  ),
-);
+  readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/session-capabilities.json', import.meta.url))
+)
 const origin = {
   provider_kind: 'luvus',
   protocol_family: 'uhp',
@@ -79,22 +75,22 @@ const origin = {
   runtime_generation: capabilities.result.server_generation,
   adapter_revision: 'artifact',
   classification_revision: 'review',
-  support_basis: 'live_catalog',
-};
+  support_basis: 'live_catalog'
+}
 const target = {
   machine_id: 'machine',
   provider_id: 'provider',
   profile: 'session',
-  session: capabilities.result.session,
-};
+  session: capabilities.result.session
+}
 const connection = {
   machine_id: 'machine',
   recovery_generation: 'recovery',
   connection_epoch: 'epoch',
   authenticated: true,
   active: true,
-  negotiated: { major: 2, minor: 0, capabilities: ['rpc'] },
-};
+  negotiated: { major: 2, minor: 0, capabilities: ['rpc'] }
+}
 const attempt = {
   call_id: 'call',
   attempt_id: 'attempt',
@@ -107,31 +103,31 @@ const attempt = {
     deadline: 1000,
     history: null,
     caller_policy_revision: 'caller',
-    local_policy_revision: 'local',
-  },
-};
+    local_policy_revision: 'local'
+  }
+}
 const binding = {
   machine_id: 'machine',
   recovery_generation: 'recovery',
   connection_epoch: 'epoch',
-  ...attempt,
-};
+  ...attempt
+}
 const row = {
   binding,
   principal_id: 'principal',
   method: 'task.add',
   mode: 'strict',
   transport: 'rpc',
-  native_request: { method: 'task.add', params: { title: 'artifact' } },
-};
+  native_request: { method: 'task.add', params: { title: 'artifact' } }
+}
 const provider = {
   machine_id: 'machine',
   provider_id: 'provider',
   kind: 'luvus',
   config_ref: 'artifact',
   binding_revision: 1,
-  enabled: true,
-};
+  enabled: true
+}
 const proof = {
   authenticated: true,
   source_verified: true,
@@ -148,10 +144,10 @@ const proof = {
     caller_policy_revision: 'caller',
     local_policy_revision: 'local',
     classification_revision: 'review',
-    contract: compiled.value.identity,
-  },
-};
-const grants = [{ target, methods: ['task.add'], actions: ['dispatch', 'read'] }];
+    contract: compiled.value.identity
+  }
+}
+const grants = [{ target, methods: ['task.add'], actions: ['dispatch', 'read'] }]
 const adapter = integration.createLuvusWireAdapter({
   connection: () => connection,
   attempt: () => row,
@@ -161,12 +157,12 @@ const adapter = integration.createLuvusWireAdapter({
     wire: { source: origin, support_status: 'validated' },
     compiled: compiled.value,
     capabilities,
-    capability_revision: 'caps',
+    capability_revision: 'caps'
   }),
   nativeSource: () => proof,
   policies: () => ({
     caller: { revision: 'caller', grants },
-    local: { revision: 'local', grants },
+    local: { revision: 'local', grants }
   }),
   authority: () => ({
     classification_source_verified: true,
@@ -186,9 +182,9 @@ const adapter = integration.createLuvusWireAdapter({
           sensitivity: 'potentially_sensitive',
           read_authorization: 'required',
           retention: 'caller_policy',
-          delivery: 'ordinary',
-        },
-      },
+          delivery: 'ordinary'
+        }
+      }
     ],
     permissions: [],
     owner: false,
@@ -196,20 +192,20 @@ const adapter = integration.createLuvusWireAdapter({
     custody_available: false,
     result_channel: 'ordinary',
     raw_requested: false,
-    supported_transports: ['single_request_rpc'],
+    supported_transports: ['single_request_rpc']
   }),
   currentPrincipal: () => 'principal',
   now: () => 100,
-  contentStatus: () => 'available',
-});
+  contentStatus: () => 'available'
+})
 const base = {
   protocol_major: 2,
   protocol_minor: 0,
   message_id: 'message',
   machine_id: 'machine',
   recovery_generation: 'recovery',
-  connection_epoch: 'epoch',
-};
+  connection_epoch: 'epoch'
+}
 adapter.encode(
   {
     ...base,
@@ -218,27 +214,24 @@ adapter.encode(
       attempt,
       expected_binding_revision: 1,
       native_request: row.native_request,
-      validation: 'strict',
-    },
+      validation: 'strict'
+    }
   },
-  'gateway_to_connector',
-);
+  'gateway_to_connector'
+)
 adapter.decode(
   JSON.stringify({ ...base, type: 'response', payload: { attempt, native_response: response } }),
-  'connector_to_gateway',
-);
-adapter.checkResult(binding);
-const heartbeat = { ...base, type: 'heartbeat', payload: { sequence: 0 } };
-const heartbeatContext = { phase: 'authenticated', direction: 'gateway_to_connector', connection };
-assert.deepEqual(
-  protocol.decodeFrame(protocol.encodeFrame(heartbeat, heartbeatContext), heartbeatContext),
-  heartbeat,
-);
+  'connector_to_gateway'
+)
+adapter.checkResult(binding)
+const heartbeat = { ...base, type: 'heartbeat', payload: { sequence: 0 } }
+const heartbeatContext = { phase: 'authenticated', direction: 'gateway_to_connector', connection }
+assert.deepEqual(protocol.decodeFrame(protocol.encodeFrame(heartbeat, heartbeatContext), heartbeatContext), heartbeat)
 assert.throws(
   () => protocol.decodeFrame(JSON.stringify({ ...heartbeat, protocol_major: 1 }), heartbeatContext),
-  /protocol_major_unsupported/,
-);
-const { provider_id: _providerId, ...missingProvider } = target;
+  /protocol_major_unsupported/
+)
+const { provider_id: _providerId, ...missingProvider } = target
 assert.throws(
   () =>
     adapter.decode(
@@ -249,27 +242,27 @@ assert.throws(
           attempt: { ...attempt, target: missingProvider },
           expected_binding_revision: 1,
           native_request: row.native_request,
-          validation: 'strict',
-        },
+          validation: 'strict'
+        }
       }),
-      'gateway_to_connector',
+      'gateway_to_connector'
     ),
-  /invalid_frame_fields/,
-);
-const dir = mkdtempSync(join(tmpdir(), 'luvus-bun-artifact-'));
+  /invalid_frame_fields/
+)
+const dir = mkdtempSync(join(tmpdir(), 'luvus-bun-artifact-'))
 try {
-  const store = new Store(join(dir, 'db'));
-  const machine = store.register('artifact');
-  assert.equal(store.machine(machine.machine_id).name, 'artifact');
+  const store = new Store(join(dir, 'db'))
+  const machine = store.register('artifact')
+  assert.equal(store.machine(machine.machine_id).name, 'artifact')
   // 共享 chunk 必须保留不同构建入口之间的类身份。
-  assert.throws(() => store.machine('missing'), contracts.GatewayError);
-  store.close();
-  const reopened = new Store(join(dir, 'db'));
-  assert.equal(reopened.machine(machine.machine_id).name, 'artifact');
-  reopened.close();
+  assert.throws(() => store.machine('missing'), contracts.GatewayError)
+  store.close()
+  const reopened = new Store(join(dir, 'db'))
+  assert.equal(reopened.machine(machine.machine_id).name, 'artifact')
+  reopened.close()
 } finally {
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true })
 }
 console.log(
-  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries and SQLite reopen: pass',
-);
+  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries and SQLite reopen: pass'
+)

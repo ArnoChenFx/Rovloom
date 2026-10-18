@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 4
 // 未发布的 v1/v2/v3 不在这里猜测来源或迁移；版本检查必须先于本 schema 的执行。
 export const SCHEMA = `
 CREATE TABLE metadata (
@@ -51,4 +51,4 @@ CREATE INDEX audit_expiry ON audit(expires);
 CREATE TABLE backups (path TEXT PRIMARY KEY, created INTEGER NOT NULL, expires INTEGER NOT NULL);
 CREATE TABLE management (confirmation_id TEXT PRIMARY KEY, actor TEXT NOT NULL,
   action TEXT NOT NULL, target TEXT NOT NULL, fence TEXT NOT NULL);
-`;
+`

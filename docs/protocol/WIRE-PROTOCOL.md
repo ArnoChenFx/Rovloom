@@ -177,6 +177,8 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | object_chunk | 双向，schema_bundle 仅 Connector → Gateway | object_id, kind, total_bytes, sha256, chunk_count, index, data |
 
 所有根/payload/target/registration 字段严格列举，未知枚举拒绝。native payload 的完整根/条件/$ref 验证交给可信 kind 的 validator。
+已认证业务帧不能使用未协商 minor 或未知 major；握手 offer 的较高 minor 仅表示协商上界，
+不允许直接执行该版本的业务帧。
 网关错误 source 仅 gateway/transport，code 不含原文；原生 error/data 原样保留在 native_response，不伪装成网关 error。
 accepted 不是远端执行/消费成功；cancel 不等于回滚；stream_close 不生成关闭 pane 的原生请求。
 
@@ -266,6 +268,9 @@ unknown 补证需 late_evidence feature；缺锚点、旧 attempt、墓碑已删
 expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可时，仅 metadata_only：ID、接收时间、hash/长度、result/error 类别。
 不恢复原文、不生成句柄、不续期。事务失败保留 unknown，不能将内存 plan 作为 durable responded。
 持久化、固定期限、预算、恢复隔离与旧 DB 迁移属于宿主职责。
+原生较低帧预算同样适用于 metadata_only 补证；原文不保留不代表可以跳过响应校验。
+`ResponseEvidencePlan` 保持无持久化副作用：宿主必须在同一 writer 事务中再次核对原锚点、
+证据 hash/长度、固定期限和当前状态后提交；事务失败不得发布 responded 或制造重派。
 
 ## 资源、顺序与重组
 
@@ -283,6 +288,8 @@ expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可�
 超时于下一次 push 清理，内存始终受预约与数量上限；断开后销毁该连接 assembler。checksum 不是认证。
 重组 envelope 再完整走 v2 provider/契约/关联/原生门禁，不允许嵌套 object_chunk；bundle 只作为未授信 JSON 对象交付，
 需原生模块离线编译引用闭包/dialect/根/条件约束后才能使用，不联网抓任意 URL。
+原生默认 bundle 编译预算为 2 MiB/64 documents，与 Wire 重组预算独立；完整数值及
+尚未交付的硬编译隔离边界见 [原生校验接口](NATIVE-CONTRACT.md#契约与内存许可)。
 
 MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依赖宿主持久化，不能将窗口过期视为新派发许可。
 stream open 建 opening，首个合法 data 转外层 open；input 仅 open 的 terminal_control，data/input 各自从 0 严格递增。
