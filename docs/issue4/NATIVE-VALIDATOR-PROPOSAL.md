@@ -19,7 +19,7 @@
 
 完整 request 有 55 个条件分支，覆盖 79 个不同方法；documents 有 29 个文档，一般 event catalog 有 63 个 payload 键。伴随的 [native-method-map.tsv](native-method-map.tsv) 逐项列出 223 方法、profile、transport、参数证据、分支 pointer、原生权限提示、边界提示和默认禁用状态；[terminal-capability-map.tsv](terminal-capability-map.tsv) 将 24 个终端 capability 与 2 个 feature 映射到方法/action/字段。它们从原文/实时 fixture 重算或逐项登记，**不是受信安全分类表或生产 allowlist**。
 
-144 项不能以“schema 验证通过”展示为参数完整：根要求 id/method/params、限制额外根字段，但 params 只是 object，任意未知参数键仍可通过。严格派发路径对这 144 项返回 `parameter_schema_incomplete`；describe 可返回原始片段和缺口。79 项只能声称 `conditional_branch`，不能声称业务语义完备。P0 的 `pane_id:"9999999999"` 满足模式却被原生拒绝，就是结构与原生语义的边界。校验成功不证明目标存在、原生原子 fence、授权、动作已执行或 prompt 已消费。
+144 项不能以“schema 验证通过”展示为参数完整：根要求 id/method/params、限制额外根字段，但 params 只是 object，任意未知参数键仍可通过。**strict 模式**对这 144 项返回 `parameter_schema_incomplete`；describe 可返回原始片段和缺口。**显式有范围的 raw-contract 模式**在可信安全分类及其它授权 gate 全部满足时可调用 generic 方法，标注 `validation=generic`；这 144 项并未从产品能力永久移除。79 项只能声称 `conditional_branch`，不能声称业务语义完备。P0 的 `pane_id:"9999999999"` 满足模式却被原生拒绝，就是结构与原生语义的边界。校验成功不证明目标存在、原生原子 fence、授权、动作已执行或 prompt 已消费。
 
 所有 144 项属于 session；Host 的 17 项虽均有分支，仍包含 9 个 admin 方法。session 有 28 个原生 admin scope，其中 3 个是 uhp.token.*。9 个 machine.* 不映射成 Gateway 设备注册 API，继续 `profile_not_exposed`。方法分类、参数覆盖、安全授权、adapter 支持必须分列，不能沿用 coverage 单个 reason 的优先级掩盖其它缺口。
 
@@ -59,7 +59,7 @@ interface NativeValidator {
   describe(view: CapabilityView, method: string): Check<MethodDescriptor>;
   checkRequest(view: CapabilityView, request: unknown): Check<CheckedRequest>;
   checkResponseShape(response: unknown, family: 'general' | 'terminal'): Check<CheckedResponseShape>;
-  checkResponse(request: CheckedRequest, response: unknown): Check<CheckedResponse>;
+  checkResponse(context: CheckedRequest | BoundResponseContext, response: unknown): Check<CheckedResponse>;
   checkEvent(stream: CheckedStreamContext, event: unknown): Check<CheckedEvent>;
   checkControl(stream: CheckedStreamContext, frame: unknown): Check<CheckedControl>;
 }
@@ -78,13 +78,27 @@ function bindCapabilities(
 
 `MethodDescriptor` 至少含 method/profile/transport、request 根 URI 与所有分支 pointers、依赖文档、coverage、native access/scope/idempotent 提示、运行能力状态、参数缺口、安全分类状态、管理/秘密边界、adapter 支持及多项拒绝原因。返回缺失字段的 unavailable 状态，不推测网页 schema。
 
-`checkRequest` 负责完整原生请求的结构及绑定，能返回带 `generic_params_only` 证据的结构成功，用于离线审计/describe；它的返回类型不能叫 DispatchPermit。实际派发还必须执行后文全部 gate，严格路径拒绝 generic。编译失败没有可用 validator；schema 不存在和参数细节不完整是不同结果。
+`checkRequest` 负责完整原生请求的结构及绑定，能返回带 `generic_params_only` 证据的结构成功，用于离线审计/describe，或作为显式 raw-contract 的候选输入；它的返回类型不能叫 DispatchPermit。实际派发还必须执行后文全部 gate：strict 拒绝 generic，raw-contract 必须另验受信范围授权。编译失败没有可用 validator；schema 不存在和参数细节不完整是不同结果。
 
 `checkResponseShape` 可独立重放 P0 故意非法请求所获的合规原生 error，证据仅为根结构；不要求把该非法请求伪装成 CheckedRequest，也不能据此接纳调用结果。`checkResponse` 复用结构检查并做原请求/方法/身份绑定，才返回有绑定的 CheckedResponse。普通结果入口只接受后者且还要检查可信 result boundary，不能接受 shape-only 值或从 payload 自报 ordinary。
 
 含 auth 的 CheckedRequest 仅留在 Connector 受保护内存，不能序列化到 wire、describe、账本、普通结果或错误诊断；Gateway 可先验证不含 auth 的完整根，Connector 注入后复验。边界输入应由有界 bytes parser 生成无行为 JSON；不承诺 JavaScript 可以无副作用识别任意 Proxy。直接 object 入口仅供内部 JSON 值，拒绝访问器/异常原型，调用方不能把任意可执行对象传入。
 
-独立的 `checkDispatch`（由授权任务持有）应消耗 `CheckedRequest` + 受信分类 + 已认证 principal + 双方策略 + 管理/秘密 gate，成功才产生内存内不可序列化的 `DispatchPermit`。Connector 在写入本地 UHP 前再核对同一 context。协议层与 Router 接入只消费这些结果，不复制第二套 schema 判断；本任务不修改既有 check/authorize 函数。
+独立的 `checkDispatch`（由授权任务持有）应消耗候选请求 + 显式执行模式 + 受信分类 + 已认证 principal + 双方策略 + 管理/秘密 gate；raw-contract 另需 `VerifiedRawGrant`。成功才产生内存内不可序列化的 `DispatchPermit`，附带真实参数验证状态。Connector 在写入本地 UHP 前再核对同一 context。协议层与 Router 接入只消费这些结果，不复制第二套 schema 判断；本任务不修改既有 check/authorize 函数。
+
+```ts
+type ExecutionMode = 'strict' | 'raw_contract';
+type ParameterValidation = 'schema' | 'generic' | 'unavailable';
+
+function checkDispatch(
+  candidate: CheckedRequest | RawRequestCandidate,
+  mode: ExecutionMode,
+  authorization: VerifiedDispatchContext,
+  rawGrant?: VerifiedRawGrant
+): Check<DispatchPermit>; // permit 保留 mode、validation、原始 coverage 和 grant 审计引用
+```
+
+这仍是接口提案，没有实现或冻结公共 wire 字段。`CheckedRequest` 只证明可用 schema 下的实际检查，generic 证据仍保留；`RawRequestCandidate` 仅供方法/参数契约不可用的显式 raw 路径，由受保护工厂从已验证 discovery、绑定目标及有界原生 envelope 建立，**不冒充 CheckedRequest 或编译成功**。全部 schema 编译失败时 strict 内核仍不可用；raw 接入必须使用独立的可信 discovery/已支持 UHP 版本的最小 envelope 边界，不能从失败的 CompiledContract 伪造 view。成功 raw permit 可建立仅用于响应关联的 `BoundResponseContext`，不产生参数已完整验证的证明；现有可用 response schema 与 ID/身份/结果边界仍强制检查，缺少安全的响应边界不能由 raw 豁免。该上下文亦可由可信恢复工厂建立，绝不直接从外部 JSON 强转。提供者及这些工厂的具体编码留授权/接入负责人冻结。
 
 ## 3. 能力、方法与字段映射
 
@@ -151,7 +165,19 @@ resolver 只在预先接纳的 documents 中按 URI 基址解析绝对/相对 $r
 
 ## 5. 受信安全分类与独立边界
 
-有效可派发集合是：在线实时方法 ∩ 接入权限上限 ∩ 受信分类 ∩ 可用且足够的参数契约 ∩ 已实现传输/子能力 ∩ caller 策略 ∩ Connector 本地策略 ∩ 独立管理/秘密权限。每项分别留状态；不以任一成功替代其它项。
+共同派发门禁是：在线实时方法 ∩ 接入权限上限 ∩ 受信安全分类 ∩ 已实现传输/子能力 ∩ caller 策略 ∩ Connector 本地策略 ∩ 独立管理/秘密权限。**参数契约策略另层处理**：strict 要求可用的参数约束；显式 raw-contract 允许在受信范围内接受参数覆盖缺口。每项分别留状态；不以任一成功替代其它项。
+
+| 层/模式 | 参数契约要求 | 失败/成功语义 |
+|---|---|---|
+| strict（默认） | 完整应用现有根/引用/条件约束，有方法参数约束；不要求宣称原生业务语义完备 | generic 拒绝为 parameter_schema_incomplete；缺失/不可用拒绝为 schema_unavailable；不自动切 raw |
+| 显式有范围 raw-contract | 已认证请求显式选择 raw，受保护策略提供独立 VerifiedRawGrant；保留全部可用检查 | generic 可准入并标 validation=generic；无可用方法/参数 schema 时可准入并标 validation=unavailable；不伪称完整通过 |
+| 所有模式的安全门禁 | 分类存在、已知、有效、可信且绑定当前上下文；管理/确认/秘密边界分别满足 | missing/unknown/invalid/untrusted 均拒绝；Owner、raw 或 schema 完整都不能豁免 |
+
+`VerifiedRawGrant` 由受保护配置/授权工厂提供，必须限定 principal、machine、profile/session、精确 methods、版本/契约状态与 capability/policy revisions 及有效期，带审计引用。契约不可用时明确绑定 `unavailable` 状态及可信发现版本，不能伪造已验证 digest。每次派发在 Gateway/Connector 双方复验范围、时效及策略；Owner 身份、caller 的 raw_requested 或自填 grant/classification 都不产生授权。未来方法仍需可信分类和明确方法范围，不能预授权所有未知未来方法。
+
+raw 只放宽已明确承认的参数覆盖缺口：继续执行有界 JSON/原生 envelope、保留字段、身份与路由校验，以及仍可用的 schema 约束；已知字段违反现有约束不能降格为 unavailable 后放行，来源不可信、身份/契约完整性不符也不能借 raw 豁免。它不补齐 adapter、不开放未知流帧、不放宽响应/结果与 secret custody 边界。两种模式的 describe/permit/审计分别记录实际 coverage 与 validation；没有完整参数证据时不得输出 complete/fully_validated。
+
+方法已在线公布却未进入安装 schema 枚举时，strict 仍拒绝；显式 raw 可将其记为方法契约 unavailable，按可信分类及精确 grant 使用已支持版本的最小 envelope 检查，不伪造原枚举通过。已登记方法的参数违反现有约束属于 invalid，不能用这一缺方法契约路径绕过。
 
 受信分类记录至少绑定 profile + method（控制帧另绑 action）+ contract digest/revision + capability revision，包含 effect/risk、native scope、required management permission、result boundary（ordinary/protected_secret），由管理员审核的版本化 registry 或等价受保护配置产生。可信模块验证来源并建立品牌；caller 输入、仅有相同 hash、Owner 名称、native local_owner 自报均不能建立信任。214 个实时原生 method_contracts 是审核输入，并非本任务已为其授予网关分类。新增方法必须补可信分类及边界审核，不能凭前缀套模板。
 
@@ -168,8 +194,9 @@ resolver 只在预先接纳的 documents 中按 URI 基址解析绝对/相对 $r
 | 类别 | 建议 code / detail_reason | 行为 |
 |---|---|---|
 | 数据边界 | invalid_utf8 / invalid_json / duplicate_json_key / json_number_precision / object_limit | 不派发；拒绝原型/访问器/循环对象，不做有损解析 |
-| 契约获取/编译 | schema_unavailable（missing_document / missing_fragment / unsupported_dialect / unsupported_reference / duplicate_id / alias_mismatch / reference_cycle / reference_limit / compile_limit / invalid_schema） | 整个 view 不可用，无远程 fallback |
-| 参数缺口 | parameter_schema_incomplete | 结构审计可通过，严格派发仍拒绝；不是缺少文件 |
+| 契约获取/编译 | schema_unavailable（missing_document / missing_fragment / unsupported_dialect / unsupported_reference / duplicate_id / alias_mismatch / reference_cycle / reference_limit / compile_limit / invalid_schema） | strict view 不可用，无远程 fallback；仅独立显式 raw 授权可接受 validation=unavailable，不把编译失败改成成功 |
+| 参数缺口 | parameter_schema_incomplete | 结构审计可通过，strict 派发拒绝；raw 可按范围授权准入并保留 validation=generic；不是安全分类缺失 |
+| raw 范围授权 | raw_contract_not_authorized / raw_contract_scope_mismatch / raw_contract_grant_expired / raw_contract_grant_stale | 有 raw 请求标志仍可能拒绝；不能默认为 Owner 提供 grant |
 | 数据不符 | native_request_invalid / native_response_invalid / native_event_invalid / native_control_invalid | 不修改原生 payload 来迎合 schema |
 | 发现/上下文 | capability_stale / capability_invalid / method_not_advertised / profile_not_exposed / unsupported_transport / unsupported_stream_feature / native_id_mismatch / native_result_mismatch / native_identity_mismatch | 不跨实例/通道降级、不重发 |
 | 安全分类 | safety_classification_missing / unknown / invalid / untrusted（wire 可统一 code + reason） | 始终拒绝，与 schema 错误独立 |
@@ -189,7 +216,7 @@ resolver 只在预先接纳的 documents 中按 URI 基址解析绝对/相对 $r
 
 ## 8. Fixture 矩阵与验证边界
 
-[matrix.json](../../fixtures/issue4/native-validator/matrix.json) 是可物化的 seed + 单一变更/生成器 + expected 断言草案；所有内容来自固定 P0 fixture 或合成 JSON。按阶段区分结构校验、发现、安全派发、流状态、迟到证据。正例的 accept 仅对标注阶段有效；仅 `dispatch` 阶段可断言是否允许派发。特别保留“generic 参数 schema 接受但 dispatch 拒绝”和“schema 接受但原生 invalid_params”的边界用例。
+[matrix.json](../../fixtures/issue4/native-validator/matrix.json) 是可物化的 seed + 单一变更/生成器 + expected 断言草案；所有内容来自固定 P0 fixture 或合成 JSON。按阶段区分结构校验、发现、安全派发、流状态、迟到证据。正例的 accept 仅对标注阶段有效；仅 `dispatch` 阶段可断言是否允许派发。特别保留“generic 参数 schema 接受但 strict 拒绝”“显式 raw 授权 generic 准入但 validation=generic”和“schema 接受但原生 invalid_params”的边界用例。
 
 | 族 | 必需正反范围 |
 |---|---|
@@ -198,11 +225,11 @@ resolver 只在预先接纳的 documents 中按 URI 基址解析绝对/相对 $r
 | request | 原生必填 id/method/params、额外根拒绝；prompt wait 条件、keys dependentRequired、automation create/update not、terminal 嵌套引用/边界；144 generic 全量独立遍历 |
 | response | P0 原生 error/data 保真、id/互斥/root/type；条件 result/error.data、terminal error/result/mode/身份关联；schema 正例不推导业务完成 |
 | event/control | 一般 catalog、terminal.frame/resync；未知/错流/错身份/多字节超限、sequence/gap；只读不可写、control action 条件、advanced feature 默认禁用、ack 不重发 |
-| safety | missing/unknown/invalid/untrusted 与 schema missing/incomplete 分离；Owner/future/raw、caller 伪分类、admin/真实确认、secret pipeline 所有旁路 |
+| safety/mode | strict 的 generic 拒绝与 raw 的有范围准入；raw 无 grant/错范围/过期/过时拒绝；两种模式下 missing/unknown/invalid/untrusted 均拒绝，与 schema 缺口分离；Owner/future/caller 伪分类、admin/真实确认、secret pipeline 所有旁路 |
 | result | 普通结果按调用归属和最新策略复验；inline/handle/late 与未来 secret 方法都不能因 Owner/raw 或管理 grant 进入普通结果，discard 仍需独立权限 |
 | late | 同 attempt 合规补充且派发次数不变；锚点每一字段错配/冲突/重复、过期/discard/secret 结果不复活 |
 
-`python3 scripts/issue4/audit_native_design.py` 仅验证映射与源文件一致、seed/变更可物化、矩阵不缺关键族、P0 文件 hash 不变，不执行 JSON Schema/授权/流/存储校验。通过数不得写成 validator 测试通过数。实现后为每个 case 接入 #15 Bun 测试，拒绝以 skip/mock dispatch 替代实际 gate，并补 144 generic 的全量 Ajv 接受 + 严格派发拒绝。保留现有公共/P0 测试，不能挪走或改写历史结果。
+`python3 scripts/issue4/audit_native_design.py` 仅验证映射与源文件一致、seed/变更可物化、矩阵不缺关键族、P0 文件 hash 不变，不执行 JSON Schema/授权/流/存储校验。通过数不得写成 validator 测试通过数。实现后为每个 case 接入 #15 Bun 测试，拒绝以 skip/mock dispatch 替代实际 gate，并补 144 generic 的全量 Ajv 接受 + strict 拒绝，以及有可信分类/范围 grant 的 raw 准入和正确 validation 标记。保留现有公共/P0 测试，不能挪走或改写历史结果。
 
 ## 9. 可分配文件范围、冲突及交接
 
@@ -217,6 +244,6 @@ resolver 只在预先接纳的 documents 中按 URI 基址解析绝对/相对 $r
 
 当前变更仅新增 docs/issue4、fixtures/issue4/native-validator、scripts/issue4 下文件；未改 src、package.json、锁文件、现有公共测试或 P0 原文。独立交接写在本文，不改共享 HANDOVER，减少并行冲突。后续新增 test 子目录是否被 Bun 发现必须由 #15 验收后的命令验证。
 
-需要显式对齐的冲突：DESIGN §8 和 IMPLEMENTATION-PLAN §9 的 Owner/future/raw 表述落后于 #4 新要求；一律以安全分类默认拒绝为准，schema raw 的未来例外也不能越过管理/秘密边界。本提案选择最小严格切片，generic 144 与 unavailable 均不执行，没有暗中启用 raw。README/HANDOVER 的历史分支/Node 命令在 main 合并后已经滞后，由迁移/集成负责人更新；不改历史 P0 结果。P0 audit 的一般事件 catalog 特例仅覆盖 terminal.frame，生产 validator 还需登记 terminal.resync_required；这不是重做 P0 或宣称其原生溢出已验收。
+需要显式对齐的语义：DESIGN §8 和 IMPLEMENTATION-PLAN §9 的显式 raw-contract 能力保留；其 Owner/future 表述须补充 #4 新采纳的安全分类强制门禁。未知安全分类默认拒绝，不等于缺参数 schema 永久禁用。generic 144 / schema unavailable 仅在 strict 下拒绝；显式有范围 raw 在可信分类与全部其它 gate 满足时可准入，保留 generic/unavailable 状态。本次只提出接口与矩阵，没有实际启用任何模式；映射表 runtime_enabled=false 表示尚无实现，不表示产品级永久拒绝。README/HANDOVER 的历史分支/Node 命令由迁移/集成负责人更新；不改历史 P0 结果。P0 audit 的一般事件 catalog 特例仅覆盖 terminal.frame，生产 validator 还需登记 terminal.resync_required；这不是重做 P0 或宣称其原生溢出已验收。
 
 剩余实施前接缝：wire 负责人冻结外壳错误映射/分片和 late anchor 的字段编码；安全负责人冻结可信来源/分类配置/管理授权/custody 的具体提供者；#15 确认 Ajv 编译与 worker 限制在 Bun 的实际行为。任何未提供者保持禁用。无需部署选择即可实现纯编译/结构检查，但这些模块完成仍不等于 #4、认证传输、原生 adapter 或生产可用。

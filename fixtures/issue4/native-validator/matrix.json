@@ -10,7 +10,10 @@
     "bundle bytes/reference/depth 和 144 generic/late anchor 生成器是明确待实现的测试展开要求；当前 audit 只确认草案登记，不执行这些生成器。",
     "late 的 accept 是 #5 原子状态机结果要求；全部 case 保留原 timeout/disconnect 历史，派发数不增加。",
     "原生重放 seed 按 transcript 的精确 label/kind 读取；response 用原始请求 id 绑定。一般与终端流需 test factory 构造正确的已授权上下文。",
-    "错误 code 是本提案逻辑码，wire 负责人可冻结外壳映射，但不得合并 safety 与 schema 拒绝原因。"
+    "错误 code 是本提案逻辑码，wire 负责人可冻结外壳映射，但不得合并 safety 与 schema 拒绝原因。",
+    "执行模式默认 strict；raw_contract 必须显式选择且由受保护工厂建立匹配 principal/目标/精确 methods/契约状态/revisions/有效期的 grant。raw_requested/Owner 均不是授权。",
+    "144 generic 的 strict 拒绝与受信有范围 raw 准入分别测试；generic/unavailable 是参数验证状态，不是安全分类缺失或完整验证声明。",
+    "raw grant 只接受缺失的参数覆盖，继续执行可用约束、双层策略、管理/确认、秘密及传输 gate。生成器逐方法建立匹配 grant，不把所有未来方法预授权。"
   ],
   "seeds": {
     "bundle": {
@@ -309,7 +312,18 @@
         "management_allowed": false,
         "confirmation_present": false,
         "custody_available": false,
-        "caller_classification": null
+        "caller_classification": null,
+        "execution_mode": "strict",
+        "raw_grant": null,
+        "principal_id": "synthetic",
+        "machine_id": "m1",
+        "session": "synthetic",
+        "contract_revision": "test-r1",
+        "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "capability_revision": "test-caps-1",
+        "caller_policy_revision": "caller-policy-1",
+        "local_policy_revision": "local-policy-1",
+        "now": 100
       }
     },
     "late": {
@@ -1802,6 +1816,38 @@
           "op": "set",
           "path": "/raw_requested",
           "value": true
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "agent.prompt"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
         }
       ]
     },
@@ -1870,7 +1916,7 @@
       "expected": {
         "verdict": "reject",
         "assertions": [
-          "安全分类有效仍独立拒绝 generic 参数，不冒充完整校验"
+          "仅 strict 模式因 generic 参数覆盖不足拒绝；安全分类有效，不表示产品级永久禁用"
         ],
         "code": "parameter_schema_incomplete",
         "dispatch_count": 0
@@ -1893,6 +1939,16 @@
           "op": "set",
           "path": "/schema_state",
           "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
         }
       ]
     },
@@ -1902,13 +1958,17 @@
       "expected": {
         "verdict": "reject",
         "assertions": [
-          "144 项在受信分类/双方策略均允许的合成环境仍因参数缺口拒绝"
+          "全量 144 项仅在 strict 模式下因参数覆盖缺口拒绝；不推导 raw 模式也永久禁用"
         ],
         "code": "parameter_schema_incomplete",
         "dispatch_count": 0,
         "methods": 144
       },
-      "generator": "all_generic_methods"
+      "generator": "all_generic_methods",
+      "context": {
+        "execution_mode": "strict",
+        "trusted_safety_valid": true
+      }
     },
     {
       "id": "D-schema-missing",
@@ -1917,7 +1977,7 @@
       "expected": {
         "verdict": "reject",
         "assertions": [
-          "有效受信分类与缺 schema 分开；不报 safety 缺失"
+          "strict 模式下有效安全分类与 schema 不可用分开；不自动回退 raw，也不报 safety 缺失"
         ],
         "code": "schema_unavailable",
         "dispatch_count": 0
@@ -2097,6 +2157,38 @@
           "op": "set",
           "path": "/trusted_safety/result_boundary",
           "value": "protected_secret"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "uhp.token.create"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
         }
       ]
     },
@@ -2122,6 +2214,38 @@
           "op": "set",
           "path": "/trusted_safety/result_boundary",
           "value": "protected_secret"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "future.synthetic"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
         }
       ],
       "context": {
@@ -2809,6 +2933,993 @@
           "value": true
         }
       ]
+    },
+    {
+      "id": "D-raw-generic",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "ping"
+            ],
+            "contract_state": "generic_params_only",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        }
+      ],
+      "expected": {
+        "verdict": "accept",
+        "assertions": [
+          "显式 raw + 可信精确范围 grant + 有效安全分类/双方策略可准入 generic；不输出完整参数已校验"
+        ],
+        "dispatch_count": 1,
+        "validation": "generic"
+      }
+    },
+    {
+      "id": "D-raw-unavailable",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request/method",
+          "value": "future.synthetic"
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "unavailable"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "future.synthetic"
+            ],
+            "contract_state": "unavailable",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        }
+      ],
+      "expected": {
+        "verdict": "accept",
+        "assertions": [
+          "实时未来方法已有可信分类/精确 raw grant，缺方法参数 schema 可准入并明确 validation=unavailable；不伪造 CheckedRequest"
+        ],
+        "dispatch_count": 1,
+        "validation": "unavailable"
+      }
+    },
+    {
+      "id": "D-raw-no-grant",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "Owner/raw_requested/执行模式声明都不产生 raw 授权，generic 不可无 grant 派发"
+        ],
+        "dispatch_count": 0,
+        "code": "raw_contract_not_authorized"
+      }
+    },
+    {
+      "id": "D-raw-scope",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "ping"
+            ],
+            "contract_state": "generic_params_only",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        },
+        {
+          "op": "set",
+          "path": "/machine_id",
+          "value": "m2"
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "grant 精确绑定机器，目标换成 m2 不在范围内，不能由 Owner 绕过"
+        ],
+        "dispatch_count": 0,
+        "code": "raw_contract_scope_mismatch"
+      }
+    },
+    {
+      "id": "D-raw-expired",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "ping"
+            ],
+            "contract_state": "generic_params_only",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant/expires_at",
+          "value": 99
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "显式 raw grant 已过期仍拒绝，不能因为安全分类有效而放行"
+        ],
+        "dispatch_count": 0,
+        "code": "raw_contract_grant_expired"
+      }
+    },
+    {
+      "id": "D-raw-stale",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "ping"
+            ],
+            "contract_state": "generic_params_only",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant/contract_revision",
+          "value": "test-r0"
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "契约或 capability/policy revision 变更使 grant 失效，须重新授权范围"
+        ],
+        "dispatch_count": 0,
+        "code": "raw_contract_grant_stale"
+      }
+    },
+    {
+      "id": "D-strict-no-fallback",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "ping"
+            ],
+            "contract_state": "generic_params_only",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "即使存在有效 raw grant，未显式选择 raw 的 strict 调用仍拒绝 generic，不自动降级"
+        ],
+        "dispatch_count": 0,
+        "code": "parameter_schema_incomplete"
+      }
+    },
+    {
+      "id": "D-raw-known-invalid",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "agent.prompt"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        },
+        {
+          "op": "set",
+          "path": "/request/params/wait",
+          "value": false
+        },
+        {
+          "op": "set",
+          "path": "/request/params/until",
+          "value": [
+            "done"
+          ]
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "raw 只接受已承认的覆盖缺口；现有 prompt wait 条件被违反仍拒绝，不能重标 unavailable"
+        ],
+        "dispatch_count": 0,
+        "code": "native_request_invalid"
+      }
+    },
+    {
+      "id": "D-raw-safety-unknown",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "即使显式 raw grant 有效，安全分类 unknown 也必须拒绝；与参数 schema 缺口分开"
+        ],
+        "code": "safety_classification_unknown",
+        "dispatch_count": 0
+      },
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/trusted_safety",
+          "value": {
+            "state": "unknown",
+            "effect": "synthetic_unknown"
+          }
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "agent.prompt"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        }
+      ]
+    },
+    {
+      "id": "D-raw-safety-invalid",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "即使显式 raw grant 有效，安全分类 invalid 也必须拒绝；与参数 schema 缺口分开"
+        ],
+        "code": "safety_classification_invalid",
+        "dispatch_count": 0
+      },
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/trusted_safety",
+          "value": {
+            "state": "invalid",
+            "effect": null
+          }
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "agent.prompt"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        }
+      ]
+    },
+    {
+      "id": "D-raw-safety-untrusted",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "即使显式 raw grant 有效，安全分类 untrusted 也必须拒绝；与参数 schema 缺口分开"
+        ],
+        "code": "safety_classification_untrusted",
+        "dispatch_count": 0
+      },
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/trusted_safety",
+          "value": {
+            "state": "valid",
+            "source": "caller_input"
+          }
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "agent.prompt"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        }
+      ]
+    },
+    {
+      "id": "D-raw-admin",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "有效 raw grant 不能替代独立 Host admin 权限，Owner 仍不可绕过"
+        ],
+        "code": "management_forbidden",
+        "dispatch_count": 0
+      },
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/profile",
+          "value": "host"
+        },
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.host",
+            "method": "host.update.install",
+            "params": {
+              "confirm": true
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "admin"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "admin"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/management_permission",
+          "value": "host_admin"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "host",
+            "session": null,
+            "methods": [
+              "host.update.install"
+            ],
+            "contract_state": "conditional_branch",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        }
+      ]
+    },
+    {
+      "id": "D-raw-generic-all",
+      "stage": "dispatch",
+      "expected": {
+        "verdict": "accept",
+        "assertions": [
+          "逐个为 144 generic 方法提供可信分类和精确范围 grant，raw 可准入且始终标 validation=generic；不以缺参数 schema 永久禁用"
+        ],
+        "methods": 144,
+        "validation": "generic",
+        "dispatch_count": 1
+      },
+      "generator": "all_generic_methods",
+      "context": {
+        "execution_mode": "raw_contract",
+        "trusted_safety_valid": true,
+        "raw_grant_per_exact_method": true,
+        "all_other_gates_satisfied": true
+      }
+    },
+    {
+      "id": "D-raw-policy-caller",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "ping"
+            ],
+            "contract_state": "generic_params_only",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        },
+        {
+          "op": "set",
+          "path": "/caller_allowed",
+          "value": false
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "raw grant 不替代双方策略，caller 策略拒绝仍不派发"
+        ],
+        "dispatch_count": 0,
+        "code": "forbidden"
+      }
+    },
+    {
+      "id": "D-raw-policy-local",
+      "stage": "dispatch",
+      "seed": "dispatch",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/request",
+          "value": {
+            "id": "u.test:1",
+            "method": "ping",
+            "params": {
+              "arbitrary": [
+                "synthetic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "set",
+          "path": "/schema_state",
+          "value": "generic_params_only"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/scope",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/trusted_safety/effect",
+          "value": "read"
+        },
+        {
+          "op": "set",
+          "path": "/execution_mode",
+          "value": "raw_contract"
+        },
+        {
+          "op": "set",
+          "path": "/raw_requested",
+          "value": true
+        },
+        {
+          "op": "set",
+          "path": "/raw_grant",
+          "value": {
+            "id": "synthetic-raw-grant",
+            "source": "trusted_test_factory",
+            "principal_id": "synthetic",
+            "machine_id": "m1",
+            "profile": "session",
+            "session": "synthetic",
+            "methods": [
+              "ping"
+            ],
+            "contract_state": "generic_params_only",
+            "contract_revision": "test-r1",
+            "contract_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "capability_revision": "test-caps-1",
+            "caller_policy_revision": "caller-policy-1",
+            "local_policy_revision": "local-policy-1",
+            "expires_at": 200
+          }
+        },
+        {
+          "op": "set",
+          "path": "/local_allowed",
+          "value": false
+        }
+      ],
+      "expected": {
+        "verdict": "reject",
+        "assertions": [
+          "raw grant 不替代双方策略，local 策略拒绝仍不派发"
+        ],
+        "dispatch_count": 0,
+        "code": "forbidden"
+      }
     }
   ]
 }
