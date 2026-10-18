@@ -13,6 +13,9 @@ const protocol = await import('../../dist/src/protocol.js');
 const native = await import('../../dist/src/native-contract/index.js');
 const wire = await import('../../dist/src/wire/index.js');
 const integration = await import('../../dist/src/integration/luvus-wire.js');
+const persistence = await import('../../dist/src/integration/persistence.js');
+assert.equal(typeof persistence.persistentBackend, 'function');
+assert.equal(typeof persistence.commitLuvusResponse, 'function');
 assert.deepEqual(
   Object.keys(contracts).sort(),
   ['GatewayError', 'authorize', 'canonical', 'digest', 'validateRequest', 'validateTarget'].sort(),

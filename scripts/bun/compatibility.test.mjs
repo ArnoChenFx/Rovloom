@@ -35,7 +35,9 @@ test('real file Store transaction failure rolls back token consumption; modes an
   const path = join(dir, 'db');
   let store, inspect;
   try {
-    store = new Store(path);
+    store = new Store(path, Date.now, {
+      management: () => ({ actor: 'synthetic_admin', confirmation_id: 'synthetic_resume' }),
+    });
     assert.equal(statSync(path).mode & 0o777, 0o600);
     assert.equal(statSync(path + '.lock').mode & 0o777, 0o600);
     assert.throws(() => new Store(path), /EEXIST/);
@@ -45,10 +47,12 @@ test('real file Store transaction failure rolls back token consumption; modes an
     inspect.exec(
       "CREATE TRIGGER reject_redeem BEFORE UPDATE ON machines BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END",
     );
-    assert.throws(() => store.redeem(token), /synthetic failure/);
+    assert.throws(() => store.redeem(token), /storage_degraded/);
+    assert.equal(store.health().mode, 'storage_degraded');
     assert.equal(inspect.prepare('SELECT consumed FROM enrollments').get().consumed, 0);
     assert.equal(store.machine(machine.machine_id).status, 'pending');
     inspect.exec('DROP TRIGGER reject_redeem');
+    store.resumeStorage();
     assert.equal(store.redeem(token).machine_id, machine.machine_id);
     assert.throws(() => store.redeem(token), /invalid_enrollment/);
   } finally {

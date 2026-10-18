@@ -1,4 +1,3 @@
-import { GatewayError } from '../contracts.js';
 import type { Store } from '../store.js';
 import type { AuthenticatedEnvelope } from '../wire/types.js';
 import type { NativeWireBackend } from './luvus-wire.js';
@@ -6,20 +5,16 @@ import { createLuvusWireAdapter } from './luvus-wire.js';
 
 type Services = Omit<
   NativeWireBackend,
-  'attempt' | 'provider' | 'responseAnchor' | 'contentStatus'
+  'attempt' | 'provider' | 'responseAnchor' | 'contentStatus' | 'now'
 >;
 // 只填持久化事实；认证、双端本机配置、原生来源、契约与真实权限必须独立注入。
 export function persistentBackend(store: Store, services: Services): NativeWireBackend {
   return {
     ...services,
+    now: () => store.clock(),
     connection() {
       const connection = services.connection();
-      if (
-        store.health().mode !== 'active' ||
-        connection.recovery_generation !== store.generation() ||
-        store.machine(connection.machine_id).status !== 'online'
-      )
-        throw new GatewayError('connection_unavailable');
+      store.assertConnection(connection);
       return connection;
     },
     attempt: (call, attempt) => store.attempt(call, attempt),

@@ -16,7 +16,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Store } from '../../src/store.js';
 import { Router } from '../../src/router.js';
-import { management, connected, options, policy, respond } from './helpers.js';
+import {
+  management,
+  connected,
+  options,
+  policy,
+  respond,
+  responseFrame,
+  evidenceContext,
+} from './helpers.js';
+import { planResponseEvidence } from '../../src/wire/index.js';
 import type { AttemptBinding } from '../../src/wire/types.js';
 
 function disk(run: (root: string, path: string) => void) {
@@ -473,6 +482,151 @@ test('evidence planner exceptions do not publish a response or expose planted se
         (e) => e instanceof Error && e.message === 'storage_degraded',
       );
       assert.equal(s.call('alice', c.call_id).response, null);
+    } finally {
+      s.close();
+    }
+  }));
+
+test('SQLite reserve exhaustion and audit quota reject new dispatch without deleting required records', () =>
+  disk((_root, path) => {
+    const s = new Store(path, () => 100, {
+      management,
+      retention: { storage_reserve_bytes: 16_384 },
+    });
+    try {
+      const d = connected(s),
+        a = s.createCall('alice', d.target, { method: 'ping' }, options()),
+        b = s.createCall('alice', d.target, { method: 'ping' }, options());
+      s.dispatch('alice', a.call_id, d.epoch);
+      let sends = 0;
+      assert.throws(() => {
+        s.dispatch('alice', b.call_id, d.epoch);
+        sends++;
+      }, /storage_degraded/);
+      assert.equal(sends, 0);
+      assert.equal(s.call('alice', a.call_id).state, 'outcome_unknown');
+      assert.equal(s.call('alice', b.call_id).state, 'created');
+    } finally {
+      s.close();
+    }
+    const auditPath = path + '-audit';
+    const limited = new Store(auditPath, () => 100, { management, retention: { audit_bytes: 10 } });
+    try {
+      assert.throws(() => limited.register('blocked'), /storage_degraded/);
+      assert.equal(limited.health().mode, 'storage_degraded');
+    } finally {
+      limited.close();
+    }
+  }));
+test('SQLite managed backup count and fixed expiry enforce cleanup without reviving old content', () =>
+  disk((root, path) => {
+    let now = 100;
+    const backups = join(root, 'backups');
+    mkdirSync(backups, { mode: 0o700 });
+    const s = new Store(path, () => now, {
+      management,
+      backupDirectory: backups,
+      retention: { backup_max_count: 1, backup_ttl: 10 },
+    });
+    try {
+      connected(s);
+      const first = join(backups, 'first');
+      s.backup(first);
+      assert.throws(() => s.backup(join(backups, 'second')), /backup_count_quota/);
+      assert(existsSync(first));
+      now = 110;
+      s.expire();
+      assert(!existsSync(first));
+      s.backup(join(backups, 'second'));
+    } finally {
+      s.close();
+    }
+  }));
+test('maintenance scheduler expires durable calls while front-end wait leaves execution deadline untouched', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rovloom-scheduler-'));
+  let now = 100;
+  const s = new Store(join(root, 'db'), () => now, { management, maintenanceIntervalMs: 5 });
+  try {
+    const d = connected(s),
+      p = { id: 'alice', policy: policy(d.target) },
+      r = new Router(s, () => policy(d.target, true));
+    const c = r.create(p, d.target, { method: 'ping' }, options({ timeoutMs: 10 }));
+    const waited = await r.wait(p, c.call_id, 1);
+    assert.equal(waited.state, 'created');
+    assert.equal(waited.deadline, 110);
+    s.dispatch('alice', c.call_id, d.epoch);
+    now = 110;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(s.call('alice', c.call_id).state, 'outcome_unknown');
+  } finally {
+    s.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test('observed read clock cannot roll back across reopening or renew expired inline content', () =>
+  disk((_root, path) => {
+    let now = 100;
+    let s = new Store(path, () => now, { management, retention: { content_ttl: 10 } });
+    try {
+      const d = connected(s),
+        c = s.createCall('alice', d.target, { method: 'ping' }, options());
+      respond(s, s.dispatch('alice', c.call_id, d.epoch), { result: {} }, now);
+      now = 110;
+      assert.equal(s.call('alice', c.call_id).response, null);
+      s.close();
+      now = 105;
+      s = new Store(path, () => now, { management });
+      assert.throws(() => s.call('alice', c.call_id), /clock_untrusted/);
+    } finally {
+      s.close();
+    }
+  }));
+
+test('writer freezes receipt time while evidence validation crosses a clock tick', () =>
+  disk((_root, path) => {
+    let now = 100;
+    const s = new Store(path, () => now, { management });
+    try {
+      const d = connected(s),
+        c = s.createCall('alice', d.target, { method: 'ping' }, options()),
+        b = s.dispatch('alice', c.call_id, d.epoch);
+      const result = s.commitEvidence(b, () => {
+        now = 125;
+        return planResponseEvidence(
+          responseFrame(b, { result: { pong: true } }),
+          evidenceContext(s, b),
+          s.responseAnchor(b),
+          s.clock(),
+          { classification_status: 'trusted_complete', retain_content_authorized: true },
+        );
+      });
+      assert.equal(result.state, 'responded');
+      assert.equal(s.clock(), 125);
+    } finally {
+      s.close();
+    }
+  }));
+test('default thirty-day tombstone cleanup and scope deletion still reject the original key', () =>
+  disk((_root, path) => {
+    let now = 100;
+    const s = new Store(path, () => now, { management });
+    try {
+      const d = connected(s),
+        h = s.openHistory('alice', d.target, 1),
+        o = options({ history: { history_epoch: h.history_epoch, client_request_key: 'old-key' } });
+      s.createCall('alice', d.target, { method: 'ping' }, o);
+      now = 100 + s.limits.dedup_ttl;
+      s.expire();
+      assert.throws(
+        () => s.createCall('alice', d.target, { method: 'ping' }, o),
+        /dedup_history_unavailable/,
+      );
+      now += s.limits.history_epoch_max_age;
+      s.expire();
+      assert.throws(
+        () => s.createCall('alice', d.target, { method: 'ping' }, o),
+        /dedup_history_unavailable/,
+      );
     } finally {
       s.close();
     }

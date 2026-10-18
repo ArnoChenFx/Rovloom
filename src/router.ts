@@ -90,4 +90,20 @@ export class Router {
     this.authorized(principal, callId, 'cancel');
     return this.store.stop(principal.id, callId);
   }
+  async wait(principal: Principal, callId: string, waitMs = 1000) {
+    if (!Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 25_000)
+      throw new GatewayError('invalid_wait');
+    const until = performance.now() + waitMs;
+    while (true) {
+      const call = this.get(principal, callId);
+      if (
+        !['created', 'dispatching', 'connector_accepted'].includes(call.state) ||
+        performance.now() >= until
+      )
+        return call;
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(50, Math.max(1, until - performance.now()))),
+      );
+    }
+  }
 }

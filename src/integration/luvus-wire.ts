@@ -84,7 +84,7 @@ type Authority = Omit<
   'source' | 'principal_id' | 'caller_policy' | 'local_policy' | 'mode' | 'now'
 >;
 // 仅由宿主认证、双端配置及账本实现。这里没有默认授权、设备广告或从消息导入上下文的工厂。
-// Store v3 不满足本接口；#5 提供可信持久化 resolver 前，本模块只是可测试的接入边界。
+// persistence 模块只提供持久化事实；当前认证、配置与原生来源仍必须由宿主独立实现。
 export interface NativeWireBackend {
   connection(): AuthenticatedContext['connection'];
   attempt(callId: string, attemptId: string): TrustedAttempt | undefined;

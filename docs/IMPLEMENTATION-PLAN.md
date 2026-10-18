@@ -11,11 +11,17 @@
 | Native validator | 离线 bundle 编译、完整根/引用/条件校验、多轴分类/权限、raw 范围 grant、opaque permit、响应/事件/控制校验 | 可终止的 schema 编译 CPU/heap 隔离、受信生产分类与来源提供方 |
 | Wire 2 | 严格 codec/协商、显式 provider/context、内存去重、对象重组、流状态、历史准入/晚到证据计划 | 真认证/WSS、持久化事务、实际发送/重复抑制/资源释放的宿主接线 |
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack 与 frame 读取、原文保留门禁 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
-| Store/Router | SQLite 事务、单 writer、注册/配对/撤销、基础调用/结果/独立 discard 授权 | provider-scoped 迁移/策略/账本、固定内容期限、持久 history、总预算、隔离恢复及事务晚到更新 |
+| Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、真实 native/Wire 事务晚到接线 | 生产管理/认证来源、跨平台验证、重启/原请求到期后的原生响应上下文恢复；旧库设计承诺统一清理 |
 | 产品服务 | 模块接口及测试 backend | Gateway/Connector 角色 CLI、MCP facade、设备 transport、原生 adapters、管理 UI 和部署发行 |
 | Herdr | 固定官方源码研究与 candidate 来源表达 | P0-H、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
 
-现有公共 `contracts.Target` 和 Store schema v3 仍按 machine/profile/session，Wire 使用独立 V2Target 并由 integration 显式投影；这只是模块兼容接缝。Store 的 `(principal, request_key)` 不能当作 provider/history scope 去重，Router 旧 Policy 也不能直接作生产多 provider 授权。现有句柄到期不等于 calls.response 删除，句柄子配额不等于全内容/全库预算，内存 EvidencePlan 不等于 durable responded。
+Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
+profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
+来源与契约/分类；persisted backend 不制造这些事实。实现边界与操作见[存储运行指引](STORAGE.md)。
+
+当前未发布 schema v1/v2/v3 明确拒绝、源文件不变；规范 v4 从全新库建立。本切片不交付旧库
+迁移器。DESIGN §5.3 与 ADR 0004 的旧库迁移承诺仍需项目级统一清理确认，不能据此宣称已经
+迁移；不得为旧历史补默认 provider/scope 或重新执行。
 
 ### 包与命令兼容边界
 
@@ -53,7 +59,7 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 
 ### 3.2 持久化、迁移、预算与恢复
 
-- 原子升级旧 Store：唯一可证明的 legacy Luvus binding，初始禁用；未知/多个 root 进入 migration_unresolved。完整迁移 ACL、call/attempt、结果、流、审计、原摘要/key 历史、TTL/discard，旧 writer 拒绝打开新库。
+- 旧库迁移设计承诺待统一清理；当前只创建规范 v4，明确拒绝旧版本且不修改源库，不建立 legacy binding 或历史兼容入口。
 - 实现 provider-scoped 双端授权，调用/attempt/原生 ID/契约和 policy revisions 持久锚点；派发前提交与预算预约成功才允许写出。
 - 持久化 history scope、冻结期限、请求摘要/墓碑及原子准入/冲突；Wire 的纯计划函数须在同一 writer 事务中使用，恢复/迁移/重试不换范围。
 - 实现固定内容/句柄/墓碑/审计期限与全受管存储预算，覆盖内联、对象、WAL/SHM、日志、备份、临时文件；读取与保留授权分别执行，禁存/过期/discard 不复活原文。
@@ -61,7 +67,7 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 - 实现隔离恢复、新 recovery_generation、旧凭据/配对/范围失效、ACL 默认拒绝、binding 重新确认、恢复原文保守不可读；解除隔离不恢复旧队列。
 - 实现同一有效 attempt 的事务晚到补证、重复幂等与冲突隔离；丢 permit、旧 epoch/恢复代次、provider 禁用等不能补写或重新派发。
 
-交付：migration、fake clock 与故障注入测试、受保护恢复工具及运维操作说明。
+交付：规范 SQLite schema、fake clock/真实磁盘故障测试、本机受保护恢复接口与运维说明。服务级恢复入口及原生响应上下文恢复仍待交付。
 
 ### 3.3 设备身份、配对与 WSS
 

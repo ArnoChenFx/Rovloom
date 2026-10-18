@@ -1,9 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
-import { closeSync, existsSync, fsyncSync, openSync, statSync, unlinkSync } from 'node:fs';
+import { closeSync, existsSync, openSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { canonical, digest, GatewayError, validateRequest } from './contracts.js';
-import type { CallState, NativeRequest } from './contracts.js';
+import type { NativeRequest } from './contracts.js';
 import {
   assertBinding,
   boundedJson,
@@ -16,116 +16,21 @@ import {
 } from './wire/index.js';
 import type { HistoryScope, HistoryRecord } from './wire/history.js';
 import type { ResponseAnchor, ResponseEvidencePlan } from './wire/evidence.js';
-import type {
-  AttemptBinding,
-  AttemptIdentity,
-  HistoryReference,
-  ProviderBinding,
-  V2Target,
-  ValidationMode,
-} from './wire/types.js';
+import type { AttemptBinding, AttemptIdentity, ProviderBinding, V2Target } from './wire/types.js';
 import type { TrustedAttempt } from './integration/luvus-wire.js';
 import { DEFAULT_RETENTION, retention } from './storage/config.js';
 import type { Retention } from './storage/config.js';
+import { exportSnapshot } from './storage/backup.js';
+import { assertBudget } from './storage/budget.js';
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js';
-import { createPrivate, managedBytes, privateFile, privatePath } from './storage/files.js';
+import { createPrivate, privateFile, privatePath } from './storage/files.js';
 
 export { DEFAULT_RETENTION };
-type Machine = { machine_id: string; name: string; status: string };
-type Metadata = { generation: string; mode: string; clock: number };
-export type ManagementRequest = { action: string; target: string; fence: string };
-export type StoreOptions = {
-  retention?: Partial<Retention>;
-  backupDirectory?: string;
-  // 只由受保护宿主注入，须核实独立权限、真实确认及准确 fence；普通工具参数不能传入。
-  management?: (request: ManagementRequest) => { actor: string; confirmation_id: string };
-  fault?: (point: 'before_commit' | 'after_anchor' | 'evidence_commit') => void;
-};
-export type CallOptions = {
-  binding_revision: number;
-  contract_ref: string;
-  caller_policy_revision: string;
-  local_policy_revision: string;
-  validation?: ValidationMode;
-  timeoutMs?: number;
-  history?: HistoryReference;
-};
-export type Call = {
-  call_id: string;
-  principal: string;
-  machine_id: string;
-  provider_id: string;
-  binding_revision: number;
-  provider_kind: 'luvus' | 'herdr';
-  state: CallState;
-  epoch: string | null;
-  attempt_id: string | null;
-  response: string | null;
-  target_json: string;
-  method: string;
-  deadline: number;
-  content_expires: number;
-  metadata_expires: number;
-  dedup_expires: number;
-  content_status: ResponseAnchor['content_status'];
-};
-type Row = Call & {
-  identity_json: string;
-  binding_json: string | null;
-  request_json: string | null;
-  request_hash: string;
-  history_epoch: string | null;
-  key_digest: string | null;
-  created: number;
-  response_hash: string | null;
-  response_bytes: number | null;
-  reserved: number;
-  mode: ValidationMode;
-};
+export type { Call, CallOptions, ManagementRequest, StoreOptions } from './storage/model.js';
+import type { Call, CallOptions, Machine, Metadata, Row, StoreOptions } from './storage/model.js';
+import { publicCall } from './storage/model.js';
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
 const secret = () => randomBytes(32).toString('base64url');
-const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
-const publicCall = (r: Row, now: number): Call => {
-  const {
-    call_id,
-    principal,
-    machine_id,
-    provider_id,
-    binding_revision,
-    provider_kind,
-    state,
-    epoch,
-    attempt_id,
-    response,
-    target_json,
-    method,
-    deadline,
-    content_expires,
-    metadata_expires,
-    dedup_expires,
-    content_status,
-  } = r;
-  return {
-    call_id,
-    principal,
-    machine_id,
-    provider_id,
-    binding_revision,
-    provider_kind,
-    state,
-    epoch,
-    attempt_id,
-    response: content_status === 'available' && now < content_expires ? response : null,
-    target_json,
-    method,
-    deadline,
-    content_expires,
-    metadata_expires,
-    dedup_expires,
-    content_status:
-      content_status === 'available' && now >= content_expires ? 'expired' : content_status,
-  };
-};
 
 export class Store {
   private db!: DatabaseSync;
@@ -133,6 +38,8 @@ export class Store {
   private closed = false;
   private degraded = false;
   private observed = 0;
+  private transactionTime?: number;
+  private maintenance?: ReturnType<typeof setInterval>;
   readonly limits: Retention;
   constructor(
     private readonly path: string,
@@ -140,6 +47,9 @@ export class Store {
     private readonly options: StoreOptions = {},
   ) {
     this.limits = retention(options.retention);
+    const interval = options.maintenanceIntervalMs ?? 1000;
+    if (!Number.isSafeInteger(interval) || interval < 1 || interval > 60_000)
+      throw new GatewayError('invalid_maintenance_interval');
     if (path !== ':memory:') {
       privatePath(path);
       if (existsSync(path)) privateFile(path);
@@ -189,6 +99,14 @@ export class Store {
         this.db.exec('ROLLBACK');
         throw error;
       }
+      this.maintenance = setInterval(() => {
+        try {
+          this.expire();
+        } catch {
+          /* health 已保存降级事实，后台不打印内容或原始异常。 */
+        }
+      }, interval);
+      this.maintenance.unref();
     } catch (error) {
       this.db?.close();
       this.releaseLock();
@@ -207,6 +125,24 @@ export class Store {
   generation(): string {
     return this.meta().generation;
   }
+  assertConnection(connection: {
+    machine_id: string;
+    recovery_generation: string;
+    connection_epoch: string;
+  }): void {
+    this.active();
+    this.time();
+    const row = this.db
+      .prepare('SELECT status,epoch FROM machines WHERE machine_id=?')
+      .get(connection.machine_id);
+    if (
+      connection.recovery_generation !== this.generation() ||
+      row?.status !== 'online' ||
+      row.epoch !== connection.connection_epoch
+    )
+      throw new GatewayError('connection_unavailable');
+  }
+
   health() {
     return {
       mode:
@@ -218,7 +154,11 @@ export class Store {
       generation: this.generation(),
     };
   }
+  clock(): number {
+    return this.time();
+  }
   private time(): number {
+    if (this.transactionTime !== undefined) return this.transactionTime;
     const value = this.rawTime();
     if (value < Math.max(this.observed, this.meta().clock)) {
       this.markDegraded();
@@ -263,12 +203,14 @@ export class Store {
   }
   close(): void {
     if (!this.closed) {
+      if (this.maintenance) clearInterval(this.maintenance);
       this.db.close();
       this.releaseLock();
       this.closed = true;
     }
   }
   private transaction<T>(fn: (now: number) => T, admission = true): T {
+    if (this.transactionTime !== undefined) throw new GatewayError('transaction_in_progress');
     if (admission) this.active();
     const now = this.time();
     if (
@@ -285,6 +227,7 @@ export class Store {
       this.markDegraded();
       throw new GatewayError('storage_degraded');
     }
+    this.transactionTime = now;
     try {
       const value = fn(now);
       this.db.prepare('UPDATE metadata SET clock=?').run(now);
@@ -312,53 +255,12 @@ export class Store {
         throw new GatewayError('constraint_conflict');
       this.markDegraded();
       throw new GatewayError('storage_degraded');
+    } finally {
+      this.transactionTime = undefined;
     }
   }
   private budget(admission: boolean): void {
-    const sum = (sql: string) => Number(this.db.prepare(sql).get()!.n);
-    const content = sum(
-      'SELECT COALESCE(SUM(COALESCE(length(CAST(request_json AS BLOB)),0)+COALESCE(length(CAST(response AS BLOB)),0)),0) n FROM calls',
-    );
-    if (content > this.limits.content_bytes) throw new GatewayError('content_quota');
-    if (sum('SELECT COALESCE(SUM(bytes),0) n FROM results') > this.limits.handle_payload_bytes)
-      throw new GatewayError('result_quota');
-    const audit = this.db
-      .prepare('SELECT * FROM audit')
-      .all()
-      .reduce((n, row) => n + size(row), 0);
-    if (audit > this.limits.audit_bytes) throw new GatewayError('audit_quota');
-    const calls = this.db
-      .prepare(
-        'SELECT call_id,principal,target_json,identity_json,binding_json,request_hash,key_digest,history_epoch,state,response_hash,response_bytes,created,deadline,content_expires,metadata_expires,dedup_expires,content_status FROM calls',
-      )
-      .all();
-    const histories = this.db.prepare('SELECT * FROM history').all();
-    if (size(calls) + size(histories) > this.limits.call_metadata_bytes)
-      throw new GatewayError('metadata_quota');
-    const security = ['machines', 'enrollments', 'providers', 'management'].reduce(
-      (n, table) => n + size(this.db.prepare(`SELECT * FROM ${table}`).all()),
-      0,
-    );
-    if (security > this.limits.security_metadata_bytes) throw new GatewayError('security_quota');
-    const pages =
-      Number(this.db.prepare('PRAGMA page_count').get()!.page_count) *
-      Number(this.db.prepare('PRAGMA page_size').get()!.page_size);
-    const backupBytes = this.options.backupDirectory
-      ? managedBytes(this.options.backupDirectory)
-      : 0;
-    if (backupBytes > this.limits.backup_bytes) throw new GatewayError('backup_quota');
-    const bytes =
-      (this.path === ':memory:'
-        ? pages
-        : managedBytes(dirname(this.path)) + Math.max(0, pages - statSync(this.path).size)) +
-      backupBytes;
-    const reserved = sum('SELECT COALESCE(SUM(reserved),0) n FROM calls');
-    if (
-      reserved > this.limits.storage_reserve_bytes ||
-      bytes + reserved >
-        this.limits.storage_total_bytes - (admission ? this.limits.storage_reserve_bytes : 0)
-    )
-      throw new GatewayError('storage_exhausted');
+    assertBudget(this.db, this.path, this.limits, this.options.backupDirectory, admission);
   }
   private audit(
     action: string,
@@ -369,6 +271,7 @@ export class Store {
   ): void {
     const details = row
       ? {
+          generation: this.generation(),
           machine_id: row.machine_id,
           provider_id: row.provider_id,
           binding_revision: row.binding_revision,
@@ -828,7 +731,7 @@ export class Store {
           now,
           identity.registration.deadline,
           now + this.limits.content_ttl,
-          now + this.limits.call_metadata_ttl,
+          Math.max(now + this.limits.call_metadata_ttl, dedupExpires),
           dedupExpires,
         );
       const row = this.row(identity.call_id);
@@ -903,6 +806,7 @@ export class Store {
     )
       return undefined;
     this.current(row);
+    this.assertConnection(JSON.parse(row.binding_json));
     return {
       binding: JSON.parse(row.binding_json),
       principal_id: row.principal,
@@ -1065,6 +969,7 @@ export class Store {
         const path = String(row.path);
         if (dirname(path) !== this.options.backupDirectory)
           throw new GatewayError('unsafe_backup_path');
+        if (existsSync(path + '.lock')) continue;
         if (existsSync(path)) {
           privateFile(path);
           unlinkSync(path);
@@ -1205,79 +1110,42 @@ export class Store {
       dirname(this.path).startsWith(dirname(destination) + '/')
     )
       throw new GatewayError('separate_backup_directory_required');
-    this.transaction((now) => {
-      this.manage('backup_create', 'database', this.generation(), now);
-      if (
-        Number(this.db.prepare('SELECT COUNT(*) n FROM backups').get()!.n) >=
-        this.limits.backup_max_count
-      )
-        throw new GatewayError('backup_count_quota');
-      if (existsSync(destination)) throw new GatewayError('backup_exists');
-      createPrivate(destination + '.lock');
-      createPrivate(destination);
-      const backup = new DatabaseSync(destination);
-      try {
-        backup.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; BEGIN IMMEDIATE;');
-        backup.exec(SCHEMA);
-        backup
-          .prepare("INSERT INTO metadata VALUES(1,?,?,'recovery_quarantined',?)")
-          .run(SCHEMA_VERSION, id('recovery'), now);
-        for (const table of ['machines', 'providers', 'history', 'calls', 'audit', 'management']) {
-          for (const source of this.db.prepare(`SELECT * FROM ${table}`).all()) {
-            const row = { ...source };
-            if (table === 'machines') {
-              row.needs_confirmation = 1;
-              row.credential_hash = null;
-              row.epoch = null;
-              if (row.status !== 'revoked') row.status = 'pending';
-            }
-            if (table === 'providers') {
-              row.enabled = 0;
-              row.binding_revision = Number(row.binding_revision) + 1;
-            }
-            if (table === 'history') row.status = 'retired';
-            if (table === 'calls') {
-              row.request_json = null;
-              row.response = null;
-              row.content_status = 'unavailable';
-              if (row.state !== 'responded')
-                row.state = row.binding_json ? 'outcome_unknown' : 'not_dispatched';
-              row.reserved = 0;
-            }
-            const keys = Object.keys(row);
-            backup
-              .prepare(
-                `INSERT INTO ${table}(${keys.join(',')}) VALUES(${keys.map(() => '?').join(',')})`,
-              )
-              .run(...keys.map((k) => row[k]!));
-          }
-        }
-        const bytes =
-          Number(backup.prepare('PRAGMA page_count').get()!.page_count) *
-          Number(backup.prepare('PRAGMA page_size').get()!.page_size);
-        if (bytes > this.limits.backup_bytes || bytes > this.limits.storage_total_bytes)
-          throw new GatewayError('backup_quota');
-        backup.exec('COMMIT');
-      } catch (error) {
-        try {
-          backup.exec('ROLLBACK');
-        } catch {
-          /* 输出为不完整备份，不能使用。 */
-        }
-        throw error;
-      } finally {
-        backup.close();
-        unlinkSync(destination + '.lock');
-      }
-      const fd = openSync(destination, 'r');
-      try {
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
-      }
-      this.db
-        .prepare('INSERT INTO backups VALUES(?,?,?)')
-        .run(destination, now, now + this.limits.backup_ttl);
-    }, false);
+    let exported = false;
+    let locked = false;
+    try {
+      this.transaction((now) => {
+        this.manage('backup_create', 'database', this.generation(), now);
+        if (
+          Number(this.db.prepare('SELECT COUNT(*) n FROM backups').get()!.n) >=
+          this.limits.backup_max_count
+        )
+          throw new GatewayError('backup_count_quota');
+        if (existsSync(destination)) throw new GatewayError('backup_exists');
+        const estimate =
+          Number(this.db.prepare('PRAGMA page_count').get()!.page_count) *
+            Number(this.db.prepare('PRAGMA page_size').get()!.page_size) +
+          65_536;
+        assertBudget(
+          this.db,
+          this.path,
+          this.limits,
+          this.options.backupDirectory,
+          false,
+          estimate,
+        );
+        createPrivate(destination + '.lock');
+        locked = true;
+        exportSnapshot(this.db, destination, now, this.limits);
+        exported = true;
+        this.db
+          .prepare('INSERT INTO backups VALUES(?,?,?)')
+          .run(destination, now, now + this.limits.backup_ttl);
+      }, false);
+    } catch (error) {
+      if (exported && existsSync(destination)) unlinkSync(destination);
+      throw error;
+    } finally {
+      if (locked) unlinkSync(destination + '.lock');
+    }
   }
 }
