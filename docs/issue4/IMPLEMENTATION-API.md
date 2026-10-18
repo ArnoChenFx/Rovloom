@@ -47,3 +47,5 @@ Wire 的 contractDigest 若是组合契约摘要，不得直接强转为本模�
 结果检查仍是独立入口：ResultAuthorization 必须提供当前 classification_source_verified/revision、当前双方读取授权、principal、channel 与内容状态。分类 revision 已变化或来源无法确认时当前切片拒绝旧 permit 的内容读取，不能沿用旧普通结果分类；恢复/重新评审后的只读上下文重建留 #5 集成，不通过重新派发解决。
 
 `validateStreamFrame` 对事件 data 调用 checkEvent；control input 调用 checkControl，再逐帧 checkDispatch。control 的 ack 是 native response，不是 event：按同一 stream/attempt 下的 input native ID 找到其 permit 后调用 checkResponse，不把 open native ID 误用到每条 ack。绑定 ack 后才可 openStream；shape-only response 或复制的 handle 都不能建立流。纯 checkSequence 只作有界顺序判断，不实现 replay、队列、lease 释放或 close 的网络副作用。
+
+聚焦复核后的精确约束：openStream 的 ack 必须由 `checkResponse(同一份 DispatchPermit, ack, trustedSource)` 产生；仅由 CheckedRequest 验证后 bound=true，或同一候选产生的另一份 permit，均不足以建立流。类型签名未变，实际许可关联已收紧。复核记录见 [FOCUSED-REVIEW](FOCUSED-REVIEW.md)，完整跨环境类型快照见 [FOCUSED-REVIEW-API](FOCUSED-REVIEW-API.md)。

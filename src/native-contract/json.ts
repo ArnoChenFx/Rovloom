@@ -54,25 +54,47 @@ function unicode(value: string): void {
   }
 }
 export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json {
-  const active = new Set<object>(); let nodes = 0;
+  const active = new Set<object>(); let nodes = 0, bytes = 0;
+  const spend = (count: number): void => {
+    bytes += count; if (bytes > budget.object_bytes) fail('object_limit', 'parse');
+  };
+  const stringBytes = (value: string): void => {
+    // 逐项计入 JSON 编码预算，不能先 stringify 整个对象再判断，避免超额分配。
+    if (value.length + 2 > budget.object_bytes - bytes) fail('object_limit', 'parse');
+    spend(2);
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = value.charCodeAt(++i);
+        if (!(next >= 0xdc00 && next <= 0xdfff)) fail('invalid_json', 'parse', 'unpaired_surrogate');
+        spend(4);
+      } else if (code >= 0xdc00 && code <= 0xdfff) fail('invalid_json', 'parse', 'unpaired_surrogate');
+      else if (code === 34 || code === 92) spend(2);
+      else if (code < 32) spend([8, 9, 10, 12, 13].includes(code) ? 2 : 6);
+      else spend(code < 128 ? 1 : code < 2048 ? 2 : 3);
+    }
+  };
   const visit = (item: unknown, depth: number): Json => {
     if (++nodes > budget.object_nodes || depth > budget.object_depth) fail('object_limit', 'parse');
-    if (item === null || typeof item === 'boolean') return item;
-    if (typeof item === 'string') { unicode(item); if (Buffer.byteLength(item) > budget.object_bytes) fail('object_limit', 'parse'); return item; }
+    if (item === null || typeof item === 'boolean') { spend(item === false ? 5 : 4); return item; }
+    if (typeof item === 'string') { stringBytes(item); return item; }
     if (typeof item === 'number') {
       if (!Number.isFinite(item)) fail('invalid_json', 'parse');
       if (Number.isInteger(item) && !Number.isSafeInteger(item)) fail('json_number_precision', 'parse');
+      spend(JSON.stringify(item).length);
       return item;
     }
     if (!item || typeof item !== 'object' || active.has(item)) fail('invalid_json', 'parse');
     if (Object.getOwnPropertySymbols(item).length ||
         Object.getPrototypeOf(item) !== (Array.isArray(item) ? Array.prototype : Object.prototype)) fail('invalid_json', 'parse');
+    if (Array.isArray(item) && item.length > budget.object_nodes) fail('object_limit', 'parse');
     const descriptors = Object.getOwnPropertyDescriptors(item);
     if (Object.values(descriptors).some(d => !('value' in d))) fail('invalid_json', 'parse');
     active.add(item);
     try {
       if (Array.isArray(item)) {
         if (Object.keys(item).length !== item.length || Object.keys(descriptors).length !== item.length + 1) fail('invalid_json', 'parse');
+        spend(2 + Math.max(0, item.length - 1));
         const values: Json[] = [];
         for (let i = 0; i < item.length; i++) {
           if (!Object.hasOwn(descriptors, i)) fail('invalid_json', 'parse');
@@ -81,22 +103,24 @@ export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json 
         return Object.freeze(values);
       }
       const result: Record<string, Json> = {};
+      spend(2); let first = true;
       for (const [key, descriptor] of Object.entries(descriptors)) {
         if (!descriptor.enumerable) fail('invalid_json', 'parse');
-        unicode(key);
+        spend(first ? 1 : 2); first = false; stringBytes(key);
         Object.defineProperty(result, key, { value: visit(descriptor.value, depth + 1), enumerable: true });
       }
       return Object.freeze(result);
     } finally { active.delete(item); }
   };
-  const result = visit(value, 0);
-  if (Buffer.byteLength(JSON.stringify(result)) > budget.object_bytes) fail('object_limit', 'parse');
-  return result;
+  return visit(value, 0);
 }
 
 export function parse(bytes: Uint8Array | string, budget: Limits): Json {
   let input: string;
-  if (typeof bytes === 'string') { unicode(bytes); input = bytes; }
+  if (typeof bytes === 'string') {
+    if (bytes.length > budget.object_bytes) fail('object_limit', 'parse');
+    unicode(bytes); input = bytes;
+  }
   else if (bytes instanceof Uint8Array) {
     if (bytes.byteLength > budget.object_bytes) fail('object_limit', 'parse');
     try { input = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }

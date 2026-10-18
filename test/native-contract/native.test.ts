@@ -59,10 +59,11 @@ test('原生 P0 全量 LF 请求/响应/事件离线重放，不制造认证或�
     const original = requests.get(input.id);
     assert(original, '每个原生 response 必须有原始请求证据');
     if (original?.kind === 'request' || original?.kind === 'permit') {
-      const checked = unwrap(validator.checkResponse(original, input, sources.get(input.id)));
+      const opening = input.result && ['subscription_started', 'terminal_backend_stream'].includes(input.result.type);
+      const permit = opening ? unwrap(checkDispatch(original, auth(original))) : null;
+      const checked = unwrap(validator.checkResponse(permit ?? original, input, sources.get(input.id)));
       assert.deepEqual(checked.response, input);
-      if (input.result && ['subscription_started', 'terminal_backend_stream'].includes(input.result.type)) {
-        const permit = unwrap(checkDispatch(original, auth(original)));
+      if (permit) {
         channels.set(channel!, unwrap(validator.openStream(permit, checked)));
       }
     } else assert.deepEqual(unwrap(validator.checkResponseShape(input, original?.action ? 'terminal' : 'general')).response, input);

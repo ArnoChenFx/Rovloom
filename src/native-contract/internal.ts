@@ -16,10 +16,10 @@ export type CandidateData = { view: CapabilityView; descriptor: MethodDescriptor
 export type PermitData = { candidate: DispatchCandidate; principal: string; classification: SafetyClassification;
   supportedActions: readonly string[]; };
 export type StreamData = { permit: DispatchPermit; identity: JsonObject | null };
-// WeakMap 同时防止伪造 handle 和响应/许可跨 validator 实例使用。
+// WeakMap 防止从 JSON 伪造 handle；来源仍按各 handle 的 contract/binding 核对。
 export const contracts = new WeakMap<CompiledContract, ContractData>();
 export const views = new WeakMap<CapabilityView, ViewData>();
 export const candidates = new WeakMap<CheckedRequest | RawRequestCandidate | CheckedControl, CandidateData>();
 export const permits = new WeakMap<DispatchPermit, PermitData>();
-export const responses = new WeakMap<CheckedResponse, { candidate: DispatchCandidate | null; contract: CompiledContract }>();
+export const responses = new WeakMap<CheckedResponse, { candidate: DispatchCandidate | null; contract: CompiledContract; permit: DispatchPermit | null }>();
 export const streams = new WeakMap<CheckedStream, StreamData>();

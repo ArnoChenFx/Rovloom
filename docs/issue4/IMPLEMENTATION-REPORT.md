@@ -5,6 +5,8 @@
 
 **本次完成 Luvus 0.14.3 / UHP 1.0 的纯校验切片，不表示 #4 整体完成、真实认证/权限来源、原生新运行或可部署传输。**依据为最新 DESIGN v0.4、ADR 0002/0003、#4/#15 与父会话授权。未实现 Herdr、多 provider Target、Wire codec 或持久化。
 
+本页保留 dfd40915 原交付的 154 项证据；随后一次聚焦复核修复累计字节预算与精确 permit/ack 关联，增补后 161 项通过，见 [FOCUSED-REVIEW](FOCUSED-REVIEW.md)。不将原日志改写为后续结果。
+
 ## 公共接入
 
 入口：[src/native-contract/index.ts](../../src/native-contract/index.ts)；准确类型：[types.ts](../../src/native-contract/types.ts)；Wire 对齐说明：[IMPLEMENTATION-API](IMPLEMENTATION-API.md)。顶层公共导出未变。

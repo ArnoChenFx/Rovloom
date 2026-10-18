@@ -117,12 +117,12 @@ function candidateOf(context: CheckedRequest | DispatchPermit): DispatchCandidat
 
 export function createNativeValidator(contract: CompiledContract): NativeValidator {
   data(contract);
-  function responseShape(input: unknown, family: 'general' | 'terminal', bound: boolean, candidate: DispatchCandidate | null): CheckedResponse {
+  function responseShape(input: unknown, family: 'general' | 'terminal', bound: boolean, candidate: DispatchCandidate | null, permit: DispatchPermit | null = null): CheckedResponse {
     const response = copy(contract, input);
     validate(contract, `${UHP}response.schema.json`, response, 'native_response_invalid');
     if (family === 'terminal') validate(contract, `${UHP}schema/terminal/response.schema.json`, response, 'native_response_invalid');
     const result = Object.freeze({ response, identity: contract.identity, bound });
-    responses.set(result, { candidate, contract }); return result;
+    responses.set(result, { candidate, contract, permit }); return result;
   }
   function checkedRequest(view: CapabilityView, input: unknown, allowRaw: boolean): CheckedRequest | RawRequestCandidate {
     viewData(contract, view); const request = copy(contract, input);
@@ -180,7 +180,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         const candidate = candidateOf(context), stored = candidates.get(candidate)!;
         viewData(contract, stored.view); verifySource(source, candidate.binding);
         const terminal = candidate.kind === 'control' || candidate.method.startsWith('terminal.backend.');
-        const checked = responseShape(input, terminal ? 'terminal' : 'general', true, candidate);
+        const checked = responseShape(input, terminal ? 'terminal' : 'general', true, candidate, context.kind === 'permit' ? context : null);
         const request = candidate.kind === 'control' ? candidate.frame : candidate.request;
         if (checked.response.id !== request.id) fail('native_id_mismatch', 'response');
         if (checked.response.result !== undefined) {
@@ -205,7 +205,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     openStream(permit, acknowledgement) {
       return attempt('stream', () => {
         const state = permits.get(permit), received = responses.get(acknowledgement);
-        if (!state || !received || received.contract !== contract || received.candidate !== state.candidate ||
+        if (!state || !received || received.contract !== contract || received.candidate !== state.candidate || received.permit !== permit ||
             !acknowledgement.bound || !STREAM_METHODS.has(permit.method) || acknowledgement.response.result === undefined) fail('invalid_stream_context', 'stream');
         const result = object(acknowledgement.response.result);
         const mode = permit.method === 'events.subscribe' ? 'general_events' : permit.method === 'terminal.backend.events.subscribe' ? 'terminal_events' :
