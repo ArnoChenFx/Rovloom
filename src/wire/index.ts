@@ -1,0 +1,10 @@
+// 内部子模块入口；不扩展顶层 protocol 的公共导出集合。
+export type * from './types.js';
+export * from './codec.js';
+export * from './negotiation.js';
+export * from './validation.js';
+export * from './history.js';
+export * from './evidence.js';
+export * from './dedup.js';
+export * from './objects.js';
+export * from './lifecycle.js';
