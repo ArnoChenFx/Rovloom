@@ -25,7 +25,9 @@ test('normalized names remain unique; rename preserves ID; IDs are not reused', 
     assert.equal(s.rename(m.machine_id, 'mac').machine_id, m.machine_id);
     assert.notEqual(s.register('linux').machine_id, m.machine_id);
     assert.throws(() => s.register('../escape'), /invalid_name/);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('enrollment expiration, one-time consumption and sibling-token invalidation', () => {
@@ -42,7 +44,9 @@ test('enrollment expiration, one-time consumption and sibling-token invalidation
     assert.throws(() => s.redeem(first), /invalid_enrollment/);
     assert.throws(() => s.redeem(sibling), /invalid_enrollment/);
     assert.throws(() => s.issueEnrollment(m.machine_id), /invalid_machine_state/);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('identity authenticates credentials, rejects clones, fences old disconnect', () => {
@@ -58,7 +62,9 @@ test('identity authenticates credentials, rejects clones, fences old disconnect'
     assert.equal(s.machine(d.machine_id).status, 'online');
     s.revoke(d.machine_id);
     assert.throws(() => s.connect(d.machine_id, d.credential), /invalid_device_credential/);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('idempotency binds principal, entire target and canonical request; errors are preserved', () => {
@@ -67,10 +73,17 @@ test('idempotency binds principal, entire target and canonical request; errors a
     const d = connected(s);
     const request = { method: 'pane.read', params: { pane: 3, lines: 10 } };
     const call = s.createCall('alice', d.target, request, 'k');
-    const again = s.createCall('alice', d.target,
-      { params: { lines: 10, pane: 3 }, method: 'pane.read' }, 'k');
+    const again = s.createCall(
+      'alice',
+      d.target,
+      { params: { lines: 10, pane: 3 }, method: 'pane.read' },
+      'k',
+    );
     assert.equal(again.call_id, call.call_id);
-    assert.throws(() => s.createCall('alice', { ...d.target, session: 'other' }, request, 'k'), /request_key_conflict/);
+    assert.throws(
+      () => s.createCall('alice', { ...d.target, session: 'other' }, request, 'k'),
+      /request_key_conflict/,
+    );
     assert.notEqual(s.createCall('bob', d.target, request, 'k').call_id, call.call_id);
     assert.throws(() => s.call('bob', call.call_id), /call_not_found/);
     const attempt = s.dispatch('alice', call.call_id, d.epoch);
@@ -80,13 +93,16 @@ test('idempotency binds principal, entire target and canonical request; errors a
     assert.throws(() => s.dispatch('alice', call.call_id, d.epoch), /dispatch_rejected/);
     s.revoke(d.machine_id);
     assert.throws(() => s.call('alice', call.call_id), /call_not_found/);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('two machines with pane 3 never accept each other responses; disconnect is unknown, no replay', () => {
   const s = new Store(':memory:');
   try {
-    const a = connected(s, 'a'), b = connected(s, 'b');
+    const a = connected(s, 'a'),
+      b = connected(s, 'b');
     const req = { method: 'pane.read', params: { pane: 3 } };
     const c = s.createCall('alice', a.target, req, 'k');
     const unsent = s.createCall('alice', a.target, req);
@@ -102,7 +118,9 @@ test('two machines with pane 3 never accept each other responses; disconnect is 
     assert.equal(s.createCall('alice', a.target, req, 'k').state, 'outcome_unknown');
     s.disconnect(a.machine_id, next);
     assert.throws(() => s.createCall('alice', a.target, req), /machine_offline/);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('disk recovery marks offline, never replays, excludes plaintext secrets, enforces writer lock', () => {
@@ -126,12 +144,21 @@ test('disk recovery marks offline, never replays, excludes plaintext secrets, en
     assert.equal(s.call('alice', pending.call_id).state, 'not_dispatched');
     assert.equal(s.call('alice', sent.call_id).state, 'outcome_unknown');
     s.connect(d.machine_id, d.credential);
-  } finally { s.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    s.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('explicit targets, JSON and reserved fields fail closed', () => {
-  assert.throws(() => validateTarget({ machine_id: 'm', profile: 'session' } as Target), /session_required/);
-  assert.throws(() => validateTarget({ machine_id: 'm', profile: 'host', session: 'x' } as unknown as Target), /invalid_profile/);
+  assert.throws(
+    () => validateTarget({ machine_id: 'm', profile: 'session' } as Target),
+    /session_required/,
+  );
+  assert.throws(
+    () => validateTarget({ machine_id: 'm', profile: 'host', session: 'x' } as unknown as Target),
+    /invalid_profile/,
+  );
   assert.throws(() => validateRequest({ method: 'x', auth: 'secret' }), /reserved_request_field/);
   assert.throws(() => validateRequest({ method: 'x', id: 'caller' }), /reserved_request_field/);
   assert.throws(() => canonical({ value: NaN }), /invalid_json/);
@@ -140,9 +167,20 @@ test('explicit targets, JSON and reserved fields fail closed', () => {
 
 test('caller and local policies intersect; unknown methods and Host default to deny', () => {
   const target: Target = { machine_id: 'm', profile: 'session', session: 'test' };
-  const allow: Policy = { machines: ['m'], sessions: ['test'], methods: ['pane.read'], host: false };
+  const allow: Policy = {
+    machines: ['m'],
+    sessions: ['test'],
+    methods: ['pane.read'],
+    host: false,
+  };
   authorize(target, 'pane.read', allow, allow);
   assert.throws(() => authorize(target, 'pane.run', allow, allow), /forbidden/);
-  assert.throws(() => authorize(target, 'pane.read', allow, { ...allow, methods: [] }), /forbidden/);
-  assert.throws(() => authorize({ machine_id: 'm', profile: 'host' }, 'pane.read', allow, allow), /forbidden/);
+  assert.throws(
+    () => authorize(target, 'pane.read', allow, { ...allow, methods: [] }),
+    /forbidden/,
+  );
+  assert.throws(
+    () => authorize({ machine_id: 'm', profile: 'host' }, 'pane.read', allow, allow),
+    /forbidden/,
+  );
 });

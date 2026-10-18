@@ -10,8 +10,21 @@ import { Store } from '../src/store.js';
 import { Router } from '../src/router.js';
 
 test('bounded canonical JSON rejects cycles, sparse arrays, getters, excessive depth and size', () => {
-  const cycle: unknown[] = []; cycle.push(cycle);
-  for (const value of [cycle, new Array(2), { get secret() { throw Error('getter executed'); } }, 'x'.repeat(1_048_577)]) {
+  const cycle: unknown[] = [];
+  cycle.push(cycle);
+  // Intentionally sparse to exercise rejection of array holes.
+  // oxlint-disable-next-line unicorn/no-new-array
+  const sparse = new Array(2);
+  for (const value of [
+    cycle,
+    sparse,
+    {
+      get secret() {
+        throw Error('getter executed');
+      },
+    },
+    'x'.repeat(1_048_577),
+  ]) {
     assert.throws(() => canonical(value), /invalid_json|json_limit/);
   }
   let deep: unknown = null;
@@ -27,7 +40,12 @@ test('router reauthorizes reads, dispatch and cancellation against both current 
     const m = s.register('router');
     const d = s.redeem(s.issueEnrollment(m.machine_id));
     const epoch = s.connect(m.machine_id, d.credential);
-    const policy: Policy = { machines: [m.machine_id], sessions: ['explicit'], methods: ['pane.read'], host: false };
+    const policy: Policy = {
+      machines: [m.machine_id],
+      sessions: ['explicit'],
+      methods: ['pane.read'],
+      host: false,
+    };
     let local = policy;
     const router = new Router(s, () => local);
     const principal = { id: 'alice', policy };
@@ -43,7 +61,9 @@ test('router reauthorizes reads, dispatch and cancellation against both current 
     local = policy;
     assert.equal(router.cancel(principal, call.call_id).state, 'not_dispatched');
     assert.throws(() => router.get({ ...principal, id: 'bob' }, call.call_id), /call_not_found/);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('acceptance fencing, deadlines and cancellation never report native rollback', () => {
@@ -65,11 +85,16 @@ test('acceptance fencing, deadlines and cancellation never report native rollbac
     s.expire();
     assert.equal(s.call('p', pending.call_id).state, 'not_dispatched');
     assert.equal(s.call('p', sent.call_id).state, 'outcome_unknown');
-    assert.throws(() => s.receive(m.machine_id, sent.call_id, attempt, epoch, {}), /stale_response/);
+    assert.throws(
+      () => s.receive(m.machine_id, sent.call_id, attempt, epoch, {}),
+      /stale_response/,
+    );
     const cancel = s.createCall('p', target, { method: 'host.capabilities' });
     s.dispatch('p', cancel.call_id, epoch);
     assert.equal(s.stop('p', cancel.call_id).state, 'outcome_unknown');
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('unknown database version is rejected before schema mutation', () => {
@@ -81,7 +106,15 @@ test('unknown database version is rejected before schema mutation', () => {
     db.close();
     assert.throws(() => new Store(path), /unsupported_database_version/);
     const check = new DatabaseSync(path);
-    assert.deepEqual(check.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name), ['metadata']);
+    assert.deepEqual(
+      check
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all()
+        .map((r) => r.name),
+      ['metadata'],
+    );
     check.close();
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

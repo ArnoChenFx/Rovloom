@@ -88,7 +88,8 @@ def main():
                     destination = project / source.relative_to(repo)
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, destination)
-        for name in ('package.json', 'bun.lock', 'bunfig.toml', '.bun-version', 'tsconfig.json'):
+        for name in ('package.json', 'bun.lock', 'bunfig.toml', '.bun-version', 'tsconfig.json',
+                     '.gitignore', '.oxlintrc.json', '.oxfmtrc.json'):
             shutil.copyfile(repo / name, project / name)
         tools = root / 'bin'
         tools.mkdir()

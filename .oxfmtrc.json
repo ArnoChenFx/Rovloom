@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "singleQuote": true,
+  "tabWidth": 2,
+  "printWidth": 100,
+  "semi": true,
+  "sortImports": false,
+  "sortPackageJson": false,
+  "embeddedLanguageFormatting": "off",
+  "ignorePatterns": [
+    "node_modules/**",
+    "dist/**",
+    ".state/**",
+    "coverage/**",
+    "docs/**",
+    "fixtures/**",
+    "test/wire/v2-examples.json",
+    "bun.lock",
+    "/LICENSE"
+  ]
+}

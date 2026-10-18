@@ -29,6 +29,12 @@ jobs:
           (root / 'bun-linux-x64/bun').chmod(0o755)
           PY
           echo "$RUNNER_TEMP/bun-1.4.3/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: Frozen install for code quality checks
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Lint and check formatting
+        run: |
+          bun --no-env-file run lint
+          bun --no-env-file run format:check
       - name: Prepare strace in runner temp when absent
         shell: bash
         run: |

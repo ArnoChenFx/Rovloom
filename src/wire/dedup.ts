@@ -6,8 +6,12 @@ import { boundedJson, hash, LIMITS, uint, fail } from './validation.js';
 export class MessageWindow {
   readonly #entries = new Map<string, { hash: string; expires: number }>();
   #lastNow = -1;
-  constructor(readonly capacity: number = LIMITS.dedup_entries, readonly ttl_ms: number = 60_000) {
-    uint(capacity, true); uint(ttl_ms, true);
+  constructor(
+    readonly capacity: number = LIMITS.dedup_entries,
+    readonly ttl_ms: number = 60_000,
+  ) {
+    uint(capacity, true);
+    uint(ttl_ms, true);
     if (capacity > LIMITS.dedup_entries) fail('dedup_limit');
   }
   observe(frame: AuthenticatedEnvelope, context: CodecContext, now: number): 'new' | 'duplicate' {
@@ -16,13 +20,25 @@ export class MessageWindow {
     this.#lastNow = now;
     const raw = boundedJson(frame, LIMITS.object_bytes);
     const valid = decodeWireObject(Buffer.from(raw), context);
-    const key = [valid.machine_id, valid.recovery_generation, valid.connection_epoch, context.direction, valid.message_id].join(':');
+    const key = [
+      valid.machine_id,
+      valid.recovery_generation,
+      valid.connection_epoch,
+      context.direction,
+      valid.message_id,
+    ].join(':');
     for (const [k, v] of this.#entries) if (v.expires <= now) this.#entries.delete(k);
-    const digest = hash(raw), old = this.#entries.get(key);
-    if (old) { if (old.hash !== digest) fail('message_id_conflict'); return 'duplicate'; }
+    const digest = hash(raw),
+      old = this.#entries.get(key);
+    if (old) {
+      if (old.hash !== digest) fail('message_id_conflict');
+      return 'duplicate';
+    }
     if (this.#entries.size >= this.capacity) fail('dedup_window_full');
     this.#entries.set(key, { hash: digest, expires: now + this.ttl_ms });
     return 'new';
   }
-  get size(): number { return this.#entries.size; }
+  get size(): number {
+    return this.#entries.size;
+  }
 }

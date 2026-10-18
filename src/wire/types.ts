@@ -2,29 +2,70 @@ export type JsonObject = Record<string, unknown>;
 export type Direction = 'gateway_to_connector' | 'connector_to_gateway';
 export type ProviderKind = 'luvus' | 'herdr';
 // Wire v2 隔离类型，不扩展尚待统一迁移的公共 contracts.Target。
-export type V2Target = { machine_id: string; provider_id: string } &
-  ({ profile: 'session'; session: string } | { profile: 'host'; session?: never });
-export type ProviderBinding = { machine_id: string; provider_id: string; kind: ProviderKind;
-  config_ref: string; binding_revision: number; enabled: boolean };
+export type V2Target = { machine_id: string; provider_id: string } & (
+  | { profile: 'session'; session: string }
+  | { profile: 'host'; session?: never }
+);
+export type ProviderBinding = {
+  machine_id: string;
+  provider_id: string;
+  kind: ProviderKind;
+  config_ref: string;
+  binding_revision: number;
+  enabled: boolean;
+};
 export type ContractSource = {
-  provider_kind: ProviderKind; protocol_family: 'uhp' | 'herdr-json';
-  binary_version: string; binary_sha256: string; schema_sha256: string;
-  schema_origin: 'installed_cli'; schema_command: 'luvus uhp schema' | 'herdr api schema --json';
-  server_version: string | null; native_protocol_version: string | null; runtime_generation: string | null;
-  adapter_revision: string; classification_revision: string | null; support_basis: 'live_catalog' | 'schema_and_version';
+  provider_kind: ProviderKind;
+  protocol_family: 'uhp' | 'herdr-json';
+  binary_version: string;
+  binary_sha256: string;
+  schema_sha256: string;
+  schema_origin: 'installed_cli';
+  schema_command: 'luvus uhp schema' | 'herdr api schema --json';
+  server_version: string | null;
+  native_protocol_version: string | null;
+  runtime_generation: string | null;
+  adapter_revision: string;
+  classification_revision: string | null;
+  support_basis: 'live_catalog' | 'schema_and_version';
 };
 export type ContractRecord = { source: ContractSource; support_status: 'candidate' | 'validated' };
-export type Capability = 'rpc' | 'history_scope' | 'late_evidence' | 'objects' |
-  'events' | 'terminal_observe' | 'terminal_control';
-export type VersionOffer = { major: number; minor: number; capabilities: string[]; required: string[] };
+export type Capability =
+  | 'rpc'
+  | 'history_scope'
+  | 'late_evidence'
+  | 'objects'
+  | 'events'
+  | 'terminal_observe'
+  | 'terminal_control';
+export type VersionOffer = {
+  major: number;
+  minor: number;
+  capabilities: string[];
+  required: string[];
+};
 export type Negotiated = { major: number; minor: number; capabilities: Capability[] };
-export type ConnectionIdentity = { machine_id: string; recovery_generation: string; connection_epoch: string };
+export type ConnectionIdentity = {
+  machine_id: string;
+  recovery_generation: string;
+  connection_epoch: string;
+};
 export type HistoryReference = { history_epoch: string; client_request_key: string };
-export type AttemptRegistration = { deadline: number; history: HistoryReference | null;
-  caller_policy_revision: string; local_policy_revision: string };
+export type AttemptRegistration = {
+  deadline: number;
+  history: HistoryReference | null;
+  caller_policy_revision: string;
+  local_policy_revision: string;
+};
 export type AttemptIdentity = {
-  call_id: string; attempt_id: string; native_request_id: string; target: V2Target;
-  provider_kind: ProviderKind; binding_revision: number; contract_ref: string; registration: AttemptRegistration;
+  call_id: string;
+  attempt_id: string;
+  native_request_id: string;
+  target: V2Target;
+  provider_kind: ProviderKind;
+  binding_revision: number;
+  contract_ref: string;
+  registration: AttemptRegistration;
 };
 export type AttemptBinding = ConnectionIdentity & AttemptIdentity;
 export type ValidationMode = 'strict' | 'raw-contract';
@@ -37,28 +78,44 @@ export type ProviderPolicies = { caller: ProviderPolicy; local: ProviderPolicy }
 // 由原生模块的多轴可信 gate 生成，不从 wire/caller 自报重建分类。
 export type RequestGate = {
   classification_status: 'trusted_complete' | 'missing' | 'unknown' | 'invalid' | 'untrusted';
-  schema_status: 'complete' | 'generic' | 'unavailable'; transport_status: 'supported' | 'unsupported';
-  authorized: boolean; secret_result_authorized: boolean; raw_contract_authorized: boolean;
+  schema_status: 'complete' | 'generic' | 'unavailable';
+  transport_status: 'supported' | 'unsupported';
+  authorized: boolean;
+  secret_result_authorized: boolean;
+  raw_contract_authorized: boolean;
 };
 export type NativeValidationContext = {
-  binding: AttemptBinding; mode: ValidationMode; method: string; transport: 'rpc' | 'stream'; feature?: StreamFeature;
+  binding: AttemptBinding;
+  mode: ValidationMode;
+  method: string;
+  transport: 'rpc' | 'stream';
+  feature?: StreamFeature;
   stream_id?: string;
   // opaque handle/source 只从独立可信上下文注入；不会序列化或由消息构造。
-  native_handle?: unknown; trusted_source?: unknown;
+  native_handle?: unknown;
+  trusted_source?: unknown;
 };
 export type ResolvedAttempt = NativeValidationContext;
 export interface NativePayloadValidator {
   requestGate(request: JsonObject, context: NativeValidationContext): RequestGate;
   validateRequest(request: JsonObject, context: NativeValidationContext): void;
   validateResponse(response: JsonObject, context: NativeValidationContext): void;
-  validateStreamFrame?(frame: JsonObject, context: NativeValidationContext & {
-    feature: StreamFeature; direction: 'data' | 'input';
-  }): void;
+  validateStreamFrame?(
+    frame: JsonObject,
+    context: NativeValidationContext & {
+      feature: StreamFeature;
+      direction: 'data' | 'input';
+    },
+  ): void;
   // 每次输入必须重新执行受信原生 dispatch gate，不沿用 open 时的授权。
   checkDispatch?(frame: JsonObject, context: NativeValidationContext): void;
 }
-export type RequestPayload = { attempt: AttemptIdentity; expected_binding_revision: number;
-  native_request: JsonObject; validation: ValidationMode };
+export type RequestPayload = {
+  attempt: AttemptIdentity;
+  expected_binding_revision: number;
+  native_request: JsonObject;
+  validation: ValidationMode;
+};
 export type Payloads = {
   request: RequestPayload;
   accepted: { attempt: AttemptIdentity };
@@ -66,25 +123,78 @@ export type Payloads = {
   cancel: { attempt: AttemptIdentity; reason: 'caller_cancelled' | 'deadline_exceeded' };
   heartbeat: { sequence: number };
   stream_open: RequestPayload & { stream_id: string; feature: StreamFeature };
-  stream_data: { attempt: AttemptIdentity; stream_id: string; feature: StreamFeature; sequence: number; frame: JsonObject };
-  stream_input: { attempt: AttemptIdentity; stream_id: string; feature: StreamFeature; sequence: number; frame: JsonObject };
-  stream_close: { attempt: AttemptIdentity; stream_id: string;
-    reason: 'normal' | 'cancelled' | 'overflow' | 'resync_required' | 'transport_error' };
-  object_chunk: { object_id: string; kind: 'envelope' | 'schema_bundle'; total_bytes: number;
-    sha256: string; chunk_count: number; index: number; data: string };
+  stream_data: {
+    attempt: AttemptIdentity;
+    stream_id: string;
+    feature: StreamFeature;
+    sequence: number;
+    frame: JsonObject;
+  };
+  stream_input: {
+    attempt: AttemptIdentity;
+    stream_id: string;
+    feature: StreamFeature;
+    sequence: number;
+    frame: JsonObject;
+  };
+  stream_close: {
+    attempt: AttemptIdentity;
+    stream_id: string;
+    reason: 'normal' | 'cancelled' | 'overflow' | 'resync_required' | 'transport_error';
+  };
+  object_chunk: {
+    object_id: string;
+    kind: 'envelope' | 'schema_bundle';
+    total_bytes: number;
+    sha256: string;
+    chunk_count: number;
+    index: number;
+    data: string;
+  };
   error: WireErrorPayload;
 };
-export type WireErrorPayload = { source: 'gateway' | 'transport'; code: string; retryable: boolean; cause_message_id?: string };
-type Base<K extends string, P> = { protocol_major: number; protocol_minor: number; type: K; message_id: string; payload: P };
-export type AuthenticatedEnvelope = { [K in keyof Payloads]: Base<K, Payloads[K]> & ConnectionIdentity }[keyof Payloads];
+export type WireErrorPayload = {
+  source: 'gateway' | 'transport';
+  code: string;
+  retryable: boolean;
+  cause_message_id?: string;
+};
+type Base<K extends string, P> = {
+  protocol_major: number;
+  protocol_minor: number;
+  type: K;
+  message_id: string;
+  payload: P;
+};
+export type AuthenticatedEnvelope = {
+  [K in keyof Payloads]: Base<K, Payloads[K]> & ConnectionIdentity;
+}[keyof Payloads];
 export type PreAuthEnvelope =
-  | Base<'enroll', { registration_id: string; connector_instance_id: string; enrollment_credential: string; offer: VersionOffer }>
-  | Base<'authenticate', { machine_id: string; recovery_generation: string; connector_instance_id: string; device_credential: string; offer: VersionOffer }>
+  | Base<
+      'enroll',
+      {
+        registration_id: string;
+        connector_instance_id: string;
+        enrollment_credential: string;
+        offer: VersionOffer;
+      }
+    >
+  | Base<
+      'authenticate',
+      {
+        machine_id: string;
+        recovery_generation: string;
+        connector_instance_id: string;
+        device_credential: string;
+        offer: VersionOffer;
+      }
+    >
   | Base<'welcome', ConnectionIdentity & { in_reply_to: string; selected: Negotiated }>
   | Base<'error', WireErrorPayload>;
 export type WireEnvelope = PreAuthEnvelope | AuthenticatedEnvelope;
 export type AuthenticatedContext = {
-  phase: 'authenticated'; direction: Direction;
+  phase: 'authenticated';
+  direction: Direction;
   // 外部认证事实，不是 codec 产生的认证证明。
   connection: ConnectionIdentity & { authenticated: true; active: true; negotiated: Negotiated };
   policies?: ProviderPolicies;
@@ -94,4 +204,6 @@ export type AuthenticatedContext = {
   resolveAttempt?: (attempt: AttemptIdentity) => ResolvedAttempt | undefined;
   resolveNativeSource?: (binding: AttemptBinding) => unknown;
 };
-export type CodecContext = { phase: 'preauth'; direction: Direction; offer?: VersionOffer; handshake_message_id?: string } | AuthenticatedContext;
+export type CodecContext =
+  | { phase: 'preauth'; direction: Direction; offer?: VersionOffer; handshake_message_id?: string }
+  | AuthenticatedContext;
