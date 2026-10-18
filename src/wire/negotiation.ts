@@ -20,23 +20,30 @@ export function validateOffer(value: unknown): asserts value is VersionOffer {
   uint(v.major, true)
   uint(v.minor)
   for (const list of [v.capabilities, v.required]) {
-    if (!Array.isArray(list) || list.length > 64 || new Set(list).size !== list.length) fail('invalid_capabilities')
+    if (!Array.isArray(list) || list.length > 64 || new Set(list).size !== list.length) {
+      fail('invalid_capabilities')
+    }
     list.forEach(id)
   }
-  if ((v.required as string[]).some((c) => !(v.capabilities as string[]).includes(c))) fail('invalid_capabilities')
+  if ((v.required as string[]).some((c) => !(v.capabilities as string[]).includes(c))) {
+    fail('invalid_capabilities')
+  }
 }
 
 export function negotiate(local: VersionOffer, remote: VersionOffer): Negotiated {
   validateOffer(local)
   validateOffer(remote)
-  if (local.major !== WIRE_MAJOR || remote.major !== local.major) fail('protocol_major_unsupported')
+  if (local.major !== WIRE_MAJOR || remote.major !== local.major) {
+    fail('protocol_major_unsupported')
+  }
   // 只启用本实现认识且双方都广告的能力；未知可选项不进入协商结果。
   const minor = Math.min(local.minor, remote.minor, WIRE_MINOR)
   const capabilities = (Object.keys(CAPABILITIES) as Capability[])
     .filter((c) => CAPABILITIES[c] <= minor && local.capabilities.includes(c) && remote.capabilities.includes(c))
     .sort()
-  if ([...local.required, ...remote.required].some((c) => !capabilities.includes(c as Capability)))
+  if ([...local.required, ...remote.required].some((c) => !capabilities.includes(c as Capability))) {
     fail('required_capability_unsupported')
+  }
   const result = { major: WIRE_MAJOR, minor, capabilities }
   validateNegotiated(result)
   return result
@@ -47,18 +54,22 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
   fields(v, ['major', 'minor', 'capabilities'])
   uint(v.major, true)
   uint(v.minor)
-  if (v.major !== WIRE_MAJOR || (v.minor as number) > WIRE_MINOR) fail('protocol_version_unsupported')
+  if (v.major !== WIRE_MAJOR || (v.minor as number) > WIRE_MINOR) {
+    fail('protocol_version_unsupported')
+  }
   if (
     !Array.isArray(v.capabilities) ||
     v.capabilities.length > 64 ||
     new Set(v.capabilities).size !== v.capabilities.length ||
     v.capabilities.some((c) => typeof c !== 'string')
-  )
+  ) {
     fail('invalid_capabilities')
+  }
   if (
     v.capabilities.some((c) => !Object.hasOwn(CAPABILITIES, c) || CAPABILITIES[c as Capability] > (v.minor as number))
-  )
+  ) {
     fail('unsupported_capability')
+  }
   if (offer) {
     validateOffer(offer)
     if (
@@ -66,10 +77,12 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
       (v.minor as number) > offer.minor ||
       v.capabilities.some((c) => !offer.capabilities.includes(c)) ||
       offer.required.some((c) => !(v.capabilities as string[]).includes(c))
-    )
+    ) {
       fail('invalid_negotiation')
+    }
   }
   // 该依赖也约束 welcome 的选定结果，不能只在本地 offer 一侧检查。
-  if (v.capabilities.includes('terminal_control') && !v.capabilities.includes('terminal_observe'))
+  if (v.capabilities.includes('terminal_control') && !v.capabilities.includes('terminal_observe')) {
     fail('invalid_capabilities')
+  }
 }

@@ -31,10 +31,14 @@ export class Store {
     private readonly now = Date.now
   ) {
     // 崩溃遗留的锁必须由管理员确认后恢复，不能自动接管。
-    if (path !== ':memory:') this.lock = openSync(path + '.lock', 'wx', 0o600)
+    if (path !== ':memory:') {
+      this.lock = openSync(path + '.lock', 'wx', 0o600)
+    }
     try {
       this.db = new DatabaseSync(path)
-      if (path !== ':memory:') chmodSync(path, 0o600)
+      if (path !== ':memory:') {
+        chmodSync(path, 0o600)
+      }
       const hasMetadata = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").get()
       if (hasMetadata) {
         const versions = this.db.prepare('SELECT version FROM metadata').all() as {
@@ -107,7 +111,9 @@ export class Store {
   }
 
   close(): void {
-    if (this.closed) return
+    if (this.closed) {
+      return
+    }
     this.db.close()
     this.releaseLock()
     this.closed = true
@@ -127,7 +133,9 @@ export class Store {
 
   private name(value: string): string {
     const normalized = value.normalize('NFKC').trim().toLowerCase()
-    if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(normalized)) throw new GatewayError('invalid_name')
+    if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(normalized)) {
+      throw new GatewayError('invalid_name')
+    }
     return normalized
   }
 
@@ -140,7 +148,9 @@ export class Store {
 
   machine(machine_id: string): Machine {
     const row = this.db.prepare('SELECT machine_id,name,status FROM machines WHERE machine_id=?').get(machine_id)
-    if (!row) throw new GatewayError('machine_not_found')
+    if (!row) {
+      throw new GatewayError('machine_not_found')
+    }
     return row as Machine
   }
 
@@ -152,8 +162,12 @@ export class Store {
 
   // 仅供受保护的管理通道使用：这些凭据绝不能出现在 MCP 工具输出中。
   issueEnrollment(machine_id: string, ttlMs = 600_000): string {
-    if (this.machine(machine_id).status !== 'pending') throw new GatewayError('invalid_machine_state')
-    if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) throw new GatewayError('invalid_ttl')
+    if (this.machine(machine_id).status !== 'pending') {
+      throw new GatewayError('invalid_machine_state')
+    }
+    if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
+      throw new GatewayError('invalid_ttl')
+    }
     const token = secret()
     this.db
       .prepare('INSERT INTO enrollments(token_hash,machine_id,expires) VALUES (?,?,?)')
@@ -167,7 +181,9 @@ export class Store {
         .prepare(`SELECT e.machine_id FROM enrollments e JOIN machines m USING(machine_id)
         WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`)
         .get(digest(token), this.now()) as { machine_id: string } | undefined
-      if (!row) throw new GatewayError('invalid_enrollment')
+      if (!row) {
+        throw new GatewayError('invalid_enrollment')
+      }
       const credential = secret()
       // 同一事务消费该机器的全部配对码并设置凭据，避免其它未消费码再次换取身份。
       this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id)
@@ -186,7 +202,9 @@ export class Store {
       if (!row || row.status === 'revoked' || row.credential_hash !== digest(credential)) {
         throw new GatewayError('invalid_device_credential')
       }
-      if (row.status === 'online') throw new GatewayError('duplicate_device_connection')
+      if (row.status === 'online') {
+        throw new GatewayError('duplicate_device_connection')
+      }
       const epoch = id('epoch')
       this.db.prepare("UPDATE machines SET status='online',epoch=? WHERE machine_id=?").run(epoch, machine_id)
       return epoch
@@ -198,7 +216,9 @@ export class Store {
       const changed = this.db
         .prepare("UPDATE machines SET status='offline',epoch=NULL WHERE machine_id=? AND epoch=?")
         .run(machine_id, epoch)
-      if (changed.changes !== 1) return
+      if (changed.changes !== 1) {
+        return
+      }
       // 旧 epoch 的断线通知不能覆盖新连接，也不能把已送达的调用标成未派发。
       this.db.prepare("UPDATE calls SET state='not_dispatched' WHERE machine_id=? AND state='created'").run(machine_id)
       this.db
@@ -228,10 +248,12 @@ export class Store {
   createCall(principal: string, target: Target, request: NativeRequest, key?: string, timeoutMs = 30_000): Call {
     validateTarget(target)
     validateRequest(request)
-    if (!principal.trim() || (key !== undefined && (!key || key.length > 256)))
+    if (!principal.trim() || (key !== undefined && (!key || key.length > 256))) {
       throw new GatewayError('invalid_caller_key')
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 600_000)
+    }
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 600_000) {
       throw new GatewayError('invalid_timeout')
+    }
     const hash = digest(canonical({ target, request, timeoutMs }))
 
     return this.transaction(() => {
@@ -241,11 +263,15 @@ export class Store {
           .prepare('SELECT call_id,request_hash FROM calls WHERE principal=? AND request_key=?')
           .get(principal, key) as { call_id: string; request_hash: string } | undefined
         if (existing) {
-          if (existing.request_hash !== hash) throw new GatewayError('request_key_conflict')
+          if (existing.request_hash !== hash) {
+            throw new GatewayError('request_key_conflict')
+          }
           return this.call(principal, existing.call_id)
         }
       }
-      if (this.machine(target.machine_id).status !== 'online') throw new GatewayError('machine_offline')
+      if (this.machine(target.machine_id).status !== 'online') {
+        throw new GatewayError('machine_offline')
+      }
       const call_id = id('call')
       this.db
         .prepare(`INSERT INTO calls(
@@ -272,7 +298,9 @@ export class Store {
         FROM calls c JOIN machines m USING(machine_id)
         WHERE call_id=? AND principal=? AND m.status!='revoked'`)
       .get(call_id, principal)
-    if (!row) throw new GatewayError('call_not_found')
+    if (!row) {
+      throw new GatewayError('call_not_found')
+    }
     return row as Call
   }
 
@@ -286,7 +314,9 @@ export class Store {
         WHERE call_id=? AND state='created' AND deadline>? AND EXISTS
         (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
         .run(epoch, attempt, call_id, this.now(), call.machine_id, epoch)
-      if (changed.changes !== 1) throw new GatewayError('dispatch_rejected')
+      if (changed.changes !== 1) {
+        throw new GatewayError('dispatch_rejected')
+      }
       return attempt
     })
   }
@@ -309,7 +339,9 @@ export class Store {
     }
     return this.transaction(() => {
       const call = this.call(principal, callId)
-      if (call.state !== 'responded' || call.response === null) throw new GatewayError('result_not_ready')
+      if (call.state !== 'responded' || call.response === null) {
+        throw new GatewayError('result_not_ready')
+      }
       const payload = Buffer.from(call.response)
       this.db.prepare('DELETE FROM results WHERE expires<=?').run(this.now())
       const existing = this.db
@@ -317,11 +349,15 @@ export class Store {
         WHERE call_id=? ORDER BY expires LIMIT 1`)
         .get(callId) as { result_id: string; bytes: number; hash: string; expires: number } | undefined
       // 重复保存复用现有句柄，避免重复占用配额或悄悄延长有效期。
-      if (existing) return existing
+      if (existing) {
+        return existing
+      }
       const used = this.db.prepare('SELECT COALESCE(SUM(bytes),0) AS bytes FROM results').get() as {
         bytes: number
       }
-      if (used.bytes + payload.length > quotaBytes) throw new GatewayError('result_quota')
+      if (used.bytes + payload.length > quotaBytes) {
+        throw new GatewayError('result_quota')
+      }
       const result = {
         result_id: id('result'),
         bytes: payload.length,
@@ -338,7 +374,9 @@ export class Store {
   discardResponse(principal: string, callId: string): void {
     this.transaction(() => {
       const call = this.call(principal, callId)
-      if (call.state !== 'responded') throw new GatewayError('result_not_ready')
+      if (call.state !== 'responded') {
+        throw new GatewayError('result_not_ready')
+      }
       this.db.prepare('DELETE FROM results WHERE call_id=?').run(callId)
       this.db.prepare('UPDATE calls SET response=NULL WHERE call_id=?').run(callId)
     })
@@ -348,7 +386,9 @@ export class Store {
     const row = this.db
       .prepare('SELECT call_id FROM results WHERE result_id=? AND expires>?')
       .get(resultId, this.now()) as { call_id: string } | undefined
-    if (!row) throw new GatewayError('result_not_found')
+    if (!row) {
+      throw new GatewayError('result_not_found')
+    }
     return this.call(principal, row.call_id)
   }
 
@@ -360,13 +400,16 @@ export class Store {
       !Number.isSafeInteger(maxBytes) ||
       maxBytes <= 0 ||
       maxBytes > 65_536
-    )
+    ) {
       throw new GatewayError('invalid_result_cursor')
+    }
     const row = this.db.prepare('SELECT bytes,hash FROM results WHERE result_id=?').get(resultId) as {
       bytes: number
       hash: string
     }
-    if (cursor > row.bytes) throw new GatewayError('invalid_result_cursor')
+    if (cursor > row.bytes) {
+      throw new GatewayError('invalid_result_cursor')
+    }
     // 使用字节游标和 base64，保证分页切开 UTF-8 字符时仍可无损重组。
     const chunk = this.db
       .prepare('SELECT substr(payload,?,?) AS chunk FROM results WHERE result_id=?')
@@ -388,7 +431,9 @@ export class Store {
       WHERE machine_id=? AND call_id=? AND attempt_id=? AND epoch=? AND state='dispatching'
       AND EXISTS (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
       .run(machine_id, call_id, attempt, epoch, machine_id, epoch)
-    if (changed.changes !== 1) throw new GatewayError('stale_acceptance')
+    if (changed.changes !== 1) {
+      throw new GatewayError('stale_acceptance')
+    }
   }
 
   stop(principal: string, call_id: string): Call {
@@ -418,6 +463,8 @@ export class Store {
         AND state IN ('dispatching','connector_accepted')
       AND EXISTS (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
       .run(json, machine_id, call_id, attempt, epoch, machine_id, epoch)
-    if (changed.changes !== 1) throw new GatewayError('stale_response')
+    if (changed.changes !== 1) {
+      throw new GatewayError('stale_response')
+    }
   }
 }

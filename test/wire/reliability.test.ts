@@ -82,8 +82,8 @@ const anchor: ResponseAnchor = {
   dedup_expires_at: 2000
 }
 test('同一 unknown attempt 的可靠回复只给追加意图，期限/原 unknown 锚点不改、不重派', () => {
-  const saved = structuredClone(anchor),
-    ctx = context('connector_to_gateway')
+  const saved = structuredClone(anchor)
+  const ctx = context('connector_to_gateway')
   const policy = {
     classification_status: 'trusted_complete' as const,
     retain_content_authorized: true
@@ -237,9 +237,9 @@ test('迟到回复逐一拒绝错机器/代次/epoch/call/attempt/native ID/targ
 })
 
 test('message ID 窗口对相同内容幂等、冲突拒绝，容量与期限固定有界', () => {
-  const window = new MessageWindow(2, 100),
-    ctx = context(),
-    heartbeat = frame('heartbeat', { sequence: 0 })
+  const window = new MessageWindow(2, 100)
+  const ctx = context()
+  const heartbeat = frame('heartbeat', { sequence: 0 })
   assert.equal(window.observe(heartbeat, ctx, 0), 'new')
   assert.equal(window.observe(heartbeat, ctx, 99), 'duplicate')
   assert.equal(window.observe({ ...heartbeat, message_id: 'message_2' }, ctx, 99), 'new')

@@ -13,12 +13,16 @@ export class MessageWindow {
   ) {
     uint(capacity, true)
     uint(ttl_ms, true)
-    if (capacity > LIMITS.dedup_entries) fail('dedup_limit')
+    if (capacity > LIMITS.dedup_entries) {
+      fail('dedup_limit')
+    }
   }
 
   observe(frame: AuthenticatedEnvelope, context: CodecContext, now: number): 'new' | 'duplicate' {
     uint(now)
-    if (now < this.#lastNow || !Number.isSafeInteger(now + this.ttl_ms)) fail('clock_untrusted')
+    if (now < this.#lastNow || !Number.isSafeInteger(now + this.ttl_ms)) {
+      fail('clock_untrusted')
+    }
     this.#lastNow = now
 
     const raw = boundedJson(frame, LIMITS.object_bytes)
@@ -31,17 +35,23 @@ export class MessageWindow {
       valid.message_id
     ].join(':')
     for (const [entryKey, entry] of this.#entries) {
-      if (entry.expires <= now) this.#entries.delete(entryKey)
+      if (entry.expires <= now) {
+        this.#entries.delete(entryKey)
+      }
     }
 
     const digest = hash(raw)
     const old = this.#entries.get(key)
     if (old) {
-      if (old.hash !== digest) fail('message_id_conflict')
+      if (old.hash !== digest) {
+        fail('message_id_conflict')
+      }
       return 'duplicate'
     }
 
-    if (this.#entries.size >= this.capacity) fail('dedup_window_full')
+    if (this.#entries.size >= this.capacity) {
+      fail('dedup_window_full')
+    }
     this.#entries.set(key, { hash: digest, expires: now + this.ttl_ms })
     return 'new'
   }

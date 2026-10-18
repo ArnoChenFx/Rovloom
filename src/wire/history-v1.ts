@@ -9,7 +9,9 @@ export type HistoricalV1 = {
 // 仅读取 v1 已保存记录，既不分配默认 provider，也不返回可供 v2 执行的 envelope/context。
 export function decodeHistoricalV1(input: string | Uint8Array): HistoricalV1 {
   const f = object(parseJson(input))
-  if (f.protocol_major !== 1 || f.protocol_minor !== 0) fail('historical_version_unsupported')
+  if (f.protocol_major !== 1 || f.protocol_minor !== 0) {
+    fail('historical_version_unsupported')
+  }
   oneOf(f.type, [
     'enroll',
     'authenticate',
@@ -37,7 +39,9 @@ export function decodeHistoricalV1(input: string | Uint8Array): HistoricalV1 {
         ? [...base, 'connection_epoch']
         : base
   )
-  if (Object.hasOwn(f, 'connection_epoch')) id(f.connection_epoch)
+  if (Object.hasOwn(f, 'connection_epoch')) {
+    id(f.connection_epoch)
+  }
   if (bound) {
     id(f.machine_id)
     id(f.recovery_generation)

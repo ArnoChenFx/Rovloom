@@ -6,10 +6,12 @@ import { lockedDependencies } from './lock.mjs'
 const baselineBytes = readFileSync(process.argv[2])
 const baseline = JSON.parse(baselineBytes)
 const current = lockedDependencies()
-const removed = [],
-  retained = []
+const removed = []
+const retained = []
 for (const [path, value] of Object.entries(baseline.packages)) {
-  if (!path) continue
+  if (!path) {
+    continue
+  }
   const key = path.replaceAll('node_modules/', '')
   if (!current[key]) {
     assert(
@@ -33,5 +35,7 @@ const report = {
   retained,
   removed
 }
-if (process.argv[3]) writeFileSync(process.argv[3], JSON.stringify(report, null, 2) + '\n')
+if (process.argv[3]) {
+  writeFileSync(process.argv[3], JSON.stringify(report, null, 2) + '\n')
+}
 console.log(JSON.stringify({ retained: retained.length, removed: removed.length, added: 0, changed: 0 }))

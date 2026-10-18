@@ -30,12 +30,14 @@ export function unwrap<T>(result: Check<T>): T {
 }
 export function rejects(result: Check<unknown>, code: string): void {
   assert.equal(result.ok, false, JSON.stringify(result))
-  if (!result.ok) assert.equal(result.error.code, code)
+  if (!result.ok) {
+    assert.equal(result.error.code, code)
+  }
 }
 export const compiled = unwrap(compileBundle(bytes, { identity }))
 export const validator = createNativeValidator(compiled)
-export const G = '0'.repeat(32),
-  T = '1'.repeat(32)
+export const G = '0'.repeat(32)
+export const T = '1'.repeat(32)
 export function source(profile: 'session' | 'host' = 'session', generation = G): TrustedNativeContext {
   return {
     authenticated: true,

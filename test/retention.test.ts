@@ -27,8 +27,8 @@ test('deduplicated handles retain expiry; aggregate quota reclaims expired paylo
   const s = new Store(':memory:', () => now)
   try {
     const f = fixture(s)
-    const first = f.respond(),
-      second = f.respond()
+    const first = f.respond()
+    const second = f.respond()
     const a = s.saveResult('p', first, 10)
     now = 1
     assert.deepEqual({ ...s.saveResult('p', first, 100) }, { ...a })

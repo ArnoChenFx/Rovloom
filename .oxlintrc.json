@@ -8,7 +8,9 @@
     "eqeqeq": "error",
     "no-debugger": "error",
     "no-var": "error",
-    "prefer-const": "error"
+    "prefer-const": "error",
+    "curly": ["error", "all"],
+    "one-var": ["error", "never"]
   },
   "ignorePatterns": ["node_modules/**", "dist/**", ".state/**", "coverage/**", "docs/**", "fixtures/**"]
 }

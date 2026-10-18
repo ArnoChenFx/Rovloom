@@ -341,8 +341,8 @@ test('外层输入顺序失败不留下控制许可或 ID 冲突，纠正后仍�
 })
 
 test('失败输入返还控制 ID 和精确快照预算，已成功输入的许可仍保留', () => {
-  const base = controlFixture(),
-    frame = base.input('input1')
+  const base = controlFixture()
+  const frame = base.input('input1')
   const source = base.backend.nativeSource(base.binding.call_id, base.binding.attempt_id)
   const capabilities = base.backend.contract(base.binding.contract_ref)!.capabilities
   const bytes =
@@ -415,8 +415,8 @@ test('控制分类拒绝不缓存输入内容，重新授权后可使用同一 I
 })
 
 test('backend 回调不能重入修改正在验证的 adapter，外层校验仍能完成', () => {
-  const f = fixture(),
-    authority = f.backend.authority
+  const f = fixture()
+  const authority = f.backend.authority
   f.backend.authority = (...args) => {
     rejects(() => f.adapter.release(f.binding), 'native_adapter_unavailable')
     return authority(...args)
@@ -426,8 +426,8 @@ test('backend 回调不能重入修改正在验证的 adapter，外层校验仍�
 })
 
 test('RPC 原秘密许可在当前分类降级后仍要求 custody 可用，证据原文不得旁路', () => {
-  const f = fixture(),
-    ordinary = clone(f.state.classifications[0]!)
+  const f = fixture()
+  const ordinary = clone(f.state.classifications[0]!)
   f.state.classifications = [
     {
       ...ordinary,
@@ -454,8 +454,8 @@ test('RPC 原秘密许可在当前分类降级后仍要求 custody 可用，证�
 })
 
 test('控制输入原秘密许可在当前分类降级后仍要求 custody 可用', () => {
-  const f = controlFixture(),
-    ordinary = { ...clone(f.state.classifications[0]!), action: 'type_literal' }
+  const f = controlFixture()
+  const ordinary = { ...clone(f.state.classifications[0]!), action: 'type_literal' }
   f.state.classifications.push({
     ...ordinary,
     result: {
@@ -476,7 +476,7 @@ test('控制输入原秘密许可在当前分类降级后仍要求 custody 可�
 })
 
 test('retention:none 可读取但证据计划只保留元数据，普通/秘密 result 与 error 均不复活原文', () => {
-  for (const secret of [false, true])
+  for (const secret of [false, true]) {
     for (const error of [false, true]) {
       const f = fixture()
       const row = f.state.classifications[0]!
@@ -526,11 +526,12 @@ test('retention:none 可读取但证据计划只保留元数据，普通/秘密 
       assert.equal(plan.dispatch, false)
       assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor)
     }
+  }
 })
 
 test('控制 ack 读取选自己的 permit/当前分类，不能借普通开流许可走普通通道', () => {
-  const f = controlFixture(),
-    row = f.state.classifications[0]!
+  const f = controlFixture()
+  const row = f.state.classifications[0]!
   const control = {
     ...clone(row),
     action: 'type_literal',
@@ -570,8 +571,8 @@ test('控制 ack 读取选自己的 permit/当前分类，不能借普通开流�
 })
 
 test('流结果 frame 精确选择控制 ID/事件，未派发或其它 attempt 的 ID 不回退到开流许可', () => {
-  const f = controlFixture(),
-    row = f.state.classifications[0]!
+  const f = controlFixture()
+  const row = f.state.classifications[0]!
   f.state.classifications.push({ ...clone(row), action: 'type_literal' })
   f.decode(f.input('input1'))
   f.decode(f.data(f.inputAck), 'connector_to_gateway')
@@ -631,16 +632,16 @@ test('流结果 frame 精确选择控制 ID/事件，未派发或其它 attempt 
 
 test('证据原文保留同时服从原 permit 和当前分类，当前 custody 与读取授权仍独立生效', () => {
   for (const initialRetention of ['caller_policy', 'none'] as const) {
-    const f = fixture(),
-      row = f.state.classifications[0]!
+    const f = fixture()
+    const row = f.state.classifications[0]!
     f.state.classifications = [{ ...row, result: { ...row.result, retention: initialRetention } }]
     f.decode(f.opening)
     const current = initialRetention === 'none' ? 'caller_policy' : 'none'
     f.state.classifications = [{ ...row, result: { ...row.result, retention: current } }]
     assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
   }
-  const f = fixture(),
-    row = f.state.classifications[0]!
+  const f = fixture()
+  const row = f.state.classifications[0]!
   f.state.classifications = [
     {
       ...row,
@@ -768,8 +769,9 @@ test('同设备同名方法/native ID 的多个 provider 独立，错 endpoint �
     target: { ...second.binding.target, provider_id: 'p2' }
   }
   f.rows.set('call2', second)
-  for (const side of [f.policies.caller, f.policies.local])
+  for (const side of [f.policies.caller, f.policies.local]) {
     side.grants.push({ ...clone(side.grants[0]!), target: second.binding.target })
+  }
   const request2 = {
     ...f.opening,
     payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }

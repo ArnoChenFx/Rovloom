@@ -48,7 +48,9 @@ export function verifyNativeTrace(transcript, environment, artifacts) {
   }
   assert.equal(one('binary-version').stdout, 'luvus 0.14.3\n')
   assert.match(one('server-status').stdout, /version\s+v0\.14\.3/)
-  for (const label of ['discovery-before-host', 'discovery-after-host', 'discovery-after-cleanup']) noRunning(label)
+  for (const label of ['discovery-before-host', 'discovery-after-host', 'discovery-after-cleanup']) {
+    noRunning(label)
+  }
   for (const label of ['session-rpc-before-server', 'proxy-no-final-lf', 'proxy-malformed-json']) {
     assert.equal(one(label).stdout, '')
     assert(one(label).stderr.length > 0, label)
@@ -109,7 +111,9 @@ export function verifyNativeTrace(transcript, environment, artifacts) {
         }
       }
       assert.equal(row.identity.length, 3)
-      if (socketIdentity) assert.deepEqual(row.identity, socketIdentity)
+      if (socketIdentity) {
+        assert.deepEqual(row.identity, socketIdentity)
+      }
       socketIdentity = row.identity
     }
     if (row.kind === 'peer_credentials') {
@@ -128,7 +132,9 @@ export function verifyNativeTrace(transcript, environment, artifacts) {
   assert(connections > 0)
   const identity = artifacts.identity
   const created = result('terminal-create')
-  for (const key of ['server_generation', 'terminal_id', 'pane_id']) assert.equal(created[key], identity[key])
+  for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
+    assert.equal(created[key], identity[key])
+  }
   assert.equal(identity.server_generation, capabilities.result.server_generation)
   assert.equal(created.dispatch, 'executed')
   assert.equal(created.restore, false)
@@ -146,19 +152,25 @@ export function verifyNativeTrace(transcript, environment, artifacts) {
   const eventChannels = new Map()
   for (const row of transcript.filter((r) => r.kind === 'receive')) {
     const event = JSON.parse(row.wire)
-    if (!event.event) continue
+    if (!event.event) {
+      continue
+    }
     const previous = eventChannels.get(row.channel) ?? 0
     assert(event.sequence > previous, 'native event sequence must increase within each channel')
     eventChannels.set(row.channel, event.sequence)
   }
   errorCode('control-stale-generation', 'stale_server')
   errorCode('control-wrong-terminal', 'stale_terminal')
-  if (received('control-wrong-pane').length) errorCode('control-wrong-pane', 'stale_route')
+  if (received('control-wrong-pane').length) {
+    errorCode('control-wrong-pane', 'stale_route')
+  }
   errorCode('control-lease-conflict', 'control_conflict')
   assert.equal(result('terminal-control').mode, 'control')
   assert.equal(result('terminal-observe').mode, 'observe')
   for (const channel of ['terminal-control', 'terminal-observe']) {
-    for (const key of ['server_generation', 'terminal_id', 'pane_id']) assert.equal(result(channel)[key], identity[key])
+    for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
+      assert.equal(result(channel)[key], identity[key])
+    }
   }
   assert.equal(received('terminal-control').find((r) => r.id === 'input-1')?.result.dispatch, 'queued')
   assert(received('terminal-observe').some((r) => r.data?.text?.includes('CONSUMED:321cba-tupni-0p')))
@@ -169,8 +181,9 @@ export function verifyNativeTrace(transcript, environment, artifacts) {
       .filter((r) => r.kind === 'receive' && r.channel.startsWith('control-reacquire-'))
       .some((r) => JSON.parse(r.wire).result?.mode === 'control')
   )
-  for (const channel of ['validate-after-stream-close', 'validate-after-deadline'])
+  for (const channel of ['validate-after-stream-close', 'validate-after-deadline']) {
     assert.equal(result(channel).state, 'alive')
+  }
   assert.equal(result('terminal-close').dispatch, 'executed')
   const closed = matchingEvent('events-primary', 'terminal.closed')
   assert(closed.sequence > after.event_sequence)

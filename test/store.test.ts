@@ -93,8 +93,8 @@ test('idempotency binds principal, entire target and canonical request; errors a
 test('two machines with pane 3 never accept each other responses; disconnect is unknown, no replay', () => {
   const s = new Store(':memory:')
   try {
-    const a = connected(s, 'a'),
-      b = connected(s, 'b')
+    const a = connected(s, 'a')
+    const b = connected(s, 'b')
     const req = { method: 'pane.read', params: { pane: 3 } }
     const c = s.createCall('alice', a.target, req, 'k')
     const unsent = s.createCall('alice', a.target, req)

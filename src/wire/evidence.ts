@@ -54,16 +54,23 @@ export function planResponseEvidence(
   now: number,
   policy?: ResponseContentPolicy
 ): ResponseEvidencePlan {
-  if (!anchor) fail('attempt_anchor_unavailable')
+  if (!anchor) {
+    fail('attempt_anchor_unavailable')
+  }
   uint(now)
   uint(anchor.content_expires_at, true)
   uint(anchor.dedup_expires_at, true)
-  if (context.phase !== 'authenticated' || context.direction !== 'connector_to_gateway') fail('authentication_required')
-  if (anchor.state === 'outcome_unknown' && !context.connection.negotiated.capabilities.includes('late_evidence'))
+  if (context.phase !== 'authenticated' || context.direction !== 'connector_to_gateway') {
+    fail('authentication_required')
+  }
+  if (anchor.state === 'outcome_unknown' && !context.connection.negotiated.capabilities.includes('late_evidence')) {
     fail('unsupported_capability')
+  }
   // 大响应只能走同样受限的逻辑对象检查，不能通过 typed 参数绕过 codec。
   const checked = decodeWireObject(Buffer.from(boundedJson(frame, LIMITS.object_bytes)), context)
-  if (checked.type !== 'response') fail('invalid_evidence')
+  if (checked.type !== 'response') {
+    fail('invalid_evidence')
+  }
   const binding = {
     machine_id: checked.machine_id,
     recovery_generation: checked.recovery_generation,
@@ -72,10 +79,15 @@ export function planResponseEvidence(
   }
   assertBinding(binding, anchor.binding)
   const resolved = context.resolveAttempt?.(checked.payload.attempt)
-  if (!resolved || resolved.method !== anchor.method || resolved.mode !== anchor.mode) fail('attempt_binding_mismatch')
-  if (now >= anchor.dedup_expires_at || anchor.state === 'not_dispatched') fail('evidence_not_applicable')
-  if (!['dispatching', 'connector_accepted', 'outcome_unknown', 'responded'].includes(anchor.state))
+  if (!resolved || resolved.method !== anchor.method || resolved.mode !== anchor.mode) {
+    fail('attempt_binding_mismatch')
+  }
+  if (now >= anchor.dedup_expires_at || anchor.state === 'not_dispatched') {
     fail('evidence_not_applicable')
+  }
+  if (!['dispatching', 'connector_accepted', 'outcome_unknown', 'responded'].includes(anchor.state)) {
+    fail('evidence_not_applicable')
+  }
   const raw = boundedJson(checked.payload.native_response, LIMITS.object_bytes)
   const response_hash = hash(raw)
   const response_bytes = Buffer.byteLength(raw)
@@ -83,13 +95,18 @@ export function planResponseEvidence(
   if (anchor.evidence) {
     sha(anchor.evidence.response_hash)
     uint(anchor.evidence.response_bytes, true)
-    if (anchor.evidence.response_hash !== response_hash || anchor.evidence.response_bytes !== response_bytes)
+    if (anchor.evidence.response_hash !== response_hash || anchor.evidence.response_bytes !== response_bytes) {
       fail('response_evidence_conflict')
-  } else if (anchor.state === 'responded') fail('evidence_anchor_unavailable')
+    }
+  } else if (anchor.state === 'responded') {
+    fail('evidence_anchor_unavailable')
+  }
   // 证据能否追加与原文能否保存分别判断；晚到结果不会恢复过期或 discarded 内容。
   const status =
     anchor.content_status === 'available' && now >= anchor.content_expires_at ? 'expired' : anchor.content_status
-  if (!['available', 'expired', 'discarded', 'unavailable'].includes(status)) fail('invalid_content_status')
+  if (!['available', 'expired', 'discarded', 'unavailable'].includes(status)) {
+    fail('invalid_content_status')
+  }
   const duplicate = anchor.evidence !== undefined
   const retain =
     status === 'available' &&

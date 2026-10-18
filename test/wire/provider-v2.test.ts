@@ -78,8 +78,9 @@ test('V2Target 必须显式 provider，expected revision 只在调用外层；�
     () => decode({ ...request, payload: { ...request.payload, expected_binding_revision: 2 } }),
     'provider_binding_mismatch'
   )
-  for (const field of ['uhp_request', 'deadline', 'history'])
+  for (const field of ['uhp_request', 'deadline', 'history']) {
     rejects(() => decode({ ...request, payload: { ...request.payload, [field]: {} } }), 'invalid_frame_fields')
+  }
   rejects(
     () =>
       decode({
@@ -118,8 +119,9 @@ test('trusted provider kind/revision/config 枚举严格检查，消息不能选
     ctx.resolveProvider = () => ({ ...provider, ...delta })
     rejects(() => decode(request, ctx), 'provider_binding_mismatch')
   }
-  for (const revision of [0, -1, Number.MAX_SAFE_INTEGER + 1])
+  for (const revision of [0, -1, Number.MAX_SAFE_INTEGER + 1]) {
     rejects(() => decode(request, replaceProvider(context(), revision)), 'invalid_integer')
+  }
   const extra = context()
   extra.resolveProvider = () => ({ ...provider, endpoint: 'untrusted' }) as any
   rejects(() => decode(request, extra), 'invalid_frame_fields')
@@ -215,8 +217,9 @@ test('ContractSource 摘要不可变，来源缺失/互相矛盾或分类 revisi
     { schema_sha256: 'b'.repeat(64) },
     { adapter_revision: 'other' },
     { runtime_generation: 'actual_other_generation' }
-  ])
+  ]) {
     assert.notEqual(contractRef({ ...source, ...delta }), attempt.contract_ref)
+  }
   for (const field of ['binary_sha256', 'schema_command', 'schema_origin', 'binary_version']) {
     const broken = { ...source } as any
     delete broken[field]
@@ -231,9 +234,9 @@ test('ContractSource 摘要不可变，来源缺失/互相矛盾或分类 revisi
   })
   rejects(() => decode(request, changed), 'contract_binding_mismatch')
   for (const delta of [{ classification_revision: null }, { support_basis: 'schema_and_version' as const }]) {
-    const recordSource = { ...source, ...delta },
-      ref = contractRef(recordSource),
-      a = { ...attempt, contract_ref: ref }
+    const recordSource = { ...source, ...delta }
+    const ref = contractRef(recordSource)
+    const a = { ...attempt, contract_ref: ref }
     const ctx = context('gateway_to_connector', fixtureValidator(), { ...binding, ...a })
     ctx.resolveContract = () => ({ source: recordSource, support_status: 'validated' })
     rejects(() => decode(frame('request', { ...request.payload, attempt: a }), ctx), 'contract_unavailable')
@@ -367,8 +370,9 @@ test('登记摘要绑定 caller/完整 provider target/revision/契约及登记�
       attempt: { ...attempt, registration: { ...attempt.registration, deadline: 2000 } }
     },
     { ...request.payload, native_request: { method: 'ping', params: { changed: true } } }
-  ])
+  ]) {
     assert.notEqual(initial, registeredRequestDigest(payload, 'caller_1'))
+  }
   rejects(
     () =>
       registeredRequestDigest(

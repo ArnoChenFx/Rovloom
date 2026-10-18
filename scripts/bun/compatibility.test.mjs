@@ -33,7 +33,8 @@ test('pinned Bun reports real SQLite; parameter binding, changes, BLOB and SQL r
 test('real file Store transaction failure rolls back token consumption; modes and lock remain enforced', () => {
   const dir = mkdtempSync(join(tmpdir(), 'luvus-bun-rollback-'))
   const path = join(dir, 'db')
-  let store, inspect
+  let store
+  let inspect
   try {
     store = new Store(path)
     assert.equal(statSync(path).mode & 0o777, 0o600)
@@ -80,7 +81,9 @@ test('Bun child stdio remains separate and SIGTERM is delivered without hanging'
     assert.deepEqual(await closed, [0, null])
     assert.equal(stderr, 'terminated\n')
   } finally {
-    if (child.exitCode === null) child.kill('SIGKILL')
+    if (child.exitCode === null) {
+      child.kill('SIGKILL')
+    }
   }
 })
 

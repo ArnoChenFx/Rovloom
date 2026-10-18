@@ -18,8 +18,8 @@ import {
 } from './helpers.js'
 
 test('原生完整 schema 保留 144 generic 与 79 条件分支的独立状态', () => {
-  const session = view(),
-    host = view('host')
+  const session = view()
+  const host = view('host')
   assert.equal(session.methods.length, 197)
   assert.equal(host.methods.length, 17)
   assert.equal(session.methods.filter((m) => m.schema_status === 'generic_params_only').length, 144)
@@ -32,7 +32,7 @@ test('原生完整 schema 保留 144 generic 与 79 条件分支的独立状态'
     })
     assert.equal(checked.validation, 'generic')
     let authorization = auth(checked)
-    if (invoke)
+    if (invoke) {
       authorization = {
         ...authorization,
         classifications: [
@@ -42,6 +42,7 @@ test('原生完整 schema 保留 144 generic 与 79 条件分支的独立状态'
           }
         ]
       }
+    }
     // admin/凭据 gate 独立满足后，严格路径仍仅因参数缺口拒绝。
     const safe = {
       ...authorization,
@@ -66,14 +67,14 @@ test('原生完整 schema 保留 144 generic 与 79 条件分支的独立状态'
 
 test('原生 P0 全量 LF 请求/响应/事件离线重放，不制造认证或原生新运行', () => {
   const transcript = json('transcript.json') as any[]
-  const requests = new Map<string, any>(),
-    sources = new Map<string, any>(),
-    channels = new Map<string, any>()
-  let accepted = 0,
-    responses = 0,
-    events = 0,
-    invalid = 0,
-    stale = 0
+  const requests = new Map<string, any>()
+  const sources = new Map<string, any>()
+  const channels = new Map<string, any>()
+  let accepted = 0
+  let responses = 0
+  let events = 0
+  let invalid = 0
+  let stale = 0
   const generation = json('session-capabilities.json').result.server_generation
   const sessionCaps = json('session-capabilities.json')
   const sessionSource = sourceFor({
@@ -139,19 +140,28 @@ test('原生 P0 全量 LF 请求/响应/事件离线重放，不制造认证或�
       if (permit) {
         channels.set(channel!, unwrap(validator.openStream(permit, checked)))
       }
-    } else
+    } else {
       assert.deepEqual(
         unwrap(validator.checkResponseShape(input, original?.action ? 'terminal' : 'general')).response,
         input
       )
+    }
     responses++
   }
   for (const row of transcript) {
-    if (row.kind === 'send') sent(JSON.parse(row.wire), row.channel)
-    if (row.kind === 'receive') received(JSON.parse(row.wire), row.channel)
+    if (row.kind === 'send') {
+      sent(JSON.parse(row.wire), row.channel)
+    }
+    if (row.kind === 'receive') {
+      received(JSON.parse(row.wire), row.channel)
+    }
     if (row.kind === 'process' && row.argv.slice(-2).join(' ') === 'uhp proxy') {
-      if (row.label !== 'proxy-malformed-json') sent(JSON.parse(row.stdin.split('\n')[0]))
-      if (row.stdout) received(JSON.parse(row.stdout))
+      if (row.label !== 'proxy-malformed-json') {
+        sent(JSON.parse(row.stdin.split('\n')[0]))
+      }
+      if (row.stdout) {
+        received(JSON.parse(row.stdout))
+      }
     }
   }
   assert.equal(accepted, 29)

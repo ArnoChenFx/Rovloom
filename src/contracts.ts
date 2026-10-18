@@ -28,7 +28,9 @@ export function validateTarget(value: Target): void {
     throw new GatewayError('invalid_target')
   }
   if (value.profile === 'session') {
-    if (typeof value.session !== 'string' || !value.session.trim()) throw new GatewayError('session_required')
+    if (typeof value.session !== 'string' || !value.session.trim()) {
+      throw new GatewayError('session_required')
+    }
   } else if (value.profile !== 'host' || value.session !== undefined) {
     throw new GatewayError('invalid_profile')
   }
@@ -38,7 +40,9 @@ export function validateRequest(request: NativeRequest): void {
   if (!request || typeof request.method !== 'string' || !request.method.trim()) {
     throw new GatewayError('invalid_request')
   }
-  if ('auth' in request || 'id' in request) throw new GatewayError('reserved_request_field')
+  if ('auth' in request || 'id' in request) {
+    throw new GatewayError('reserved_request_field')
+  }
   canonical(request)
 }
 
@@ -63,26 +67,46 @@ export function canonical(value: unknown): string {
   let bytes = 0
   const emit = (text: string): string => {
     bytes += Buffer.byteLength(text)
-    if (bytes > 1_048_576) throw new GatewayError('json_limit')
+    if (bytes > 1_048_576) {
+      throw new GatewayError('json_limit')
+    }
     return text
   }
   const visit = (item: unknown, depth: number): string => {
-    if (++nodes > 100_000 || depth > 64) throw new GatewayError('json_limit')
-    if (item === null || typeof item === 'string' || typeof item === 'boolean') return emit(JSON.stringify(item))
-    if (typeof item === 'number' && Number.isFinite(item)) return emit(JSON.stringify(item))
-    if (typeof item !== 'object' || item === null || ancestors.has(item)) throw new GatewayError('invalid_json')
-    if (!Array.isArray(item) && Object.getPrototypeOf(item) !== Object.prototype) throw new GatewayError('invalid_json')
-    if (Object.getOwnPropertySymbols(item).length) throw new GatewayError('invalid_json')
+    if (++nodes > 100_000 || depth > 64) {
+      throw new GatewayError('json_limit')
+    }
+    if (item === null || typeof item === 'string' || typeof item === 'boolean') {
+      return emit(JSON.stringify(item))
+    }
+    if (typeof item === 'number' && Number.isFinite(item)) {
+      return emit(JSON.stringify(item))
+    }
+    if (typeof item !== 'object' || item === null || ancestors.has(item)) {
+      throw new GatewayError('invalid_json')
+    }
+    if (!Array.isArray(item) && Object.getPrototypeOf(item) !== Object.prototype) {
+      throw new GatewayError('invalid_json')
+    }
+    if (Object.getOwnPropertySymbols(item).length) {
+      throw new GatewayError('invalid_json')
+    }
     ancestors.add(item)
     try {
       const descriptors = Object.getOwnPropertyDescriptors(item)
       // 先检查数据描述符，再读取内容，避免规范化触发 getter。
-      if (Object.values(descriptors).some((d) => !('value' in d))) throw new GatewayError('invalid_json')
+      if (Object.values(descriptors).some((d) => !('value' in d))) {
+        throw new GatewayError('invalid_json')
+      }
       if (Array.isArray(item)) {
-        if (item.length > 100_000 || Object.keys(item).length !== item.length) throw new GatewayError('invalid_json')
+        if (item.length > 100_000 || Object.keys(item).length !== item.length) {
+          throw new GatewayError('invalid_json')
+        }
         const values: string[] = []
         for (let i = 0; i < item.length; i++) {
-          if (!Object.hasOwn(item, i)) throw new GatewayError('invalid_json')
+          if (!Object.hasOwn(item, i)) {
+            throw new GatewayError('invalid_json')
+          }
           values.push(visit(item[i], depth + 1))
         }
         emit('[' + ','.repeat(Math.max(0, values.length - 1)) + ']')

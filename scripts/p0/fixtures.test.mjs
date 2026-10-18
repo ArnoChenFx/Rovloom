@@ -63,12 +63,13 @@ test('覆盖账本保持全部方法与 profile；未实现、权限、schema �
   const generic = generated.methods.filter((row) => row.schema.parameter_detail === 'generic_params_only')
   assert.equal(generic.length, 144)
   // 用无关字段实测通用 object 会放行，不能仅复述账本里的计数。
-  for (const row of generic)
+  for (const row of generic) {
     assert.equal(
       check({ id: 'schema-gap', method: row.method, params: { p0_unannounced: ['synthetic'] } }),
       true,
       row.method
     )
+  }
 })
 
 test('语义审计独立拒绝错误退出码、伪造 peer、缺失端点检查与不一致副本', () => {

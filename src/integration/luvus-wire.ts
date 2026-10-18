@@ -120,7 +120,9 @@ type State = {
 const copy = <T>(value: T, maxBytes: number = LIMITS.frame_bytes): T => JSON.parse(boundedJson(value, maxBytes)) as T
 
 function unwrap<T>(result: Check<T>): T {
-  if (!result.ok) fail(result.error.code)
+  if (!result.ok) {
+    fail(result.error.code)
+  }
   return result.value
 }
 
@@ -129,7 +131,9 @@ function guarded<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) =>
     try {
       return fn(...args)
     } catch (error) {
-      if (error instanceof WireError) throw error
+      if (error instanceof WireError) {
+        throw error
+      }
       fail('native_adapter_unavailable')
     }
   }
@@ -150,15 +154,21 @@ export function createLuvusWireAdapter(
 ) {
   uint(limits.attempts, true)
   uint(limits.control_ids, true)
-  if (limits.attempts > 4096 || limits.control_ids > 4096) fail('adapter_limit')
+  if (limits.attempts > 4096 || limits.control_ids > 4096) {
+    fail('adapter_limit')
+  }
   const snapshotLimit = limits.snapshot_bytes ?? 16_777_216
   uint(snapshotLimit, true)
-  if (snapshotLimit > LIMITS.buffered_bytes) fail('adapter_limit')
+  if (snapshotLimit > LIMITS.buffered_bytes) {
+    fail('adapter_limit')
+  }
   let retainedBytes = 0
 
   // 计量保留 JSON 快照；不把此计量冒称 JS heap/worker 的硬内存隔离。
   function reserve(bytes: number): void {
-    if (retainedBytes + bytes > snapshotLimit) fail('adapter_limit')
+    if (retainedBytes + bytes > snapshotLimit) {
+      fail('adapter_limit')
+    }
     retainedBytes += bytes
   }
   const states = new Map<string, State>()
@@ -168,7 +178,9 @@ export function createLuvusWireAdapter(
 
   let undo: Map<string, State | undefined> | undefined
   function remember(name: string): void {
-    if (!undo || undo.has(name)) return
+    if (!undo || undo.has(name)) {
+      return
+    }
     const state = states.get(name)
     undo.set(
       name,
@@ -183,7 +195,9 @@ export function createLuvusWireAdapter(
   // 只回滚本次触及的 attempt；此前成功操作及其 permit 仍保留。
   function atomic<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
     return (...args) => {
-      if (undo) fail('native_adapter_unavailable')
+      if (undo) {
+        fail('native_adapter_unavailable')
+      }
       const pending = new Map<string, State | undefined>()
       const before = retainedBytes
       undo = pending
@@ -192,11 +206,15 @@ export function createLuvusWireAdapter(
       } catch (error) {
         for (const [name, saved] of pending) {
           const current = states.get(name)
-          if (current) handles.delete(current.handle)
+          if (current) {
+            handles.delete(current.handle)
+          }
           if (saved) {
             states.set(name, saved)
             handles.set(saved.handle, saved)
-          } else states.delete(name)
+          } else {
+            states.delete(name)
+          }
         }
         retainedBytes = before
         throw error
@@ -209,36 +227,54 @@ export function createLuvusWireAdapter(
   function record(value: AttemptIdentity): TrustedAttempt {
     validateAttempt(value)
     const found = backend.attempt(value.call_id, value.attempt_id)
-    if (!found) fail('attempt_anchor_unavailable')
+    if (!found) {
+      fail('attempt_anchor_unavailable')
+    }
     const result = copy(found)
     const connection = copy(backend.connection())
-    if (connection.authenticated !== true || connection.active !== true) fail('authentication_required')
+    if (connection.authenticated !== true || connection.active !== true) {
+      fail('authentication_required')
+    }
     assertBinding({ ...connection, ...value }, result.binding)
-    if (result.binding.target.machine_id !== result.binding.machine_id) fail('target_machine_mismatch')
+    if (result.binding.target.machine_id !== result.binding.machine_id) {
+      fail('target_machine_mismatch')
+    }
     if (
       result.method !== result.native_request.method ||
       !result.principal_id ||
       Object.hasOwn(result.native_request, 'id') ||
       Object.hasOwn(result.native_request, 'auth')
-    )
+    ) {
       fail('invalid_attempt_record')
-    if (!['strict', 'raw-contract'].includes(result.mode) || !['rpc', 'stream'].includes(result.transport))
+    }
+    if (!['strict', 'raw-contract'].includes(result.mode) || !['rpc', 'stream'].includes(result.transport)) {
       fail('invalid_attempt_record')
+    }
     if (result.transport === 'stream') {
       id(result.stream_id)
       let methods: readonly string[] = []
-      if (result.feature === 'events') methods = ['events.subscribe', 'terminal.backend.events.subscribe']
-      else if (result.feature === 'terminal_observe') methods = ['terminal.backend.observe']
-      else if (result.feature === 'terminal_control') methods = ['terminal.backend.control']
-      if (!methods.includes(result.method)) fail('attempt_transport_mismatch')
-    } else if (result.feature !== undefined || result.stream_id !== undefined) fail('attempt_transport_mismatch')
+      if (result.feature === 'events') {
+        methods = ['events.subscribe', 'terminal.backend.events.subscribe']
+      } else if (result.feature === 'terminal_observe') {
+        methods = ['terminal.backend.observe']
+      } else if (result.feature === 'terminal_control') {
+        methods = ['terminal.backend.control']
+      }
+      if (!methods.includes(result.method)) {
+        fail('attempt_transport_mismatch')
+      }
+    } else if (result.feature !== undefined || result.stream_id !== undefined) {
+      fail('attempt_transport_mismatch')
+    }
     return result
   }
 
   function provider(target: V2Target): ProviderBinding | undefined {
     const gateway = backend.provider(copy(target))
     const local = backend.localProvider(copy(target))
-    if (!gateway || !local || boundedJson(gateway) !== boundedJson(local)) fail('provider_binding_mismatch')
+    if (!gateway || !local || boundedJson(gateway) !== boundedJson(local)) {
+      fail('provider_binding_mismatch')
+    }
     return copy(gateway)
   }
 
@@ -248,8 +284,9 @@ export function createLuvusWireAdapter(
   ): { source: TrustedNativeContext; registry: NativeContractRecord } {
     providerFor(attempt.binding, ctx)
     const registry = backend.contract(attempt.binding.contract_ref)
-    if (!registry || contractRef(registry.wire.source) !== attempt.binding.contract_ref)
+    if (!registry || contractRef(registry.wire.source) !== attempt.binding.contract_ref) {
       fail('contract_binding_mismatch')
+    }
     const origin = registry.wire.source
     if (
       registry.compiled.identity.binary_sha256 !== origin.binary_sha256 ||
@@ -278,8 +315,12 @@ export function createLuvusWireAdapter(
     }
     // 原生 endpoint/身份实证必须独立查询，不能把 wire 的自报 binding 转成两个 true。
     const proven = backend.nativeSource(attempt.binding.call_id, attempt.binding.attempt_id)
-    if (!proven || proven.authenticated !== true || proven.source_verified !== true) fail('native_source_untrusted')
-    if (boundedJson(proven.binding) !== boundedJson(binding)) fail('native_identity_mismatch')
+    if (!proven || proven.authenticated !== true || proven.source_verified !== true) {
+      fail('native_source_untrusted')
+    }
+    if (boundedJson(proven.binding) !== boundedJson(binding)) {
+      fail('native_identity_mismatch')
+    }
     return { registry, source: copy(proven) }
   }
 
@@ -300,7 +341,9 @@ export function createLuvusWireAdapter(
       },
       resolveNativeSource: (binding) => {
         const state = states.get(key(binding))
-        if (!state) fail('native_handle_unavailable')
+        if (!state) {
+          fail('native_handle_unavailable')
+        }
         assertBinding(binding, state.attempt.binding)
         refresh(state)
         return state.sourceToken
@@ -311,14 +354,17 @@ export function createLuvusWireAdapter(
 
   function refresh(state: State) {
     const attempt = record(attemptIdentity(state.attempt.binding))
-    if (boundedJson(attempt) !== boundedJson(state.attempt)) fail('attempt_binding_mismatch')
+    if (boundedJson(attempt) !== boundedJson(state.attempt)) {
+      fail('attempt_binding_mismatch')
+    }
     const ctx = context('gateway_to_connector', attempt.principal_id)
     const current = source(attempt, ctx)
     if (
       boundedJson(current.source) !== boundedJson(state.source) ||
       boundedJson(current.registry.capabilities) !== boundedJson(state.validatorCaps)
-    )
+    ) {
       fail('capability_stale')
+    }
     return { ctx, current, attempt }
   }
 
@@ -329,7 +375,9 @@ export function createLuvusWireAdapter(
     let state = states.get(key(value))
     remember(key(value))
     if (!state) {
-      if (states.size >= limits.attempts) fail('adapter_limit')
+      if (states.size >= limits.attempts) {
+        fail('adapter_limit')
+      }
       const native = createNativeValidator(current.registry.compiled)
       const view = unwrap(native.bindCapabilities(current.registry.capabilities, current.source))
       const snapshotBytes =
@@ -369,9 +417,13 @@ export function createLuvusWireAdapter(
   }
 
   function stateFor(c: NativeValidationContext): State {
-    if (!c.native_handle || typeof c.native_handle !== 'object') fail('native_handle_unavailable')
+    if (!c.native_handle || typeof c.native_handle !== 'object') {
+      fail('native_handle_unavailable')
+    }
     const state = handles.get(c.native_handle)
-    if (!state) fail('native_handle_mismatch')
+    if (!state) {
+      fail('native_handle_mismatch')
+    }
     remember(key(state.attempt.binding))
     assertBinding(c.binding, state.attempt.binding)
     if (
@@ -380,10 +432,13 @@ export function createLuvusWireAdapter(
       c.transport !== state.attempt.transport ||
       c.feature !== state.attempt.feature ||
       c.stream_id !== state.attempt.stream_id
-    )
+    ) {
       fail('attempt_binding_mismatch')
+    }
     refresh(state)
-    if (state.closed) fail('stream_closed')
+    if (state.closed) {
+      fail('stream_closed')
+    }
     return state
   }
 
@@ -393,8 +448,9 @@ export function createLuvusWireAdapter(
     if (
       ctx.policies!.caller.revision !== binding.caller_policy_revision ||
       ctx.policies!.local.revision !== binding.local_policy_revision
-    )
+    ) {
       fail('policy_revision_stale')
+    }
     // 只投影当前完整 Target 上的 dispatch grants；流 input 和结果读取另过各自门禁。
     const project = (side: ProviderPolicies['caller']) => ({
       machines: [binding.target.machine_id],
@@ -421,25 +477,34 @@ export function createLuvusWireAdapter(
       ...state.attempt.native_request,
       id: state.attempt.binding.native_request_id
     }
-    if (boundedJson(request) !== boundedJson(expected)) fail('attempt_request_mismatch')
+    if (boundedJson(request) !== boundedJson(expected)) {
+      fail('attempt_request_mismatch')
+    }
     return (state.candidate ??= unwrap(state.validator.checkRawRequest(state.view, request)))
   }
 
   function permit(state: State): DispatchPermit {
-    if (!state.permit) fail('dispatch_permit_unavailable')
+    if (!state.permit) {
+      fail('dispatch_permit_unavailable')
+    }
     return state.permit
   }
 
   // 合法 input 先登记独立候选；其派发许可仍由 checkDispatch 按当前授权建立。
   function validateControlFrame(frame: JsonObject, state: State): void {
-    if (!state.stream) fail('stream_not_ready')
+    if (!state.stream) {
+      fail('stream_not_ready')
+    }
     const checked = unwrap(state.validator.checkControl(state.stream, frame))
     const nativeId = frame.id as string
     const previous = state.controls.get(nativeId)
     const json = boundedJson(frame)
-    if (nativeId === state.attempt.binding.native_request_id || (previous && previous.frame !== json))
+    if (nativeId === state.attempt.binding.native_request_id || (previous && previous.frame !== json)) {
       fail('native_id_conflict')
-    if (!previous && state.controls.size >= limits.control_ids) fail('adapter_limit')
+    }
+    if (!previous && state.controls.size >= limits.control_ids) {
+      fail('adapter_limit')
+    }
     if (!previous) {
       const bytes = 2 * Buffer.byteLength(json)
       reserve(bytes)
@@ -453,17 +518,25 @@ export function createLuvusWireAdapter(
     if (Object.hasOwn(frame, 'id')) {
       if (frame.id === state.attempt.binding.native_request_id) {
         const json = hash(boundedJson(frame))
-        if (state.ack && state.ack !== json) fail('native_ack_conflict')
+        if (state.ack && state.ack !== json) {
+          fail('native_ack_conflict')
+        }
         const ack = unwrap(state.validator.checkResponse(permit(state), frame, state.source))
-        if (Object.hasOwn(frame, 'result')) state.stream ??= unwrap(state.validator.openStream(permit(state), ack))
+        if (Object.hasOwn(frame, 'result')) {
+          state.stream ??= unwrap(state.validator.openStream(permit(state), ack))
+        }
         state.ack ??= json
       } else {
         const input = state.controls.get(frame.id as string)
-        if (!state.stream || !input?.permit) fail('control_ack_unbound')
+        if (!state.stream || !input?.permit) {
+          fail('control_ack_unbound')
+        }
         unwrap(state.validator.checkResponse(input.permit, frame, state.source))
       }
     } else {
-      if (!state.stream) fail('stream_not_ready')
+      if (!state.stream) {
+        fail('stream_not_ready')
+      }
       unwrap(state.validator.checkEvent(state.stream, frame, state.source))
     }
   }
@@ -487,15 +560,22 @@ export function createLuvusWireAdapter(
 
     validateResponse(response, c) {
       const state = stateFor(c)
-      if (c.trusted_source !== state.sourceToken) fail('native_source_untrusted')
+      if (c.trusted_source !== state.sourceToken) {
+        fail('native_source_untrusted')
+      }
       unwrap(state.validator.checkResponse(permit(state), response, state.source))
     },
 
     validateStreamFrame(frame, c) {
       const state = stateFor(c)
-      if (c.trusted_source !== state.sourceToken) fail('native_source_untrusted')
-      if (c.direction === 'input') validateControlFrame(frame, state)
-      else validateStreamOutput(frame, state)
+      if (c.trusted_source !== state.sourceToken) {
+        fail('native_source_untrusted')
+      }
+      if (c.direction === 'input') {
+        validateControlFrame(frame, state)
+      } else {
+        validateStreamOutput(frame, state)
+      }
     },
 
     checkDispatch(frame, c) {
@@ -503,13 +583,17 @@ export function createLuvusWireAdapter(
       const { ctx } = refresh(state)
       assertProviderAccess(state.attempt.binding, state.attempt.method, 'stream_input', ctx)
       const input = state.controls.get(frame.id as string)
-      if (!input || input.frame !== boundedJson(frame)) fail('native_control_invalid')
+      if (!input || input.frame !== boundedJson(frame)) {
+        fail('native_control_invalid')
+      }
       const checked = unwrap(checkDispatch(input.candidate, authorization(state)))
       input.permit ??= checked
     }
   })
   function close(frame: WireEnvelope): void {
-    if (frame.type !== 'stream_close' || !('connection_epoch' in frame)) return
+    if (frame.type !== 'stream_close' || !('connection_epoch' in frame)) {
+      return
+    }
     const name = key(frame.payload.attempt)
     const state = states.get(name)
     if (state) {
@@ -522,26 +606,38 @@ export function createLuvusWireAdapter(
   // RPC 只有原请求；stream 必须给出实际待交付的原生响应/事件，不能隐式借开流许可。
   function result(binding: AttemptBinding, nativeFrame?: JsonObject): void {
     const state = states.get(key(binding))
-    if (!state) fail('dispatch_permit_unavailable')
+    if (!state) {
+      fail('dispatch_permit_unavailable')
+    }
     assertBinding(binding, state.attempt.binding)
     const { ctx } = refresh(state)
     const principal = backend.currentPrincipal()
-    if (principal !== state.attempt.principal_id) fail('forbidden')
+    if (principal !== state.attempt.principal_id) {
+      fail('forbidden')
+    }
     const authority = authorization(state)
     const status = backend.contentStatus(binding)
     let granted = permit(state)
-    if (!state.candidate) fail('dispatch_permit_unavailable')
+    if (!state.candidate) {
+      fail('dispatch_permit_unavailable')
+    }
     let candidate = state.candidate
-    if (state.attempt.transport === 'stream' && nativeFrame === undefined) fail('result_selector_required')
+    if (state.attempt.transport === 'stream' && nativeFrame === undefined) {
+      fail('result_selector_required')
+    }
     if (nativeFrame !== undefined) {
       const frame = object(copy(nativeFrame, LIMITS.object_bytes))
       if (state.attempt.transport === 'stream' && !Object.hasOwn(frame, 'id')) {
-        if (!state.stream) fail('stream_not_ready')
+        if (!state.stream) {
+          fail('stream_not_ready')
+        }
         unwrap(state.validator.checkEvent(state.stream, frame, state.source))
       } else {
         if (frame.id !== binding.native_request_id) {
           const input = state.controls.get(frame.id as string)
-          if (!state.stream || !input?.permit) fail('control_ack_unbound')
+          if (!state.stream || !input?.permit) {
+            fail('control_ack_unbound')
+          }
           candidate = input.candidate
           granted = input.permit
         }
@@ -549,9 +645,15 @@ export function createLuvusWireAdapter(
       }
     }
     const gate = unwrap(inspectRequestGate(candidate, authority))
-    if (gate.classification_status !== 'trusted_complete') fail('classification_unavailable')
-    if (!gate.secret_result_authorized) fail('secret_boundary_required')
-    if (status === 'unavailable') fail('content_unavailable')
+    if (gate.classification_status !== 'trusted_complete') {
+      fail('classification_unavailable')
+    }
+    if (!gate.secret_result_authorized) {
+      fail('secret_boundary_required')
+    }
+    if (status === 'unavailable') {
+      fail('content_unavailable')
+    }
     // 原派发 permit 不能替代当前读取授权，也不能让过期/丢弃的内容重新可见。
     const allowed = providerScopeAllowed(binding, state.attempt.method, 'read', ctx.policies)
     unwrap(
@@ -590,7 +692,9 @@ export function createLuvusWireAdapter(
     acceptChunk(input: string | Uint8Array, direction: Direction) {
       const ctx = context(direction)
       const frame = decodeWireFrame(input, ctx)
-      if (frame.type !== 'object_chunk' || !('connection_epoch' in frame)) fail('invalid_chunk')
+      if (frame.type !== 'object_chunk' || !('connection_epoch' in frame)) {
+        fail('invalid_chunk')
+      }
       const stamp = boundedJson(ctx.connection)
       let entry = assemblers.get(direction)
       if (!entry || entry.connection !== stamp) {
@@ -598,7 +702,9 @@ export function createLuvusWireAdapter(
         assemblers.set(direction, entry)
       }
       const completed = entry.assembler.push(frame, ctx, backend.now())
-      if (completed?.kind === 'envelope') close(completed.envelope)
+      if (completed?.kind === 'envelope') {
+        close(completed.envelope)
+      }
       return completed
     },
     checkResult: result,
@@ -606,11 +712,14 @@ export function createLuvusWireAdapter(
       const snapshot = copy(frame, LIMITS.object_bytes)
       const ctx = context(direction)
       const checked = decodeWireObject(Buffer.from(boundedJson(snapshot, LIMITS.object_bytes)), ctx)
-      if (!['stream_open', 'stream_data', 'stream_input', 'stream_close'].includes(checked.type))
+      if (!['stream_open', 'stream_data', 'stream_input', 'stream_close'].includes(checked.type)) {
         fail('invalid_stream_transition')
+      }
       const attempt = (checked.payload as PayloadWithAttempt).attempt
       const state = states.get(key(attempt))
-      if (!state) fail('attempt_anchor_unavailable')
+      if (!state) {
+        fail('attempt_anchor_unavailable')
+      }
       state.wireStream = advanceStream(state.wireStream, checked, ctx)
       close(checked)
       return copy(state.wireStream)
@@ -632,7 +741,9 @@ export function createLuvusWireAdapter(
       const attempt = record(snapshot.payload.attempt)
       const ctx = context('connector_to_gateway')
       const state = states.get(key(attempt.binding))
-      if (!state) fail('dispatch_permit_unavailable')
+      if (!state) {
+        fail('dispatch_permit_unavailable')
+      }
       let retain = false
       try {
         result(attempt.binding, snapshot.payload.native_response)
@@ -649,7 +760,9 @@ export function createLuvusWireAdapter(
 
     release(binding: AttemptBinding) {
       const state = states.get(key(binding))
-      if (!state) return
+      if (!state) {
+        return
+      }
       remember(key(binding))
       assertBinding(binding, state.attempt.binding)
       retainedBytes -= state.snapshotBytes

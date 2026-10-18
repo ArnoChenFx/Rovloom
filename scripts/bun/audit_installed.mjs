@@ -3,16 +3,18 @@ import { readFileSync, existsSync } from 'node:fs'
 
 const root = new URL('../../', import.meta.url)
 const lock = Bun.JSON5.parse(readFileSync(new URL('bun.lock', root), 'utf8'))
-const installed = [],
-  otherPlatforms = []
+const installed = []
+const otherPlatforms = []
 for (const [key, entry] of Object.entries(lock.packages)) {
   // 锁文件的嵌套包路径需还原 node_modules，保留 scoped 包的两个路径段。
-  const parts = key.split('/'),
-    path = []
+  const parts = key.split('/')
+  const path = []
   while (parts.length) {
     const name = parts.shift()
     path.push('node_modules', name)
-    if (name.startsWith('@')) path.push(parts.shift())
+    if (name.startsWith('@')) {
+      path.push(parts.shift())
+    }
   }
   const manifest = new URL(path.join('/') + '/package.json', root)
   const version = entry[0].slice(entry[0].lastIndexOf('@') + 1)

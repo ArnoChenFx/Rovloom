@@ -182,8 +182,9 @@ test('聚焦复核：schema 引用和结构资源预算实际拒绝，无 CPU �
     { document_bytes: 32 },
     { references: 1 },
     { reference_depth: 1 }
-  ])
+  ]) {
     rejects(compileBundle(bytes, { identity, limits }), 'schema_unavailable')
+  }
   const b = json('schema-bundle.json')
   b.extra_nodes = Array(150001).fill(null)
   const encoded = JSON.stringify(b)
@@ -191,7 +192,9 @@ test('聚焦复核：schema 引用和结构资源预算实际拒绝，无 CPU �
     identity: { ...identity, schema_sha256: createHash('sha256').update(encoded).digest('hex') }
   })
   rejects(checked, 'schema_unavailable')
-  if (!checked.ok) assert.equal(checked.error.reason, 'bundle_limit')
+  if (!checked.ok) {
+    assert.equal(checked.error.reason, 'bundle_limit')
+  }
   rejects(parseNativeJson(JSON.stringify({ nodes: Array(32).fill(null) }), { object_nodes: 16 }), 'object_limit')
   rejects(parseNativeJson('['.repeat(65) + '0' + ']'.repeat(65)), 'object_limit')
   // 恶意引用/循环/超深链由原矩阵实际编译反例覆盖；不执行可能卡死的正则来冒充 worker 隔离验收。

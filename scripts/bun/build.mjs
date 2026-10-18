@@ -21,7 +21,9 @@ const result = await Bun.build({
   splitting: true,
   sourcemap: 'external'
 })
-if (!result.success) throw new AggregateError(result.logs, 'Bun build failed')
+if (!result.success) {
+  throw new AggregateError(result.logs, 'Bun build failed')
+}
 console.log(
   `Built ${result.outputs.length} ESM files/maps for Bun; foundation, native, wire and integration entrypoints`
 )

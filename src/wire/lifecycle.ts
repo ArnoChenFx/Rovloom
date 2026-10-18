@@ -18,8 +18,9 @@ export function advanceStream(
   context: CodecContext
 ): StreamState {
   const valid = decodeWireObject(Buffer.from(boundedJson(frame, LIMITS.object_bytes)), context)
-  if (!['stream_open', 'stream_data', 'stream_input', 'stream_close'].includes(valid.type))
+  if (!['stream_open', 'stream_data', 'stream_input', 'stream_close'].includes(valid.type)) {
     fail('invalid_stream_transition')
+  }
   const p = valid.payload as Extract<AuthenticatedEnvelope, { type: 'stream_data' }>['payload']
   const binding = {
     machine_id: valid.machine_id,
@@ -29,7 +30,9 @@ export function advanceStream(
   }
 
   if (!state) {
-    if (valid.type !== 'stream_open') fail('stream_not_open')
+    if (valid.type !== 'stream_open') {
+      fail('stream_not_open')
+    }
     return {
       binding,
       stream_id: p.stream_id,
@@ -40,17 +43,26 @@ export function advanceStream(
     }
   }
   assertBinding(binding, state.binding)
-  if (state.stream_id !== p.stream_id || (valid.type !== 'stream_close' && state.feature !== p.feature))
+  if (state.stream_id !== p.stream_id || (valid.type !== 'stream_close' && state.feature !== p.feature)) {
     fail('stream_binding_mismatch')
-  if (state.state === 'closed' || valid.type === 'stream_open') fail('invalid_stream_transition')
-  if (valid.type === 'stream_close') return { ...state, state: 'closed' }
+  }
+  if (state.state === 'closed' || valid.type === 'stream_open') {
+    fail('invalid_stream_transition')
+  }
+  if (valid.type === 'stream_close') {
+    return { ...state, state: 'closed' }
+  }
 
   // 两个方向各自计序；首个合法 data 将流从 opening 推进到 open，之后才接收 input。
   uint(state.next_data_sequence)
   uint(state.next_input_sequence)
   const key = valid.type === 'stream_data' ? 'next_data_sequence' : 'next_input_sequence'
-  if (valid.type === 'stream_input' && state.state !== 'open') fail('stream_not_ready')
-  if (p.sequence !== state[key] || !Number.isSafeInteger(state[key] + 1)) fail('stream_sequence_mismatch')
+  if (valid.type === 'stream_input' && state.state !== 'open') {
+    fail('stream_not_ready')
+  }
+  if (p.sequence !== state[key] || !Number.isSafeInteger(state[key] + 1)) {
+    fail('stream_sequence_mismatch')
+  }
 
   return { ...state, state: 'open', [key]: state[key] + 1 }
 }

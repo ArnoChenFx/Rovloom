@@ -19,8 +19,12 @@ function reject(code: string, reason?: string): never {
 const TOKENS = new Set(['uhp.token.create', 'uhp.token.list', 'uhp.token.revoke'])
 
 function selectClassification(candidate: DispatchCandidate, context: DispatchAuthorization): JsonObject {
-  if (context.classification_source_verified !== true) reject('safety_classification_untrusted')
-  if (!Array.isArray(context.classifications)) reject('safety_classification_missing')
+  if (context.classification_source_verified !== true) {
+    reject('safety_classification_untrusted')
+  }
+  if (!Array.isArray(context.classifications)) {
+    reject('safety_classification_missing')
+  }
   const rows = snapshot(context.classifications) as readonly JsonObject[]
   const selected = rows.filter(
     (row) =>
@@ -29,10 +33,14 @@ function selectClassification(candidate: DispatchCandidate, context: DispatchAut
       row.method === candidate.method &&
       (candidate.kind === 'control' ? row.action === candidate.action : row.action === undefined)
   )
-  if (!selected.length) reject('safety_classification_missing')
+  if (!selected.length) {
+    reject('safety_classification_missing')
+  }
   // 同一请求只能命中一条分类；缺少匹配或多条同时命中都拒绝。
   const matching = selected.filter((row) => {
-    if (row.sub_action === undefined) return true
+    if (row.sub_action === undefined) {
+      return true
+    }
     try {
       const selector = object(row.sub_action)
       return (
@@ -46,8 +54,12 @@ function selectClassification(candidate: DispatchCandidate, context: DispatchAut
       return false
     }
   })
-  if (!matching.length) reject('safety_classification_missing', 'sub_action')
-  if (matching.length !== 1) reject('safety_classification_invalid', 'conflict')
+  if (!matching.length) {
+    reject('safety_classification_missing', 'sub_action')
+  }
+  if (matching.length !== 1) {
+    reject('safety_classification_invalid', 'conflict')
+  }
   return matching[0]!
 }
 
@@ -85,8 +97,9 @@ function classification(candidate: DispatchCandidate, context: DispatchAuthoriza
     !['public', 'potentially_sensitive', 'credential'].includes(result.sensitivity as string) ||
     !['caller_policy', 'none'].includes(result.retention as string) ||
     !['ordinary', 'custody'].includes(result.delivery as string)
-  )
+  ) {
     reject('safety_classification_unknown')
+  }
   // 分类绑定当前契约、原生广告和 revision；原生 read/write 提示不能自行授予安全许可。
   const stored = candidates.get(candidate)!
   if (
@@ -106,8 +119,9 @@ function classification(candidate: DispatchCandidate, context: DispatchAuthoriza
     (native.access === 'read' && row.effect !== 'read') ||
     (native.scope === 'admin' && row.management_permission === null) ||
     (candidate.method === 'module.action.invoke' && row.sub_action === undefined)
-  )
+  ) {
     reject('safety_classification_invalid', 'incomplete_or_conflicting')
+  }
   if (
     (result.boundary === 'protected_secret') !== (result.delivery === 'custody') ||
     (result.sensitivity === 'credential' && result.boundary !== 'protected_secret') ||
@@ -120,18 +134,25 @@ function classification(candidate: DispatchCandidate, context: DispatchAuthoriza
 
 function checkedAuthorization(candidate: DispatchCandidate, input: DispatchAuthorization): DispatchAuthorization {
   const stored = candidates.get(candidate)
-  if (!stored || !views.has(stored.view)) reject('invalid_request_handle')
+  if (!stored || !views.has(stored.view)) {
+    reject('invalid_request_handle')
+  }
   const context = snapshot(input) as unknown as DispatchAuthorization
-  if (!context.source?.authenticated) reject('unauthenticated')
+  if (!context.source?.authenticated) {
+    reject('unauthenticated')
+  }
   const current = verifySource(context.source)
-  if (!equal(current, candidate.binding)) reject('capability_stale')
+  if (!equal(current, candidate.binding)) {
+    reject('capability_stale')
+  }
   if (
     typeof context.principal_id !== 'string' ||
     !context.principal_id.trim() ||
     !Number.isSafeInteger(context.now) ||
     context.now < 0
-  )
+  ) {
     reject('invalid_authorization_context')
+  }
   return context
 }
 
@@ -148,15 +169,17 @@ function checkTransport(
     !context.supported_transports.includes(transport) ||
     (stored.descriptor.transport === 'unclassified' &&
       transport !== (candidate.binding.target.profile === 'host' ? 'host_stdio_proxy' : 'single_request_rpc'))
-  )
+  ) {
     reject('unsupported_transport')
+  }
   if (
     candidate.kind === 'control' &&
     (!stored.stream ||
       !Array.isArray(context.supported_control_actions) ||
       !context.supported_control_actions.includes(candidate.action))
-  )
+  ) {
     reject('unsupported_stream_feature')
+  }
 }
 
 function checkPolicies(candidate: DispatchCandidate, context: DispatchAuthorization, row: SafetyClassification): void {
@@ -164,8 +187,9 @@ function checkPolicies(candidate: DispatchCandidate, context: DispatchAuthorizat
   const capabilities = views.get(stored.view)!.capabilities
   if (capabilities.access !== undefined) {
     const access = object(capabilities.access)
-    if (!Array.isArray(access.allowed_methods) || !access.allowed_methods.includes(candidate.method))
+    if (!Array.isArray(access.allowed_methods) || !access.allowed_methods.includes(candidate.method)) {
       reject('forbidden', 'native_access')
+    }
   }
   for (const policy of [context.caller_policy, context.local_policy]) {
     if (
@@ -179,34 +203,46 @@ function checkPolicies(candidate: DispatchCandidate, context: DispatchAuthorizat
           new Set(items).size !== items.length
         )
       })
-    )
+    ) {
       reject('invalid_authorization_context')
+    }
   }
   if (
     context.supported_control_actions !== undefined &&
     (!Array.isArray(context.supported_control_actions) ||
       !context.supported_control_actions.every((action) => typeof action === 'string'))
-  )
+  ) {
     reject('invalid_authorization_context')
+  }
   try {
     authorize(candidate.binding.target, candidate.method, context.caller_policy, context.local_policy)
   } catch {
     reject('forbidden', 'policy')
   }
-  if (row.requires_owner && context.owner !== true) reject('forbidden', 'owner_required')
-  if (!Array.isArray(context.permissions)) reject('invalid_authorization_context')
-  if (row.management_permission && !context.permissions.includes(row.management_permission))
+  if (row.requires_owner && context.owner !== true) {
+    reject('forbidden', 'owner_required')
+  }
+  if (!Array.isArray(context.permissions)) {
+    reject('invalid_authorization_context')
+  }
+  if (row.management_permission && !context.permissions.includes(row.management_permission)) {
     reject('management_forbidden')
-  if (row.confirmation_required && context.confirmation_verified !== true) reject('confirmation_required')
+  }
+  if (row.confirmation_required && context.confirmation_verified !== true) {
+    reject('confirmation_required')
+  }
 }
 
 function checkSecret(context: DispatchAuthorization, row: SafetyClassification): void {
   if (
     (row.result.boundary === 'protected_secret' && context.result_channel !== 'custody') ||
     (context.result_channel === 'custody' && context.custody_available !== true)
-  )
+  ) {
     reject('secret_boundary_required')
-  if (!['ordinary', 'custody'].includes(context.result_channel)) reject('invalid_authorization_context')
+  }
+  if (!['ordinary', 'custody'].includes(context.result_channel)) {
+    reject('invalid_authorization_context')
+  }
 }
 
 function checkRaw(candidate: DispatchCandidate, context: DispatchAuthorization): void {
@@ -221,8 +257,9 @@ function checkRaw(candidate: DispatchCandidate, context: DispatchAuthorization):
     Object.keys(grant).some(
       (key) => !['id', 'source_verified', 'principal_id', 'binding', 'methods', 'actions', 'expires_at'].includes(key)
     )
-  )
+  ) {
     reject('raw_contract_not_authorized')
+  }
   if (
     grant.principal_id !== context.principal_id ||
     !Array.isArray(grant.methods) ||
@@ -232,8 +269,12 @@ function checkRaw(candidate: DispatchCandidate, context: DispatchAuthorization):
   ) {
     reject('raw_contract_scope_mismatch')
   }
-  if (!Number.isSafeInteger(grant.expires_at) || grant.expires_at <= context.now) reject('raw_contract_grant_expired')
-  if (!equal(grant.binding, candidate.binding)) reject('raw_contract_grant_stale')
+  if (!Number.isSafeInteger(grant.expires_at) || grant.expires_at <= context.now) {
+    reject('raw_contract_grant_expired')
+  }
+  if (!equal(grant.binding, candidate.binding)) {
+    reject('raw_contract_grant_stale')
+  }
 }
 
 export function checkDispatch(candidate: DispatchCandidate, input: DispatchAuthorization): Check<DispatchPermit> {
@@ -245,11 +286,17 @@ export function checkDispatch(candidate: DispatchCandidate, input: DispatchAutho
     checkSecret(context, row)
     // raw 只放宽参数 schema 覆盖要求；前面的分类、传输、策略和秘密边界仍须全部通过。
     if (context.mode === 'strict') {
-      if (candidate.validation === 'generic') reject('parameter_schema_incomplete')
-      if (candidate.validation === 'unavailable') reject('schema_unavailable')
+      if (candidate.validation === 'generic') {
+        reject('parameter_schema_incomplete')
+      }
+      if (candidate.validation === 'unavailable') {
+        reject('schema_unavailable')
+      }
     } else if (context.mode === 'raw_contract') {
       checkRaw(candidate, context)
-    } else reject('invalid_execution_mode')
+    } else {
+      reject('invalid_execution_mode')
+    }
     const permit: DispatchPermit = Object.freeze({
       kind: 'permit',
       binding: candidate.binding,
@@ -280,9 +327,13 @@ export function inspectRequestGate(
     try {
       row = classification(candidate, context)
     } catch (error) {
-      if (!(error instanceof ContractFault)) throw error
+      if (!(error instanceof ContractFault)) {
+        throw error
+      }
       const status = error.failure.code.replace('safety_classification_', '')
-      if (!['missing', 'unknown', 'invalid', 'untrusted'].includes(status)) throw error
+      if (!['missing', 'unknown', 'invalid', 'untrusted'].includes(status)) {
+        throw error
+      }
       classification_status = status as NativeRequestGate['classification_status']
     }
     return Object.freeze({
@@ -307,20 +358,32 @@ export function inspectRequestGate(
 export function checkResultBoundary(permit: DispatchPermit, input: ResultAuthorization): Check<void> {
   return attempt('result', () => {
     const stored = permits.get(permit)
-    if (!stored) reject('invalid_permit_handle')
+    if (!stored) {
+      reject('invalid_permit_handle')
+    }
     const context = snapshot(input) as unknown as ResultAuthorization
-    if (context.classification_source_verified !== true) reject('safety_classification_untrusted')
-    if (context.classification_revision !== stored.classification.revision) reject('capability_stale')
+    if (context.classification_source_verified !== true) {
+      reject('safety_classification_untrusted')
+    }
+    if (context.classification_revision !== stored.classification.revision) {
+      reject('capability_stale')
+    }
     if (
       stored.principal !== context.principal_id ||
       context.caller_policy_allowed !== true ||
       context.local_policy_allowed !== true
-    )
+    ) {
       reject('forbidden')
-    if (stored.classification.result.boundary === 'protected_secret' && context.channel !== 'custody')
+    }
+    if (stored.classification.result.boundary === 'protected_secret' && context.channel !== 'custody') {
       reject('secret_boundary_required')
-    if (!['ordinary', 'custody'].includes(context.channel)) reject('invalid_authorization_context')
-    if (context.content_status !== 'available') reject('content_unavailable')
+    }
+    if (!['ordinary', 'custody'].includes(context.channel)) {
+      reject('invalid_authorization_context')
+    }
+    if (context.content_status !== 'available') {
+      reject('content_unavailable')
+    }
   })
 }
 
@@ -328,10 +391,14 @@ export function checkResultBoundary(permit: DispatchPermit, input: ResultAuthori
 export function checkResultRetention(permit: DispatchPermit, input: DispatchAuthorization): Check<void> {
   return attempt('result', () => {
     const stored = permits.get(permit)
-    if (!stored) reject('invalid_permit_handle')
+    if (!stored) {
+      reject('invalid_permit_handle')
+    }
     const context = checkedAuthorization(stored.candidate, input)
     const current = classification(stored.candidate, context)
-    if (stored.principal !== context.principal_id) reject('forbidden')
+    if (stored.principal !== context.principal_id) {
+      reject('forbidden')
+    }
     if (stored.classification.result.retention !== 'caller_policy' || current.result.retention !== 'caller_policy') {
       reject('content_retention_forbidden')
     }

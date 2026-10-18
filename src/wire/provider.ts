@@ -21,7 +21,9 @@ export function validateTarget(value: unknown): asserts value is V2Target {
   )
   id(t.machine_id)
   id(t.provider_id)
-  if (t.profile === 'session') text(t.session, 256)
+  if (t.profile === 'session') {
+    text(t.session, 256)
+  }
 }
 
 export function validateProvider(value: unknown): asserts value is ProviderBinding {
@@ -32,7 +34,9 @@ export function validateProvider(value: unknown): asserts value is ProviderBindi
   text(b.config_ref, 256)
   uint(b.binding_revision, true)
   oneOf(b.kind, ['luvus', 'herdr'])
-  if (typeof b.enabled !== 'boolean') fail('invalid_provider_binding')
+  if (typeof b.enabled !== 'boolean') {
+    fail('invalid_provider_binding')
+  }
 }
 
 export function validateContractSource(value: unknown): asserts value is ContractSource {
@@ -62,14 +66,17 @@ export function validateContractSource(value: unknown): asserts value is Contrac
   sha(c.schema_sha256)
   text(c.adapter_revision, 256)
   for (const k of ['server_version', 'native_protocol_version', 'runtime_generation', 'classification_revision']) {
-    if (c[k] !== null) text(c[k], 256)
+    if (c[k] !== null) {
+      text(c[k], 256)
+    }
   }
   if (
     (c.provider_kind === 'luvus' && (c.protocol_family !== 'uhp' || c.schema_command !== 'luvus uhp schema')) ||
     (c.provider_kind === 'herdr' &&
       (c.protocol_family !== 'herdr-json' || c.schema_command !== 'herdr api schema --json'))
-  )
+  ) {
     fail('contract_provider_mismatch')
+  }
 }
 
 export function contractRef(source: ContractSource): string {
@@ -80,32 +87,48 @@ export function contractRef(source: ContractSource): string {
 export function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext): ProviderBinding {
   // 消息中的 kind/revision 只参与核对；实例及契约必须从受信 registry 独立解析。
   const b = ctx.resolveProvider?.(binding.target)
-  if (!b) fail('provider_binding_unavailable')
+  if (!b) {
+    fail('provider_binding_unavailable')
+  }
   validateProvider(b)
-  if (b.machine_id !== binding.machine_id || b.provider_id !== binding.target.provider_id)
+  if (b.machine_id !== binding.machine_id || b.provider_id !== binding.target.provider_id) {
     fail('provider_binding_mismatch')
-  if (!b.enabled) fail('provider_disabled')
-  if (b.kind !== binding.provider_kind || b.binding_revision !== binding.binding_revision)
+  }
+  if (!b.enabled) {
+    fail('provider_disabled')
+  }
+  if (b.kind !== binding.provider_kind || b.binding_revision !== binding.binding_revision) {
     fail('provider_binding_mismatch')
-  if (b.kind === 'herdr' && binding.target.profile === 'host') fail('unsupported_profile')
+  }
+  if (b.kind === 'herdr' && binding.target.profile === 'host') {
+    fail('unsupported_profile')
+  }
   const c = ctx.resolveContract?.(binding.contract_ref)
-  if (!c) fail('contract_unavailable')
+  if (!c) {
+    fail('contract_unavailable')
+  }
   fields(object(c), ['source', 'support_status'])
   validateContractSource(c.source)
   oneOf(c.support_status, ['candidate', 'validated'])
-  if (contractRef(c.source) !== binding.contract_ref || c.source.provider_kind !== b.kind)
+  if (contractRef(c.source) !== binding.contract_ref || c.source.provider_kind !== b.kind) {
     fail('contract_binding_mismatch')
+  }
   // Herdr 还没有本项目 P0；不能由测试/广告/存在 schema 把 candidate 提升为实际支持。
-  if (b.kind === 'herdr' || c.support_status !== 'validated') fail('provider_support_candidate')
-  if (c.source.classification_revision === null || c.source.support_basis !== 'live_catalog')
+  if (b.kind === 'herdr' || c.support_status !== 'validated') {
+    fail('provider_support_candidate')
+  }
+  if (c.source.classification_revision === null || c.source.support_basis !== 'live_catalog') {
     fail('contract_unavailable')
+  }
   return b
 }
 
 export function validatorFor(binding: AttemptBinding, ctx: AuthenticatedContext): NativePayloadValidator {
   const provider = providerFor(binding, ctx)
   const validator = ctx.validators?.[provider.kind]
-  if (!validator) fail('native_validator_unavailable')
+  if (!validator) {
+    fail('native_validator_unavailable')
+  }
   return validator
 }
 
@@ -115,7 +138,9 @@ export function validatePolicies(policies: ProviderPolicies): void {
   for (const side of [policies.caller, policies.local]) {
     fields(object(side), ['revision', 'grants'])
     id(side.revision)
-    if (!Array.isArray(side.grants) || side.grants.length > 4096) fail('invalid_provider_policy')
+    if (!Array.isArray(side.grants) || side.grants.length > 4096) {
+      fail('invalid_provider_policy')
+    }
     for (const grant of side.grants) {
       fields(object(grant), ['target', 'methods', 'actions'])
       validateTarget(grant.target)
@@ -126,8 +151,9 @@ export function validatePolicies(policies: ProviderPolicies): void {
         grant.actions.length > 4 ||
         new Set(grant.methods).size !== grant.methods.length ||
         new Set(grant.actions).size !== grant.actions.length
-      )
+      ) {
         fail('invalid_provider_policy')
+      }
       grant.methods.forEach((m) => text(m, 256))
       grant.actions.forEach((a) => oneOf(a, ['dispatch', 'read', 'stream_input', 'cancel']))
     }
@@ -140,7 +166,9 @@ export function providerScopeAllowed(
   action: ProviderAction,
   policies?: ProviderPolicies
 ): boolean {
-  if (!policies) return false
+  if (!policies) {
+    return false
+  }
   validatePolicies(policies)
   const target = boundedJson(binding.target)
   // 每一端都须有一条完整匹配的 grant；不能拼接不同目标或不同 grant 的权限。
@@ -158,5 +186,7 @@ export function assertProviderAccess(
   ctx: AuthenticatedContext
 ): void {
   providerFor(binding, ctx)
-  if (!providerScopeAllowed(binding, method, action, ctx.policies)) fail('provider_scope_forbidden')
+  if (!providerScopeAllowed(binding, method, action, ctx.policies)) {
+    fail('provider_scope_forbidden')
+  }
 }

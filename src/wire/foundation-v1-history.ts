@@ -25,7 +25,9 @@ export type Envelope = {
 }[keyof Payloads]
 
 function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GatewayError('invalid_frame')
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayError('invalid_frame')
+  }
   return value as Record<string, unknown>
 }
 function fields(value: Record<string, unknown>, keys: string[]): void {
@@ -34,12 +36,16 @@ function fields(value: Record<string, unknown>, keys: string[]): void {
   }
 }
 function identifier(value: unknown): void {
-  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(value)) throw new GatewayError('invalid_frame_id')
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(value)) {
+    throw new GatewayError('invalid_frame_id')
+  }
 }
 
 // 只解析认证完成后的业务帧；配对和认证握手不得混入本边界。
 function decodeFrame(input: string, expectedEpoch: string): Envelope {
-  if (typeof input !== 'string' || Buffer.byteLength(input) > MAX_FRAME_BYTES) throw new GatewayError('frame_limit')
+  if (typeof input !== 'string' || Buffer.byteLength(input) > MAX_FRAME_BYTES) {
+    throw new GatewayError('frame_limit')
+  }
   let decoded: unknown
   try {
     decoded = JSON.parse(input)
@@ -54,12 +60,15 @@ function decodeFrame(input: string, expectedEpoch: string): Envelope {
   }
   identifier(frame.message_id)
   identifier(frame.connection_epoch)
-  if (frame.connection_epoch !== expectedEpoch) throw new GatewayError('stale_epoch')
+  if (frame.connection_epoch !== expectedEpoch) {
+    throw new GatewayError('stale_epoch')
+  }
   const payload = object(frame.payload)
   if (frame.type === 'heartbeat') {
     fields(payload, ['sequence'])
-    if (!Number.isSafeInteger(payload.sequence) || (payload.sequence as number) < 0)
+    if (!Number.isSafeInteger(payload.sequence) || (payload.sequence as number) < 0) {
       throw new GatewayError('invalid_sequence')
+    }
   } else {
     identifier(payload.call_id)
     identifier(payload.attempt_id)
@@ -74,16 +83,18 @@ function decodeFrame(input: string, expectedEpoch: string): Envelope {
         fields(target, target.profile === 'host' ? ['machine_id', 'profile'] : ['machine_id', 'profile', 'session'])
         validateTarget(target as Target)
         validateRequest(object(payload.request) as NativeRequest)
-        if (!Number.isSafeInteger(payload.deadline) || (payload.deadline as number) <= 0)
+        if (!Number.isSafeInteger(payload.deadline) || (payload.deadline as number) <= 0) {
           throw new GatewayError('invalid_deadline')
+        }
         break
       }
       case 'response': {
         fields(payload, ['call_id', 'attempt_id', 'uhp_response'])
         const response = object(payload.uhp_response)
         // 不改写原生错误和扩展字段，也不把网关错误伪造成原生响应。
-        if (Object.hasOwn(response, 'result') === Object.hasOwn(response, 'error'))
+        if (Object.hasOwn(response, 'result') === Object.hasOwn(response, 'error')) {
           throw new GatewayError('invalid_native_response')
+        }
         break
       }
       default:

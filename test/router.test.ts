@@ -28,7 +28,9 @@ test('bounded canonical JSON rejects cycles, sparse arrays, getters, excessive d
     assert.throws(() => canonical(value), /invalid_json|json_limit/)
   }
   let deep: unknown = null
-  for (let i = 0; i < 66; i++) deep = { deep }
+  for (let i = 0; i < 66; i++) {
+    deep = { deep }
+  }
   assert.throws(() => canonical(deep), /json_limit/)
   const shared = { a: 1 }
   assert.equal(canonical([shared, shared]), '[{"a":1},{"a":1}]')

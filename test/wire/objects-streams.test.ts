@@ -24,14 +24,16 @@ import {
 } from './helpers.js'
 
 test('真实 P0 bundle 跨多个分片重组，bundle 限额独立于 message 与普通对象', () => {
-  const ctx = context('connector_to_gateway'),
-    chunks = fragmentObject(bundle, 'schema_bundle', 'schema_1', ctx)
+  const ctx = context('connector_to_gateway')
+  const chunks = fragmentObject(bundle, 'schema_bundle', 'schema_1', ctx)
   assert(chunks.length >= 2)
   const assembler = new ObjectAssembler()
   assert.equal(assembler.push(chunks[0]!, ctx, 100), undefined)
   assert.equal(assembler.push(chunks[0]!, ctx, 101), undefined)
   let result: ReturnType<ObjectAssembler['push']>
-  for (const chunk of chunks.slice(1)) result = assembler.push(chunk, ctx, 102)
+  for (const chunk of chunks.slice(1)) {
+    result = assembler.push(chunk, ctx, 102)
+  }
   assert.deepEqual(result!, { kind: 'schema_bundle', bundle })
   assert.equal(assembler.activeTransfers, 0)
   assert.equal(assembler.bufferedBytes, 0)
@@ -59,10 +61,12 @@ test('超过 frame 限额的完整 response 走有界对象，重组后再次执
     }
   }
   rejects(() => encodeWireFrame(big, ctx), 'json_size_limit')
-  const chunks = fragmentObject(big, 'envelope', 'large_1', ctx),
-    assembler = new ObjectAssembler()
+  const chunks = fragmentObject(big, 'envelope', 'large_1', ctx)
+  const assembler = new ObjectAssembler()
   let result: ReturnType<ObjectAssembler['push']>
-  for (const chunk of chunks) result = assembler.push(chunk, ctx, 1)
+  for (const chunk of chunks) {
+    result = assembler.push(chunk, ctx, 1)
+  }
   assert.deepEqual(result!, { kind: 'envelope', envelope: big })
   const oversized = {
     ...big,
@@ -83,22 +87,22 @@ test('超过 frame 限额的完整 response 走有界对象，重组后再次执
     }
   }
   // 即便直接构造正确 checksum 的分片，重组后的原生根字段也不能绕过校验。
-  const raw = boundedJson(invalid),
-    handcrafted = frame('object_chunk', {
-      object_id: 'invalid_1',
-      kind: 'envelope',
-      total_bytes: Buffer.byteLength(raw),
-      sha256: hash(raw),
-      chunk_count: 1,
-      index: 0,
-      data: Buffer.from(raw).toString('base64')
-    })
+  const raw = boundedJson(invalid)
+  const handcrafted = frame('object_chunk', {
+    object_id: 'invalid_1',
+    kind: 'envelope',
+    total_bytes: Buffer.byteLength(raw),
+    sha256: hash(raw),
+    chunk_count: 1,
+    index: 0,
+    data: Buffer.from(raw).toString('base64')
+  })
   rejects(() => new ObjectAssembler().push(handcrafted, ctx, 0), 'native_response_invalid')
 })
 
 test('分片拒绝错序、冲突、checksum、超时、错误关联与容量洪泛', () => {
-  const ctx = context('connector_to_gateway'),
-    chunks = fragmentObject(bundle, 'schema_bundle', 'schema_1', ctx)
+  const ctx = context('connector_to_gateway')
+  const chunks = fragmentObject(bundle, 'schema_bundle', 'schema_1', ctx)
   const assembler = new ObjectAssembler()
   rejects(() => assembler.push(chunks[1]!, ctx, 0), 'chunk_out_of_order')
   assembler.push(chunks[0]!, ctx, 0)
@@ -117,7 +121,9 @@ test('分片拒绝错序、冲突、checksum、超时、错误关联与容量洪
     payload: { ...c.payload, sha256: 'b'.repeat(64) }
   }))
   const check = new ObjectAssembler()
-  for (const c of checksum.slice(0, -1)) check.push(c, ctx, 0)
+  for (const c of checksum.slice(0, -1)) {
+    check.push(c, ctx, 0)
+  }
   rejects(() => check.push(checksum.at(-1)!, ctx, 0), 'object_checksum')
   const timeout = new ObjectAssembler()
   timeout.push(chunks[0]!, ctx, 100)
@@ -137,8 +143,9 @@ test('分片拒绝错序、冲突、checksum、超时、错误关联与容量洪
     'object_limit'
   )
   const capacity = new ObjectAssembler()
-  for (let i = 0; i < LIMITS.transfers; i++)
+  for (let i = 0; i < LIMITS.transfers; i++) {
     capacity.push(fragmentObject(bundle, 'schema_bundle', `capacity_${i}`, ctx)[0]!, ctx, 0)
+  }
   rejects(
     () => capacity.push(fragmentObject(bundle, 'schema_bundle', 'capacity_full', ctx)[0]!, ctx, 0),
     'object_capacity'
@@ -223,7 +230,7 @@ test('stream open/data/input/close 正向使用原生 P0 终端帧，外层序�
     const bad = structuredClone(f) as any
     delete bad.payload.stream_id
     rejects(() => decodeWireFrame(JSON.stringify(bad), ctx), 'invalid_frame_fields')
-    if (f.type !== 'stream_close')
+    if (f.type !== 'stream_close') {
       rejects(
         () =>
           encodeWireFrame(
@@ -232,6 +239,7 @@ test('stream open/data/input/close 正向使用原生 P0 终端帧，外层序�
           ),
         'wrong_direction'
       )
+    }
   }
   const checked = streamContext()
   const savedGate = checked.validators!.luvus!.requestGate
@@ -318,11 +326,11 @@ test('未知能力/原生流帧、只读流输入、缺 validator 与流关联�
   )
   const validInput = { ...input, payload: { ...input.payload, frame: terminalInput } }
   const perFrame = streamContext()
-  let controls = 0,
-    gates = 0
+  let controls = 0
+  let gates = 0
   const actions: unknown[] = []
-  const validator = perFrame.validators!.luvus!,
-    control = validator.validateStreamFrame!
+  const validator = perFrame.validators!.luvus!
+  const control = validator.validateStreamFrame!
   validator.validateStreamFrame = (r, c) => {
     controls++
     control(r, c)

@@ -40,7 +40,9 @@ test('results enforce ownership, policy, quota, TTL and byte-perfect pagination'
       const page = r.readResult(p, meta.result_id, cursor, 7)
       chunks.push(Buffer.from(page.data, 'base64'))
       cursor = page.next_cursor
-      if (page.eof) break
+      if (page.eof) {
+        break
+      }
     }
     assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString('utf8')), native)
     assert.throws(() => r.readResult({ ...p, id: 'bob' }, meta.result_id), /call_not_found/)

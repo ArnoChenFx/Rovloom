@@ -189,17 +189,18 @@ test('v2 基础帧往返，完整原生错误 data 保留，所有帧有缺字�
     frame('error', { source: 'gateway', code: 'forbidden', retryable: false })
   ]
   for (const f of fixtures) {
-    const c2g = ['accepted', 'response'].includes(f.type),
-      ctx = context(c2g ? 'connector_to_gateway' : 'gateway_to_connector')
+    const c2g = ['accepted', 'response'].includes(f.type)
+    const ctx = context(c2g ? 'connector_to_gateway' : 'gateway_to_connector')
     assert.deepEqual(decodeWireFrame(encodeWireFrame(f, ctx), ctx), f)
     const bad = structuredClone(f) as any
     delete bad.payload[Object.keys(bad.payload)[0]!]
     rejects(() => decodeWireFrame(JSON.stringify(bad), ctx), 'invalid_frame_fields')
-    if (!['heartbeat', 'error'].includes(f.type))
+    if (!['heartbeat', 'error'].includes(f.type)) {
       rejects(
         () => decodeWireFrame(JSON.stringify(f), context(c2g ? 'gateway_to_connector' : 'connector_to_gateway')),
         'wrong_direction'
       )
+    }
   }
   const err = {
     ...response,
@@ -229,11 +230,12 @@ test('v2 基础帧往返，完整原生错误 data 保留，所有帧有缺字�
 })
 
 test('连接、provider、revision、契约、登记 deadline/history/policy 与原生 ID 核对独立锚点', () => {
-  for (const key of ['machine_id', 'recovery_generation', 'connection_epoch'] as const)
+  for (const key of ['machine_id', 'recovery_generation', 'connection_epoch'] as const) {
     rejects(
       () => decode({ ...response, [key]: 'wrong' }, context('connector_to_gateway')),
       'connection_binding_mismatch'
     )
+  }
   for (const [key, value] of [
     ['call_id', 'wrong'],
     ['attempt_id', 'wrong'],
@@ -241,7 +243,7 @@ test('连接、provider、revision、契约、登记 deadline/history/policy 与
     ['binding_revision', 2],
     ['provider_kind', 'herdr'],
     ['contract_ref', 'b'.repeat(64)]
-  ] as const)
+  ] as const) {
     rejects(
       () =>
         decode(
@@ -250,10 +252,11 @@ test('连接、provider、revision、契约、登记 deadline/history/policy 与
         ),
       'attempt_binding_mismatch'
     )
+  }
   for (const [key, value] of [
     ['provider_id', 'other'],
     ['session', 'other']
-  ] as const)
+  ] as const) {
     rejects(
       () =>
         decode(
@@ -268,12 +271,13 @@ test('连接、provider、revision、契约、登记 deadline/history/policy 与
         ),
       'attempt_binding_mismatch'
     )
+  }
   for (const [key, value] of [
     ['deadline', 2000],
     ['history', { history_epoch: 'other', client_request_key: 'key_1' }],
     ['caller_policy_revision', 'other'],
     ['local_policy_revision', 'other']
-  ] as const)
+  ] as const) {
     rejects(
       () =>
         decode(
@@ -288,6 +292,7 @@ test('连接、provider、revision、契约、登记 deadline/history/policy 与
         ),
       'attempt_binding_mismatch'
     )
+  }
   rejects(
     () => decode(response, { ...context('connector_to_gateway'), resolveAttempt: undefined }),
     'attempt_anchor_unavailable'
@@ -313,8 +318,8 @@ test('连接、provider、revision、契约、登记 deadline/history/policy 与
 test('真实 P0 完整 UHP request 注入可信 ID；response 依赖原 handle/source 与完整离线 schema', () => {
   let checked = 0
   for (const row of transcript.filter((r) => r.kind === 'process' && r.stdin && r.stdout)) {
-    const req = JSON.parse(row.stdin.split('\n')[0]),
-      res = JSON.parse(row.stdout.split('\n')[0])
+    const req = JSON.parse(row.stdin.split('\n')[0])
+    const res = JSON.parse(row.stdout.split('\n')[0])
     const a = {
       ...attempt,
       native_request_id: req.id,
@@ -348,7 +353,7 @@ test('真实 P0 完整 UHP request 注入可信 ID；response 依赖原 handle/s
     { method: 'uhp.capabilities', params: { unannounced: true } },
     { method: 'agent.prompt', params: { target: '1', text: 'synthetic', until: 'done' } },
     { method: 'ping' }
-  ])
+  ]) {
     rejects(
       () =>
         decode(
@@ -357,11 +362,12 @@ test('真实 P0 完整 UHP request 注入可信 ID；response 依赖原 handle/s
         ),
       'native_request_invalid'
     )
+  }
   for (const bad of [
     { id: attempt.native_request_id },
     { id: attempt.native_request_id, result: {}, extra: true },
     { id: attempt.native_request_id, error: { code: 'internal' } }
-  ])
+  ]) {
     rejects(
       () =>
         decode(
@@ -370,7 +376,8 @@ test('真实 P0 完整 UHP request 注入可信 ID；response 依赖原 handle/s
         ),
       'native_response_invalid'
     )
-  for (const field of ['id', 'auth'])
+  }
+  for (const field of ['id', 'auth']) {
     rejects(
       () =>
         decode({
@@ -382,6 +389,7 @@ test('真实 P0 完整 UHP request 注入可信 ID；response 依赖原 handle/s
         }),
       'reserved_request_field'
     )
+  }
   assert.throws(() => ajv.compile({ $ref: 'https://untrusted.invalid/no-network.json' }), /resolve reference/)
 })
 
@@ -396,11 +404,12 @@ test('分类与 generic/schema 状态独立；raw 需原登记 mode 和独立授
     rejects(() => decode(request, context('gateway_to_connector', validator)), 'classification_unavailable')
     rejects(() => decode(raw, rawContext(validator)), 'classification_unavailable')
   }
-  for (const schema_status of ['generic', 'unavailable'] as const)
+  for (const schema_status of ['generic', 'unavailable'] as const) {
     rejects(
       () => decode(request, context('gateway_to_connector', fixtureValidator({ ...allowedGate, schema_status }))),
       schema_status === 'generic' ? 'parameter_schema_incomplete' : 'parameter_schema_unavailable'
     )
+  }
   rejects(() => decode(raw, rawContext()), 'raw_contract_forbidden')
   rejects(() => decode(raw), 'attempt_binding_mismatch')
   const rawGate = {
@@ -409,8 +418,9 @@ test('分类与 generic/schema 状态独立；raw 需原登记 mode 和独立授
     raw_contract_authorized: true
   }
   assert.deepEqual(decode(raw, rawContext(fixtureValidator(rawGate))), raw)
-  for (const part of [{ authorized: false }, { secret_result_authorized: false }])
+  for (const part of [{ authorized: false }, { secret_result_authorized: false }]) {
     rejects(() => decode(raw, rawContext(fixtureValidator({ ...rawGate, ...part }))), 'forbidden')
+  }
   rejects(
     () => decode(raw, rawContext(fixtureValidator({ ...rawGate, transport_status: 'unsupported' }))),
     'unsupported_transport'
@@ -459,13 +469,18 @@ test('分类与 generic/schema 状态独立；raw 需原登记 mode 和独立授
 
 test('UTF-8/JSON/Unicode、精确大小/深度/节点与 ID 边界保持有界', () => {
   rejects(() => decodeWireFrame(new Uint8Array([0xc3, 0x28]), context()), 'invalid_utf8')
-  for (const raw of ['{', '{}\n{}', '\uFEFF{}', 'null', '[]'])
+  for (const raw of ['{', '{}\n{}', '\uFEFF{}', 'null', '[]']) {
     assert.throws(() => decodeWireFrame(raw, context()), WireError)
+  }
   rejects(() => decodeWireFrame('x'.repeat(LIMITS.frame_bytes + 1), context()), 'frame_limit')
-  for (const message_id of ['', 'a'.repeat(129)]) rejects(() => decode({ ...request, message_id }), 'invalid_frame_id')
+  for (const message_id of ['', 'a'.repeat(129)]) {
+    rejects(() => decode({ ...request, message_id }), 'invalid_frame_id')
+  }
   assert.doesNotThrow(() => decode({ ...request, message_id: 'a'.repeat(128) }))
   let boundary: unknown = 0
-  for (let i = 0; i < LIMITS.depth; i++) boundary = [boundary]
+  for (let i = 0; i < LIMITS.depth; i++) {
+    boundary = [boundary]
+  }
   assert.doesNotThrow(() => boundedJson(boundary))
   rejects(() => boundedJson([boundary]), 'json_depth_limit')
   assert.doesNotThrow(() => boundedJson(Array.from({ length: LIMITS.nodes - 1 }, () => null)))
@@ -488,7 +503,7 @@ test('UTF-8/JSON/Unicode、精确大小/深度/节点与 ID 边界保持有界',
   // Intentionally sparse: Array.from would fill the holes and change this negative input.
   // oxlint-disable-next-line unicorn/no-new-array
   rejects(() => boundedJson(new Array(3)), 'invalid_json')
-  const heartbeat = frame('heartbeat', { sequence: 0 }),
-    raw = JSON.stringify(heartbeat)
+  const heartbeat = frame('heartbeat', { sequence: 0 })
+  const raw = JSON.stringify(heartbeat)
   assert.deepEqual(decodeWireFrame(raw + ' '.repeat(LIMITS.frame_bytes - Buffer.byteLength(raw)), context()), heartbeat)
 })

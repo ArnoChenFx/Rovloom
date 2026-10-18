@@ -10,10 +10,14 @@ export function registeredRequestDigest(payload: RequestPayload, callerId: strin
   validateAttempt(p.attempt)
   uint(p.expected_binding_revision, true)
   oneOf(p.validation, ['strict', 'raw-contract'])
-  if (p.expected_binding_revision !== p.attempt.binding_revision) fail('provider_binding_mismatch')
+  if (p.expected_binding_revision !== p.attempt.binding_revision) {
+    fail('provider_binding_mismatch')
+  }
   const r = object(p.native_request)
   text(r.method, 256)
-  if (Object.hasOwn(r, 'id') || Object.hasOwn(r, 'auth')) fail('reserved_request_field')
+  if (Object.hasOwn(r, 'id') || Object.hasOwn(r, 'auth')) {
+    fail('reserved_request_field')
+  }
   return hash(
     boundedJson({
       wire_major: 2,
@@ -68,11 +72,14 @@ export function planHistoryAdmission(
   id(generation)
   sha(requestDigest)
   uint(now)
-  if (!scope) fail('dedup_history_unavailable')
+  if (!scope) {
+    fail('dedup_history_unavailable')
+  }
   id(scope.history_epoch)
   id(scope.recovery_generation)
-  if (scope.history_epoch !== reference.history_epoch || scope.recovery_generation !== generation)
+  if (scope.history_epoch !== reference.history_epoch || scope.recovery_generation !== generation) {
     fail('dedup_history_unavailable')
+  }
   uint(scope.scope_created_at)
   uint(scope.accept_new_until, true)
   uint(scope.frozen_dedup_ttl, true)
@@ -81,9 +88,12 @@ export function planHistoryAdmission(
     scope.accept_new_until <= scope.scope_created_at ||
     !Number.isSafeInteger(scope.scope_created_at + scope.frozen_dedup_ttl) ||
     scope.accept_new_until > scope.scope_created_at + scope.frozen_dedup_ttl
-  )
+  ) {
     fail('invalid_history_scope')
-  if (now < scope.scope_created_at) fail('clock_untrusted')
+  }
+  if (now < scope.scope_created_at) {
+    fail('clock_untrusted')
+  }
 
   // 退役范围仍可查询有效墓碑；只有缺 key 的新登记才受 active/accept_new_until 限制。
   if (record) {
@@ -96,22 +106,34 @@ export function planHistoryAdmission(
       record.history_epoch !== reference.history_epoch ||
       record.recovery_generation !== generation ||
       record.key_digest !== hash(reference.client_request_key)
-    )
+    ) {
       fail('history_record_mismatch')
+    }
     if (
       record.call_created_at < scope.scope_created_at ||
       record.call_created_at >= scope.accept_new_until ||
       record.dedup_expires_at !== record.call_created_at + scope.frozen_dedup_ttl
-    )
+    ) {
       fail('invalid_history_record')
-    if (now < record.call_created_at) fail('clock_untrusted')
-    if (now >= record.dedup_expires_at) fail('dedup_history_unavailable')
-    if (record.request_digest !== requestDigest) fail('request_key_conflict')
+    }
+    if (now < record.call_created_at) {
+      fail('clock_untrusted')
+    }
+    if (now >= record.dedup_expires_at) {
+      fail('dedup_history_unavailable')
+    }
+    if (record.request_digest !== requestDigest) {
+      fail('request_key_conflict')
+    }
     return { action: 'return_existing', call_id: record.call_id }
   }
 
-  if (scope.status !== 'active' || now >= scope.accept_new_until) fail('dedup_history_unavailable')
+  if (scope.status !== 'active' || now >= scope.accept_new_until) {
+    fail('dedup_history_unavailable')
+  }
   const dedup_expires_at = now + scope.frozen_dedup_ttl
-  if (!Number.isSafeInteger(dedup_expires_at)) fail('invalid_history_scope')
+  if (!Number.isSafeInteger(dedup_expires_at)) {
+    fail('invalid_history_scope')
+  }
   return { action: 'register_new', dedup_expires_at }
 }

@@ -32,8 +32,12 @@ export const ajv = new Ajv2020({
   useDefaults: false,
   removeAdditional: false
 })
-for (const [url, schema] of Object.entries(bundle.documents)) ajv.addSchema(schema as AnySchema, url)
-for (const url of Object.keys(bundle.documents)) assert(ajv.getSchema(url))
+for (const [url, schema] of Object.entries(bundle.documents)) {
+  ajv.addSchema(schema as AnySchema, url)
+}
+for (const url of Object.keys(bundle.documents)) {
+  assert(ajv.getSchema(url))
+}
 export const nativeRequest = ajv.getSchema(bundle.request.$id)!
 export const nativeResponse = ajv.getSchema(bundle.response.$id)!
 export const nativeControl = ajv.getSchema(bundle.terminal.control_frame.$id)!
@@ -59,13 +63,20 @@ export function fixtureValidator(gate: RequestGate = allowedGate): NativePayload
   return {
     requestGate: () => ({ ...gate }),
     validateRequest(r) {
-      if (!nativeRequest(r)) throw new WireError('native_request_invalid')
+      if (!nativeRequest(r)) {
+        throw new WireError('native_request_invalid')
+      }
     },
     validateResponse(r, c) {
-      if (c.native_handle !== nativeHandle || c.trusted_source !== trustedSource)
+      if (c.native_handle !== nativeHandle || c.trusted_source !== trustedSource) {
         throw new WireError('native_handle_mismatch')
-      if (r.id !== c.binding.native_request_id) throw new WireError('native_id_mismatch')
-      if (!nativeResponse(r)) throw new WireError('native_response_invalid')
+      }
+      if (r.id !== c.binding.native_request_id) {
+        throw new WireError('native_id_mismatch')
+      }
+      if (!nativeResponse(r)) {
+        throw new WireError('native_response_invalid')
+      }
     },
     checkDispatch() {},
     validateStreamFrame(r, context) {
@@ -77,7 +88,9 @@ export function fixtureValidator(gate: RequestGate = allowedGate): NativePayload
             : r.event === 'terminal.frame'
               ? terminalEvent(r)
               : nativeEvent(r) && catalog.get(r.event as string)?.(r.data)
-      if (!valid) throw new WireError('native_stream_frame_invalid')
+      if (!valid) {
+        throw new WireError('native_stream_frame_invalid')
+      }
     }
   }
 }

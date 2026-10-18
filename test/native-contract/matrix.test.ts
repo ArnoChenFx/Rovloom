@@ -26,13 +26,16 @@ const matrix: any = JSON.parse(
 )
 const seeds = new Map<string, any>()
 function pointer(value: any, path: string): any {
-  for (const piece of path.split('/').slice(1)) value = value[piece.replace(/~1/g, '/').replace(/~0/g, '~')]
+  for (const piece of path.split('/').slice(1)) {
+    value = value[piece.replace(/~1/g, '/').replace(/~0/g, '~')]
+  }
   return value
 }
 for (const [name, spec] of Object.entries(matrix.seeds) as [string, any][]) {
   let value: any
-  if ('value' in spec) value = spec.value
-  else {
+  if ('value' in spec) {
+    value = spec.value
+  } else {
     assert(spec.artifact.startsWith('fixtures/p0/linux-luvus-0.14.3/'))
     value = json(spec.artifact.split('/').at(-1))
     if (spec.select) {
@@ -60,25 +63,33 @@ function specimen(c: any): any {
       .replace(/~1/g, '/')
       .replace(/~0/g, '~')
     if (change.op === 'remove') {
-      if (Array.isArray(parent)) parent.splice(Number(key), 1)
-      else delete parent[key]
-    } else parent[key] = clone(change.value)
+      if (Array.isArray(parent)) {
+        parent.splice(Number(key), 1)
+      } else {
+        delete parent[key]
+      }
+    } else {
+      parent[key] = clone(change.value)
+    }
   }
   return value
 }
 function assertCase(c: any, result: any): void {
   assert.equal(result.ok, c.expected.verdict === 'accept', `${c.id}: ${JSON.stringify(result)}`)
-  if (!result.ok) assert.equal(result.error.code, c.expected.code, c.id)
-  else if (c.expected.validation) assert.equal(result.value.validation, c.expected.validation, c.id)
-  else if (c.expected.coverage)
+  if (!result.ok) {
+    assert.equal(result.error.code, c.expected.code, c.id)
+  } else if (c.expected.validation) {
+    assert.equal(result.value.validation, c.expected.validation, c.id)
+  } else if (c.expected.coverage) {
     assert.equal(
       result.value.schema_status,
       c.expected.coverage === 'generic_params_only' ? 'generic_params_only' : 'conditional_branch',
       c.id
     )
+  }
 }
-const session = view(),
-  host = view('host')
+const session = view()
+const host = view('host')
 function stream(mode: 'control' | 'observe' | 'general_events' = 'control'): any {
   const method = mode === 'general_events' ? 'events.subscribe' : `terminal.backend.${mode}`
   const checked = request(session, {
@@ -112,31 +123,45 @@ function stream(mode: 'control' | 'observe' | 'general_events' = 'control'): any
     )
   )
 }
-const control = stream(),
-  observe = stream('observe'),
-  general = stream('general_events')
+const control = stream()
+const observe = stream('observe')
+const general = stream('general_events')
 function syncAliases(b: any): void {
   const docs = b.documents
-  for (const key of ['request', 'response', 'event', 'event_catalog']) b[key] = docs[b[key].$id]
-  for (const key of Object.keys(b.terminal.documents)) {
-    if (docs[key]) b.terminal.documents[key] = docs[key]
-    else delete b.terminal.documents[key]
+  for (const key of ['request', 'response', 'event', 'event_catalog']) {
+    b[key] = docs[b[key].$id]
   }
-  for (const key of ['request', 'response', 'event', 'control_frame']) b.terminal[key] = docs[b.terminal[key].$id]
-  for (const key of Object.keys(b.terminal.methods))
+  for (const key of Object.keys(b.terminal.documents)) {
+    if (docs[key]) {
+      b.terminal.documents[key] = docs[key]
+    } else {
+      delete b.terminal.documents[key]
+    }
+  }
+  for (const key of ['request', 'response', 'event', 'control_frame']) {
+    b.terminal[key] = docs[b.terminal[key].$id]
+  }
+  for (const key of Object.keys(b.terminal.methods)) {
     b.terminal.methods[key] =
       docs[`https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/${key.replace(/_/g, '-')}.schema.json`]
+  }
   b.access.descriptor = docs[b.access.descriptor.$id]
 }
 function bundleCase(c: any): any {
   const b: any = c.generator ? clone(seeds.get('bundle')) : specimen(c)
   if (c.generator === 'ref_chain_33') {
     const defs = b.documents['https://luvus.dev/protocol/uhp/v1/request.schema.json'].$defs
-    for (let i = 0; i < 34; i++) defs[`chain${i}`] = i === 33 ? { type: 'object' } : { $ref: `#/$defs/chain${i + 1}` }
+    for (let i = 0; i < 34; i++) {
+      defs[`chain${i}`] = i === 33 ? { type: 'object' } : { $ref: `#/$defs/chain${i + 1}` }
+    }
   }
-  if (c.id !== 'B-alias-mismatch') syncAliases(b)
+  if (c.id !== 'B-alias-mismatch') {
+    syncAliases(b)
+  }
   let serialized = JSON.stringify(b)
-  if (c.generator === 'bundle_bytes_over_2mib') serialized += ' '.repeat(2_097_153)
+  if (c.generator === 'bundle_bytes_over_2mib') {
+    serialized += ' '.repeat(2_097_153)
+  }
   const expected = {
     ...identity,
     schema_sha256: c.id === 'B-hash-mismatch' ? '3'.repeat(64) : createHash('sha256').update(serialized).digest('hex')
@@ -184,8 +209,11 @@ function capabilityCase(c: any): any {
   }
   const profile = c.context?.target_profile ?? (value.result.profile === 'host' ? 'host' : 'session')
   const trusted: any = source(profile === 'host' ? 'host' : 'session', value.result.server_generation ?? G)
-  if (profile === 'access_machines') trusted.binding.target.profile = profile
-  else if (profile === 'session' && value.result.session) trusted.binding.target.session = value.result.session
+  if (profile === 'access_machines') {
+    trusted.binding.target.profile = profile
+  } else if (profile === 'session' && value.result.session) {
+    trusted.binding.target.session = value.result.session
+  }
   return validator.bindCapabilities(value, trusted)
 }
 function responseCase(c: any): any {
@@ -197,7 +225,9 @@ function responseCase(c: any): any {
   if (['R-terminal-method', 'R-terminal-mode', 'R-terminal-identity'].includes(c.id)) {
     const method = c.context?.method ?? 'terminal.backend.control'
     const params: any = { server_generation: G, terminal_id: T, pane_id: '3' }
-    if (method.endsWith('capture')) Object.assign(params, { mode: 'visible', lines: 1, ansi: false })
+    if (method.endsWith('capture')) {
+      Object.assign(params, { mode: 'visible', lines: 1, ansi: false })
+    }
     const checked = request(session, { id: value.id, method, params })
     return validator.checkResponse(checked, value, sourceFor(checked.binding))
   }
@@ -212,7 +242,9 @@ function dispatchCase(c: any): any {
     facts.schema_state === 'unavailable' ||
     !from.methods.some((entry: any) => entry.method === nativeRequest.method)
   ) {
-    if (!nativeRequest.method.startsWith('future.')) nativeRequest.method = 'future.synthetic'
+    if (!nativeRequest.method.startsWith('future.')) {
+      nativeRequest.method = 'future.synthetic'
+    }
     const caps = json(profile === 'host' ? 'host-capabilities.json' : 'session-capabilities.json')
     if (profile === 'session') {
       caps.result.session = 'synthetic'
@@ -248,7 +280,9 @@ function dispatchCase(c: any): any {
     from = unwrap(validator.bindCapabilities(caps, source()))
   }
   const checked = validator.checkRawRequest(from, nativeRequest)
-  if (!checked.ok) return checked
+  if (!checked.ok) {
+    return checked
+  }
   const candidate = register(checked.value, from)
   const authorization: any = auth(candidate)
   authorization.owner = facts.owner
@@ -256,22 +290,39 @@ function dispatchCase(c: any): any {
   authorization.raw_requested = facts.raw_requested
   authorization.confirmation_verified = facts.confirmation_present
   authorization.custody_available = facts.custody_available
-  if (!facts.adapter_supported) authorization.supported_transports = []
-  if (!facts.caller_allowed) authorization.caller_policy.methods = []
-  if (!facts.local_allowed) authorization.local_policy.methods = []
-  const hint = facts.trusted_safety
-  if (!hint) authorization.classifications = []
-  else {
-    const record: any = authorization.classifications[0]
-    if (hint.state === 'unknown') record.effect = hint.effect
-    if (hint.state === 'invalid') delete record.result
-    if (hint.source === 'caller_input') authorization.classification_source_verified = false
-    if (hint.management_permission) record.management_permission = hint.management_permission
-    if (hint.result_boundary === 'protected_secret')
-      Object.assign(record.result, { boundary: 'protected_secret', delivery: 'custody' })
+  if (!facts.adapter_supported) {
+    authorization.supported_transports = []
   }
-  if (facts.management_allowed)
+  if (!facts.caller_allowed) {
+    authorization.caller_policy.methods = []
+  }
+  if (!facts.local_allowed) {
+    authorization.local_policy.methods = []
+  }
+  const hint = facts.trusted_safety
+  if (!hint) {
+    authorization.classifications = []
+  } else {
+    const record: any = authorization.classifications[0]
+    if (hint.state === 'unknown') {
+      record.effect = hint.effect
+    }
+    if (hint.state === 'invalid') {
+      delete record.result
+    }
+    if (hint.source === 'caller_input') {
+      authorization.classification_source_verified = false
+    }
+    if (hint.management_permission) {
+      record.management_permission = hint.management_permission
+    }
+    if (hint.result_boundary === 'protected_secret') {
+      Object.assign(record.result, { boundary: 'protected_secret', delivery: 'custody' })
+    }
+  }
+  if (facts.management_allowed) {
     authorization.permissions = [authorization.classifications[0]?.management_permission ?? 'admin-test']
+  }
   if (facts.raw_grant) {
     const spec = facts.raw_grant
     const grant: any = clone(raw(candidate).raw_grant!)
@@ -280,10 +331,16 @@ function dispatchCase(c: any): any {
     grant.methods = spec.methods
     grant.binding.target.machine_id = spec.machine_id
     for (const key of ['capability_revision', 'caller_policy_revision', 'local_policy_revision'] as const) {
-      if (spec[key] !== facts[key]) grant.binding[key] = 'stale'
+      if (spec[key] !== facts[key]) {
+        grant.binding[key] = 'stale'
+      }
     }
-    if (spec.contract_revision !== facts.contract_revision) grant.binding.contract.revision = 'stale'
-    if (spec.contract_digest !== facts.contract_digest) grant.binding.contract.schema_sha256 = '3'.repeat(64)
+    if (spec.contract_revision !== facts.contract_revision) {
+      grant.binding.contract.revision = 'stale'
+    }
+    if (spec.contract_digest !== facts.contract_digest) {
+      grant.binding.contract.schema_sha256 = '3'.repeat(64)
+    }
     authorization.raw_grant = grant
   }
   return checkDispatch(candidate, authorization)
@@ -304,11 +361,12 @@ function genericCases(c: any): void {
     authorization.permissions = ['admin-test']
     authorization.custody_available = true
     authorization.result_channel = 'custody'
-    if (invoke)
+    if (invoke) {
       authorization.classifications[0].sub_action = {
         pointer: '/params/action',
         value: 'synthetic'
       }
+    }
     assertCase(c, checkDispatch(candidate, authorization))
   }
 }
@@ -332,18 +390,23 @@ for (const c of matrix.cases.filter((c: any) => implementedStages.has(c.stage)))
       return
     }
     let result: any
-    if (c.stage === 'bundle') result = bundleCase(c)
-    else if (c.stage === 'capabilities') result = capabilityCase(c)
-    else if (c.stage === 'request') result = validator.checkRequest(session, specimen(c))
-    else if (c.stage === 'response') result = responseCase(c)
-    else if (c.stage === 'dispatch') result = dispatchCase(c)
-    else if (c.stage === 'parse')
+    if (c.stage === 'bundle') {
+      result = bundleCase(c)
+    } else if (c.stage === 'capabilities') {
+      result = capabilityCase(c)
+    } else if (c.stage === 'request') {
+      result = validator.checkRequest(session, specimen(c))
+    } else if (c.stage === 'response') {
+      result = responseCase(c)
+    } else if (c.stage === 'dispatch') {
+      result = dispatchCase(c)
+    } else if (c.stage === 'parse') {
       result = parseNativeJson(
         c.generator === 'depth_65' ? '['.repeat(65) + '0' + ']'.repeat(65) : Buffer.from(specimen(c).bytes_hex, 'hex')
       )
-    else if (c.stage === 'control')
+    } else if (c.stage === 'control') {
       result = validator.checkControl(c.context?.stream_mode === 'observe' ? observe : control, specimen(c))
-    else {
+    } else {
       const input = c.generator === 'utf8_text_over_65536' ? clone(seeds.get('terminal_frame')) : specimen(c)
       if (c.generator) {
         input.data.text = '测'.repeat(21846)

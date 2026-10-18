@@ -283,14 +283,14 @@ test('结果保留是独立门禁：派发与当前分类均可禁存，禁存�
     method: 'task.add',
     params: { title: 'synthetic' }
   })
-  const context = auth(candidate),
-    row = context.classifications[0] as SafetyClassification
+  const context = auth(candidate)
+  const row = context.classifications[0] as SafetyClassification
   const noRetention = {
     ...context,
     classifications: [{ ...row, result: { ...row.result, retention: 'none' as const } }]
   }
-  const ordinary = unwrap(checkDispatch(candidate, context)),
-    transient = unwrap(checkDispatch(candidate, noRetention))
+  const ordinary = unwrap(checkDispatch(candidate, context))
+  const transient = unwrap(checkDispatch(candidate, noRetention))
   unwrap(checkResultRetention(ordinary, context))
   rejects(checkResultRetention(ordinary, noRetention), 'content_retention_forbidden')
   rejects(checkResultRetention(transient, context), 'content_retention_forbidden')
@@ -314,8 +314,8 @@ test('保留门禁不接受复制 permit、其它 principal 或未知/不可信/
     method: 'task.add',
     params: { title: 'synthetic' }
   })
-  const context = auth(candidate),
-    permit = unwrap(checkDispatch(candidate, context))
+  const context = auth(candidate)
+  const permit = unwrap(checkDispatch(candidate, context))
   rejects(checkResultRetention(clone(permit), context), 'invalid_permit_handle')
   rejects(checkResultRetention(permit, { ...context, principal_id: 'other' }), 'forbidden')
   rejects(checkResultRetention(permit, { ...context, classifications: [] }), 'safety_classification_missing')
@@ -385,7 +385,9 @@ test('schema 关键字/别名/字节预算 fail closed，不把未引用原生�
   encoded = JSON.stringify(original)
   const bad = compileBundle(encoded, { identity: changedIdentity() })
   rejects(bad, 'schema_unavailable')
-  if (!bad.ok) assert.equal(bad.error.reason, 'unsupported_reference')
+  if (!bad.ok) {
+    assert.equal(bad.error.reason, 'unsupported_reference')
+  }
   rejects(compileBundle(bytes, { identity, limits: { bundle_bytes: 16 } }), 'schema_unavailable')
   rejects(compileBundle(bytes, { identity, limits: { bundle_bytes: 2_097_153 } }), 'invalid_limits')
 })

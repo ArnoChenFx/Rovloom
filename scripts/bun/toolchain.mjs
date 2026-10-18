@@ -24,4 +24,6 @@ export function toolchain() {
   }
 }
 
-if (import.meta.main) console.log(JSON.stringify(toolchain(), null, 2))
+if (import.meta.main) {
+  console.log(JSON.stringify(toolchain(), null, 2))
+}
