@@ -101,6 +101,49 @@ python3 scripts/bun/collect_native_no_node.py --binary /absolute/path/to/luvus -
 清理，SIGKILL/机器崩溃仍需外部回收。升级先评审契约/分类，再重新采集、审计；
 日常 CI 不使用 `--write`。SDK 脚本 `--write` 只更新 Bun 样本，保留 Node 历史。
 
+## Herdr P0-H 离线输入
+
+[方法门禁](../fixtures/p0h/method-policy.json)的生产允许集为空；`ping {}` 和
+`session.snapshot {}` 仅是固定官方来源中的研究候选，任意其它参数、读取变体、
+订阅和写入均不获许可。工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
+真实采集须另有预先准备并获授权的专用实例及官方 binary。
+
+```sh
+python3 scripts/p0h/test_contract.py
+python3 scripts/p0h/audit.py fixtures/p0h/synthetic
+```
+
+[合成 fixture](../fixtures/p0h/synthetic/capture.json)只验证离线工具，版本、binary
+摘要、schema 和协议样本均非安装版实测证据。审计核对原始文件 hash、记录中的
+实例/契约、CLI argv/退出码、单行 JSON、原生 result/error 关联和缺回复的
+`outcome_unknown`；schema 仅检查已提供文档的方言与引用闭包，不编译或验证
+完整方法参数。只支持 draft 2020-12、精确离线文档 ID 和 JSON Pointer，未知
+引用特征拒绝，不联网补齐。文件/总量/帧限额属于工具自身，不代表原生上限。
+
+将预先导出的证据按 fixture 结构放入自己拥有的 0700 目录，保留 CLI stdout、
+stderr 和协议帧原字节，填写文件清单与记录中的 binding。真实导出标记为
+`unverified_capture`；本地文件自报身份或 hash 不能建立生产来源。归档只校验、
+复制并再次审计，输出须全新且位于 checkout 与输入之外：
+
+```sh
+python3 scripts/p0h/collect.py --input /absolute/private/herdr-export --output /tmp/rovloom-herdr-evidence-new
+```
+
+可用 `observations: [{"role": "endpoint_peer", "file": "endpoint.json"}]` 引用额外
+原文；role 限 `official_origin`、`endpoint_peer`、`side_effects`、`framing`、
+`subscriptions`。这些文件仅记录和校验 hash，其自报结论不获得认证。
+
+归档目录/文件权限为 0700/0600；不接受链接、越界路径、未列文件或超限输入，
+失败清理本次输出。已知假 secret canary 扫描不代替人工脱敏或完整秘密检测。
+审计成功仍输出 `native_verified: false`、空生产允许集及未验证项，不签发执行
+许可。实际 endpoint/peer、binary 来源与运行、被动读副作用、订阅确认和失联
+必须在专用实例分别实测；当前均未取得证据。
+
+`StateRebuild` 是离线状态模型：订阅确认后从另一连接读取快照，串行刷新，
+读取中有事件则再读；gap/EOF 使在途快照失效并要求新订阅。事件仅表示失效，
+不将其载荷重放到快照。合成回放只演示 `state_rebuild_only` 语义，不能为原生
+事件历史、序号、订阅副作用或产品 adapter 提供保证。实测结论与阻断留在 PR/CI。
+
 ## 实现范围
 
 Linux 原生基线不证明跨平台、商业 MCP Host、HTTP/OAuth 或真实双机已验收；
