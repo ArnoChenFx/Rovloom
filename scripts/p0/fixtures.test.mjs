@@ -31,7 +31,7 @@ test('安装 schema 保留根约束和条件；缺失引用不能联网补齐', 
 
 test('覆盖账本保持全部方法与 profile；未实现、权限、schema 缺口分开', () => {
   const generated = coverage();
-  assert.deepEqual(generated, JSON.parse(readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url))));
+  assert.deepEqual(generated, JSON.parse(readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url))));
   assert.deepEqual(generated.counts, { union: 223, session: 197, host: 17, schema: 223, access_machines: 9, stream: 4 });
   assert(generated.methods.every(row => row.gateway_status === 'not_implemented' && row.gateway_permission === 'not_enabled'));
   assert(generated.methods.filter(row => row.method.startsWith('machine.')).every(row => row.reason === 'profile_not_exposed'));

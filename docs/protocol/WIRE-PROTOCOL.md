@@ -1,10 +1,10 @@
 # Rovloom Wire v2：provider 绑定与执行边界
 
-执行版本 major **2** / minor **0**。Wire codec、provider scope、关联和有界对象判断已通过 `src/integration/luvus-wire.ts` 接入真实 Luvus NativeValidator，见 [接入契约](../ISSUE4-INTEGRATION.md)。真实认证、生产 transport 与存储迁移仍未完成；#4 保持部分完成。
+执行版本 major **2** / minor **0**。Wire codec、provider scope、关联和有界对象判断通过 `src/integration/luvus-wire.ts` 接入真实 Luvus NativeValidator，见 [原生校验与宿主接口](NATIVE-CONTRACT.md)。认证、存储和传输由宿主提供可信实现。
 
 原生 runtime Luvus/Herdr、UHP 标识与源协议 fixture 保持原样。
 
-## v2 与只读历史
+## 版本与只读入口
 
 `decodeWireFrame(input, context)` / `encodeWireFrame(frame, context)` 只接受 v2。
 major 不同直接拒绝，不自动协商回 v1；minor 为双方与本实现已支持 minor 的交集上界。
@@ -26,9 +26,8 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 
 `decodeHistoricalV1(input)` 返回 `{read_only:true, provider_resolution:'unresolved', frame}`，
 只检查旧封装/旧目标形状与通用 JSON 边界，不声称旧 native payload、认证、分类或当前 provider 验证通过。
-它既不返回可执行 v2 Envelope，也不补默认 legacy provider。旧库与历史关联的只读迁移由 #5 处理。
-顶层 protocol 保留原五个运行时导出名及 Envelope/Payloads 类型名；版本值现为 2.0。
-旧 epoch-only 调用或缺 context 的编码仍拒绝，不新增顶层公共运行时导出。
+它既不返回可执行 v2 Envelope，也不补默认 legacy provider。历史关联由受保护迁移过程处理。
+顶层 protocol 的版本为 2.0；epoch-only 调用或缺 context 的编码拒绝。
 
 ## 身份、Target 与绑定
 
@@ -49,15 +48,15 @@ type ProviderBinding = {
 V2Target 定义在 wire 内；integration adapter 显式投影到公共 contracts.Target，并在 NativeBinding 单独保留 provider 身份。
 Target 不包含 kind 或 expected_binding_revision；未知字段严格拒绝。session 显式非空，不继承 shell/current/default。
 provider_id 只在所属 machine 内解析，稳定且不可复用；binding_revision 为正安全整数、单调且不可复用。
-配置/启用状态变化必须分配新 revision。历史分配与不可复用由可信 registry/#5 事务保证，codec 不伪称能从单个快照证明。
+配置/启用状态变化必须分配新 revision。历史分配与不可复用由可信 registry 事务保证，codec 不伪称能从单个快照证明。
 config_ref 是受信本地配置的 opaque 引用，codec 不读取该路径/URI，也不接受 caller 替换本地 endpoint。
 
 当前 resolver 必须返回 machine/provider 精确匹配的可信 binding。先检查 enabled，再检查 kind/revision；
 禁用实例阻断其派发、流、内容读取辅助判断与迟到补证，不撤销设备身份，也不影响其它 provider 的心跳/绑定。
 重新启用的新 revision 不能沿用旧 attempt。kind 的实际选择来自可信 binding，消息只回显该快照并被核对。
 
-Herdr 的 host profile 在派发前报 unsupported_profile；当前 Herdr P0 未完成，session 同样固定报 provider_support_candidate。
-即使测试/广告把 support_status 改为 validated，当前代码仍不启用 Herdr。类型和来源描述可表达 Herdr，不代表实际 adapter 可执行。
+Herdr 的 host profile 在派发前报 unsupported_profile；当前 session 执行门禁固定报 provider_support_candidate。
+support_status=validated 也不解除该门禁。类型和来源描述不授予执行权限。
 
 ## ContractSource 与 contract_ref
 
@@ -108,9 +107,9 @@ request/open 的 `payload.expected_binding_revision` 是独立调用字段，必
 
 所有 attempt 帧（包括 request/open）都需要独立 resolveAttempt，禁止根据收到的 payload 构造预期锚点。
 新派发还核对当前双方 policy revision 与登记版本一致；已有响应只可进入受保护的接收/证据路径，读取要重新授权。
-deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实际写出前 deadline/预算/dispatching 原子提交仍由 #5 负责。
+deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实际写出前由宿主原子核对 deadline、预算并提交 dispatching 锚点。
 
-下面是完整 request JSON。contract_ref 由本仓库 P0 来源加明确的 synthetic 测试 adapter/classification revision 计算，
+下面是完整 request JSON。contract_ref 由固定原生 fixture 来源加明确的 synthetic 测试 adapter/classification revision 计算，
 不是生产分类或执行授权。无 opaque native handle/认证凭据写入示例。
 
 ```json
@@ -224,8 +223,8 @@ transport_status、authorized、secret_result_authorized、raw_contract_authoriz
 只有独立显式 raw 授权可放宽参数 schema；原生 permit 的 generic/unavailable 状态必须保留，不映成 complete。
 Owner 身份、raw 选择、未来方法或未知子动作不绕过分类/高权限/秘密门禁。
 
-`createLuvusWireAdapter` 已实现 NativeValidator 的 Check/handle 适配：从 backend 取得原登记请求、双端 provider 和独立 nativeSource，私有保存最初 DispatchPermit，用同一 permit 验证开流 ack，并逐次重新授权控制输入与结果读取。精确 native 签名见 [IMPLEMENTATION-API](IMPLEMENTATION-API.md)，完整 backend 与宿主调用顺序见 [接入契约](../ISSUE4-INTEGRATION.md)。
-集成测试使用真实 native 模块编译固定 P0 的 29 个离线 documents；认证、分类及 provider 来源由明确的 synthetic backend 提供，不构成生产来源证明。
+`createLuvusWireAdapter` 已实现 NativeValidator 的 Check/handle 适配：从 backend 取得原登记请求、双端 provider 和独立 nativeSource，私有保存最初 DispatchPermit，用同一 permit 验证开流 ack，并逐次重新授权控制输入与结果读取。精确 native 签名见 [原生校验与宿主接口](NATIVE-CONTRACT.md)。
+集成测试使用真实 native 模块编译固定 Luvus fixture 的 29 个离线 documents；认证、分类及 provider 来源由明确的 synthetic backend 提供，不构成生产来源证明。
 
 ## Provider scope 权限
 
@@ -241,14 +240,14 @@ type ProviderPolicies = { caller: ProviderPolicy; local: ProviderPolicy };
 一方授权 `(machine_1,provider_2,session A)` 和另一条授权 `(machine_1,provider_1,session B)`，不能拼成 provider_1/session A。
 每边最多 4096 行，每行最多 256 方法、4 actions；空列表自然拒绝。
 
-`assertProviderAccess(binding, method, action, context)` 供 #5 做当前 binding/禁用与 provider scope 判断；
+`assertProviderAccess(binding, method, action, context)` 供宿主做当前 binding/禁用与 provider scope 判断；
 它不替代各入口的 caller/设备身份认证。普通派发、取消、逐帧输入在 codec 中使用对应 action。
 响应接收仅为内部关联/验证，不等于读取授权；晚到 payload 保存意图还要求当前 read scope 和受信 ResponseContentPolicy。
 caller 撤权后仍可有受保护的最小接收审计，不能据此交付内容。provider 禁用则连原 attempt 的补证也拒绝。
 
-## #5 登记、history 与可靠迟到接口
+## 登记、history 与可靠迟到接口
 
-| 纯接口 | #5 必须保证的可信输入与原子后续 |
+| 纯接口 | 宿主必须保证的可信输入与原子后续 |
 |---|---|
 | registeredRequestDigest(payload, callerId) | 来自已认证 caller；摘要绑定完整 Target/provider/revision/kind/契约/登记条件/validation/native request，不含新分配 call/attempt/native ID |
 | planHistoryAdmission(reference, generation, digest, scope, record, now) | scope/key 按 caller 与原历史范围在同一 writer 查询；采用 return_existing/register_new 意图也在同一事务 |
@@ -266,7 +265,7 @@ unknown 补证需 late_evidence feature；缺锚点、旧 attempt、墓碑已删
 意图恒为 dispatch:false；原超时/取消历史和 TTL 不变。相同 hash/长度 duplicate 不产生 payload/句柄写入意图。
 expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可时，仅 metadata_only：ID、接收时间、hash/长度、result/error 类别。
 不恢复原文、不生成句柄、不续期。事务失败保留 unknown，不能将内存 plan 作为 durable responded。
-#5 负责持久化、固定期限、预算、恢复隔离与旧 DB 迁移；本轮未实现这些行为。
+持久化、固定期限、预算、恢复隔离与旧 DB 迁移属于宿主职责。
 
 ## 资源、顺序与重组
 
@@ -285,14 +284,9 @@ expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可�
 重组 envelope 再完整走 v2 provider/契约/关联/原生门禁，不允许嵌套 object_chunk；bundle 只作为未授信 JSON 对象交付，
 需原生模块离线编译引用闭包/dialect/根/条件约束后才能使用，不联网抓任意 URL。
 
-MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依赖 #5，不能将窗口过期视为新派发许可。
+MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依赖宿主持久化，不能将窗口过期视为新派发许可。
 stream open 建 opening，首个合法 data 转外层 open；input 仅 open 的 terminal_control，data/input 各自从 0 严格递增。
 重复由 MessageWindow 先过滤，错序/关闭后输入拒绝；这不替代原生握手成功、队列消费或终端 lease 证明。
 
-## 构建、验证与剩余边界
-
-统一 build 包含 contracts/store/router/protocol、native-contract、wire、integration 七个入口；Ajv 8.20.0 为运行依赖。产物 smoke 覆盖 v2 及真实原生适配，历史 v1 只通过显式只读入口解析。
-
-`python3 scripts/bun/verify.py --output /tmp/rovloom-verification` 使用固定 Bun 1.4.3，执行冻结安装、strict/noUncheckedIndexedAccess、递归测试发现与原 20 项保障、P0/兼容测试、构建及产物 smoke。输出目录必须在仓库外；测试失败或 skip/todo/disabled 均不能作为通过。
-
-#4 仍待 provider-scoped Store 迁移、durable dispatch/history/晚到事务、retention/配额/恢复、真实认证与 transport/custody 接线，以及硬 schema-worker CPU/heap 隔离。Herdr 仍等待独立 P0-H。完整限制见 [接入契约](../ISSUE4-INTEGRATION.md)，验收摘要留在 PR 描述与 CI。
+构建与验证命令见 [开发指引](../DEVELOPMENT.md)，后续宿主能力见
+[实施计划](../IMPLEMENTATION-PLAN.md)。

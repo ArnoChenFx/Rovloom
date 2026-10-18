@@ -1,0 +1,115 @@
+# 开发与验证
+
+工具链固定为 **Bun 1.4.3**，由 `.bun-version`、`package.json` 和
+[CI](../.github/workflows/bun.yml)共同约束。选择依据见
+[ADR 0003](adr/0003-bun-toolchain.md)，官方 release、binary hash 与 revision 见
+[来源数据](../fixtures/toolchain/bun-1.4.3-provenance.json)。
+
+## 日常命令
+
+在仓库根目录执行：
+
+```sh
+bun --version
+bun install --frozen-lockfile --ignore-scripts
+bun run toolchain
+bun run typecheck
+bun run test
+bun run test:p0
+bun run test:bun
+bun run p0:audit
+bun run p0:bun-native
+python3 scripts/native-contract/audit-fixtures.py
+bun run build
+bun run smoke
+```
+
+`bunfig.toml` 禁止自动读取 `.env` 和依赖安装脚本；验证器及子进程另显式传入
+`--no-env-file`。`typecheck` 由 Bun 启动锁定的 TypeScript 7.0.2 dispatcher，
+再执行其原生编译器，保留 `strict` 和 `noUncheckedIndexedAccess`；转译不能
+替代类型检查，也不要直接运行 TypeScript 的 Node shebang。
+
+构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
+native-contract、wire、integration 七个 Bun ESM 入口、共享 chunk 与外部
+source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
+smoke 从产物验证原生离线编译、request/error/result 边界、v1 只读解析及
+SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
+
+## 隔离验收
+
+Linux 需 Python 3、strace 和固定 Bun，在 checkout 外指定尚不存在的输出目录：
+
+```sh
+python3 scripts/bun/verify.py --bun /absolute/path/to/bun --output /tmp/rovloom-verification-new
+```
+
+验证器在新项目、新 HOME、空缓存与最小环境中冻结安装，审计实装依赖，运行
+strict 类型检查及故意错误反例、验收器自身回归、递归发现的全部主测试、
+P0 JS/Python 测试、Bun 兼容测试、fixture 审计、clean build 与产物 smoke。
+Node/npm/npx 阻断探针必须返回 99，项目 execve/execveat 追踪不得出现 Node
+回退。GitHub Actions 的 checkout 宿主不属于项目运行时。
+
+[原 20 项 inventory](../fixtures/acceptance/original-test-inventory.json)是验收
+输入。门禁核对每项历史文件/测试名及全部新增文件，失败、skip、todo、disabled
+均不得通过。执行输出和验收结果放 CI/PR，不向仓库提交逐轮报告。
+
+## 固定输入与维护用途
+
+| 数据 | 用途 |
+|---|---|
+| [Luvus 0.14.3 原始采集](../fixtures/p0/linux-luvus-0.14.3/manifest.json) | 安装 schema 原文字节、实时能力、RPC/Host/终端记录、endpoint 与清理断言；测试和审计直接读取 |
+| [原生来源](../fixtures/native-contract/luvus-0.14.3-provenance.json) | 官方 release/binary hash、固定源码 commit 及 29 个 schema 文档对应关系 |
+| [覆盖账本](../fixtures/native-contract/coverage.json) | P0/Wire 测试与审计重算逐方法基线；历史 not_implemented/not_enabled 不代表当前许可 |
+| [方法映射](../fixtures/native-contract/native-method-map.tsv)、[终端映射](../fixtures/native-contract/terminal-capability-map.tsv) | 审计方法/profile/transport/参数证据及 24 个 capability、2 个 feature；不作为安全分类或生产 allowlist |
+| [矩阵](../fixtures/native-contract/matrix.json) | 原生测试物化 seed、变更、生成器及正反断言；文件内历史提案状态不充当运行结果 |
+| [Node SDK 样本](../fixtures/mcp/sdk-1.32.1-node-stdio.json)、[Bun SDK 样本](../fixtures/mcp/sdk-1.32.1-bun-stdio.json) | SDK 1.32.1 的独立 stdio initialize/initialized/tools/list/ping wire；分别保留真实运行来源 |
+
+`scripts/native-contract/audit-fixtures.py` 校验 manifest/hash、离线引用、映射和
+矩阵可物化性；它不执行 validator/授权/流/存储验收。`p0:audit` 另核对必需文件、
+schema 闭包、请求/响应关联、退出码、endpoint/peer 身份与清理状态，不启动原生
+实例、不联网。`test:p0` 包含真实 SDK stdio 子进程及 Python endpoint 负例；
+合成 socket 不构成原生运行证据。
+
+以下归档均含可复现原生输入，须保留原字节；其中失败场景是验收负例：
+
+```text
+c96e145ad04b7ffd42a5d96624db81a68599ca769b5a10d8e15857e900e3fb23  fixtures/p0/review-native-evidence.tar.gz
+71c38aa6ce308cb71fe02746a8380034e2869b75d82c8c288edefd3b4935cc41  fixtures/bun/native-evidence.tar.gz
+d3096fedbd0e632e52c747277e181002afdeccd910ebc3b7f77dfcd25b9fc798  fixtures/bun/review-native-evidence.tar.gz
+```
+
+归档仅安全解包已审查的相对路径、普通文件和清单，不执行其内容。P0 补充包的
+`v2` 含无效 pane ID，应被完整审计拒绝；`v3` 是通过集，含 stale_route 拒绝。
+两个 Bun 包分别保留独立原生采集，其中 review 包来自阻断 Node 的采集。
+`p0:bun-native` 固定 hash 后离线重放 Bun 主包；其它成功目录可交相同审计器：
+
+```sh
+bun -e 'import {inspectFixtures} from "./scripts/p0/audit-fixtures.mjs"; console.log(inspectFixtures(process.argv[1]))' /absolute/path/to/extracted/successful-capture
+```
+
+重新采集先按 provenance 核验官方 binary，指定全新输出，不覆盖已提交 fixture：
+
+```sh
+python3 scripts/p0/collect_native.py --binary /absolute/path/to/luvus --output /tmp/rovloom-native-new
+python3 scripts/bun/collect_native_no_node.py --binary /absolute/path/to/luvus --bun /absolute/path/to/bun --output /tmp/rovloom-bun-native-new
+```
+
+采集器在 `/workspace` 创建自己的 0700 状态根、named session 和合成终端输入，
+不继承用户 HOME/session；这不是 OS 文件沙箱。流、server、临时根在 finally
+清理，SIGKILL/机器崩溃仍需外部回收。升级先评审契约/分类，再重新采集、审计；
+日常 CI 不使用 `--write`。SDK 脚本 `--write` 只更新 Bun 样本，保留 Node 历史。
+
+## 实现范围
+
+Linux 原生基线不证明跨平台、商业 MCP Host、HTTP/OAuth 或真实双机已验收；
+SDK 实证 revision 为 `2025-11-25`，Bun 的 `process.version` 只是 Node 兼容值。
+223 方法中 144 个只有 generic params object，不能宣称完整参数校验。
+原生接口与宿主接缝见 [原生校验](protocol/NATIVE-CONTRACT.md)，外层见
+[Wire v2](protocol/WIRE-PROTOCOL.md)。产品设计、保留/恢复规则及 Herdr 门禁以
+[DESIGN](DESIGN.md)、[实施计划](IMPLEMENTATION-PLAN.md)和 ADR 为准。
+
+SQLite 使用 Bun 的 `node:sqlite`。当前 Store v3 的管理/账本方法不是已认证远程
+API，多 provider 迁移仍待实现；单 writer 遗留锁不能自动删除。句柄到期尚不删除
+calls.response，discard 仍需独立权限。全库预算、保留调度、恢复隔离与生产认证
+仍有缺口，逻辑删除不保证物理擦除。失联保持 outcome_unknown，取消不代表回滚，
+不得重放写入；Herdr 未通过独立 P0-H，仍不可执行。

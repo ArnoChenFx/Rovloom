@@ -136,7 +136,7 @@ test('分类与 generic/schema 状态独立；raw 需原登记 mode 和独立授
   rejects(() => decode(request, { ...context(), validators: undefined }), 'native_validator_unavailable');
   const missing = fixtureValidator(); missing.requestGate = () => ({} as any);
   rejects(() => decode(request, context('gateway_to_connector', missing)), 'classification_unavailable');
-  const coverage = JSON.parse(readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url), 'utf8'));
+  const coverage = JSON.parse(readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), 'utf8'));
   const generic = coverage.methods.filter((r: any) => r.schema.parameter_detail === 'generic_params_only');
   assert.equal(generic.length, 144);
   for (const row of generic) {
