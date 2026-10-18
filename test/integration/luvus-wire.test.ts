@@ -921,6 +921,22 @@ test('结果内容过期/discard 仅补最小可靠证据；原锚点不变、�
   rejects(() => f.decode(f.response, 'connector_to_gateway'), 'dispatch_permit_unavailable')
 })
 
+test('迟到证据先执行完整原生较低帧预算，过期内容也不能绕过边界', () => {
+  const f = fixture()
+  const registry = f.backend.contract(f.binding.contract_ref)!
+  const caps = registry.capabilities as ReturnType<typeof json>
+  caps.result.limits.frame_bytes = Buffer.byteLength(JSON.stringify(f.response.payload.native_response))
+  f.decode(f.opening)
+  const anchor = clone(f.backend.responseAnchor!(f.binding))
+  for (const status of ['available', 'expired', 'discarded', 'unavailable'] as const) {
+    f.state.content = status
+    rejects(() => f.adapter.planEvidence(f.response), 'native_response_invalid')
+  }
+  f.state.content = 'available'
+  assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor)
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding))
+})
+
 test('分片重组真实响应仍经过原生许可/完整 schema，传输限额及私有句柄不暴露', () => {
   const f = fixture()
   f.decode(f.opening)

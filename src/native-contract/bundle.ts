@@ -132,32 +132,46 @@ function preflight(documents: Record<string, unknown>, budget: Limits): void {
 function checkReferenceDepth(edges: SchemaEdges, maxDepth: number): void {
   const active = new Set<string>()
   const lengths = new Map<string, number>()
-  const depth = (key: string): number => {
-    if (active.has(key)) {
-      fail('schema_unavailable', 'compile', 'reference_cycle')
-    }
-    const cached = lengths.get(key)
-    if (cached !== undefined) {
-      return cached
-    }
-    const next = edges.get(key)
-    if (!next) {
-      fail('schema_unavailable', 'compile', 'missing_fragment')
-    }
-    active.add(key)
-    let longest = 0
-    for (const edge of next) {
-      longest = Math.max(longest, edge.weight + depth(edge.key))
-    }
-    active.delete(key)
-    if (longest > maxDepth) {
-      fail('schema_unavailable', 'compile', 'reference_limit')
-    }
-    lengths.set(key, longest)
-    return longest
-  }
+  type Walk = { key: string; index: number; longest: number; references: number; weight: number }
   for (const key of edges.keys()) {
-    depth(key)
+    if (lengths.has(key)) {
+      continue
+    }
+    const stack: Walk[] = [{ key, index: 0, longest: 0, references: 0, weight: 0 }]
+    active.add(key)
+    // 显式栈避免合法结构嵌套叠加引用后耗尽 JS 调用栈；引用预算在下行时就拒绝。
+    while (stack.length) {
+      const current = stack[stack.length - 1]!
+      const next = edges.get(current.key)
+      if (!next) {
+        fail('schema_unavailable', 'compile', 'missing_fragment')
+      }
+      const edge = next[current.index++]
+      if (!edge) {
+        lengths.set(current.key, current.longest)
+        active.delete(current.key)
+        stack.pop()
+        const parent = stack[stack.length - 1]
+        if (parent) {
+          parent.longest = Math.max(parent.longest, current.weight + current.longest)
+        }
+        continue
+      }
+      if (active.has(edge.key)) {
+        fail('schema_unavailable', 'compile', 'reference_cycle')
+      }
+      const references = current.references + edge.weight
+      const cached = lengths.get(edge.key)
+      if (references + (cached ?? 0) > maxDepth) {
+        fail('schema_unavailable', 'compile', 'reference_limit')
+      }
+      if (cached !== undefined) {
+        current.longest = Math.max(current.longest, edge.weight + cached)
+      } else {
+        active.add(edge.key)
+        stack.push({ key: edge.key, index: 0, longest: 0, references, weight: edge.weight })
+      }
+    }
   }
 }
 

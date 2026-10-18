@@ -235,7 +235,8 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
       fail('object_limit', 'parse')
     }
     try {
-      input = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      // 保留 BOM 交给 JSON 语法拒绝，不能让字节入口静默接受字符串入口拒绝的内容。
+      input = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
     } catch {
       fail('invalid_utf8', 'parse')
     }

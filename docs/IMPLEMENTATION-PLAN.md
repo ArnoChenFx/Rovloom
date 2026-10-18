@@ -46,7 +46,7 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 
 - 将业务 registry、Store、Router、策略、摘要及句柄统一到 DESIGN 的 provider/binding/contract 模型；保留 Wire/native 显式接缝，避免给旧类型加 optional provider 默认值。
 - 为集成 backend 提供独立当前认证、登记 attempt、双端配置、契约/分类、endpoint 来源、policy、真实确认、custody、可信时间及 durable response anchor。缺任一必要来源拒绝，不从消息构造 true。
-- schema 编译移入可终止的独立 worker，落实 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)的硬时间/heap 预算，超限必须终止并拒绝。CPU/heap 隔离仍待实现；同步检查、快照冻结、结构限额或 Promise 超时均不能替代硬隔离。只接纳已审核 bundle，不开放任意外部 schema 自动编译。
+- schema 编译移入可终止的独立 worker，落实 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)的硬时间/heap 预算，超限必须终止并拒绝。CPU/heap 隔离仍待实现；同步检查、快照冻结、结构限额或 Promise 超时均不能替代硬隔离。需同时处理同步 NativeValidator/adapter 与进程内 opaque handle 的边界，不能把跨进程复制对象恢复成许可。只接纳已审核 bundle，不开放任意外部 schema 自动编译。
 - 确认完全无 bundle 的 raw 路径之前维持拒绝；已有 generic 参数 raw 保留现有约束及实际 validation 标记，不借此降低分类/来源标准。
 
 交付：统一数据模型、可信来源工厂、隔离编译宿主及自动化正反例。Wire 编码与 native 签名只在各自规范维护。

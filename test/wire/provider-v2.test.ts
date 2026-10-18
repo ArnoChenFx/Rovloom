@@ -455,6 +455,22 @@ test('完整 v2 JSON 示例逐帧验证，包含 request/accepted/response/cance
       ? context(direction, fixtureValidator(), streamBinding, 'terminal.backend.control', 'stream', 'terminal_control')
       : context(direction)
     assert.deepEqual(decodeWireFrame(JSON.stringify(examples[type]), ctx), examples[type])
+    for (const [field, value, code] of [
+      ['protocol_major', 1, 'protocol_major_unsupported'],
+      ['protocol_major', 3, 'protocol_major_unsupported'],
+      ['protocol_minor', 1, 'protocol_version_unsupported'],
+      ['connection_epoch', 'wrong_epoch', 'connection_binding_mismatch']
+    ] as const) {
+      rejects(() => decodeWireFrame(JSON.stringify({ ...examples[type], [field]: value }), ctx), code)
+    }
+    rejects(
+      () =>
+        decodeWireFrame(JSON.stringify(examples[type]), {
+          phase: 'preauth',
+          direction
+        }),
+      'invalid_frame_fields'
+    )
   }
   assert.equal(contractRef(examples.contract_source), attempt.contract_ref)
   assert.equal('id' in examples.request.payload.native_request, false)
