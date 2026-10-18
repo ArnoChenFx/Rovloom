@@ -55,11 +55,35 @@ response correlation, offline rejection, unknown outcomes/no replay, disk restar
 writer lock, POSIX file modes, absence of plaintext test credentials in SQLite,
 reserved request fields, explicit targets and policy intersection.
 
+## Follow-up: authorized routing and durable context
+
+The second local change adds `src/router.ts`, a transport-independent boundary
+whose principal must be supplied by an authenticated transport, never tool input.
+Create/read/dispatch/cancel check the current caller and connector-side policy.
+No listener is exposed, and administrative Store primitives remain internal.
+
+Schema version 2 adds target JSON, method and deadline without persisting request
+payloads as a replay queue. Version 1 rows retain null context and are denied by
+the Router, while direct internal ledger inspection remains possible. Unknown
+versions are checked before DDL. The v1-to-v2 migration is transactional.
+
+Acceptance is guarded by machine/call/attempt/epoch. Deadline sweeps and bridge
+cancellation preserve not-dispatched versus unknown outcomes. The future runtime
+must schedule `expire()`; no timer or remote cancellation is claimed here.
+Canonical JSON now rejects cycles, sparse arrays, getters, symbols, non-JSON
+objects, excessive depth/node count and content over 1 MiB.
+
+Checks for this change: `npm run typecheck`, `npm test` (12 passed, 0 failed),
+`npm run build`; supported Node 24 tests and staged whitespace check are rerun
+before committing. New tests cover policy revocation on reads/dispatch/cancel,
+durable context, acceptance fencing, deadline and cancellation semantics, JSON
+bounds and unknown-version rejection without schema mutation.
+
 ## Remaining gaps
 
-P1 is partial: result objects/quotas/TTL, audit, full transitions/deadlines,
-approval, migration upgrades and backup tooling are not implemented. Policy checks
-are pure functions, not yet bound to a transport principal. A machine marked online
+P1 is partial: result objects/quotas/TTL, audit, rejection states,
+approval and backup tooling are not implemented. Policy checks are wired through
+an internal Router but not yet bound to an actual authenticated transport. A machine marked online
 here represents a storage-level authenticated binding, not full connector readiness.
 No full UHP request schema or response schema is validated yet. No response size
 limit is enforced in these internal primitives; transport must enforce it before use.

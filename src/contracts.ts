@@ -46,14 +46,42 @@ export function authorize(target: Target, method: string, caller: Policy, local:
 }
 
 export function canonical(value: unknown): string {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
-  if (typeof value === 'number' && Number.isFinite(value)) return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
-  if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' +
-      canonical((value as Record<string, unknown>)[key])).join(',') + '}';
-  }
-  throw new GatewayError('invalid_json');
+  const ancestors = new Set<object>();
+  let nodes = 0;
+  let bytes = 0;
+  const emit = (text: string): string => {
+    bytes += Buffer.byteLength(text);
+    if (bytes > 1_048_576) throw new GatewayError('json_limit');
+    return text;
+  };
+  const visit = (item: unknown, depth: number): string => {
+    if (++nodes > 100_000 || depth > 64) throw new GatewayError('json_limit');
+    if (item === null || typeof item === 'string' || typeof item === 'boolean') return emit(JSON.stringify(item));
+    if (typeof item === 'number' && Number.isFinite(item)) return emit(JSON.stringify(item));
+    if (typeof item !== 'object' || item === null || ancestors.has(item)) throw new GatewayError('invalid_json');
+    if (!Array.isArray(item) && Object.getPrototypeOf(item) !== Object.prototype) throw new GatewayError('invalid_json');
+    if (Object.getOwnPropertySymbols(item).length) throw new GatewayError('invalid_json');
+    ancestors.add(item);
+    try {
+      const descriptors = Object.getOwnPropertyDescriptors(item);
+      if (Object.values(descriptors).some(d => !('value' in d))) throw new GatewayError('invalid_json');
+      if (Array.isArray(item)) {
+        if (item.length > 100_000 || Object.keys(item).length !== item.length) throw new GatewayError('invalid_json');
+        const values: string[] = [];
+        for (let i = 0; i < item.length; i++) {
+          if (!Object.hasOwn(item, i)) throw new GatewayError('invalid_json');
+          values.push(visit(item[i], depth + 1));
+        }
+        emit('[' + ','.repeat(Math.max(0, values.length - 1)) + ']');
+        return '[' + values.join(',') + ']';
+      }
+      const entries = Object.keys(item).sort().map(key =>
+        emit(JSON.stringify(key) + ':') + visit(descriptors[key]!.value, depth + 1));
+      emit('{' + ','.repeat(Math.max(0, entries.length - 1)) + '}');
+      return '{' + entries.join(',') + '}';
+    } finally { ancestors.delete(item); }
+  };
+  return visit(value, 0);
 }
 
 export function digest(value: string): string {

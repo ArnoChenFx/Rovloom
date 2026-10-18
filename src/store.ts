@@ -8,6 +8,7 @@ type Machine = { machine_id: string; name: string; status: string };
 export type Call = {
   call_id: string; principal: string; machine_id: string; state: CallState;
   epoch: string | null; attempt_id: string | null; response: string | null;
+  target_json: string | null; method: string | null; deadline: number | null;
 };
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
 const secret = () => randomBytes(32).toString('base64url');
@@ -23,6 +24,13 @@ export class Store {
     try {
       this.db = new DatabaseSync(path);
       if (path !== ':memory:') chmodSync(path, 0o600);
+      const hasMetadata = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").get();
+      if (hasMetadata) {
+        const versions = this.db.prepare('SELECT version FROM metadata').all() as { version: number }[];
+        if (versions.length !== 1 || ![1, 2].includes(versions[0]!.version)) {
+          throw new GatewayError('unsupported_database_version');
+        }
+      }
       this.db.exec(`
         PRAGMA foreign_keys = ON;
         PRAGMA journal_mode = DELETE;
@@ -44,7 +52,14 @@ export class Store {
         );
       `);
       const version = this.db.prepare('SELECT version FROM metadata').get() as { version: number };
-      if (version.version !== 1) throw new GatewayError('unsupported_database_version');
+      if (version.version === 1) {
+        this.db.exec(`BEGIN IMMEDIATE;
+          ALTER TABLE calls ADD COLUMN target_json TEXT;
+          ALTER TABLE calls ADD COLUMN method TEXT;
+          ALTER TABLE calls ADD COLUMN deadline INTEGER;
+          UPDATE metadata SET version=2;
+          COMMIT;`);
+      }
       this.db.exec(`BEGIN IMMEDIATE;
         UPDATE machines SET status='offline', epoch=NULL WHERE status='online';
         UPDATE calls SET state='not_dispatched' WHERE state='created';
@@ -170,11 +185,12 @@ export class Store {
     });
   }
 
-  createCall(principal: string, target: Target, request: NativeRequest, key?: string): Call {
+  createCall(principal: string, target: Target, request: NativeRequest, key?: string, timeoutMs = 30_000): Call {
     validateTarget(target);
     validateRequest(request);
     if (!principal.trim() || (key !== undefined && (!key || key.length > 256))) throw new GatewayError('invalid_caller_key');
-    const hash = digest(canonical({ target, request }));
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 600_000) throw new GatewayError('invalid_timeout');
+    const hash = digest(canonical({ target, request, timeoutMs }));
     return this.transaction(() => {
       if (key !== undefined) {
         const existing = this.db.prepare('SELECT call_id,request_hash FROM calls WHERE principal=? AND request_key=?')
@@ -186,14 +202,15 @@ export class Store {
       }
       if (this.machine(target.machine_id).status !== 'online') throw new GatewayError('machine_offline');
       const call_id = id('call');
-      this.db.prepare(`INSERT INTO calls(call_id,principal,machine_id,request_hash,request_key,state)
-        VALUES (?,?,?,?,?,'created')`).run(call_id, principal, target.machine_id, hash, key ?? null);
+      this.db.prepare(`INSERT INTO calls(call_id,principal,machine_id,request_hash,request_key,state,target_json,method,deadline)
+        VALUES (?,?,?,?,?,'created',?,?,?)`).run(call_id, principal, target.machine_id, hash, key ?? null,
+          canonical(target), request.method, this.now() + timeoutMs);
       return this.call(principal, call_id);
     });
   }
 
   call(principal: string, call_id: string): Call {
-    const row = this.db.prepare(`SELECT c.call_id,c.principal,c.machine_id,c.state,c.epoch,c.attempt_id,c.response
+    const row = this.db.prepare(`SELECT c.call_id,c.principal,c.machine_id,c.state,c.epoch,c.attempt_id,c.response,c.target_json,c.method,c.deadline
       FROM calls c JOIN machines m USING(machine_id) WHERE call_id=? AND principal=? AND m.status!='revoked'`)
       .get(call_id, principal);
     if (!row) throw new GatewayError('call_not_found');
@@ -205,12 +222,32 @@ export class Store {
       const call = this.call(principal, call_id);
       const attempt = id('attempt');
       const changed = this.db.prepare(`UPDATE calls SET state='dispatching',epoch=?,attempt_id=?
-        WHERE call_id=? AND state='created' AND EXISTS
+        WHERE call_id=? AND state='created' AND deadline>? AND EXISTS
         (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
-        .run(epoch, attempt, call_id, call.machine_id, epoch);
+        .run(epoch, attempt, call_id, this.now(), call.machine_id, epoch);
       if (changed.changes !== 1) throw new GatewayError('dispatch_rejected');
       return attempt;
     });
+  }
+
+  accepted(machine_id: string, call_id: string, attempt: string, epoch: string): void {
+    const changed = this.db.prepare(`UPDATE calls SET state='connector_accepted'
+      WHERE machine_id=? AND call_id=? AND attempt_id=? AND epoch=? AND state='dispatching'
+      AND EXISTS (SELECT 1 FROM machines WHERE machine_id=? AND status='online' AND epoch=?)`)
+      .run(machine_id, call_id, attempt, epoch, machine_id, epoch);
+    if (changed.changes !== 1) throw new GatewayError('stale_acceptance');
+  }
+
+  stop(principal: string, call_id: string): Call {
+    this.call(principal, call_id);
+    this.db.prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
+      WHERE call_id=? AND state IN ('created','dispatching','connector_accepted')`).run(call_id);
+    return this.call(principal, call_id);
+  }
+
+  expire(): void {
+    this.db.prepare(`UPDATE calls SET state=CASE WHEN state='created' THEN 'not_dispatched' ELSE 'outcome_unknown' END
+      WHERE deadline<=? AND state IN ('created','dispatching','connector_accepted')`).run(this.now());
   }
 
   receive(machine_id: string, call_id: string, attempt: string, epoch: string, response: unknown): void {

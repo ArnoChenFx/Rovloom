@@ -1,4 +1,35 @@
-# Foundation review: 7ed9ef7
+# Foundation reviews: 7ed9ef7 and d1b8011
+
+## Second batch: d1b8011
+
+Decision: suitable for updating the existing **draft** PR. Not a production approval or P0/P1 completion. No implementation was modified by the reviewer.
+
+Source: `d1b8011` on top of `7ed9ef7`; five changed paths (238 additions, 19 deletions). Remote PR branch was `4383b55` and main remained `afe1cb4` at review time.
+
+Independent checks:
+- `npm run typecheck`: passed.
+- `npm test`: 12 passed, 0 failed on host Node 25.9.0.
+- `npm run build`: passed.
+- Node 24.22.0: 12 passed, 0 failed.
+- `git diff 7ed9ef7..d1b8011 --check`: passed; worktree clean.
+- Additional temporary v1 database fixture: migration to v2 passed; dispatched legacy call became `outcome_unknown`, preserved null routing context, Router rejected it with `legacy_call_context_unavailable`; reopening did not replay. This additional check was run independently and is not yet a committed regression test.
+
+Resolved/partially resolved from the first review:
+- Internal Router rechecks policies for create/read/dispatch/cancel; authenticated transport binding and administrative authorization remain future integration requirements.
+- Profile/session target, method and deadline are persisted.
+- Acceptance, cancellation and expiry primitives now exist. Expiry has no scheduler yet; callers must not assume wall-clock deadline causes an immediate state change without invoking it.
+- JSON cycle/sparse-array/getter/depth/size checks were added. Network parsing and response schema validation remain required.
+- v1-to-v2 migration and pre-DDL unknown-version rejection exist. Parent-directory security, backups and quotas still remain.
+
+Follow-ups retained:
+- Add the real v1 populated-database migration as a committed test; existing tests create v2 from fresh state and test unknown versions, but do not independently exercise a populated legacy fixture.
+- `docs/PROGRESS.md` retains an old introductory statement saying schema version 1/no upgrade path, contradicted by the follow-up section. Its claim that no internal response-size limit exists is also stale now that `receive()` uses bounded canonicalization. Clarify aggregate result quotas/TTL versus per-value bounds.
+- Do not claim a proxy/accessor-proof boundary for arbitrary in-process objects: Router snapshots normal JSON-compatible objects, but JavaScript Proxy traps are outside the network-JSON guarantee. Validate parsed input at the eventual transport.
+- All remaining first-review gates not explicitly resolved above still apply, including live P0 evidence, WSS/MCP/UHP/streaming and deployment authentication.
+
+---
+
+# First batch review: 7ed9ef7
 
 Date: 2026-10-18 (reviewed commit timestamp reference; local commands recorded in chat)
 Reviewer: Luvus Tester
