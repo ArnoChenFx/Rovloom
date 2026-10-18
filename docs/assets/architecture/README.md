@@ -27,9 +27,9 @@ Connector；多个 Provider Adapter 分别绑定本地 Luvus 或 Herdr 实例。
   管理 UI 属于 Gateway。
 
 These sources describe the final target architecture. Keep implementation progress
-and validation gates in the READMEs' separate Current status / 当前状态 sections.
+and availability information outside the diagrams, in the README introduction.
 
-图源只描述最终目标架构；实现进度与验收门禁在双语 README 独立的 Current status / 当前状态小节维护。
+图源只描述最终目标架构；当前可用范围在双语 README 的引言中简短说明。
 
 Normative references: [DESIGN](../../DESIGN.md),
 [ADR 0004](../../adr/0004-multi-runtime-provider.md),
