@@ -79,7 +79,7 @@ class NativeFrames(unittest.TestCase):
     def test_candidates_still_have_no_dispatch_permission(self):
         for method in ('ping', 'session.snapshot'):
             self.assertEqual(method_classification(method, {}), {
-                'dispatch_allowed': False, 'reason': 'research_candidate_without_native_side_effect_evidence',
+                'dispatch_allowed': False, 'reason': 'candidate_without_complete_native_safety_review',
             })
 
     def test_native_metadata_is_not_invented_from_type_tag(self):

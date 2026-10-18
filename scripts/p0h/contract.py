@@ -97,7 +97,7 @@ def read_file(root, name):
 
 def method_classification(method, params):
     if method in ('ping', 'session.snapshot') and type(params) is dict and not params:
-        reason = 'research_candidate_without_native_side_effect_evidence'
+        reason = 'candidate_without_complete_native_safety_review'
     elif method in ('pane.read', 'agent.read'):
         reason = 'read_side_effects_unverified'
     elif method in ('events.subscribe', 'events.wait'):

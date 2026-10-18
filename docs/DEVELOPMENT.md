@@ -105,7 +105,7 @@ python3 scripts/bun/collect_native_no_node.py --binary /absolute/path/to/luvus -
 
 [方法门禁](../fixtures/p0h/method-policy.json)的生产允许集为空；`ping {}` 和
 `session.snapshot {}` 仅是固定官方来源中的研究候选，任意其它参数、读取变体、
-订阅和写入均不获许可。工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
+订阅和写入均不获产品许可。离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
 
 ```sh
@@ -137,12 +137,37 @@ python3 scripts/p0h/collect.py --input /absolute/private/herdr-export --output /
 失败清理本次输出。已知假 secret canary 扫描不代替人工脱敏或完整秘密检测。
 审计成功仍输出 `native_verified: false`、空生产允许集及未验证项，不签发执行
 许可。实际 endpoint/peer、binary 来源与运行、被动读副作用、订阅确认和失联
-必须在专用实例分别实测；当前均未取得证据。
+必须在专用实例分别实测，并由独立评审确认覆盖范围。
 
 `StateRebuild` 是离线状态模型：订阅确认后从另一连接读取快照，串行刷新，
 读取中有事件则再读；gap/EOF 使在途快照失效并要求新订阅。事件仅表示失效，
 不将其载荷重放到快照。合成回放只演示 `state_rebuild_only` 语义，不能为原生
 事件历史、序号、订阅副作用或产品 adapter 提供保证。实测结论与阻断留在 PR/CI。
+
+### 专用原生验证
+
+安装来源固定在[Herdr provenance](../fixtures/p0h/herdr-0.9.5-provenance.json)：官方
+release/asset、源码 commit、Linux binary 与安装 schema 的 SHA-256、协议与方言。
+升级需先重新核对官方当前 release、下载 hash 和安装契约；验证器不自动下载或升级。
+
+获得专用临时实例的运行授权后，可使用匹配 pin 的普通本地 binary：
+
+```sh
+python3 scripts/p0h/verify_native.py --binary /absolute/verified/herdr --output /tmp/rovloom-herdr-native-new
+```
+
+命令只在全新私有 HOME/XDG 根启动一个新 named session，以直接监管的进程 PID
+核对 Linux `SO_PEERCRED`，不查询其它进程的受限 `/proc` 路径。它不继承 SSH、
+模型凭据或用户配置，关闭后台版本/manifest 更新和 agent 恢复。合成终端只计数
+输入且不执行命令；`workspace.create/rename` 只用于生成本次新建资源的测试事件，
+不进入产品允许集。验证器会故意积压订阅并杀死自己的原生进程，不能指向已有会话。
+
+原始 CLI schema、请求/响应、事件、native error、退出码和文件 hash 写入指定的
+0700/0600 输出目录；临时状态根与合成子进程在 finally 清理。失败步骤保留失败，
+缺少真实 `events_lost`、清理不完整或断言关闭时命令非零退出。引用闭包审计不替代
+完整参数编译；静态合成 pane 的可观测状态/输入比较不证明所有 UI、agent、通知或
+其它参数无副作用。原生通过范围和失败保留在 PR/CI，生产 allowlist 与保证仍须独立
+评审和实际 adapter 接线，不从本地验证报告生成执行许可。
 
 ## 实现范围
 

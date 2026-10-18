@@ -13,7 +13,7 @@
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack 与 frame 读取、原文保留门禁 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、真实 native/Wire 事务晚到接线 | 生产管理/认证来源、跨平台验证、重启/原请求到期后的原生响应上下文恢复 |
 | 产品服务 | 模块接口及测试 backend | Gateway/Connector 角色 CLI、MCP facade、设备 transport、原生 adapters、管理 UI 和部署发行 |
-| Herdr | 固定官方源码研究、candidate 来源表达、离线归档/审计与合成状态重建回放 | 专用实例 P0-H、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
+| Herdr | 固定官方 binary/schema 来源、candidate 来源表达、离线审计、专用原生验证器与状态重建回放 | P0-H 完整副作用覆盖与独立评审、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生

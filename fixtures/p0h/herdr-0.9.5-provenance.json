@@ -1,0 +1,16 @@
+{
+  "version": "0.9.5",
+  "release_url": "https://github.com/herdrdev/herdr/releases/tag/v0.9.5",
+  "asset_metadata_url": "https://github.com/herdrdev/herdr/releases/expanded_assets/v0.9.5",
+  "asset_url": "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-x86_64",
+  "source_commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+  "tag_object": "7573e821895d32c8d1f78b3f6c9a2f85a46df4ac",
+  "platform": "linux-x86_64",
+  "target": "x86_64-unknown-linux-musl",
+  "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+  "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+  "schema_version": 1,
+  "dialect": "https://json-schema.org/draft/2020-12/schema",
+  "protocol": 22,
+  "production_allowlist": []
+}
