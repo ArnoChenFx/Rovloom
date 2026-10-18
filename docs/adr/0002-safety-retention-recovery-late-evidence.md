@@ -24,21 +24,37 @@ P0 的 144/223 通用 params object 是**参数契约缺口**，不能直接等�
 
 全部可配置默认值的权威表位于 [DESIGN §12.3](../DESIGN.md#123-内容句柄墓碑与全库预算)，本 ADR 不另设不同数值：
 
-- 内容 content_ttl=1 小时、content_bytes=128 MiB，包含内联、对象与单次终端 capture；调用首次登记就固定到期时间。持续流默认不持久化帧，仍用独立有界内存队列。
-- 句柄 handle_ttl=1 小时、handle_payload_bytes=16 MiB（内容池子上限）；句柄期限不得超过内容期限。
-- call_metadata_ttl 与 dedup_ttl 各 30 天，合计 call_metadata_bytes=64 MiB；元数据期不短于去重期。
-- history_epoch_max_age=24 小时，且不大于该范围冻结的去重期；它控制可登记新 key 的时间，不是缩短已登记 key 的 30 天墓碑。
-- audit_ttl=30 天、audit_bytes=64 MiB；security_metadata_bytes=16 MiB，撤销/身份策略不按内容 TTL 自动删除。
-- 受管备份 backup_ttl=7 天、backup_max_count=2、backup_bytes=128 MiB，默认按需导出必要元数据、排除原始内容与明文凭据，无自动备份例程。
-- storage_total_bytes=512 MiB，其中 storage_reserve_bytes=64 MiB；包含 DB、WAL/SHM、对象、受管日志/备份及维护临时文件，子预算不能绕开总量。
+| 参数 | 默认值 | 约束/计量 |
+|---|---|---|
+| content_ttl / content_bytes | 1 小时 / 128 MiB | 调用首次登记固定期限；包含内联、对象与单次 capture 副本 |
+| handle_ttl / handle_payload_bytes | 1 小时 / 16 MiB | 有效期按 min(句柄创建+TTL, 内容截止)；载荷属于内容子池 |
+| call_metadata_ttl / dedup_ttl / call_metadata_bytes | 30 天 / 30 天 / 合计 64 MiB | 元数据不短于墓碑期；不含原始参数/结果，不随重试续期 |
+| history_epoch_max_age | 24 小时 | 只控制登记新 key 的时间；不大于该范围冻结 dedup_ttl |
+| audit_ttl / audit_bytes | 30 天 / 64 MiB | 无 prompt/原文/secret；不提前删除承诺期内必需审计 |
+| security_metadata_bytes | 16 MiB | 身份/撤销/策略不按内容 TTL 自动删除，满额拒绝新分配 |
+| backup_ttl / backup_max_count / backup_bytes | 7 天 / 2 份 / 合计 128 MiB | 按需逻辑导出必要元数据，默认排除原文与明文凭据，无自动调度 |
+| storage_total_bytes / storage_reserve_bytes | 512 MiB / 其中 64 MiB | DB/空闲页、WAL/SHM、对象、受管日志/备份及临时文件全部计量；预留仅收尾 |
+
+跨字段约束完整列举：所有 TTL/字节/数量为正且可安全表示；call_metadata_ttl >= dedup_ttl；范围冻结 history_epoch_max_age <= frozen_dedup_ttl；handle_payload_bytes <= content_bytes；handle_expires_at <= content_expires_at；0 < storage_reserve_bytes < storage_total_bytes，各子上限不大于总量，正常准入扣除预留及已有预约；恢复/审计占用预留仍不可突破各自子预算。子池不叠加成总量之外的空间，默认 400 MiB 非重叠子池 + 64 MiB 预留 = 464 MiB，剩余 48 MiB 也须按实际文件/索引等计量。持续流仍使用独立有界内存队列，不默认持久化帧。
 
 TTL 从服务可信的首次登记/创建时间固定计算；不由读取、重复调用、晚到回复或恢复重置。时间回退或无法确认是否已到期时不得延长有效性，标记时钟异常并拒绝相关续期/派发，#5 需测边界。缩短现有去重期不能借普通配置热更新提前丢记录；必须关闭旧范围并按受保护维护过程处理。
 
 有限墓碑与“到期后仍不把旧提交重新派发”需要一个额外边界：Gateway 发放 history_epoch，新的带 key 调用必须显式绑定有效范围。范围退役后只能重返仍有记录的 key，未找到一律 dedup_history_unavailable；未知/丢失/恢复前的范围不能登记新 key。重试器不自动换范围或换 key。30 天之后不承诺仍有逐调用查询记录；用户明确发起新范围/新 key 的新意图，可能再执行同样动作，不是 exactly-once 保证。
 
+该保证依靠拒绝旧范围创建，而非无限保存 key。Gateway 持久化 scope_created_at、accept_new_until、绑定恢复代次和 frozen_dedup_ttl；新调用都采用这个冻结期限，配置变化不得在仍 active 的旧范围内缩短墓碑。严格 now < accept_new_until 的原子准入与 `accept_new_until <= scope_created_at + frozen_dedup_ttl <= call_created_at + frozen_dedup_ttl` 保证：任一墓碑能合法删除前，该范围已经不能登记缺失 key。范围元数据清理后视为 unknown，不能默认 active；scope ID 不复用。
+
+因此 active+已有 key 返回原调用；active+新 key 才可登记；退役+已有 key 只重返；退役/未知/恢复前范围+缺失 key 一律拒绝。客户端 discovery 新 scope 不得用于续发旧请求；原 retry 绑定的 recovery_generation/history_epoch/key 不能被服务端、迁移器、恢复工具或 SDK 自动改写。此方案不能识别所有参数相同但以全新 key/范围明确提交的新意图，保证不扩展到这种语义去重。
+
 例如：t0 登记后 content_expires_at=t0+1 小时；t0+45 分钟才建句柄，最多只剩 15 分钟；t0+2 小时即使内联副本或可信晚到 response 尚在，也只能返回 content_status 与最小证据，不能重建原文或句柄。显式 discard 同样不可复活，且保持独立 discard_response 权限。句柄先到期、原文仍有效的情形可以重新授权后建短句柄，但内容和墓碑截止时间不动。
 
 容量不足先合法回收已过期数据，再拒绝新增派发；不能提前删去重、截断必需审计或以未知写操作重放来“补救”。SQL 删除不等于物理擦除；备份和外部副本的残留边界必须披露。默认逻辑备份不带原文，不能用整库文件复制冒称这一默认行为。
+
+64 MiB 收尾预留用尽时按 [DESIGN §12.4](../DESIGN.md#124-预留耗尽与持久化失败) 安全失败：
+
+1. 在实际写出到 Connector/UHP 前，先持久化最小 call/attempt/范围/墓碑与可能送达的 dispatching 锚点，并预留有界收尾/审计容量；前置事务失败则不写出，只有能证明没写出时返回 not_dispatched。
+2. 预留也耗尽或真实磁盘/WAL/I/O 写失败，进入 storage_degraded，停止新增派发、流输入、配对/新认证等；不突破总量、不提前删墓碑、不重放旧写操作。不能提交撤销等安全状态时不报告其已生效，必要时停止认证/关闭相关通道。
+3. 已可能送达但结局无法持久化，保留先前 durable dispatching/accepted 锚点并按 unknown 对待；重启仍不重放，锚点不可信则恢复隔离。无法保存可靠晚到证据时不发布 durable responded、不建句柄；允许丢失该回复证据，不能以预留存在为由保证永不丢证。
+4. 只做有界无秘密的瞬时告警/聚合，不伪称审计完整。健康/完整性/预算恢复并经受保护管理后才解除 degraded；不自动重派。应用预约不是 OS 物理保留，外部填盘/写失败仍按这条边界处理。
 
 ## D3：旧备份先隔离，旧权限不能因回滚生效
 
@@ -48,9 +64,9 @@ TTL 从服务可信的首次登记/创建时间固定计算；不由读取、重
 
 1. 新 recovery_generation 使所有恢复前设备/配对凭据失效，未消费且未过期的 enrollment 也失效；旧 machine_id 仅保留历史关联，需受信本地管理员逐机确认并重新配对。
 2. caller ACL、Owner/Host admin、独立清理权限默认拒绝，使用旧备份之外的可信当前策略或本地重新授权；OAuth token 有效不意味着旧策略可复活。
-3. 设备 offline，新 epoch，旧流/结果句柄不可沿用；内容期限及 discard 状态按原值执行，不能重置。
-4. 关闭旧 history_epoch；备份后丢失 key 不能当成新请求。没有覆盖丢失时段的可靠证据，恢复的“未发送”也不能证明未执行；在途结局按 unknown，历史确定结果注明其备份时点。
-5. 经受信本地管理员明确解除隔离后才能接收新意图；不恢复待发队列、不重放旧请求、不自动终止可能仍在运行的 Luvus 工作。
+3. 设备 offline，新 epoch，旧流/结果句柄不可沿用；内容期限及 discard 状态按原值执行，不能重置。备份后是否发生 discard/过期/撤权不明时，恢复原文默认不可读且不能建句柄，仅重新授予 ACL 不足以证明它可恢复；默认只恢复无原文的元数据，例外备份同样服从该保守规则。
+4. 关闭旧 history_epoch、不导入 active 集合，不把旧 pending/call/retry cache 重新打上新恢复代次。备份后丢失 key 不能当成新请求。没有覆盖丢失时段的可靠证据，恢复的“未发送”也不能证明未执行；在途结局按 unknown，历史确定结果注明其备份时点。
+5. 经受信本地管理员明确解除隔离后才创建/发放绑定新 recovery_generation 的 scope，接收重新授权后明确的新意图；缺失/不匹配恢复代次、旧范围或要求自动换范围的请求必须拒绝。禁止恢复待发队列、重放旧请求或自动终止可能仍在运行的 Luvus 工作。
 
 例：第 2 天备份、第 4 天撤销/配对消费/派发、第 5 天恢复第 2 天备份。即使回滚库仍称 credential 有效、enrollment 未用且缺少某 key，隔离流程仍使旧认证/配对失效、关闭旧范围并拒绝该缺失 key 的派发；不必伪称已经重建第 4 天完整历史。
 
@@ -70,6 +86,8 @@ TTL 从服务可信的首次登记/创建时间固定计算；不由读取、重
 | 原调用/墓碑已经删除，或 call 已切换其它 attempt | 不重建调用，不以旧回复覆盖当前 attempt |
 
 普通断线/重启后往往更换 epoch；本规则没有授权重连缓存绕过身份 fence。caller 撤权立即阻止读取，保留受保护的最小接收审计不等于重新执行或授予内容访问；机器/通道信任已失效时则不得补写结果。
+
+“可靠补证”还要求该追加事务成功持久化。预留/磁盘耗尽导致事务失败时保留原 unknown 或 durable dispatch 锚点，不把只在内存看到的 response 发布为 durable 终态；不重试原操作、不延长 TTL。恢复后旧认证/旧 epoch 的回复仍隔离，不能通过新 scope 为它重新创建调用。
 
 ## #4/#5 实现与一致性门禁
 

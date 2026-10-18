@@ -3,6 +3,8 @@
 日期：2026-10-18 UTC。状态：Linux P0 范围已由父会话验收，提交 `d2455e878f93e162a2a54bb58c1e5785aecd0949`；其余平台/产品能力仍受下述限制。
 依据：issue #3、DESIGN v0.2、IMPLEMENTATION-PLAN v0.2；基线提交 `916cae2412b69f3432caf264fd411ea1a4b3093f`。
 
+后续需求变更：用户指定未来开发工具链改用 Bun，[迁移 #15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 在 #4 前独立验收。本文件的 Node/npm 版本是 P0 实际历史记录，不能改成 Bun 通过，也不再代表未来工具链默认值。迁移以 d2455e8 的真实 package/lock（已有 SDK 1.32.1/Ajv/ws）为准；不随迁移升级 SDK 2.x，是否保留 Node 运行时及 node:sqlite 由兼容验证决定。
+
 ## 决策与已验证范围
 
 | 项目 | 固定值 | 证据与限制 |

@@ -2,9 +2,13 @@
 
 日期：2026-10-18（UTC）
 
-## 本地设计 v0.3 修订交接（2026-10-18 UTC）
+## 本地设计 v0.4 修订交接（2026-10-18 UTC）
 
-父会话已确认 #3 Linux 范围通过；本轮从 `d2455e878f93e162a2a54bb58c1e5785aecd0949` 新建本地分支 `docs/adopted-safety-retention-recovery`，只修订文档。当前正式依据为 [DESIGN v0.3](DESIGN.md)、[IMPLEMENTATION-PLAN v0.3](IMPLEMENTATION-PLAN.md) 与 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。后文关于 v0.2/旧门禁的内容保留为历史交接，不能当成当前实施结论。
+父会话已确认 #3 Linux 范围通过；本轮从 `d2455e878f93e162a2a54bb58c1e5785aecd0949` 新建本地分支 `docs/adopted-safety-retention-recovery`，只修订文档。当前正式依据为 [DESIGN v0.4](DESIGN.md)、[IMPLEMENTATION-PLAN v0.4](IMPLEMENTATION-PLAN.md) 与 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。初次 v0.3 本地提交为 dfa26ea；本轮补严其边界并加入以下用户新需求。后文关于 v0.2/旧门禁的内容保留为历史交接，不能当成当前实施结论。
+
+新增需求与顺序：未来开发工具链改用 Bun，独立 [#15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 在 #4 前；本轮不迁移、不安装、不改 lock。Bun 1.4.3 是 issue 建议，需核对官方来源与实际可用性。后续必须从已验收 d2455e8 的真实 package.json/lock 出发，已有 SDK 1.32.1/Ajv 8.20.0/ws 8.22.0，不能沿用旧 916cae2“没有 SDK”的观察，不顺带升级 SDK 2.x 或改 MCP 架构。Node24/npm 的 P0 结果保留真实版本；是否仍需 Node runtime/node:sqlite 须独立验证，当前尚无 Bun 通过证据。
+
+Gateway 内置管理 UI 为 [#14](https://github.com/ArnoChenFx/luvus-mcp/issues/14)，顺序 #8 → #14 → #9，硬依赖 #5/#6/#8。[详细设计](GATEWAY-WEBUI.md) 包括设备/连接/认证状态、配对/暂时断开/持久撤销、管理 API、独立管理员认证授权、无凭据回显、确认审计、仅本机默认与远程 TLS、空/错误/过期状态及隔离态限制。本轮未做前端或独立外部网站，父会话后续派发。
 
 用户采纳的四项原则已同步：未知安全分类默认拒绝（与仅缺参数 schema 分开，Owner/raw-contract 不绕过作用/高权限/秘密结果）；原始内容、句柄和去重墓碑分别保留，内容到期/显式 discard 后不再生原文或句柄；备份恢复先隔离，旧认证/配对失效、策略重授权、旧历史范围拒绝；同一有效已验证 attempt 的可靠晚到结果只追加证据，旧 epoch/恢复代次/其它 attempt 隔离，不重新派发。
 
@@ -12,9 +16,15 @@
 
 为满足有限墓碑到期后仍不重派的边界，设计补充由 Gateway 发放并退役的 history_epoch；恢复另有 recovery_generation，不能复用连接 epoch。旧/未知范围缺 key 时拒绝新建，重试器不能自动改绑新范围。#4 冻结编码/关联，#5 落实期限、预算、迁移、隔离恢复与晚到事务，补充验收见实施方案 §4.1；本轮不改 GitHub issue、不启动其实现。
 
+后续文档复核补严：scope 冻结期限及严格原子准入保证任何墓碑到期时其范围已停止登记新 key；恢复解除隔离后才发放新 scope，旧 pending/call/retry cache 不改绑。备份后 discard/撤权不明的原文保持不可读。64 MiB 预留用尽或真实写失败时进入 storage_degraded；写出前先提交 dispatch 锚点，结局/补证不能持久化就保留 unknown 而非伪称 responded，不提前删墓碑或自动重派。完整规则和跨字段约束见 DESIGN §11.2/§12.3/§12.4 及 ADR 0002。
+
 现有 v3/codec 不具备这些新增保证：句柄 TTL 不删除内联原文、16 MiB 只限句柄载荷、unknown 回复当前会被拒绝，亦没有恢复/历史代次。源码、已有测试、依赖锁与已验收 P0 fixture 本轮未改；只执行文档一致性检查，不能声称新功能测试通过。
 
 发布边界：用户另行明确批准只推送已验收 P0 分支。核实 origin 为 `https://github.com/ArnoChenFx/luvus-mcp.git`、P0 ref 精确为 d2455e8，并审查文本及归档无密钥形态数据/auth 请求后，执行一次普通非强制 push；现有命令环境身份 projCC 被仓库返回 HTTP 403 拒绝，推送未完成。未切换/创建凭据、未重试绕过、未发布设计分支或合并 main；当前没有可声称已发布的 P0 报告 GitHub 链接。父会话可安排具备该仓库写权限的既有授权身份执行同一 P0 ref 推送，本地交付均保留。
+
+用户随后指定 ArnoChenFx；已通过现有 GitHub connector 的 link_6ad4579ce7d48191b645982203d60bb7 只读验证 profile_id=24894259、nickname=ArnoChenFx，且对本仓库权限为 admin。该连接标识不是 token，平台未提供把它绑定到本地 git push 的入口。云 CLI 仅观察到 GH_TOKEN 环境绑定（只检查变量名），gh 的账号状态报告该绑定不可用、API 请求 Forbidden，未验证到本地可正常选择的 ArnoChenFx 身份；不读取/搬运凭据、不用接口替代上传代码、不重试推送。最小解除步骤是由平台/任务配置将云 Git 的既有授权账号绑定到 ArnoChenFx，并验证认证 login 后再执行原 P0 ref 推送；无需重复批准发布，也不扩大 OAuth 权限。
+
+交付保全状态：当前工具目录没有 cloud_threads.attach。Library 技能包不可读取；现有上传工具虽成功准备了 P0 patch/bundle 会话，但未接管 workspace_path，随后两次独立文件 PUT 均遇 URLError，未 finalize，故没有 Library 持久文件，更没有持久任务附件。不得把本地路径或 upload_session_id 说成已上传成果。可用交付仍是本环境的 patch/bundle 下载链接；需在环境关闭前由父会话/平台下载并附入其支持的任务附件，或在账号绑定修复后通过已授权的原 P0 推送保全。设计分支尚无发布授权，不能随 P0 一起发布。
 
 ## Issue #3 后续交接（2026-10-18 UTC）
 

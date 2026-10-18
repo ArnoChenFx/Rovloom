@@ -1,7 +1,7 @@
 # Luvus 多机器通用 MCP：实施方案
 
-版本：0.3 · 日期：2026-10-18 · 原作者：Luvus Tester
-状态：供后续开发执行的计划；v0.3 仅按用户采纳的四项原则修订文档，没有实施这些新规则。
+版本：0.4 · 日期：2026-10-18 · 原作者：Luvus Tester
+状态：供后续开发执行的计划；本轮仅补充已采纳原则、管理 UI 和 Bun 迁移要求，没有实施这些功能。
 配套：《DESIGN.md》。下文的命令/工具名称均为拟议接口。
 
 当前已验收 Linux P0 基线为 `d2455e878f93e162a2a54bb58c1e5785aecd0949`。原有内部实现不等于新验收门禁已满足；本次不自动启动 #4/#5。详见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。
@@ -33,8 +33,9 @@
 
 ## 3. 技术基线与需要冻结的决策
 
-建议 TypeScript + 一个 CLI，模块化业务核心；选择仍受支持的 Node LTS，锁定当时兼容的 MCP SDK、schema validator、WebSocket 和 SQLite 依赖版本。
-- 采用已验收 P0 的 [ADR 0001](adr/0001-p0-version-and-contract-baseline.md) 版本锁，不按“latest”替换依赖。
+保持 TypeScript + 一个 CLI、模块化业务核心；未来开发工具链按用户要求使用 Bun，先在 #15 核验兼容性并冻结版本。是否仍需 Node 运行时与 SQLite 的承载方式由迁移验证决定；SDK 等依赖保持 P0 实测版本，不顺带升级架构。
+- 用户要求未来开发工具链使用 Bun，先按 [#15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 做独立迁移，再执行 #4。Bun 1.4.3 是待核验建议，不能现在宣称通过；是否保留 Node 运行时依 SQLite/SDK/TypeScript/测试/构建/脚本实测决定。
+- 迁移以 d2455e8 的真实 package/lock 和 [ADR 0001](adr/0001-p0-version-and-contract-baseline.md) 历史证据为准，SDK 1.32.1/Ajv 8.20.0/ws 8.22.0 已存在。不得借 Bun 迁移升级 SDK 2.x 或重写 MCP 架构；Node/npm P0 历史版本不改写，Bun 未验收前不提供伪成功命令。
 - MCP stdio 与 Streamable HTTP 共用同一 facade；优先本地 stdio 联调，公网 HTTP 在授权验收后才开放。SDK 1.32.1 当前实测 2025-11-25 的 initialize 路径；2026-07-28 元数据/握手机制不同，不能混称兼容，目标客户端须实际协商。
 - Gateway 与 Connector 的网络协议自定义且版本化；不是把内部 WSS 冒充 MCP 或 UHP。
 - schema 使用安装 binary 的 bundle + 实时 capabilities；外部 JSON Schema 引用按已下载 bundle 解析，禁止任意 URL 自动取远程 schema。
@@ -61,6 +62,8 @@ P6 HTTP MCP 与安全加固
   ↓
 P7 真实联调、文档与发行
 ```
+
+现有 issue 补充顺序：已验收 P0 → **#15 Bun 开发工具链迁移 → #4**；Web UI **#8 → #14 → #9**，其中 #14 硬依赖 #5/#6/#8。编号对应任务与 P0–P7 阶段不是同一套编号，不能把 #14 放到认证/设备后端之前；本轮不执行这些后续任务。
 安全是各阶段约束，不是 P6 才补；P6 是完整 HTTP 入口与攻击面门禁。
 
 ## 4. 分阶段实施
@@ -101,16 +104,24 @@ P7 真实联调、文档与发行
 - [ ] 安全分类完整而仅参数 schema 不足时，严格模式拒绝，显式 raw-contract 只能放宽参数验证；保留 envelope/限额/保留字段/当前策略/秘密结果检查。用 P0 的 144 项缺口和 native 额外约束分别作回归，不声称枚举即参数验证。
 - [ ] 冻结恢复代次、history_epoch、call/attempt/epoch/native id 关联、方向、重复与冲突回复规则；同一有效 attempt 的可靠晚到 response 可以输出追加证据意图，旧 epoch/恢复代次/其它 attempt 不可更新当前结果。
 - [ ] 描述 unknown 细化、原超时/取消历史不变、content_status 与固定 expires_at。带 key 但缺少有效 history_epoch 不得暗用当前范围；协议 codec 不负责实际修改账本或宣称 socket 已认证。
+- [ ] 正反 fixture 区分正常新意图与旧重试：不可自动将原 recovery_generation/history_epoch/key 改绑到新 scope。冻结 scope 的受信创建时间、准入截止、去重期限及恢复代次关联，未知 scope 不回退为 active；同参数但明确的新意图不冒称无限语义去重。
 - [ ] 以上契约正反 fixture 覆盖 unknown 分类与仅缺 schema 的差异、秘密结果旁路、错关联、重复/冲突、过期/已清理内容状态；原 #4 的全部 envelope、版本协商、schema 引用/边界和未认证拒绝要求保持。
 
 **#5 [P1b] 调度、保留、审计和恢复：**
 - [ ] 使用 fake clock 验证 DESIGN §12.3 的全部默认值与非法组合；原始内联/对象、句柄、墓碑/调用元数据分别到期。句柄到期可在内容仍有效时重建，但不得延长内容截止；内容过期/discard 后通过 call_get/result_read/同 key/晚到/备份恢复均不可复活原文或句柄。
 - [ ] 在当前策略及独立 discard_response 权限下清理；内容删除不删除未到期墓碑。验证 24 小时新 key 范围退役、30 天墓碑到期、相同 key 的冲突、未知/旧范围和缺失历史，拒绝旧 key 重新派发；重试器不自动更换 key/范围。
+- [ ] 原子验证 now < accept_new_until 与冻结 dedup_ttl 的关系；墓碑删除时其范围必已停止新 key 登记。覆盖边界同刻、配置缩短、scope 元数据删除、普通重启/恢复和旧 retry 缓存，不能通过刷新 discovery 自动转成新调用。
 - [ ] 证明 16 MiB 句柄子配额不能绕过 128 MiB 内容池和 512 MiB 受管总量；SQLite/WAL/SHM/对象/受管审计/备份/维护临时文件计入总量。64 MiB 预留用于既有工作收尾，新派发先做预算准入，容量不足不提前删墓碑、不自动重放，拒绝审计有界。
+- [ ] 注入 64 MiB 预留耗尽与真实 WAL/磁盘写失败：前置 dispatch 锚点提交失败不写出；已可能送达时不能改称未执行，保留 durable dispatching/accepted 并恢复为 unknown。补证提交失败不发布 durable responded，安全变更未持久化不报告生效，进入 degraded 停止副作用入口；不靠无限内存/日志补救。
 - [ ] 仅用自建数据库/临时目录演练“备份后撤销、已消费配对、已派发 key 后再恢复旧备份”。必须先隔离、使旧凭据/配对失效、关闭旧历史范围、ACL 默认拒绝并重新授权/配对；缺失 key/丢失在途历史不能变为首次派发或未执行证明，旧回包与内容期限也不能复活。
+- [ ] 恢复期间不发布新 scope，解除隔离后也不自动改绑旧 pending/重试缓存；备份后 discard 状态无法证明时原文保持不可读，即使重新授权或备份含未过期副本也不能建句柄。
 - [ ] 对缺少可信当前撤销/历史资料的恢复保持隔离；明确支持流程与手工整机回滚检测的保证边界。恢复/migration 中断、预算不足、单 writer、原子失败和不自动删锁仍须重复证据。
 - [ ] 同一仍有效的已认证 attempt 在 deadline/取消之后收到可靠 response，可原子补证并细化 unknown，历史超时保留且不重新派发；重复只幂等补证，冲突不覆盖；旧 epoch/恢复代次/其它 attempt/已删除历史隔离。内容到期/discard 后晚到只记最小证据，不续 TTL、不建句柄、不绕过撤权。
-- [ ] 原 #5 的结构化审计/假 secret、迁移、私有路径/平台权限与 Node 24 typecheck/test/build 要求保持；编码时修正现有 v3 与这些新门禁的差异，不把本次文档修订写成实现通过。
+- [ ] 原 #5 的结构化审计/假 secret、迁移和私有路径/平台权限要求保持；开发检查以 #15 验收后的 Bun 工具链为前置，必要 Node 运行时检查据迁移结论另列，不能用旧 Node 结果冒称 Bun 通过。编码时修正现有 v3 与这些新门禁的差异，不把本次文档修订写成实现通过。
+
+#### 4.2 #14 Gateway 内置 Web UI 的实施前置
+
+正式任务：[issue #14](https://github.com/ArnoChenFx/luvus-mcp/issues/14)，顺序 #8 → #14 → #9，硬依赖 #5/#6/#8。待管理员认证与设备管理/配对后端具备后，再实施 [最小 Web UI 设计](GATEWAY-WEBUI.md)：设备状态与认证详情、配对、暂时断开、持久撤销、独立管理员保护、无凭据回显、确认/审计、过期快照/错误态。默认本机，远程需明确 TLS/访问控制；管理 API 不与 WSS/MCP 身份混用，恢复/存储隔离时不允许写入。当前只补设计，不实现页面、不创建外部网站或新凭据。
 
 ### P2 — 配对、设备身份与主动连接
 
@@ -266,6 +277,7 @@ P7 真实联调、文档与发行
 - OPERATIONS.md：重启、unknown 对账、offline、泄露撤销、backup/migration、磁盘满、证书过期。
 - SECURITY.md：Owner 权限、agent prompt 的执行风险、日志和结果保留、报告渠道。
 - ADR 0002：四项已采纳原则、可配置默认值及 #4/#5 尚未实现的验收要求。
+- GATEWAY-WEBUI.md：#14 的内置管理面、最小管理 API、认证/恢复边界与 UI 验收要求；#15 的 Bun 迁移先行，不改写历史。
 - 无真实密钥的示例配置和部署说明。
 
 ## 8. 工期与排期建议
