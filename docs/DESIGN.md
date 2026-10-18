@@ -5,7 +5,7 @@
 范围：仅文档，不启动编码 Agent，不变更已有实现和运行中 Luvus 会话。
 配套：《IMPLEMENTATION-PLAN.md》。本文替代此前讨论中的概念草案，不覆盖旧编码 Agent 文件。
 
-项目展示名为 **Rovloom**，仓库暂名 `luvus-mcp`。Luvus/Herdr 是受支持的原生 runtime 名；package、CLI、工具/环境变量/协议字段等既有机器标识保持兼容，详见 [README 命名说明](../README.md#name-and-compatibility-identifiers)。原作者署名与历史证据保持原文。
+Rovloom 的 TypeScript 包标识为 `luvus-mcp`，拟议 CLI 沿用该标识；现有环境变量、协议字段、ID 与 schema 名称保持兼容。Luvus/Herdr 指原生 runtime；设计中的 `luvus_*` 兼容别名仅适用于 Luvus，公共 `runtime_*` 接口和 provider 迁移约束见 [ADR 0004](adr/0004-multi-runtime-provider.md)。
 
 修订基线：main `5124d459fa0f712fd1dbb9f164a3513e3e538716`（含 Linux Luvus P0、安全设计与 Bun 基线）。本次只修订文档；安全原则见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)，公共字段、迁移与分阶段边界以 [ADR 0004](adr/0004-multi-runtime-provider.md) 为准。
 

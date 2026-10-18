@@ -4,7 +4,7 @@
 状态：供后续开发执行；多 runtime provider 已获用户设计授权，功能/迁移/管理 UI 尚未实施。#15 Bun 1.4.3 已合入 main `5124d45`，证据见 [Bun 开发与验证指引](bun/README.md)。
 配套：《DESIGN.md》。下文的命令/工具名称均为拟议接口。
 
-项目展示名为 **Rovloom**；仓库名、package/CLI 标识及原生 Luvus/Herdr 名称按 [README 命名说明](../README.md#name-and-compatibility-identifiers) 保留。品牌文案变更不改变阶段范围、机器接口或历史证据。
+Rovloom 的 TypeScript 包标识与拟议 CLI 标识均为 `luvus-mcp`，现有环境变量、协议字段、ID 与 schema 名称保持兼容。Luvus/Herdr 指原生 runtime；`luvus_*` 兼容别名仅适用于 Luvus，公共 `runtime_*` 接口和 provider 迁移约束见 [ADR 0004](adr/0004-multi-runtime-provider.md)。
 
 当前基线 main `5124d459fa0f712fd1dbb9f164a3513e3e538716` 已包含 Luvus Linux P0、安全设计及 Bun；不等于 P1 或 Herdr P0 已完成。本轮只改文档；公共字段与兼容迁移见 [ADR 0004](adr/0004-multi-runtime-provider.md)，安全原则沿用 ADR 0002。
 

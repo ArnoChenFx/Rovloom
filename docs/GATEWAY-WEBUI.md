@@ -5,7 +5,7 @@
 
 ## 范围与服务边界
 
-Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，不把机器标识 `luvus-mcp` 用作页面产品标题。仓库/兼容标识见 [README 命名说明](../README.md#name-and-compatibility-identifiers)。
+Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，不把机器标识 `luvus-mcp` 用作页面产品标题。机器标识与兼容边界见 [系统设计](DESIGN.md)。
 
 Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动 UI。它管理设备与连接认证状态及其已配置 runtime providers，不另建外部网站，不增加多租户、通用终端、任意 shell、结果浏览或完整运维平台。provider 专指 Luvus/Herdr 实例，不是 LLM/model vendor；页面不管理 model API key。
 
