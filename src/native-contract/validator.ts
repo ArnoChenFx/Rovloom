@@ -1,7 +1,7 @@
 import { validateTarget } from '../contracts.js';
 import { candidates, contracts, permits, responses, SCOPES, STREAM_METHODS, streams, UHP, views } from './internal.js';
 import { attempt, equal, fail, object, snapshot, text } from './json.js';
-import type { CapabilityView, Check, CheckedControl, CheckedEvent, CheckedRequest, CheckedResponse, CheckedStream,
+import type { CapabilityView, Check, CheckedControl, CheckedRequest, CheckedResponse,
   CompiledContract, DispatchCandidate, DispatchPermit, JsonObject, MethodDescriptor, NativeBinding,
   NativeMethodContract, NativeValidator, RawRequestCandidate, TrustedNativeContext } from './types.js';
 

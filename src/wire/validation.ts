@@ -30,7 +30,10 @@ export function sha(v: unknown): asserts v is string {
   if (typeof v !== 'string' || !/^[a-f0-9]{64}$/.test(v)) fail('invalid_digest');
 }
 export function text(v: unknown, max = 4096): asserts v is string {
+  // Text identifiers must reject ASCII control characters at the wire boundary.
+  // oxlint-disable no-control-regex
   if (typeof v !== 'string' || v.length === 0 || Buffer.byteLength(v) > max || /[\u0000-\u001f]/.test(v)) fail('invalid_text');
+  // oxlint-enable no-control-regex
 }
 export function oneOf<T extends string>(v: unknown, values: readonly T[]): asserts v is T {
   if (!values.includes(v as T)) fail('invalid_enum');

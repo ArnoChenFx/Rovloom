@@ -67,7 +67,7 @@ function syncAliases(b: any): void {
   b.access.descriptor = docs[b.access.descriptor.$id];
 }
 function bundleCase(c: any): any {
-  let b: any = c.generator ? clone(seeds.get('bundle')) : specimen(c);
+  const b: any = c.generator ? clone(seeds.get('bundle')) : specimen(c);
   if (c.generator === 'ref_chain_33') {
     const defs = b.documents['https://luvus.dev/protocol/uhp/v1/request.schema.json'].$defs;
     for (let i = 0; i < 34; i++) defs[`chain${i}`] = i === 33 ? { type: 'object' } : { $ref: `#/$defs/chain${i + 1}` };
@@ -114,7 +114,7 @@ function responseCase(c: any): any {
   return validator.checkResponseShape(value, c.seed.startsWith('terminal_') ? 'terminal' : 'general');
 }
 function dispatchCase(c: any): any {
-  const facts = specimen(c); let nativeRequest = clone(facts.request);
+  const facts = specimen(c); const nativeRequest = clone(facts.request);
   const profile = facts.profile === 'host' ? 'host' : 'session';
   let from: any = profile === 'host' ? host : session;
   if (facts.schema_state === 'unavailable' || !from.methods.some((entry: any) => entry.method === nativeRequest.method)) {

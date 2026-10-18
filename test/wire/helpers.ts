@@ -78,7 +78,7 @@ export function frame<K extends AuthenticatedEnvelope['type']>(type: K,
   return { protocol_major: 2, protocol_minor: 0, type, message_id: 'message_1', ...identity, payload } as any;
 }
 export function withoutId(value: Record<string, unknown>): Record<string, unknown> {
-  const { id, ...request } = value; return request;
+  const { id: _id, ...request } = value; return request;
 }
 export const request = frame('request', { attempt, expected_binding_revision: 1,
   native_request: { method: 'ping', params: {} }, validation: 'strict' });

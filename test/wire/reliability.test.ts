@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planHistoryAdmission, planResponseEvidence, MessageWindow, hash, boundedJson } from '../../src/wire/index.js';
 import type { HistoryScope, HistoryRecord, ResponseAnchor } from '../../src/wire/index.js';
-import { request, response, binding, attempt, context, rejects, frame } from './helpers.js';
+import { response, binding, context, rejects, frame } from './helpers.js';
 
 const reference = { history_epoch: 'history_1', client_request_key: 'key_1' };
 const scope: HistoryScope = { history_epoch: reference.history_epoch, recovery_generation: binding.recovery_generation,

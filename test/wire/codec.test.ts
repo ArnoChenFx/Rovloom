@@ -42,7 +42,7 @@ test('v2 握手必填字段、方向与 welcome 关联完整，不构造认证�
   rejects(() => decodeWireFrame(JSON.stringify(welcome), { phase: 'preauth', direction: 'gateway_to_connector' }), 'handshake_context_required');
   rejects(() => decodeWireFrame(JSON.stringify({ ...welcome, payload: { ...welcome.payload, selected: { major: 2, minor: 0, capabilities: ['future'] } } }), g2c), 'unsupported_capability');
   rejects(() => decodeWireFrame(JSON.stringify({ ...authenticate, protocol_minor: 1 }), c2g), 'invalid_negotiation');
-  const { machine_id, recovery_generation, connection_epoch, ...forged } = request;
+  const { machine_id: _machineId, recovery_generation: _recoveryGeneration, connection_epoch: _connectionEpoch, ...forged } = request;
   rejects(() => decodeWireFrame(JSON.stringify(forged), { phase: 'preauth', direction: 'gateway_to_connector' }), 'authentication_required');
 });
 
@@ -161,7 +161,10 @@ test('UTF-8/JSON/Unicode、精确大小/深度/节点与 ID 边界保持有界',
   const cyclic: any = {}; cyclic.self = cyclic;
   rejects(() => boundedJson(cyclic), 'invalid_json');
   rejects(() => boundedJson({ get x() { throw Error('不得执行'); } }), 'invalid_json');
-  rejects(() => boundedJson(new Date()), 'invalid_json'); rejects(() => boundedJson(new Array(3)), 'invalid_json');
+  rejects(() => boundedJson(new Date()), 'invalid_json');
+  // Intentionally sparse: Array.from would fill the holes and change this negative input.
+  // oxlint-disable-next-line unicorn/no-new-array
+  rejects(() => boundedJson(new Array(3)), 'invalid_json');
   const heartbeat = frame('heartbeat', { sequence: 0 }), raw = JSON.stringify(heartbeat);
   assert.deepEqual(decodeWireFrame(raw + ' '.repeat(LIMITS.frame_bytes - Buffer.byteLength(raw)), context()), heartbeat);
 });

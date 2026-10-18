@@ -11,7 +11,10 @@ import { Router } from '../src/router.js';
 
 test('bounded canonical JSON rejects cycles, sparse arrays, getters, excessive depth and size', () => {
   const cycle: unknown[] = []; cycle.push(cycle);
-  for (const value of [cycle, new Array(2), { get secret() { throw Error('getter executed'); } }, 'x'.repeat(1_048_577)]) {
+  // Intentionally sparse to exercise rejection of array holes.
+  // oxlint-disable-next-line unicorn/no-new-array
+  const sparse = new Array(2);
+  for (const value of [cycle, sparse, { get secret() { throw Error('getter executed'); } }, 'x'.repeat(1_048_577)]) {
     assert.throws(() => canonical(value), /invalid_json|json_limit/);
   }
   let deep: unknown = null;

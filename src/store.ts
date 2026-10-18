@@ -76,7 +76,7 @@ export class Store {
         UPDATE calls SET state='outcome_unknown' WHERE state IN ('dispatching','connector_accepted');
         COMMIT;`);
     } catch (error) {
-      this.db!?.close();
+      this.db?.close();
       this.releaseLock();
       throw error;
     }
