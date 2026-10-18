@@ -18,7 +18,8 @@ Implemented:
 - Canonical request-key deduplication, response correlation and conservative restart/disconnect recovery.
 - Single-writer lock and database file permissions on POSIX.
 - Authorized Router and durable profile/session/method/deadline context.
-- Result handles with byte pagination, payload quota, TTL and revocation cleanup.
+- Deduplicated result handles with byte pagination, payload quota, TTL and revocation cleanup.
+- Explicit response discard preserving call metadata and request-key tombstones.
 
 Not implemented: WSS, MCP facade, UHP adapter/schema validation, credential rotation,
 global database retention/quotas, streaming, HTTP OAuth, CLI, or deployment. Store methods are
@@ -49,6 +50,10 @@ and redeeming are administrative primitives for a future protected channel.
 A `.lock` file prevents concurrent writers. A crash intentionally leaves it in
 place. An operator must confirm no writer is alive, back up the database, then
 remove the stale lock before reopening. Never remove a live writer's lock.
+Handle TTL does not delete inline call responses. Explicit response discard removes
+logical response data and handles, not forensic copies, SQLite free pages or backups.
+Automatic response retention and whole-database quotas are still pending.
+
 Recovery marks machines offline and dispatched calls `outcome_unknown`; no
 persisted request is automatically executed. Request-key deduplication is not an
 exactly-once guarantee. This schema stores hashes, not queued request payloads.

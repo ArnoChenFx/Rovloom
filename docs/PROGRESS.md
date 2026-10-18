@@ -92,11 +92,31 @@ of cleanup is not implemented. Stored inline call responses remain outside this
 result-object quota, so this is NOT a total database/disk quota.
 
 Schema v3 adds result storage; real v1 fixtures now verify migration, legacy
-Router rejection and unknown outcomes across reopen. Existing v2 fixtures are
-covered by the prior implementation, but an explicit v2-to-v3 regression fixture
-is still pending. Tests total 14, including byte-perfect multi-page reconstruction,
+Router rejection and unknown outcomes across reopen. The fourth change adds a populated v2-to-v3 regression fixture as well. Tests total 14, including byte-perfect multi-page reconstruction,
 TTL, quotas, policy changes and cross-principal denial. Typecheck/build and Node 24
 regression commands are rerun for this change.
+
+## Follow-up: result lifecycle and migration regression
+
+Fourth change: repeated `saveResult` for a live handle returns that handle without
+allocating more payloads or extending expiry. Existing databases with duplicate
+handles are not compacted automatically; they age out under their original TTL.
+`discardResponse` rechecks Router policies and atomically removes handles plus the
+inline response, keeping call metadata and request-key deduplication tombstones.
+It is an internal primitive, not yet an MCP tool or scheduled retention job.
+
+TTL remains a handle-lifetime rule: expiry alone does not delete `calls.response`,
+and a new handle can be generated until explicit discard. Machine revocation
+blocks access and deletes handles, but still does not erase inline responses.
+Logical SQL deletion is not forensic/physical erasure, nor does it guarantee disk
+space reclamation; backups and SQLite free pages may retain prior bytes.
+
+New tests cover duplicate saves without TTL extension, aggregate payload quota
+and expiry reclamation, invalid cursors/page sizes and EOF, reauthorized discard,
+request-key tombstone preservation, populated v2 migration, persisted handles after
+reopen and cleanup after expiry. Total: 17 tests. Commands: `npm run typecheck`,
+`npm test`, `npm run build` pass on the host; Node 24 suite and staged whitespace
+check rerun before committing. No native Luvus or remote-machine evidence is added.
 
 ## Remaining gaps
 

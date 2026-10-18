@@ -2,7 +2,7 @@ import { authorize, canonical, GatewayError, validateRequest, validateTarget } f
 import type { NativeRequest, Policy, Target } from './contracts.js';
 import { Store } from './store.js';
 
-// Authenticated transports supply this identity; never deserialize it from tool arguments.
+// 身份必须由已认证的传输层提供，不能从工具参数中反序列化。
 export type Principal = { id: string; policy: Policy };
 export type LocalPolicies = (machineId: string) => Policy;
 
@@ -15,7 +15,7 @@ export class Router {
   }
 
   create(principal: Principal, target: Target, request: NativeRequest, key?: string, timeoutMs?: number) {
-    // Snapshot bounded JSON before inspecting it; subsequent mutations cannot change routing.
+    // 先生成有大小限制的 JSON 快照，防止后续对象变更影响路由目标。
     const snapshot = JSON.parse(canonical({ target, request })) as { target: Target; request: NativeRequest };
     validateTarget(snapshot.target);
     validateRequest(snapshot.request);
@@ -40,6 +40,11 @@ export class Router {
     return this.store.saveResult(principal.id, callId);
   }
 
+  discardResponse(principal: Principal, callId: string): void {
+    this.get(principal, callId);
+    this.store.discardResponse(principal.id, callId);
+  }
+
   readResult(principal: Principal, resultId: string, cursor = 0, maxBytes = 65_536) {
     const call = this.store.resultCall(principal.id, resultId);
     this.get(principal, call.call_id);
@@ -48,7 +53,7 @@ export class Router {
 
   cancel(principal: Principal, callId: string) {
     this.get(principal, callId);
-    // Stops bridging only; outcome_unknown never claims the native action rolled back.
+    // 只停止桥接；outcome_unknown 不表示远端原生动作已回滚。
     return this.store.stop(principal.id, callId);
   }
 }

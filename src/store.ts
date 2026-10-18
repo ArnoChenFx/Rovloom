@@ -19,7 +19,7 @@ export class Store {
   private closed = false;
 
   constructor(private readonly path: string, private readonly now = Date.now) {
-    // A stale lock requires explicit operator recovery, never automatic takeover.
+    // 崩溃遗留的锁必须由管理员确认后恢复，不能自动接管。
     if (path !== ':memory:') this.lock = openSync(path + '.lock', 'wx', 0o600);
     try {
       this.db = new DatabaseSync(path);
@@ -135,7 +135,7 @@ export class Store {
     return this.machine(machine_id);
   }
 
-  // Administrative channel only: these secrets must never become MCP tool output.
+  // 仅供受保护的管理通道使用：这些凭据绝不能出现在 MCP 工具输出中。
   issueEnrollment(machine_id: string, ttlMs = 600_000): string {
     if (this.machine(machine_id).status !== 'pending') throw new GatewayError('invalid_machine_state');
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) throw new GatewayError('invalid_ttl');
@@ -253,6 +253,11 @@ export class Store {
       if (call.state !== 'responded' || call.response === null) throw new GatewayError('result_not_ready');
       const payload = Buffer.from(call.response);
       this.db.prepare('DELETE FROM results WHERE expires<=?').run(this.now());
+      const existing = this.db.prepare(`SELECT result_id,bytes,hash,expires FROM results
+        WHERE call_id=? ORDER BY expires LIMIT 1`).get(callId) as
+        { result_id: string; bytes: number; hash: string; expires: number } | undefined;
+      // 重复保存复用现有句柄，避免重复占用配额或悄悄延长有效期。
+      if (existing) return existing;
       const used = this.db.prepare('SELECT COALESCE(SUM(bytes),0) AS bytes FROM results').get() as { bytes: number };
       if (used.bytes + payload.length > quotaBytes) throw new GatewayError('result_quota');
       const result = { result_id: id('result'), bytes: payload.length,
@@ -260,6 +265,15 @@ export class Store {
       this.db.prepare('INSERT INTO results VALUES (?,?,?,?,?,?)')
         .run(result.result_id, callId, payload, result.bytes, result.hash, result.expires);
       return result;
+    });
+  }
+
+  discardResponse(principal: string, callId: string): void {
+    this.transaction(() => {
+      const call = this.call(principal, callId);
+      if (call.state !== 'responded') throw new GatewayError('result_not_ready');
+      this.db.prepare('DELETE FROM results WHERE call_id=?').run(callId);
+      this.db.prepare('UPDATE calls SET response=NULL WHERE call_id=?').run(callId);
     });
   }
 
@@ -277,7 +291,7 @@ export class Store {
     const row = this.db.prepare('SELECT bytes,hash FROM results WHERE result_id=?').get(resultId) as
       { bytes: number; hash: string };
     if (cursor > row.bytes) throw new GatewayError('invalid_result_cursor');
-    // Byte cursors and base64 preserve UTF-8 even when a page splits a code point.
+    // 使用字节游标和 base64，保证分页切开 UTF-8 字符时仍可无损重组。
     const chunk = this.db.prepare('SELECT substr(payload,?,?) AS chunk FROM results WHERE result_id=?')
       .get(cursor + 1, maxBytes, resultId) as { chunk: Uint8Array };
     const data = Buffer.from(chunk.chunk);

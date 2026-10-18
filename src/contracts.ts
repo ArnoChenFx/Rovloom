@@ -34,7 +34,7 @@ export function validateRequest(request: NativeRequest): void {
   canonical(request);
 }
 
-// Exact method allowlists fail closed for future methods. Both layers must allow.
+// 方法采用精确白名单，未知方法默认拒绝；调用方与本地策略必须同时允许。
 export function authorize(target: Target, method: string, caller: Policy, local: Policy): void {
   validateTarget(target);
   for (const policy of [caller, local]) {

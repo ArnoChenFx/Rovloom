@@ -1,4 +1,30 @@
-# Foundation reviews: 7ed9ef7, d1b8011 and 2e0b9cd
+# Foundation reviews: batches 1–5
+
+## Fourth and fifth batches: 58302d4 / 3d58cd3
+
+Decision: suitable for updating the existing **draft** PR; not a deployable gateway or completion of P0/P1. Reviewed delta from `2e0b9cd` to `3d58cd3`: six files, 166 additions and 11 deletions. Local worktree clean. Pre-publication remote baseline: PR branch `8b01bec`, main `afe1cb4`.
+
+Independent verification:
+- `npm run typecheck`, `npm run build`: passed.
+- `npm test`: 17 passed, 0 failed on host Node 25.9.0.
+- Node 24.22.0 test suite: 17 passed, 0 failed.
+- `git diff 2e0b9cd..HEAD --check`: passed.
+- Existing source/test comments: all ten comment sites inspected are Chinese. Fifth commit changes comments only; its diff was inspected.
+
+Reviewed behavior:
+- Repeated save reuses an existing live handle without extending its expiry or reserving another payload allocation.
+- Router reauthorizes explicit response discard; Store atomically deletes handles and nulls the inline response, preserving call metadata and deduplication tombstones.
+- New regressions cover quota reclamation, EOF/invalid cursor/page boundaries, discard denial and idempotence, populated v2-to-v3 migration, handle reopen and expiry.
+- Documentation explicitly distinguishes handle TTL, logical discard, physical erasure and remaining whole-database retention limits.
+
+Remaining gates:
+- Registration/admin and all Router functions still require a real authenticated transport; no WSS/MCP/UHP adapter or P0 native evidence is supplied by these batches.
+- Response discard currently uses the original call method permission (the same as result reading). Before exposing a destructive retention API remotely, explicitly decide and test whether a separate cleanup permission is required; do not silently treat an observer's read permission as independent deletion authority.
+- Result reuse is an internal immutable-handle policy. TTL/quota parameters of a repeated save do not replace an existing handle's metadata; future caller-visible API must document this clearly.
+- Automatic response retention, whole-database quotas, audit and protected credential lifecycle remain open. Revocation still does not physically erase response bytes.
+- Earlier review sections below are historical snapshots; only items explicitly resolved in later sections should be considered closed.
+
+---
 
 ## Third batch: 2e0b9cd
 
