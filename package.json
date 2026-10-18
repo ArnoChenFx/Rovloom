@@ -18,10 +18,12 @@
     "smoke": "bun --no-env-file scripts/bun/smoke.mjs",
     "verify": "python3 scripts/bun/verify.py"
   },
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "26.6.5",
-    "ajv": "8.20.0",
     "typescript": "7.0.2",
     "ws": "8.22.0"
   }

@@ -1,0 +1,28 @@
+{
+  "base": "5ce1ee585265f456cb5e85d0d2d821cb5abfe897",
+  "nativeCommit": "5531020fbcabe82d5e4011169a4ee5e86317eb05",
+  "nativeTree": "76802ce6dd392fb754fd7ed8c76d02fc5024d4ad",
+  "wireCommit": "7d7c6611e6893add450c9fba7d5906f7229ddd76",
+  "wireTree": "3d8ac6ffa72692c95b55cb33802511521bfa284c",
+  "testGroups": {
+    "foundation": 20,
+    "integration": 10,
+    "native": 141,
+    "wire": 28
+  },
+  "originalProtocolTestBodyUnchanged": true,
+  "originalProtocolTestBodySha256": "b421e391ba9f7f82b1a0faf66561bd4b24a6d0f924abe737613167bcfd355dc9",
+  "otherFourBaselineFilesUnchanged": true,
+  "protectedMainDesignCoreAndFixturesUnchanged": true,
+  "nativeOriginalCodeTestsAndMatrixUnchanged": true,
+  "lockPackageEntriesUnchanged": 119,
+  "integrationNotPublished": true,
+  "issue4Complete": false,
+  "remainingDependencies": [
+    "issue #5 persistence, retention, recovery and durable dispatch/late evidence",
+    "authenticated transport and real endpoint/confirmation/custody integration",
+    "native lifecycle, cross-platform and real multi-machine evidence",
+    "schema worker CPU/heap isolation",
+    "Herdr P0-H"
+  ]
+}

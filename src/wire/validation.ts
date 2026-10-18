@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { GatewayError } from '../contracts.js';
+import { ContractFault, DEFAULT_LIMITS as JSON_LIMITS, parse as parseNativeJson } from '../native-contract/json.js';
 import type { JsonObject } from './types.js';
 
 export const LIMITS = Object.freeze({ frame_bytes: 1_048_576, depth: 64, nodes: 100_000,
@@ -84,7 +85,18 @@ export function parseJson(input: string | Uint8Array, maxBytes: number = LIMITS.
   catch { fail('invalid_utf8', 'transport'); }
   if (!wellFormed(raw)) fail('invalid_unicode', 'transport');
   let value: unknown;
-  try { value = JSON.parse(raw); } catch { fail('invalid_frame_json', 'transport'); }
+  try { value = parseNativeJson(raw, { ...JSON_LIMITS, object_bytes: maxBytes, object_depth: LIMITS.depth, object_nodes: LIMITS.nodes }); }
+  catch (error) {
+    if (error instanceof ContractFault) {
+      const { code, reason } = error.failure;
+      if (code === 'object_limit') fail('json_depth_limit', 'transport');
+      if (reason === 'unpaired_surrogate') fail('invalid_unicode', 'transport');
+      if (code === 'duplicate_json_key') fail(code, 'transport');
+      // 在解析阶段提前拒绝精度损失，保留已有 Wire 整数错误接口。
+      if (code === 'json_number_precision') fail('invalid_integer', 'transport');
+    }
+    fail('invalid_frame_json', 'transport');
+  }
   boundedJson(value, maxBytes);
   return value;
 }

@@ -10,3 +10,4 @@ export * from './objects.js';
 export * from './lifecycle.js';
 export * from './provider.js';
 export * from './history-v1.js';
+export { decodeFoundationV1History } from './foundation-v1-history.js';

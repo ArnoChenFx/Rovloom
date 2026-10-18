@@ -42,6 +42,7 @@ export type RequestGate = {
 };
 export type NativeValidationContext = {
   binding: AttemptBinding; mode: ValidationMode; method: string; transport: 'rpc' | 'stream'; feature?: StreamFeature;
+  stream_id?: string;
   // opaque handle/source 只从独立可信上下文注入；不会序列化或由消息构造。
   native_handle?: unknown; trusted_source?: unknown;
 };

@@ -70,7 +70,8 @@ export function context(direction: 'gateway_to_connector' | 'connector_to_gatewa
     resolveProvider: () => ({ ...provider }), resolveContract: () => ({ source: { ...source }, support_status: 'validated' }),
     policies: { caller: { revision: 'caller_policy_1', grants: structuredClone(grants) }, local: { revision: 'local_policy_1', grants: structuredClone(grants) } },
     resolveNativeSource: () => trustedSource,
-    resolveAttempt: () => ({ binding: anchor, method, mode, transport, feature, native_handle: nativeHandle }) };
+    resolveAttempt: () => ({ binding: anchor, method, mode, transport, feature,
+      ...(transport === 'stream' ? { stream_id: 'stream_1' } : {}), native_handle: nativeHandle }) };
 }
 export function frame<K extends AuthenticatedEnvelope['type']>(type: K,
   payload: Extract<AuthenticatedEnvelope, { type: K }>['payload']): Extract<AuthenticatedEnvelope, { type: K }> {

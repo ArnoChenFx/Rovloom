@@ -81,10 +81,11 @@ function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeVal
   assertBinding(binding, anchor.binding); providerFor(binding, ctx);
   text(anchor.method, 256); oneOf(anchor.mode, ['strict', 'raw-contract']); oneOf(anchor.transport, ['rpc', 'stream']);
   if (binding.registration.history !== null) capability(ctx, 'history_scope');
-  if (anchor.transport === 'stream') { oneOf(anchor.feature, STREAM); capability(ctx, anchor.feature); }
+  if (anchor.transport === 'stream') { oneOf(anchor.feature, STREAM); capability(ctx, anchor.feature); id(anchor.stream_id); }
   else { if (anchor.feature !== undefined) fail('attempt_transport_mismatch'); capability(ctx, 'rpc'); }
   return { binding, method: anchor.method, mode: anchor.mode, transport: anchor.transport,
-    ...(anchor.feature === undefined ? {} : { feature: anchor.feature }), native_handle: anchor.native_handle };
+    ...(anchor.feature === undefined ? {} : { feature: anchor.feature }),
+    ...(anchor.stream_id === undefined ? {} : { stream_id: anchor.stream_id }), native_handle: anchor.native_handle };
 }
 function nativeContext(n: NativeValidationContext, ctx: AuthContext): NativeValidationContext {
   if (n.native_handle === undefined || n.native_handle === null) fail('native_handle_unavailable');
@@ -101,7 +102,7 @@ function request(frame: JsonObject, p: JsonObject, ctx: AuthContext, stream: boo
   if (p.expected_binding_revision !== n.binding.binding_revision) fail('provider_binding_mismatch');
   oneOf(p.validation, ['strict', 'raw-contract']); text(r.method, 256);
   if (r.method !== n.method || p.validation !== n.mode) fail('attempt_binding_mismatch');
-  if (stream) { id(p.stream_id); streamFeature(p, ctx); }
+  if (stream) { id(p.stream_id); streamFeature(p, ctx); if (p.stream_id !== n.stream_id) fail('stream_binding_mismatch'); }
   if (n.transport !== (stream ? 'stream' : 'rpc') || (stream && n.feature !== p.feature)) fail('attempt_transport_mismatch');
   assertProviderAccess(n.binding, n.method, 'dispatch', ctx);
   if (ctx.policies!.caller.revision !== n.binding.registration.caller_policy_revision ||
@@ -184,6 +185,7 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
       if (frame.type === 'stream_input' && p.feature !== 'terminal_control') fail('unsupported_stream_input');
       const n = nativeContext(anchored(frame, p, context), context), r = object(p.frame);
       if (n.transport !== 'stream' || n.feature !== p.feature) fail('attempt_transport_mismatch');
+      if (p.stream_id !== n.stream_id) fail('stream_binding_mismatch');
       const validator = validatorFor(n.binding, context);
       if (!validator.validateStreamFrame) fail('stream_validator_unavailable');
       if (frame.type === 'stream_input') assertProviderAccess(n.binding, n.method, 'stream_input', context);
@@ -198,7 +200,11 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
     case 'stream_close':
       fields(p, ['attempt', 'stream_id', 'reason']); id(p.stream_id);
       oneOf(p.reason, ['normal', 'cancelled', 'overflow', 'resync_required', 'transport_error']);
-      if (anchored(frame, p, context).transport !== 'stream') fail('attempt_transport_mismatch');
+      {
+        const n = anchored(frame, p, context);
+        if (n.transport !== 'stream') fail('attempt_transport_mismatch');
+        if (p.stream_id !== n.stream_id) fail('stream_binding_mismatch');
+      }
       break;
     default: fail('handshake_after_authentication');
   }
