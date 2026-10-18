@@ -1,0 +1,20 @@
+$ bun --no-env-file test ./scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py
+bun test v1.4.3 (c6da4a4d3)
+
+scripts/p0/fixtures.test.mjs:
+(pass) 原生 fixture hash、闭包 schema、请求响应关联及清理可重放验证 [424.14ms]
+(pass) 安装 schema 保留根约束和条件；缺失引用不能联网补齐 [255.32ms]
+(pass) 覆盖账本保持全部方法与 profile；未实现、权限、schema 缺口分开 [145.31ms]
+(pass) 语义审计独立拒绝错误退出码、伪造 peer、缺失端点检查与不一致副本 [7.74ms]
+(pass) manifest 不允许漏列必需文件或夹带无关文件 [2.14ms]
+(pass) 真实终端拒绝、队列 ack、消费证据、事件 replay 和取消边界不变 [0.56ms]
+(pass) 所锁 SDK 客户端与独立 stdio 子进程协商已核实的 2025-11-25 [150.97ms]
+
+ 7 pass
+ 0 fail
+Ran 7 tests across 1 file. [1090.00ms]
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.031s
+
+OK
