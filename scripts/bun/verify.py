@@ -5,6 +5,7 @@
 凭据、已有数据库或 home。
 """
 import argparse
+from collections import Counter
 import hashlib
 import json
 import os
@@ -16,25 +17,50 @@ import subprocess
 import sys
 import tempfile
 from urllib.parse import urlsplit
+import xml.etree.ElementTree as ET
 
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def validate_tests(project, label, log, count):
-    if not re.search(rf'\b{count} pass\b', log) or not re.search(r'\b0 fail\b', log):
+def validate_foundation(project, report):
+    # 使用运行器报告，支持嵌套、参数化和不同引号的新增测试，不从源码猜测试标题。
+    root = ET.parse(report).getroot()
+    cases = list(root.iter('testcase'))
+    if not cases or int(root.attrib['tests']) != len(cases):
+        raise RuntimeError('foundation: empty or inconsistent JUnit report')
+    for node in root.iter():
+        if node.tag in ('failure', 'error', 'skipped') or any(
+                int(node.attrib.get(key, '0')) for key in ('failures', 'errors', 'skipped', 'disabled')):
+            raise RuntimeError('foundation: failed, skipped or disabled tests')
+    files = {str(path.relative_to(project)) for path in (project / 'test').rglob('*')
+             if path.is_file() and re.search(r'[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$', path.name)}
+    discovered = Counter()
+    for case in cases:
+        path = Path(case.attrib['file'])
+        if not path.is_absolute():
+            path = project / path
+        discovered[(str(path.resolve().relative_to(project.resolve())), case.attrib['name'])] += 1
+    if files != {file for file, _ in discovered}:
+        raise RuntimeError('foundation: discovered test files differ from source')
+    inventory = json.loads((project / 'docs/bun/review/original-test-inventory.json').read_text())
+    baseline = Counter((item['file'], title) for item in inventory for title in item['discovered'])
+    if sum(baseline.values()) != 20 or baseline - discovered:
+        raise RuntimeError('foundation: original 20 acceptance tests missing')
+    return len(cases)
+
+
+def validate_tests(project, label, log, count=None):
+    if label == 'foundation':
+        count = validate_foundation(project, project / 'foundation.junit.xml')
+    if not re.search(rf'^\s*{count} pass\s*$', log, re.MULTILINE) or not re.search(r'^\s*0 fail\s*$', log, re.MULTILINE):
         raise RuntimeError(f'{label}: test count differs')
     if re.search(r'\b[1-9]\d* (?:skip|todo)\b|\bskipped=', log):
         raise RuntimeError(f'{label}: skipped or todo tests')
-    if label == 'foundation':
-        titles = [title for path in (project / 'test').glob('*.test.ts')
-                  for title in re.findall(r"^test\('([^']+)'", path.read_text(), re.MULTILINE)]
-        discovered = re.findall(r'^\(pass\) (.*?) \[', log, re.MULTILINE)
-        if len(titles) != count or sorted(titles) != sorted(discovered):
-            raise RuntimeError('foundation: discovered test names differ from source')
     if label == 'p0' and not re.search(r'Ran 7 tests[\s\S]*OK', log):
         raise RuntimeError('Python P0 harness did not pass 7 tests')
+    return count
 
 
 def main():
@@ -66,6 +92,9 @@ def main():
             shutil.copyfile(repo / name, project / name)
         (project / 'docs' / 'p0').mkdir(parents=True)
         shutil.copyfile(repo / 'docs/p0/coverage.json', project / 'docs/p0/coverage.json')
+        inventory = Path('docs/bun/review/original-test-inventory.json')
+        (project / inventory).parent.mkdir(parents=True)
+        shutil.copyfile(repo / inventory, project / inventory)
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'bun').symlink_to(bun)
@@ -162,9 +191,19 @@ def main():
         if not all(code in diagnostics for code in ('TS2322', 'TS2532')):
             raise RuntimeError('independent typechecker did not reject expected strict errors')
         negative.unlink()
-        for label, script, count in [('foundation', 'test', 20), ('p0', 'test:p0', 7), ('bun-compatibility', 'test:bun', 5)]:
-            log = run(label, ['bun', '--no-env-file', 'run', script])
-            validate_tests(project, label, log, count)
+        harness = run('verify-harness', ['python3', 'scripts/bun/test_verify.py'])
+        harness_summary = re.search(r'Ran (\d+) tests?[^\n]*\n\s*OK\s*$', harness)
+        if not harness_summary or int(harness_summary[1]) == 0 or 'skipped=' in harness:
+            raise RuntimeError('test discovery regression harness did not pass all tests')
+        counts = {}
+        for label, script, count in [('foundation', 'test', None), ('p0', 'test:p0', 7), ('bun-compatibility', 'test:bun', 5)]:
+            command = ['bun', '--no-env-file', 'run', script]
+            if label == 'foundation':
+                command += ['--reporter=junit', '--reporter-outfile=foundation.junit.xml']
+            log = run(label, command)
+            counts[label] = validate_tests(project, label, log, count)
+        junit = (project / 'foundation.junit.xml').read_text().replace(str(root), '/isolated')
+        (output / 'foundation.junit.xml').write_text(junit)
         run('p0-audit', ['bun', '--no-env-file', 'run', 'p0:audit'])
         run('new-native-audit', ['bun', '--no-env-file', 'run', 'p0:bun-native'])
         (project / 'dist').mkdir()
@@ -181,7 +220,10 @@ def main():
                   'platformNetworkSettingNames': network_keys,
                   'strictFlags': ['strict', 'noUncheckedIndexedAccess'],
                   'checkedFiles': expected_files, 'lifecycleScriptsFoundButNotExecuted': lifecycle,
-                  'tests': {'foundation': 20, 'p0JavaScript': 7, 'p0Python': 7, 'bunCompatibility': 5},
+                  'tests': {'foundation': counts['foundation'], 'foundationBaseline': 20,
+                            'verifyHarness': int(harness_summary[1]),
+                            'p0JavaScript': counts['p0'], 'p0Python': 7,
+                            'bunCompatibility': counts['bun-compatibility']},
                   'records': records, 'temporaryProjectRemoved': True}
     (output / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'All checks passed; evidence: {output}')

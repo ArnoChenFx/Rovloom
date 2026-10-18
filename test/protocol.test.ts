@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeFrame, encodeFrame, MAX_FRAME_BYTES } from '../src/protocol.js';
-import type { Envelope } from '../src/protocol.js';
+import { decodeFoundationV1History, MAX_FRAME_BYTES } from '../src/wire/foundation-v1-history.js';
+import type { Envelope } from '../src/wire/foundation-v1-history.js';
+
+// 原基线断言保留，显式限定为历史记录；执行入口的 v2 拒绝另有测试。
+const decodeFrame = (input: string, epoch: string): Envelope => decodeFoundationV1History(input, epoch).frame;
+const encodeFrame = (frame: Envelope): string => {
+  const input = JSON.stringify(frame); decodeFrame(input, frame.connection_epoch); return input;
+};
 
 const request: Envelope = {
   protocol_major: 1, protocol_minor: 0, type: 'request', message_id: 'msg_1', connection_epoch: 'epoch_1',

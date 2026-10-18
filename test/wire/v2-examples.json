@@ -1,0 +1,353 @@
+{
+  "contract_source": {
+    "provider_kind": "luvus",
+    "protocol_family": "uhp",
+    "binary_version": "0.14.3",
+    "binary_sha256": "895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9",
+    "schema_sha256": "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6",
+    "schema_origin": "installed_cli",
+    "schema_command": "luvus uhp schema",
+    "server_version": "0.14.3",
+    "native_protocol_version": "1.0",
+    "runtime_generation": null,
+    "adapter_revision": "synthetic_adapter_1",
+    "classification_revision": "synthetic_review_1",
+    "support_basis": "live_catalog"
+  },
+  "request": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "request",
+    "message_id": "example_request",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "call_1",
+        "attempt_id": "attempt_1",
+        "native_request_id": "proxy-ping",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      },
+      "expected_binding_revision": 1,
+      "native_request": {
+        "method": "ping",
+        "params": {}
+      },
+      "validation": "strict"
+    }
+  },
+  "accepted": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "accepted",
+    "message_id": "example_accepted",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "call_1",
+        "attempt_id": "attempt_1",
+        "native_request_id": "proxy-ping",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      }
+    }
+  },
+  "response": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "response",
+    "message_id": "example_response",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "call_1",
+        "attempt_id": "attempt_1",
+        "native_request_id": "proxy-ping",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      },
+      "native_response": {
+        "id": "proxy-ping",
+        "result": {
+          "client_protocol": 20,
+          "protocol": 1,
+          "revision": 2,
+          "session": "p0-issue3",
+          "type": "pong",
+          "version": "0.14.3"
+        }
+      }
+    }
+  },
+  "cancel": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "cancel",
+    "message_id": "example_cancel",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "call_1",
+        "attempt_id": "attempt_1",
+        "native_request_id": "proxy-ping",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      },
+      "reason": "caller_cancelled"
+    }
+  },
+  "stream_open": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "stream_open",
+    "message_id": "example_stream_open",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "stream_call_1",
+        "attempt_id": "stream_attempt_1",
+        "native_request_id": "terminal-control",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      },
+      "expected_binding_revision": 1,
+      "native_request": {
+        "method": "terminal.backend.control",
+        "params": {
+          "server_generation": "a6fde26d8ee0f74d029dbce6300f7b5b",
+          "terminal_id": "51aed25fc4d1e94678fbf4ad72818333",
+          "pane_id": "2",
+          "mode": "visible",
+          "lines": 24,
+          "ansi": false
+        }
+      },
+      "validation": "strict",
+      "stream_id": "stream_1",
+      "feature": "terminal_control"
+    }
+  },
+  "stream_data": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "stream_data",
+    "message_id": "example_stream_data",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "stream_call_1",
+        "attempt_id": "stream_attempt_1",
+        "native_request_id": "terminal-control",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      },
+      "stream_id": "stream_1",
+      "feature": "terminal_control",
+      "sequence": 0,
+      "frame": {
+        "data": {
+          "ansi": false,
+          "bytes": 23,
+          "content_revision": 0,
+          "lines": 24,
+          "mode": "visible",
+          "pane_id": "2",
+          "server_generation": "a6fde26d8ee0f74d029dbce6300f7b5b",
+          "terminal_id": "51aed25fc4d1e94678fbf4ad72818333",
+          "text": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+          "truncated": false
+        },
+        "event": "terminal.frame",
+        "sequence": 4
+      }
+    }
+  },
+  "stream_input": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "stream_input",
+    "message_id": "example_stream_input",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "stream_call_1",
+        "attempt_id": "stream_attempt_1",
+        "native_request_id": "terminal-control",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      },
+      "stream_id": "stream_1",
+      "feature": "terminal_control",
+      "sequence": 0,
+      "frame": {
+        "id": "input-1",
+        "action": "submit_text",
+        "params": {
+          "text": "p0-input-abc123"
+        }
+      }
+    }
+  },
+  "stream_close": {
+    "protocol_major": 2,
+    "protocol_minor": 0,
+    "type": "stream_close",
+    "message_id": "example_stream_close",
+    "machine_id": "machine_1",
+    "recovery_generation": "recovery_1",
+    "connection_epoch": "connection_1",
+    "payload": {
+      "attempt": {
+        "call_id": "stream_call_1",
+        "attempt_id": "stream_attempt_1",
+        "native_request_id": "terminal-control",
+        "target": {
+          "machine_id": "machine_1",
+          "provider_id": "provider_1",
+          "profile": "session",
+          "session": "p0-issue3"
+        },
+        "provider_kind": "luvus",
+        "binding_revision": 1,
+        "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+        "registration": {
+          "deadline": 1000,
+          "history": {
+            "history_epoch": "history_1",
+            "client_request_key": "key_1"
+          },
+          "caller_policy_revision": "caller_policy_1",
+          "local_policy_revision": "local_policy_1"
+        }
+      },
+      "stream_id": "stream_1",
+      "reason": "normal"
+    }
+  }
+}
