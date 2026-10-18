@@ -10,6 +10,7 @@ Run the same gates as [CI](.github/workflows/bun.yml) from the repository root:
 ```sh
 python3 -m unittest discover -s scripts/maintenance -p 'test_*.py' -v
 python3 scripts/maintenance/check.py
+python3 scripts/native-contract/audit-fixtures.py
 python3 scripts/bun/verify.py --output /tmp/rovloom-verification-new
 python3 scripts/maintenance/check.py --evidence /tmp/rovloom-verification-new
 ```
@@ -23,6 +24,9 @@ wire new suites into verification; every tracked `*.test.*`, `*_test.*`,
 Code examples under `fixtures/` remain data.
 Python `test_*.py` / `*_test.py` suites must have a verification command; flat
 `scripts/maintenance/test_*.py` modules run through unittest discovery in CI.
+The independent native-contract data audit checks versioned schema bytes,
+offline references, method/terminal mappings and matrix inputs; it does not run
+the validator or establish runtime authorization.
 
 Maintenance checks resolve rendered Markdown links/images against tracked files,
 including reference/HTML links and Markdown heading or explicit anchors. Keep
