@@ -277,8 +277,15 @@ export class Store {
   private budget(admission: boolean): void {
     assertBudget(this.db, this.path, this.limits, this.options.backupDirectory, admission)
   }
-  private audit(action: string, actor: string, now: number, row?: Row, extra: Record<string, unknown> = {}): void {
-    const record = auditRecord(id('event'), action, actor, now, this.limits.audit_ttl, this.generation(), row, extra)
+  private audit(
+    action: string,
+    actor: string,
+    now: number,
+    row?: Row,
+    extra: Record<string, unknown> = {},
+    eventId = id('event')
+  ): void {
+    const record = auditRecord(eventId, action, actor, now, this.limits.audit_ttl, this.generation(), row, extra)
     this.db.prepare('INSERT INTO audit VALUES(?,?,?,?,?,?,?)').run(...Object.values(record))
   }
   private manage(action: string, target: string, fence: string, now: number): void {
@@ -793,77 +800,112 @@ export class Store {
   }
   // planner 必须是宿主闭包，调用真实 adapter.planEvidence；不接收可序列化 EvidencePlan 作为证明。
   commitEvidence(binding: AttemptBinding, planner: () => ResponseEvidencePlan): Call {
-    return this.transaction((now) => {
+    const outcome = this.transaction((now) => {
       this.stopWhere('call_id=? AND deadline<=?', [binding.call_id, String(now)], 'deadline_exceeded', now)
       const anchor = this.responseAnchor(binding)
-      const plan = planner()
-      assertBinding(plan.evidence.binding, anchor.binding)
-      if (
-        plan.evidence.received_at !== now ||
-        plan.content.expires_at !== anchor.content_expires_at ||
-        plan.dispatch !== false
-      ) {
-        throw new GatewayError('invalid_evidence_plan')
-      }
-      const row = this.row(binding.call_id)
-      if (plan.action === 'duplicate') {
-        if (
-          !anchor.evidence ||
-          anchor.evidence.response_hash !== plan.evidence.response_hash ||
-          anchor.evidence.response_bytes !== plan.evidence.response_bytes
-        ) {
-          throw new GatewayError('response_evidence_conflict')
+      try {
+        return this.applyEvidence(binding, anchor, planner(), now)
+      } catch (error) {
+        // Wire planner 仅在原生 schema/来源/完整锚点已验证后报告可信内容冲突。
+        if (!(error instanceof GatewayError) || error.code !== 'response_evidence_conflict' || !anchor.evidence) {
+          throw error
         }
-        return publicCall(row, now)
+        const eventId = 'response_conflict_' + binding.call_id
+        if (!this.db.prepare('SELECT 1 FROM audit WHERE event_id=?').get(eventId)) {
+          this.audit(
+            'response_conflict',
+            'connector',
+            now,
+            this.row(binding.call_id),
+            {
+              code: 'response_evidence_conflict',
+              expected_response_hash: anchor.evidence.response_hash
+            },
+            eventId
+          )
+        }
+        // 每个调用在审计保留窗内最多一条；不保存冲突 payload，也不改写原结果。
+        return { conflict: true } as const
       }
-      if (row.response_hash || !['dispatching', 'connector_accepted', 'outcome_unknown'].includes(row.state)) {
+    }, false)
+    if ('conflict' in outcome) {
+      // 只有审计事务已提交，才返回通常的冲突拒绝；失败由 transaction 返回降级错误。
+      throw new GatewayError('response_evidence_conflict')
+    }
+    return outcome
+  }
+  private applyEvidence(
+    binding: AttemptBinding,
+    anchor: ResponseAnchor,
+    plan: ResponseEvidencePlan,
+    now: number
+  ): Call {
+    assertBinding(plan.evidence.binding, anchor.binding)
+    if (
+      plan.evidence.received_at !== now ||
+      plan.content.expires_at !== anchor.content_expires_at ||
+      plan.dispatch !== false
+    ) {
+      throw new GatewayError('invalid_evidence_plan')
+    }
+    const row = this.row(binding.call_id)
+    if (plan.action === 'duplicate') {
+      if (
+        !anchor.evidence ||
+        anchor.evidence.response_hash !== plan.evidence.response_hash ||
+        anchor.evidence.response_bytes !== plan.evidence.response_bytes
+      ) {
         throw new GatewayError('response_evidence_conflict')
       }
-      let response: string | null = null
-      let contentStatus = publicCall(row, now).content_status
-      if (
-        plan.content.delivery === 'payload' &&
-        contentStatus === 'available' &&
-        now < row.content_expires &&
-        plan.content.native_response
-      ) {
-        const text = boundedJson(plan.content.native_response, 33_554_432)
-        if (digest(text) !== plan.evidence.response_hash || Buffer.byteLength(text) !== plan.evidence.response_bytes) {
-          throw new GatewayError('invalid_evidence_plan')
-        }
-        const used = Number(
-          this.db
-            .prepare(
-              'SELECT COALESCE(SUM(COALESCE(length(CAST(request_json AS BLOB)),0)+COALESCE(length(CAST(response AS BLOB)),0)),0) n FROM calls'
-            )
-            .get()!.n
-        )
-        if (used + Buffer.byteLength(text) <= this.limits.content_bytes) {
-          response = text
-        }
+      return publicCall(row, now)
+    }
+    if (row.response_hash || !['dispatching', 'connector_accepted', 'outcome_unknown'].includes(row.state)) {
+      throw new GatewayError('response_evidence_conflict')
+    }
+    let response: string | null = null
+    let contentStatus = publicCall(row, now).content_status
+    if (
+      plan.content.delivery === 'payload' &&
+      contentStatus === 'available' &&
+      now < row.content_expires &&
+      plan.content.native_response
+    ) {
+      const text = boundedJson(plan.content.native_response, 33_554_432)
+      if (digest(text) !== plan.evidence.response_hash || Buffer.byteLength(text) !== plan.evidence.response_bytes) {
+        throw new GatewayError('invalid_evidence_plan')
       }
-      if (!response && contentStatus === 'available') {
-        contentStatus = 'unavailable'
+      const used = Number(
+        this.db
+          .prepare(
+            'SELECT COALESCE(SUM(COALESCE(length(CAST(request_json AS BLOB)),0)+COALESCE(length(CAST(response AS BLOB)),0)),0) n FROM calls'
+          )
+          .get()!.n
+      )
+      if (used + Buffer.byteLength(text) <= this.limits.content_bytes) {
+        response = text
       }
-      this.db
-        .prepare(
-          "UPDATE calls SET state='responded',response=?,response_hash=?,response_bytes=?,response_category=?,content_status=?,reserved=0 WHERE call_id=?"
-        )
-        .run(
-          response,
-          plan.evidence.response_hash,
-          plan.evidence.response_bytes,
-          plan.evidence.category,
-          contentStatus,
-          binding.call_id
-        )
-      this.audit(plan.late_evidence ? 'late_evidence' : 'responded', 'connector', now, this.row(binding.call_id), {
-        response_hash: plan.evidence.response_hash,
-        category: plan.evidence.category
-      })
-      this.options.fault?.('evidence_commit')
-      return publicCall(this.row(binding.call_id), now)
-    }, false)
+    }
+    if (!response && contentStatus === 'available') {
+      contentStatus = 'unavailable'
+    }
+    this.db
+      .prepare(
+        "UPDATE calls SET state='responded',response=?,response_hash=?,response_bytes=?,response_category=?,content_status=?,reserved=0 WHERE call_id=?"
+      )
+      .run(
+        response,
+        plan.evidence.response_hash,
+        plan.evidence.response_bytes,
+        plan.evidence.category,
+        contentStatus,
+        binding.call_id
+      )
+    this.audit(plan.late_evidence ? 'late_evidence' : 'responded', 'connector', now, this.row(binding.call_id), {
+      response_hash: plan.evidence.response_hash,
+      category: plan.evidence.category
+    })
+    this.options.fault?.('evidence_commit')
+    return publicCall(this.row(binding.call_id), now)
   }
   stop(principal: string, callId: string): Call {
     return this.transaction((now) => {
