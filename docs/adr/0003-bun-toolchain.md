@@ -1,6 +1,6 @@
 # ADR 0003: Rovloom Bun 1.4.3 development and execution baseline
 
-Status: implemented locally for issue #15; parent acceptance and main alignment pending.
+Status: accepted and merged into main for issue #15 (PR #17).
 Date: 2026-10-18 UTC. Base: `4f963d1997751a4f392604cc060d0a99f157998a`.
 
 Use official Bun 1.4.3 for installs, TypeScript execution, tests, P0 JavaScript
@@ -29,8 +29,9 @@ Prove the workflow in a disposable project with empty dependency cache, minimal
 environment, Node/npm/npx failure shims and Linux exec tracing. Platform proxy/CA
 configuration may be inherited without credentials or logging its values.
 
-Historical Node P0 evidence remains immutable. Store new Bun receipts separately.
-The official release and observed revision, test commands and limits are in
-[the report](../bun/REPORT.md). Linux success does not establish macOS/Windows,
+Historical Node P0 evidence remains immutable. Keep reproducible native inputs;
+put individual verification receipts in CI/PR output. The official release and
+observed revision, development commands and limits are in
+[the maintenance guide](../bun/README.md). Linux success does not establish macOS/Windows,
 commercial Host, OAuth or P1 transport correctness. Design v0.4 requirements are
 unchanged and are not implemented by this runtime migration.

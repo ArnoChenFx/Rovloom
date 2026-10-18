@@ -5,7 +5,7 @@
 范围：仅文档，不启动编码 Agent，不变更已有实现和运行中 Luvus 会话。
 配套：《IMPLEMENTATION-PLAN.md》。本文替代此前讨论中的概念草案，不覆盖旧编码 Agent 文件。
 
-项目展示名为 **Rovloom**，仓库暂名 `luvus-mcp`。Luvus/Herdr 是受支持的原生 runtime 名；package、CLI、工具/环境变量/协议字段等既有机器标识保持兼容，详见 [README 命名说明](../README.md#name-and-compatibility-identifiers)。原作者署名与历史证据保持原文。
+Rovloom 的 TypeScript 包标识为 `luvus-mcp`，拟议 CLI 沿用该标识；现有环境变量、协议字段、ID 与 schema 名称保持兼容。Luvus/Herdr 指原生 runtime；设计中的 `luvus_*` 兼容别名仅适用于 Luvus，公共 `runtime_*` 接口和 provider 迁移约束见 [ADR 0004](adr/0004-multi-runtime-provider.md)。
 
 修订基线：main `5124d459fa0f712fd1dbb9f164a3513e3e538716`（含 Linux Luvus P0、安全设计与 Bun 基线）。本次只修订文档；安全原则见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)，公共字段、迁移与分阶段边界以 [ADR 0004](adr/0004-multi-runtime-provider.md) 为准。
 
@@ -59,7 +59,7 @@ F3. UHP 有并发 revision、终端身份及事件恢复要求；客户端需处
 F4. MCP 可通过 stdio 或 Streamable HTTP 承载；HTTP 授权和本地 stdio 凭据获取方式不同。[S5][S6]
 F5. Herdr v0.9.5 固定源码 commit `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01` 使用 JSON socket id/method/params，安装 schema 来自 `herdr api schema --json`，ping 协议号 22 与有限能力不等于完整在线方法目录；无等价独立 Host/通用 cancel/通用原子 terminal fence。事件缺口只能重建当前状态，recent 读取副作用与 prompt 完成归属须单独验证。[ADR 0004 官方来源](adr/0004-multi-runtime-provider.md#官方来源与核验边界)
 
-v0.2 最初只读核对 Luvus 0.14.3；随后 #3 的 Linux 原生 RPC、Host、事件和终端控制已获验收，范围与证据见 [P0 复核](p0/REVIEW.md)。安装 schema 223 个方法中 144 个仅有通用 params object；不能把存在方法枚举当作完整参数约束。网页文档可能领先安装版本，以安装契约与实时能力为准。本次 v0.3 修订未新增运行测试。
+v0.2 最初只读核对 Luvus 0.14.3；随后 #3 的 Linux 原生 RPC、Host、事件和终端控制已获验收，范围与证据见 [P0 契约与回放指引](p0/README.md)。安装 schema 223 个方法中 144 个仅有通用 params object；不能把存在方法枚举当作完整参数约束。网页文档可能领先安装版本，以安装契约与实时能力为准。本次 v0.3 修订未新增运行测试。
 
 ## 4. 部署与信任边界
 
@@ -468,7 +468,7 @@ Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销�
 
 拟议模块：cli、mcp-facade、registry/enrollment、provider-bindings、identity-policy、router-call-ledger、result-store、schema-index、connector-transport、runtime-adapter 接口、luvus-uhp-rpc/stream、herdr-json、audit-health。契约来源与恢复保证留在各 adapter，业务核心不将 Herdr 转写为 UHP。
 
-实现语言保持 TypeScript；#15 Bun 1.4.3 工具链已验收并合入 main=5124d45，node:sqlite 由 Bun 提供，精确证据见 [ADR 0003](adr/0003-bun-toolchain.md) 与 [报告](bun/REPORT.md)。本轮不改 package/lock、源码、测试或脚本。Linux 的通过不扩展为跨平台或新 adapters 已验收。
+实现语言保持 TypeScript；#15 Bun 1.4.3 工具链已验收并合入 main=5124d45，node:sqlite 由 Bun 提供，精确证据见 [ADR 0003](adr/0003-bun-toolchain.md) 与 [开发与验证指引](bun/README.md)。本轮不改 package/lock、源码、测试或脚本。Linux 的通过不扩展为跨平台或新 adapters 已验收。
 
 [ADR 0001](adr/0001-p0-version-and-contract-baseline.md) 保留 Node 24.19.0/npm 11.9.0/SQLite 3.53.3 的 P0 历史证据；它不是当前工具链默认值。#15 已从真实 package/lock 保留 MCP SDK 1.32.1、Ajv 8.20.0 和 ws 8.22.0；不因多 provider 升级 SDK 2.x 或重写 MCP 架构。已验证 MCP revision 仍为 2025-11-25；其它运行时/客户端须分别联调。
 
@@ -544,4 +544,4 @@ S6 https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization
 S7 https://github.com/modelcontextprotocol/typescript-sdk
 ```
 
-v0.2 最初只读核验命令：`luvus --version`、`luvus help uhp`、`luvus uhp schema`。一次临时解析曾因管道 stdin 使用错误导致 Broken pipe，之后解析成功。后续 Linux P0 原生验收见 [REPORT](p0/REPORT.md) 与 [REVIEW](p0/REVIEW.md)，不能把它扩展为 Gateway/Connector 已实现。本次 v0.3 的新增规则来源是用户对四项原则的采纳，新增默认值是设计建议，不是 Luvus/MCP 官方行为或实现测试结论。
+固定版本的核验入口为 `luvus --version`、`luvus help uhp`、`luvus uhp schema`。Linux P0 原生契约、有效输入与回放方法见 [P0 指引](p0/README.md)，不能把它扩展为 Gateway/Connector 已实现。本次 v0.3 的新增规则来源是用户对四项原则的采纳，新增默认值是设计建议，不是 Luvus/MCP 官方行为或实现测试结论。

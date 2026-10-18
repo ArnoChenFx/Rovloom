@@ -1,10 +1,10 @@
 # Rovloom：多机器通用 MCP 实施方案
 
 版本：0.5 · 日期：2026-10-18 · 原作者：Luvus Tester
-状态：供后续开发执行；多 runtime provider 已获用户设计授权，功能/迁移/管理 UI 尚未实施。#15 Bun 1.4.3 已合入 main `5124d45`，证据见 [Bun 报告](bun/REPORT.md)。
+状态：供后续开发执行；多 runtime provider 已获用户设计授权，功能/迁移/管理 UI 尚未实施。#15 Bun 1.4.3 已合入 main `5124d45`，证据见 [Bun 开发与验证指引](bun/README.md)。
 配套：《DESIGN.md》。下文的命令/工具名称均为拟议接口。
 
-项目展示名为 **Rovloom**；仓库名、package/CLI 标识及原生 Luvus/Herdr 名称按 [README 命名说明](../README.md#name-and-compatibility-identifiers) 保留。品牌文案变更不改变阶段范围、机器接口或历史证据。
+Rovloom 的 TypeScript 包标识与拟议 CLI 标识均为 `luvus-mcp`，现有环境变量、协议字段、ID 与 schema 名称保持兼容。Luvus/Herdr 指原生 runtime；`luvus_*` 兼容别名仅适用于 Luvus，公共 `runtime_*` 接口和 provider 迁移约束见 [ADR 0004](adr/0004-multi-runtime-provider.md)。
 
 当前基线 main `5124d459fa0f712fd1dbb9f164a3513e3e538716` 已包含 Luvus Linux P0、安全设计及 Bun；不等于 P1 或 Herdr P0 已完成。本轮只改文档；公共字段与兼容迁移见 [ADR 0004](adr/0004-multi-runtime-provider.md)，安全原则沿用 ADR 0002。
 
@@ -316,7 +316,7 @@ P7 真实联调、文档与发行
 - CLI 与配置参考：gateway/connector、状态目录、固定 binary/实例、配额、TLS/OAuth、配对与轮换。
 - Wire protocol：版本、帧、状态机、错误、流与取消。
 - Capability coverage：binary/server/schema/SDK/平台版本及每方法分类。
-- TEST-REPORT.md：真实通过/失败/未验证，不只列测试名字。
+- CI/PR 与发行说明：记录真实通过/失败/未验证及证据入口，不只列测试名字；源码仓库保留可复现输入，避免重复收录临时验收报告。
 - OPERATIONS.md：重启、unknown 对账、offline、泄露撤销、backup/migration、磁盘满、证书过期。
 - SECURITY.md：Owner 权限、agent prompt 的执行风险、日志和结果保留、报告渠道。
 - ADR 0002：四项已采纳原则、可配置默认值及 #4/#5 尚未实现的验收要求。
@@ -366,4 +366,4 @@ Luvus Linux P0 与 Bun 基线已通过。多 runtime provider 已批准纳入设
 ## 11. 来源与核验边界
 
 底层协议来源及版本说明见 DESIGN §18。实施方案的阶段、工期、测试矩阵和默认预算是作者建议，不是官方产品承诺。
-v0.2 最初只有只读 help/schema；后续 Luvus Linux P0 已有 [原生复核证据](p0/REVIEW.md)，Bun 见独立报告。本次 v0.5 仅核对 main、官方 Herdr 固定源码/文档及本地文档一致性，新增测试均为后续门禁，没有运行 Herdr binary 或验证新 Gateway/Connector 功能。
+v0.2 最初只有只读 help/schema；后续 Luvus Linux P0 已有 [原生契约与回放指引](p0/README.md)，Bun 见[开发与验证指引](bun/README.md)。本次 v0.5 仅核对 main、官方 Herdr 固定源码/文档及本地文档一致性，新增测试均为后续门禁，没有运行 Herdr binary 或验证新 Gateway/Connector 功能。
