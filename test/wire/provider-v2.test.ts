@@ -8,7 +8,6 @@ import {
   validateContractSource,
   assertProviderAccess,
   planResponseEvidence,
-  decodeHistoricalV1,
   registeredRequestDigest,
 } from '../../src/wire/index.js';
 import type { AttemptBinding, ContractSource, AuthenticatedContext } from '../../src/wire/types.js';
@@ -336,7 +335,23 @@ test('响应必须沿用原 opaque handle 和当前独立 source，native 异常
   );
 });
 
-test('v1 只能显式只读历史解码，不分配 legacy provider、不协商降级、不进入 v2 执行', () => {
+test('旧 Wire 帧与缺失 provider 的 v2 请求拒绝，不能触发原生校验或默认派发', () => {
+  let nativeCalls = 0;
+  const validator = fixtureValidator();
+  const requestGate = validator.requestGate;
+  validator.requestGate = (...args) => {
+    nativeCalls++;
+    return requestGate(...args);
+  };
+  validator.validateRequest = () => {
+    nativeCalls++;
+  };
+  validator.validateResponse = () => {
+    nativeCalls++;
+  };
+  validator.checkDispatch = () => {
+    nativeCalls++;
+  };
   const legacy = {
     ...response,
     protocol_major: 1,
@@ -352,17 +367,48 @@ test('v1 只能显式只读历史解码，不分配 legacy provider、不协商�
       uhp_response: { id: 'old_native', result: {} },
     },
   };
-  const history = decodeHistoricalV1(JSON.stringify(legacy));
-  assert.equal(history.read_only, true);
-  assert.equal(history.provider_resolution, 'unresolved');
-  assert.deepEqual(history.frame, legacy);
-  assert.equal('provider_id' in (history.frame.payload as any).attempt.target, false);
-  rejects(() => decode(legacy, context('connector_to_gateway')), 'protocol_major_unsupported');
-  rejects(() => decodeHistoricalV1(JSON.stringify(response)), 'historical_version_unsupported');
   rejects(
-    () => decodeHistoricalV1(JSON.stringify({ ...legacy, provider_id: 'default' })),
+    () => decode(legacy, context('connector_to_gateway', validator)),
+    'protocol_major_unsupported',
+  );
+  rejects(
+    () => decode({ ...request, protocol_major: 1 }, context('gateway_to_connector', validator)),
+    'protocol_major_unsupported',
+  );
+  const foundation = {
+    protocol_major: 1,
+    protocol_minor: 0,
+    type: 'request',
+    message_id: 'old_message',
+    connection_epoch: 'old_epoch',
+    payload: {
+      call_id: 'old_call',
+      attempt_id: 'old_attempt',
+      deadline: 1000,
+      target: { machine_id: provider.machine_id, profile: 'session', session: 'old_session' },
+      request: { method: 'ping', params: {} },
+    },
+  };
+  rejects(
+    () => decode(foundation, context('gateway_to_connector', validator)),
+    'protocol_major_unsupported',
+  );
+  const target = { ...attempt.target } as any;
+  delete target.provider_id;
+  rejects(
+    () =>
+      decode(
+        { ...request, payload: { ...request.payload, attempt: { ...attempt, target } } },
+        context('gateway_to_connector', validator),
+      ),
     'invalid_frame_fields',
   );
+  for (const resolveProvider of [undefined, () => undefined]) {
+    const ctx = context('gateway_to_connector', validator);
+    ctx.resolveProvider = resolveProvider;
+    rejects(() => decode(request, ctx), 'provider_binding_unavailable');
+  }
+  assert.equal(nativeCalls, 0);
 });
 
 test('登记摘要绑定 caller/完整 provider target/revision/契约及登记条件，不混入新分配的执行 ID', () => {
