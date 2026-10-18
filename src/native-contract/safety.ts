@@ -229,8 +229,8 @@ function checkPolicies(
 }
 function checkSecret(context: DispatchAuthorization, row: SafetyClassification): void {
   if (
-    row.result.boundary === 'protected_secret' &&
-    (context.custody_available !== true || context.result_channel !== 'custody')
+    (row.result.boundary === 'protected_secret' && context.result_channel !== 'custody') ||
+    (context.result_channel === 'custody' && context.custody_available !== true)
   )
     reject('secret_boundary_required');
   if (!['ordinary', 'custody'].includes(context.result_channel))

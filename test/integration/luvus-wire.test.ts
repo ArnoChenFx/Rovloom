@@ -24,7 +24,12 @@ import {
 } from '../native-contract/helpers.js';
 
 // 全部是隔离 P0 fixture 与明确的测试权限；生产模块不导入本工厂或测试 gate。
-function fixture(method = 'task.add', raw = false, stream = false) {
+function fixture(
+  method = 'task.add',
+  raw = false,
+  stream = false,
+  limits?: Parameters<typeof createLuvusWireAdapter>[1],
+) {
   const params =
     method === 'ping'
       ? {}
@@ -220,7 +225,7 @@ function fixture(method = 'task.add', raw = false, stream = false) {
       dedup_expires_at: 2000,
     }),
   };
-  const adapter = createLuvusWireAdapter(backend);
+  const adapter = createLuvusWireAdapter(backend, limits);
   const attempt = ({
     machine_id: _machine,
     recovery_generation: _recovery,
@@ -292,8 +297,8 @@ function fixture(method = 'task.add', raw = false, stream = false) {
 const rejects = (run: () => unknown, code: string) =>
   assert.throws(run, (e: any) => e.code === code, code);
 
-function controlFixture() {
-  const f = fixture('terminal.backend.control', false, true);
+function controlFixture(limits?: Parameters<typeof createLuvusWireAdapter>[1]) {
+  const f = fixture('terminal.backend.control', false, true, limits);
   const data = (frame: Record<string, unknown>, sequence = 0) =>
     f.frame('stream_data', {
       attempt: f.attempt(f.binding),
@@ -336,6 +341,182 @@ function controlFixture() {
   };
   return { ...f, data, input, inputAck, ack };
 }
+
+test('外层输入顺序失败不留下控制许可或 ID 冲突，纠正后仍可使用原 ID', () => {
+  const f = controlFixture();
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
+  const bad = f.input('input1');
+  bad.payload.sequence = 7;
+  rejects(() => f.adapter.advanceStream(bad, 'gateway_to_connector'), 'stream_sequence_mismatch');
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'control_ack_unbound');
+  rejects(
+    () => f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway'),
+    'control_ack_unbound',
+  );
+  const corrected = f.input('input1');
+  corrected.payload.frame.params = { text: 'corrected' };
+  assert.equal(f.adapter.advanceStream(corrected, 'gateway_to_connector').next_input_sequence, 1);
+  assert.equal(
+    f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway').next_data_sequence,
+    2,
+  );
+});
+
+test('失败输入返还控制 ID 和精确快照预算，已成功输入的许可仍保留', () => {
+  const base = controlFixture(),
+    frame = base.input('input1');
+  const source = base.backend.nativeSource(base.binding.call_id, base.binding.attempt_id);
+  const capabilities = base.backend.contract(base.binding.contract_ref)!.capabilities;
+  const bytes =
+    2 * Buffer.byteLength(boundedJson({ attempt: base.row, source, capabilities })) +
+    2 * Buffer.byteLength(boundedJson(frame.payload.frame));
+  const f = controlFixture({ attempts: 1, control_ids: 1, snapshot_bytes: bytes });
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
+  const bad = f.input('input2');
+  bad.payload.sequence = 7;
+  rejects(() => f.adapter.advanceStream(bad, 'gateway_to_connector'), 'stream_sequence_mismatch');
+  assert.equal(
+    f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence,
+    1,
+  );
+  rejects(
+    () => f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector'),
+    'stream_sequence_mismatch',
+  );
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
+});
+
+test('顺序失败的开流 ack 不建立原生流或固定其摘要，后续合法 ack 可以恢复', () => {
+  const f = controlFixture();
+  f.adapter.release(f.binding);
+  f.adapter.advanceStream(f.opening, 'gateway_to_connector');
+  rejects(
+    () => f.adapter.advanceStream(f.data(f.ack, 7), 'connector_to_gateway'),
+    'stream_sequence_mismatch',
+  );
+  rejects(() => f.decode(f.input('input1')), 'stream_not_ready');
+  const corrected = { ...f.ack, result: { ...f.ack.result, lines: 2 } };
+  assert.equal(f.adapter.advanceStream(f.data(corrected), 'connector_to_gateway').state, 'open');
+});
+
+test('消息 ID 冲突回滚 native 校验产生的输入许可和容量，不撤销既有去重项', () => {
+  const f = controlFixture({ attempts: 1, control_ids: 1 });
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
+  const heartbeat = f.frame('heartbeat', { sequence: 0 });
+  assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'new');
+  rejects(
+    () => f.adapter.observeMessage(f.input('input2'), 'gateway_to_connector'),
+    'message_id_conflict',
+  );
+  rejects(
+    () => f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'input2' }),
+    'control_ack_unbound',
+  );
+  assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'duplicate');
+  assert.equal(
+    f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence,
+    1,
+  );
+});
+
+test('首次请求授权失败不占 attempt 名额或保存请求候选', () => {
+  const f = fixture('task.add', false, false, { attempts: 1, control_ids: 1 });
+  const classifications = f.state.classifications;
+  f.state.classifications = [];
+  rejects(() => f.decode(f.opening), 'classification_unavailable');
+  const second = clone(f.row);
+  second.binding.call_id = 'call2';
+  f.rows.set('call2', second);
+  f.state.classifications = classifications;
+  const opening = {
+    ...f.opening,
+    payload: { ...f.opening.payload, attempt: f.attempt(second.binding) },
+  };
+  assert.doesNotThrow(() => f.decode(opening));
+  assert.doesNotThrow(() => f.adapter.checkResult(second.binding));
+});
+
+test('错误入口拒绝请求帧后不留下已生成的派发许可，正常入口仍可重新校验', () => {
+  const f = fixture();
+  rejects(
+    () => f.adapter.advanceStream(f.opening, 'gateway_to_connector'),
+    'invalid_stream_transition',
+  );
+  rejects(() => f.adapter.checkResult(f.binding), 'dispatch_permit_unavailable');
+  assert.doesNotThrow(() => f.decode(f.opening));
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
+});
+
+test('控制分类拒绝不缓存输入内容，重新授权后可使用同一 ID 的纠正请求', () => {
+  const f = controlFixture({ attempts: 1, control_ids: 1 });
+  rejects(() => f.decode(f.input('input1')), 'safety_classification_missing');
+  f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' });
+  const corrected = f.input('input1');
+  corrected.payload.frame.params = { text: 'corrected' };
+  assert.doesNotThrow(() => f.decode(corrected));
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
+});
+
+test('backend 回调不能重入修改正在验证的 adapter，外层校验仍能完成', () => {
+  const f = fixture(),
+    authority = f.backend.authority;
+  f.backend.authority = (...args) => {
+    rejects(() => f.adapter.release(f.binding), 'native_adapter_unavailable');
+    return authority(...args);
+  };
+  assert.doesNotThrow(() => f.decode(f.opening));
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
+});
+
+test('RPC 原秘密许可在当前分类降级后仍要求 custody 可用，证据原文不得旁路', () => {
+  const f = fixture(),
+    ordinary = clone(f.state.classifications[0]!);
+  f.state.classifications = [
+    {
+      ...ordinary,
+      result: {
+        ...ordinary.result,
+        boundary: 'protected_secret',
+        sensitivity: 'credential',
+        delivery: 'custody',
+      },
+    },
+  ];
+  f.state.custody = true;
+  f.state.channel = 'custody';
+  f.decode(f.opening);
+  f.state.classifications = [ordinary];
+  f.state.custody = false;
+  rejects(() => f.adapter.checkResult(f.binding), 'secret_boundary_required');
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
+  f.state.custody = true;
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload');
+  f.state.channel = 'ordinary';
+  rejects(() => f.adapter.checkResult(f.binding), 'secret_boundary_required');
+});
+
+test('控制输入原秘密许可在当前分类降级后仍要求 custody 可用', () => {
+  const f = controlFixture(),
+    ordinary = { ...clone(f.state.classifications[0]!), action: 'type_literal' };
+  f.state.classifications.push({
+    ...ordinary,
+    result: {
+      ...ordinary.result,
+      boundary: 'protected_secret',
+      sensitivity: 'credential',
+      delivery: 'custody',
+    },
+  });
+  f.state.custody = true;
+  f.state.channel = 'custody';
+  f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector');
+  f.state.classifications[1] = ordinary;
+  f.state.custody = false;
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'secret_boundary_required');
+  f.state.custody = true;
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
+});
 
 test('retention:none 可读取但证据计划只保留元数据，普通/秘密 result 与 error 均不复活原文', () => {
   for (const secret of [false, true])

@@ -59,7 +59,8 @@ export function validateNegotiated(
   if (
     !Array.isArray(v.capabilities) ||
     v.capabilities.length > 64 ||
-    new Set(v.capabilities).size !== v.capabilities.length
+    new Set(v.capabilities).size !== v.capabilities.length ||
+    v.capabilities.some((c) => typeof c !== 'string')
   )
     fail('invalid_capabilities');
   if (
