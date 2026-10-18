@@ -57,7 +57,7 @@ export const attempt: AttemptIdentity = { call_id: 'call_1', attempt_id: 'attemp
 export const binding: AttemptBinding = { ...identity, ...attempt };
 export const nativeHandle = Object.freeze({ synthetic_test_handle: true });
 export const trustedSource = Object.freeze({ synthetic_test_source: true });
-const methods = JSON.parse(readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url), 'utf8')).methods.map((r: any) => r.method);
+const methods = JSON.parse(readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')).methods.map((r: any) => r.method);
 export const offer: VersionOffer = { major: 2, minor: 0, capabilities: ['rpc', 'history_scope', 'late_evidence', 'objects',
   'events', 'terminal_observe', 'terminal_control'], required: ['rpc'] };
 export function context(direction: 'gateway_to_connector' | 'connector_to_gateway' = 'gateway_to_connector',

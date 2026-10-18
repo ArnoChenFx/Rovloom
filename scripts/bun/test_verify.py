@@ -15,7 +15,7 @@ class TestDiscovery(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.project = Path(self.temporary.name)
         (self.project / 'test/added').mkdir(parents=True)
-        inventory = self.project / 'docs/bun/review/original-test-inventory.json'
+        inventory = self.project / 'fixtures/acceptance/original-test-inventory.json'
         inventory.parent.mkdir(parents=True)
         self.titles = [f'baseline {number}' for number in range(20)]
         inventory.write_text(json.dumps([{'file': 'test/base.test.ts', 'discovered': self.titles}]))

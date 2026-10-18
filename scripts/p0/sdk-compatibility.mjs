@@ -51,6 +51,6 @@ export async function probeSdk() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const report = await probeSdk();
-  if (process.argv.includes('--write')) writeFileSync(new URL('../../docs/bun/sdk-compatibility.json', import.meta.url), JSON.stringify(report, null, 2) + '\n');
+  if (process.argv.includes('--write')) writeFileSync(new URL('../../fixtures/mcp/sdk-1.32.1-bun-stdio.json', import.meta.url), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
 }
