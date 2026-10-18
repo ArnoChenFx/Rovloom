@@ -5,6 +5,7 @@ import {
   decodeWireFrame,
   encodeWireFrame,
   negotiate,
+  validateNegotiated,
   LIMITS,
   boundedJson,
   WireError,
@@ -31,6 +32,42 @@ import {
 const decode = (v: unknown, ctx = context()) => decodeWireFrame(JSON.stringify(v), ctx);
 const rawContext = (validator = fixtureValidator()) =>
   context('gateway_to_connector', validator, binding, 'ping', 'rpc', undefined, 'raw-contract');
+
+test('协商结果能力列表只接受字符串，不隐式转换数组/对象为 capability 名', () => {
+  for (const value of [['rpc'], { toString: null }, null, true, 0, { toString: 'rpc' }]) {
+    rejects(
+      () => validateNegotiated({ major: 2, minor: 0, capabilities: [value] }),
+      'invalid_capabilities',
+    );
+  }
+  assert.doesNotThrow(() => validateNegotiated({ major: 2, minor: 0, capabilities: ['rpc'] }));
+});
+
+test('malformed welcome 的 capability 元素统一返回结构化 WireError', () => {
+  const ctx: CodecContext = {
+    phase: 'preauth',
+    direction: 'gateway_to_connector',
+    offer,
+    handshake_message_id: 'handshake_1',
+  };
+  for (const value of [{ toString: null }, ['rpc'], null]) {
+    const welcome = {
+      protocol_major: 2,
+      protocol_minor: 0,
+      type: 'welcome',
+      message_id: 'welcome_1',
+      payload: {
+        ...identity,
+        in_reply_to: 'handshake_1',
+        selected: { major: 2, minor: 0, capabilities: [value] },
+      },
+    };
+    assert.throws(
+      () => decodeWireFrame(JSON.stringify(welcome), ctx),
+      (error: unknown) => error instanceof WireError && error.code === 'invalid_capabilities',
+    );
+  }
+});
 
 test('v2 major 拒绝、minor 取交集，未知可选能力忽略、未知必需能力拒绝', () => {
   const local = { ...offer, capabilities: ['rpc', 'objects'] };

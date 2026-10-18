@@ -13,6 +13,7 @@ const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   terminal_observe: 0,
   terminal_control: 0,
 });
+
 export function validateOffer(value: unknown): asserts value is VersionOffer {
   const v = object(value);
   fields(v, ['major', 'minor', 'capabilities', 'required']);
@@ -26,11 +27,13 @@ export function validateOffer(value: unknown): asserts value is VersionOffer {
   if ((v.required as string[]).some((c) => !(v.capabilities as string[]).includes(c)))
     fail('invalid_capabilities');
 }
+
 export function negotiate(local: VersionOffer, remote: VersionOffer): Negotiated {
   validateOffer(local);
   validateOffer(remote);
   if (local.major !== WIRE_MAJOR || remote.major !== local.major)
     fail('protocol_major_unsupported');
+  // 只启用本实现认识且双方都广告的能力；未知可选项不进入协商结果。
   const minor = Math.min(local.minor, remote.minor, WIRE_MINOR);
   const capabilities = (Object.keys(CAPABILITIES) as Capability[])
     .filter(
@@ -46,6 +49,7 @@ export function negotiate(local: VersionOffer, remote: VersionOffer): Negotiated
   validateNegotiated(result);
   return result;
 }
+
 export function validateNegotiated(
   value: unknown,
   offer?: VersionOffer,
@@ -59,7 +63,8 @@ export function validateNegotiated(
   if (
     !Array.isArray(v.capabilities) ||
     v.capabilities.length > 64 ||
-    new Set(v.capabilities).size !== v.capabilities.length
+    new Set(v.capabilities).size !== v.capabilities.length ||
+    v.capabilities.some((c) => typeof c !== 'string')
   )
     fail('invalid_capabilities');
   if (
@@ -78,6 +83,7 @@ export function validateNegotiated(
     )
       fail('invalid_negotiation');
   }
+  // 该依赖也约束 welcome 的选定结果，不能只在本地 offer 一侧检查。
   if (v.capabilities.includes('terminal_control') && !v.capabilities.includes('terminal_observe'))
     fail('invalid_capabilities');
 }
