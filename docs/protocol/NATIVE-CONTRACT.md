@@ -26,6 +26,12 @@ DispatchPermit。strict 拒绝 generic/unavailable；raw_contract 只在 Owner
 validation。缺失/未知/不完整/不可信分类、管理权限、真实确认及 secret custody
 在所有模式中仍强制检查；不能借 raw 绕过已存在的 schema 约束。
 
+raw 的 validation=unavailable 仅适用于已有可信、可编译 bundle 及可用 response
+边界，但在线方法未收录于该 bundle 的方法 schema 的情形。整个 bundle 编译失败仍为
+schema_unavailable，不能建立 validator/许可，也不能借 raw 作为无 schema 执行入口。
+原生 method_contracts 仅用于核对受信本地分类，不单独授权；通用分派还必须分类
+具体子动作，raw grant 绑定 principal、完整目标、精确方法、契约/revisions 与时效。
+
 `checkResponseShape` 仅证明结构；`checkResponse` 再关联原候选/permit、native ID、
 方法结果及可信来源。`openStream` 的 ack 必须由同一份 DispatchPermit 验证，
 另一份 permit 或复制 handle 均无效。`checkEvent`、`checkControl` 及
