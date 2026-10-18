@@ -13,7 +13,8 @@
     "错误 code 是本提案逻辑码，wire 负责人可冻结外壳映射，但不得合并 safety 与 schema 拒绝原因。",
     "执行模式默认 strict；raw_contract 必须显式选择且由受保护工厂建立匹配 principal/目标/精确 methods/契约状态/revisions/有效期的 grant。raw_requested/Owner 均不是授权。",
     "144 generic 的 strict 拒绝与受信有范围 raw 准入分别测试；generic/unavailable 是参数验证状态，不是安全分类缺失或完整验证声明。",
-    "raw grant 只接受缺失的参数覆盖，继续执行可用约束、双层策略、管理/确认、秘密及传输 gate。生成器逐方法建立匹配 grant，不把所有未来方法预授权。"
+    "raw grant 只接受缺失的参数覆盖，继续执行可用约束、双层策略、管理/确认、秘密及传输 gate。生成器逐方法建立匹配 grant，不把所有未来方法预授权。",
+    "实现基线 DESIGN v0.4 规定 raw 还须 Owner 显式选择；raw 正反例补齐 Owner 前提，Owner 仍不能代替独立 raw grant 或其它门禁。"
   ],
   "seeds": {
     "bundle": {
@@ -1848,6 +1849,11 @@
             "local_policy_revision": "local-policy-1",
             "expires_at": 200
           }
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ]
     },
@@ -2246,6 +2252,11 @@
             "local_policy_revision": "local-policy-1",
             "expires_at": 200
           }
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "context": {
@@ -2998,6 +3009,11 @@
             "local_policy_revision": "local-policy-1",
             "expires_at": 200
           }
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "expected": {
@@ -3055,6 +3071,11 @@
             "local_policy_revision": "local-policy-1",
             "expires_at": 200
           }
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "expected": {
@@ -3278,6 +3299,11 @@
           "op": "set",
           "path": "/raw_grant/expires_at",
           "value": 99
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "expected": {
@@ -3358,6 +3384,11 @@
           "op": "set",
           "path": "/raw_grant/contract_revision",
           "value": "test-r0"
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "expected": {
@@ -3482,6 +3513,11 @@
           "value": [
             "done"
           ]
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "expected": {
@@ -3545,6 +3581,11 @@
             "local_policy_revision": "local-policy-1",
             "expires_at": 200
           }
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ]
     },
@@ -3600,6 +3641,11 @@
             "local_policy_revision": "local-policy-1",
             "expires_at": 200
           }
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ]
     },
@@ -3655,6 +3701,11 @@
             "local_policy_revision": "local-policy-1",
             "expires_at": 200
           }
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ]
     },
@@ -3830,6 +3881,11 @@
           "op": "set",
           "path": "/caller_allowed",
           "value": false
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "expected": {
@@ -3910,6 +3966,11 @@
           "op": "set",
           "path": "/local_allowed",
           "value": false
+        },
+        {
+          "op": "set",
+          "path": "/owner",
+          "value": true
         }
       ],
       "expected": {

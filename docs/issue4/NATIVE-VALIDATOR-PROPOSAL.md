@@ -2,6 +2,8 @@
 
 日期：2026-10-18 UTC。状态：**待接口评审的设计与纯 fixture 草案；没有生产 validator 实现，#4 未完成。**
 
+历史设计快照说明：下文是原前置交付的范围与提案，不作为后续实现完成报告。纯 Luvus 模块已在 Bun main 上另行实施，当前精确接口见 [IMPLEMENTATION-API](IMPLEMENTATION-API.md)，实际测试与未完成项见 [IMPLEMENTATION-REPORT](IMPLEMENTATION-REPORT.md)；整个 #4 仍须 wire/持久化等集成验收。
+
 本分支从已验收 main `9c4a7fe34fc3efa461d96a502860e61b05817c44` 建立。已读仓库 README、[HANDOVER](../HANDOVER.md)、[P0 REVIEW](../p0/REVIEW.md)、[ADR 0001](../adr/0001-p0-version-and-contract-baseline.md)、DESIGN/IMPLEMENTATION-PLAN v0.2，以及 [#4](https://github.com/ArnoChenFx/luvus-mcp/issues/4)（含新增 #15 前置评论）和 [#15](https://github.com/ArnoChenFx/luvus-mcp/issues/15)。未发现适用的 AGENTS.md。
 
 本提案只覆盖安装版原生契约的编译、发现映射、结构校验和安全接缝。wire envelope 冻结、认证传输、持久化/迟到结果更新、Bun 迁移分别由对应任务负责；不重复原生 P0。实现必须从包含 #15 验收的最新基线开始，使用其精确 Bun pin、唯一锁文件及无 Node 回退门禁。SDK 固定 `@modelcontextprotocol/sdk@1.32.1`，实证 MCP revision 仍为 `2025-11-25`；本提案不升级 SDK。

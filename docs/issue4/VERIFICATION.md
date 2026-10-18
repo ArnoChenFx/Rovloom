@@ -1,5 +1,7 @@
 # #4 原生 validator 前置设计交付记录
 
+这是原设计阶段的历史记录；后续纯模块实现的当前事实见 [IMPLEMENTATION-REPORT](IMPLEMENTATION-REPORT.md)，不将本页的零实现测试数当作后续结果，也不改写历史证据。
+
 日期：2026-10-18 UTC。分支：`task/issue-4-native-validator-design`。
 起点及本次核对的 origin/main：`9c4a7fe34fc3efa461d96a502860e61b05817c44`。
 **本记录是设计资料审计，不是 #4 实现验收，也不是 Bun 迁移、原生 P0 或生产认证验收。**
