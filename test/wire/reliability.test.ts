@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planHistoryAdmission, planResponseEvidence, MessageWindow, hash, boundedJson } from '../../src/wire/index.js';
 import type { HistoryScope, HistoryRecord, ResponseAnchor } from '../../src/wire/index.js';
-import { request, response, binding, context, rejects } from './helpers.js';
+import { request, response, binding, attempt, context, rejects, frame } from './helpers.js';
 
 const reference = { history_epoch: 'history_1', client_request_key: 'key_1' };
 const scope: HistoryScope = { history_epoch: reference.history_epoch, recovery_generation: binding.recovery_generation,
@@ -41,13 +41,13 @@ test('同一 unknown attempt 的可靠回复只给追加意图，期限/原 unkn
   const policy = { classification_status: 'trusted_complete' as const, retain_content_authorized: true };
   const plan = planResponseEvidence(response, ctx, anchor, 400, policy);
   assert.equal(plan.action, 'append'); assert.equal(plan.late_evidence, true); assert.equal(plan.dispatch, false);
-  assert.deepEqual(plan.content, { status: 'available', expires_at: 500, delivery: 'payload', uhp_response: response.payload.uhp_response });
-  assert.equal(plan.evidence.response_hash, hash(boundedJson(response.payload.uhp_response)));
+  assert.deepEqual(plan.content, { status: 'available', expires_at: 500, delivery: 'payload', native_response: response.payload.native_response });
+  assert.equal(plan.evidence.response_hash, hash(boundedJson(response.payload.native_response)));
   assert.equal(plan.evidence.category, 'result'); assert.deepEqual(anchor, saved);
   const evidence = { response_hash: plan.evidence.response_hash, response_bytes: plan.evidence.response_bytes };
   const duplicate = planResponseEvidence(response, ctx, { ...anchor, state: 'responded', evidence }, 450);
   assert.equal(duplicate.action, 'duplicate'); assert.equal(duplicate.dispatch, false);
-  assert.equal(duplicate.content.uhp_response, undefined); assert.equal(duplicate.content.expires_at, 500);
+  assert.equal(duplicate.content.native_response, undefined); assert.equal(duplicate.content.expires_at, 500);
   rejects(() => planResponseEvidence(response, ctx, { ...anchor, state: 'responded', evidence: { ...evidence,
     response_hash: 'b'.repeat(64) } }, 450), 'response_evidence_conflict');
   rejects(() => planResponseEvidence(response, ctx, { ...anchor, state: 'responded' }, 450), 'evidence_anchor_unavailable');
@@ -56,50 +56,49 @@ test('同一 unknown attempt 的可靠回复只给追加意图，期限/原 unkn
 test('内容过期/discard/未知仅最小证据，不保存原文或产生句柄；删除历史不复活', () => {
   for (const content_status of ['expired', 'discarded', 'unavailable'] as const) {
     const plan = planResponseEvidence(response, context('connector_to_gateway'), { ...anchor, content_status }, 400);
-    assert.equal(plan.content.status, content_status); assert.equal(plan.content.uhp_response, undefined);
+    assert.equal(plan.content.status, content_status); assert.equal(plan.content.native_response, undefined);
     assert.equal(plan.content.expires_at, 500); assert.equal('result_id' in plan.content, false);
   }
   const expired = planResponseEvidence(response, context('connector_to_gateway'), anchor, 500);
-  assert.equal(expired.content.status, 'expired'); assert.equal(expired.content.uhp_response, undefined);
+  assert.equal(expired.content.status, 'expired'); assert.equal(expired.content.native_response, undefined);
   rejects(() => planResponseEvidence(response, context('connector_to_gateway'), undefined, 400), 'attempt_anchor_unavailable');
   rejects(() => planResponseEvidence(response, context('connector_to_gateway'), anchor, 2000), 'evidence_not_applicable');
   rejects(() => planResponseEvidence(response, context('connector_to_gateway'), { ...anchor, state: 'not_dispatched' }, 400), 'evidence_not_applicable');
   const error = { ...response, payload: { ...response.payload,
-    uhp_response: { id: binding.native_request_id, error: { code: 'timeout', message: 'synthetic', data: { retained: true } } } } };
+    native_response: { id: binding.native_request_id, error: { code: 'timeout', message: 'synthetic', data: { retained: true } } } } };
   assert.equal(planResponseEvidence(error, context('connector_to_gateway'), anchor, 400).evidence.category, 'error');
   for (const policy of [undefined, { classification_status: 'trusted_complete' as const, retain_content_authorized: false },
     { classification_status: 'untrusted' as const, retain_content_authorized: true }]) {
     const plan = planResponseEvidence(response, context('connector_to_gateway'), anchor, 400, policy);
-    assert.equal(plan.content.delivery, 'metadata_only'); assert.equal(plan.content.uhp_response, undefined);
+    assert.equal(plan.content.delivery, 'metadata_only'); assert.equal(plan.content.native_response, undefined);
   }
 });
 
 test('迟到回复逐一拒绝错机器/代次/epoch/call/attempt/native ID/target/契约与撤销来源', () => {
   for (const key of ['machine_id', 'recovery_generation', 'connection_epoch', 'call_id', 'attempt_id', 'native_request_id',
-    'contract_revision', 'contract_digest'] as const) {
+    'binding_revision', 'contract_ref'] as const) {
     rejects(() => planResponseEvidence(response, context('connector_to_gateway'), { ...anchor,
-      binding: { ...binding, [key]: key === 'contract_digest' ? 'b'.repeat(64) : 'wrong' } }, 400), 'attempt_binding_mismatch');
+      binding: { ...binding, [key]: key === 'contract_ref' ? 'b'.repeat(64) : key === 'binding_revision' ? 2 : 'wrong' } }, 400), 'attempt_binding_mismatch');
   }
   rejects(() => planResponseEvidence(response, context('connector_to_gateway'), { ...anchor,
-    binding: { ...binding, target: { machine_id: binding.machine_id, profile: 'host' } } }, 400), 'attempt_binding_mismatch');
+    binding: { ...binding, target: { machine_id: binding.machine_id, provider_id: binding.target.provider_id, profile: 'host' } } }, 400), 'attempt_binding_mismatch');
   const inactive = context('connector_to_gateway'); (inactive.connection as any).active = false;
   rejects(() => planResponseEvidence(response, inactive, anchor, 400), 'authentication_required');
   rejects(() => planResponseEvidence(response, context('connector_to_gateway'), { ...anchor, method: 'changed' }, 400), 'attempt_binding_mismatch');
-  const bad = { ...response, payload: { ...response.payload, uhp_response: { id: binding.native_request_id, error: {} } } };
+  const bad = { ...response, payload: { ...response.payload, native_response: { id: binding.native_request_id, error: {} } } };
   rejects(() => planResponseEvidence(bad, context('connector_to_gateway'), anchor, 400), 'native_response_invalid');
   const noLate = context('connector_to_gateway'); noLate.connection.negotiated.capabilities = ['rpc'];
   rejects(() => planResponseEvidence(response, noLate, anchor, 400), 'unsupported_capability');
 });
 
 test('message ID 窗口对相同内容幂等、冲突拒绝，容量与期限固定有界', () => {
-  const window = new MessageWindow(2, 100), ctx = context();
-  assert.equal(window.observe(request, ctx, 0), 'new');
-  assert.equal(window.observe(request, ctx, 99), 'duplicate');
-  assert.equal(window.observe({ ...request, message_id: 'message_2' }, ctx, 99), 'new');
-  rejects(() => window.observe({ ...request, message_id: 'message_3' }, ctx, 99), 'dedup_window_full');
-  rejects(() => window.observe({ ...request, payload: { ...request.payload, deadline: 5000 } }, ctx, 99), 'message_id_conflict');
-  assert.equal(window.observe(request, ctx, 100), 'new');
-  assert.equal(window.size, 2);
-  rejects(() => window.observe(request, ctx, 99), 'clock_untrusted');
+  const window = new MessageWindow(2, 100), ctx = context(), heartbeat = frame('heartbeat', { sequence: 0 });
+  assert.equal(window.observe(heartbeat, ctx, 0), 'new');
+  assert.equal(window.observe(heartbeat, ctx, 99), 'duplicate');
+  assert.equal(window.observe({ ...heartbeat, message_id: 'message_2' }, ctx, 99), 'new');
+  rejects(() => window.observe({ ...heartbeat, message_id: 'message_3' }, ctx, 99), 'dedup_window_full');
+  rejects(() => window.observe({ ...heartbeat, payload: { sequence: 1 } }, ctx, 99), 'message_id_conflict');
+  assert.equal(window.observe(heartbeat, ctx, 100), 'new'); assert.equal(window.size, 2);
+  rejects(() => window.observe(heartbeat, ctx, 99), 'clock_untrusted');
   rejects(() => new MessageWindow(4097), 'dedup_limit');
 });

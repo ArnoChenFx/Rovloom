@@ -1,5 +1,6 @@
 import type { AttemptBinding, AuthenticatedEnvelope, CodecContext, JsonObject, ValidationMode, RequestGate } from './types.js';
 import { assertBinding, decodeWireObject } from './codec.js';
+import { providerScopeAllowed } from './provider.js';
 import { boundedJson, uint, hash, fail, LIMITS, sha } from './validation.js';
 
 export type ResponseAnchor = {
@@ -14,7 +15,7 @@ export type ResponseEvidencePlan = {
   evidence: { binding: AttemptBinding; received_at: number; response_hash: string;
     response_bytes: number; category: 'result' | 'error' };
   content: { status: ResponseAnchor['content_status']; expires_at: number;
-    delivery: 'payload' | 'metadata_only'; uhp_response?: JsonObject };
+    delivery: 'payload' | 'metadata_only'; native_response?: JsonObject };
 };
 // 当前可信分类与保存权限，不能取自持久化旧 ACL、response 内容或 caller 自报。
 export type ResponseContentPolicy = {
@@ -37,7 +38,7 @@ export function planResponseEvidence(frame: Extract<AuthenticatedEnvelope, { typ
   if (!resolved || resolved.method !== anchor.method || resolved.mode !== anchor.mode) fail('attempt_binding_mismatch');
   if (now >= anchor.dedup_expires_at || anchor.state === 'not_dispatched') fail('evidence_not_applicable');
   if (!['dispatching', 'connector_accepted', 'outcome_unknown', 'responded'].includes(anchor.state)) fail('evidence_not_applicable');
-  const raw = boundedJson(checked.payload.uhp_response, LIMITS.object_bytes);
+  const raw = boundedJson(checked.payload.native_response, LIMITS.object_bytes);
   const response_hash = hash(raw), response_bytes = Buffer.byteLength(raw);
   if (anchor.evidence) {
     sha(anchor.evidence.response_hash); uint(anchor.evidence.response_bytes, true);
@@ -47,11 +48,11 @@ export function planResponseEvidence(frame: Extract<AuthenticatedEnvelope, { typ
   if (!['available', 'expired', 'discarded', 'unavailable'].includes(status)) fail('invalid_content_status');
   const duplicate = anchor.evidence !== undefined;
   const retain = status === 'available' && !duplicate && policy?.classification_status === 'trusted_complete' &&
-    policy.retain_content_authorized === true;
+    policy.retain_content_authorized === true && providerScopeAllowed(binding, anchor.method, 'read', context.policies);
   return { action: duplicate ? 'duplicate' : 'append', late_evidence: anchor.state === 'outcome_unknown', dispatch: false,
     evidence: { binding, received_at: now, response_hash, response_bytes,
-      category: Object.hasOwn(checked.payload.uhp_response, 'error') ? 'error' : 'result' },
+      category: Object.hasOwn(checked.payload.native_response, 'error') ? 'error' : 'result' },
     // 重复消息不生成任何原文写入/句柄意图，也不刷新期限。
     content: { status, expires_at: anchor.content_expires_at, delivery: retain ? 'payload' : 'metadata_only',
-      ...(retain ? { uhp_response: checked.payload.uhp_response } : {}) } };
+      ...(retain ? { native_response: checked.payload.native_response } : {}) } };
 }

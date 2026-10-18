@@ -8,3 +8,5 @@ export * from './evidence.js';
 export * from './dedup.js';
 export * from './objects.js';
 export * from './lifecycle.js';
+export * from './provider.js';
+export * from './history-v1.js';

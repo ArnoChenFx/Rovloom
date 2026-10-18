@@ -1,82 +1,177 @@
-# Issue #4：Gateway / Connector wire 1.0（内部契约）
+# Rovloom Wire v2：provider 绑定与执行边界
 
-日期：2026-10-18 UTC。基线 main `5124d459fa0f712fd1dbb9f164a3513e3e538716`。
-依据：DESIGN v0.4 §10–12、IMPLEMENTATION-PLAN §4.1、ADR 0001/0002/0003 及 issue #4。
-本交付是纯 codec、协商、关联判断与有界内存辅助模块；不启动 listener，不验证或签发真实凭据。
-实现见 `src/wire/`。当前 Target 严格沿用 `src/contracts.ts`，未增加 provider 标识。
-未来 Target 字段、provider 路由及相应版本策略须由父会话协调，本任务不冻结该兼容变更。
+日期：2026-10-18 UTC。执行版本 major **2** / minor **0**。
+基础 main `5124d459fa0f712fd1dbb9f164a3513e3e538716`；本地 v1 交付 `61374089961d5324a94d0b604f516f9c6cf218ae` 保留。
+本轮依据父会话批准并冻结的多 provider 字段和权限/版本边界；设计任务本地引用为 `71ce53a`，由父会话统一合入，
+本环境不伪造该未导入提交的远端链接。本文件取代当前工作树中的 v1 执行说明，旧文档可从 `6137408` 查阅。
 
-## 信任与调用边界
+仓库名与历史原生记录不改。新增产品文档使用 Rovloom；原生 runtime Luvus/Herdr、UHP 标识与真实 fixture 原样保留。
+本交付仅纯 codec/context/关联/有界对象判断，不是可运行的 provider adapter、认证服务或存储迁移。
 
-每个 WebSocket message 是一个 UTF-8 JSON envelope。禁止 BOM、非法 UTF-8、非法 JSON、非有限数、孤立 surrogate、
-过深/过大值。编码额外拒绝 getter、toJSON 类对象、稀疏数组、循环和 symbol，避免执行输入代码。
-所有类型严格核对根字段和 payload 字段；未知帧/流功能拒绝，不猜测语义。
+## v2 与只读历史
 
-`decodeWireFrame(input, context)` / `encodeWireFrame(frame, context)` 接收显式受信 context：
+`decodeWireFrame(input, context)` / `encodeWireFrame(frame, context)` 只接受 v2。
+major 不同直接拒绝，不自动协商回 v1；minor 为双方与本实现已支持 minor 的交集上界。
+能力只取双方显式广告且当前 minor 已知的交集。未知可选能力忽略，未知/未共同支持的 required 能力拒绝。
+capabilities/required 最多各 64 项，无重复；required 必须属于本方 capabilities。
+
+| 可选 feature | 用途 |
+|---|---|
+| rpc | 普通 request/accepted/response/cancel |
+| history_scope | 显式登记 history_epoch/client_request_key |
+| late_evidence | unknown 同次 attempt 补证 |
+| objects | 有界 envelope/schema_bundle 分片 |
+| events | 原生事件流 |
+| terminal_observe | 终端观察 |
+| terminal_control | 终端输入；同时要求 terminal_observe |
+
+业务帧使用已选定 minor，不能按消息重新猜版本或放行未知 feature。welcome 必须匹配本地保存的 offer/required，
+并用 in_reply_to 核对原握手 message_id；收到 welcome 不自动产生已认证上下文。
+
+`decodeHistoricalV1(input)` 返回 `{read_only:true, provider_resolution:'unresolved', frame}`，
+只检查旧封装/旧目标形状与通用 JSON 边界，不声称旧 native payload、认证、分类或当前 provider 验证通过。
+它既不返回可执行 v2 Envelope，也不补默认 legacy provider。旧库与历史关联的只读迁移由 #5 处理。
+顶层 protocol 保留原五个运行时导出名及 Envelope/Payloads 类型名；版本值现为 2.0。
+旧 epoch-only 调用或缺 context 的编码仍拒绝，不新增顶层公共运行时导出。
+
+## 身份、Target 与绑定
+
+每个 WebSocket message 对应一个 UTF-8 JSON envelope。共同根字段为
+`protocol_major, protocol_minor, type, message_id, payload`；已认证帧还必须带
+`machine_id, recovery_generation, connection_epoch`，逐项核对外部当前认证连接。
 
 ```ts
-type CodecContext =
-  | { phase: 'preauth'; direction: Direction;
-      offer?: VersionOffer; handshake_message_id?: string }
-  | { phase: 'authenticated'; direction: Direction;
-      connection: ConnectionIdentity & {
-        authenticated: true; active: true; negotiated: Negotiated
-      };
-      native?: NativePayloadValidator;
-      resolveAttempt?: (received: AttemptIdentity) => NativeValidationContext | undefined };
+type V2Target =
+  | { machine_id: string; provider_id: string; profile: 'session'; session: string }
+  | { machine_id: string; provider_id: string; profile: 'host' };
+type ProviderBinding = {
+  machine_id: string; provider_id: string; kind: 'luvus' | 'herdr';
+  config_ref: string; binding_revision: number; enabled: boolean;
+};
 ```
 
-`direction` 是本帧的传送方向，不是当前进程角色。`connection` 必须来自真实认证/撤销层；
-`authenticated/active` 只是外部事实的注入契约，不是 codec 生成的安全证明。集成层每次操作都须确认其仍有效。
-不得将帧、welcome、自报 machine 或 epoch 相等当成认证来源。测试中的 context 为明确的 synthetic 输入。
-`resolveAttempt` 必须查询独立可信的原锚点，禁止用收到的 attempt 生成“预期”锚点。
+V2Target 仅定义在 wire 内，与当前公共 contracts.Target 隔离；未修改 contracts/store/router/package。
+Target 不包含 kind 或 expected_binding_revision；未知字段严格拒绝。session 显式非空，不继承 shell/current/default。
+provider_id 只在所属 machine 内解析，稳定且不可复用；binding_revision 为正安全整数、单调且不可复用。
+配置/启用状态变化必须分配新 revision。历史分配与不可复用由可信 registry/#5 事务保证，codec 不伪称能从单个快照证明。
+config_ref 是受信本地配置的 opaque 引用，codec 不读取该路径/URI，也不接受 caller 替换本地 endpoint。
 
-顶层 `src/protocol.ts` 保持原五个运行时导出名与版本常量。调用签名收紧为显式 context：
-旧 `decodeFrame(input, epoch)` 和省略 context 的 `encodeFrame(frame)` 均报 `authenticated_context_required`。
-该语义变更已在实施前报父会话；原 epoch-only 草稿不保留可派发兼容路径。
-原 Envelope/Payloads 类型导出名也保留，字段形状按本数据字典收紧。
-`src/wire/index.ts` 是内部子模块入口；未新增 package/public 顶层导出。
+当前 resolver 必须返回 machine/provider 精确匹配的可信 binding。先检查 enabled，再检查 kind/revision；
+禁用实例阻断其派发、流、内容读取辅助判断与迟到补证，不撤销设备身份，也不影响其它 provider 的心跳/绑定。
+重新启用的新 revision 不能沿用旧 attempt。kind 的实际选择来自可信 binding，消息只回显该快照并被核对。
 
-## 版本与能力
+Herdr 的 host profile 在派发前报 unsupported_profile；当前 Herdr P0 未完成，session 同样固定报 provider_support_candidate。
+即使测试/广告把 support_status 改为 validated，当前代码仍不启用 Herdr。类型和来源描述可表达 Herdr，不代表实际 adapter 可执行。
 
-本实现支持 wire major 1 / minor 0；与 UHP 1.0、MCP 2025-11-25 是三个独立协议。
-Offer 为 `{major, minor, capabilities, required}`；minor 表示支持上界。
-协商 major 不同即拒绝；minor 为双方和本实现上界的最小值。能力只取双方显式广告、且该 minor 已知的交集。
-未知可选能力不启用；任何未知/未共同启用的 required 能力拒绝。
-数组最多 64 项，无重复；required 必须属于本方 capabilities。
+## ContractSource 与 contract_ref
 
-| 能力 | wire 1.0 行为 |
-|---|---|
-| rpc | request / accepted / response / cancel 的普通调用路径 |
-| history_scope | request/open 中允许显式 history 引用 |
-| late_evidence | unknown 的同次响应证据判断 |
-| objects | object_chunk 与有界重组 |
-| events | 原生事件流 |
-| terminal_observe | 终端只读流 |
-| terminal_control | 双向终端流；同时要求 terminal_observe |
+```ts
+type ContractSource = {
+  provider_kind: 'luvus' | 'herdr'; protocol_family: 'uhp' | 'herdr-json';
+  binary_version: string; binary_sha256: string; schema_sha256: string;
+  schema_origin: 'installed_cli';
+  schema_command: 'luvus uhp schema' | 'herdr api schema --json';
+  server_version: string | null; native_protocol_version: string | null;
+  runtime_generation: string | null; adapter_revision: string;
+  classification_revision: string | null;
+  support_basis: 'live_catalog' | 'schema_and_version';
+};
+```
 
-业务帧必须精确使用 selected minor，不重新按单帧协商。welcome 必须属于本地保存的 offer，满足全部本地 required，
-并以 `in_reply_to` 核对握手 message_id。welcome 本身不将 context 切为 authenticated。
-更高 minor 的远端 offer 可协商到 0；不会因精确 minor 不同直接拒绝。
-当前 strict 字段集合下，未来扩展必须先定义版本/能力及兼容规则，不接受未协商字段。
+`contract_ref = SHA256(boundedJson(ContractSource))`，编码为 64 位小写 hex，具有不可变内容含义。
+它不是签名、认证、执行许可，也不是 native request id。candidate 描述可有摘要，但不能形成可执行契约。
+必填来源缺失、未知 schema_origin/命令、kind/protocol/命令不一致均拒绝；不能用网页 schema 代替 installed_cli。
+null 如实表达未观察到的可选 server/protocol/generation 值，不合成原生 generation。
+任何来源值变化都会改变 contract_ref。当前可执行 Luvus 还要求可信 validated 状态、live_catalog 和非空 classification_revision；
+分类完整性及方法/子动作的多轴门禁继续由原生模块判定。
 
-## 数据字典与方向
+wire 只按 ref 查可信 ContractRecord `{source, support_status:'candidate'|'validated'}` 并重新计算摘要核对，
+不接受消息附带 ContractSource 来自证。原生缓存与 handle 必须另绑定完整 provider/profile/session/attempt，
+不能仅按 schema hash 或 ref 跨 provider 共享执行身份。
 
-所有帧共有 `protocol_major, protocol_minor, type, message_id, payload`。
-预认证 enroll/authenticate/welcome/error 的根字段仅有以上五项。
-已认证所有帧另必需 `machine_id, recovery_generation, connection_epoch`，逐项比对外部连接事实。
-网关 ID 使用 `[A-Za-z0-9_-]{1,128}`；原生 request ID 保留 UHP `[A-Za-z0-9._:-]{1,128}`。
-contract_digest 使用小写 SHA-256 hex。时间为非负安全整数毫秒，deadline/期限必须为正；
-是否已过期以及写出前的原子 deadline 检查由 #5 调度/准入完成。
+## Attempt 与调用外层
 
-| type | 方向 | 必填 payload（`?` 表示可选） |
+```ts
+type AttemptIdentity = {
+  call_id: string; attempt_id: string; native_request_id: string;
+  target: V2Target; provider_kind: 'luvus' | 'herdr';
+  binding_revision: number; contract_ref: string;
+  registration: {
+    deadline: number;
+    history: { history_epoch: string; client_request_key: string } | null;
+    caller_policy_revision: string; local_policy_revision: string;
+  };
+};
+type AttemptBinding = ConnectionIdentity & AttemptIdentity;
+```
+
+request/open 的 `payload.expected_binding_revision` 是独立调用字段，必须与 attempt.binding_revision 和可信当前 binding 一致；
+它不属于 Target/native_request。登记 deadline/history/双方 policy revision 放在 attempt.registration，后续帧完整回显。
+原锚点核对覆盖 machine、provider、revision、kind、profile/session、恢复代次、epoch、call/attempt/native ID、contract_ref 及 registration。
+不能换目标/契约/范围/登记条件或采用新 revision 接纳旧执行。
+
+所有 attempt 帧（包括 request/open）都需要独立 resolveAttempt，禁止根据收到的 payload 构造预期锚点。
+新派发还核对当前双方 policy revision 与登记版本一致；已有响应只可进入受保护的接收/证据路径，读取要重新授权。
+deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实际写出前 deadline/预算/dispatching 原子提交仍由 #5 负责。
+
+下面是完整 request JSON。contract_ref 由本仓库 P0 来源加明确的 synthetic 测试 adapter/classification revision 计算，
+不是生产分类或执行授权。无 opaque native handle/认证凭据写入示例。
+
+```json
+{
+  "protocol_major": 2,
+  "protocol_minor": 0,
+  "type": "request",
+  "message_id": "example_request",
+  "machine_id": "machine_1",
+  "recovery_generation": "recovery_1",
+  "connection_epoch": "connection_1",
+  "payload": {
+    "attempt": {
+      "call_id": "call_1",
+      "attempt_id": "attempt_1",
+      "native_request_id": "proxy-ping",
+      "target": {
+        "machine_id": "machine_1",
+        "provider_id": "provider_1",
+        "profile": "session",
+        "session": "p0-issue3"
+      },
+      "provider_kind": "luvus",
+      "binding_revision": 1,
+      "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
+      "registration": {
+        "deadline": 1000,
+        "history": {
+          "history_epoch": "history_1",
+          "client_request_key": "key_1"
+        },
+        "caller_policy_revision": "caller_policy_1",
+        "local_policy_revision": "local_policy_1"
+      }
+    },
+    "expected_binding_revision": 1,
+    "native_request": {
+      "method": "ping",
+      "params": {}
+    },
+    "validation": "strict"
+  }
+}
+```
+
+[完整 JSON 示例](../../test/wire/v2-examples.json)另含 accepted、response、cancel、stream_open/data/input/close，
+每个都是无缩写、带完整 attempt 的 v2 envelope；测试逐帧实际解析验证。native request/response 与终端内容来自隔离 P0 记录，
+外层 provider/policy/handle/授权上下文为明确 synthetic 测试数据。
+
+| type | 方向 | 必填 payload |
 |---|---|---|
 | enroll | Connector → Gateway，预认证 | registration_id, connector_instance_id, enrollment_credential, offer |
 | authenticate | Connector → Gateway，预认证 | machine_id, recovery_generation, connector_instance_id, device_credential, offer |
 | welcome | Gateway → Connector，预认证 | machine_id, recovery_generation, connection_epoch, in_reply_to, selected |
-| request | Gateway → Connector | attempt, uhp_request, deadline, validation, history? |
+| request | Gateway → Connector | attempt, expected_binding_revision, native_request, validation |
 | accepted | Connector → Gateway | attempt |
-| response | Connector → Gateway | attempt, uhp_response |
+| response | Connector → Gateway | attempt, native_response |
 | cancel | Gateway → Connector | attempt, reason |
 | heartbeat | 双向 | sequence |
 | stream_open | Gateway → Connector | request 的全部字段，另 stream_id, feature |
@@ -84,194 +179,155 @@ contract_digest 使用小写 SHA-256 hex。时间为非负安全整数毫秒，d
 | stream_input | Gateway → Connector | attempt, stream_id, feature, sequence, frame |
 | stream_close | 双向 | attempt, stream_id, reason |
 | error | 双向，预认证或已认证 | source, code, retryable, cause_message_id? |
-| object_chunk | 双向，schema_bundle 只允许 Connector → Gateway | object_id, kind, total_bytes, sha256, chunk_count, index, data |
+| object_chunk | 双向，schema_bundle 仅 Connector → Gateway | object_id, kind, total_bytes, sha256, chunk_count, index, data |
 
-`attempt` 为 `{call_id, attempt_id, native_request_id, target, contract_revision, contract_digest}`。
-与外层连接身份合起来构成 `AttemptBinding`；不能省略任一维度。
-Target 为 `{machine_id, profile:'host'}` 或 `{machine_id, profile:'session', session}`，
-machine 必须等于已认证连接 machine；session 显式非空，不继承 shell/default/current。
-`history` 仅为 `{history_epoch, client_request_key}`；恢复代次使用外层 recovery_generation。
-任何带 key 的入口都必须显式保留该二元引用；禁止从 discovery 静默补当前范围。
+所有根/payload/target/registration 字段严格列举，未知枚举拒绝。native payload 的完整根/条件/$ref 验证交给可信 kind 的 validator。
+网关错误 source 仅 gateway/transport，code 不含原文；原生 error/data 原样保留在 native_response，不伪装成网关 error。
+accepted 不是远端执行/消费成功；cancel 不等于回滚；stream_close 不生成关闭 pane 的原生请求。
 
-`validation` 必填 strict/raw-contract，不能自动降级。`uhp_request` 是完整原生请求，原生 id 必须与 attempt 一致；
-不允许 caller 注入 auth。原 SDK 工具层的无 id 请求需在受信 adapter 分配原生 id 后再进入 wire。
-`uhp_response` 原样保留 result/error（含 error.data），原生 id 必须一致；结果/错误只允许其一，
-随后仍须完整原生 schema 校验。`accepted` 只表示桥接接收，不表示执行/消费/成功。
+## 可信 context 与原生薄适配
 
-cancel reason 为 caller_cancelled/deadline_exceeded；close reason 为
-normal/cancelled/overflow/resync_required/transport_error。取消不代表远端回滚，close 不生成关闭 pane 的原生操作。
-heartbeat sequence 从 0 开始；心跳只表示链路健康。序号为安全整数，不代替原生 event_sequence/ack。
-
-## 原生验证与分类注入
+已认证 context 包含当前连接事实、resolveProvider、resolveContract、双边 ProviderPolicies、
+`validators: Partial<Record<ProviderKind, NativePayloadValidator>>`、resolveAttempt 和 resolveNativeSource。
+缺任一必要来源都默认拒绝。authenticated/active 是外部事实输入，不由 epoch/welcome 自报产生；
+codec 不实现 TLS、凭据认证/签发或撤销来源。
 
 ```ts
 type NativeValidationContext = {
-  binding: AttemptBinding;
-  method: string;
-  mode: 'strict' | 'raw-contract';
-  transport: 'rpc' | 'stream';
-  feature?: 'events' | 'terminal_observe' | 'terminal_control';
+  binding: AttemptBinding; method: string; mode: 'strict' | 'raw-contract';
+  transport: 'rpc' | 'stream'; feature?: StreamFeature;
+  native_handle?: unknown; trusted_source?: unknown;
 };
 interface NativePayloadValidator {
-  requestGate(request: Record<string, unknown>, context: NativeValidationContext): RequestGate;
-  validateRequest(request: Record<string, unknown>, context: NativeValidationContext): void;
-  validateResponse(response: Record<string, unknown>, context: NativeValidationContext): void;
-  validateStreamFrame?(frame: Record<string, unknown>, context: NativeValidationContext & {
-    feature: 'events' | 'terminal_observe' | 'terminal_control'; direction: 'data' | 'input'
+  requestGate(fullNativeRequest: JsonObject, context: NativeValidationContext): RequestGate;
+  validateRequest(fullNativeRequest: JsonObject, context: NativeValidationContext): void;
+  validateResponse(response: JsonObject, context: NativeValidationContext): void;
+  validateStreamFrame?(frame: JsonObject, context: NativeValidationContext & {
+    feature: StreamFeature; direction: 'data' | 'input'
   }): void;
+  checkDispatch?(frame: JsonObject, context: NativeValidationContext): void;
 }
 ```
 
-验证器失败抛异常，不能返回 false 后继续。不得修改输入、coerce/default/remove 字段、联网抓 schema 或把 URL 当路径。
-生产 validator 须来自绑定安装 binary/完整契约闭包的模块；本任务不在 `src/native-contract/` 写实现。
-`resolveAttempt` 返回同一 NativeValidationContext；响应/accepted/cancel/流帧会核对其完整 binding。
-stream_data/input 的 feature 必须精确匹配原 attempt 的可信 transport/feature；response 仅用于 rpc。
-原生数据是 RPC response、事件、控制输入还是 ack，及其 server_generation/terminal identity/lease，均由原生 validator/adapter 判定。
+wire 先拒绝 native_request 的 caller id/auth，核对原登记 method/mode，再从 resolveAttempt.binding 注入 native_request_id，
+把完整原生 request 传给 validator。选择 validator 使用受信 ProviderBinding.kind，不使用 caller 自报字段。
+`raw-contract` 在原生薄适配中映射 native `raw_contract`；原生 Check 失败转 code-only WireError，不能返回 false 当 void 成功。
+wire 也把异常 message/原始 data 清除，只保留合法 code 或通用 native_* 错误；成功 void 必须实际返回 undefined。
 
-`RequestGate` 的状态与权限必须由受信集成层生成，绝不能来自 caller、wire payload 或远端自报：
+响应与流必须有原 attempt 的 opaque native_handle 和 resolveNativeSource 当前返回的独立可信来源；缺失即拒绝。
+handle 由原生 checkRequest/permit 流程生成，按完整 AttemptBinding 保存在受信过程内映射；不能从响应内容重建。
+本模块不发明 native handle，也不把不可序列化验证器对象冒充持久化记录。
+stream data 由适配器做原生 event/handshake/ack 类型验证；event 使用 checkEvent，合法原生 response/ack 使用相应原 handle。
+input 先做 checkControl/完整帧校验，再每帧 checkDispatch；后者显式收到当前原生 frame 与可信 context，
+可按实际子动作作多轴判断，无须共享“最近一帧”的可变缓存，也不能沿用 open 时权限。
+原生 generation/terminal identity/lease/ack 语义仍由 adapter 保留，外层序号不能替代。
 
-| 字段 | 合法值与 gate |
+RequestGate 由原生多轴 gate 提供：classification_status、schema_status(complete/generic/unavailable)、
+transport_status、authorized、secret_result_authorized、raw_contract_authorized。
+只有 trusted_complete 分类、支持传输、当前授权及秘密交付路径可执行；strict 对 generic/unavailable 分别报参数契约不完整/不可用。
+只有独立显式 raw 授权可放宽参数 schema；原生 permit 的 generic/unavailable 状态必须保留，不映成 complete。
+Owner 身份、raw 选择、未来方法或未知子动作不绕过分类/高权限/秘密门禁。
+
+生产 native-contract 的精确导出/Check/handle 适配由父会话统一集成；本任务不修改其目录或伪造实际联调通过。
+测试注入器真实编译固定 P0 的 29 个离线 documents，但分类/权限与 opaque handle/source 是 synthetic。
+没有用 mock 宣称真实认证或生产 native gate 已完成。
+
+## Provider scope 权限
+
+```ts
+type ProviderGrant = { target: V2Target; methods: string[];
+  actions: Array<'dispatch' | 'read' | 'stream_input' | 'cancel'> };
+type ProviderPolicy = { revision: string; grants: ProviderGrant[] };
+type ProviderPolicies = { caller: ProviderPolicy; local: ProviderPolicy };
+```
+
+授权必须在 caller 和 local **分别存在同一完整 Target + method + action 的 grant 行**。
+没有 wildcard，不将 machines/providers/sessions/methods 平铺成笛卡尔积；未知旧 policy 字段拒绝。
+一方授权 `(machine_1,provider_2,session A)` 和另一条授权 `(machine_1,provider_1,session B)`，不能拼成 provider_1/session A。
+每边最多 4096 行，每行最多 256 方法、4 actions；空列表自然拒绝。
+
+`assertProviderAccess(binding, method, action, context)` 供 #5 做当前 binding/禁用与 provider scope 判断；
+它不替代各入口的 caller/设备身份认证。普通派发、取消、逐帧输入在 codec 中使用对应 action。
+响应接收仅为内部关联/验证，不等于读取授权；晚到 payload 保存意图还要求当前 read scope 和受信 ResponseContentPolicy。
+caller 撤权后仍可有受保护的最小接收审计，不能据此交付内容。provider 禁用则连原 attempt 的补证也拒绝。
+
+## #5 登记、history 与可靠迟到接口
+
+| 纯接口 | #5 必须保证的可信输入与原子后续 |
 |---|---|
-| classification_status | trusted_complete / missing / unknown / invalid / untrusted；只有 trusted_complete 可执行 |
-| schema_status | complete / incomplete / unavailable；strict 只允许 complete |
-| transport_status | supported / unsupported；只允许 supported |
-| authorized | 当前 Gateway caller 与 Connector 本地策略及必要确认均通过 |
-| secret_result_authorized | 已有合适秘密 custody/敏感内容授权、保留与交付路径 |
-| raw_contract_authorized | 当前 Owner 独立显式 raw 授权；不能仅因 Owner 身份或 payload 选择 raw 就给 true |
+| registeredRequestDigest(payload, callerId) | 来自已认证 caller；摘要绑定完整 Target/provider/revision/kind/契约/登记条件/validation/native request，不含新分配 call/attempt/native ID |
+| planHistoryAdmission(reference, generation, digest, scope, record, now) | scope/key 按 caller 与原历史范围在同一 writer 查询；采用 return_existing/register_new 意图也在同一事务 |
+| resolveAttempt | 返回原完整 AttemptBinding、method/mode/transport/feature，以及存在时的原 native handle；不从消息补建 |
+| assertProviderAccess | 当前可信 provider snapshot 与双方完整 scope；不是身份认证来源 |
+| planResponseEvidence(frame, context, anchor, now, policy?) | durable dispatch 原锚点、固定内容/墓碑期限、当前分类/内容权限；事务成功后才发布状态 |
 
-trusted_complete 必须覆盖 ADR 0002 的作用/幂等性/传输、子动作、高权限/确认、秘密结果与可信契约/本地评审来源。
-布尔字段是外部事实的传递契约，不在 wire 中伪造分类表或真实身份。未知子动作不能借已知容器方法获准。
-分类先检查；其余门禁失败也不因 raw 放宽。raw 只可放宽 params 的不完整/不可用状态；
-完整 envelope、大小、auth 保留字段、原生 id/根/条件、当前授权与秘密门禁保持。
-144 个通用 params object 是 schema 缺口，不是完整参数验证，也不能直接当成安全分类未知。
+registeredRequestDigest 是已登记 wire 意图的规范摘要，不是自动迁移/重签旧 key 的授权。
+旧重试必须继续使用原 recovery_generation/history_epoch/key/原登记数据；不能发现新 provider revision/契约后自动重算重派。
+同 scope 已有 key 只返回原 call；摘要不同 conflict。active 缺 key 且 now < accept_new_until 才给登记意图；
+退役/未知/旧恢复代次/缺失历史或截止同刻均拒绝。冻结 TTL 与原创建/截止约束沿用 ADR 0002；没有隐式当前 scope。
 
-主要错误按 code/source 区分：classification_unavailable、parameter_schema_incomplete、parameter_schema_unavailable、
-unsupported_transport、forbidden、raw_contract_forbidden、native_validator_unavailable、stream_validator_unavailable。
-原生模块的 schema/闭包错误应保留其独立 code，不包成 UHP error，也不回显 payload/secret。
+迟到响应必须仍在有效认证连接、当前 provider 启用且 revision/contract/全部 attempt 精确匹配，原 native handle/source 和完整原生响应通过。
+unknown 补证需 late_evidence feature；缺锚点、旧 attempt、墓碑已删、冲突或旧 revision 一律拒绝，不创建执行。
+意图恒为 dispatch:false；原超时/取消历史和 TTL 不变。相同 hash/长度 duplicate 不产生 payload/句柄写入意图。
+expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可时，仅 metadata_only：ID、接收时间、hash/长度、result/error 类别。
+不恢复原文、不生成句柄、不续期。事务失败保留 unknown，不能将内存 plan 作为 durable responded。
+#5 负责持久化、固定期限、预算、恢复隔离与旧 DB 迁移；本轮未实现这些行为。
 
-## 生命周期、重复与迟到证据
+## 资源、顺序与重组
 
-普通状态沿用 created → dispatching → connector_accepted → responded；
-可能已送达而未有回复保持 outcome_unknown。codec 不登记调用、不写出 UHP，不执行任何 replay。
-accepted/cancel/response 没有原锚点时拒绝；不得因收到帧而新建 attempt。
-实际状态转换、deadline、取消与 durable dispatch 锚点均由 #5 在单 writer 事务中实现。
-
-`MessageWindow.observe` 对完整已验证的逻辑业务帧按 machine/generation/epoch/direction/message_id 记 SHA-256。
-相同 ID/相同内容返回 duplicate，冲突报 message_id_conflict。默认最多 4096 项、60 秒固定窗口，
-重复不续期，满窗拒绝，不提前淘汰承诺期内 ID；时钟回退拒绝。
-该窗口仅为连接内存去重。超过窗口或重启后的执行幂等性必须依靠 #5 的持久化 call/attempt/history，
-不能将窗口过期的新消息视为新执行授权。object_chunk 的片内重复由 assembler 处理，完成后的内部 envelope 仍走该窗口。
-
-`advanceStream` 为纯状态转换：open 建 opening，首个已验证 data 转 open；input 只允许 open 的 terminal_control。
-data/input 分别从外层序号 0 严格递增；重复交给 MessageWindow 先过滤，错序拒绝，close 后拒绝输入/数据。
-这里的 open 仅表示外层流有合法数据，不代替原生握手/lease/ack 成功证明。
-
-`planResponseEvidence(response, context, anchor, now, policy?)` 输出 append/duplicate 意图，永远 `dispatch:false`。
-unknown 细化要求 late_evidence 能力，原仍有效认证连接与原持久化 attempt 的全部 binding 精确一致，
-完整原生 response 验证通过，墓碑仍在且未切 attempt。无锚点、not_dispatched、旧 epoch/恢复代次、
-契约/目标变化或冲突均拒绝。相同 response hash/长度重复不创建原文写入意图或句柄，不续期限。
-
-可用且未过期的内容，只有当前受信 `policy={classification_status:'trusted_complete', retain_content_authorized:true}`
-才可进入 payload 待提交意图；缺失/不可信分类或未授权时固定 delivery=metadata_only。
-该判断不可来自旧持久化 ACL、caller 或 response 自报；custody 类秘密不能借此布尔值进入普通内容路径。
-expired/discarded/unavailable 同样只输出受保护的 binding、接收时间、
-response hash/字节数、result/error 类别与固定 expires_at，不携带原文，也不产生句柄。
-函数不修改原 anchor/超时/取消历史；#5 必须保留历史、当前授权、预算、原子持久化与发布。
-事务失败仍保持 unknown；在内存观察到 plan 不构成 durable responded。该意图不是 caller 可直接读取的返回体。
-
-## History scope
-
-`HistoryScope` 必须来自 Gateway 的受信持久化记录：history_epoch、recovery_generation、status(active/retired)、
-scope_created_at、accept_new_until、frozen_dedup_ttl。scope 不存在不回退为 active。
-`planHistoryAdmission` 核对引用、恢复代次、key 摘要、请求摘要、固定期限：
-
-| 条件 | 结果 |
+| 边界 | 规则 |
 |---|---|
-| 可信范围 + 未过期已有 key + 同请求摘要 | return_existing；退役也只返回原 call_id |
-| active + 缺 key + now < accept_new_until | register_new 意图；dedup_expires_at=now+冻结 TTL |
-| 已有 key 请求摘要不同 | request_key_conflict |
-| 截止同刻/退役缺 key/未知范围/旧恢复代次/墓碑到期 | dedup_history_unavailable |
+| 单 message | 1 MiB UTF-8 JSON；非法 UTF-8/JSON/BOM/孤立 surrogate 拒绝 |
+| JSON | 深度 0..64，最多 100,000 个 value 节点；编码拒绝循环/getter/toJSON 类对象/symbol/稀疏数组 |
+| 网关 ID | `[A-Za-z0-9_-]{1,128}`；原生 request ID `[A-Za-z0-9._:-]{1,128}`；摘要 64 位小写 hex |
+| 对象/bundle | envelope 8 MiB / schema_bundle 16 MiB，各自独立；不扩大原生广告的更低限额 |
+| 分片 | 原始字节 64 KiB，最后一片短，规范 padded base64；chunk_count 精确 ceil，index 从 0 顺序 |
+| 重组 | 同一认证连接/方向最多 4 对象、20 MiB 预约，首片起固定 30 秒，重复/进度不续期 |
+| MessageWindow | 默认 4096 个已验证逻辑消息、固定 60 秒；相同 ID/内容 duplicate，冲突拒绝，满窗拒绝 |
 
-强制 `scope_created_at < accept_new_until <= scope_created_at + frozen_dedup_ttl`，
-已有记录须在准入期创建且 dedup_expires_at 等于首次创建加冻结 TTL。
-查 scope/key 与采用意图必须在 #5 同一事务内完成；函数不签发 scope、不迁移旧重试缓存、不证明历史完整性。
-隔离恢复、scope 元数据清理、24 小时/30 天配置默认值与备份新鲜度由 #5 处理。
-客户端和服务端均不得自动重写 recovery_generation/history_epoch/key。显式新范围/新 key 是新意图，
-即使参数相同也不承诺跨范围语义去重或 exactly-once。
+分片描述冲突/片冲突隔离，错序拒绝，完成后校验完整原始字节 SHA-256；完成/失败对象 ID 有界保留 30 秒关闭窗。
+超时于下一次 push 清理，内存始终受预约与数量上限；断开后销毁该连接 assembler。checksum 不是认证。
+重组 envelope 再完整走 v2 provider/契约/关联/原生门禁，不允许嵌套 object_chunk；bundle 只作为未授信 JSON 对象交付，
+需原生模块离线编译引用闭包/dialect/根/条件约束后才能使用，不联网抓任意 URL。
 
-## 大小、分片与资源
+MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依赖 #5，不能将窗口过期视为新派发许可。
+stream open 建 opening，首个合法 data 转外层 open；input 仅 open 的 terminal_control，data/input 各自从 0 严格递增。
+重复由 MessageWindow 先过滤，错序/关闭后输入拒绝；这不替代原生握手成功、队列消费或终端 lease 证明。
 
-| 边界 | 固定上限/规则 |
-|---|---|
-| 单 WebSocket message | 1 MiB UTF-8 JSON |
-| 逻辑 envelope object | 8 MiB；重组后仍完整验证 |
-| schema_bundle object | 16 MiB；独立于 session 原生 frame 广告上限 |
-| JSON 深度/节点 | 根深度 0，最大 64；最多 100,000 个 value 节点 |
-| 分片 | 原始字节每片 64 KiB，最后一片可更短，规范 padded base64 |
-| 并发重组/总预约 | 每个认证连接/方向最多 4 对象、20 MiB |
-| 重组截止 | 首片起 30 秒；重复/进度不续期，截止同刻拒绝 |
+## 本轮验收与剩余边界
 
-object_chunk 是显式 objects 能力；kind 为 envelope/schema_bundle。total_bytes、sha256 与 chunk_count 全片一致；
-chunk_count 精确等于 ceil(total_bytes/64KiB)，index 从 0 顺序，大小必须与片位置相符。
-相同片重复幂等；片内容/描述冲突隔离，乱序拒绝，末片校验整个原始字节 SHA-256。
-完成/失败对象 ID 保留有界 30 秒关闭窗，不自动重用。每连接/方向单独 assembler，换身份/epoch 不复用。
-超时内存于下一次 push 清理，始终受预约/数量上限；集成层也可销毁整个已断开的 assembler。
+Bun 精确 1.4.3 / revision `c6da4a4d3010e5553438c60f6bd76d981976867c`，现有依赖不变；不用 Node/npm/npx 回退。
+生产 native-contract 薄适配、真实身份/分类来源、Herdr P0、旧 DB/provider registry 迁移与 #5 调度不在本交付中冒称完成。
+原 scripts/bun/verify.py 固定 20 项且只扫描顶层测试，仍由集成任务统一修复；不得跳过或删测试使其变绿。
+最终命令、实际数量/退出码与收据在下方追加；无发布/合并/改仓库名授权，交付仅本地。
 
-envelope 完成后禁止嵌套 object_chunk，重新执行方向、连接、关联、原生与授权检查。
-schema_bundle 只作为未授信 JSON 对象交付；必须经 native-contract 离线引用闭包、dialect、循环/深度/大小等门禁后使用。
-checksum 只证明完整性，不是签名或认证。逻辑 UHP request/response 还须服从原生广告/本地策略的更低上限，
-由原生 validator/transport 集成实施；此处较大的 object 上限不允许扩大本地 UHP 能力。
+### 最终本地结果
 
-## 验证、交付与未接入边界
+所有 Bun 调用均显式 `--no-env-file`，使用原精确 Bun/TypeScript/依赖锁，package.json/bun.lock 无修改。
 
-`test/wire/helpers.ts` 离线编译原 P0 fixture 的 29 个 documents，未使用 loadSchema；
-使用录制的完整 request/response、真实 terminal.frame/control 输入验证 wire 注入点。
-正反覆盖根/条件约束、原生 ID、error.data 保留、版本交集、所有帧方向/缺字段、认证与锚点 fence、
-分类与 schema 独立、144 个 generic 缺口、raw 独立授权、history 截止/旧代次、可靠迟到/冲突/内容不可复活、
-UTF-8/Unicode/JSON/大小/深度、有界去重、真实 bundle 分片、错序/checksum/超时/容量及流状态。
-error.data 的嵌套保留为合成边界样本；没有冒称 P0 录制了不存在的 error.data。
+| 命令/检查 | 实际结果 | 退出码 |
+|---|---|---|
+| run typecheck | strict/noUncheckedIndexedAccess；包含全部源码与测试 | 0 |
+| run test | 45 pass / 0 fail / 0 skip，9 文件；17 项非协议既有回归 + 28 项协议/v2 测试 | 0 |
+| run test:p0 | 原 P0 JS 7 pass，Python 7 OK | 0 |
+| run test:bun | 5 pass / 0 fail | 0 |
+| run p0:audit | 29 文档；30 request / 29 response / 23 event / 2 故意无效 | 0 |
+| run p0:bun-native | 既有 Bun 原生归档 729 项历史断言重放，未启动新 Luvus/Herdr | 0 |
+| run build | 原四入口，10 个 ESM/chunk/map 产物 | 0 |
+| run smoke | 原运行时导出集合、共享错误类、真实 SQLite 重开 | 0 |
+| 独立 protocol 产物 smoke | dist 中 v2 heartbeat 往返、v1 拒绝、epoch-only 拒绝 | 0 |
 
-测试 Gate 的分类/授权是 synthetic 明确注入；没有构造生产安全分类来源，也没有用 mock 宣称原生门禁完成。
-生产 native-contract 接口适配与联合测试尚需父会话提供精确 API；此模块缺 validator 默认拒绝。
-预认证凭据只有 synthetic 字符串，没有网络认证、真实 enrollment 消费、WSS/TLS、持久化、调度或发行验收。
-结果交付/秘密 custody、native stream generation/lease/ack、去重事务、恢复隔离与晚到提交仍属于对应后续任务。
+Linux strace 完整记录以上命令，PATH 前置 Node/nodejs/npm/npx exit99 拒绝脚本；这些可执行文件尝试为 0，
+没有未核算 execveat。日志/收据在 `/tmp/issue4-v2-final-verification/verification.json`，
+SHA-256 `ff5dc71f159102499b76c606af51859308f5e17a7beac330387ade1580b6b314`。
+这是本地临时证据，没有冒称已上传持久附件。
 
-以下验收结果以本文件末尾最终记录为准；本交付仅本地提交，不推送、合并或部署。
+确实执行原版 `python3 scripts/bun/verify.py --bun /tmp/issue4-tools/bun --output /tmp/issue4-v2-unmodified-verify`：
+空缓存冻结安装、实装依赖审计、版本、strict/全部文件发现与类型错误负例通过，45 项测试进程退出 0；
+随后固定预期 20 的校验抛 `foundation: test count differs`，整体退出 1。递归发现/最低保障统一由集成任务修复，
+本任务未改 scripts/CI，也没有删测或宣称 CI 通过。
 
-### 本地验收记录
-
-Bun 1.4.3 / revision `c6da4a4d3010e5553438c60f6bd76d981976867c`，binary SHA-256
-`7ce7d6b654eddeec20afddf2396317fba6dc19ab52788a27e894e1806bf8f24b` 与既有审定基线一致。
-环境原先无 Bun，从官方 npm `@oven/bun-linux-x64@1.4.3` 提取相同字节到 `/tmp/issue4-tools/bun`，
-未全局安装；GitHub 读取仅使用 ArnoChenFx 既有 connector。指定 main 的 tree/blobs/签名 commit 对象经 connector
-导入本地并逐一核对 Git hash；本地浅边界在指定 main，不改远端。
-
-所有下列命令使用 `bun --no-env-file`，`run` 在本表省略重复前缀：
-
-| 检查 | 结果 / 退出码 |
-|---|---|
-| install --frozen-lockfile --ignore-scripts | 97 包，0；package/bun.lock 未变 |
-| run typecheck | strict / noUncheckedIndexedAccess 全部源码和测试通过，0 |
-| run test | 36 pass / 0 fail / 0 skip，0；17 项非协议既有回归 + 19 项协议/边界测试 |
-| run test:p0 | 原 P0 JS 7 pass + Python 7 OK，0 |
-| run test:bun | 5 pass / 0 fail，0 |
-| run p0:audit | 29 文档、30 request、29 response、23 event、2 故意无效，0 |
-| run p0:bun-native | 仅重放既有 Bun 原生归档，729 项历史采集断言全通过，0；未新启动真实 Luvus |
-| run build | 10 个 ESM/chunk/map 产物，0 |
-| run smoke | 顶层导出集合/共享 GatewayError/真实 SQLite 重开，0 |
-| 独立 protocol 产物 smoke | 直接导入 dist：heartbeat 往返、epoch-only 拒绝、缺 native validator 拒绝，0 |
-
-额外 Linux strace 执行链记录主测试/typecheck/P0/兼容/审计/build/smoke；PATH 前置 node/nodejs/npm/npx exit99
-拒绝脚本，实际这些可执行文件尝试数为 0。原始日志和 SHA-256 收据在临时目录
-`/tmp/issue4-final-verification/verification.json`，未随仓库提交，不能冒称已上传持久附件。
-最终收据 SHA-256 为 `1ad1352981ed352f44736dc42782cbdfd18823219e981255fab19b054dcb85ff`。
-
-确实执行了原版 `python3 scripts/bun/verify.py --bun /tmp/issue4-tools/bun --output /tmp/issue4-unmodified-verify`：
-其空缓存冻结安装、实装依赖审计、strict 配置/完整文件发现、TypeScript 类型错误负例全部通过；
-基础 36 项测试进程也退出 0，随后该验证器因硬编码预期 20 项报 `foundation: test count differs`，整体退出 1。
-该脚本还只扫描顶层 `*.test.ts`，须由父会话在获准范围更新递归发现及计数，再重跑 CI；
-本任务按所有权约束未修改脚本/CI，未将该失败说成 CI 通过。原始记录在 `/tmp/issue4-unmodified-verify/`。
-
-构建继续只有原四个入口；未被 protocol 引用的 history/evidence/object/stream 辅助模块是经 tsc/test 验证的内部源码，
-将由后续 transport/store 集成导入后进入对应产物，不在本任务偷偷扩展公共构建入口。
-生产 native-contract 薄适配、其真实分类/当前授权来源与联合门禁，及 #5 持久化/恢复/调度仍是明确集成边界。
+构建仍只有原四入口；未被 protocol 引用的 history/evidence/object/lifecycle 辅助源码已通过 tsc/test，
+后续被 transport/store 导入时才进入其产物，不在本轮扩展公共构建入口。
+全部本轮验证命令已退出；未启动后台 listener、真实临时 Luvus/Herdr 服务或持久凭据流程。
+保留 v1 提交，本轮另建本地 v2 提交；未推送/合并/部署/改仓库名，未启动下一轮任务。

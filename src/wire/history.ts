@@ -1,5 +1,21 @@
-import type { HistoryReference } from './types.js';
-import { fields, object, id, uint, sha, fail, hash } from './validation.js';
+import type { HistoryReference, RequestPayload } from './types.js';
+import { validateAttempt } from './codec.js';
+import { boundedJson, fields, object, id, uint, sha, fail, hash, parseJson, text, oneOf } from './validation.js';
+
+// 对已经登记的 v2 意图作摘要；caller 来源及 key 查询仍须由 #5 可信事务提供。
+export function registeredRequestDigest(payload: RequestPayload, callerId: string): string {
+  id(callerId);
+  const p = object(parseJson(boundedJson(payload)));
+  fields(p, ['attempt', 'expected_binding_revision', 'native_request', 'validation']);
+  validateAttempt(p.attempt); uint(p.expected_binding_revision, true); oneOf(p.validation, ['strict', 'raw-contract']);
+  if (p.expected_binding_revision !== p.attempt.binding_revision) fail('provider_binding_mismatch');
+  const r = object(p.native_request); text(r.method, 256);
+  if (Object.hasOwn(r, 'id') || Object.hasOwn(r, 'auth')) fail('reserved_request_field');
+  return hash(boundedJson({ wire_major: 2, caller_id: callerId, target: p.attempt.target,
+    expected_binding_revision: p.expected_binding_revision, provider_kind: p.attempt.provider_kind,
+    contract_ref: p.attempt.contract_ref, registration: p.attempt.registration,
+    validation: p.validation, native_request: r }));
+}
 
 export type HistoryScope = {
   history_epoch: string; recovery_generation: string; status: 'active' | 'retired';

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ObjectAssembler, fragmentObject, LIMITS, encodeWireFrame, decodeWireFrame,
   boundedJson, advanceStream, hash } from '../../src/wire/index.js';
-import { bundle, transcript, request, response, frame, attempt, binding, context, rejects } from './helpers.js';
+import { bundle, transcript, request, response, frame, attempt, binding, context, rejects, withoutId } from './helpers.js';
 
 test('真实 P0 bundle 跨多个分片重组，bundle 限额独立于 message 与普通对象', () => {
   const ctx = context('connector_to_gateway'), chunks = fragmentObject(bundle, 'schema_bundle', 'schema_1', ctx);
@@ -24,16 +24,16 @@ test('真实 P0 bundle 跨多个分片重组，bundle 限额独立于 message �
 test('超过 frame 限额的完整 response 走有界对象，重组后再次执行原生/schema/身份门禁', () => {
   const ctx = context('connector_to_gateway');
   const big = { ...response, payload: { ...response.payload,
-    uhp_response: { id: attempt.native_request_id, result: { synthetic: 'x'.repeat(LIMITS.frame_bytes) } } } };
+    native_response: { id: attempt.native_request_id, result: { synthetic: 'x'.repeat(LIMITS.frame_bytes) } } } };
   rejects(() => encodeWireFrame(big, ctx), 'json_size_limit');
   const chunks = fragmentObject(big, 'envelope', 'large_1', ctx), assembler = new ObjectAssembler();
   let result: ReturnType<ObjectAssembler['push']>;
   for (const chunk of chunks) result = assembler.push(chunk, ctx, 1);
   assert.deepEqual(result!, { kind: 'envelope', envelope: big });
   const oversized = { ...big, payload: { ...big.payload,
-    uhp_response: { id: attempt.native_request_id, result: { data: 'x'.repeat(LIMITS.object_bytes) } } } };
+    native_response: { id: attempt.native_request_id, result: { data: 'x'.repeat(LIMITS.object_bytes) } } } };
   rejects(() => fragmentObject(oversized, 'envelope', 'too_big', ctx), 'json_size_limit');
-  const invalid = { ...response, payload: { ...response.payload, uhp_response: { id: attempt.native_request_id, extra: true, result: {} } } };
+  const invalid = { ...response, payload: { ...response.payload, native_response: { id: attempt.native_request_id, extra: true, result: {} } } };
   // 即便直接构造正确 checksum 的分片，重组后的原生根字段也不能绕过校验。
   const raw = boundedJson(invalid), handcrafted = frame('object_chunk', { object_id: 'invalid_1', kind: 'envelope',
     total_bytes: Buffer.byteLength(raw), sha256: hash(raw), chunk_count: 1, index: 0, data: Buffer.from(raw).toString('base64') });
@@ -82,7 +82,7 @@ function streamContext(direction: 'gateway_to_connector' | 'connector_to_gateway
   return context(direction, undefined, { ...binding, ...streamAttempt }, terminalRequest.method, 'stream', 'terminal_control');
 }
 test('stream open/data/input/close 正向使用原生 P0 终端帧，外层序号与关闭边界清晰', () => {
-  const open = frame('stream_open', { ...request.payload, attempt: streamAttempt, uhp_request: terminalRequest, stream_id: 'stream_1', feature: 'terminal_control' });
+  const open = frame('stream_open', { ...request.payload, attempt: streamAttempt, native_request: withoutId(terminalRequest), stream_id: 'stream_1', feature: 'terminal_control' });
   const data = frame('stream_data', { attempt: streamAttempt, stream_id: 'stream_1', feature: 'terminal_control', sequence: 0, frame: terminalEvent });
   const input = frame('stream_input', { attempt: streamAttempt, stream_id: 'stream_1', feature: 'terminal_control', sequence: 0, frame: terminalInput });
   const close = frame('stream_close', { attempt: streamAttempt, stream_id: 'stream_1', reason: 'normal' });
@@ -97,7 +97,7 @@ test('stream open/data/input/close 正向使用原生 P0 终端帧，外层序�
   assert.equal(state.state, 'closed');
   rejects(() => advanceStream(state, input, streamContext()), 'invalid_stream_transition');
   // close 只是释放流的外层意图，不生成关闭 pane 的原生调用。
-  assert.equal('uhp_request' in close.payload, false);
+  assert.equal('native_request' in close.payload, false);
   for (const [f, ctx] of [[open, streamContext()], [data, streamContext('connector_to_gateway')], [input, streamContext()], [close, streamContext()]] as const) {
     assert.deepEqual(decodeWireFrame(encodeWireFrame(f, ctx), ctx), f);
     const bad = structuredClone(f) as any; delete bad.payload.stream_id;
@@ -105,8 +105,8 @@ test('stream open/data/input/close 正向使用原生 P0 终端帧，外层序�
     if (f.type !== 'stream_close') rejects(() => encodeWireFrame(f, context(ctx.direction === 'gateway_to_connector' ? 'connector_to_gateway' : 'gateway_to_connector')), 'wrong_direction');
   }
   const checked = streamContext();
-  const savedGate = checked.native!.requestGate;
-  checked.native!.requestGate = (r, c) => {
+  const savedGate = checked.validators!.luvus!.requestGate;
+  checked.validators!.luvus!.requestGate = (r, c) => {
     assert.equal(c.transport, 'stream'); assert.equal(c.feature, 'terminal_control'); assert.equal(c.method, terminalRequest.method);
     return savedGate(r, c);
   };
@@ -121,9 +121,9 @@ test('未知能力/原生流帧、只读流输入、缺 validator 与流关联�
   rejects(() => encodeWireFrame({ ...data, payload: { ...data.payload, frame: { event: 'future', data: {} } } }, streamContext('connector_to_gateway')), 'native_stream_frame_invalid');
   const readOnlyInput = frame('stream_input', { attempt, stream_id: 'stream_1', feature: 'events', sequence: 0, frame: terminalInput });
   rejects(() => encodeWireFrame(readOnlyInput, context()), 'unsupported_stream_input');
-  const noStreamValidator = streamContext('connector_to_gateway'); delete noStreamValidator.native!.validateStreamFrame;
+  const noStreamValidator = streamContext('connector_to_gateway'); delete noStreamValidator.validators!.luvus!.validateStreamFrame;
   rejects(() => encodeWireFrame(data, noStreamValidator), 'stream_validator_unavailable');
-  const open = frame('stream_open', { ...request.payload, attempt: streamAttempt, uhp_request: terminalRequest, stream_id: 'stream_1', feature: 'terminal_control' });
+  const open = frame('stream_open', { ...request.payload, attempt: streamAttempt, native_request: withoutId(terminalRequest), stream_id: 'stream_1', feature: 'terminal_control' });
   const state = advanceStream(undefined, open, streamContext());
   rejects(() => advanceStream(state, { ...data, payload: { ...data.payload, stream_id: 'other' } }, streamContext('connector_to_gateway')), 'stream_binding_mismatch');
   rejects(() => advanceStream(undefined, data, streamContext('connector_to_gateway')), 'stream_not_open');
@@ -131,4 +131,23 @@ test('未知能力/原生流帧、只读流输入、缺 validator 与流关联�
     frame: { id: 'input_1', action: 'not_a_native_action', params: {} } });
   rejects(() => encodeWireFrame(input, streamContext()), 'native_stream_frame_invalid');
   rejects(() => encodeWireFrame({ ...data, payload: { ...data.payload, feature: 'events' } }, streamContext('connector_to_gateway')), 'attempt_transport_mismatch');
+  const validInput = { ...input, payload: { ...input.payload, frame: terminalInput } };
+  const perFrame = streamContext(); let controls = 0, gates = 0; const actions: unknown[] = [];
+  const validator = perFrame.validators!.luvus!, control = validator.validateStreamFrame!;
+  validator.validateStreamFrame = (r, c) => { controls++; control(r, c); };
+  validator.checkDispatch = (r, c) => { gates++; actions.push(r.action); assert.equal(c.method, terminalRequest.method); };
+  encodeWireFrame(validInput, perFrame);
+  encodeWireFrame({ ...validInput, message_id: 'input_2', payload: { ...validInput.payload, sequence: 1,
+    frame: { id: 'input_2', action: 'type_literal', params: { text: 'synthetic' } } } }, perFrame);
+  assert.equal(controls, 2); assert.equal(gates, 2);
+  assert.deepEqual(actions, ['submit_text', 'type_literal']);
+  validator.checkDispatch = () => { throw new Error('synthetic-private-policy'); };
+  rejects(() => encodeWireFrame(validInput, perFrame), 'native_dispatch_forbidden');
+  delete validator.checkDispatch;
+  rejects(() => encodeWireFrame(validInput, perFrame), 'dispatch_validator_unavailable');
+  const disabled = streamContext(); disabled.resolveProvider = () => ({ machine_id: binding.machine_id,
+    provider_id: binding.target.provider_id, kind: 'luvus', config_ref: 'config_1', binding_revision: 2, enabled: false });
+  rejects(() => encodeWireFrame(validInput, disabled), 'provider_disabled');
+  const noScope = streamContext(); noScope.policies!.local.grants[0]!.actions = ['dispatch', 'read'];
+  rejects(() => encodeWireFrame(validInput, noScope), 'provider_scope_forbidden');
 });

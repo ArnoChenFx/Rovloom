@@ -1,9 +1,9 @@
 import { fields, object, uint, fail, id } from './validation.js';
 import type { Capability, Negotiated, VersionOffer } from './types.js';
 
-export const WIRE_MAJOR = 1;
+export const WIRE_MAJOR = 2;
 export const WIRE_MINOR = 0;
-// 1.0 中的可选能力仍须双方明确广告；较高 minor 不能隐式启用它们。
+// 2.0 中的可选能力仍须双方明确广告；较高 minor 不能隐式启用它们。
 const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({ rpc: 0, history_scope: 0,
   late_evidence: 0, objects: 0, events: 0, terminal_observe: 0, terminal_control: 0 });
 export function validateOffer(value: unknown): asserts value is VersionOffer {
