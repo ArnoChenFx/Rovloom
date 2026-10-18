@@ -1,0 +1,18 @@
+{
+  "native_fixture_validation": {
+    "requests": 30,
+    "responses": 29,
+    "events": 23,
+    "intentional_invalid": 2,
+    "documents": 29
+  },
+  "coverage": {
+    "union": 223,
+    "session": 197,
+    "host": 17,
+    "schema": 223,
+    "access_machines": 9,
+    "stream": 4
+  }
+}
+$ bun --no-env-file scripts/p0/audit-fixtures.mjs

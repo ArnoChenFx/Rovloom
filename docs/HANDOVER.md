@@ -2,6 +2,16 @@
 
 日期：2026-10-18（UTC）
 
+## Issue #15 本地 Bun 迁移交接（当前）
+
+已补做[验收视角复核](bun/REVIEW.md)，实际采集与重放的零Node执行链均通过；原39项日志、729项归档不改，新采集727项与实装审计证据独立保存。修复纳入第三个Bun提交，原885cc6a保留备份。用户已批准设计+Bun发布/PR，发布由本任务使用既有ArnoChenFx连接完成；合并main仍仅由父会话协调，不能把以下“未发布”历史交付状态当作当前授权边界。最终SHA/tree/PR见交付消息。
+
+本地分支 `task/issue-15-bun-toolchain` 从 4f963d1 完成 Bun 1.4.3 迁移，精确 revision、官方哈希、命令与限制见 [Bun 报告](bun/REPORT.md)、[ADR 0003](adr/0003-bun-toolchain.md)。基础 20、P0 JS 7/Python 7、新兼容 5 项全部通过；独立 strict/noUncheckedIndexedAccess 检查及负例、空缓存冻结安装、真实 SQLite、构建产物 smoke、无 Node/npm/npx 执行链均通过。119 个保留依赖版本/integrity 不变，SDK 仍 1.32.1。新原生证据另存 fixtures/bun，原 src/test/P0 fixture/Node 报告不变。默认开发命令以 README 的 Bun 指令为准，下面 Node24/npm 内容是历史记录。
+
+父会话已完成基础层/P0 合并，fetch 核实 main=9c4a7fe34fc3efa461d96a502860e61b05817c44，tree=4790655b5f8ab960805ec780ff0237c1160aaa94，与原本地 d2455e8 相同。本轮将全部设计 v0.4 与 Bun 增量在本地重放到该 main；不重复携带 P0 重建提交历史，原分支/提交另留备份，不丢弃设计。最终本地 SHA 由交付消息及 git log 确定。远端 main/PR 只由父会话协调，本轮未发布设计/Bun 或部署。
+
+P0 发布阻碍已解除：用户批准 ArnoChenFx 正常 Git 对象 API 后，只发布 P0 分支；原 d2455e8 对应远端 6d4ef0c4d4daaf200a7ce1cc5b229850fda8978f，tree 完全一致。可直接读取 [P0 报告](https://github.com/ArnoChenFx/luvus-mcp/blob/6d4ef0c4d4daaf200a7ce1cc5b229850fda8978f/docs/p0/REPORT.md)。后文 CLI 403、未发布和附件失败状态保留为历史，不能作为当前发布结论。Bun 交付无开发阻断，待父会话验收；不自动继续 #4。
+
 ## 本地设计 v0.4 修订交接（2026-10-18 UTC）
 
 父会话已确认 #3 Linux 范围通过；本轮从 `d2455e878f93e162a2a54bb58c1e5785aecd0949` 新建本地分支 `docs/adopted-safety-retention-recovery`，只修订文档。当前正式依据为 [DESIGN v0.4](DESIGN.md)、[IMPLEMENTATION-PLAN v0.4](IMPLEMENTATION-PLAN.md) 与 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。初次 v0.3 本地提交为 dfa26ea；本轮补严其边界并加入以下用户新需求。后文关于 v0.2/旧门禁的内容保留为历史交接，不能当成当前实施结论。

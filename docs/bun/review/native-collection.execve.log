@@ -1,0 +1,58 @@
+8336  execve("/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3", ["/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3", "/project/scripts/bun/collect_native_no_node.py", "--worker", "--binary", "/verified/luvus", "--bun", "/verified/bun", "--output", "/tmp/luvus-issue15-review-native-v1/native", "--tools", "/blocked/bin"], 0x7fff26d3b140 /* 4 vars */) = 0
+8337  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "--version"], 0x7f4a2a993570 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8337, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8338  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "session", "list", "--json"], 0x7f4a2a9912f0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8338, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8339  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "schema"], 0x7f4a2a993570 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8339, si_uid=1000, si_status=0, si_utime=0, si_stime=1 /* 0.01 s */} ---
+8340  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a9912f0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8340, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8341  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a993750 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8341, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8342  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a9936f0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8342, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8343  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "session", "list", "--json"], 0x7f4a2a9937b0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8343, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8344  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a9936f0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8344, si_uid=1000, si_status=1, si_utime=0, si_stime=0} ---
+8345  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "server"], 0x7f4a2a993810 /* 10 vars */) = 0
+8346  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "session", "list", "--json"], 0x7f4a2a9936f0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8346, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8347  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "server", "status"], 0x7f4a2a9939f0 /* 10 vars */) = 0
+8348  execve("/bin/sh", ["/bin/sh"], 0x7fe62c976040 /* 16 vars */) = 0
+8351  execve("/fixture/issue3/blocked-bin/git", ["git", "rev-parse", "--git-common-dir"], 0x7fe62c98b040 /* 11 vars */) = -1 ENOENT (No such file or directory)
+8349  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8351, si_uid=1000, si_status=127, si_utime=0, si_stime=0} ---
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8347, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8359  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a9936f0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8359, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8362  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a993c30 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8362, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8364  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a993c90 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8364, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8366  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a993cf0 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8366, si_uid=1000, si_status=1, si_utime=0, si_stime=0} ---
+8367  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a993d50 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8367, si_uid=1000, si_status=1, si_utime=0, si_stime=0} ---
+8368  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a993c30 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8368, si_uid=1000, si_status=1, si_utime=0, si_stime=0} ---
+8377  execve("/fixture/issue3/blocked-bin/git", ["git", "rev-parse", "--git-common-dir"], 0x7fe62c98b040 /* 11 vars */) = -1 ENOENT (No such file or directory)
+8349  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8377, si_uid=1000, si_status=127, si_utime=0, si_stime=0} ---
+8378  execve("/usr/bin/python3", ["/usr/bin/python3", "-u", "-c", "import sys\nfor line in sys.stdin: print('CONSUMED:' + line.rstrip('\\n')[::-1], flush=True)"], 0x7fe62c946d00 /* 16 vars */) = 0
+8393  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a9f1830 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8393, si_uid=1000, si_status=1, si_utime=0, si_stime=0} ---
+8395  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "uhp", "proxy"], 0x7f4a2a9f18f0 /* 10 vars */) = 0
+8395  --- SIGTERM {si_signo=SIGTERM, si_code=SI_USER, si_pid=8336, si_uid=1000} ---
+8395  +++ killed by SIGTERM +++
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=8395, si_uid=1000, si_status=SIGTERM, si_utime=0, si_stime=0} ---
+8378  --- SIGHUP {si_signo=SIGHUP, si_code=SI_USER, si_pid=8345, si_uid=1000} ---
+8378  +++ killed by SIGHUP +++
+8345  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=8378, si_uid=1000, si_status=SIGHUP, si_utime=0, si_stime=0} ---
+8371  --- SIGTERM {si_signo=SIGTERM, si_code=SI_USER, si_pid=8336, si_uid=1000} ---
+8348  --- SIGHUP {si_signo=SIGHUP, si_code=SI_USER, si_pid=8345, si_uid=1000} ---
+8348  +++ killed by SIGHUP +++
+8349  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=8348, si_uid=1000, si_status=SIGHUP, si_utime=0, si_stime=0} ---
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8345, si_uid=1000, si_status=0, si_utime=0, si_stime=6 /* 0.06 s */} ---
+8404  execve("/verified/luvus", ["/verified/luvus", "--session", "p0-issue3", "session", "list", "--json"], 0x7f4a2a993990 /* 10 vars */) = 0
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8404, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+8405  execve("/blocked/bin/uname", ["uname", "-p"], 0x7ffecbd442b8 /* 4 vars */) = -1 ENOENT (No such file or directory)
+8336  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=8405, si_uid=1000, si_status=255, si_utime=0, si_stime=0} ---

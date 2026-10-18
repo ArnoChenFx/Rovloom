@@ -1,0 +1,2 @@
+Built 10 ESM files/maps for Bun; entrypoints: contracts, store, router, protocol
+$ bun --no-env-file scripts/bun/build.mjs

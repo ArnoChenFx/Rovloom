@@ -1,0 +1,5 @@
+7883  execve("/isolated/bin/bun", ["bun", "--no-env-file", "run", "test"], 0x7ffeb4323338 /* 12 vars */) = 0
+7884  execve("/isolated/bin/sh", ["/isolated/bin/sh", "-c", "bun --no-env-file test ./test"], 0x441e81d0600 /* 23 vars */) = 0
+7885  execve("/isolated/bin/bun", ["bun", "--no-env-file", "test", "./test"], 0x55c596186928 /* 24 vars */) = 0
+7884  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7885, si_uid=1000, si_status=0, si_utime=7 /* 0.07 s */, si_stime=3 /* 0.03 s */} ---
+7883  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7884, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---

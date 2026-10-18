@@ -1,0 +1,320 @@
+{
+  "runtime": "Bun 1.4.3",
+  "platform": "Linux",
+  "bunBinarySha256": "7ce7d6b654eddeec20afddf2396317fba6dc19ab52788a27e894e1806bf8f24b",
+  "nodeNpmNpxBlockingProbeExit": 99,
+  "workflowNodeNpmNpxInvocations": 0,
+  "emptyInstallCache": true,
+  "frozenInstallChangedMetadata": false,
+  "platformNetworkSettingNames": [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_FILE"
+  ],
+  "strictFlags": [
+    "strict",
+    "noUncheckedIndexedAccess"
+  ],
+  "checkedFiles": [
+    "./src/contracts.ts",
+    "./src/protocol.ts",
+    "./src/router.ts",
+    "./src/store.ts",
+    "./test/protocol.test.ts",
+    "./test/results.test.ts",
+    "./test/retention.test.ts",
+    "./test/router.test.ts",
+    "./test/store.test.ts"
+  ],
+  "lifecycleScriptsFoundButNotExecuted": [
+    {
+      "package": "path-to-regexp",
+      "version": "8.4.2",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "content-disposition",
+      "version": "2.0.1",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "ip-address",
+      "version": "10.7.4",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "express-rate-limit",
+      "version": "8.7.1",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "eventsource",
+      "version": "3.0.7",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "content-type",
+      "version": "2.1.0",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "content-type",
+      "version": "2.1.0",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "content-type",
+      "version": "2.1.0",
+      "scripts": [
+        "prepare"
+      ]
+    },
+    {
+      "package": "content-type",
+      "version": "2.1.0",
+      "scripts": [
+        "prepare"
+      ]
+    }
+  ],
+  "tests": {
+    "foundation": 20,
+    "p0JavaScript": 7,
+    "p0Python": 7,
+    "bunCompatibility": 5
+  },
+  "records": [
+    {
+      "label": "version",
+      "command": [
+        "bun",
+        "--version"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun"
+      ],
+      "logSha256": "bd31e8d9cf8d14a1e9e3fdf3b9f6a524819aed0d1b14627523c6765767c7d8f1",
+      "execveSha256": "98761fef78ffa9bda9631f5fac697bea25494fc0df37e06d1bf0f102c088a0b1"
+    },
+    {
+      "label": "frozen-install",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "install",
+        "--frozen-lockfile",
+        "--ignore-scripts"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun"
+      ],
+      "logSha256": "1b7d5c5b1cd994bba8dd4e8ac4f7a7131bbf79e662cc0239d5c4f4d7a7b2f73d",
+      "execveSha256": "189a119f609595d1619e56c0c7edc376ecd70869e3f4e1d19022b34e744df801"
+    },
+    {
+      "label": "toolchain",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "toolchain"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh"
+      ],
+      "logSha256": "77f2ffeca6ae2540ca37e03e9e11b19af4433906f55e738cc62c21369e2c6127",
+      "execveSha256": "6bf8f11385474fd906fc07bf1b3cb98e885263121ffe3e539ec69e82e5242657"
+    },
+    {
+      "label": "typecheck",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "typecheck"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh",
+        "/isolated/project/node_modules/@typescript/typescript-linux-x64/lib/tsc"
+      ],
+      "logSha256": "9f073535eca7c001cb245b789cbd4a28344b0d23720ae08b86423ea234cc36a5",
+      "execveSha256": "74ea3e7131249d7a2bdbd941753b9dcf254b8c9a8b80de6acef328e237a0c317"
+    },
+    {
+      "label": "typecheck-config",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "node_modules/typescript/bin/tsc",
+        "--showConfig"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/project/node_modules/@typescript/typescript-linux-x64/lib/tsc"
+      ],
+      "logSha256": "7a9f1fac31d5a9176b56d05e009aa28bc5a9b4bf5538814e99b36cd5e85339ba",
+      "execveSha256": "900de5571c7efa7a6841b5ba654b8629bd9da016ce0efe2eed250d51114c6c93"
+    },
+    {
+      "label": "typecheck-negative",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "typecheck"
+      ],
+      "exit": 1,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh",
+        "/isolated/project/node_modules/@typescript/typescript-linux-x64/lib/tsc"
+      ],
+      "logSha256": "12575e87c2fa3dfefe42461347f56998c388a957d8c19c49bde3646c2d9918bb",
+      "execveSha256": "ea4d2147bee41c087cea548565b2781721b3946678cde73da293855bfe2e8ab4"
+    },
+    {
+      "label": "foundation",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "test"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh"
+      ],
+      "logSha256": "12937e25df6decab0251d95430dd41018408f25e1a1507b68d61148b5478ad3b",
+      "execveSha256": "56dd03ce8a8706ceea863e25b364d724b2065a65858e8056c0845f4f500088cd"
+    },
+    {
+      "label": "p0",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "test:p0"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/python3",
+        "/isolated/bin/sh",
+        "/isolated/bin/uname",
+        "/isolated/node_modules/.bin/uname",
+        "/isolated/project/node_modules/.bin/uname",
+        "/node_modules/.bin/uname",
+        "/tmp/node_modules/.bin/uname",
+        "/verified/bun"
+      ],
+      "logSha256": "5d74ecfbecb80e1185647900871ef39cea5e463113d06cc2be9de18c9e8d8a66",
+      "execveSha256": "96edcec6e487e680851b642fae04eaeb7eabd1099b24c598b0b42ae012b26c17"
+    },
+    {
+      "label": "bun-compatibility",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "test:bun"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh",
+        "/verified/bun"
+      ],
+      "logSha256": "8111bf97aa8089247feba576cc4fd0057a487c4906a778cfbbb4af2f6ba02809",
+      "execveSha256": "3f59d113de1d8be695838de70dd269690c62db7f642a2ddc2941052b6a1b84c9"
+    },
+    {
+      "label": "p0-audit",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "p0:audit"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh"
+      ],
+      "logSha256": "154c0d35ad57572e919d9a8a3a9458bcb1549eaadebf62a22bc33c66a4fb5291",
+      "execveSha256": "250f6a05b5ddb051882fd9589c2fb6b6deb65a84ebc32c6eac147df49a4b8a03"
+    },
+    {
+      "label": "new-native-audit",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "p0:bun-native"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/python3",
+        "/isolated/bin/sh"
+      ],
+      "logSha256": "71adc6cb9aaa1cbcbcb318100da39172f42679869267c54305f419dd2e3d551d",
+      "execveSha256": "81fa4977598b8309a94c68e36f7b76a0c04a29765c2b1cb4217f802e2f3d3f89"
+    },
+    {
+      "label": "build",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "build"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh"
+      ],
+      "logSha256": "d121094b089904c171facee8f3511e6aa7ac04494a9d38191dd2c42f21b2cb6b",
+      "execveSha256": "2e8e4d73a66d7fc4a792a5cafd0223143a3ac0cff638ece4235dbc7968d535c3"
+    },
+    {
+      "label": "artifact-smoke",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "run",
+        "smoke"
+      ],
+      "exit": 0,
+      "executables": [
+        "/isolated/bin/bun",
+        "/isolated/bin/sh"
+      ],
+      "logSha256": "96072eca13b22b4afcf5148370d39dd22c21cbaf1efac39e73f66b9f84746e05",
+      "execveSha256": "0f76b32fabaa797f40702b5f8ae3ecbf89b46490c1939f3517844f3a57be0486"
+    }
+  ],
+  "temporaryProjectRemoved": true
+}

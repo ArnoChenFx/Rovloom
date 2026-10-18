@@ -1,0 +1,1 @@
+8409  execve("/verified/bun", ["/verified/bun", "--no-env-file", "-e", "import {inspectFixtures} from \"./scripts/p0/audit-fixtures.mjs\"; console.log(JSON.stringify(inspectFixtures(process.argv[1])))", "/tmp/luvus-issue15-review-native-v1/native"], 0x7ffed9e29700 /* 4 vars */) = 0

@@ -1,0 +1,9 @@
+bun install v1.4.3 (c6da4a4d3)
+
++ @modelcontextprotocol/sdk@1.32.1
++ @types/node@26.6.5
++ ajv@8.20.0
++ typescript@7.0.2
++ ws@8.22.0
+
+97 packages installed [1304.00ms]

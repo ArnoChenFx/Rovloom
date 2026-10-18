@@ -1,0 +1,18 @@
+7901  execve("/isolated/bin/bun", ["bun", "--no-env-file", "run", "test:p0"], 0x7ffdc70a0268 /* 12 vars */) = 0
+7902  execve("/isolated/bin/sh", ["/isolated/bin/sh", "-c", "bun --no-env-file test ./scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py"], 0x3d9609d0600 /* 23 vars */) = 0
+7903  execve("/isolated/bin/bun", ["bun", "--no-env-file", "test", "./scripts/p0/fixtures.test.mjs"], 0x563ef2a9c8c0 /* 24 vars */) = 0
+7917  execve("/verified/bun", ["/verified/bun", "--no-env-file", "/isolated/project/scripts/p0/sdk-stdio-server.mjs"], 0x20cf265f000 /* 3 vars */) = 0
+7903  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7917, si_uid=1000, si_status=0, si_utime=9 /* 0.09 s */, si_stime=7 /* 0.07 s */} ---
+7902  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7903, si_uid=1000, si_status=0, si_utime=141 /* 1.41 s */, si_stime=22 /* 0.22 s */} ---
+7931  execve("/isolated/bin/python3", ["python3", "scripts/p0/test_endpoint.py"], 0x563ef2a9c878 /* 24 vars */) = 0
+7932  execve("/isolated/bin/python3", ["/isolated/bin/python3", "-c", "pass"], 0x7ffc8b7a9690 /* 24 vars */) = 0
+7931  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7932, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+7933  execve("/isolated/project/node_modules/.bin/uname", ["uname", "-p"], 0x7ffc8b7a9690 /* 24 vars */) = -1 ENOENT (No such file or directory)
+7933  execve("/isolated/project/node_modules/.bin/uname", ["uname", "-p"], 0x7ffc8b7a9690 /* 24 vars */) = -1 ENOENT (No such file or directory)
+7933  execve("/isolated/node_modules/.bin/uname", ["uname", "-p"], 0x7ffc8b7a9690 /* 24 vars */) = -1 ENOENT (No such file or directory)
+7933  execve("/tmp/node_modules/.bin/uname", ["uname", "-p"], 0x7ffc8b7a9690 /* 24 vars */) = -1 ENOENT (No such file or directory)
+7933  execve("/node_modules/.bin/uname", ["uname", "-p"], 0x7ffc8b7a9690 /* 24 vars */) = -1 ENOENT (No such file or directory)
+7933  execve("/isolated/bin/uname", ["uname", "-p"], 0x7ffc8b7a9690 /* 24 vars */) = -1 ENOENT (No such file or directory)
+7931  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7933, si_uid=1000, si_status=255, si_utime=0, si_stime=0} ---
+7902  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7931, si_uid=1000, si_status=0, si_utime=8 /* 0.08 s */, si_stime=1 /* 0.01 s */} ---
+7901  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7902, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---

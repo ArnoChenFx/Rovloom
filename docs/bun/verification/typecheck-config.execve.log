@@ -1,0 +1,2 @@
+7844  execve("/isolated/bin/bun", ["bun", "--no-env-file", "node_modules/typescript/bin/tsc", "--showConfig"], 0x7ffcfc082f18 /* 12 vars */) = 0
+7844  execve("/isolated/project/node_modules/@typescript/typescript-linux-x64/lib/tsc", ["/isolated/project/node_modules/@typescript/typescript-linux-x64/lib/tsc", "--showConfig"], 0x292683d9780 /* 21 vars */) = 0

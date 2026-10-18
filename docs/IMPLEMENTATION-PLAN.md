@@ -1,7 +1,7 @@
 # Luvus 多机器通用 MCP：实施方案
 
 版本：0.4 · 日期：2026-10-18 · 原作者：Luvus Tester
-状态：供后续开发执行的计划；本轮仅补充已采纳原则、管理 UI 和 Bun 迁移要求，没有实施这些功能。
+状态：供后续开发执行的计划；业务原则、管理 UI 和 P1 功能尚未实施。#15 工具链已在独立任务本地完成验证，待父会话验收后作为 #4 的开发基线，见 [Bun 报告](bun/REPORT.md)。
 配套：《DESIGN.md》。下文的命令/工具名称均为拟议接口。
 
 当前已验收 Linux P0 基线为 `d2455e878f93e162a2a54bb58c1e5785aecd0949`。原有内部实现不等于新验收门禁已满足；本次不自动启动 #4/#5。详见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。
@@ -33,8 +33,8 @@
 
 ## 3. 技术基线与需要冻结的决策
 
-保持 TypeScript + 一个 CLI、模块化业务核心；未来开发工具链按用户要求使用 Bun，先在 #15 核验兼容性并冻结版本。是否仍需 Node 运行时与 SQLite 的承载方式由迁移验证决定；SDK 等依赖保持 P0 实测版本，不顺带升级架构。
-- 用户要求未来开发工具链使用 Bun，先按 [#15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 做独立迁移，再执行 #4。Bun 1.4.3 是待核验建议，不能现在宣称通过；是否保留 Node 运行时依 SQLite/SDK/TypeScript/测试/构建/脚本实测决定。
+保持 TypeScript + 一个 CLI、模块化业务核心；#15 的 Linux 本地迁移已核验 Bun 1.4.3。SDK 等依赖保持 P0 实测版本，不顺带升级架构。
+- #4 必须先由父会话验收 [#15](https://github.com/ArnoChenFx/luvus-mcp/issues/15)；当前开发命令以 [README](../README.md) 和 [ADR 0003](adr/0003-bun-toolchain.md) 为准。Bun 1.4.3 下 SQLite/SDK/TypeScript/测试/构建/脚本已完成 Linux 验证，无 Node 必需执行路径；其它平台不据此宣称通过。
 - 迁移以 d2455e8 的真实 package/lock 和 [ADR 0001](adr/0001-p0-version-and-contract-baseline.md) 历史证据为准，SDK 1.32.1/Ajv 8.20.0/ws 8.22.0 已存在。不得借 Bun 迁移升级 SDK 2.x 或重写 MCP 架构；Node/npm P0 历史版本不改写，Bun 未验收前不提供伪成功命令。
 - MCP stdio 与 Streamable HTTP 共用同一 facade；优先本地 stdio 联调，公网 HTTP 在授权验收后才开放。SDK 1.32.1 当前实测 2025-11-25 的 initialize 路径；2026-07-28 元数据/握手机制不同，不能混称兼容，目标客户端须实际协商。
 - Gateway 与 Connector 的网络协议自定义且版本化；不是把内部 WSS 冒充 MCP 或 UHP。

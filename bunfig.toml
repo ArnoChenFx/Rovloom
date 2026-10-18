@@ -1,0 +1,6 @@
+# 工作流及 stdio 子进程同时显式传入 --no-env-file。
+env = false
+
+[install]
+# 本项目不需要执行依赖的安装生命周期脚本。
+ignoreScripts = true
