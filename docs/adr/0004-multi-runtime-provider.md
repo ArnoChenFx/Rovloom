@@ -18,11 +18,11 @@
 
 event recovery、terminal fence、cancel、prompt completion 必须逐方法说明强度。原生没有的 incarnation、序号、原子性或完成归属不能由桥接字段制造；DESIGN §8–§12 定义其统一语义。
 
-## Wire 破坏性版本与历史边界
+## Wire 版本与兼容边界
 
 provider、契约来源及完整关联是执行安全必需字段，不能藏在 v1 optional/default 中，因此选择 Wire major 2。minor 仅承载双方已协商的可选扩展，不在失败后自动降级重发。Wire 与 MCP revision、管理 API 独立版本化。
 
-v1 保留只读历史 decoder，不产生可执行 v2 context 或默认 provider。未来若需执行兼容入口必须另行设计并限制到可证明的唯一 legacy Luvus；不为兼容别名开放 Herdr，不借旧 key 缺失重新派发。这样迁移需要显式处理旧历史，换来清楚的拒绝边界。
+项目尚未发布，取消 Wire v1 的兼容承诺并移除两套历史 decoder，仅维护当前 v2。旧帧直接拒绝，不分配默认 provider；缺少 provider 或可信 binding 时不得执行，不借旧 key 缺失重新派发。当前 history scope/TTL 与 Store 数据库 v1→v3 迁移仍保留；MCP、管理 API 及外部原生协议各自版本不受影响。
 
 ## Herdr 研究与有限目标
 

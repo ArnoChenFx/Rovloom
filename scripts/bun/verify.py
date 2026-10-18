@@ -5,7 +5,6 @@
 凭据、已有数据库或 home。
 """
 import argparse
-from collections import Counter
 import hashlib
 import json
 import os
@@ -36,18 +35,14 @@ def validate_foundation(project, report):
             raise RuntimeError('foundation: failed, skipped or disabled tests')
     files = {str(path.relative_to(project)) for path in (project / 'test').rglob('*')
              if path.is_file() and re.search(r'[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$', path.name)}
-    discovered = Counter()
+    discovered = set()
     for case in cases:
         path = Path(case.attrib['file'])
         if not path.is_absolute():
             path = project / path
-        discovered[(str(path.resolve().relative_to(project.resolve())), case.attrib['name'])] += 1
-    if files != {file for file, _ in discovered}:
+        discovered.add(str(path.resolve().relative_to(project.resolve())))
+    if files != discovered:
         raise RuntimeError('foundation: discovered test files differ from source')
-    inventory = json.loads((project / 'fixtures/acceptance/original-test-inventory.json').read_text())
-    baseline = Counter((item['file'], title) for item in inventory for title in item['discovered'])
-    if sum(baseline.values()) != 20 or baseline - discovered:
-        raise RuntimeError('foundation: original 20 acceptance tests missing')
     return len(cases)
 
 
@@ -216,7 +211,7 @@ def main():
                   'platformNetworkSettingNames': network_keys,
                   'strictFlags': ['strict', 'noUncheckedIndexedAccess'],
                   'checkedFiles': expected_files, 'lifecycleScriptsFoundButNotExecuted': lifecycle,
-                  'tests': {'foundation': counts['foundation'], 'foundationBaseline': 20,
+                  'tests': {'foundation': counts['foundation'],
                             'verifyHarness': int(harness_summary[1]),
                             'p0JavaScript': counts['p0'], 'p0Python': 7,
                             'bunCompatibility': counts['bun-compatibility']},

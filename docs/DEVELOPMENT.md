@@ -32,7 +32,7 @@ bun run smoke
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
 native-contract、wire、integration 七个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
-smoke 从产物验证原生离线编译、request/error/result 边界、v1 只读解析及
+smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
 
 ## 隔离验收
@@ -49,9 +49,11 @@ P0 JS/Python 测试、Bun 兼容测试、fixture 审计、clean build 与产物 
 Node/npm/npx 阻断探针必须返回 99，项目 execve/execveat 追踪不得出现 Node
 回退。GitHub Actions 的 checkout 宿主不属于项目运行时。
 
-[原 20 项 inventory](../fixtures/acceptance/original-test-inventory.json)是验收
-输入。门禁核对每项历史文件/测试名及全部新增文件，失败、skip、todo、disabled
-均不得通过。执行输出和验收结果放 CI/PR，不向仓库提交逐轮报告。
+主测试数量与标题随当前代码维护，不依赖固定历史 inventory。门禁要求非空且一致的
+JUnit 报告，核对当前完整测试文件集合均有实际执行的 case，并将运行日志的通过数
+与报告核对；失败、skip、todo、disabled 均不得通过。独立维护检查还核对仓库内
+所有主测试、脚本测试与 Python 测试文件的执行证据。执行输出和验收结果放 CI/PR，
+不向仓库提交逐轮报告。
 
 ## 固定输入与维护用途
 

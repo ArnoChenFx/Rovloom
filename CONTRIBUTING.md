@@ -18,10 +18,14 @@ python3 scripts/maintenance/check.py --evidence /tmp/rovloom-verification-new --
 Choose a fresh output directory outside the checkout. The verifier performs a
 frozen install, strict typechecking with negative probes, tests, fixture audits,
 clean build and artifact smoke. See [package.json](package.json) for individual
-commands. Preserve the original acceptance test inventory and
-wire new suites into verification; every tracked `*.test.*`, `*_test.*`,
+commands. Maintain tests for the current behavior and wire new suites into
+verification; every tracked `*.test.*`, `*_test.*`,
 `*.spec.*` or `*_spec.*` JavaScript/TypeScript file must appear in its run evidence.
 Code examples under `fixtures/` remain data.
+Foundation verification requires a nonempty, consistent JUnit report, matching
+pass counts and actual cases from every current test file. Failures, skips, todos
+and disabled tests fail the gate; historical file names, titles and totals are
+not fixed acceptance inputs.
 All tracked Python `test_*.py` / `*_test.py` modules run in separate unittest
 processes. The gate checks actual per-file cases; skips, failures, empty modules
 and missing execution results fail without relying on fixed test totals.

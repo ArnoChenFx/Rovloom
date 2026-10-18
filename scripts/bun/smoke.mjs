@@ -221,19 +221,31 @@ adapter.decode(
   'connector_to_gateway'
 )
 adapter.checkResult(binding)
-const legacy = wire.decodeFoundationV1History(
-  JSON.stringify({
-    protocol_major: 1,
-    protocol_minor: 0,
-    type: 'heartbeat',
-    message_id: 'msg',
-    connection_epoch: 'epoch',
-    payload: { sequence: 0 }
-  }),
-  'epoch'
+const heartbeat = { ...base, type: 'heartbeat', payload: { sequence: 0 } }
+const heartbeatContext = { phase: 'authenticated', direction: 'gateway_to_connector', connection }
+assert.deepEqual(protocol.decodeFrame(protocol.encodeFrame(heartbeat, heartbeatContext), heartbeatContext), heartbeat)
+assert.throws(
+  () => protocol.decodeFrame(JSON.stringify({ ...heartbeat, protocol_major: 1 }), heartbeatContext),
+  /protocol_major_unsupported/
 )
-assert.equal(legacy.read_only, true)
-assert.equal(legacy.provider_resolution, 'unresolved')
+const { provider_id: _providerId, ...missingProvider } = target
+assert.throws(
+  () =>
+    adapter.decode(
+      JSON.stringify({
+        ...base,
+        type: 'request',
+        payload: {
+          attempt: { ...attempt, target: missingProvider },
+          expected_binding_revision: 1,
+          native_request: row.native_request,
+          validation: 'strict'
+        }
+      }),
+      'gateway_to_connector'
+    ),
+  /invalid_frame_fields/
+)
 const dir = mkdtempSync(join(tmpdir(), 'luvus-bun-artifact-'))
 try {
   const store = new Store(join(dir, 'db'))
@@ -249,5 +261,5 @@ try {
   rmSync(dir, { recursive: true, force: true })
 }
 console.log(
-  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, read-only v1 and SQLite reopen: pass'
+  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries and SQLite reopen: pass'
 )
