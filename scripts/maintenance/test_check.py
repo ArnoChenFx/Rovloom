@@ -131,6 +131,12 @@ class RepositoryChecks(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(message, result.stderr)
 
+    def test_exact_bun_version_allows_sentence_punctuation(self):
+        for name in ('README.md', 'README-zh.md'):
+            self.write(name, (self.root / name).read_text().replace('Bun 1.4.3\n', 'Bun 1.4.3.\n'))
+        result = self.cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_both_readmes_cannot_switch_to_npm_together(self):
         for name in ('README.md', 'README-zh.md'):
             self.write(name, (self.root / name).read_text().replace('bun install', 'npm install'))

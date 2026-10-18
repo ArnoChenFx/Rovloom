@@ -208,7 +208,7 @@ def toolchain_and_readmes(root):
     if not commands[0] or commands[0] != commands[1]:
         errors.append('README.md / README-zh.md: shell command blocks differ or are missing')
     for name, text in zip(('README.md', 'README-zh.md'), readmes):
-        versions = re.findall(r'\bBun\s+(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)(?![\w.+-])', text)
+        versions = re.findall(r'\bBun\s+(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)(?=$|[^\w.+-]|\.(?=\s|$))', text)
         if set(versions) != {version}:
             errors.append(f'{name}: Bun version differs from .bun-version')
         for block in code_blocks(text, {'sh', 'bash', 'shell'}):
