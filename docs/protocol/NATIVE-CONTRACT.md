@@ -22,7 +22,11 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 | 安装 bundle | 2 MiB、150,000 个 value 节点 |
 | documents | 64 份，每份 512 KiB |
 | 引用 | 2,048 条，任一路径至多 32 条 $ref；结构边不计引用深度 |
-| terminal event 编码 | 64 KiB；仍须满足原生 text/bytes/lines 约束 |
+| terminal.frame JSON 编码 | 64 KiB（不含 LF）；另验原生 text/bytes/lines 约束 |
+
+该 64 KiB 不适用于所有 terminal event；如 terminal.metadata_changed 仍按单 JSON
+对象及当前在线帧预算校验。control 也受 `terminal_frame_bytes` 的 JSON 编码预算约束，
+此项同样不含 LF；下述在线 request/response 帧预算则包含 LF，两项分别执行。
 
 `CompileOptions.limits` 只能降低这些上界。Wire 的 16 MiB bundle 重组上界不扩大
 原生编译预算。以上为结构/字节预算；同步 `compileBundle` 没有硬 CPU/heap 隔离，

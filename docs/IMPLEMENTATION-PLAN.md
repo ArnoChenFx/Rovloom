@@ -13,7 +13,7 @@
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack 与 frame 读取、原文保留门禁 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | SQLite 事务、单 writer、注册/配对/撤销、基础调用/结果/独立 discard 授权 | provider-scoped 迁移/策略/账本、固定内容期限、持久 history、总预算、隔离恢复及事务晚到更新 |
 | 产品服务 | 模块接口及测试 backend | Gateway/Connector 角色 CLI、MCP facade、设备 transport、原生 adapters、管理 UI 和部署发行 |
-| Herdr | 固定官方源码研究与 candidate 来源表达 | P0-H、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
+| Herdr | 固定官方源码研究、candidate 来源表达、离线归档/审计与合成状态重建回放 | 专用实例 P0-H、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
 
 现有公共 `contracts.Target` 和 Store schema v3 仍按 machine/profile/session，Wire 使用独立 V2Target 并由 integration 显式投影；这只是模块兼容接缝。Store 的 `(principal, request_key)` 不能当作 provider/history scope 去重，Router 旧 Policy 也不能直接作生产多 provider 授权。现有句柄到期不等于 calls.response 删除，句柄子配额不等于全内容/全库预算，内存 EvidencePlan 不等于 durable responded。
 
@@ -91,6 +91,10 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 交付：真实事件/终端证据、资源测量与持续/双向流 MCP 工具。
 
 ### 3.6 Herdr 原生验证与有限切片
+
+离线输入、方法门禁与归档命令见[开发指引](DEVELOPMENT.md#herdr-p0-h-离线输入)。
+生产允许集保持为空；合成回放通过不减少以下原生证据要求，归档审计也不建立
+可信 endpoint、安装来源或执行许可。
 
 - P0-H 固定官方 binary 来源/hash、安装 schema/方言/闭包、实际 ping/protocol、endpoint 归属/peer、framing/大小及断线行为，使用自建隔离实例。
 - 按 method+params+版本核实被动读，断言焦点、viewport、输入、agent 状态/通知均无未声明副作用；recent 等未经证明不进 allowlist。
