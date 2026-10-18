@@ -253,10 +253,11 @@ class Run:
                'pong' if n <= LIMIT+1 else 'rejected') for n in (LIMIT-1, LIMIT, LIMIT+1, LIMIT+2)],
         ]:
             channel = self.connect(); data = b''; failure = None
+            # 超时没有原生拒绝证据，向外传播并由 check 记为失败。
             try:
                 channel.sendall(raw)
                 data = self.read_line(channel)
-            except (BrokenPipeError, ConnectionResetError, socket.timeout) as error:
+            except (BrokenPipeError, ConnectionResetError) as error:
                 failure = type(error).__name__
             finally:
                 channel.close(); self.sockets.remove(channel)

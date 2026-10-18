@@ -10,7 +10,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from contract import Rejected, ROOT
 import verify_native as native
@@ -131,6 +131,64 @@ class NativeCaptureBoundary(unittest.TestCase):
             self.assertEqual(run.report['checks'][0]['status'], 'failed')
         finally:
             run.finish()
+
+    def framing_probe(self, outcome):
+        with patch('verify_native.validate_binary', return_value=self.binary):
+            run = native.Run(self.binary, self.root/('capture-' + outcome))
+        channels = []
+
+        class Channel:
+            def sendall(self, _data):
+                if len(channels) == 6 and outcome == 'send_timeout':
+                    raise socket.timeout('synthetic send timeout without rejection evidence')
+
+            def recv(self, _size):
+                raise socket.timeout('synthetic partial-line wait')
+
+            def settimeout(self, _timeout):
+                pass
+
+            def close(self):
+                pass
+
+        def connect():
+            channel = Channel()
+            channels.append(channel)
+            run.sockets.append(channel)
+            return channel
+
+        error = native.encoded({'id': 'invalid', 'error': {'code': 'invalid_request', 'message': 'synthetic'}})
+        pong = native.encoded({'id': 'size', 'result': {'type': 'pong'}})
+        sixth = {'receive_timeout': socket.timeout('synthetic receive timeout without rejection evidence'),
+                 'eof': b'', 'reset': ConnectionResetError('synthetic reset'),
+                 'error': native.encoded({'id': 'size', 'error': {'code': 'request_too_large', 'message': 'synthetic'}})}.get(outcome)
+        responses = [error, error, pong, pong, pong]
+        if outcome != 'send_timeout':
+            responses.append(sixth)
+        run.connect = connect
+        run.read_line = Mock(side_effect=[*responses, pong])
+        run.request = Mock(return_value={'result': {'type': 'pong'}})
+        try:
+            run.check('framing', run.framing)
+            return run.report['checks'][0]
+        finally:
+            run.finish()
+
+    def test_oversize_receive_timeout_is_not_rejection(self):
+        result = self.framing_probe('receive_timeout')
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('synthetic receive timeout', result['error'])
+
+    def test_oversize_send_timeout_is_not_rejection(self):
+        result = self.framing_probe('send_timeout')
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('synthetic send timeout', result['error'])
+
+    def test_explicit_native_refusal_evidence_is_still_accepted(self):
+        for outcome in ('eof', 'reset', 'error'):
+            with self.subTest(outcome=outcome):
+                result = self.framing_probe(outcome)
+                self.assertEqual(result['status'], 'passed')
 
     def test_evidence_copy_failure_still_removes_state_and_reports_failure(self):
         run = self.make_run()
