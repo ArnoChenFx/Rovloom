@@ -8,7 +8,7 @@ export const PROTOCOL_MINOR = WIRE_MINOR;
 export const MAX_FRAME_BYTES = LIMITS.frame_bytes;
 export type Envelope = WireEnvelope;
 export type { Payloads } from './wire/types.js';
-// 执行入口只支持 v2；v1 历史须显式走 wire/history-v1 的只读接口。
+// 协议入口只支持 v2，不提供未发布 v1 的兼容解析或执行入口。
 // 单独 epoch 无法证明认证来源，不能据此构造可执行上下文。
 export function decodeFrame(input: string | Uint8Array, context: CodecContext | string): Envelope {
   if (typeof context === 'string') fail('authenticated_context_required');

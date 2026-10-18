@@ -4,7 +4,7 @@
 
 原生 runtime Luvus/Herdr、UHP 标识与源协议 fixture 保持原样。
 
-## 版本与只读入口
+## 版本与入口
 
 `decodeWireFrame(input, context)` / `encodeWireFrame(frame, context)` 只接受 v2。
 major 不同直接拒绝，不自动协商回 v1；minor 为双方与本实现已支持 minor 的交集上界。
@@ -24,9 +24,9 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 业务帧使用已选定 minor，不能按消息重新猜版本或放行未知 feature。welcome 必须匹配本地保存的 offer/required，
 并用 in_reply_to 核对原握手 message_id；收到 welcome 不自动产生已认证上下文。
 
-`decodeHistoricalV1(input)` 返回 `{read_only:true, provider_resolution:'unresolved', frame}`，
-只检查旧封装/旧目标形状与通用 JSON 边界，不声称旧 native payload、认证、分类或当前 provider 验证通过。
-它既不返回可执行 v2 Envelope，也不补默认 legacy provider。历史关联由受保护迁移过程处理。
+项目尚未发布，不提供 Wire v1 的兼容 decoder 或执行入口。旧帧直接拒绝，
+不补默认 provider；v2 的 provider 缺失或可信 binding 不可用时不得执行。
+当前 history scope/TTL 算法、Store 数据库 v1→v3 迁移及外部原生协议版本独立保留。
 顶层 protocol 的版本为 2.0；epoch-only 调用或缺 context 的编码拒绝。
 
 ## 身份、Target 与绑定

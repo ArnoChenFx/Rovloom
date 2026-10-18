@@ -199,7 +199,7 @@ observe 永不可写；图片/上传等高级 action 只有在契约、分类、
 
 认证前仅允许握手类别；业务前选定共同 major/minor。未知可选 capability 在协商中不启用，未知/不共同支持的 required capability 拒绝；选定后业务帧未知字段/枚举、未协商 feature、错方向/关联均拒绝，不能静默剥字段。TLS 校验必需，仅显式本机开发模式可用 loopback WS；凭据不放 URL、argv 或日志。
 
-Wire v1 只作只读历史解析，不生成可执行 v2 context，不补默认 provider，不在 v2 失败后回退重发。若未来提供 v1 执行迁移入口，须另行设计、明确管理员启用及唯一可证明的 legacy Luvus 绑定；缺少恢复/history 证明仍拒绝，Herdr 永不包装成 UHP。
+项目尚未发布，Wire 仅支持当前 v2，不保留 v1 兼容解析或执行入口。旧帧直接拒绝，不补默认 provider，不在 v2 失败后回退重发；provider 缺失或无法从可信 registry 解析时不得执行。当前 history scope/TTL 规则与 Store 数据库 v1→v3 迁移独立保留，外部原生协议版本不随 Wire 清理变化。
 
 消息去重窗、流序列与持久调用去重是不同层。宿主必须消费重复判断并防止重复发送；窗到期/codec 成功都不能证明原生未执行。对象重组成功只证明字节/摘要边界，schema 仍须受信 registry 和编译核验。没有自动远端变更队列：设备离线立即失败，重连不突然执行旧 prompt。
 
@@ -328,7 +328,7 @@ HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用�
 
 ## 16. 待设计决策与部署输入
 
-Herdr 被动读精确 allowlist、任何写入/终端控制、prompt 归属和取消保证，以及完全无可用 bundle 的 raw 最小契约，均须独立证据及设计评审，未定默认拒绝。未来可执行 v1 兼容入口也须另行设计，不从历史 decoder 推导。
+Herdr 被动读精确 allowlist、任何写入/终端控制、prompt 归属和取消保证，以及完全无可用 bundle 的 raw 最小契约，均须独立证据及设计评审，未定默认拒绝。
 
 目标 OS/原生版本、Gateway 可达地址、TLS/反代、MCP Host/版本、身份服务及真实双机环境是部署输入；按平台/客户端单独验收，不能由一个 Linux fixture 推导跨平台支持。Owner/Host admin 默认不授予。已经明确的多 provider、安全语义和管理 UI 不因实现滞后退回单 provider 设计。
 
