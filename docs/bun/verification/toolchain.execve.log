@@ -1,0 +1,5 @@
+7814  execve("/isolated/bin/bun", ["bun", "--no-env-file", "run", "toolchain"], 0x7ffd6700a138 /* 12 vars */) = 0
+7815  execve("/isolated/bin/sh", ["/isolated/bin/sh", "-c", "bun --no-env-file scripts/bun/toolchain.mjs"], 0x51a665d0600 /* 23 vars */) = 0
+7816  execve("/isolated/bin/bun", ["bun", "--no-env-file", "scripts/bun/toolchain.mjs"], 0x564e3c6fb928 /* 24 vars */) = 0
+7815  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7816, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+7814  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7815, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---

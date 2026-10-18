@@ -1,0 +1,1 @@
+7798  execve("/isolated/bin/bun", ["bun", "--version"], 0x7ffe5ae27458 /* 12 vars */) = 0

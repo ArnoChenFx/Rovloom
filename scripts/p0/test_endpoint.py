@@ -12,10 +12,13 @@ import unittest
 
 from collect_native import Capture
 
+# 验证器显式传入工作区父目录；不依赖仅此云环境才有的 /workspace。
+TEST_ROOT = Path(os.environ.get("LUVUS_P0_TEST_ROOT", Path(__file__).resolve().parents[2].parent))
+
 
 class EndpointBoundary(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix=".p0-endpoint-unit-", dir="/workspace")
+        self.temp = tempfile.TemporaryDirectory(prefix=".p0-endpoint-unit-", dir=TEST_ROOT)
         self.root = Path(self.temp.name)
         (self.root / "state").mkdir(mode=0o700)
         self.path = self.root / "state" / "synthetic.sock"
@@ -73,7 +76,7 @@ class CleanupFailure(unittest.TestCase):
     """注入采集器错误只用于失败清理回归，不计入原生 Luvus 通过数。"""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix=".p0-cleanup-unit-", dir="/workspace")
+        self.temp = tempfile.TemporaryDirectory(prefix=".p0-cleanup-unit-", dir=TEST_ROOT)
         parent = Path(self.temp.name)
         capture = self.capture = object.__new__(Capture)
         capture.root, capture.output = parent / "state-root", parent / "evidence"

@@ -1,0 +1,2 @@
+Built ESM exports, shared error class and real SQLite reopen: pass
+$ bun --no-env-file scripts/bun/smoke.mjs

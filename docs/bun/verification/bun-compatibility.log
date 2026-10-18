@@ -1,0 +1,13 @@
+bun test v1.4.3 (c6da4a4d3)
+$ bun --no-env-file test ./scripts/bun/compatibility.test.mjs
+
+scripts/bun/compatibility.test.mjs:
+(pass) pinned Bun reports real SQLite; parameter binding, changes, BLOB and SQL rollback [3.39ms]
+(pass) real file Store transaction failure rolls back token consumption; modes and lock remain enforced [29.34ms]
+(pass) Bun child stdio remains separate and SIGTERM is delivered without hanging [20.89ms]
+(pass) subprocess timeout kills only its synthetic child and leaves no child alive [55.20ms]
+(pass) synthetic .env is ignored by flag and repository env=false configuration [31.83ms]
+
+ 5 pass
+ 0 fail
+Ran 5 tests across 1 file. [167.00ms]

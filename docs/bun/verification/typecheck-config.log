@@ -1,0 +1,33 @@
+{
+    "compilerOptions": {
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "noUncheckedIndexedAccess": true,
+        "outDir": "./dist",
+        "rootDir": "./",
+        "strict": true,
+        "target": "es2023",
+        "types": [
+            "node"
+        ],
+        "moduleDetection": "force"
+    },
+    "files": [
+        "./src/contracts.ts",
+        "./src/protocol.ts",
+        "./src/router.ts",
+        "./src/store.ts",
+        "./test/protocol.test.ts",
+        "./test/results.test.ts",
+        "./test/retention.test.ts",
+        "./test/router.test.ts",
+        "./test/store.test.ts"
+    ],
+    "include": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+    ],
+    "exclude": [
+        "/isolated/project/dist"
+    ]
+}

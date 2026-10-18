@@ -1,0 +1,25 @@
+{
+  "archiveSha256": "71c38aa6ce308cb71fe02746a8380034e2869b75d82c8c288edefd3b4935cc41",
+  "runtime": "Bun 1.4.3",
+  "nativeBinarySha256": "895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9",
+  "nativeStartedAt": "2026-10-18T07:13:11.879570+00:00",
+  "harnessBaseCommit": "4f963d1997751a4f392604cc060d0a99f157998a",
+  "collectorHistoricalBaseField": "916cae2412b69f3432caf264fd411ea1a4b3093f",
+  "assertions": 729,
+  "allPassed": true,
+  "wireValidation": {
+    "requests": 31,
+    "responses": 30,
+    "events": 19,
+    "intentional_invalid": 2,
+    "documents": 29
+  },
+  "cleanup": {
+    "server_stopped": true,
+    "no_running_sessions": true,
+    "temporary_root_removed": true,
+    "errors": []
+  },
+  "scope": "new isolated Linux Luvus 0.14.3 instance/session; synthetic terminal input only; no Gateway/Connector claim"
+}
+$ python3 scripts/bun/audit_native.py

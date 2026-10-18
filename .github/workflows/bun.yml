@@ -1,0 +1,47 @@
+name: Bun verification
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install the exact official Bun binary in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat .bun-version)" = 1.4.3
+          mkdir "$RUNNER_TEMP/bun-1.4.3"
+          curl -fLsS --retry 2 https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64.zip -o "$RUNNER_TEMP/bun-1.4.3/bun.zip"
+          python3 - <<'PY'
+          import hashlib, os, pathlib, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bun-1.4.3'
+          archive = root / 'bun.zip'
+          if hashlib.sha256(archive.read_bytes()).hexdigest() != '3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18':
+              raise SystemExit('Bun archive checksum mismatch')
+          with zipfile.ZipFile(archive) as package:
+              if set(package.namelist()) != {'bun-linux-x64/', 'bun-linux-x64/bun'}:
+                  raise SystemExit('Unexpected Bun archive members')
+              package.extractall(root)
+          (root / 'bun-linux-x64/bun').chmod(0o755)
+          PY
+          echo "$RUNNER_TEMP/bun-1.4.3/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: Prepare strace in runner temp when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v strace >/dev/null; then
+            mkdir "$RUNNER_TEMP/strace-package"
+            cd "$RUNNER_TEMP/strace-package"
+            apt-get download strace
+            deb_files=(strace_*.deb)
+            test "${#deb_files[@]}" = 1
+            dpkg-deb --extract "${deb_files[0]}" "$RUNNER_TEMP/strace"
+            "$RUNNER_TEMP/strace/usr/bin/strace" --version
+            echo "$RUNNER_TEMP/strace/usr/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Frozen install, strict types, all tests, build, smoke; trace without Node
+        run: python3 scripts/bun/verify.py --output "$RUNNER_TEMP/bun-verification"

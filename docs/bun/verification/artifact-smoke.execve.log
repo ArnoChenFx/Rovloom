@@ -1,0 +1,5 @@
+7997  execve("/isolated/bin/bun", ["bun", "--no-env-file", "run", "smoke"], 0x7ffca7b91538 /* 12 vars */) = 0
+7998  execve("/isolated/bin/sh", ["/isolated/bin/sh", "-c", "bun --no-env-file scripts/bun/smoke.mjs"], 0x4f5661d0600 /* 23 vars */) = 0
+7999  execve("/isolated/bin/bun", ["bun", "--no-env-file", "scripts/bun/smoke.mjs"], 0x5626decd4928 /* 24 vars */) = 0
+7998  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7999, si_uid=1000, si_status=0, si_utime=1 /* 0.01 s */, si_stime=1 /* 0.01 s */} ---
+7997  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7998, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---

@@ -1,9 +1,13 @@
 # Luvus 多机器通用 MCP：系统设计
 
-版本：0.2 · 日期：2026-10-17 · 作者：Luvus Tester
-状态：设计建议，待评审；不是实现报告，不表示已有代码满足本设计。
+版本：0.4 · 日期：2026-10-18 · 原作者：Luvus Tester
+状态：四项安全/保留/恢复/迟到回复原则、Gateway 内置管理 UI 需求和 Bun 开发工具链要求已确认；具体设计待父会话验收，尚未实现。
 范围：仅文档，不启动编码 Agent，不变更已有实现和运行中 Luvus 会话。
 配套：《IMPLEMENTATION-PLAN.md》。本文替代此前讨论中的概念草案，不覆盖旧编码 Agent 文件。
+
+修订基线：已验收的 Linux P0 提交 `d2455e878f93e162a2a54bb58c1e5785aecd0949`。本次只修订文档；决策及实现缺口见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)。
+
+v0.4 补充：历史范围/恢复/预留耗尽保证边界、[内置 Web UI 设计](GATEWAY-WEBUI.md)（issue #14），并记录先行 Bun 迁移 #15。P0 中 Node/npm/SDK 的真实历史证据不改写为 Bun 通过。
 
 ## 1. 设计结论
 
@@ -49,7 +53,7 @@ F2. `luvus uhp schema` 输出安装版本的 schema bundle，不需启动 server
 F3. UHP 有并发 revision、终端身份及事件恢复要求；客户端需处理 generation 变化与事件缺口。[S3][S4]
 F4. MCP 可通过 stdio 或 Streamable HTTP 承载；HTTP 授权和本地 stdio 凭据获取方式不同。[S5][S6]
 
-本机只读核对：`luvus --version` 为 0.14.3；`luvus help uhp` 列出 schema/proxy 等入口；schema 根键包括 request、response、event、event_catalog、terminal、access、documents、protocol。本次未启动 Luvus 进行新测试。网页文档可能领先安装版本，以每台机器的安装契约与实时能力为准。
+v0.2 最初只读核对 Luvus 0.14.3；随后 #3 的 Linux 原生 RPC、Host、事件和终端控制已获验收，范围与证据见 [P0 复核](p0/REVIEW.md)。安装 schema 223 个方法中 144 个仅有通用 params object；不能把存在方法枚举当作完整参数约束。网页文档可能领先安装版本，以安装契约与实时能力为准。本次 v0.3 修订未新增运行测试。
 
 ## 4. 部署与信任边界
 
@@ -88,6 +92,12 @@ Connector 只允许管理员固定的 Luvus 可执行路径、状态根和 sessi
 
 两种模式共用业务核心；同一数据库只允许一个 Gateway writer。不同 MCP stdio 客户端不能同时各自启动网关并争用同一状态目录。
 
+### 4.2 Gateway 内置管理 Web UI
+
+同一 Gateway 产物内置设备/连接认证状态的管理页，默认仅 loopback；管理 listener/API 与 Connector WSS、HTTP MCP 的身份和服务边界分离。页面与后端分别实施管理员认证/授权，敏感凭据不回显，变更有后台确认、revision/epoch fence 和审计。暂时断开仅关闭指定连接，持久授权不变；撤销则持久拒绝新认证并断开连接，不能把二者混为一项。
+
+设备列表/详情包括 online/offline/可信 reconnecting、认证状态、最近心跳、失败原因与快照过期标记。恢复隔离时仅独立本机恢复管理员可看有限历史/诊断，禁止配对、发放新 scope 或开放业务；storage_degraded 不允许 UI 绕过写入门禁。最小页面、API、空/错误态、刷新与远程 TLS/访问控制要求见 [GATEWAY-WEBUI.md](GATEWAY-WEBUI.md)。issue #14 的顺序为 #8 → #14 → #9，硬依赖 #5/#6/#8；不增加外部网站或多租户平台，本轮不做前端开发。
+
 ## 5. 身份模型与数据
 
 ### 5.1 Machine
@@ -124,6 +134,22 @@ Connector 使用权限受限状态目录保存设备凭据及最小调用日志�
 
 在线状态、WS 对象不从数据库“恢复为 online”。Gateway 重启后一律等待设备重新认证；不执行持久化的待发变更。
 
+### 5.4 备份恢复的隔离边界
+
+备份可能早于撤销、配对消费或调用送达记录；校验文件完整不等于证明安全状态是最新。支持的恢复流程必须在独立目录先进入 `recovery_quarantined`，关闭业务派发、结果读取、Connector 认证和 enrollment 兑换，只允许受保护的本地恢复管理。不能把备份中的 ready 标记、管理员角色或旧凭据作为解除隔离的授权。
+
+恢复过程至少完成：
+
+1. 核实无旧 writer，保留源备份且不自动删锁；验证数据库 migration、对象引用和备份时间/版本，不能执行备份中的命令或任意路径。
+2. 产生新的 `recovery_generation`（恢复代次，区别于 connection_epoch 和 Luvus server_generation），使恢复前的设备凭据/配对凭据全部不可用于认证；未消费 enrollment 也一律失效。机器 ID 可留作历史引用，需受信本地管理员逐机确认后重新配对，不能凭同名自动接管。
+3. caller ACL、Owner/Host admin、清理权限及策略先按拒绝处理。只有独立于旧备份的可信当前策略或新的本地管理员确认才能重新授予；旧 OAuth token 的签名有效不能证明旧 ACL 仍有效。此流程描述未来管理机制，本次不创建或轮换任何真实凭据。
+4. 所有设备 offline，所有通道/流句柄失效，新连接重新分配 epoch 并绑定新恢复代次；恢复前的晚到回复不能补写恢复后的调用。
+5. 关闭恢复前的去重范围，旧 history_epoch 只作为历史引用，不导入 active 集合；不得把旧 call、pending 队列或客户端重试缓存自动改写到新恢复代次/新范围。备份中缺失的旧 key 返回 `dedup_history_unavailable`，绝不据此新建并派发；恢复记录中的“未发送”若缺少覆盖备份后时间段的可信证据，也不能作为未执行证明。已知结果只作注明备份时点的历史证据，未能证明结局的在途调用标记 unknown。
+6. 按原始过期时间与显式 discard 状态清理/屏蔽内容，不能因恢复或重新授权刷新 TTL；保持历史墓碑。若备份后是否发生 discard/过期/撤权无法由独立可信当前资料确认，所有恢复原文默认不可读，不得从旧副本建句柄；仅重授权不足以证明原文可以复活。默认备份本就不带原文；例外包含原文的备份也受这条保守规则限制。
+7. 记录恢复来源、丢失时间段、重新授权和重新配对结果，经本地受信管理员显式解除隔离后才创建并发放绑定新 recovery_generation 的 history_epoch。新范围只受理重新授权后由 caller 明确发起的新意图；旧消息缺少/不匹配恢复代次、缺少原范围或要求自动换范围时一律拒绝，不自动恢复发送队列。
+
+默认不依赖外部防回滚服务，因此不承诺从一份旧备份重建其后全部撤销/调用历史；采用失效旧认证、拒绝旧范围和人工对账来控制风险。完整性/新鲜度无法证实时继续隔离。该保证适用于支持的恢复流程；手工替换全部运行文件或整机快照绕过恢复流程，不能靠同样被回滚的数据库标记自动识别，也不得宣称具备这种检测能力。
+
 ## 6. 注册、配对和凭据生命周期
 
 ### 6.1 注册分两步
@@ -143,7 +169,7 @@ Connector 使用权限受限状态目录保存设备凭据及最小调用日志�
 - 轮换：有界双凭据过渡，成功后撤销旧凭据；日志不保存明文。
 - 撤销：立即拒绝新请求、断通道并关闭订阅；已送入 Luvus 的工作不保证自动停止。
 - 重装：凭据丢失需人工批准重新配对，不能凭同 hostname 自动接管旧 ID。
-- 克隆：同一设备身份并发连接默认返回 duplicate_device_connection，不静默“后连接踢前连接”。明确 takeover 必须有授权并更新 epoch；旧响应失效。
+- 克隆：同一设备身份并发连接默认返回 duplicate_device_connection，不静默“后连接踢前连接”。明确 takeover 必须有授权并更新 epoch；旧 epoch 响应隔离；同一有效 epoch 的晚到证据另按 §11.1 处理。
 
 ## 7. MCP 工具面
 
@@ -201,7 +227,7 @@ Connector 使用权限受限状态目录保存设备凭据及最小调用日志�
 }
 ```
 
-Gateway 错误放 `gateway_error`，原生错误保留在 `uhp_response.error`，不混为一个命名空间。无原生回复时不伪造 UHP result。
+Gateway 错误放 `gateway_error`，原生错误保留在 `uhp_response.error`，不混为一个命名空间。无原生回复时不伪造 UHP result。原生内容只在安全分类允许且 §12.3 内容期限内提供；过期/显式清理后仅返回状态、受保护的最小证据元数据及 content_status，不从旧内联响应重新生成 result_id。
 
 ### 7.3 流与终端控制
 
@@ -218,18 +244,20 @@ Gateway 错误放 `gateway_error`，原生错误保留在 `uhp_response.error`�
 
 ## 8. 能力发现和 schema
 
-有效方法集 = 远端实时支持 ∩ 接入权限（若有）∩ Gateway caller 策略 ∩ Connector 本地策略。
+有效执行方法集 = 远端实时支持 ∩ 可信且完整的安全分类 ∩ 已适配传输 ∩ 接入权限（若有）∩ Gateway caller 策略 ∩ Connector 本地策略；schema 校验状态单独判断。
 
 发现步骤：
 1. Connector 获取安装 binary version 和本地 `luvus uhp schema` bundle，计算 hash。
 2. session 通道查询实时 uhp.capabilities；host 通道查询 host.capabilities；两者不混为一张权限表。
-3. 按 machine/profile/session/generation/binary/schema hash/policy revision 缓存；重启/升级或契约不匹配则失效。
+3. 按 machine/profile/session/generation/binary/schema hash/policy revision/安全分类 revision 缓存；重启/升级或契约不匹配则失效。
 4. describe 从 schema 提取方法相关分支，同时保留所有传递引用、根约束、条件约束及外部 document 依赖；不能只剪出一个 properties。
 5. 每次变更前重新确认目标在线、epoch、generation 和策略；过期发现返回 capability_stale，不透明降级。
 
-旧 binary、新 server 或相反的情况：返回版本及 schema 来源。严格模式中，缺少可用契约的方法不执行；Owner 可显式启用 raw-contract 模式，按在线支持透传但标注 validation=unavailable，不能把网页 schema 冒充运行版本。
+安全分类与参数 schema 是两个独立维度。分类必须来自绑定确切版本/契约的受信本地评审资料及已核验原生 method_contracts，至少说明：作用（读/写/外部副作用、是否幂等及传输类型）、高权限（Owner、Host admin、任意终端/agent 执行、凭据管理和所需确认）、结果是否可能包含秘密及其保存/交付方式。字段缺失、来源不受信或互相冲突即 `classification_unavailable`；不能凭方法前缀、通用 object schema、客户端自报或远端广告自行补齐。原生声明不能提升本地授权。
 
-未知未来方法默认可被发现；授权策略决定是否调用。restricted 模式默认拒绝未分类方法；Owner 模式可以明确选择允许未来原生方法，但需告知相应风险。新增流协议仍需适配，不自动当普通 RPC。
+未知/未完整分类的方法允许被发现，但默认拒绝执行，Owner 和 raw-contract 也不能绕过。应分别展示 classification_status、schema_status、transport_status 和策略拒绝原因。凭据/令牌类秘密结果需要专门 custody 或默认拒绝该调用；一般潜在敏感内容需明确的读取授权、保留与交付规则，不声称能自动识别所有秘密。“只读”不代表结果可直接交给模型，也不能把真实 token 混入普通结果句柄/日志。通用 action.invoke 或流控制的子动作也必须分类，不能以已知容器方法包住未知作用。
+
+旧 binary、新 server 或相反的情况：返回版本及 schema 来源。严格模式中，参数契约缺失/不完整时拒绝。只有安全分类完整、传输已适配、当前双方策略允许且秘密结果路径已落实的方法，Owner 才能显式选择仅放宽参数校验的 raw-contract；标注 validation=unavailable，仍执行 envelope、大小、保留字段和安全检查。它不能替代完整参数验证，不能把网页 schema 冒充安装版，也不能自动允许新增流帧。P0 的 144 个参数缺口不能自动等同于 144 个安全分类未知，反之亦然。
 
 ## 9. Connector 的本地 UHP 适配
 
@@ -259,7 +287,8 @@ Envelope 基本字段：protocol_major/minor、type、message_id、connection_ep
 - TLS 验证必需；只有显式本机开发模式可用 loopback ws。
 - credential 不在 URL query、日志或 MCP 输出里；按受保护的握手流程传输。
 - major 不兼容拒绝连接；minor 能力协商后使用交集，不静默猜字段。
-- 所有响应按 call_id + attempt_id + connection_epoch 关联；迟到响应不改变其他调用。
+- 所有响应绑定认证 machine、recovery_generation、call_id、attempt_id、connection_epoch 和 native request id；重复/迟到处置见 §11.1，旧 epoch/恢复代次或其它 attempt 不改变当前结果。
+- 去重范围使用由 Gateway 发放的 history_epoch（§11.2）；它不是设备 credential、连接身份或 Luvus generation。字段名/编码与能力协商由 #4 冻结，客户端不能自行创造有效范围。
 - frame 和并发有限额，校验 type、大小、嵌套深度和 deadline；Connector 不可无限 spawn。
 - 心跳只证明通道健康，不证明本地 Luvus/Provider 健康；健康报告分别列出。
 
@@ -271,6 +300,7 @@ Envelope 基本字段：protocol_major/minor、type、message_id、connection_ep
 created → authorized → dispatching → connector_accepted → responded
    └──── not_dispatched / rejected / expired_before_dispatch
                     └──── outcome_unknown（可能已进入 Luvus）
+                              └──── responded（仅同一已验证 attempt 的可靠晚到证据）
 ```
 
 Connector accepted 表示桥接接收，不等于 Luvus 执行，也不等于 agent 消费 prompt。Gateway 有记录不等于完成。
@@ -282,12 +312,44 @@ Connector accepted 表示桥接接收，不等于 Luvus 执行，也不等于 ag
 | 获得原生 UHP error | responded + 原始 error | 由 caller 对账后决策 |
 | 获得 submitted/queued | responded，但业务未完成 | 不补发 prompt |
 | 只读临时失败 | 可新建 attempt，保留历史 | 仅契约标记只读且策略允许、有总 deadline |
+| 同一已验证 attempt 的可靠晚到 response | 可追加证据并细化 unknown；内容过期则只存最小元数据 | 不重新派发、不改写原超时通知 |
+| 旧 epoch/恢复代次、其它 attempt 或无法关联的回复 | 隔离或拒绝，当前结果不变 | 不自动重试 |
 
-Gateway client_request_key 只去重同一 caller + 目标 + 请求摘要的重复提交；同 key 不同请求报 conflict。账本持久化用于减少重复，不能承诺 exactly-once。Gateway→Connector 跨崩溃与本地 UHP 执行不可能在本设计里事务性提交。
+Gateway client_request_key 在 §11.2 的受信历史范围内，去重同一 caller + 目标 + 请求摘要的重复提交；同 key 不同请求报 conflict。账本持久化用于减少重复，不能承诺 exactly-once。Gateway→Connector 跨崩溃与本地 UHP 执行不可能在本设计里事务性提交。
 原生幂等键只用于实时能力明确支持的方法，保持原位置和值；普通 request id 不是幂等键。
 取消 MCP 等待不会回滚远端命令；发送取消请求仅尽力释放观察/本地子进程资源，若已执行返回 cancel_unconfirmed。终端 stream_write 同样区分 queue admission 与原生 ack；断线丢 ack 时不能自动重发输入。
 
 Gateway 的 expected_server_generation 只提供桥接层的目标核对：若原生方法不支持同一临界区内的身份/revision 前置条件，就不能保证检查与执行间绝无重启竞态。严格控制应使用原生 fence；缺少 fence 的操作必须在 describe 中标注保证强度，不能宣传外层字段具有原子性。
+
+### 11.1 可靠晚到回复只能补充原 attempt 的证据
+
+晚到不是新执行。仅当接收上下文已认证且仍有效、机器未撤销、恢复代次/connection_epoch 仍与原 attempt 一致、call/attempt/native request id/目标全部匹配、原生 response 对应契约与 frame 校验通过时，才可在同一 writer 事务中补充 `outcome_unknown`。若 call 已转入其它 attempt、已有冲突终态或历史记录已过期，不更新当前结果；旧 epoch 的 Connector 缓存重发也不例外。普通断线重连/恢复会产生新 epoch/恢复代次，因此不保证跨这些边界接纳原晚到回复。
+
+保留原先发送、超时、取消、unknown 的历史事实和证据到达时间/摘要；最新视图可变为 responded + late_evidence=true，不把它说成在 deadline 内完成。原生 queued 仍只证明排队。相同已验证 response 的重复消息不产生新句柄或执行；不同内容的冲突回复不覆盖已接受结果，作有界审计/隔离。取消不会撤销真实动作，也不阻止在这些条件下记录其可靠结果。
+
+补充结果受当前授权、分类、内容 TTL 和 discard 状态约束：内容已过期/已清理时只留受保护的最小证据（相关 ID、接收时间、response hash/长度、result/error 类别），不保存原文、不重新生成句柄、不延长任何保留期限。原始调用/墓碑已删除则不凭回复重建调用。此规则不授权重新派发、接收旧认证通道，或让其他 caller 读取结果。
+
+### 11.2 有限去重窗口与旧范围拒绝
+
+去重墓碑默认保留 30 天，自首次原子登记调用时固定 dedup_expires_at，不随重试、句柄读取或晚到回复续期。它保留 caller、目标、请求摘要、key 的受保护摘要、原 call/attempt 关联、过期/discard 状态及最小结局信息，不含原始参数或结果；在窗口内同 key 返回原状态，内容过期也不能变成新执行。
+
+为了让有限墓碑到期后仍拒绝旧提交，受保护的调用范围还绑定 Gateway 发放的 `history_epoch`。每个范围允许登记新 key 的时长默认最多 24 小时，且必须不长于该范围冻结的墓碑期限；之后只可查询/重返仍存在的同 key，未找到时返回 dedup_history_unavailable，禁止新建。新调用使用新范围；客户端重试不能自动把旧 key 改绑新范围或生成新 key。缺少有效范围的带 key 调用拒绝，不静默套用当前范围；跨范围的同文本 key 是新意图，不承诺去重。
+
+Gateway 只接受自己仍登记且绑定当前恢复代次的范围；旧/未知范围即使其逐 key 墓碑已清理也不能新建调用。恢复、历史损坏或无法证明未发生回滚时关闭旧范围，进入 §5.4 的恢复流程；不以备份里“没有这个 key”作为首次调用证明。最小字段及兼容迁移由 #4/#5 实现，现有 v3 不具备这一保证。
+
+范围的创建时间、accept_new_until、绑定的恢复代次和 dedup_ttl 必须由 Gateway 原子持久化，不能只相信客户端给出的时间或 signed-looking 字符串。每条新调用使用其范围冻结的 dedup_ttl，满足 `accept_new_until <= scope_created_at + frozen_dedup_ttl <= call_created_at + frozen_dedup_ttl = dedup_expires_at`；新 key 的准入采用严格 `now < accept_new_until`。因此任一墓碑最早到期时，该范围已经不允许登记新 key；查 key 与检查范围必须在同一 writer 事务完成。配置缩短期限要创建新范围并先退役旧范围，不能保留旧 active 范围却缩短其中调用的墓碑。
+
+| 提交所在范围/记录 | 允许行为 |
+|---|---|
+| 当前恢复代次内 active 范围、同 key 已存在 | 返回同一调用；摘要不符报 conflict，不再次派发 |
+| 同一 active 范围、key 不存在，所有准入检查通过 | 可原子登记新调用；此为范围内的新意图 |
+| 已退役但仍可信的范围、同 key 仍存在 | 只重返原状态，不续期、不复活内容 |
+| 退役范围 key 已到期/缺失，或范围记录已清理/未知 | dedup_history_unavailable；不得改用当前范围补建 |
+| 恢复前范围、恢复代次不匹配或历史完整性存疑 | 拒绝创建；仅按受限历史查询/恢复流程处理 |
+
+范围记录可在其引用窗口结束后清理，但缺记录必须等于不可信，绝不能回退为 active。普通重启只有在范围与账本完整性可确认时保留原范围，否则按恢复隔离处理。scope ID 永不复用；客户端重试须保留原 recovery_generation/history_epoch/key 关联，不能在收到过期/恢复错误后自动 discovery 当前范围并重发。Gateway 没有跨范围的无限内容相似性判重能力；显式新意图使用新 key/范围后，即使参数与历史相同，也可能执行。这是已声明的保证边界，不能把“换范围重新发送”当作透明恢复或 exactly-once。
+
+未携带 client_request_key 的调用没有客户端重试去重保证，同样不得由网关补发 unknown 写操作。超过 30 天不承诺仍有逐调用结果/去重查询记录，但旧范围拒绝创建仍成立；用户明确采用新范围/新 key 发起新意图时可能再次执行，不能被包装成一次“安全重试”。
 
 ## 12. 事件恢复、背压与大结果
 
@@ -305,10 +367,45 @@ Gateway 的 expected_server_generation 只提供桥接层的目标核对：若�
 - 每设备普通在途 8、等待 4、订阅 8；均可配置且受原生限制进一步约束。
 - 默认普通执行超时 30 秒，长等上限 10 分钟；Caller 只控制更窄范围，不能越过管理员上限。
 - 每订阅缓存默认 4 MiB；满时报告 overflow、停止或要求 resync，不无界增长。
-- 大结果 TTL 默认 1 小时，受限总空间；内容可能敏感，权限校验同原调用，撤销后立即不可读。
+- 原始内容、句柄和去重墓碑分别按 §12.3 保留；内容可能敏感，权限校验同原调用，撤销后立即不可读。
 - 网络/订阅配额独立于模型 token 预算，使用结构化分页让主 Agent 按需获取。
 
 这些数值是初始预算，性能阶段校准，不是 Luvus 固有限制。
+
+### 12.3 内容、句柄、墓碑与全库预算
+
+以下为可配置的设计默认值，尚未实现。MiB = 1,048,576 bytes；时间均使用 Gateway 可信时钟，记录固定 expires_at。配置变更只影响新登记对象；缩短既有期限须受保护维护并明确去重边界，已经过期或 discard 的内容不能被延长期限复活。
+
+| 对象/配置 | 默认值 | 计时、预算与保证边界 |
+|---|---|---|
+| 原始内容 `content_ttl` / `content_bytes` | 1 小时 / 128 MiB | 调用首次登记即固定 content_expires_at；包含内联 response、外部对象、单次终端 capture 等内容副本，不只大结果；被明确识别的秘密走独立 custody，不落普通结果库 |
+| 结果句柄 `handle_ttl` / `handle_payload_bytes` | 1 小时 / 16 MiB | 每个句柄 expires_at = min(创建时间 + handle_ttl, content_expires_at)；16 MiB 是 128 MiB 内容池内的子上限，实际复制字节计入内容/全库预算，不重复算成免费缓存 |
+| 调用元数据 `call_metadata_ttl`、去重墓碑 `dedup_ttl` / `call_metadata_bytes` | 各 30 天 / 共用 64 MiB | 自调用首次登记计时；call_metadata_ttl 不得小于 dedup_ttl；unknown 也只保留有界的最小记录，不承诺无限历史；墓碑期内不得因容量压力提前丢失去重 |
+| 新 key 范围 `history_epoch_max_age` | 24 小时 | 不大于该范围冻结的 dedup_ttl；退役范围只重返已有 key，缺失时拒绝创建，见 §11.2 |
+| 结构化审计 `audit_ttl` / `audit_bytes` | 30 天 / 64 MiB | 自审计事件创建计时；不含 prompt、原始输出或 secret；到达上限不截断仍在承诺期内的必需动作记录，应阻断需新增该记录的动作 |
+| 身份/撤销/策略元数据 `security_metadata_bytes` | 16 MiB；不按内容 TTL 自动删除 | 不能为了回收内容或墓碑而复活撤销/配对；达到上限拒绝新分配，需受保护维护 |
+| 受管备份 `backup_ttl` / `backup_max_count` / `backup_bytes` | 7 天 / 2 份 / 合计 128 MiB | 按需人工发起，不自动调度；默认逻辑导出必要元数据，排除原始内容/句柄载荷与所有明文凭据；如另行授权包含原文，仍保留原 expires_at 并披露备份中的物理残留 |
+| 全部受管存储 `storage_total_bytes` / `storage_reserve_bytes` | 512 MiB / 其中预留 64 MiB | 总量覆盖 SQLite（含空闲页）、WAL/SHM、外部对象、受管日志/备份与维护临时文件；预留用于已接收调用的收尾/有界审计和恢复，不用于新增业务；各子预算不替代总预算 |
+
+持续流仍按 §12.1/§12.2 使用有界内存队列，不默认持久化流帧；单次 capture 等作为普通结果登记时纳入此内容池。结果句柄 TTL 不替代流本身的生命周期/背压规则。
+
+`storage_reserve_bytes < storage_total_bytes`，各池均受总量约束，不能把子上限相加当成额外空间。该总量约束受管文件与数据字节，不是整个磁盘或同账号其它进程的 OS 配额；磁盘实际剩余空间另行校验。准入前预留调用元数据、必需审计和有界结果容量，按实际字节归还；不能为了收尾无限突破总预算。容量不足时先回收已过期内容/句柄及合法到期元数据，仍不足则在派发前显式 storage_exhausted，既有未知写操作不重发；异常收尾缺少原文时保留已预留的最小证据并明确 content_unavailable。拒绝流量审计有界聚合，不能靠无限日志绕过预算。
+
+内容期限覆盖内联与句柄两条读取路径。内容过期/显式 discard 后，call_get、result_read、同 key 重试、晚到回复和备份恢复都不能重新返回原文或制造新句柄；已有句柄也立即失效。句柄先过期而原始内容尚在有效期且未 discard 时，可以按当前授权创建另一短句柄，但不得延长 content_expires_at，也不改变去重截止时间。显式清理继续要求调用归属、当前方法策略和独立 discard_response 权限；自动到期/配额维护是受限后台职责，不能由普通 caller 借此绕过清理权限。
+
+§11.1 晚到结果若到达时内容窗口已结束，只能补充最小证据；内容窗口按调用登记时刻固定，不以迟到的“首次收到响应”重新开始。TTL 表示服务读取/保存逻辑的期限，SQL 删除不承诺对空闲页、WAL、文件系统快照、已导出副本或备份作物理擦除。受管备份也受总量和期限约束；管理员自行导出的副本不在此可控范围，恢复时仍不得刷新原 TTL。
+
+跨字段约束：TTL、容量、数量均为正且能用约定时间/字节精度安全表示；`call_metadata_ttl >= dedup_ttl`；每个范围冻结 `history_epoch_max_age <= frozen_dedup_ttl`；句柄有效期按 min 公式截断（不强制配置的 handle_ttl 小于 content_ttl）。`0 < storage_reserve_bytes < storage_total_bytes`，各存储子上限不得大于总量，普通新业务只能在总量减预留及已有预约后做准入。句柄载荷是内容子池，`handle_payload_bytes <= content_bytes`；管理恢复/审计的预留不能绕过各自子预算。默认非重叠子池 128+64+64+16+128=400 MiB，加 64 MiB 预留为 464 MiB；剩余 48 MiB 只是默认余量，索引/空闲页/WAL/SHM/临时文件仍按实际字节计入，不能视作未计量空间。
+
+### 12.4 预留耗尽与持久化失败
+
+64 MiB 是总预算内的应用收尾预留，不是无限紧急池，也不是文件系统成功写入的保证。派发前必须先原子持久化调用/attempt/范围绑定、最小去重墓碑与“可能送达”的 dispatching 锚点，并预留受限的收尾/必需审计空间；若这一前置提交失败，禁止向 Connector/UHP 写出，返回 not_dispatched + storage_exhausted（仅在确实尚未写出的情况下）。预约总和不能超过可用预留；无法为下一次派发保证有界收尾容量时停止新准入。
+
+若预留也用尽，或磁盘/WAL/I/O 故障使已有预约不可兑现，则进入 storage_degraded：停止新调用派发、流输入、配对/新认证等会扩大副作用或安全状态的动作；只在不会新分配/持久化内容且仍有授权的条件下允许有界只读诊断。先尝试合法到期回收；不得提前删除墓碑/仍有效审计、放宽预算、再执行 unknown 写入或自动丢弃撤销记录。不能持久化撤销等安全变更时，不能报告“已生效”；必要时停止接受认证/关闭相关通道来保持拒绝服务状态，等待受保护维护。
+
+已经可能送达的动作不能改称 not_dispatched，也不能声称取消或回滚。若连最终 unknown/晚到证据都无法持久化，保留此前已提交的 dispatching/accepted 锚点，内存/当前错误返回只注明结果持久化不可用；原记录按不确定处理，重启时保守转 unknown 且不重放。无法证明锚点/账本完整则恢复隔离。晚到更新事务失败不能发布 durable responded，也不能创建句柄；证据可能丢失的事实必须明确，不能承诺预留总能保存最终回复。
+
+拒绝流量/故障只做有界、无秘密的瞬时告警/聚合，不能用无限日志弥补写满或宣称审计完整。只有在预算、持久化完整性和必要审计恢复并通过健康检查后，受保护管理才可解除 degraded；不自动重派之前的调用。本节是 #5 的故障门禁，非本次运行配置或已实现恢复行为。
 
 ## 13. 授权、安全和审计
 
@@ -320,6 +417,8 @@ Gateway 的 expected_server_generation 只提供桥接层的目标核对：若�
 - owner：配置目标范围内所有允许的 UHP；Host admin 和凭据管理独立授予。
 
 最外层 ACL 是上限，Connector 本地策略再次检查。禁止通过 luvus_call 绕过 machine revoke、原生 token 管理或 admin 审批；凭据类方法如开放则使用专门 secret custody 流程，不原样把 token result 交给模型。
+
+三种角色共同受 §8 的安全分类门禁限制：Owner 不代表允许未知作用、未知高权限要求或未知秘密结果处理。只有分类完整而参数 schema 缺失时，才可能在显式 raw-contract 下讨论调用；两个缺口须分别拒绝/说明。派发、流写入和结果交付均重新核对分类 revision 与双方当前策略，不能只在 discover 时检查一次。
 
 ### 13.2 MCP 入口认证
 
@@ -336,12 +435,15 @@ Gateway 被攻陷可影响已授权设备，Connector 失陷可伪造该设备�
 默认记录 caller、machine/profile/session、method、call_id、epoch、generation、policy revision、时间、状态、大小；参数只记录经过脱敏的摘要。prompt、终端输出、配置可能含秘密，默认不进入普通日志。
 设备/配对/UHP/OAuth secret 永不写日志、URL、进程参数或 MCP content。结果保存无法保证自动识别所有秘密，所以限制访问、存留、导出；可配置磁盘加密/系统加密卷。
 Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销权限先阻断新动作，再关闭流，报告仍可能运行的工作。
+审计和结果分池保留，具体期限与预算按 §12.3。保留可信晚到证据或恢复管理记录不授予内容读取权限；审计也不能成为秘密结果的旁路。
 
 ## 14. 兼容性、模块和可观测性
 
 拟议模块：cli、mcp-facade、registry/enrollment、identity-policy、router-call-ledger、result-store、schema-index、connector-transport、local-uhp-rpc、local-uhp-stream、audit-health。
 
-建议实现语言 TypeScript；选当时支持的 Node LTS，锁定 SDK/依赖版本并留 ADR。Node 版本、MCP protocol version 不在设计阶段凭“latest”硬写；实施前针对目标客户端做协商和兼容验证。
+实现语言保持 TypeScript；未来开发工具链按用户要求改用 Bun，由 [issue #15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 在 #4 前单独迁移验收。本轮不改 package/lock、测试、构建或脚本；Bun 1.4.3 只是 issue 建议的待核验精确版本，尚未验证官方来源/环境可用性。是否仍需 Node 运行时、如何替换或保留 node:sqlite，须验证 SQLite、SDK、类型检查、测试/构建与脚本后决定，不因工具链变更直接宣称运行时全迁移。
+
+[ADR 0001](adr/0001-p0-version-and-contract-baseline.md) 保留 Node 24.19.0/npm 11.9.0/SQLite 3.53.3 的 P0 历史证据；它不是未来工具链默认值。迁移从 d2455e8 的真实 package.json/lock 出发，其中已经有 MCP SDK 1.32.1、Ajv 8.20.0 和 ws 8.22.0，不能用旧 916cae2 中“没有 SDK”的观察代替。保持 SDK 1.32.1 已测基线，不借迁移升级 SDK 2.x 或重写 MCP 架构。已验证的 MCP revision 仍只是 2025-11-25；其它运行时/客户端须分别联调。
 
 公开 health 分层：Gateway ready、设备 link、Connector ready、Host profile 可用、各 session reachable；Provider 错误属于 agent 任务层，不能显示成 Gateway 不在线。
 指标：在途数、队列拒绝、请求延迟、unknown 计数、连接重试、流缺口/背压、schema 缓存命中、凭据失败；不以 machine 高基数无限生成标签。
@@ -359,6 +461,10 @@ Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销�
 | 单活 SQLite | 首版操作简单；不支持多副本 writer/自动 HA |
 | 不承诺 exactly-once | 跨网络与 UHP 执行无原子事务，宁可明确 unknown |
 | Gateway/Connector 双层策略 | 完整接口与安全授权独立；Owner 权限显式授予 |
+| 未知安全分类默认拒绝 | 与参数 schema 缺口分开；raw-contract 不能越过高权限/秘密结果门禁 |
+| 内容/句柄/墓碑分期及全库预算 | 内容到期不可再生，有限去重窗口与旧范围拒绝明确，不宣称无限历史 |
+| 备份恢复先隔离 | 旧认证与配对全部失效，旧范围拒绝，重新授权后才恢复业务 |
+| 可靠晚到结果作为证据追加 | 同一已验证 attempt/有效 epoch 可细化 unknown，不重发，其他关联隔离 |
 
 ## 16. 待确认事项与默认建议
 
@@ -368,6 +474,10 @@ Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销�
 4. 是否授予 Owner/Host admin：默认只读，显式扩大；这是部署选择，不削减协议可表达能力。
 5. 单机多 LUVUS_HOME：首版按不同注册目标处理。
 6. 原生 endpoint 的平台实证和高级终端帧：协议实验阶段冻结。
+
+四项 v0.3 原则已采纳，不再列作未决问题；§12.3 为供实现与父会话验收的可配置默认值，不是已运行的策略。#4/#5 的具体实现、CLI 配置编码和迁移尚待开发；本次仅文档修订不授予开发/凭据/部署或远端发布权限。
+
+内置 Web UI 与未来 Bun 工具链也是已确认需求；#14/#15 的实现需独立派发。尚待技术验证的是 Bun 精确版本和运行时/SQLite/SDK 兼容，不再把 Node+npm 写成未来默认选择。
 
 ## 17. 完整性验收口径
 
@@ -379,6 +489,8 @@ Agent 输出按不可信数据处理，不能驱动自动越权确认。撤销�
 - 尚不支持且写明原因。
 
 全功能就绪要求：所有目标版本能力都有分类、授权允许的功能有实际调用路径，普通方法通用透传不必逐个写业务代码；高风险、流、安装辅助等不能被一句“raw call”掩盖。
+
+后续验收还必须分别证明：未知安全分类在所有角色下拒绝；内容到期/discard 后所有读取和重建路径关闭且墓碑保留；有限去重范围到期/恢复回滚时旧 key 不会新建派发；恢复前撤销与配对消费不复活；同一有效 attempt 的可靠晚到结果可补证，旧 epoch/恢复代次/其他 attempt 不污染结果。#4/#5 的具体验收清单见实施方案 §4.1。
 
 ## 18. 参考来源与本次核验
 
@@ -401,4 +513,4 @@ S6 https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization
 S7 https://github.com/modelcontextprotocol/typescript-sdk
 ```
 
-本机只读核验命令：`luvus --version`、`luvus help uhp`、`luvus uhp schema`。一次临时解析命令因错误地占用了管道 stdin 导致 luvus stdout Broken pipe；随后正确解析成功，此异常不是本设计产品测试结果。
+v0.2 最初只读核验命令：`luvus --version`、`luvus help uhp`、`luvus uhp schema`。一次临时解析曾因管道 stdin 使用错误导致 Broken pipe，之后解析成功。后续 Linux P0 原生验收见 [REPORT](p0/REPORT.md) 与 [REVIEW](p0/REVIEW.md)，不能把它扩展为 Gateway/Connector 已实现。本次 v0.3 的新增规则来源是用户对四项原则的采纳，新增默认值是设计建议，不是 Luvus/MCP 官方行为或实现测试结论。

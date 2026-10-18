@@ -1,0 +1,35 @@
+{
+  "reviewedLocalCommit": "885cc6aaf54790c09845128aeb1e3e849a15a807",
+  "reviewedTree": "0b3f8a7f9db082a5ed545a767d5fa4a6348952ad",
+  "typescriptPreMigration": {
+    "916cae2": "7.0.2",
+    "4f963d1": "7.0.2",
+    "9c4a7fe": "7.0.2"
+  },
+  "retainedLockEntries": 119,
+  "changedVersionOrIntegrity": 0,
+  "removedOnlyTsxChain": 29,
+  "installedPackageManifestPaths": 100,
+  "foreignPlatformEntries": 19,
+  "bunInstallUniquePackageSummary": 97,
+  "originalTestsIdentical": true,
+  "originalTestsDiscovered": 20,
+  "skipTodoGuardMutationRejected": true,
+  "strictTypecheckReceipt": "../verification/typecheck-negative.log",
+  "ciBootstrapExactPythonBlockPositiveAndBadChecksumTests": true,
+  "ciBadChecksumRejectedWithPythonOptimize": true,
+  "ciShellSyntaxPassed": true,
+  "ciRemoteStatusAtReview": "not run; no branch published yet",
+  "ciPermissions": {
+    "contents": "read"
+  },
+  "ciDeploySteps": 0,
+  "reviewNativeArchiveSha256": "d3096fedbd0e632e52c747277e181002afdeccd910ebc3b7f77dfcd25b9fc798",
+  "testsRetainedAndNotRerunUnnecessarily": {
+    "foundation": 20,
+    "p0JavaScript": 7,
+    "p0Python": 7,
+    "bunCompatibility": 5
+  },
+  "remainingDevelopmentBlockers": []
+}

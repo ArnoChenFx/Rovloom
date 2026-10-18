@@ -1,0 +1,63 @@
+{
+  "blockingProbeExits": {
+    "node": 99,
+    "npm": 99,
+    "npx": 99
+  },
+  "workflowNodeNpmNpxInvocations": 0,
+  "nativeCollection": {
+    "command": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "/project/scripts/bun/collect_native_no_node.py",
+      "--worker",
+      "--binary",
+      "/verified/luvus",
+      "--bun",
+      "/verified/bun",
+      "--output",
+      "/tmp/luvus-issue15-review-native-v1/native",
+      "--tools",
+      "/blocked/bin"
+    ],
+    "exit": 0,
+    "executables": [
+      "/bin/sh",
+      "/blocked/bin/uname",
+      "/fixture/issue3/blocked-bin/git",
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "/usr/bin/python3",
+      "/verified/luvus"
+    ],
+    "traceSha256": "5fc9bdbbc28859e4e43b154c826fe3d76aa9c9503fbfb88ecc8efdf1e8131c28"
+  },
+  "bunReplay": {
+    "command": [
+      "/verified/bun",
+      "--no-env-file",
+      "-e",
+      "import {inspectFixtures} from \"./scripts/p0/audit-fixtures.mjs\"; console.log(JSON.stringify(inspectFixtures(process.argv[1])))",
+      "/tmp/luvus-issue15-review-native-v1/native"
+    ],
+    "exit": 0,
+    "executables": [
+      "/verified/bun"
+    ],
+    "traceSha256": "44b143cf4c34a1eee453df4ec9b9cb16ae6f09d61a8d5cce814a02b07b53dd75"
+  },
+  "wireValidation": {
+    "requests": 31,
+    "responses": 30,
+    "events": 21,
+    "intentional_invalid": 2,
+    "documents": 29
+  },
+  "nativeAssertions": 727,
+  "allPassed": true,
+  "cleanup": {
+    "server_stopped": true,
+    "no_running_sessions": true,
+    "temporary_root_removed": true,
+    "errors": []
+  },
+  "childPath": "/fixture/issue3/blocked-bin"
+}

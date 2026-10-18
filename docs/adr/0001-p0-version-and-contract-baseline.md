@@ -1,7 +1,9 @@
 # ADR 0001：P0 版本、契约来源与协商基线
 
-日期：2026-10-18 UTC。状态：本任务已执行的开发基线，待父会话验收。
+日期：2026-10-18 UTC。状态：Linux P0 范围已由父会话验收，提交 `d2455e878f93e162a2a54bb58c1e5785aecd0949`；其余平台/产品能力仍受下述限制。
 依据：issue #3、DESIGN v0.2、IMPLEMENTATION-PLAN v0.2；基线提交 `916cae2412b69f3432caf264fd411ea1a4b3093f`。
+
+后续需求变更：用户指定未来开发工具链改用 Bun，[迁移 #15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 在 #4 前独立验收。本文件的 Node/npm 版本是 P0 实际历史记录，不能改成 Bun 通过，也不再代表未来工具链默认值。迁移以 d2455e8 的真实 package/lock（已有 SDK 1.32.1/Ajv/ws）为准；不随迁移升级 SDK 2.x，是否保留 Node 运行时及 node:sqlite 由兼容验证决定。
 
 ## 决策与已验证范围
 
@@ -39,7 +41,7 @@ Node 官方发布表在本次核验时列出 v24 为 LTS、v26 为 Current；没
 2. schema 文件不是能力/权限清单。实时 session 197 方法，Host 17 方法，另有 9 个 `machine.*` 仅出现在 schema/专用 access profile 文档中。`access --machines` 未启动，不能把其 machine 身份作为网关设备注册。
 3. `documents` URL 是**本地 bundle 内的索引键**。使用 Ajv2020 `addSchema(document, URL)`，保留完整根约束、`allOf`、`oneOf` 和传递引用；不提供 `loadSchema`，不联网取 `$ref`，不把未知 URL 当文件路径。缺失引用/未知 dialect 必须失败关闭。
 4. Ajv 的 `strict:false` 只关闭对原生 schema 写法的 lint 告警；`coerceTypes/useDefaults/removeAdditional` 均关闭，原生数据不被修改。缺 id、result/error 并存、额外根字段、条件分支不符、缺失/外部引用都有拒绝测试。[Ajv draft 文档](https://ajv.js.org/json-schema.html)。
-5. **144/223 方法只有通用 params object；79/223 有条件参数分支。**存在分支也不等于其全部业务语义已经形式化。#4 不得把枚举发现、通用 object 验证称作完整方法参数验证；`parameter_schema_incomplete` 须在严格执行路径中拒绝或明确待决，不能自行从网页拼 schema，也不能静默启用 raw-contract。
+5. **144/223 方法只有通用 params object；79/223 有条件参数分支。**存在分支也不等于其全部业务语义已经形式化。#4 不得把枚举发现、通用 object 验证称作完整方法参数验证；`parameter_schema_incomplete` 在严格模式中拒绝。v0.3 的 [ADR 0002](0002-safety-retention-recovery-late-evidence.md) 已进一步明确：未知安全分类默认拒绝，只有分类完整且其余门禁满足时，Owner 才能显式放宽参数验证；不能自行从网页拼 schema，也不能静默启用 raw-contract。此为设计约束，非新增原生验收结论。
 6. 普通 response 使用全局 response schema；终端 response 再应用 terminal response；一般 event 同时验证 envelope 与 event_catalog payload；`terminal.frame` 属 terminal event schema，并不在一般 event_catalog 中。不能把缺 catalog 键误判成未知普通事件后丢弃。
 7. 缓存键须至少含 binary hash/schema hash、profile、session、原生 generation；未知版本/能力变化要重新发现。P0 没有实现这个生产缓存，脚本仅提供固定版本证据。
 
@@ -51,8 +53,8 @@ Linux endpoint 只来自新实例 `luvus --session p0-issue3 session list --json
 
 普通 proxy 单次请求/响应，双帧输入只处理首帧；无 LF/非法 JSON 是进程错误，原生 UHP error 则保留原始 id/error 且 CLI 退出 1。持续流必须连接发现的 endpoint。终端需要 server_generation + terminal_id + pane_id；本次原生拒绝 stale_server/stale_terminal/control_conflict 均保留。控制写 ack 的 queued 不代表消费，测试另用子进程变换输出证明消费。关闭流释放 lease，关闭 pane 需要显式原生 close；不能混为一事。
 
-Gateway↔Connector 的协议仍是已有内部 1.0 草稿，不是 UHP 或 MCP。major 拒绝、minor 能力交集、方向约束和认证握手仍待 #4/#5 后续设计；本 ADR 不把历史 exact-minor 检查提升成生产协商，也不替父会话未决语义做决定。取消/超时不等于回滚；发送后失联保持 `outcome_unknown`，不重放写入。
+Gateway↔Connector 的协议仍是已有内部 1.0 草稿，不是 UHP 或 MCP。major 拒绝、minor 能力交集、方向约束和认证握手仍待 #4/#5 实现；本 ADR 不把历史 exact-minor 检查提升成生产协商。父会话随后确认的四项语义记录在 ADR 0002：unknown 在缺少证据时保留，同一有效 attempt 的可靠晚到结果允许补证，旧 epoch/恢复代次/其它 attempt 隔离；取消/超时不等于回滚，不重放写入。
 
 ## 仍需用户选择/后续验收
 
-Gateway 部署位置/可达地址、目标 OS、具体 MCP Host 与版本、OAuth 服务、两台真实机器未指定。当前无需这些输入即可完成 Linux P0；这些缺项阻断对应的跨平台、客户端正式兼容、HTTP/OAuth 和双机发行门禁。没有创建持久凭据、配置网络安全设置或部署服务。父会话在 #4/#5 前讨论的协议语义仍以其后续决议为准。
+Gateway 部署位置/可达地址、目标 OS、具体 MCP Host 与版本、OAuth 服务、两台真实机器未指定。当前无需这些输入即可完成 Linux P0；这些缺项阻断对应的跨平台、客户端正式兼容、HTTP/OAuth 和双机发行门禁。没有创建持久凭据、配置网络安全设置或部署服务。四项已采纳语义以 ADR 0002 和正式文档 v0.3 为准，其实现验收仍未完成。

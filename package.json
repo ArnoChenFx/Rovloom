@@ -4,21 +4,24 @@
   "private": true,
   "description": "Multi-machine Luvus MCP gateway and connector (foundation only)",
   "type": "module",
-  "engines": {
-    "node": ">=24.19.0 <25"
-  },
+  "packageManager": "bun@1.4.3",
+  "engines": { "bun": "1.4.3" },
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
-    "test:p0": "node --test scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py",
-    "p0:audit": "node scripts/p0/audit-fixtures.mjs"
+    "toolchain": "bun --no-env-file scripts/bun/toolchain.mjs",
+    "build": "bun --no-env-file scripts/bun/build.mjs",
+    "typecheck": "bun --no-env-file node_modules/typescript/bin/tsc --noEmit",
+    "test": "bun --no-env-file test ./test",
+    "test:p0": "bun --no-env-file test ./scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py",
+    "p0:audit": "bun --no-env-file scripts/p0/audit-fixtures.mjs",
+    "p0:bun-native": "python3 scripts/bun/audit_native.py",
+    "test:bun": "bun --no-env-file test ./scripts/bun/compatibility.test.mjs",
+    "smoke": "bun --no-env-file scripts/bun/smoke.mjs",
+    "verify": "python3 scripts/bun/verify.py"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "26.6.5",
     "ajv": "8.20.0",
-    "tsx": "4.23.15",
     "typescript": "7.0.2",
     "ws": "8.22.0"
   }
