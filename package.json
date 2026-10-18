@@ -2,10 +2,13 @@
   "name": "luvus-mcp",
   "version": "0.1.0-dev",
   "private": true,
+  "license": "MIT",
   "description": "Rovloom: planned multi-machine MCP gateway and connector for Luvus/Herdr (foundation only)",
   "type": "module",
   "packageManager": "bun@1.4.3",
-  "engines": { "bun": "1.4.3" },
+  "engines": {
+    "bun": "1.4.3"
+  },
   "scripts": {
     "toolchain": "bun --no-env-file scripts/bun/toolchain.mjs",
     "build": "bun --no-env-file scripts/bun/build.mjs",
@@ -16,7 +19,11 @@
     "p0:bun-native": "python3 scripts/bun/audit_native.py",
     "test:bun": "bun --no-env-file test ./scripts/bun/compatibility.test.mjs",
     "smoke": "bun --no-env-file scripts/bun/smoke.mjs",
-    "verify": "python3 scripts/bun/verify.py"
+    "verify": "python3 scripts/bun/verify.py",
+    "lint": "bun --no-env-file node_modules/oxlint/bin/oxlint --config .oxlintrc.json --deny-warnings --report-unused-disable-directives-severity error src test scripts",
+    "lint:fix": "bun --no-env-file run lint --fix",
+    "format": "bun --no-env-file node_modules/oxfmt/bin/oxfmt --config .oxfmtrc.json --write \"{src,test,scripts}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}\" package.json tsconfig.json .oxlintrc.json .oxfmtrc.json",
+    "format:check": "bun --no-env-file node_modules/oxfmt/bin/oxfmt --config .oxfmtrc.json --check \"{src,test,scripts}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}\" package.json tsconfig.json .oxlintrc.json .oxfmtrc.json"
   },
   "dependencies": {
     "ajv": "8.20.0"
@@ -24,6 +31,8 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "26.6.5",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
     "typescript": "7.0.2",
     "ws": "8.22.0"
   }
