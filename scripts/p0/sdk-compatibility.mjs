@@ -33,6 +33,10 @@ export async function probeSdk() {
   assert(wire.some(r => r.message.method === 'notifications/initialized'));
   assert.equal(stderr, '');
   const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url)));
+  for (const name of ['@modelcontextprotocol/sdk', 'ajv', 'ws']) {
+    const installed = JSON.parse(readFileSync(new URL(`../../node_modules/${name}/package.json`, import.meta.url)));
+    assert.equal(installed.version, lock.packages['node_modules/' + name].version, `${name}: installed version differs from lock`);
+  }
   return { node: process.version, sqlite: process.versions.sqlite,
     dependencies: Object.fromEntries(['@modelcontextprotocol/sdk', 'ajv', 'ws'].map(name => [name, {
       version: lock.packages['node_modules/' + name].version, integrity: lock.packages['node_modules/' + name].integrity,

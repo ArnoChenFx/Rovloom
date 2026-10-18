@@ -52,6 +52,7 @@ class Capture:
         self.endpoint_identity = None
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.completed = False
+        self.collection_failure = None
 
     def safe_text(self, value):
         return value.replace(str(self.root), "/fixture/issue3").replace(str(self.binary), "/fixture/bin/luvus")
@@ -62,7 +63,8 @@ class Capture:
 
     def check(self, label, condition):
         self.checks.append({"assertion": label, "passed": bool(condition)})
-        assert condition, label
+        if not condition:
+            raise AssertionError(label)
 
     def run(self, label, arguments, request=None, timeout=10, raw_input=None):
         wire = raw_input if raw_input is not None else (
@@ -225,6 +227,9 @@ class Capture:
         self.check("stale generation control is refused", "error" in stale)
         wrong = self.rpc("control-wrong-terminal", "terminal.backend.control", dict(identity, terminal_id="0" * 32))
         self.check("wrong terminal lifetime is refused", "error" in wrong)
+        other_pane = next(p["pane_id"] for w in initial["workspaces"] for t in w["tabs"] for p in t["panes"] if p.get("terminal_id") != identity["terminal_id"])
+        wrong_route = self.rpc("control-wrong-pane", "terminal.backend.control", dict(identity, pane_id=other_pane))
+        self.check("wrong pane route is fenced", wrong_route["error"]["code"] == "stale_route")
         control = self.stream("terminal-control", "terminal.backend.control", dict(identity, mode="visible", lines=24, ansi=False))
         control_ack = control.receive()
         self.check("control acknowledged", "result" in control_ack)
@@ -240,7 +245,7 @@ class Capture:
         invalid = control.until(lambda x: x.get("id") == "input-invalid")
         self.check("unknown control action refused", "error" in invalid)
         control.close()
-        # 只重试获取只读握手/租约，不重发输入或变更；释放是异步的。
+        # 仅为验证异步租约释放而重试 control 握手；这需要控制权限，不重发输入。
         reacquired = None
         for index in range(20):
             candidate = self.stream("control-reacquire-" + str(index), "terminal.backend.control", identity)
@@ -273,23 +278,58 @@ class Capture:
         self.check("observe EOF after terminal close", observed.receive() is None)
 
     def finish(self):
+        cleanup_errors = []
+
+        def failed(stage, error):
+            cleanup_errors.append({"stage": stage, "error": type(error).__name__, "message": str(error)})
+
         for stream in self.streams:
-            stream.close()
+            try:
+                stream.close()
+            except Exception as error:
+                failed("stream_close", error)
+        no_running = None
         if self.server is not None:
-            if self.server.poll() is None:
-                self.server.terminate()
-                try:
-                    self.server.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.server.kill()
-                    self.server.wait(timeout=3)
-            self.server_out.close()
-            self.server_err.close()
-            self.records.append({"kind": "server_exit", "exit_code": self.server.returncode,
-                                 "stdout": (self.root / "server.stdout").read_text(),
-                                 "stderr": (self.root / "server.stderr").read_text()})
-            rows = self.discover("discovery-after-cleanup")["sessions"]
-            self.check("no running sessions after cleanup", not any(row["running"] for row in rows))
+            try:
+                if self.server.poll() is None:
+                    self.server.terminate()
+                    try:
+                        self.server.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.server.kill()
+                        self.server.wait(timeout=3)
+            except Exception as error:
+                failed("server_stop", error)
+            try:
+                self.server_out.close()
+                self.server_err.close()
+                self.records.append({"kind": "server_exit", "exit_code": self.server.returncode,
+                                     "stdout": (self.root / "server.stdout").read_text(),
+                                     "stderr": (self.root / "server.stderr").read_text()})
+            except Exception as error:
+                failed("server_log", error)
+            try:
+                rows = self.discover("discovery-after-cleanup")["sessions"]
+                no_running = not any(row["running"] for row in rows)
+                self.check("no running sessions after cleanup", no_running)
+            except Exception as error:
+                failed("cleanup_discovery", error)
+        # 发现/日志/写证据的异常不能跳过私有目录清理；只有实际删除后才登记成功。
+        server_stopped = self.server is None or self.server.poll() is not None
+        if server_stopped:
+            try:
+                shutil.rmtree(self.root)
+            except Exception as error:
+                failed("root_remove", error)
+        else:
+            failed("root_remove", RuntimeError("owned server still alive; preserve its state for manual cleanup"))
+        cleanup = {"server_stopped": server_stopped, "no_running_sessions": no_running,
+                   "temporary_root_removed": not self.root.exists(), "errors": cleanup_errors}
+        self.records.append({"kind": "cleanup", **cleanup})
+        if self.collection_failure is not None:
+            self.records.append({"kind": "collection_failure", **self.collection_failure})
+        if cleanup_errors:
+            self.completed = False
         self.save("transcript.json", self.records)
         self.save("assertions.json", self.checks)
         self.save("environment.json", {"binary_sha256": digest(self.binary.read_bytes()),
@@ -298,12 +338,13 @@ class Capture:
                   "os_release": Path("/etc/os-release").read_text(),
                   "python_version": platform.python_version(),
                   "child_environment": self.environment, "base_commit": "916cae2412b69f3432caf264fd411ea1a4b3093f",
-                  "cleanup": "owned server terminated; temporary root removed"})
-        shutil.rmtree(self.root)
+                  "cleanup": cleanup})
         self.save("manifest.json", {"format": 1, "kind": "sanitized-native-evidence", "files": {
             path.name: {"sha256": digest(path.read_bytes()), "bytes": path.stat().st_size}
             for path in sorted(self.output.iterdir()) if path.name != "manifest.json"
         }, "redaction": "Only run root and binary path replaced. Generated identities, sequence, errors, LF and payloads retained. Raw CLI stdout/stderr hashes are pre-normalization; manifest hashes cover delivered bytes."})
+        if cleanup_errors:
+            raise RuntimeError("cleanup checks failed: " + ", ".join(error["stage"] for error in cleanup_errors))
 
 
 class Wire:
@@ -311,9 +352,13 @@ class Wire:
         self.capture, self.label, self.buffer = capture, label, b""
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(5)
-        self.socket.connect(address)
-        pid, uid, gid = struct.unpack("3i", self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-        capture.check("Linux peer uid and server pid match", uid == os.geteuid() and pid == capture.server.pid)
+        try:
+            self.socket.connect(address)
+            pid, uid, gid = struct.unpack("3i", self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            capture.check("Linux peer uid and server pid match", uid == os.geteuid() and pid == capture.server.pid)
+        except Exception:
+            self.socket.close()
+            raise
         capture.records.append({"kind": "peer_credentials", "channel": label, "pid": pid, "uid": uid, "gid": gid})
 
     def send(self, value):
@@ -363,6 +408,9 @@ def main():
     try:
         capture.collect()
         capture.completed = True
+    except BaseException as error:
+        capture.collection_failure = {"error": type(error).__name__, "message": str(error)}
+        raise
     finally:
         capture.finish()
 

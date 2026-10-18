@@ -4,6 +4,8 @@
 
 ## Issue #3 后续交接（2026-10-18 UTC）
 
+本次交付后又执行一轮[验收复核](p0/REVIEW.md)：加强原生记录语义审计、manifest 文件集合检查与失败清理；原 fixture 保持不变，新隔离原生运行补齐 stale_route 证据。复验为基础测试 20 项、P0 Node 7 项与 Python 7 项全部通过；正式设计和 `src/` 未改。父会话以本分支最新修复提交及该复核报告验收，未自动推进 #4。
+
 下文原交接是历史基线。本次从远端核实的 `916cae2412b69f3432caf264fd411ea1a4b3093f` 建立独立本地分支 `task/issue-3-native-evidence`，未推送/合并。
 
 - Linux 0.14.3 的 RPC、无 session server 的 Host、events/snapshot/replay、terminal observe/control 的身份 fence、租约、ack、关闭均已采集原生证据；实例均为全新隔离目录，已清理。

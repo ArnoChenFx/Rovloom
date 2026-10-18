@@ -2,6 +2,8 @@
 
 日期：2026-10-18 UTC。交付状态：**Linux P0 最小技术门禁有原生证据，待父会话验收；不是 Gateway/Connector 可部署性验收。**
 
+本报告记录初次交付。后续一轮验收复核、已修复审计/失败清理问题及新原生复跑，见 [REVIEW.md](REVIEW.md)；原 fixture 保持不变。
+
 ## 基线、范围与来源
 
 - 仓库 `ArnoChenFx/luvus-mcp`；远端 `feat/reviewed-core-foundation` 经 fetch 核实为 `916cae2412b69f3432caf264fd411ea1a4b3093f`。
@@ -72,7 +74,7 @@ tar -xzf "$P0_DIST/luvus-v0.14.3-x86_64-unknown-linux-musl.tar.gz" -C "$P0_DIST"
 python3 scripts/p0/collect_native.py --binary /tmp/luvus-issue3-dist/luvus --output fixtures/p0/linux-luvus-0.14.3
 ```
 
-在相同 Linux 环境重新采集时使用新的 output，例如 `/tmp/p0-rerun-<唯一名>`；不要直接覆盖已提交证据。脚本固定核对已审核 binary SHA，只在 `/workspace` 下新建 0700 状态根，使用 `p0-issue3` 显式 session 和完全构造的子进程环境，读不到调用者的 HOME 配置选择器。`finally` 关闭流、终止所启动 server、确认无 running、保存记录并删除根。路径参数只接受固定 binary 和新输出目录，没有用户 endpoint/session 输入。它只支持这次已测 Linux 版；不是生产 adapter。
+在相同 Linux 环境重新采集时使用新的 output，例如 `/tmp/p0-rerun-<唯一名>`；不要直接覆盖已提交证据。脚本固定核对已审核 binary SHA，只在 `/workspace` 下新建 0700 状态根，使用 `p0-issue3` 显式 session 和完全构造的子进程环境，不继承调用者的 HOME 配置选择器；这不构成 OS 文件访问沙箱。复核修复后的 `finally` 先关闭流、终止所启动 server、确认无 running 并删除根，再保存成功或失败记录，避免发现/写输出异常跳过删除。路径参数只接受固定 binary 和新输出目录，没有用户 endpoint/session 输入。它只支持这次已测 Linux 版；不是生产 adapter。
 
 离线验证与账本生成：
 

@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { inspectFixtures, coverage, offlineSchemas, readJson } from './audit-fixtures.mjs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fixtureRoot, inspectFixtures, coverage, offlineSchemas, readJson } from './audit-fixtures.mjs';
 import { probeSdk } from './sdk-compatibility.mjs';
+import { verifyNativeTrace } from './native-trace.mjs';
 
 test('原生 fixture hash、闭包 schema、请求响应关联及清理可重放验证', () => {
   const counts = inspectFixtures();
@@ -34,6 +37,46 @@ test('覆盖账本保持全部方法与 profile；未实现、权限、schema �
   assert(generated.methods.filter(row => row.method.startsWith('machine.')).every(row => row.reason === 'profile_not_exposed'));
   assert.equal(generated.methods.find(row => row.method === 'pane.run').reason, 'parameter_schema_incomplete');
   assert.equal(generated.methods.find(row => row.method === 'host.update.install').reason, 'admin_disabled_pending_explicit_authorization');
+  const bundle = readJson('schema-bundle.json');
+  const check = offlineSchemas(bundle).getSchema(bundle.request.$id);
+  const generic = generated.methods.filter(row => row.schema.parameter_detail === 'generic_params_only');
+  assert.equal(generic.length, 144);
+  // 用无关字段实测通用 object 会放行，不能仅复述账本里的计数。
+  for (const row of generic) assert.equal(check({ id: 'schema-gap', method: row.method, params: { p0_unannounced: ['synthetic'] } }), true, row.method);
+});
+
+test('语义审计独立拒绝错误退出码、伪造 peer、缺失端点检查与不一致副本', () => {
+  const original = readJson('transcript.json');
+  const environment = readJson('environment.json');
+  const artifacts = { host: readJson('host-capabilities.json'), session: readJson('session-capabilities.json'),
+    identity: readJson('terminal-identity.json'), inventory: readJson('terminal-inventory.json') };
+  for (const mutate of [
+    trace => { trace.find(r => r.label === 'host-info-before-server').exit_code = 7; },
+    trace => { trace.find(r => r.kind === 'peer_credentials').uid = environment.uid + 1; },
+    trace => { trace.splice(trace.findIndex(r => r.kind === 'endpoint_validation'), 1); },
+    trace => { trace.find(r => r.label === 'discovery-after-cleanup').stdout = '{"sessions":[{"running":true}]}'; },
+  ]) {
+    const trace = structuredClone(original);
+    mutate(trace);
+    assert.throws(() => verifyNativeTrace(trace, environment, artifacts));
+  }
+  const mismatch = structuredClone(artifacts);
+  mismatch.session.result.methods.push('p0.unobserved');
+  assert.throws(() => verifyNativeTrace(original, environment, mismatch));
+});
+
+test('manifest 不允许漏列必需文件或夹带无关文件', () => {
+  const root = mkdtempSync(join(tmpdir(), 'p0-fixture-audit-'));
+  try {
+    cpSync(fixtureRoot, root, { recursive: true });
+    writeFileSync(join(root, 'unrelated-synthetic.txt'), 'synthetic, no secret');
+    assert.throws(() => inspectFixtures(root), /unrelated/);
+    rmSync(join(root, 'unrelated-synthetic.txt'));
+    const manifest = readJson('manifest.json', root);
+    delete manifest.files['environment.json'];
+    writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest));
+    assert.throws(() => inspectFixtures(root), /required artifact/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('真实终端拒绝、队列 ack、消费证据、事件 replay 和取消边界不变', () => {

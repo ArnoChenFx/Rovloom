@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
+import { verifyNativeTrace } from './native-trace.mjs';
 
 export const fixtureRoot = fileURLToPath(new URL('../../fixtures/p0/linux-luvus-0.14.3/', import.meta.url));
 export const readJson = (name, root = fixtureRoot) => JSON.parse(readFileSync(resolve(root, name), 'utf8'));
@@ -21,8 +22,13 @@ export function offlineSchemas(bundle) {
 
 export function inspectFixtures(root = fixtureRoot) {
   const manifest = readJson('manifest.json', root);
+  const required = ['assertions.json', 'environment.json', 'host-capabilities.json', 'schema-bundle.json',
+    'session-capabilities.json', 'terminal-identity.json', 'terminal-inventory.json', 'transcript.json'];
+  assert.deepEqual(Object.keys(manifest.files).sort(), required.sort(), 'manifest must cover every required artifact');
+  assert.deepEqual(readdirSync(root).sort(), [...required, 'manifest.json'].sort(), 'unrelated or unmanifested fixture file');
   for (const [name, info] of Object.entries(manifest.files)) {
     assert.equal(name, name.split('/').at(-1));
+    assert(lstatSync(resolve(root, name)).isFile(), 'fixture must be a regular file');
     const bytes = readFileSync(resolve(root, name));
     assert.equal(sha256(bytes), info.sha256, name);
     assert.equal(bytes.length, info.bytes, name);
@@ -80,6 +86,9 @@ export function inspectFixtures(root = fixtureRoot) {
   // 只检查交付的合成记录，不扫描用户目录；禁止向采集器传入原生认证字段。
   for (const request of requests.values()) assert.equal(Object.hasOwn(request, 'auth'), false);
   assert.equal(transcript.filter(row => row.kind === 'server_exit').at(-1).exit_code, 0);
+  verifyNativeTrace(transcript, environment, { host: readJson('host-capabilities.json', root),
+    session: readJson('session-capabilities.json', root), identity: readJson('terminal-identity.json', root),
+    inventory: readJson('terminal-inventory.json', root) });
   return totals;
 }
 
