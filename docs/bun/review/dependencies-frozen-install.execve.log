@@ -1,1 +1,0 @@
-8513  execve("/isolated/bin/bun", ["bun", "--no-env-file", "install", "--frozen-lockfile", "--ignore-scripts"], 0x7ffd53b13750 /* 9 vars */) = 0

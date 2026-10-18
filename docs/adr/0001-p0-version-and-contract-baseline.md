@@ -3,7 +3,7 @@
 日期：2026-10-18 UTC。状态：Linux P0 范围已由父会话验收，提交 `d2455e878f93e162a2a54bb58c1e5785aecd0949`；其余平台/产品能力仍受下述限制。
 依据：issue #3、DESIGN v0.2、IMPLEMENTATION-PLAN v0.2；基线提交 `916cae2412b69f3432caf264fd411ea1a4b3093f`。
 
-后续需求变更：用户指定未来开发工具链改用 Bun，[迁移 #15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 在 #4 前独立验收。本文件的 Node/npm 版本是 P0 实际历史记录，不能改成 Bun 通过，也不再代表未来工具链默认值。迁移以 d2455e8 的真实 package/lock（已有 SDK 1.32.1/Ajv/ws）为准；不随迁移升级 SDK 2.x，是否保留 Node 运行时及 node:sqlite 由兼容验证决定。
+后续工具链决策：[迁移 #15](https://github.com/ArnoChenFx/luvus-mcp/issues/15) 已独立验收并合入 main，当前使用 Bun 1.4.3，保留其 `node:sqlite` 实现，见 [ADR 0003](0003-bun-toolchain.md)。本文件的 Node/npm 版本是 P0 实际历史记录，不能改成 Bun 通过，也不代表当前工具链默认值。迁移基于 d2455e8 的真实 package/lock，保留 SDK 1.32.1/Ajv/ws 版本与 integrity；没有升级 SDK 2.x。
 
 ## 决策与已验证范围
 
@@ -11,7 +11,7 @@
 |---|---|---|
 | Luvus binary / server | `0.14.3`，Linux x86_64 musl release | 官方校验文件匹配；CLI version、server status、原生 ping 一致 |
 | UHP | `luvus-uhp` major 1 / minor 0 | session 与 Host 实时 capabilities；不同 profile 分开缓存 |
-| Node | 精确复验 `24.19.0`；支持分支 `>=24.19.0 <25` | `.node-version` 固定复现版本；收窄原来未经本次验证的 Node 26 engines 承诺 |
+| Node（历史采集） | 精确复验 `24.19.0`；当时支持分支 `>=24.19.0 <25` | 当时由 `.node-version` 固定；当前该文件已由 `.bun-version` 替代，不承诺 Node 26 支持 |
 | npm | `11.9.0` | 本环境实测；没有自动升级 |
 | MCP SDK | `@modelcontextprotocol/sdk@1.32.1` | npm 官方 registry 包、完整 lockfile integrity；独立 stdio 子进程验证 |
 | JSON Schema validator | `ajv@8.20.0`，`Ajv2020` | 29 个安装文档全部离线编译；使用 JSON Schema 2020-12 |

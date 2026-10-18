@@ -1,1 +1,0 @@
-8525  execve("/isolated/bin/bun", ["bun", "--no-env-file", "scripts/bun/audit_installed.mjs"], 0x7fff841d42a0 /* 9 vars */) = 0

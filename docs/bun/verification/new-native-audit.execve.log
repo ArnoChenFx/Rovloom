@@ -1,7 +1,0 @@
-7972  execve("/isolated/bin/bun", ["bun", "--no-env-file", "run", "p0:bun-native"], 0x7ffca3c4ade8 /* 12 vars */) = 0
-7973  execve("/isolated/bin/sh", ["/isolated/bin/sh", "-c", "python3 scripts/bun/audit_native.py"], 0x5af097d0600 /* 23 vars */) = 0
-7974  execve("/isolated/bin/python3", ["python3", "scripts/bun/audit_native.py"], 0x55e52d471900 /* 24 vars */) = 0
-7975  execve("/isolated/bin/bun", ["/isolated/bin/bun", "--no-env-file", "-e", "import {inspectFixtures} from \"./scripts/p0/audit-fixtures.mjs\"; console.log(JSON.stringify(inspectFixtures(process.argv[1])))", "/tmp/luvus-bun-native-replay-jl2uqu7p"], 0x7ffc70b07430 /* 24 vars */) = 0
-7974  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7975, si_uid=1000, si_status=0, si_utime=48 /* 0.48 s */, si_stime=4 /* 0.04 s */} ---
-7973  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7974, si_uid=1000, si_status=0, si_utime=3 /* 0.03 s */, si_stime=0} ---
-7972  --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=7973, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
