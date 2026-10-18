@@ -22,6 +22,8 @@ import { DEFAULT_RETENTION, retention } from './storage/config.js'
 import type { Retention } from './storage/config.js'
 import { exportSnapshot } from './storage/backup.js'
 import { assertBudget } from './storage/budget.js'
+import { auditRecord } from './storage/audit.js'
+import { completionReservation } from './storage/completion.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, privateFile, privatePath } from './storage/files.js'
 
@@ -276,34 +278,8 @@ export class Store {
     assertBudget(this.db, this.path, this.limits, this.options.backupDirectory, admission)
   }
   private audit(action: string, actor: string, now: number, row?: Row, extra: Record<string, unknown> = {}): void {
-    const details = row
-      ? {
-          generation: this.generation(),
-          machine_id: row.machine_id,
-          provider_id: row.provider_id,
-          binding_revision: row.binding_revision,
-          provider_kind: row.provider_kind,
-          target: JSON.parse(row.target_json),
-          method: row.method,
-          state: row.state,
-          attempt: (() => {
-            const b = JSON.parse(row.binding_json ?? row.identity_json)
-            return {
-              ...b,
-              registration: {
-                ...b.registration,
-                history: b.registration.history ? { history_epoch: b.registration.history.history_epoch } : null
-              }
-            }
-          })(),
-          bytes: row.response_bytes,
-          ...extra
-        }
-      : extra
-    // 不写 request、response、key 或它们的原文；target/摘要仍是受保护元数据。
-    this.db
-      .prepare('INSERT INTO audit VALUES(?,?,?,?,?,?,?)')
-      .run(id('event'), action, actor, row?.call_id ?? null, now, now + this.limits.audit_ttl, boundedJson(details))
+    const record = auditRecord(id('event'), action, actor, now, this.limits.audit_ttl, this.generation(), row, extra)
+    this.db.prepare('INSERT INTO audit VALUES(?,?,?,?,?,?,?)').run(...Object.values(record))
   }
   private manage(action: string, target: string, fence: string, now: number): void {
     const proof = this.options.management?.({ action, target, fence })
@@ -738,6 +714,10 @@ export class Store {
         .prepare("UPDATE calls SET state='dispatching',epoch=?,attempt_id=?,binding_json=?,reserved=? WHERE call_id=?")
         .run(epoch, binding.attempt_id, boundedJson(binding), this.limits.attempt_reserve_bytes, callId)
       this.audit('dispatching', principal, now, this.row(callId))
+      const completion = completionReservation(this.row(callId), this.limits, this.generation())
+      this.db
+        .prepare('UPDATE calls SET reserved=? WHERE call_id=?')
+        .run(Math.max(this.limits.attempt_reserve_bytes, completion.audit + completion.metadata), callId)
       return binding
     })
     try {
