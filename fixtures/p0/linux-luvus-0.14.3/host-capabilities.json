@@ -1,0 +1,137 @@
+{
+  "id": "host-capabilities-before-server",
+  "result": {
+    "authority": "local_owner",
+    "method_contracts": [
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.capabilities",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.info",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.doctor",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.update.check",
+        "scope": "read"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "host.update.install",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "session.list",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "session.status",
+        "scope": "read"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.start",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.stop",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.restart",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.delete",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "skill.status",
+        "scope": "read"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "skill.enable",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "skill.disable",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "integration.status",
+        "scope": "read"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "integration.install",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "integration.uninstall",
+        "scope": "admin"
+      }
+    ],
+    "methods": [
+      "host.capabilities",
+      "host.info",
+      "host.doctor",
+      "host.update.check",
+      "host.update.install",
+      "session.list",
+      "session.status",
+      "session.start",
+      "session.stop",
+      "session.restart",
+      "session.delete",
+      "skill.status",
+      "skill.enable",
+      "skill.disable",
+      "integration.status",
+      "integration.install",
+      "integration.uninstall"
+    ],
+    "profile": "host",
+    "protocol": {
+      "major": 1,
+      "minor": 0,
+      "name": "luvus-uhp"
+    },
+    "transport": "stdio_proxy",
+    "type": "uhp_host_capabilities"
+  }
+}

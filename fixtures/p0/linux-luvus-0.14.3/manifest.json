@@ -1,0 +1,39 @@
+{
+  "format": 1,
+  "kind": "sanitized-native-evidence",
+  "files": {
+    "assertions.json": {
+      "sha256": "49c2b14783c607502a073d5329d3f6fd31c518c0714b947522334a7ff31f9d5b",
+      "bytes": 74332
+    },
+    "environment.json": {
+      "sha256": "265375739d0f4fa578c0234512b4fdbb762f4d32c23c669d2694fbcb7c35ec4a",
+      "bytes": 1205
+    },
+    "host-capabilities.json": {
+      "sha256": "86d2825f5cf784e4cc15f455ca555ceed1f6014aed90c1a88743964bc2b3e582",
+      "bytes": 3012
+    },
+    "schema-bundle.json": {
+      "sha256": "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6",
+      "bytes": 404048
+    },
+    "session-capabilities.json": {
+      "sha256": "7f328016bea7ccf5945f9f01c98d16f24869a06865cecc93b332ff9c3aa04eb7",
+      "bytes": 35685
+    },
+    "terminal-identity.json": {
+      "sha256": "fdb91c7f4804682b47d0c05e9cbb3cab4b0d33633d75ca87289c351f385a054c",
+      "bytes": 133
+    },
+    "terminal-inventory.json": {
+      "sha256": "dc3a26b9b0fafbdd7e0c9f573741c801147d9eb518b3170ff1e69acb733afd5d",
+      "bytes": 1177
+    },
+    "transcript.json": {
+      "sha256": "8cf260f3f9f48a4cf0af96c5e17f7137b4e444626a28cc273b16e054c1a48e15",
+      "bytes": 87575
+    }
+  },
+  "redaction": "Only run root and binary path replaced. Generated identities, sequence, errors, LF and payloads retained. Raw CLI stdout/stderr hashes are pre-normalization; manifest hashes cover delivered bytes."
+}

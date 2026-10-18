@@ -1,0 +1,4723 @@
+{
+  "format": 1,
+  "binary": "0.14.3",
+  "protocol": {
+    "major": 1,
+    "minor": 0,
+    "name": "luvus-uhp"
+  },
+  "counts": {
+    "union": 223,
+    "session": 197,
+    "host": 17,
+    "schema": 223,
+    "access_machines": 9,
+    "stream": 4
+  },
+  "methods": [
+    {
+      "method": "agent.explain",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.explain",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.fork",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.fork",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.get",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.keys",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/12"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.keys",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.list",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.name",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.name",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.prompt",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/13"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.prompt",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.read",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.read",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.release",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.release",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.report",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.report",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.resume",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.resume",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.send",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/14"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.send",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.sessions",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.sessions",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.start",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.start",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "agent.wait",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/11"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.wait",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "attach.pane",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "attach.pane",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.create",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/34"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.create",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.delete",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/29"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.delete",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.disable",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/29"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.disable",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.enable",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/29"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.enable",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/29"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.get",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.health",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/28"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.health",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.history",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/32"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.history",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/28"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.list",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.preview",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/33"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.preview",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.rebind",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/31"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": true,
+        "method": "automation.rebind",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.run",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/30"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.run",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "automation.update",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/35"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.update",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "config.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "config.get",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "config.patch",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "config.patch",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "diff.get",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "diff.list",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.navigate",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.navigate",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.add",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.add",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.apply",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.apply",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.edit",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.edit",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "diff.note.list",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.remove",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.remove",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.reopen",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.reopen",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.resolve",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.resolve",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.note.send",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.send",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.open",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "diff.refresh",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.refresh",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "events.subscribe",
+      "profile": "session",
+      "transport": "persistent_local_stream",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/9"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": false,
+        "method": "events.subscribe",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "events-primary",
+          "outcome": "native_result"
+        },
+        {
+          "id": "events-independent",
+          "outcome": "native_result"
+        },
+        {
+          "id": "events-replay",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "events.wait",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/10"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "events.wait",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "files.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "files.open",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "files.refresh",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "files.refresh",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "files.reveal",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "files.reveal",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "files.tree",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "files.tree",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "git.branches",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "git.branches",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "git.log",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "git.log",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "git.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "git.open",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "git.status",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "git.status",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "host.capabilities",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.capabilities",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "host-capabilities-before-server",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "host.doctor",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.doctor",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "host.info",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.info",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "host-info-before-server",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "host.update.check",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "host.update.check",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "host.update.install",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/18"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "host.update.install",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "integration.install",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/19"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "integration.install",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "integration.status",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "integration.status",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "integration.uninstall",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/19"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "integration.uninstall",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "layout.apply",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "layout.apply",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "layout.export",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "layout.export",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "layout.set_split_ratio",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "layout.set_split_ratio",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "lease.acquire",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "lease.acquire",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "lease.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "lease.list",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "lease.release",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "lease.release",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.add",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/4"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.disable",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/6"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.enable",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/6"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.get",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/3"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.list",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/1"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.remove",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/6"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.rename",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/5"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.sessions",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/3"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "machine.status",
+      "profile": "access_machines",
+      "transport": "not_exposed",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/3"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": null,
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "profile_not_exposed",
+      "native_evidence": []
+    },
+    {
+      "method": "manifest.reload",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "manifest.reload",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "mission.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "mission.open",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "mission.refresh",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/15"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "mission.refresh",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "mission.snapshot",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/15"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "mission.snapshot",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "module.action.invoke",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.action.invoke",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.action.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.action.list",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.config_dir",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.config_dir",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.disable",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.disable",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.enable",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.enable",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.info",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.info",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.link",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.link",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.list",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.log.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.log.list",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.pane.close",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.pane.close",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.pane.focus",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.pane.focus",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.pane.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.pane.open",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.settings.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.settings.get",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.settings.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.settings.list",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.settings.set",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.settings.set",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.uninstall",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.uninstall",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "module.unlink",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.unlink",
+        "scope": "extensions"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "node.close",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.close",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "node.focus",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.focus",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "node.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "node.list",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "node.new",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.new",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "node.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.open",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "node.pin",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.pin",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "node.rename",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.rename",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.close",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.close",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.current",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.current",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.edges",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.edges",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.focus",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.focus",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.focus_direction",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.focus_direction",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.get",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.layout",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.layout",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/2"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.list",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.move",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.move",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.neighbor",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.neighbor",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.processes",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.processes",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.read",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.read",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.release_session",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/21"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.release_session",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.rename",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.rename",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.report_event",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.report_event",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.report_session",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/20"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.report_session",
+        "scope": "agent"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.resize",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.resize",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.run",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.run",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.send_input",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.send_input",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.split",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.split",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.status",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.status",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.swap",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.swap",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "pane.zoom",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.zoom",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "ping",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "ping",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": [
+        {
+          "id": "session-rpc-before-server",
+          "outcome": "no_response"
+        },
+        {
+          "id": "direct-ping",
+          "outcome": "native_result"
+        },
+        {
+          "id": "proxy-ping",
+          "outcome": "native_result"
+        },
+        {
+          "id": "first",
+          "outcome": "native_result"
+        },
+        {
+          "id": "no-lf",
+          "outcome": "no_response"
+        }
+      ]
+    },
+    {
+      "method": "search",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "search",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "search.activate",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "search.activate",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "search.capabilities",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "search.capabilities",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "search.query",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "search.query",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "server.agent_manifests",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "server.agent_manifests",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "server.reload_agent_manifests",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "server.reload_agent_manifests",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "server.reload_config",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "server.reload_config",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "server.stop",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "server.stop",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "session.delete",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/17"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.delete",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "session.list",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "session.list",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "host-session-list-before-server",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "session.restart",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/16"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.restart",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "session.snapshot",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "session.snapshot",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": [
+        {
+          "id": "snapshot-before-create",
+          "outcome": "native_result"
+        },
+        {
+          "id": "snapshot-after-create",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "session.start",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/16"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.start",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "session.status",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/16"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "session.status",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "session.stop",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/16"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "session.stop",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "skill.disable",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/18"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "skill.disable",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "skill.enable",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/18"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "skill.enable",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "skill.status",
+      "profile": "host",
+      "transport": "host_stdio_proxy",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "skill.status",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.close",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.close",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.focus",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.focus",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "tab.get",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "tab.list",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.move",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.move",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.new",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.new",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.rename",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.rename",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "tab.swap",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.swap",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.add",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/22"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.add",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "task.claim",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.claim",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.delete",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.delete",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.done",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.done",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "task.get",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.heartbeat",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/36"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.heartbeat",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "task.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "task.list",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.merge",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.merge",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.next",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/27"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "task.next",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "task.release",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.release",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "task.retry",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/24"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.retry",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "task.start",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/26"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.start",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "task.update",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/23"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.update",
+        "scope": "orchestration"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.capture",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/41"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.capture",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.close",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/51"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.close",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "terminal-close",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "terminal.backend.control",
+      "profile": "session",
+      "transport": "persistent_local_stream",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/43"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.control",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "control-stale-generation",
+          "outcome": "native_error"
+        },
+        {
+          "id": "control-wrong-terminal",
+          "outcome": "native_error"
+        },
+        {
+          "id": "terminal-control",
+          "outcome": "native_result"
+        },
+        {
+          "id": "control-lease-conflict",
+          "outcome": "native_error"
+        },
+        {
+          "id": "control-reacquire-0",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "terminal.backend.create",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/50"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.create",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "terminal-create",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "terminal.backend.events.subscribe",
+      "profile": "session",
+      "transport": "persistent_local_stream",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/54"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": false,
+        "method": "terminal.backend.events.subscribe",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.inventory",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/37"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.inventory",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "terminal-inventory",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "terminal.backend.notify",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/49"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.notify",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.observe",
+      "profile": "session",
+      "transport": "persistent_local_stream",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/42"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": false,
+        "method": "terminal.backend.observe",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "terminal-observe",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "terminal.backend.paste_text",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/45"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.paste_text",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.processes",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/40"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.processes",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.send_key",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/47"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.send_key",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.set_title",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/48"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.set_title",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.snapshot",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/38"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.snapshot",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.submit_text",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/46"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.submit_text",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.type_literal",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/44"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.type_literal",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "input-after-close",
+          "outcome": "native_error"
+        }
+      ]
+    },
+    {
+      "method": "terminal.backend.validate",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/39"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.validate",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "validate-after-stream-close",
+          "outcome": "native_result"
+        },
+        {
+          "id": "validate-after-deadline",
+          "outcome": "native_result"
+        },
+        {
+          "id": "validate-after-terminal-close",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "terminal.backend.wait_change",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/52"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.wait_change",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "terminal.backend.wait_output",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/53"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.wait_output",
+        "scope": "terminal"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "native-wait-timeout",
+          "outcome": "native_error"
+        },
+        {
+          "id": "client-deadline",
+          "outcome": "no_response"
+        }
+      ]
+    },
+    {
+      "method": "theme.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "theme.list",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "theme.path",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "theme.path",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "theme.reload",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "theme.reload",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "theme.use",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "theme.use",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "uhp.capabilities",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "uhp.capabilities",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": [
+        {
+          "id": "session-capabilities",
+          "outcome": "native_result"
+        }
+      ]
+    },
+    {
+      "method": "uhp.stats",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "uhp.stats",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "uhp.token.create",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/7"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "uhp.token.create",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "credential_custody_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "uhp.token.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/0"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "uhp.token.list",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "credential_custody_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "uhp.token.revoke",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/8"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "uhp.token.revoke",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "credential_custody_not_implemented",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.agent_title.clear",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.agent_title.clear",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.agent_title.push",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.agent_title.push",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.bar.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "ui.bar.list",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.bar.move",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.bar.move",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.bar.push",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.bar.push",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.bar.remove",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.bar.remove",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.dock.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "ui.dock.list",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.dock.move",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.dock.move",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.dock.push",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.dock.push",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.notification.clear",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.notification.clear",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.notification.push",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.notification.push",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.sidebar",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.sidebar",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "ui.toast",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.toast",
+        "scope": "admin"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "admin_disabled_pending_explicit_authorization",
+      "native_evidence": []
+    },
+    {
+      "method": "wait.output",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "wait.output",
+        "scope": "read"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.close",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.close",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.focus",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.focus",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.get",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "workspace.get",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "workspace.list",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.move",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.move",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.move_block",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.move_block",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.new",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.new",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.open",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.pin",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.pin",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.rename",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.rename",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "workspace.report_metadata",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.report_metadata",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "worktree.create",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "worktree.create",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "worktree.list",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "read",
+        "idempotent": true,
+        "method": "worktree.list",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "worktree.open",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [],
+        "parameter_detail": "generic_params_only"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "worktree.open",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "parameter_schema_incomplete",
+      "native_evidence": []
+    },
+    {
+      "method": "worktree.remove",
+      "profile": "session",
+      "transport": "single_request_rpc",
+      "schema": {
+        "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+        "branches": [
+          "#/allOf/25"
+        ],
+        "parameter_detail": "conditional_branch"
+      },
+      "native_contract": {
+        "access": "write",
+        "idempotent": false,
+        "method": "worktree.remove",
+        "scope": "workspace"
+      },
+      "gateway_permission": "not_enabled",
+      "gateway_status": "not_implemented",
+      "reason": "adapter_not_implemented",
+      "native_evidence": []
+    }
+  ]
+}

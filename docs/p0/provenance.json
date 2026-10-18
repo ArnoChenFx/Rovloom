@@ -1,0 +1,191 @@
+{
+  "source_repository": "https://github.com/RizRiyz/luvus",
+  "official_website": "https://luvus.dev/docs/getting-started/installation/",
+  "release": "https://github.com/RizRiyz/luvus/releases/tag/v0.14.3",
+  "tag_object": "16a610ec06667203c35f07465247089af2e881b5",
+  "source_commit": "54003ce9568acb2977e4bbdbb30a61f99faa0465",
+  "archive_url": "https://github.com/RizRiyz/luvus/releases/download/v0.14.3/luvus-v0.14.3-x86_64-unknown-linux-musl.tar.gz",
+  "archive_sha256": "1d96580525f23b21143c05850dbd9a1b4fe95e66d7e173dc27aab6caf9b676bf",
+  "archive_bytes": 6469203,
+  "release_checksum": "1d96580525f23b21143c05850dbd9a1b4fe95e66d7e173dc27aab6caf9b676bf  luvus-v0.14.3-x86_64-unknown-linux-musl.tar.gz\n",
+  "binary_sha256": "895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9",
+  "binary_bytes": 15943248,
+  "installer_reviewed_not_executed_sha256": "cb0a09839bb49636d5c1338a6bb613a19523df356df2859ade8608afa143bfff",
+  "schema_source_comparison": [
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/event-catalog.schema.json",
+      "source_path": "protocol/uhp/v1/schema/event-catalog.schema.json",
+      "source_sha256": "11e63f972532172ce36cfd8d5b3989cc2037a347f5c6d90bceb51315cc1ab921",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/event.schema.json",
+      "source_path": "protocol/uhp/v1/schema/event.schema.json",
+      "source_sha256": "23cc2b0c920279af2e1f214fc36589c3a80606ededd501403d122f4a5f816fcf",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/request.schema.json",
+      "source_path": "protocol/uhp/v1/schema/request.schema.json",
+      "source_sha256": "894c0fd19cffbbd70794c8c8733c349cbba29cddfd4b7a756d7f97858b974db2",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/response.schema.json",
+      "source_path": "protocol/uhp/v1/schema/response.schema.json",
+      "source_sha256": "dc649e2f0776dd14423120e5a803d737c77d5ce34b0c48fb9e3e8afc9a3174d2",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/access/descriptor.schema.json",
+      "source_path": "protocol/uhp/v1/schema/access/descriptor.schema.json",
+      "source_sha256": "0612e23f63c1e5fdde20afec754cc15a8ff026e80d14f8d1165550fa873eb0f7",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/common.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/common.schema.json",
+      "source_sha256": "bc55fc821130c7665c6cf0e59cd030c1b3fd2b0cb5da352240f3190636fae72b",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/control-frame.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/control-frame.schema.json",
+      "source_sha256": "bbbbc709172d7dbbd38ebc6a4194af1da86d52132928bfec3815c7d2f33411a3",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/event.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/event.schema.json",
+      "source_sha256": "f97ddd37631ac1a59eee4dd7dac49909d5f782733d248c13d9eab9431f876892",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/capabilities.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/capabilities.schema.json",
+      "source_sha256": "e84a99820ccedc56288ae64a5f653625077ac10a6ce743bd456796755a55c0a2",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/capture.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/capture.schema.json",
+      "source_sha256": "cb75f71e12e675d58da26f4bb7225658b0a63fa4ca072c2c0d94d6bc9ea57e9c",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/close.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/close.schema.json",
+      "source_sha256": "d392b7226d9c2b8c7e81693a35d11d1df7de56e0cf0749e2da290ca43b5fdc7f",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/control.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/control.schema.json",
+      "source_sha256": "d4c59a12e4edab63ebd5f98d18ec85b66567ef825adfda65d473281d7269349c",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/create.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/create.schema.json",
+      "source_sha256": "0add0f684ae9323e13096ba6a8f5ba2810b05d74ea75aab24d7b844db30ab37b",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/events.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/events.schema.json",
+      "source_sha256": "8744934a110551261dcf6f7d4e34715e3c07631534c66a9275ae53d2e02535ae",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/inventory.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/inventory.schema.json",
+      "source_sha256": "e84a99820ccedc56288ae64a5f653625077ac10a6ce743bd456796755a55c0a2",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/notify.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/notify.schema.json",
+      "source_sha256": "45e412691a858570d10f2b40c3a4a4feb3672560d7b92a60582b6a40e07f23c6",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/observe.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/observe.schema.json",
+      "source_sha256": "d4c59a12e4edab63ebd5f98d18ec85b66567ef825adfda65d473281d7269349c",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/paste-text.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/paste-text.schema.json",
+      "source_sha256": "1645bdd5f4772e0dbbb72a8dece0ea60cd5e3fb7740141897f49a8ce4678dfc0",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/processes.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/processes.schema.json",
+      "source_sha256": "d392b7226d9c2b8c7e81693a35d11d1df7de56e0cf0749e2da290ca43b5fdc7f",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/send-key.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/send-key.schema.json",
+      "source_sha256": "c2c3b5b2cfabcdca628b7ddb5762549910599c230e107de423749bccc1217eba",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/set-title.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/set-title.schema.json",
+      "source_sha256": "25556a787458fc4b8467aec4dc809aeb3d11c0ee72f2c929e581e66fdf595598",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/snapshot.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/snapshot.schema.json",
+      "source_sha256": "37229f4ece5c607659a86576a4f684d897a780e7554115b7eded9458f731348e",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/submit-text.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/submit-text.schema.json",
+      "source_sha256": "1645bdd5f4772e0dbbb72a8dece0ea60cd5e3fb7740141897f49a8ce4678dfc0",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/type-literal.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/type-literal.schema.json",
+      "source_sha256": "1645bdd5f4772e0dbbb72a8dece0ea60cd5e3fb7740141897f49a8ce4678dfc0",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/validate.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/validate.schema.json",
+      "source_sha256": "d392b7226d9c2b8c7e81693a35d11d1df7de56e0cf0749e2da290ca43b5fdc7f",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/wait-change.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/wait-change.schema.json",
+      "source_sha256": "b34612c90bf23de76477a24e395f6684104203b8d13ad5af7a1b18f267c82d08",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/methods/wait-output.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/methods/wait-output.schema.json",
+      "source_sha256": "3c1d75fdae558634591fab57f9b7dd38bac57365fe3e0e7614cf821a6e395581",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/request.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/request.schema.json",
+      "source_sha256": "153fb3e741ee1b0ba77b56f209d83a3bae5fe7c08e954fe38ff824cd10babed9",
+      "json_equal_to_installed_bundle": true
+    },
+    {
+      "document": "https://luvus.dev/protocol/uhp/v1/schema/terminal/response.schema.json",
+      "source_path": "protocol/uhp/v1/terminal/schema/response.schema.json",
+      "source_sha256": "c1943634f191d6b8d1ea7352b7ec498096a78f943cea8e493449553113b242c4",
+      "json_equal_to_installed_bundle": true
+    }
+  ],
+  "verification_boundary": "TLS official release checksum and fixed git tag verified; no independent signature/attestation verification claimed."
+}

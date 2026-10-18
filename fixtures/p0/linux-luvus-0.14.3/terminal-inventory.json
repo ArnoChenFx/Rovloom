@@ -1,0 +1,51 @@
+{
+  "server_generation": "a6fde26d8ee0f74d029dbce6300f7b5b",
+  "terminals": [
+    {
+      "content_revision": 1,
+      "cwd": "/fixture/issue3/project",
+      "label": null,
+      "pane_id": "1",
+      "restore": true,
+      "root_process": {
+        "pid": 1517,
+        "start_marker": "46066"
+      },
+      "tab": {
+        "index": 1,
+        "name": null
+      },
+      "terminal_id": "acf840440882a6ed79aeea5ad5750221",
+      "terminal_title": null,
+      "workspace": {
+        "index": 1,
+        "name": "project",
+        "root": "/fixture/issue3/project"
+      }
+    },
+    {
+      "content_revision": 0,
+      "cwd": "/fixture/issue3/project",
+      "label": "issue3-synthetic-terminal",
+      "pane_id": "2",
+      "restore": false,
+      "root_process": {
+        "pid": 1549,
+        "start_marker": "46072"
+      },
+      "tab": {
+        "index": 2,
+        "name": null
+      },
+      "terminal_id": "51aed25fc4d1e94678fbf4ad72818333",
+      "terminal_title": null,
+      "workspace": {
+        "index": 1,
+        "name": "project",
+        "root": "/fixture/issue3/project"
+      }
+    }
+  ],
+  "truncated": false,
+  "type": "terminal_backend_inventory"
+}

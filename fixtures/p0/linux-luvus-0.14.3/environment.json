@@ -1,0 +1,24 @@
+{
+  "binary_sha256": "895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "uid": 1000,
+  "session": "p0-issue3",
+  "started_at": "2026-10-18T06:00:49.759354+00:00",
+  "native_collection_completed": true,
+  "os_release": "PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"\nVERSION_ID=\"13\"\nVERSION=\"13 (trixie)\"\nVERSION_CODENAME=trixie\nDEBIAN_VERSION_FULL=13.6\nID=debian\nHOME_URL=\"https://www.debian.org/\"\nSUPPORT_URL=\"https://www.debian.org/support\"\nBUG_REPORT_URL=\"https://bugs.debian.org/\"\n",
+  "python_version": "3.12.14",
+  "child_environment": {
+    "PATH": "/usr/bin:/bin",
+    "HOME": "/fixture/issue3/child-home",
+    "XDG_CONFIG_HOME": "/fixture/issue3/child-home/config",
+    "XDG_DATA_HOME": "/fixture/issue3/child-home/data",
+    "XDG_CACHE_HOME": "/fixture/issue3/child-home/cache",
+    "XDG_RUNTIME_DIR": "/fixture/issue3/runtime",
+    "LUVUS_HOME": "/fixture/issue3/state",
+    "SHELL": "/bin/sh",
+    "TERM": "xterm-256color",
+    "LANG": "C.UTF-8"
+  },
+  "base_commit": "916cae2412b69f3432caf264fd411ea1a4b3093f",
+  "cleanup": "owned server terminated; temporary root removed"
+}

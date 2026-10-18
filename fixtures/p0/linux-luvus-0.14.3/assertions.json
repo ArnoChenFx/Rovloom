@@ -1,0 +1,2778 @@
+[
+  {
+    "assertion": "binary version is 0.14.3",
+    "passed": true
+  },
+  {
+    "assertion": "discovery-before-host: exit 0",
+    "passed": true
+  },
+  {
+    "assertion": "no running sessions before Host",
+    "passed": true
+  },
+  {
+    "assertion": "schema available without server",
+    "passed": true
+  },
+  {
+    "assertion": "discovery-after-host: exit 0",
+    "passed": true
+  },
+  {
+    "assertion": "Host reads do not start session",
+    "passed": true
+  },
+  {
+    "assertion": "offline session RPC is process failure without fabricated response",
+    "passed": true
+  },
+  {
+    "assertion": "discovery-startup: exit 0",
+    "passed": true
+  },
+  {
+    "assertion": "server remains alive during startup",
+    "passed": true
+  },
+  {
+    "assertion": "discovery-startup: exit 0",
+    "passed": true
+  },
+  {
+    "assertion": "exactly one owned named session",
+    "passed": true
+  },
+  {
+    "assertion": "running endpoint discovered from CLI",
+    "passed": true
+  },
+  {
+    "assertion": "UHP negotiated 1.0",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "server ping version matches binary",
+    "passed": true
+  },
+  {
+    "assertion": "ordinary connection ends after one LF response",
+    "passed": true
+  },
+  {
+    "assertion": "proxy success stdout is one LF JSON response",
+    "passed": true
+  },
+  {
+    "assertion": "proxy handles only first input frame",
+    "passed": true
+  },
+  {
+    "assertion": "missing LF rejected before response",
+    "passed": true
+  },
+  {
+    "assertion": "invalid JSON is process failure",
+    "passed": true
+  },
+  {
+    "assertion": "native error retains id and nonzero exit",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "events stream acknowledged",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "independent event subscriber acknowledged",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "own terminal created without focus or restore",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "subscribe snapshot sequence fence",
+    "passed": true
+  },
+  {
+    "assertion": "two subscribers receive same native sequence",
+    "passed": true
+  },
+  {
+    "assertion": "snapshot contains created terminal",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "observe acknowledged",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "stale generation control is refused",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "wrong terminal lifetime is refused",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "control acknowledged",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "second control lease refused",
+    "passed": true
+  },
+  {
+    "assertion": "input ack is correlated and queued",
+    "passed": true
+  },
+  {
+    "assertion": "child transformed input observed independently",
+    "passed": true
+  },
+  {
+    "assertion": "unknown control action refused",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "control disconnect releases native lease",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "closing streams preserves pane",
+    "passed": true
+  },
+  {
+    "assertion": "native timeout remains original UHP error",
+    "passed": true
+  },
+  {
+    "assertion": "bridge deadline terminates child process",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "bridge cancellation did not close terminal",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "explicit terminal close executed",
+    "passed": true
+  },
+  {
+    "assertion": "close event follows snapshot fence",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "replay subscription acknowledged",
+    "passed": true
+  },
+  {
+    "assertion": "after_sequence replays same native event",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "closed terminal is gone",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint transport is unix_socket",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is absolute and in new state root",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /workspace",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint parent is directory: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint ancestor is not group/world writable: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint component has no symlink: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component belongs to current uid: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "private endpoint component mode: /fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint is socket and canonical",
+    "passed": true
+  },
+  {
+    "assertion": "endpoint device/inode/ctime unchanged before connect",
+    "passed": true
+  },
+  {
+    "assertion": "Linux peer uid and server pid match",
+    "passed": true
+  },
+  {
+    "assertion": "closed terminal rejects input",
+    "passed": true
+  },
+  {
+    "assertion": "observed terminal stream terminates after close",
+    "passed": true
+  },
+  {
+    "assertion": "observe EOF after terminal close",
+    "passed": true
+  },
+  {
+    "assertion": "discovery-after-cleanup: exit 0",
+    "passed": true
+  },
+  {
+    "assertion": "no running sessions after cleanup",
+    "passed": true
+  }
+]
