@@ -171,3 +171,16 @@ export function checkResultBoundary(permit: DispatchPermit, input: ResultAuthori
     if (context.content_status !== 'available') reject('content_unavailable');
   });
 }
+
+// 保留门禁独立于读取；同时服从派发时和当前可信分类，不能用新分类复活禁存原文。
+export function checkResultRetention(permit: DispatchPermit, input: DispatchAuthorization): Check<void> {
+  return attempt('result', () => {
+    const stored = permits.get(permit); if (!stored) reject('invalid_permit_handle');
+    const context = checkedAuthorization(stored.candidate, input);
+    const current = classification(stored.candidate, context);
+    if (stored.principal !== context.principal_id) reject('forbidden');
+    if (stored.classification.result.retention !== 'caller_policy' || current.result.retention !== 'caller_policy') {
+      reject('content_retention_forbidden');
+    }
+  });
+}

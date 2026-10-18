@@ -30,7 +30,8 @@ function fixture(method = 'task.add', raw = false, stream = false) {
   policies.local.grants = clone(policies.caller.grants);
   const state = { active: true, enabled: true, sourceVerified: true, reader: 'synthetic', content: 'available' as
     'available' | 'expired' | 'discarded' | 'unavailable', owner: raw, grant: raw, trustedClassification: true,
-    classifications: clone(initial.classifications) as SafetyClassification[], revision: 1, localConfig: 'config1', now: 100 };
+    classifications: clone(initial.classifications) as SafetyClassification[], revision: 1, localConfig: 'config1', now: 100,
+    custody: false, channel: 'ordinary' as 'ordinary' | 'custody' };
   const capabilities = json('session-capabilities.json');
   capabilities.result.session = 'synthetic'; capabilities.result.server_generation = G;
   const nativeBinding = (record: TrustedAttempt): NativeBinding => ({ ...candidate.binding,
@@ -53,7 +54,7 @@ function fixture(method = 'task.add', raw = false, stream = false) {
       const { source: _source, principal_id: _principal, caller_policy: _caller, local_policy: _local,
         mode: _mode, now: _now, ...authority } = initial;
       return { ...authority, classifications: state.classifications, classification_source_verified: state.trustedClassification,
-        owner: state.owner, raw_requested: raw,
+        owner: state.owner, raw_requested: raw, custody_available: state.custody, result_channel: state.channel,
         ...(state.grant ? { raw_grant: { id: 'grant1', source_verified: true, principal_id: record.principal_id,
           binding: native, methods: [method], expires_at: 200 } } : {}) };
     },
@@ -77,6 +78,123 @@ function fixture(method = 'task.add', raw = false, stream = false) {
   return { adapter, backend, binding, row, rows, origin, policies, state, opening, response, decode, frame, attempt, nativeBinding };
 }
 const rejects = (run: () => unknown, code: string) => assert.throws(run, (e: any) => e.code === code, code);
+
+function controlFixture() {
+  const f = fixture('terminal.backend.control', false, true);
+  const data = (frame: Record<string, unknown>, sequence = 0) => f.frame('stream_data', { attempt: f.attempt(f.binding), stream_id: 'stream1',
+    feature: 'terminal_control', sequence, frame });
+  const ack = { id: 'native_1', result: { type: 'terminal_backend_stream', mode: 'control', server_generation: G,
+    terminal_id: T, pane_id: '3', sequence: 0, content_revision: 0, ansi: false, capture_mode: 'visible', lines: 1,
+    frame_bytes: 65536, queue_capacity: 2, loss_behavior: 'resync_required_then_close' } };
+  f.adapter.advanceStream(f.opening, 'gateway_to_connector');
+  f.adapter.advanceStream(data(ack), 'connector_to_gateway');
+  const input = (id: string) => f.frame('stream_input', { attempt: f.attempt(f.binding), stream_id: 'stream1',
+    feature: 'terminal_control', sequence: 0, frame: { id, action: 'type_literal', params: { text: 'synthetic' } } });
+  const inputAck = { id: 'input1', result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' } };
+  return { ...f, data, input, inputAck, ack };
+}
+
+test('retention:none 可读取但证据计划只保留元数据，普通/秘密 result 与 error 均不复活原文', () => {
+  for (const secret of [false, true]) for (const error of [false, true]) {
+    const f = fixture();
+    const row = f.state.classifications[0]!;
+    f.state.classifications = [{ ...row, result: { ...row.result, retention: 'none',
+      ...(secret ? { boundary: 'protected_secret', sensitivity: 'credential', delivery: 'custody' } as const : {}) } }];
+    f.state.custody = secret; f.state.channel = secret ? 'custody' : 'ordinary';
+    f.decode(f.opening);
+    const response = error ? f.response : { ...f.response, payload: { ...f.response.payload,
+      native_response: { id: 'native_1', result: { synthetic: 'SYNTHETIC_PRIVATE_CONTENT' } } } };
+    f.decode(response, 'connector_to_gateway');
+    assert.doesNotThrow(() => f.adapter.checkResult(f.binding));
+    const anchor = clone(f.backend.responseAnchor!(f.binding));
+    const plan = f.adapter.planEvidence(response);
+    assert.equal(plan.content.delivery, 'metadata_only');
+    assert.equal(plan.content.native_response, undefined);
+    assert.equal(Object.hasOwn(plan.content, 'native_response'), false);
+    assert.equal(Object.hasOwn(plan.content, 'result_id'), false);
+    assert.equal(plan.evidence.response_hash, hash(boundedJson(response.payload.native_response)));
+    assert.equal(plan.evidence.response_bytes, Buffer.byteLength(boundedJson(response.payload.native_response)));
+    assert.equal(plan.evidence.category, error ? 'error' : 'result');
+    assert.equal(plan.content.expires_at, anchor!.content_expires_at);
+    assert.equal(plan.dispatch, false); assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor);
+  }
+});
+
+test('控制 ack 读取选自己的 permit/当前分类，不能借普通开流许可走普通通道', () => {
+  const f = controlFixture(), row = f.state.classifications[0]!;
+  const control = { ...clone(row), action: 'type_literal', result: { ...row.result,
+    boundary: 'protected_secret', sensitivity: 'credential', delivery: 'custody' } } as const;
+  f.state.classifications.push(control); f.state.custody = true; f.state.channel = 'custody';
+  f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector');
+  f.state.channel = 'ordinary';
+  const error = { id: 'input1', error: { code: 'send_failed', message: 'synthetic', metadata: { marker: 'SYNTHETIC_SECRET' } } };
+  f.adapter.advanceStream(f.data(error, 1), 'connector_to_gateway');
+  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required');
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'secret_boundary_required');
+  rejects(() => f.adapter.checkResult(f.binding), 'result_selector_required');
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.ack));
+  f.state.channel = 'custody';
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, error));
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
+  f.state.custody = false;
+  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required');
+  f.state.custody = true;
+  f.state.classifications = [row];
+  rejects(() => f.adapter.checkResult(f.binding, error), 'classification_unavailable');
+  // 当前分类降为 ordinary 也不能覆盖当初控制 permit 的秘密边界。
+  f.state.classifications.push({ ...control, result: row.result }); f.state.channel = 'ordinary';
+  rejects(() => f.adapter.checkResult(f.binding, error), 'secret_boundary_required');
+});
+
+test('流结果 frame 精确选择控制 ID/事件，未派发或其它 attempt 的 ID 不回退到开流许可', () => {
+  const f = controlFixture(), row = f.state.classifications[0]!;
+  f.state.classifications.push({ ...clone(row), action: 'type_literal' });
+  f.decode(f.input('input1')); f.decode(f.data(f.inputAck), 'connector_to_gateway');
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, f.inputAck));
+  for (const id of ['unknown', 'input2']) {
+    rejects(() => f.adapter.checkResult(f.binding, { ...f.inputAck, id }), 'control_ack_unbound');
+  }
+  const second = clone(f.row); second.binding.call_id = 'call2'; f.rows.set('call2', second);
+  const otherOpening = { ...f.opening, payload: { ...f.opening.payload, attempt: f.attempt(second.binding) } };
+  f.decode(otherOpening);
+  rejects(() => f.adapter.checkResult(second.binding, f.inputAck), 'control_ack_unbound');
+  rejects(() => f.adapter.checkResult({ ...f.binding, native_request_id: 'input1' }, f.inputAck), 'attempt_binding_mismatch');
+  // 不能把开流 native ID 写在控制 ack 上借其普通分类。
+  rejects(() => f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'native_1' }), 'native_result_mismatch');
+  const event = { event: 'terminal.frame', sequence: 0, data: { server_generation: G, terminal_id: T, pane_id: '3',
+    content_revision: 0, mode: 'visible', ansi: false, text: 'synthetic', lines: 1, bytes: 9, truncated: false } };
+  assert.doesNotThrow(() => f.adapter.checkResult(f.binding, event));
+  rejects(() => f.adapter.checkResult(f.binding, { ...event, data: { ...event.data, terminal_id: '9'.repeat(32) } }), 'native_identity_mismatch');
+  f.state.reader = 'other'; rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'forbidden');
+  f.state.reader = 'synthetic'; f.state.content = 'discarded';
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'content_unavailable');
+  f.state.content = 'available'; f.policies.local.grants[0]!.actions = ['dispatch', 'stream_input'];
+  rejects(() => f.adapter.checkResult(f.binding, f.inputAck), 'forbidden');
+});
+
+test('证据原文保留同时服从原 permit 和当前分类，当前 custody 与读取授权仍独立生效', () => {
+  for (const initialRetention of ['caller_policy', 'none'] as const) {
+    const f = fixture(), row = f.state.classifications[0]!;
+    f.state.classifications = [{ ...row, result: { ...row.result, retention: initialRetention } }];
+    f.decode(f.opening);
+    const current = initialRetention === 'none' ? 'caller_policy' : 'none';
+    f.state.classifications = [{ ...row, result: { ...row.result, retention: current } }];
+    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
+  }
+  const f = fixture(), row = f.state.classifications[0]!;
+  f.state.classifications = [{ ...row, result: { ...row.result, boundary: 'protected_secret',
+    sensitivity: 'credential', delivery: 'custody' } }];
+  f.state.channel = 'custody'; f.state.custody = true; f.decode(f.opening);
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload');
+  f.state.channel = 'ordinary';
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
+  f.state.channel = 'custody'; f.state.reader = 'other';
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
+  f.state.reader = 'synthetic'; f.state.trustedClassification = false;
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
+  f.state.trustedClassification = true; f.state.classifications = [];
+  assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only');
+});
 
 test('真实 validator 接入 Wire：完整参数、独立 source 和原生 error.data 保真，结果读取另过当前门禁', () => {
   const f = fixture();

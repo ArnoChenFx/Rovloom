@@ -46,6 +46,10 @@ Wire 的 contractDigest 若是组合契约摘要，不得直接强转为本模�
 
 结果检查仍是独立入口：ResultAuthorization 必须提供当前 classification_source_verified/revision、当前双方读取授权、principal、channel 与内容状态。分类 revision 已变化或来源无法确认时当前切片拒绝旧 permit 的内容读取，不能沿用旧普通结果分类；恢复/重新评审后的只读上下文重建留 #5 集成，不通过重新派发解决。
 
+整合 adapter 的证据计划在读取门禁之外独立核对真实 permit、同一 principal、当前来源/绑定及完整可信分类；派发时与当前分类的 `result.retention` 均须为 `caller_policy` 才输出原文保留意图。`retention:none` 不禁止通过其它门禁的即时读取，但证据计划只能含 hash/字节数等元数据，不含原文、句柄或更新期限的意图。
+
+整合 adapter 的 `checkResult(binding: AttemptBinding, nativeFrame?: JsonObject): void` 对 stream 强制传入待交付的原生 response/event；省略时拒绝 `result_selector_required`。response 按实际 native ID 在同一 attempt 内选择开流或控制输入的原 candidate/permit，复验响应后独立核对当前分类与读取授权；未知、未派发或跨 attempt 的控制 ID 拒绝 `control_ack_unbound`，不回退开流许可。事件复验原生事件并使用开流上下文。RPC 可省略 frame，仍使用唯一原请求；传入时同样复验原生响应。宿主必须对每条实际交付的流 frame 调用该入口；decode/advanceStream 的结构/顺序成功不授予内容读取权限。
+
 `validateStreamFrame` 对事件 data 调用 checkEvent；control input 调用 checkControl，再逐帧 checkDispatch。control 的 ack 是 native response，不是 event：按同一 stream/attempt 下的 input native ID 找到其 permit 后调用 checkResponse，不把 open native ID 误用到每条 ack。绑定 ack 后才可 openStream；shape-only response 或复制的 handle 都不能建立流。纯 checkSequence 只作有界顺序判断，不实现 replay、队列、lease 释放或 close 的网络副作用。
 
 `openStream` 的 ack 必须由 `checkResponse(同一份 DispatchPermit, ack, trustedSource)` 产生；仅由 CheckedRequest 验证后 bound=true，或同一候选产生的另一份 permit，均不足以建立流。复制的 ack/permit 不能建立许可。

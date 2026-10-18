@@ -1,8 +1,9 @@
 import { checkDispatch, checkResultBoundary, createNativeValidator, inspectRequestGate } from '../native-contract/index.js';
+import { checkResultRetention } from '../native-contract/safety.js';
 import type { Check, CapabilityView, CheckedControl, CheckedStream, CompiledContract, DispatchAuthorization,
   DispatchCandidate, DispatchPermit, NativeBinding, NativeValidator, TrustedNativeContext } from '../native-contract/index.js';
 import { advanceStream, assertBinding, assertProviderAccess, boundedJson, contractRef, decodeWireFrame, decodeWireObject, encodeWireFrame,
-  fail, hash, id, LIMITS, MessageWindow, ObjectAssembler, planResponseEvidence, providerFor, providerScopeAllowed, uint, validateAttempt, WireError } from '../wire/index.js';
+  fail, hash, id, LIMITS, MessageWindow, object, ObjectAssembler, planResponseEvidence, providerFor, providerScopeAllowed, uint, validateAttempt, WireError } from '../wire/index.js';
 import type { AttemptBinding, AttemptIdentity, AuthenticatedContext, AuthenticatedEnvelope, ContractRecord,
   Direction, JsonObject, NativePayloadValidator, NativeValidationContext, ProviderBinding, ProviderPolicies,
   ResolvedAttempt, StreamFeature, V2Target, WireEnvelope } from '../wire/types.js';
@@ -241,15 +242,32 @@ export function createLuvusWireAdapter(backend: NativeWireBackend,
     if (frame.type !== 'stream_close' || !('connection_epoch' in frame)) return;
     const state = states.get(key(frame.payload.attempt)); if (state) { state.closed = true; state.controls.clear(); }
   }
-  function result(binding: AttemptBinding): void {
+  // RPC 只有原请求；stream 必须给出实际待交付的原生响应/事件，不能隐式借开流许可。
+  function result(binding: AttemptBinding, nativeFrame?: JsonObject): void {
     const state = states.get(key(binding)); if (!state) fail('dispatch_permit_unavailable');
     assertBinding(binding, state.attempt.binding); const { ctx } = refresh(state);
     const principal = backend.currentPrincipal();
     if (principal !== state.attempt.principal_id) fail('forbidden');
     const authority = authorization(state), status = backend.contentStatus(binding);
-    const granted = permit(state);
+    let granted = permit(state);
     if (!state.candidate) fail('dispatch_permit_unavailable');
-    const gate = unwrap(inspectRequestGate(state.candidate, authority));
+    let candidate = state.candidate;
+    if (state.attempt.transport === 'stream' && nativeFrame === undefined) fail('result_selector_required');
+    if (nativeFrame !== undefined) {
+      const frame = object(copy(nativeFrame, LIMITS.object_bytes));
+      if (state.attempt.transport === 'stream' && !Object.hasOwn(frame, 'id')) {
+        if (!state.stream) fail('stream_not_ready');
+        unwrap(state.validator.checkEvent(state.stream, frame, state.source));
+      } else {
+        if (frame.id !== binding.native_request_id) {
+          const input = state.controls.get(frame.id as string);
+          if (!state.stream || !input?.permit) fail('control_ack_unbound');
+          candidate = input.candidate; granted = input.permit;
+        }
+        unwrap(state.validator.checkResponse(granted, frame, state.source));
+      }
+    }
+    const gate = unwrap(inspectRequestGate(candidate, authority));
     if (gate.classification_status !== 'trusted_complete') fail('classification_unavailable');
     if (!gate.secret_result_authorized) fail('secret_boundary_required');
     if (status === 'unavailable') fail('content_unavailable');
@@ -300,8 +318,13 @@ export function createLuvusWireAdapter(backend: NativeWireBackend,
     },
     planEvidence(frame: Extract<AuthenticatedEnvelope, { type: 'response' }>) {
       const snapshot = copy(frame, LIMITS.object_bytes), attempt = record(snapshot.payload.attempt), ctx = context('connector_to_gateway');
-      let retain = false; try { result(attempt.binding); retain = true; } catch { /* 撤权/过期仍允许可信最小证据。 */ }
       const state = states.get(key(attempt.binding)); if (!state) fail('dispatch_permit_unavailable');
+      let retain = false;
+      try {
+        result(attempt.binding, snapshot.payload.native_response);
+        unwrap(checkResultRetention(permit(state), authorization(state)));
+        retain = true;
+      } catch { /* 撤权/过期/禁存仍允许可信最小证据。 */ }
       return planResponseEvidence(snapshot, ctx, backend.responseAnchor?.(attempt.binding), backend.now(),
         { classification_status: 'trusted_complete', retain_content_authorized: retain });
     },

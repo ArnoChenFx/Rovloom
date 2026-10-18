@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { checkDispatch, checkResultBoundary, compileBundle, createNativeValidator, inspectRequestGate } from '../../src/native-contract/index.js';
+import { checkResultRetention } from '../../src/native-contract/safety.js';
+import type { SafetyClassification } from '../../src/native-contract/index.js';
 import { auth, bytes, clone, compiled, G, identity, json, raw, register, rejects, request, source, sourceFor, T, unwrap, validator, view } from './helpers.js';
 
 test('raw 需要 Owner 显式选择及独立 grant，不能放宽身份/恢复代次/契约', () => {
@@ -108,6 +110,32 @@ test('控制流逐帧分类及授权，open 许可不能被另一个 handle 或 
   const another = createNativeValidator(compiled);
   // 同一 contract 的另一个实例共享可信编译状态；假 stream 对象仍被拒绝。
   rejects(another.checkControl(clone(stream), frame.frame), 'invalid_stream_context');
+});
+
+test('结果保留是独立门禁：派发与当前分类均可禁存，禁存不等于禁止当前读取', () => {
+  const candidate = request(view(), { id: 'retention', method: 'task.add', params: { title: 'synthetic' } });
+  const context = auth(candidate), row = context.classifications[0] as SafetyClassification;
+  const noRetention = { ...context, classifications: [{ ...row, result: { ...row.result, retention: 'none' as const } }] };
+  const ordinary = unwrap(checkDispatch(candidate, context)), transient = unwrap(checkDispatch(candidate, noRetention));
+  unwrap(checkResultRetention(ordinary, context));
+  rejects(checkResultRetention(ordinary, noRetention), 'content_retention_forbidden');
+  rejects(checkResultRetention(transient, context), 'content_retention_forbidden');
+  rejects(checkResultRetention(transient, noRetention), 'content_retention_forbidden');
+  unwrap(checkResultBoundary(transient, { principal_id: 'synthetic', caller_policy_allowed: true, local_policy_allowed: true,
+    classification_source_verified: true, classification_revision: candidate.binding.classification_revision,
+    channel: 'ordinary', content_status: 'available' }));
+});
+
+test('保留门禁不接受复制 permit、其它 principal 或未知/不可信/过时分类来源', () => {
+  const candidate = request(view(), { id: 'retention', method: 'task.add', params: { title: 'synthetic' } });
+  const context = auth(candidate), permit = unwrap(checkDispatch(candidate, context));
+  rejects(checkResultRetention(clone(permit), context), 'invalid_permit_handle');
+  rejects(checkResultRetention(permit, { ...context, principal_id: 'other' }), 'forbidden');
+  rejects(checkResultRetention(permit, { ...context, classifications: [] }), 'safety_classification_missing');
+  rejects(checkResultRetention(permit, { ...context, classification_source_verified: false }), 'safety_classification_untrusted');
+  const stale = clone(context);
+  rejects(checkResultRetention(permit, { ...stale, source: { ...stale.source,
+    binding: { ...stale.source.binding, classification_revision: 'stale' } } }), 'capability_stale');
 });
 
 test('输入不可变快照与所有响应来源锚点，不能用接收时自报字段串调用', () => {
