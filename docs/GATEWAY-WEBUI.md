@@ -1,11 +1,10 @@
 # Rovloom 管理 UI：最小管理面设计
 
-日期：2026-10-18。状态：管理 UI 与多 runtime provider 设计需求已确认，具体接口待父会话协调；没有实现前端、管理 listener 或认证后端。
-依据：[DESIGN v0.5](DESIGN.md)、[ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)、[ADR 0004](adr/0004-multi-runtime-provider.md)。正式任务为 [issue #14](https://github.com/ArnoChenFx/luvus-mcp/issues/14)，顺序 #8 → #14 → #9，硬依赖 #5/#6/#8；provider 数据迁移/管理 API 也必须先具备，当前不启动开发。
+本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[实施计划](IMPLEMENTATION-PLAN.md)，文档职责见[导航](README.md)。以下是目标契约，不表示服务已交付。
 
 ## 范围与服务边界
 
-Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，不把机器标识 `luvus-mcp` 用作页面产品标题。机器标识与兼容边界见 [系统设计](DESIGN.md)。
+Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，页面不展示包兼容标识作为产品名。
 
 Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动 UI。它管理设备与连接认证状态及其已配置 runtime providers，不另建外部网站，不增加多租户、通用终端、任意 shell、结果浏览或完整运维平台。provider 专指 Luvus/Herdr 实例，不是 LLM/model vendor；页面不管理 model API key。
 
@@ -13,7 +12,7 @@ Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动
 
 默认仅绑定 IPv4 loopback `127.0.0.1`，端口可配置；无管理员认证配置则不启动管理面，不能以 loopback 代替登录。IPv6 loopback 需明确配置；不自动绑定所有接口。远程管理必须另行启用并配置 TLS、反向代理信任边界、允许的 Host/Origin 和访问控制，不能为 UI 默认开放公网或关闭 TLS 校验。恢复隔离时仅允许独立可信的本机恢复管理认证，不从旧备份恢复远程管理开放状态。
 
-页面路由与 API 分别检查管理员身份/当前授权：未登录只显示登录壳，不返回设备数据；API 每次检查 admin 权限及具体管理能力。浏览器会话使用安全 Cookie、CSRF 防护、同源/Origin/Host 验证与必要的 CSP；不把管理 bearer、设备 credential 或 enrollment 存入 URL/localStorage 或页面日志。具体登录实现由后端认证任务冻结，不自建 OAuth 产品，不在本次配置真实管理员凭据。
+页面路由与 API 分别检查管理员身份/当前授权：未登录只显示登录壳，不返回设备数据；API 每次检查 admin 权限及具体管理能力。浏览器会话使用安全 Cookie、CSRF 防护、同源/Origin/Host 验证与必要的 CSP；不把管理 bearer、设备 credential 或 enrollment 存入 URL/localStorage 或页面日志。登录机制由管理员认证后端提供，不自建 OAuth 产品，不能从设备/MCP 身份推导。
 
 ## 页面与状态
 
@@ -31,9 +30,9 @@ Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动
 
 设备详情展开已配置 provider 行：provider_id、kind=luvus|herdr、binding_revision、非秘密 config_ref、enabled、ready/unreachable/binding_mismatch/migration_unresolved、观测时间和来源；可显示已核实 binary/server/protocol/schema 摘要、classification/schema/transport/support 状态及恢复保证，未知则标未核实。config_ref 不展开本地路径/环境或秘密。未授权 provider 不进入摘要、计数或 API。每行状态来自该 binding 的观测；一个 Herdr adapter 故障不把设备或 Luvus 行改成离线，LLM/model 错误另列任务层。
 
-UI 可只读查看已配置 bindings；新增实例、选择 binary/root/endpoint、修改 config_ref 或 kind 的可信绑定继续由受保护本机配置与后端管理审批完成，最小 UI 不提供任意路径/命令输入。旧来源不明的 migration_unresolved 行保持禁用，不能点选同名 Herdr 代替旧 Luvus。
+UI 可只读查看已配置 bindings；实例新建/替换与受信配置变更遵循 [DESIGN §5.2](DESIGN.md#52-runtime-provider-binding--session)，由受保护本机配置与后端管理审批完成，不能原地修改 kind 或换成另一实例。最小 UI 不提供 binary/root/endpoint、任意路径或命令输入。旧来源不明的 migration_unresolved 行保持禁用，不能点选同名 Herdr 代替旧 Luvus。
 
-默认可见页面每 5 秒读取快照，隐藏页面暂停轮询，回到前台立即刷新；单次读取超时 5 秒。距最后成功快照 15 秒或发生 epoch/恢复代次变化即标记过期，显示观测时间/心跳年龄，禁用基于该快照的变更直到刷新。显示年龄使用服务时间及本次请求后的单调经过时间，不因浏览器时钟回退而“变新”。断网保留带过期标记的只读视图，不伪装实时数据；后续可选 SSE 优化不替代快照，当前不要求另做流系统。
+默认可见页面每 5 秒读取快照，隐藏页面暂停轮询，回到前台立即刷新；单次读取超时 5 秒。距最后成功快照 15 秒或发生 epoch/恢复代次变化即标记过期，显示观测时间/心跳年龄，禁用基于该快照的变更直到刷新。显示年龄使用服务时间及本次请求后的单调经过时间，不因浏览器时钟回退而“变新”。断网保留带过期标记的只读视图，不伪装实时数据；后续可选 SSE 优化不替代快照，无需另建流系统。
 
 空态区分：没有设备（引导建立配对申请）、无符合筛选项、无查看权限；错误态区分未登录/认证过期 401、无权限 403、版本冲突 409、后端暂不可用 503、容量不足。401 清除内存中敏感状态并停轮询，登录后重新取快照；所有写操作在超时/重新登录后都不自动重放。409 必须刷新并重新确认，不能自动带新 revision 重试。
 
@@ -47,7 +46,7 @@ UI 可只读查看已配置 bindings；新增实例、选择 binary/root/endpoin
 
 敏感变更须有真实管理员会话、后台保存并绑定该会话/操作摘要/目标/revision/epoch 的一次性确认记录，以及原子审计；不能由 caller 提交 approved:true 自证确认。确认有效期默认 2 分钟，过期、操作摘要变化或 revision/epoch 变化须重新确认。确认引用只经受保护请求体传递，不放 URL 或普通日志。此处管理员交互不替代必要的原生 Host 确认，UI 最小范围不提供这些 Host 操作。
 
-## 最小管理 API 契约（拟议）
+## 最小管理 API 契约
 
 仅固定操作枚举；未知 action、安全分类不完整或当前策略不允许，一律拒绝。管理请求与响应均有界。所有写入含 request_id、history_epoch、recovery_generation、expected_revision、reason 和适用的 confirmation_id；断开额外含 expected_connection_epoch。后端按当前管理 principal/目标去重，复用同请求必须保留原范围与关联；不得更换 ID/范围自动续发。响应不携带凭据正文。
 
@@ -72,7 +71,7 @@ UI 可只读查看已配置 bindings；新增实例、选择 binary/root/endpoin
 
 provider 管理操作还必含 expected_binding_revision，确认摘要/history scope/去重关联绑定完整 machine/provider/binding/kind；expected_revision 继续表示管理资源 revision，不能拿设备 revision 代替 binding fence。设备撤销的影响确认列出全部已配置 providers；provider 禁用只列本实例。409、epoch/恢复代次/binding revision 变化或快照过期后均重新读取和确认，不自动套新 revision 重试。API 路径中的 /admin/v1 是管理 API 版本，与 Gateway/Connector wire 2.0、MCP revision 独立。
 
-审计遵循 ADR 0002 的无原文/无 secret 与预算规则，记录管理员、目标、动作、确认记录安全引用、revision/epoch、结果/时间。配对签发/兑换的秘密不进入普通调用结果库、UI 或审计。确认/配对元数据也计入受管预算，不能靠管理面绕过 storage_degraded 或 64 MiB 预留耗尽规则。
+审计遵循 DESIGN 的无原文/无 secret 与预算规则，记录管理员、目标、动作、确认记录安全引用、revision/epoch、结果/时间。配对签发/兑换的秘密不进入普通调用结果库、UI 或审计。确认/配对元数据也计入受管预算，不能靠管理面绕过 storage_degraded 或收尾预留耗尽规则。
 
 ## 恢复隔离与存储故障下的 UI
 
@@ -82,7 +81,7 @@ recovery_quarantined 仅允许通过独立于旧备份的本机恢复管理员�
 
 storage_degraded 时只允许可满足预算/授权的有界只读诊断；禁用所有管理写按钮，明确持久撤销可能尚未生效。后端仍要独立拒绝对应请求，不能仅靠前端 disabled。原调用结局无法持久化则保留 unknown/dispatch 锚点，UI 不显示为已完成；晚到证据也不绕过当前恢复代次、epoch、内容截止和已清理状态。
 
-## 后续 issue 验收（尚未运行）
+## 管理面验收要求
 
 - 管理 UI 与 API 双重管理员检查；MCP/设备/配对身份不能调用管理动作，未授权数据不进入页面或 API。
 - 配对全流程不回显凭据；真实后台确认、CSRF、审计、revision/epoch 冲突、重复/超时均有测试；确认状态不是 approved 布尔绕过。
@@ -90,4 +89,4 @@ storage_degraded 时只允许可满足预算/授权的有界只读诊断；禁�
 - 同设备 Luvus/Herdr/第二同 kind 行分别显示；provider 禁用/重新启用有独立权限、确认和 revision 冲突测试，其它行与设备授权不被误改。旧句柄/补证/队列不复活；设备撤销覆盖全部。未知分类/状态恢复保证不因 UI 展示变成已支持。
 - 空态、401/403/409/503、断网/过期快照/刷新和心跳来源清楚；reconnecting 由可信证据产生，数据过期禁止变更。
 - 默认仅本机、远程需显式 TLS/访问控制；恢复/存储隔离的页面与 API 均拒绝写入、旧范围不复活；不把 UI 测试称作跨平台或生产部署验收。
-- 前端构建/测试沿用 #15 已合入 main 的 Bun 1.4.3 基线；新 UI/Herdr 仍须独立验收，不把旧 Node/Luvus P0 或 Bun 工具链结果改写为这些功能通过。
+- 构建/测试使用[开发指引](DEVELOPMENT.md)的工具链；页面、管理后端、平台和部署分别验收，不能以工具链或原生实验代替。

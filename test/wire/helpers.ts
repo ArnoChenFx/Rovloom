@@ -140,7 +140,7 @@ export const binding: AttemptBinding = { ...identity, ...attempt };
 export const nativeHandle = Object.freeze({ synthetic_test_handle: true });
 export const trustedSource = Object.freeze({ synthetic_test_source: true });
 const methods = JSON.parse(
-  readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), 'utf8'),
 ).methods.map((r: any) => r.method);
 export const offer: VersionOffer = {
   major: 2,

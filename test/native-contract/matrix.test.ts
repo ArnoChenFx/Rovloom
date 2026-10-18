@@ -22,10 +22,7 @@ import {
 
 // 将接口无关场景转为真实内存工厂；不把 JSON 中的可信标志直接当作生产认证。
 const matrix: any = JSON.parse(
-  readFileSync(
-    new URL('../../fixtures/issue4/native-validator/matrix.json', import.meta.url),
-    'utf8',
-  ),
+  readFileSync(new URL('../../fixtures/native-contract/matrix.json', import.meta.url), 'utf8'),
 );
 const seeds = new Map<string, any>();
 function pointer(value: any, path: string): any {

@@ -1,4 +1,4 @@
-"""审计 #4 设计资料；不执行 validator，不启动原生实例，不代表 Bun 门禁。"""
+"""审计原生契约 fixture、映射与矩阵；不执行 validator，不启动原生实例，不代表 Bun 门禁。"""
 
 import argparse
 import copy
@@ -13,8 +13,8 @@ from urllib.parse import unquote, urldefrag, urljoin
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "fixtures/p0/linux-luvus-0.14.3"
-DESIGN = ROOT / "docs/issue4"
-MATRIX = ROOT / "fixtures/issue4/native-validator/matrix.json"
+MAPPINGS = ROOT / "fixtures/native-contract"
+MATRIX = ROOT / "fixtures/native-contract/matrix.json"
 BASE = "9c4a7fe34fc3efa461d96a502860e61b05817c44"
 SCHEMA_SHA = "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6"
 STREAMS = {"events.subscribe", "terminal.backend.events.subscribe",
@@ -141,7 +141,7 @@ def audit_sources():
         check(doc.get("$id", uri) == uri, f"安装版 id/key 不符: {uri}")
         visit(doc, uri)
     rows = method_rows(bundle, session, host)
-    ledger = {item["method"]: item for item in read_json(ROOT / "docs/p0/coverage.json")["methods"]}
+    ledger = {item["method"]: item for item in read_json(ROOT / "fixtures/native-contract/coverage.json")["methods"]}
     check(len(ledger) == len(rows), "P0 ledger 方法数不符")
     for row in rows:
         entry = ledger[row["method"]]
@@ -234,7 +234,7 @@ def audit_matrix():
 def audit_terminal_map():
     bundle = read_json(FIXTURE / "schema-bundle.json")
     terminal = read_json(FIXTURE / "session-capabilities.json")["result"]["terminal"]
-    with (DESIGN / "terminal-capability-map.tsv").open(encoding="utf-8") as source:
+    with (MAPPINGS / "terminal-capability-map.tsv").open(encoding="utf-8") as source:
         rows = list(csv.DictReader(source, delimiter="\t"))
     check(len(rows) == 26, "终端能力/feature 行数不符")
     check(len({(row["kind"], row["name"]) for row in rows}) == len(rows), "终端映射重复")
@@ -255,10 +255,10 @@ def audit_terminal_map():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--write-map", action="store_true", help="仅重建本任务的设计映射 TSV")
+    parser.add_argument("--write-map", action="store_true", help="仅重建原生方法映射 TSV")
     args = parser.parse_args()
     rows, references = audit_sources()
-    mapping = DESIGN / "native-method-map.tsv"
+    mapping = MAPPINGS / "native-method-map.tsv"
     content = render_map(rows)
     if args.write_map:
         mapping.write_text(content, encoding="utf-8")

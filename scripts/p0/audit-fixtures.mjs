@@ -249,12 +249,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const ledger = coverage();
   if (process.argv.includes('--write'))
     writeFileSync(
-      new URL('../../docs/p0/coverage.json', import.meta.url),
+      new URL('../../fixtures/native-contract/coverage.json', import.meta.url),
       JSON.stringify(ledger, null, 2) + '\n',
     );
   else
     assert.deepEqual(
-      JSON.parse(readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url))),
+      JSON.parse(
+        readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url)),
+      ),
       ledger,
     );
   console.log(

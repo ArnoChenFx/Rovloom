@@ -48,7 +48,9 @@ test('覆盖账本保持全部方法与 profile；未实现、权限、schema �
   const generated = coverage();
   assert.deepEqual(
     generated,
-    JSON.parse(readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url))),
+    JSON.parse(
+      readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url)),
+    ),
   );
   assert.deepEqual(generated.counts, {
     union: 223,

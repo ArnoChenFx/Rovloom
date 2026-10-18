@@ -440,7 +440,7 @@ test('分类与 generic/schema 状态独立；raw 需原登记 mode 和独立授
     'classification_unavailable',
   );
   const coverage = JSON.parse(
-    readFileSync(new URL('../../docs/p0/coverage.json', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), 'utf8'),
   );
   const generic = coverage.methods.filter(
     (r: any) => r.schema.parameter_detail === 'generic_params_only',
