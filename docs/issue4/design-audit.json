@@ -1,0 +1,27 @@
+{
+  "scope": "design_materials_only_not_validator_or_bun_tests",
+  "base_commit": "9c4a7fe34fc3efa461d96a502860e61b05817c44",
+  "schema_sha256": "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6",
+  "methods": 223,
+  "generic_params_only": 144,
+  "conditional_branch": 79,
+  "documents": 29,
+  "terminal_capability_and_feature_rows": 26,
+  "installed_reference_occurrences_resolved": 188,
+  "seeds_materialized": 27,
+  "case_drafts": 128,
+  "drafts_by_stage": {
+    "bundle": 13,
+    "capabilities": 8,
+    "control": 7,
+    "dispatch": 20,
+    "event": 9,
+    "late": 10,
+    "parse": 6,
+    "request": 23,
+    "response": 18,
+    "result": 9,
+    "stream": 5
+  },
+  "validator_cases_executed": 0
+}
