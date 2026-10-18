@@ -21,7 +21,7 @@ Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构�
 - **原生适配：** Luvus 与 Herdr 分别保留各自的契约和能力边界。
 - **受控访问：** Gateway 与本地策略共同约束调用、结果和流，并提供内置设备与 runtime 管理。
 
-## 目标架构
+## 架构
 
 上层是客户端，中层是 Gateway；下层每台设备运行一个 Connector 与本地 Provider Adapter。
 同一个 Connector 可以管理多个 runtime 实例。
@@ -66,17 +66,6 @@ flowchart TB
   CA -.->|"主动发起出站 WSS"| GW
   CB -.->|"主动发起出站 WSS"| GW
 ```
-
-虚线箭头表示 **Connector → Gateway 主动发起出站连接**。
-实线箭头表示业务流：请求沿 **Gateway → Connector → Provider Adapter → 本地 runtime** 下行，
-结果与事件沿原路返回。MCP 入口采用本地 stdio 或带认证的 HTTPS Streamable HTTP，
-Connector 通道使用 WSS。
-
-Luvus Adapter 使用 Host/session 契约，Herdr Adapter 使用 session runtime。
-Gateway 的内置管理 UI 提供受保护的管理入口。
-
-文字概览：**客户端 / CLI / MCP ⇄ Gateway ⇄ 每设备一个 Connector ⇄ Provider Adapter ⇄ 本地 Luvus / Herdr**。
-[图源与图例](docs/assets/architecture/README.md)。
 
 ## 快速开始
 

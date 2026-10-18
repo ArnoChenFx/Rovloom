@@ -23,7 +23,7 @@ The target product is designed to provide:
 - **Controlled access:** Apply Gateway and local policies to calls, results and streams,
   with built-in device and runtime management.
 
-## Target architecture
+## Architecture
 
 Clients sit above the Gateway; each device below it runs one Connector and its
 local provider adapters. A Connector can manage multiple runtime instances.
@@ -68,19 +68,6 @@ flowchart TB
   CA -.->|"initiates outbound WSS"| GW
   CB -.->|"initiates outbound WSS"| GW
 ```
-
-Dashed arrows show **Connector → Gateway outbound connection initiation**.
-Solid arrows show application traffic: requests travel **Gateway → Connector →
-provider adapter → local runtime**; results and events return along the same path.
-The MCP entry uses local stdio or authenticated HTTPS Streamable HTTP; the
-Connector channel uses WSS.
-
-Luvus adapters expose Host/session contracts; Herdr adapters use session runtimes.
-The Gateway's management UI provides a protected management surface.
-
-Text overview: **clients / CLI / MCP ⇄ Gateway ⇄ one Connector per device ⇄
-provider adapters ⇄ local Luvus / Herdr**.
-[Diagram sources and legend](docs/assets/architecture/README.md).
 
 ## Quick start
 

@@ -1,8 +1,8 @@
-# Target architecture / 目标架构
+# Architecture / 架构
 
 Sources: [English](target.en.mmd) · [中文](target.zh.mmd).
-The matching Mermaid fences are embedded in the [English README](../../../README.md#target-architecture)
-and [中文 README](../../../README-zh.md#目标架构). Update each source and its README
+The matching Mermaid fences are embedded in the [English README](../../../README.md#architecture)
+and [中文 README](../../../README-zh.md#架构). Update each source and its README
 fence together; keep node IDs, roles and edges consistent across languages.
 
 源文件与双语 README 中的 Mermaid 代码块同步维护；两种语言的节点 ID、职责与连线须一致。
