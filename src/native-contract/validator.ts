@@ -130,6 +130,35 @@ function validateTerminalCapabilities(value: JsonObject): void {
         fail('capability_invalid', 'discovery', 'limits');
     }
   }
+  // 这些是执行帧的硬上界；缺失或零不能解释为不设限。
+  for (const limit of [
+    object(value.limits).frame_bytes,
+    object(terminal.limits).request_bytes,
+    object(terminal.limits).response_bytes,
+  ]) {
+    if (!Number.isSafeInteger(limit) || (limit as number) <= 0)
+      fail('capability_invalid', 'discovery', 'frame_limit');
+  }
+}
+
+function frameLimit(
+  contract: CompiledContract,
+  view: CapabilityView,
+  value: JsonObject,
+  code: string,
+  terminal: boolean,
+  direction: 'request' | 'response',
+): void {
+  if (view.binding.target.profile !== 'session') return;
+  const caps = viewData(contract, view).capabilities;
+  let maxBytes = object(caps.limits).frame_bytes as number;
+  if (terminal) {
+    const limits = object(object(caps.terminal).limits);
+    maxBytes = Math.min(maxBytes, limits[`${direction}_bytes`] as number);
+  }
+  // 固定 UHP 的 request/response/event/control 都以 LF 结束；分隔符也占原生帧预算。
+  if (Buffer.byteLength(JSON.stringify(value)) + 1 > maxBytes)
+    fail(code, 'validation', 'frame_limit');
 }
 
 function shapeCapabilities(
@@ -361,11 +390,14 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     }
     const descriptor = method(contract, view, name);
     requestSemantics(request, view);
-    const cap = viewData(contract, view).capabilities;
-    const nativeLimit =
-      view.binding.target.profile === 'session' ? object(cap.limits).frame_bytes : undefined;
-    if (typeof nativeLimit === 'number' && Buffer.byteLength(JSON.stringify(request)) > nativeLimit)
-      fail('native_request_invalid', 'request', 'frame_limit');
+    frameLimit(
+      contract,
+      view,
+      request,
+      'native_request_invalid',
+      name.startsWith('terminal.backend.'),
+      'request',
+    );
     let validation: ParameterValidation = 'unavailable';
     if (descriptor.schema_status === 'conditional_branch') validation = 'schema';
     else if (descriptor.schema_status === 'generic_params_only') validation = 'generic';
@@ -430,6 +462,14 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           candidate,
           context.kind === 'permit' ? context : null,
         );
+        frameLimit(
+          contract,
+          stored.view,
+          checked.response,
+          'native_response_invalid',
+          terminal,
+          'response',
+        );
         const request = candidate.kind === 'control' ? candidate.frame : candidate.request;
         // schema 合法之后仍须绑定原请求 ID、结果类型和适用的原生实例标识。
         if (checked.response.id !== request.id) fail('native_id_mismatch', 'response');
@@ -483,6 +523,14 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         const event = copy(contract, input);
         const name = text(event.event, 'native_event_invalid');
         const terminal = name.startsWith('terminal.');
+        frameLimit(
+          contract,
+          candidates.get(candidate)!.view,
+          event,
+          'native_event_invalid',
+          terminal,
+          'response',
+        );
         if (name === 'terminal.frame' || name === 'terminal.resync_required') {
           if (
             stream.mode === 'general_events' ||
@@ -542,6 +590,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         const parent = candidates.get(permit.candidate)!;
         viewData(contract, parent.view);
         const frame = copy(contract, input);
+        frameLimit(contract, parent.view, frame, 'native_control_invalid', true, 'request');
         validate(
           contract,
           `${UHP}schema/terminal/control-frame.schema.json`,

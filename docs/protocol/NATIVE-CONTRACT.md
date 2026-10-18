@@ -13,6 +13,28 @@
 不联网解析 $ref，不读路径，不补默认值、不转换类型、不删除原生字段。
 URL 是 bundle 内索引。未知方言、关键字、缺引用、副本冲突及资源超限拒绝。
 `parseNativeJson` 执行有界 JSON 检查；对象入口只供内部无行为 JSON。
+字符串与 UTF-8 字节入口均拒绝 BOM。引用遍历使用显式栈，结构嵌套不消耗
+JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不生成 handle。
+
+| 原生内核预算 | 默认上界 |
+|---|---|
+| 单 JSON 对象 | 1 MiB、深度 64、100,000 个 value 节点 |
+| 安装 bundle | 2 MiB、150,000 个 value 节点 |
+| documents | 64 份，每份 512 KiB |
+| 引用 | 2,048 条，任一路径至多 32 条 $ref；结构边不计引用深度 |
+| terminal event 编码 | 64 KiB；仍须满足原生 text/bytes/lines 约束 |
+
+`CompileOptions.limits` 只能降低这些上界。Wire 的 16 MiB bundle 重组上界不扩大
+原生编译预算。以上为结构/字节预算；同步 `compileBundle` 没有硬 CPU/heap 隔离，
+只能用于已审核本地 bundle。生产自动接纳 schema 仍须先交付 DESIGN 的可终止独立
+编译 worker 和 2 秒/64 MiB 限额；线程选项、定时器或快照计量不能作其验收证明。
+
+session capability 必须提供正安全整数的 `limits.frame_bytes`、
+`terminal.limits.request_bytes` 与 `terminal.limits.response_bytes`。
+原请求、bound response、event 和 control 分别执行通用与适用终端预算的交集，
+计入完整 UTF-8 JSON 和结束 LF。`checkResponseShape` 没有原 capability，不能证明
+在线较低预算或来源关联通过。Connector 注入受保护 auth 后，实际写出入口还须
+重新计量完整帧；禁止用注入前长度作为可发送证明。
 
 固定 Luvus 0.14.3 有 29 文档、223 方法，其中 79 个有条件参数分支，144 个只有
 通用 params object；79 个也不代表业务语义完备。session、Host 与未接入的
@@ -58,6 +80,8 @@ contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数
 组合 contract_ref 不能强转为 schema hash。完整 provider tuple 求双方权限交集
 后才投影给原生 Policy，不从独立数组拼笛卡尔授权。原生 supported_transports
 及 supported_control_actions 必须显式提供，未知未来流不自动适配。
+`contract` resolver 只能返回已接纳的 handle；`schema_bundle` 重组结果不授予编译或
+登记权限。opaque handle、permit 和来源 token 均不能跨进程/重启序列化后恢复为原凭证。
 
 ## 请求、控制与交付生命周期
 

@@ -261,6 +261,35 @@ test('迟到回复逐一拒绝错机器/代次/epoch/call/attempt/native ID/targ
       'attempt_binding_mismatch',
     );
   }
+  for (const changed of [
+    { ...binding, provider_kind: 'herdr' as const },
+    { ...binding, target: { ...binding.target, provider_id: 'other_provider' } },
+    {
+      ...binding,
+      target: { ...binding.target, profile: 'session' as const, session: 'other_session' },
+    },
+    { ...binding, registration: { ...binding.registration, deadline: 2000 } },
+    { ...binding, registration: { ...binding.registration, history: null } },
+    {
+      ...binding,
+      registration: { ...binding.registration, caller_policy_revision: 'other_policy' },
+    },
+    {
+      ...binding,
+      registration: { ...binding.registration, local_policy_revision: 'other_policy' },
+    },
+  ]) {
+    rejects(
+      () =>
+        planResponseEvidence(
+          response,
+          context('connector_to_gateway'),
+          { ...anchor, binding: changed },
+          400,
+        ),
+      'attempt_binding_mismatch',
+    );
+  }
   rejects(
     () =>
       planResponseEvidence(
