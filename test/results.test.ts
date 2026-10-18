@@ -17,7 +17,12 @@ test('results enforce ownership, policy, quota, TTL and byte-perfect pagination'
     const d = s.redeem(s.issueEnrollment(m.machine_id));
     const epoch = s.connect(m.machine_id, d.credential);
     const target: Target = { machine_id: m.machine_id, profile: 'session', session: 'test' };
-    const policy: Policy = { machines: [m.machine_id], sessions: ['test'], methods: ['pane.read'], host: false };
+    const policy: Policy = {
+      machines: [m.machine_id],
+      sessions: ['test'],
+      methods: ['pane.read'],
+      host: false,
+    };
     let local = policy;
     const r = new Router(s, () => local);
     const p = { id: 'alice', policy };
@@ -48,7 +53,9 @@ test('results enforce ownership, policy, quota, TTL and byte-perfect pagination'
     const next = r.saveResult(p, c.call_id);
     s.revoke(m.machine_id);
     assert.throws(() => r.readResult(p, next.result_id), /result_not_found/);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('real v1 schema migrates to v3; legacy context fails closed and dispatched calls never replay', () => {
@@ -69,9 +76,19 @@ test('real v1 schema migrates to v3; legacy context fails closed and dispatched 
       assert.equal(store.machine('m').status, 'offline');
       assert.equal(store.call('p', 'c').state, 'outcome_unknown');
       assert.equal(store.call('p', 'c').target_json, null);
-      const policy: Policy = { machines: ['m'], methods: ['pane.read'], sessions: ['test'], host: false };
-      assert.throws(() => new Router(store, () => policy).get({ id: 'p', policy }, 'c'), /legacy_call_context_unavailable/);
-    } finally { store.close(); }
+      const policy: Policy = {
+        machines: ['m'],
+        methods: ['pane.read'],
+        sessions: ['test'],
+        host: false,
+      };
+      assert.throws(
+        () => new Router(store, () => policy).get({ id: 'p', policy }, 'c'),
+        /legacy_call_context_unavailable/,
+      );
+    } finally {
+      store.close();
+    }
     const inspect = new DatabaseSync(path);
     assert.equal(inspect.prepare('SELECT version FROM metadata').get()!.version, 3);
     assert.equal(inspect.prepare('SELECT COUNT(*) AS n FROM results').get()!.n, 0);
@@ -79,5 +96,7 @@ test('real v1 schema migrates to v3; legacy context fails closed and dispatched 
     const reopened = new Store(path);
     assert.equal(reopened.call('p', 'c').state, 'outcome_unknown');
     reopened.close();
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

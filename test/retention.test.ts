@@ -27,7 +27,8 @@ test('deduplicated handles retain expiry; aggregate quota reclaims expired paylo
   const s = new Store(':memory:', () => now);
   try {
     const f = fixture(s);
-    const first = f.respond(), second = f.respond();
+    const first = f.respond(),
+      second = f.respond();
     const a = s.saveResult('p', first, 10);
     now = 1;
     assert.deepEqual({ ...s.saveResult('p', first, 100) }, { ...a });
@@ -47,7 +48,9 @@ test('deduplicated handles retain expiry; aggregate quota reclaims expired paylo
     assert.throws(() => s.readResult('p', a.result_id), /result_not_found/);
     // 句柄过期不等于删除响应：底层调用仍保留原始响应。
     assert.equal(s.call('p', first).response, '{"result":"abc"}');
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('discard is reauthorized, removes inline response and handles, preserves deduplication tombstone', () => {
@@ -56,7 +59,12 @@ test('discard is reauthorized, removes inline response and handles, preserves de
     const f = fixture(s);
     const call = f.respond('retained-key');
     const meta = s.saveResult('p', call);
-    let policy: Policy = { machines: [f.target.machine_id], sessions: ['test'], methods: ['pane.read'], host: false };
+    let policy: Policy = {
+      machines: [f.target.machine_id],
+      sessions: ['test'],
+      methods: ['pane.read'],
+      host: false,
+    };
     const principal = { id: 'p', policy };
     const r = new Router(s, () => policy);
     assert.throws(() => r.discardResponse({ ...principal, id: 'other' }, call), /call_not_found/);
@@ -69,12 +77,17 @@ test('discard is reauthorized, removes inline response and handles, preserves de
     r.discardResponse(manager, call);
     assert.equal(s.call('p', call).response, null);
     assert.equal(s.call('p', call).state, 'responded');
-    assert.equal(s.createCall('p', f.target, { method: 'pane.read' }, 'retained-key').call_id, call);
+    assert.equal(
+      s.createCall('p', f.target, { method: 'pane.read' }, 'retained-key').call_id,
+      call,
+    );
     assert.throws(() => r.readResult(principal, meta.result_id), /result_not_found/);
     assert.throws(() => r.saveResult(principal, call), /result_not_ready/);
     assert.throws(() => s.dispatch('p', call, 'old'), /dispatch_rejected/);
     r.discardResponse(manager, call);
-  } finally { s.close(); }
+  } finally {
+    s.close();
+  }
 });
 
 test('populated v2 migration preserves context and results survive reopen until expiry', () => {
@@ -104,11 +117,18 @@ test('populated v2 migration preserves context and results survive reopen until 
       reopened.expire();
       assert.throws(() => reopened.readResult('p', meta.result_id), /result_not_found/);
       reopened.discardResponse('p', call);
-    } finally { reopened.close(); }
+    } finally {
+      reopened.close();
+    }
     const inspect = new DatabaseSync(path);
     assert.equal(inspect.prepare('SELECT version FROM metadata').get()!.version, 3);
     assert.equal(inspect.prepare('SELECT COUNT(*) AS n FROM results').get()!.n, 0);
-    assert.equal(inspect.prepare('SELECT response FROM calls WHERE call_id=?').get(call)!.response, null);
+    assert.equal(
+      inspect.prepare('SELECT response FROM calls WHERE call_id=?').get(call)!.response,
+      null,
+    );
     inspect.close();
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
