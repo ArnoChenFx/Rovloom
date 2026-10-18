@@ -1,4 +1,4 @@
-# ADR 0001：P0 版本、契约来源与协商基线
+# ADR 0001：Rovloom P0 版本、契约来源与协商基线
 
 日期：2026-10-18 UTC。状态：Linux P0 范围已由父会话验收，提交 `d2455e878f93e162a2a54bb58c1e5785aecd0949`；其余平台/产品能力仍受下述限制。
 依据：issue #3、DESIGN v0.2、IMPLEMENTATION-PLAN v0.2；基线提交 `916cae2412b69f3432caf264fd411ea1a4b3093f`。

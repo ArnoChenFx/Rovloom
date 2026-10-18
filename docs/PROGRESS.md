@@ -1,4 +1,9 @@
-# Foundation Progress And Evidence
+# Rovloom Foundation Progress And Evidence
+
+Rovloom is the current product display name; the repository and compatibility
+identifiers are explained in [README](../README.md#name-and-compatibility-identifiers).
+The dated foundation evidence below retains its original commands, paths,
+versions and historical scope.
 
 ## Scope and decisions
 

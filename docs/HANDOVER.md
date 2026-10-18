@@ -1,8 +1,18 @@
-# luvus-mcp 开发交接
+# Rovloom 开发交接
 
 日期：2026-10-18（UTC）
 
-## 多 runtime provider 设计 v0.5 交接（当前）
+## Rovloom 品牌文案交接（当前）
+
+用户已确定展示名 **Rovloom**，要求更新项目文本物料，同时暂不更改仓库实际名称。品牌增量在 task/multi-runtime-provider-design 上独立提交，父提交保持多 provider 设计 `71ce53a37712bf9ccbc4ace8689249ae51c5e346`，不改写该提交。
+
+当前标题、简介、package.description、正式设计/实施计划、ADR 标题与管理 UI 产品文案统一使用 Rovloom；小写文本 slug 为 rovloom。仓库仍为 ArnoChenFx/luvus-mcp，现有 URL/remote/checkout 路径不变；package.name、锁文件中的 workspace name、设计中的 CLI 标识 luvus-mcp、luvus_* 工具/环境变量/协议字段均保留兼容。Luvus/Herdr 原生名称、原作者 Luvus Tester、历史命令/报告/日志/fixtures/hash 与旧目录记录保留，不把它们改写成新品牌证据。命名边界见 [README](../README.md#name-and-compatibility-identifiers)。
+
+本次只有人读文案和 package.description 变更，没有功能/机器接口修改，没有发布 npm、注册域名、更改仓库设置、远端发布或合并。多 provider 冻结候选和待决冲突仍以下节与 ADR 0004 为准；品牌变更不表示实现通过。完整改动清单、残留扫描与最终提交以交付消息为准。
+
+品牌核验：扫描109份受版本控制的UTF-8文本，旧项目名35处残留均已分类（仓库名/URL18、显式兼容说明7、package/测试标识3、历史命令/路径7），旧产品标题与未分类残留均为0。57个本地链接/锚点、2个JSON示例及whitespace检查通过；package除description外结构相同，各ADR正文、原代码围栏、外部URL及历史交接/进度正文保持原样，源码/测试/锁/历史原始证据无差异。此文案检查不替代功能或原生验收。
+
+## 多 runtime provider 设计 v0.5 交接（设计基线）
 
 用户已答“要的”，批准同一 Gateway 同时支持 Luvus/Herdr 并先统一身份与适配边界。本轮从已 fetch 核实的 main `5124d459fa0f712fd1dbb9f164a3513e3e538716` 建立本地 `task/multi-runtime-provider-design`。当前依据为 [DESIGN v0.5](DESIGN.md)、[IMPLEMENTATION-PLAN v0.5 §4.3](IMPLEMENTATION-PLAN.md#43-多-runtime-provider-的交付门禁)、[ADR 0004](adr/0004-multi-runtime-provider.md) 和更新后的 [Web UI 设计](GATEWAY-WEBUI.md)。以下 v0.4/Bun“待验收/未发布”段落是历史；main 已有安全设计与 Bun 1.4.3，不能再当成本轮阻碍。
 

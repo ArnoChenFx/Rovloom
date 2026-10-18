@@ -1,14 +1,16 @@
-# Luvus / Herdr 多机器通用 MCP：实施方案
+# Rovloom：多机器通用 MCP 实施方案
 
 版本：0.5 · 日期：2026-10-18 · 原作者：Luvus Tester
 状态：供后续开发执行；多 runtime provider 已获用户设计授权，功能/迁移/管理 UI 尚未实施。#15 Bun 1.4.3 已合入 main `5124d45`，证据见 [Bun 报告](bun/REPORT.md)。
 配套：《DESIGN.md》。下文的命令/工具名称均为拟议接口。
 
+项目展示名为 **Rovloom**；仓库名、package/CLI 标识及原生 Luvus/Herdr 名称按 [README 命名说明](../README.md#name-and-compatibility-identifiers) 保留。品牌文案变更不改变阶段范围、机器接口或历史证据。
+
 当前基线 main `5124d459fa0f712fd1dbb9f164a3513e3e538716` 已包含 Luvus Linux P0、安全设计及 Bun；不等于 P1 或 Herdr P0 已完成。本轮只改文档；公共字段与兼容迁移见 [ADR 0004](adr/0004-multi-runtime-provider.md)，安全原则沿用 ADR 0002。
 
 ## 1. 交付目标与工作纪律
 
-交付一个项目、一套 luvus-mcp 程序，以 gateway / connector 两种模式运行。Gateway 统一 MCP；每设备一套身份/一个主动出站 Connector，适配多个可信 Luvus/Herdr 实例。调用指定 machine_id/provider_id/profile/session 与 expected_binding_revision；原生契约、权限、去重和恢复保证按 provider 隔离。
+交付一个项目、一套 Rovloom 程序，以 gateway / connector 两种模式运行；设计中的 CLI 标识 `luvus-mcp` 保留兼容。Gateway 统一 MCP；每设备一套身份/一个主动出站 Connector，适配多个可信 Luvus/Herdr 实例。调用指定 machine_id/provider_id/profile/session 与 expected_binding_revision；原生契约、权限、去重和恢复保证按 provider 隔离。
 
 实施不能用“能 list_agents”代替完整网关，也不能用一个无限制 shell 接口代替 UHP。
 

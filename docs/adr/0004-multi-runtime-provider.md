@@ -1,4 +1,4 @@
-# ADR 0004：同一 Gateway 的多 runtime provider
+# ADR 0004：Rovloom 同一 Gateway 的多 runtime provider
 
 日期：2026-10-18 UTC。状态：用户已批准纳入正式设计；以下公共接口作为 #4/wire/native 的冻结候选，待父会话协调实现方验收。本轮仅文档与本地提交，未实现、未运行 Herdr binary、未创建凭据、未部署/发布/合并。
 基线：main `5124d459fa0f712fd1dbb9f164a3513e3e538716`，沿用 ADR 0002 安全与恢复原则、ADR 0003 的 Bun 1.4.3 / SDK 1.32.1 基线。本文替代 DESIGN v0.4「一个 Connector 只绑定一个 Luvus 安装实例」的限制；不替代已有安全门禁。

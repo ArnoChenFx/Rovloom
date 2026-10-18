@@ -1,8 +1,25 @@
-# luvus-mcp
+# Rovloom
 
-A planned multi-machine Luvus MCP gateway and outbound connector, in one project.
+Rovloom is a planned multi-machine MCP gateway and outbound connector for Luvus
+and Herdr. The repository is still named `ArnoChenFx/luvus-mcp`.
 The normative proposal is in [docs/DESIGN.md](docs/DESIGN.md) and
 [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md).
+
+## Name and compatibility identifiers
+
+Use **Rovloom** for product names, page titles and user-facing copy; the lowercase
+text slug is `rovloom`. Runtime-provider support remains planned; this name change
+does not add a runnable gateway, connector or adapter.
+
+| Retained identifier | Meaning |
+| --- | --- |
+| `ArnoChenFx/luvus-mcp` and existing GitHub URLs | Actual repository name and links; the remote and checkout directory are unchanged |
+| `package.name=luvus-mcp` and the matching lockfile workspace name | Existing private package identity, retained for compatibility |
+| `luvus-mcp` in CLI design examples | Retained executable identifier; a runnable CLI has not been implemented |
+| `luvus_*` | Luvus-only compatibility tool names; generic runtime tools use `runtime_*` as specified in ADR 0004 |
+| Existing environment variables, protocol fields, IDs and schema names | Machine interfaces; this branding change does not rename them |
+| Luvus / Herdr and their native commands | Supported runtime names, independent of the Rovloom product name |
+| Historical commands, paths, reports, logs, fixtures, hashes and attributions | Original evidence and provenance; not rewritten to imply they were produced under the new name |
 
 ## Current status
 

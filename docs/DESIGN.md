@@ -1,9 +1,11 @@
-# Luvus / Herdr 多机器通用 MCP：系统设计
+# Rovloom：多机器通用 MCP 系统设计
 
 版本：0.5 · 日期：2026-10-18 · 原作者：Luvus Tester
 状态：用户已批准同一 Gateway 支持 Luvus 与 Herdr；多 runtime provider 公共契约为冻结候选，具体实现待父会话协调。四项安全原则与管理 UI 要求沿用，Bun 工具链已在 main 验收；多 provider 尚未实现。
 范围：仅文档，不启动编码 Agent，不变更已有实现和运行中 Luvus 会话。
 配套：《IMPLEMENTATION-PLAN.md》。本文替代此前讨论中的概念草案，不覆盖旧编码 Agent 文件。
+
+项目展示名为 **Rovloom**，仓库暂名 `luvus-mcp`。Luvus/Herdr 是受支持的原生 runtime 名；package、CLI、工具/环境变量/协议字段等既有机器标识保持兼容，详见 [README 命名说明](../README.md#name-and-compatibility-identifiers)。原作者署名与历史证据保持原文。
 
 修订基线：main `5124d459fa0f712fd1dbb9f164a3513e3e538716`（含 Linux Luvus P0、安全设计与 Bun 基线）。本次只修订文档；安全原则见 [ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)，公共字段、迁移与分阶段边界以 [ADR 0004](adr/0004-multi-runtime-provider.md) 为准。
 
@@ -13,7 +15,7 @@ v0.5 补充：同设备一套身份/一条 Connector 出站连接、多 runtime 
 
 ## 1. 设计结论
 
-构建一个项目、一套可执行程序 `luvus-mcp`，提供 `gateway` 与 `connector` 两种运行模式：
+构建一个项目、一套 Rovloom 程序，提供 gateway 与 connector 两种运行模式；设计中的可执行标识 `luvus-mcp` 暂作兼容标识保留，不在本轮重命名：
 
 - Gateway 集成 MCP Server、设备注册、身份与权限、请求路由、结果账本和订阅管理。
 - Connector 部署在每台目标主机，一套设备身份、一个主动 WSS 出站连接，运行多个可信配置的 Luvus/Herdr adapters。

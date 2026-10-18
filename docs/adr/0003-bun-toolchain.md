@@ -1,4 +1,4 @@
-# ADR 0003: Bun 1.4.3 development and execution baseline
+# ADR 0003: Rovloom Bun 1.4.3 development and execution baseline
 
 Status: implemented locally for issue #15; parent acceptance and main alignment pending.
 Date: 2026-10-18 UTC. Base: `4f963d1997751a4f392604cc060d0a99f157998a`.

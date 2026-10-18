@@ -1,11 +1,13 @@
-# Gateway 内置 Web UI：最小管理面设计
+# Rovloom 管理 UI：最小管理面设计
 
 日期：2026-10-18。状态：管理 UI 与多 runtime provider 设计需求已确认，具体接口待父会话协调；没有实现前端、管理 listener 或认证后端。
 依据：[DESIGN v0.5](DESIGN.md)、[ADR 0002](adr/0002-safety-retention-recovery-late-evidence.md)、[ADR 0004](adr/0004-multi-runtime-provider.md)。正式任务为 [issue #14](https://github.com/ArnoChenFx/luvus-mcp/issues/14)，顺序 #8 → #14 → #9，硬依赖 #5/#6/#8；provider 数据迁移/管理 API 也必须先具备，当前不启动开发。
 
 ## 范围与服务边界
 
-Web UI 内置于同一 Gateway 程序/发行产物，Connector 不启动 UI。它管理设备与连接认证状态及其已配置 runtime providers，不另建外部网站，不增加多租户、通用终端、任意 shell、结果浏览或完整运维平台。provider 专指 Luvus/Herdr 实例，不是 LLM/model vendor；页面不管理 model API key。
+Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，不把机器标识 `luvus-mcp` 用作页面产品标题。仓库/兼容标识见 [README 命名说明](../README.md#name-and-compatibility-identifiers)。
+
+Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动 UI。它管理设备与连接认证状态及其已配置 runtime providers，不另建外部网站，不增加多租户、通用终端、任意 shell、结果浏览或完整运维平台。provider 专指 Luvus/Herdr 实例，不是 LLM/model vendor；页面不管理 model API key。
 
 管理 UI/HTTP API 使用独立管理 listener 与认证/授权中间件；Connector WSS、MCP stdio/HTTP 维持各自协议与身份边界。可以复用实现模块及已选身份服务，但 MCP token、设备 credential、enrollment 或“已连接机器”身份不自动获得管理员会话/权限；管理 API 不能成为 native 通用调用旁路。
 
