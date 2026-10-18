@@ -8,7 +8,7 @@
 
 选择完整 Target 与独立 binding revision fence：稳定 ID 便于历史关联，revision 防止升级、启停或配置变化后沿用旧授权/执行上下文。kind/root/实例替换用新 ID；仅凭设备广告、相同 hostname 或同名 session 不能建立/重绑实例。
 
-代价是 registry、双端配置、授权、去重、契约、结果、流与历史都须 provider 隔离，旧单实例存储必须完整迁移；不能只给 Target 加 optional 字段。无来源证明的旧记录保持隔离，旧 key/摘要/TTL/discard 承诺保留，不能因迁移变新执行。规范见 DESIGN §5。
+代价是 registry、双端配置、授权、去重、契约、结果、流与历史都须在当前规范 schema 内完整 provider 隔离，不能只给 Target 加 optional 字段。项目未发布，旧库直接拒绝，不提供 legacy binding 或来源猜测；当前 history/key/TTL/discard 语义仍完整维护，旧工作不能经换范围变为新执行。规范见 DESIGN §5。
 
 ## 核心通用，原生保证分别表达
 
@@ -22,7 +22,7 @@ event recovery、terminal fence、cancel、prompt completion 必须逐方法说�
 
 provider、契约来源及完整关联是执行安全必需字段，不能藏在 v1 optional/default 中，因此选择 Wire major 2。minor 仅承载双方已协商的可选扩展，不在失败后自动降级重发。Wire 与 MCP revision、管理 API 独立版本化。
 
-项目尚未发布，取消 Wire v1 的兼容承诺并移除两套历史 decoder，仅维护当前 v2。旧帧直接拒绝，不分配默认 provider；缺少 provider 或可信 binding 时不得执行，不借旧 key 缺失重新派发。当前 history scope/TTL 与 Store 数据库 v1→v3 迁移仍保留；MCP、管理 API 及外部原生协议各自版本不受影响。
+项目尚未发布，取消 Wire v1 的兼容承诺并移除两套历史 decoder，仅维护当前 v2。旧帧直接拒绝，不分配默认 provider；缺少 provider 或可信 binding 时不得执行，不借旧 key 缺失重新派发。当前 history scope/TTL 保留，Store 只维护当前规范 schema；MCP、管理 API 及外部原生协议各自版本不受影响。
 
 ## Herdr 研究与有限目标
 

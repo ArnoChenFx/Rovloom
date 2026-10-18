@@ -30,7 +30,7 @@ bun run smoke
 替代类型检查，也不要直接运行 TypeScript 的 Node shebang。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration 七个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration 与 persistence 八个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
@@ -153,8 +153,9 @@ SDK 实证 revision 为 `2025-11-25`，Bun 的 `process.version` 只是 Node 兼
 [Wire v2](protocol/WIRE-PROTOCOL.md)。产品设计、保留/恢复规则及 Herdr 门禁以
 [DESIGN](DESIGN.md)、[实施计划](IMPLEMENTATION-PLAN.md)和 ADR 为准。
 
-SQLite 使用 Bun 的 `node:sqlite`。当前 Store v3 的管理/账本方法不是已认证远程
-API，多 provider 迁移仍待实现；单 writer 遗留锁不能自动删除。句柄到期尚不删除
-calls.response，discard 仍需独立权限。全库预算、保留调度、恢复隔离与生产认证
-仍有缺口，逻辑删除不保证物理擦除。失联保持 outcome_unknown，取消不代表回滚，
-不得重放写入；Herdr 未通过独立 P0-H，仍不可执行。
+SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v4 要求全新库并拒绝未发布的旧库。
+Store/Router 已提供 provider/binding、固定原文期限、持久 history、全局预算、降级与隔离快照；
+本机管理接口与独立可信来源的接线边界见[存储运行指引](STORAGE.md)。测试使用临时 SQLite
+文件、真实 SQLITE_FULL 与异常退出，不触及真实库。服务认证、跨平台存储和重启后的原生
+响应上下文恢复仍待接线；unknown 不重放，取消不代表回滚，逻辑删除不保证物理擦除。
+Herdr 未通过独立 P0-H，仍不可执行。

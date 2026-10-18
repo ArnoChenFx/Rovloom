@@ -84,13 +84,13 @@ provider kind 从可信 registry 解析，消息里的 kind 仅回显并被核�
 
 每个 attempt 固定完整 Target、provider kind/revision、contract_ref、call_id、attempt_id、native_request_id、connection_epoch、recovery_generation，以及登记 deadline、history reference 和双方 policy revision。所有响应、accepted、cancel、流消息都关联原 attempt。原生 generation、terminal_id、pane_id、workspace_id 等按实际协议另外绑定，不能用同名 ID 跨实例关联。缓存还绑定 binary/schema、adapter、classification 和能力 revision；contract_ref 相同也不意味着执行身份可共享。
 
-### 5.3 持久化与迁移
+### 5.3 持久化与数据库边界
 
 Gateway 使用 SQLite 保存机器、凭据 hash、配对消费、bindings/revisions、策略、契约来源、调用/attempt、历史范围、内容元数据、流元数据及审计；大对象放受限文件，保存摘要/引用。Connector 使用权限受限状态目录及最小有界调用记录。POSIX 可使用目录 0700/文件 0600；Windows 需等效 ACL，不能把 mode 位当跨平台证明。
 
-迁移必须停派发、确认单 writer、备份并事务性升级，失败保持旧库只读；不自动删锁、续期或发请求。旧记录只有在安装配置/契约可证明来源时，才能映射该设备唯一的 legacy Luvus binding，初始禁用待双端确认。未知/多个 root 或来源不完整标 migration_unresolved，不能猜第一个 provider，更不能映射 Herdr。
+项目尚未发布，仅维护当前规范 schema，不提供未发布旧库的迁移、降级或 legacy binding 兼容入口。旧版或未知 schema 在任何业务修改前拒绝，源库保持原样；新状态从独立全新库建立。不能通过改版本号、补默认 provider/scope、导入旧调用或换 key 把旧工作变为新执行。
 
-Target、ACL、call/attempt、结果、流、审计及去重历史必须一起迁移。保留旧摘要版本、key 历史索引、原 TTL/discard 与恢复边界；旧 key 先查原历史，只能重返或报冲突，历史缺失拒绝，不能借新 scope 再执行。不能补造 active history、分类、native 来源或 hash。旧多个 machine_id 不凭同名/同 hostname 自动合并。升级后旧 writer/降级程序拒绝打开新库，回退走隔离恢复。
+当前规范内的 Target、ACL、call/attempt、内容、流、审计和去重均按完整 provider/binding 隔离。history/key 缺失保持拒绝，内容期限/discard 不因恢复刷新；不能补造分类、native 来源或 active history。重建、备份与恢复仍确认单 writer，不自动删崩溃锁；恢复走隔离流程。
 
 进程重启不恢复 online 连接、原生 lease 或可执行队列。可能已派发的调用保守 unknown；不重放持久化变更，不跨 provider 补证。
 
@@ -100,7 +100,7 @@ Target、ACL、call/attempt、结果、流、审计及去重历史必须一起�
 
 恢复依次完成：
 
-1. 确认无旧 writer，保留源备份，核对 migration、对象引用和来源/时间；不自动删锁，不执行备份中的命令或任意路径。
+1. 确认无旧 writer，保留源备份，核对 schema、对象引用和来源/时间；不自动删锁，不执行备份中的命令或任意路径。
 2. 创建新的 recovery_generation，所有恢复前设备/配对凭据及未消费 enrollment 失效。机器 ID 只留历史关联，逐机受信确认，解除隔离后重新配对；所有 binding 默认禁用，重新核对本机配置与来源。
 3. caller ACL、Owner/Host admin、清理/管理权限默认拒绝，只按旧备份之外的可信当前策略或本机重新确认授予。旧管理员记录、ready 标记或有效 OAuth 签名不足以解除隔离。
 4. 所有设备 offline，旧流/句柄失效，新认证另分 epoch。关闭旧 history_epoch，不导入 active 集合，不给旧 call/pending/retry 换恢复代次或范围。
@@ -199,7 +199,7 @@ observe 永不可写；图片/上传等高级 action 只有在契约、分类、
 
 认证前仅允许握手类别；业务前选定共同 major/minor。未知可选 capability 在协商中不启用，未知/不共同支持的 required capability 拒绝；选定后业务帧未知字段/枚举、未协商 feature、错方向/关联均拒绝，不能静默剥字段。TLS 校验必需，仅显式本机开发模式可用 loopback WS；凭据不放 URL、argv 或日志。
 
-项目尚未发布，Wire 仅支持当前 v2，不保留 v1 兼容解析或执行入口。旧帧直接拒绝，不补默认 provider，不在 v2 失败后回退重发；provider 缺失或无法从可信 registry 解析时不得执行。当前 history scope/TTL 规则与 Store 数据库 v1→v3 迁移独立保留，外部原生协议版本不随 Wire 清理变化。
+项目尚未发布，Wire 仅支持当前 v2，不保留 v1 兼容解析或执行入口。旧帧直接拒绝，不补默认 provider，不在 v2 失败后回退重发；provider 缺失或无法从可信 registry 解析时不得执行。当前 history scope/TTL 规则保留；Store 只维护当前规范 schema，外部原生协议版本不随 Wire 清理变化。
 
 消息去重窗、流序列与持久调用去重是不同层。宿主必须消费重复判断并防止重复发送；窗到期/codec 成功都不能证明原生未执行。对象重组成功只证明字节/摘要边界，schema 仍须受信 registry 和编译核验。没有自动远端变更队列：设备离线立即失败，重连不突然执行旧 prompt。
 
@@ -247,7 +247,7 @@ accept_new_until <= scope_created_at + frozen_dedup_ttl
 | 退役/未知/已清理范围，key 缺失或过期 | dedup_history_unavailable，禁止补建 |
 | 恢复前范围/代次不符/历史完整性存疑 | 拒绝新建，按隔离历史处理 |
 
-范围 ID 不复用，缺记录绝不默认 active。重试器、迁移器和恢复工具不能自动换 key/范围/provider/revision/恢复代次；明确的新意图可以采用新 key/范围并可能执行相同动作，系统不提供无限语义去重。无 key 调用没有客户端重试去重承诺，也不因此允许补发 unknown 写操作。保留时长以 §12.3 为准。
+范围 ID 不复用，缺记录绝不默认 active。重试器和恢复工具不能自动换 key/范围/provider/revision/恢复代次；明确的新意图可以采用新 key/范围并可能执行相同动作，系统不提供无限语义去重。无 key 调用没有客户端重试去重承诺，也不因此允许补发 unknown 写操作。保留时长以 §12.3 为准。
 
 ## 12. 事件、结果与保留
 

@@ -1,79 +1,105 @@
-import { authorize, canonical, GatewayError, validateRequest, validateTarget } from './contracts.js'
-import type { NativeRequest, Policy, Target } from './contracts.js'
+import { canonical, GatewayError, validateRequest } from './contracts.js'
+import type { NativeRequest } from './contracts.js'
+import { boundedJson, providerScopeAllowed, validateTarget } from './wire/index.js'
+import type { ProviderAction, ProviderPolicy, V2Target } from './wire/types.js'
 import { Store } from './store.js'
+import type { CallOptions } from './store.js'
 
-// 身份必须由已认证的传输层提供，不能从工具参数中反序列化。
+// 身份与策略来自认证宿主，不能由 runtime_call 的 JSON 参数构造。
 export type Principal = {
   id: string
-  policy: Policy
+  policy: ProviderPolicy
   permissions?: { discard_response?: boolean }
 }
-
-export type LocalPolicies = (machineId: string) => Policy
-
+export type LocalPolicies = (target: V2Target) => ProviderPolicy
 export class Router {
   constructor(
     private readonly store: Store,
     private readonly localPolicies: LocalPolicies
   ) {}
-
-  private check(principal: Principal, target: Target, method: string): void {
+  private check(principal: Principal, target: V2Target, method: string, action: ProviderAction): void {
     if (!principal.id.trim()) {
       throw new GatewayError('unauthenticated')
     }
-    authorize(target, method, principal.policy, this.localPolicies(target.machine_id))
+    // 只使用完整 tuple；revision 由 Store 和真实 native gate 另行核对。
+    const binding = { target } as Parameters<typeof providerScopeAllowed>[0]
+    if (
+      !providerScopeAllowed(binding, method, action, {
+        caller: principal.policy,
+        local: this.localPolicies(target)
+      })
+    ) {
+      throw new GatewayError('forbidden')
+    }
   }
-
-  create(principal: Principal, target: Target, request: NativeRequest, key?: string, timeoutMs?: number) {
-    // 先生成有大小限制的 JSON 快照，防止后续对象变更影响路由目标。
+  create(
+    principal: Principal,
+    target: V2Target,
+    request: NativeRequest,
+    options: Omit<CallOptions, 'caller_policy_revision' | 'local_policy_revision'>
+  ) {
     const snapshot = JSON.parse(canonical({ target, request })) as {
-      target: Target
+      target: V2Target
       request: NativeRequest
     }
     validateTarget(snapshot.target)
     validateRequest(snapshot.request)
-    this.check(principal, snapshot.target, snapshot.request.method)
-    return this.store.createCall(principal.id, snapshot.target, snapshot.request, key, timeoutMs)
+    this.check(principal, snapshot.target, snapshot.request.method, 'dispatch')
+    return this.store.createCall(principal.id, snapshot.target, snapshot.request, {
+      ...options,
+      caller_policy_revision: principal.policy.revision,
+      local_policy_revision: this.localPolicies(snapshot.target).revision
+    })
   }
-
-  get(principal: Principal, callId: string) {
+  private authorized(principal: Principal, callId: string, action: ProviderAction) {
     const call = this.store.call(principal.id, callId)
-    if (!call.target_json || !call.method) {
-      throw new GatewayError('legacy_call_context_unavailable')
-    }
-    // 归属检查之后仍须按当前双端策略授权；创建时获准不代表之后始终可读或操作。
-    this.check(principal, JSON.parse(call.target_json) as Target, call.method)
+    this.check(principal, JSON.parse(call.target_json), call.method, action)
     return call
   }
-
-  dispatch(principal: Principal, callId: string, epoch: string): string {
-    this.get(principal, callId)
-    return this.store.dispatch(principal.id, callId, epoch)
+  get(principal: Principal, callId: string) {
+    return this.authorized(principal, callId, 'read')
   }
-
+  dispatch(principal: Principal, callId: string, epoch: string) {
+    const call = this.authorized(principal, callId, 'dispatch')
+    // 策略 revision 变更必须作为新意图登记，不能悄悄刷新已登记 attempt。
+    const target = JSON.parse(call.target_json) as V2Target
+    const binding = this.store.dispatch(principal.id, callId, epoch, {
+      caller: principal.policy.revision,
+      local: this.localPolicies(target).revision
+    })
+    return JSON.parse(boundedJson(binding)) as typeof binding
+  }
   saveResult(principal: Principal, callId: string) {
     this.get(principal, callId)
     return this.store.saveResult(principal.id, callId)
   }
-
   discardResponse(principal: Principal, callId: string): void {
     this.get(principal, callId)
-    // 原生方法的读取许可不代表拥有网关保存数据的删除许可。
     if (principal.permissions?.discard_response !== true) {
       throw new GatewayError('discard_forbidden')
     }
     this.store.discardResponse(principal.id, callId)
   }
-
   readResult(principal: Principal, resultId: string, cursor = 0, maxBytes = 65_536) {
     const call = this.store.resultCall(principal.id, resultId)
     this.get(principal, call.call_id)
     return this.store.readResult(principal.id, resultId, cursor, maxBytes)
   }
-
   cancel(principal: Principal, callId: string) {
-    this.get(principal, callId)
-    // 只停止桥接；outcome_unknown 不表示远端原生动作已回滚。
+    this.authorized(principal, callId, 'cancel')
     return this.store.stop(principal.id, callId)
+  }
+  async wait(principal: Principal, callId: string, waitMs = 1000) {
+    if (!Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 25_000) {
+      throw new GatewayError('invalid_wait')
+    }
+    const until = performance.now() + waitMs
+    while (true) {
+      const call = this.get(principal, callId)
+      if (!['created', 'dispatching', 'connector_accepted'].includes(call.state) || performance.now() >= until) {
+        return call
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(50, Math.max(1, until - performance.now()))))
+    }
   }
 }
