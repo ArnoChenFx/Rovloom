@@ -272,6 +272,7 @@ def audit(root):
     policy = decode(POLICY.read_bytes())
     require(policy['production_allowlist'] == [], 'Herdr native gate is not satisfied')
     return {'offline_audit': 'passed', 'evidence_kind': manifest['evidence_kind'],
+            'manifest_sha256': sha(raw_manifest),
             'native_verified': False, 'production_allowlist': [], 'schema': closure,
             'outcomes': outcomes, 'bytes': total,
             'observations_recorded_only': len(observations),

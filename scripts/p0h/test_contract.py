@@ -34,11 +34,11 @@ class NativeFrames(unittest.TestCase):
         self.request = (FIXTURE / 'ping.request.jsonl').read_bytes()
         self.response = (FIXTURE / 'ping.response.jsonl').read_bytes()
 
-    def test_preserves_native_values_and_raw_bytes(self):
+    def test_preserves_native_unknown_values(self):
         raw = b'{ "id":"synthetic-ping", "result":{"type":"pong","version":"synthetic","protocol":22,"extra":{"x":[1,null,true]}} }\n'
         result = exchange(self.request, raw)
         self.assertEqual(result['response']['result']['extra'], {'x': [1, None, True]})
-        self.assertEqual(raw, b'{ "id":"synthetic-ping", "result":{"type":"pong","version":"synthetic","protocol":22,"extra":{"x":[1,null,true]}} }\n')
+        self.assertEqual(result['response'], decode(raw))
 
     def test_preserves_native_error(self):
         result = exchange((FIXTURE / 'snapshot.request.jsonl').read_bytes(),
@@ -349,6 +349,25 @@ class Archive(unittest.TestCase):
                 collector.collect(self.root, output)
         self.assertFalse(output.exists())
         self.assertEqual(audit(self.root)['offline_audit'], 'passed')
+
+    def test_collection_rejects_consistently_replaced_manifest(self):
+        self.save()
+        original = audit(self.root)
+        output = self.parent / 'replaced'
+
+        def changed_source(path):
+            if path == self.root:
+                self.manifest['binding']['instance'] = 'synthetic-herdr-b'
+                for record in self.manifest['exchanges']:
+                    record['binding']['instance'] = 'synthetic-herdr-b'
+                self.save()
+                self.assertEqual(audit(path)['bytes'], original['bytes'])
+                return original
+            return audit(path)
+
+        with patch('collect.audit', side_effect=changed_source), self.assertRaisesRegex(Rejected, 'source changed'):
+            collector.collect(self.root, output)
+        self.assertFalse(output.exists())
 
     def test_cli_rejection_does_not_print_payload_or_path(self):
         self.replace_raw('version.stderr', b'ROVLOOM_P0H_FAKE_SECRET')
