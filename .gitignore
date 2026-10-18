@@ -3,3 +3,16 @@ dist/
 *.sqlite*
 .state/
 __pycache__/
+
+# Temporary verification output belongs outside the checkout.
+/docs/bun/verification/
+/docs/issue4/implementation-logs/
+/docs/issue4/focused-review-logs/
+/docs/worker-logs/
+/docs/bun/**/*.log
+/docs/p0/**/*.log
+/docs/issue4/**/*.log
+/docs/bun/*-verification.json
+/docs/bun/review/*-verification.json
+/docs/p0/*-verification.json
+/docs/issue4/*-verification.json
