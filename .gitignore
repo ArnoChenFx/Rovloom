@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.sqlite*
 .state/
+__pycache__/

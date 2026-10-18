@@ -2,6 +2,19 @@
 
 日期：2026-10-18（UTC）
 
+## Issue #3 后续交接（2026-10-18 UTC）
+
+本次交付后又执行一轮[验收复核](p0/REVIEW.md)：加强原生记录语义审计、manifest 文件集合检查与失败清理；原 fixture 保持不变，新隔离原生运行补齐 stale_route 证据。复验为基础测试 20 项、P0 Node 7 项与 Python 7 项全部通过；正式设计和 `src/` 未改。父会话以本分支最新修复提交及该复核报告验收，未自动推进 #4。
+
+下文原交接是历史基线。本次从远端核实的 `916cae2412b69f3432caf264fd411ea1a4b3093f` 建立独立本地分支 `task/issue-3-native-evidence`，未推送/合并。
+
+- Linux 0.14.3 的 RPC、无 session server 的 Host、events/snapshot/replay、terminal observe/control 的身份 fence、租约、ack、关闭均已采集原生证据；实例均为全新隔离目录，已清理。
+- [P0 报告与重放命令](p0/REPORT.md)、[ADR 0001](adr/0001-p0-version-and-contract-baseline.md)、[逐方法账本](p0/coverage.json)、[版本来源](p0/provenance.json)、[原生 fixtures](../fixtures/p0/linux-luvus-0.14.3/manifest.json)。父会话据此验收 #3；没有自动推进或关闭后续 issue。
+- 223 个 schema 方法中 197 session / 17 Host / 9 access_machines；144 项只有通用 params object。#4 必须区分参数契约缺口与已验证 envelope，不能将普通 schema 枚举当完整方法校验。
+- 精确锁定 MCP SDK 1.32.1、Ajv 8.20.0、ws 8.22.0；Node 开发基线收窄至 24，`.node-version` 固定 24.19.0。SDK 实际 stdio 协商是 2025-11-25，不能套用设计所引用的 2026-07-28 元数据规则宣称兼容。
+- 原有 `src/` 与 20 项基础测试未改；另有 5 项 fixture/SDK 测试及 5 项 endpoint 边界单测。全部通过；P0 证据不等于 Gateway/Connector 已实现或可部署。
+- macOS/Windows、商业 MCP Host、OAuth、双机、背压/overflow/高级终端帧未验收；部署位置、目标 OS、具体客户端和身份服务仍需用户选择。#4/#5 的额外语义澄清由父会话另行决议，本次未擅自覆盖。
+
 ## 1. 交接结论
 
 用户决定由其他人继续开发。本次仅保存、复测并上传当前可交接内容，不继续派发 Pi，不合并 `main`。

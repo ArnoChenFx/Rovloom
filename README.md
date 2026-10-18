@@ -25,18 +25,23 @@ Implemented:
 Not implemented: WSS, MCP facade, UHP adapter/schema validation, credential rotation,
 global database retention/quotas, streaming, HTTP OAuth, CLI, or deployment. Store methods are
 internal primitives, not remotely accessible or independently authorized APIs.
-P0 live protocol gates remain open; this foundation does not imply P0/P1 completion.
+Linux P0 native evidence is now available for review in
+[docs/p0/REPORT.md](docs/p0/REPORT.md), with sanitized fixtures and a per-method
+coverage ledger. This does not imply Gateway/Connector or P1 completion.
 
 ## Development
 
-Target Node 24 LTS (also permits Node 26 LTS). Dependencies are pinned in
-`package-lock.json`. SQLite uses Node's built-in `node:sqlite`.
+Target Node 24 LTS, with reproducible baseline 24.19.0 in `.node-version`.
+Dependencies are pinned in `package-lock.json`. SQLite uses Node's built-in
+`node:sqlite`. Node 26 and other platform combinations remain untested here.
 
 ```sh
 npm ci
 npm run typecheck
 npm test
 npm run build
+npm run test:p0
+npm run p0:audit
 ```
 
 See [docs/PROGRESS.md](docs/PROGRESS.md) for evidence and limitations.
@@ -44,6 +49,11 @@ For the 2026-10-18 development handover, start with [docs/HANDOVER.md](docs/HAND
 The current implementation is on `feat/reviewed-core-foundation` / Draft PR #1;
 automated Pi development and follow-up are stopped. The draft codec does not yet
 validate the full installed UHP schema or implement negotiated minor versions.
+The local issue #3 task branch adds native evidence and
+[ADR 0001](docs/adr/0001-p0-version-and-contract-baseline.md); the production
+adapter is still absent. The installed schema has only generic parameter
+objects for 144 methods, and the pinned MCP SDK negotiates 2025-11-25 rather
+than the newer 2026-07-28 revision discussed in the design.
 
 ## Storage safety
 

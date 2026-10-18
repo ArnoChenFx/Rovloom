@@ -1,0 +1,1543 @@
+{
+  "id": "session-capabilities",
+  "result": {
+    "agent_authorities": [
+      "integration_report",
+      "process_tree",
+      "launch_command",
+      "osc_title",
+      "screen_text",
+      "prior_identity",
+      "command_fallback"
+    ],
+    "agent_states": [
+      "idle",
+      "working",
+      "blocked",
+      "done"
+    ],
+    "atomic_methods": [
+      "agent.start",
+      "agent.prompt",
+      "automation.create",
+      "automation.rebind",
+      "automation.run",
+      "task.retry",
+      "workspace.move_block",
+      "layout.apply",
+      "diff.note.apply"
+    ],
+    "authorization": {
+      "default": "local_owner",
+      "delegation": "scoped_ephemeral_token",
+      "scopes": [
+        "read",
+        "workspace",
+        "agent",
+        "terminal",
+        "orchestration",
+        "extensions",
+        "admin",
+        "all"
+      ]
+    },
+    "concurrency": {
+      "agent_prompt_terminal_id": true,
+      "mutation_guard": "if_revision"
+    },
+    "event_sequence": 2,
+    "events": {
+      "loss": "resync_required",
+      "resume": "after_sequence"
+    },
+    "graphics": false,
+    "idempotency_keys": {
+      "max_bytes": 128,
+      "methods": [
+        "automation.create",
+        "automation.run"
+      ]
+    },
+    "identity": {
+      "tab": "stable",
+      "terminal": "pty_lifetime",
+      "workspace": "stable"
+    },
+    "limits": {
+      "active_connections": 1,
+      "agent_row_title_agent_bytes": 64,
+      "agent_row_title_bytes": 256,
+      "agent_row_titles": 256,
+      "automation_gate_bytes": 4096,
+      "automation_min_interval_s": 60,
+      "automation_prompt_bytes": 32768,
+      "automation_runs": 2048,
+      "automations": 256,
+      "connection_capacity": 80,
+      "event_queue": 256,
+      "event_replay": 256,
+      "event_replay_bytes": 1048576,
+      "event_subscribers": 64,
+      "event_wait_timeout_s": 3600,
+      "frame_bytes": 1048576,
+      "layout_depth": 64,
+      "rejected_connections": 0,
+      "task_attempts": 16,
+      "task_prompt_bytes": 32768,
+      "task_title_bytes": 256,
+      "terminal_stream_capacity": 8,
+      "terminal_stream_frame_bytes": 65536,
+      "terminal_stream_queue": 2,
+      "terminal_streams": 0,
+      "workspace_move_block": 256
+    },
+    "method_contracts": [
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "uhp.capabilities",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "uhp.stats",
+        "scope": "read"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "uhp.token.create",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "uhp.token.list",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "uhp.token.revoke",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "ping",
+        "scope": "read"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "server.stop",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "server.reload_config",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "server.agent_manifests",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "server.reload_agent_manifests",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "config.get",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "config.patch",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "session.snapshot",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": false,
+        "method": "events.subscribe",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "events.wait",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "wait.output",
+        "scope": "read"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "workspace.list",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "workspace.get",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.new",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.open",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.focus",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.rename",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.pin",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.move",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.move_block",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.report_metadata",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "workspace.close",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "node.list",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.new",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.open",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.focus",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.rename",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.pin",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "node.close",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "tab.list",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "tab.get",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.new",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.focus",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.move",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.swap",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.rename",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "tab.close",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.list",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.get",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.current",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.layout",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.neighbor",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.edges",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.split",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.move",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.swap",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.focus",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.focus_direction",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.resize",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.zoom",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.rename",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.run",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.send_input",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.read",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.status",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "pane.processes",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.report_session",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.release_session",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.report_event",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "pane.close",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "attach.pane",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "layout.export",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "layout.apply",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "layout.set_split_ratio",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.list",
+        "scope": "agent"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.get",
+        "scope": "agent"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.explain",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.report",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.release",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.start",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.prompt",
+        "scope": "agent"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.wait",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.name",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.fork",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.send",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.keys",
+        "scope": "agent"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.read",
+        "scope": "agent"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "agent.sessions",
+        "scope": "agent"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "agent.resume",
+        "scope": "agent"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "search",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "search.capabilities",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "search.query",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "search.activate",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "files.tree",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "files.open",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "files.reveal",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "files.refresh",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "git.status",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "git.branches",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "git.log",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "git.open",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "mission.snapshot",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "mission.refresh",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "mission.open",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.refresh",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "diff.list",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.open",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "diff.get",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.navigate",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.add",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.apply",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "diff.note.list",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.edit",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.resolve",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.reopen",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.remove",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "diff.note.send",
+        "scope": "workspace"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "worktree.list",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "worktree.create",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "worktree.open",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "worktree.remove",
+        "scope": "workspace"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.add",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "task.list",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "task.get",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.claim",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "task.next",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.start",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.heartbeat",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.update",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.done",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.retry",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.merge",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.release",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "task.delete",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.create",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.list",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.get",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.update",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.enable",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.disable",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": true,
+        "method": "automation.rebind",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.delete",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "automation.run",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.history",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.preview",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "automation.health",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "lease.acquire",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "lease.list",
+        "scope": "orchestration"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "lease.release",
+        "scope": "orchestration"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.list",
+        "scope": "extensions"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.info",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.link",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.unlink",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.uninstall",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.enable",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.disable",
+        "scope": "extensions"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.action.list",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.action.invoke",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.pane.open",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.pane.focus",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.pane.close",
+        "scope": "extensions"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.config_dir",
+        "scope": "extensions"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.settings.list",
+        "scope": "extensions"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.settings.get",
+        "scope": "extensions"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "module.settings.set",
+        "scope": "extensions"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "module.log.list",
+        "scope": "extensions"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "theme.list",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "theme.path",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "theme.use",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "theme.reload",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "manifest.reload",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.sidebar",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.agent_title.push",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.agent_title.clear",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.dock.push",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "ui.dock.list",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.dock.move",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.bar.push",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "ui.bar.list",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.bar.move",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.bar.remove",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.notification.push",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.notification.clear",
+        "scope": "admin"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "ui.toast",
+        "scope": "admin"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.inventory",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.snapshot",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.validate",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.processes",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.capture",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": false,
+        "method": "terminal.backend.observe",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.control",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.type_literal",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.paste_text",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.submit_text",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.send_key",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.set_title",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.notify",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.create",
+        "scope": "terminal"
+      },
+      {
+        "access": "write",
+        "idempotent": false,
+        "method": "terminal.backend.close",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.wait_change",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": true,
+        "method": "terminal.backend.wait_output",
+        "scope": "terminal"
+      },
+      {
+        "access": "read",
+        "idempotent": false,
+        "method": "terminal.backend.events.subscribe",
+        "scope": "terminal"
+      }
+    ],
+    "methods": [
+      "uhp.capabilities",
+      "uhp.stats",
+      "uhp.token.create",
+      "uhp.token.list",
+      "uhp.token.revoke",
+      "ping",
+      "server.stop",
+      "server.reload_config",
+      "server.agent_manifests",
+      "server.reload_agent_manifests",
+      "config.get",
+      "config.patch",
+      "session.snapshot",
+      "events.subscribe",
+      "events.wait",
+      "wait.output",
+      "workspace.list",
+      "workspace.get",
+      "workspace.new",
+      "workspace.open",
+      "workspace.focus",
+      "workspace.rename",
+      "workspace.pin",
+      "workspace.move",
+      "workspace.move_block",
+      "workspace.report_metadata",
+      "workspace.close",
+      "node.list",
+      "node.new",
+      "node.open",
+      "node.focus",
+      "node.rename",
+      "node.pin",
+      "node.close",
+      "tab.list",
+      "tab.get",
+      "tab.new",
+      "tab.focus",
+      "tab.move",
+      "tab.swap",
+      "tab.rename",
+      "tab.close",
+      "pane.list",
+      "pane.get",
+      "pane.current",
+      "pane.layout",
+      "pane.neighbor",
+      "pane.edges",
+      "pane.split",
+      "pane.move",
+      "pane.swap",
+      "pane.focus",
+      "pane.focus_direction",
+      "pane.resize",
+      "pane.zoom",
+      "pane.rename",
+      "pane.run",
+      "pane.send_input",
+      "pane.read",
+      "pane.status",
+      "pane.processes",
+      "pane.report_session",
+      "pane.release_session",
+      "pane.report_event",
+      "pane.close",
+      "attach.pane",
+      "layout.export",
+      "layout.apply",
+      "layout.set_split_ratio",
+      "agent.list",
+      "agent.get",
+      "agent.explain",
+      "agent.report",
+      "agent.release",
+      "agent.start",
+      "agent.prompt",
+      "agent.wait",
+      "agent.name",
+      "agent.fork",
+      "agent.send",
+      "agent.keys",
+      "agent.read",
+      "agent.sessions",
+      "agent.resume",
+      "search",
+      "search.capabilities",
+      "search.query",
+      "search.activate",
+      "files.tree",
+      "files.open",
+      "files.reveal",
+      "files.refresh",
+      "git.status",
+      "git.branches",
+      "git.log",
+      "git.open",
+      "mission.snapshot",
+      "mission.refresh",
+      "mission.open",
+      "diff.refresh",
+      "diff.list",
+      "diff.open",
+      "diff.get",
+      "diff.navigate",
+      "diff.note.add",
+      "diff.note.apply",
+      "diff.note.list",
+      "diff.note.edit",
+      "diff.note.resolve",
+      "diff.note.reopen",
+      "diff.note.remove",
+      "diff.note.send",
+      "worktree.list",
+      "worktree.create",
+      "worktree.open",
+      "worktree.remove",
+      "task.add",
+      "task.list",
+      "task.get",
+      "task.claim",
+      "task.next",
+      "task.start",
+      "task.heartbeat",
+      "task.update",
+      "task.done",
+      "task.retry",
+      "task.merge",
+      "task.release",
+      "task.delete",
+      "automation.create",
+      "automation.list",
+      "automation.get",
+      "automation.update",
+      "automation.enable",
+      "automation.disable",
+      "automation.rebind",
+      "automation.delete",
+      "automation.run",
+      "automation.history",
+      "automation.preview",
+      "automation.health",
+      "lease.acquire",
+      "lease.list",
+      "lease.release",
+      "module.list",
+      "module.info",
+      "module.link",
+      "module.unlink",
+      "module.uninstall",
+      "module.enable",
+      "module.disable",
+      "module.action.list",
+      "module.action.invoke",
+      "module.pane.open",
+      "module.pane.focus",
+      "module.pane.close",
+      "module.config_dir",
+      "module.settings.list",
+      "module.settings.get",
+      "module.settings.set",
+      "module.log.list",
+      "theme.list",
+      "theme.path",
+      "theme.use",
+      "theme.reload",
+      "manifest.reload",
+      "ui.sidebar",
+      "ui.agent_title.push",
+      "ui.agent_title.clear",
+      "ui.dock.push",
+      "ui.dock.list",
+      "ui.dock.move",
+      "ui.bar.push",
+      "ui.bar.list",
+      "ui.bar.move",
+      "ui.bar.remove",
+      "ui.notification.push",
+      "ui.notification.clear",
+      "ui.toast",
+      "terminal.backend.inventory",
+      "terminal.backend.snapshot",
+      "terminal.backend.validate",
+      "terminal.backend.processes",
+      "terminal.backend.capture",
+      "terminal.backend.observe",
+      "terminal.backend.control",
+      "terminal.backend.type_literal",
+      "terminal.backend.paste_text",
+      "terminal.backend.submit_text",
+      "terminal.backend.send_key",
+      "terminal.backend.set_title",
+      "terminal.backend.notify",
+      "terminal.backend.create",
+      "terminal.backend.close",
+      "terminal.backend.wait_change",
+      "terminal.backend.wait_output",
+      "terminal.backend.events.subscribe"
+    ],
+    "protocol": {
+      "major": 1,
+      "minor": 0,
+      "name": "luvus-uhp"
+    },
+    "server_generation": "a6fde26d8ee0f74d029dbce6300f7b5b",
+    "session": "p0-issue3",
+    "terminal": {
+      "capabilities": [
+        "inventory",
+        "validate",
+        "capture",
+        "observe",
+        "control_stream",
+        "type_literal",
+        "paste_text",
+        "submit_text",
+        "send_key",
+        "set_title",
+        "notify_terminal",
+        "create_workspace",
+        "create_sibling",
+        "close",
+        "snapshot",
+        "events",
+        "wait_change",
+        "wait_output",
+        "process_inspection",
+        "paste_image",
+        "upload_start",
+        "upload_chunk",
+        "upload_finish",
+        "upload_cancel"
+      ],
+      "features": [
+        "stream_cursor",
+        "create_restore_policy"
+      ],
+      "limits": {
+        "capture_bytes": 524288,
+        "capture_lines": 300,
+        "command_arg_bytes": 16384,
+        "command_args": 128,
+        "command_bytes": 65536,
+        "cwd_bytes": 4096,
+        "event_queue": 256,
+        "event_subscribers": 64,
+        "input_bytes": 262144,
+        "inventory_terminals": 1024,
+        "logical_keys_per_request": 1,
+        "notification_body_bytes": 8192,
+        "notification_title_bytes": 256,
+        "observe_bytes": 65536,
+        "observe_lines": 200,
+        "observer_queue": 2,
+        "observers": 8,
+        "queued_input_actions": 4096,
+        "queued_input_bytes": 8388608,
+        "request_bytes": 1048576,
+        "response_bytes": 1048576,
+        "title_bytes": 256,
+        "wait_timeout_ms": 300000
+      }
+    },
+    "type": "uhp_capabilities"
+  }
+}

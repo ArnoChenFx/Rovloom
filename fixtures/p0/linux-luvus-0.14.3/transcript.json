@@ -1,0 +1,1799 @@
+[
+  {
+    "label": "binary-version",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "--version"
+    ],
+    "stdin": "",
+    "stdout": "luvus 0.14.3\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "218badcfac47d3f50bc3106b55b45db9ffde28414a0cc3a3991a686720ed1230",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "discovery-before-host",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "session",
+      "list",
+      "--json"
+    ],
+    "stdin": "",
+    "stdout": "{\n  \"sessions\": [\n    {\n      \"default\": true,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"default\",\n      \"running\": false,\n      \"session_dir\": \"/fixture/issue3/state\",\n      \"socket_path\": \"/fixture/issue3/state/luvus.sock\"\n    }\n  ]\n}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "23e20a44ec7776736b0f882f1aaaf1ff66a5abf9de03d278e62d0fd1a99e3eea",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "installed-schema",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "schema"
+    ],
+    "stdin": "",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 9,
+    "raw_stdout_sha256": "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_file": "schema-bundle.json"
+  },
+  {
+    "label": "host-capabilities-before-server",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"host-capabilities-before-server\",\"method\":\"host.capabilities\",\"params\":{}}\n",
+    "stdout": "{\"id\":\"host-capabilities-before-server\",\"result\":{\"authority\":\"local_owner\",\"method_contracts\":[{\"access\":\"read\",\"idempotent\":true,\"method\":\"host.capabilities\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"host.info\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"host.doctor\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"host.update.check\",\"scope\":\"read\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"host.update.install\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"session.list\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"session.status\",\"scope\":\"read\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"session.start\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"session.stop\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"session.restart\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"session.delete\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"skill.status\",\"scope\":\"read\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"skill.enable\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"skill.disable\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"integration.status\",\"scope\":\"read\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"integration.install\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"integration.uninstall\",\"scope\":\"admin\"}],\"methods\":[\"host.capabilities\",\"host.info\",\"host.doctor\",\"host.update.check\",\"host.update.install\",\"session.list\",\"session.status\",\"session.start\",\"session.stop\",\"session.restart\",\"session.delete\",\"skill.status\",\"skill.enable\",\"skill.disable\",\"integration.status\",\"integration.install\",\"integration.uninstall\"],\"profile\":\"host\",\"protocol\":{\"major\":1,\"minor\":0,\"name\":\"luvus-uhp\"},\"transport\":\"stdio_proxy\",\"type\":\"uhp_host_capabilities\"}}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "1580d0196cc53d541d5cc6963d80e0178a0d0f73337fa840cae22cb04493a21b",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "host-info-before-server",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"host-info-before-server\",\"method\":\"host.info\",\"params\":{}}\n",
+    "stdout": "{\"id\":\"host-info-before-server\",\"result\":{\"arch\":\"x86_64\",\"config_dir\":\"/fixture/issue3/state\",\"executable\":\"/fixture/bin/luvus\",\"os\":\"linux\",\"sessions\":{\"running\":0,\"total\":1},\"type\":\"host_info\",\"version\":\"0.14.3\"}}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "acbdf135e3ea77076f6f21ca83e7f63036b7dfdf31ce142596b6384463ab2902",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "host-session-list-before-server",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"host-session-list-before-server\",\"method\":\"session.list\",\"params\":{}}\n",
+    "stdout": "{\"id\":\"host-session-list-before-server\",\"result\":{\"sessions\":[{\"default\":true,\"endpoint\":{\"address\":\"/fixture/issue3/state/luvus.sock\",\"transport\":\"unix_socket\"},\"name\":\"default\",\"running\":false,\"session_dir\":\"/fixture/issue3/state\",\"socket_path\":\"/fixture/issue3/state/luvus.sock\"}],\"type\":\"session_list\"}}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "6b07e2726b313c7d50c6697e2f324c54c4dc4c6562fffafd65d10c2d1219b2ab",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "discovery-after-host",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "session",
+      "list",
+      "--json"
+    ],
+    "stdin": "",
+    "stdout": "{\n  \"sessions\": [\n    {\n      \"default\": true,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"default\",\n      \"running\": false,\n      \"session_dir\": \"/fixture/issue3/state\",\n      \"socket_path\": \"/fixture/issue3/state/luvus.sock\"\n    }\n  ]\n}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "23e20a44ec7776736b0f882f1aaaf1ff66a5abf9de03d278e62d0fd1a99e3eea",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "session-rpc-before-server",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"session-rpc-before-server\",\"method\":\"ping\",\"params\":{}}\n",
+    "stdout": "",
+    "stderr": "Error: no luvus server running (socket: /fixture/issue3/state/sessions/p0-issue3/luvus.sock): No such file or directory (os error 2)\n",
+    "exit_code": 1,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw_stderr_sha256": "515ce18a505538f28508a13da0c6930e9e21a2ce918874f90bfeb02423744bd6"
+  },
+  {
+    "kind": "server_start",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "server"
+    ],
+    "pid": 1515
+  },
+  {
+    "label": "discovery-startup",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "session",
+      "list",
+      "--json"
+    ],
+    "stdin": "",
+    "stdout": "{\n  \"sessions\": [\n    {\n      \"default\": true,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"default\",\n      \"running\": false,\n      \"session_dir\": \"/fixture/issue3/state\",\n      \"socket_path\": \"/fixture/issue3/state/luvus.sock\"\n    },\n    {\n      \"default\": false,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/sessions/p0-issue3/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"p0-issue3\",\n      \"running\": false,\n      \"session_dir\": \"/fixture/issue3/state/sessions/p0-issue3\",\n      \"socket_path\": \"/fixture/issue3/state/sessions/p0-issue3/luvus.sock\"\n    }\n  ]\n}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "facd96c117aa35ee8395a897bb192634a56920d3d93a46da946b993cb9b9e518",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "discovery-startup",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "session",
+      "list",
+      "--json"
+    ],
+    "stdin": "",
+    "stdout": "{\n  \"sessions\": [\n    {\n      \"default\": true,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"default\",\n      \"running\": false,\n      \"session_dir\": \"/fixture/issue3/state\",\n      \"socket_path\": \"/fixture/issue3/state/luvus.sock\"\n    },\n    {\n      \"default\": false,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/sessions/p0-issue3/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"p0-issue3\",\n      \"running\": true,\n      \"session_dir\": \"/fixture/issue3/state/sessions/p0-issue3\",\n      \"socket_path\": \"/fixture/issue3/state/sessions/p0-issue3/luvus.sock\"\n    }\n  ]\n}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "8023f77b69cd9700cd68e058563bc41eb190414c0a8659f4e15ab9dc06430eeb",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "server-status",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "server",
+      "status"
+    ],
+    "stdin": "",
+    "stdout": "\\   /   Luvus server\n \\_/    status   running\n(o_o)   session  p0-issue3\n/|_|\\   version  v0.14.3\n        socket   /fixture/issue3/state/sessions/p0-issue3/luvus-client.sock\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "94a91db4b2ab6e5fa3297fb9598db5b72a2be9fb63cc22467c66509071faed29",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "session-capabilities",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"session-capabilities\",\"method\":\"uhp.capabilities\",\"params\":{}}\n",
+    "stdout": "{\"id\":\"session-capabilities\",\"result\":{\"agent_authorities\":[\"integration_report\",\"process_tree\",\"launch_command\",\"osc_title\",\"screen_text\",\"prior_identity\",\"command_fallback\"],\"agent_states\":[\"idle\",\"working\",\"blocked\",\"done\"],\"atomic_methods\":[\"agent.start\",\"agent.prompt\",\"automation.create\",\"automation.rebind\",\"automation.run\",\"task.retry\",\"workspace.move_block\",\"layout.apply\",\"diff.note.apply\"],\"authorization\":{\"default\":\"local_owner\",\"delegation\":\"scoped_ephemeral_token\",\"scopes\":[\"read\",\"workspace\",\"agent\",\"terminal\",\"orchestration\",\"extensions\",\"admin\",\"all\"]},\"concurrency\":{\"agent_prompt_terminal_id\":true,\"mutation_guard\":\"if_revision\"},\"event_sequence\":2,\"events\":{\"loss\":\"resync_required\",\"resume\":\"after_sequence\"},\"graphics\":false,\"idempotency_keys\":{\"max_bytes\":128,\"methods\":[\"automation.create\",\"automation.run\"]},\"identity\":{\"tab\":\"stable\",\"terminal\":\"pty_lifetime\",\"workspace\":\"stable\"},\"limits\":{\"active_connections\":1,\"agent_row_title_agent_bytes\":64,\"agent_row_title_bytes\":256,\"agent_row_titles\":256,\"automation_gate_bytes\":4096,\"automation_min_interval_s\":60,\"automation_prompt_bytes\":32768,\"automation_runs\":2048,\"automations\":256,\"connection_capacity\":80,\"event_queue\":256,\"event_replay\":256,\"event_replay_bytes\":1048576,\"event_subscribers\":64,\"event_wait_timeout_s\":3600,\"frame_bytes\":1048576,\"layout_depth\":64,\"rejected_connections\":0,\"task_attempts\":16,\"task_prompt_bytes\":32768,\"task_title_bytes\":256,\"terminal_stream_capacity\":8,\"terminal_stream_frame_bytes\":65536,\"terminal_stream_queue\":2,\"terminal_streams\":0,\"workspace_move_block\":256},\"method_contracts\":[{\"access\":\"read\",\"idempotent\":true,\"method\":\"uhp.capabilities\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"uhp.stats\",\"scope\":\"read\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"uhp.token.create\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"uhp.token.list\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"uhp.token.revoke\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"ping\",\"scope\":\"read\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"server.stop\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"server.reload_config\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"server.agent_manifests\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"server.reload_agent_manifests\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"config.get\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"config.patch\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"session.snapshot\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":false,\"method\":\"events.subscribe\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"events.wait\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"wait.output\",\"scope\":\"read\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"workspace.list\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"workspace.get\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.new\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.open\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.focus\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.rename\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.pin\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.move\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.move_block\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.report_metadata\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"workspace.close\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"node.list\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"node.new\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"node.open\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"node.focus\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"node.rename\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"node.pin\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"node.close\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"tab.list\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"tab.get\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"tab.new\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"tab.focus\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"tab.move\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"tab.swap\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"tab.rename\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"tab.close\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.list\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.get\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.current\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.layout\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.neighbor\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.edges\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.split\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.move\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.swap\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.focus\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.focus_direction\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.resize\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.zoom\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.rename\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.run\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.send_input\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.read\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.status\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"pane.processes\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.report_session\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.release_session\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.report_event\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"pane.close\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"attach.pane\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"layout.export\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"layout.apply\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"layout.set_split_ratio\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"agent.list\",\"scope\":\"agent\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"agent.get\",\"scope\":\"agent\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"agent.explain\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.report\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.release\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.start\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.prompt\",\"scope\":\"agent\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"agent.wait\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.name\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.fork\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.send\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.keys\",\"scope\":\"agent\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"agent.read\",\"scope\":\"agent\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"agent.sessions\",\"scope\":\"agent\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"agent.resume\",\"scope\":\"agent\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"search\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"search.capabilities\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"search.query\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"search.activate\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"files.tree\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"files.open\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"files.reveal\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"files.refresh\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"git.status\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"git.branches\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"git.log\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"git.open\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"mission.snapshot\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"mission.refresh\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"mission.open\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.refresh\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"diff.list\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.open\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"diff.get\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.navigate\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.note.add\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.note.apply\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"diff.note.list\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.note.edit\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.note.resolve\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.note.reopen\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.note.remove\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"diff.note.send\",\"scope\":\"workspace\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"worktree.list\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"worktree.create\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"worktree.open\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"worktree.remove\",\"scope\":\"workspace\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.add\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"task.list\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"task.get\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.claim\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"task.next\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.start\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.heartbeat\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.update\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.done\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.retry\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.merge\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.release\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"task.delete\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"automation.create\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"automation.list\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"automation.get\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"automation.update\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"automation.enable\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"automation.disable\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":true,\"method\":\"automation.rebind\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"automation.delete\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"automation.run\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"automation.history\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"automation.preview\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"automation.health\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"lease.acquire\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"lease.list\",\"scope\":\"orchestration\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"lease.release\",\"scope\":\"orchestration\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"module.list\",\"scope\":\"extensions\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"module.info\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.link\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.unlink\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.uninstall\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.enable\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.disable\",\"scope\":\"extensions\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"module.action.list\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.action.invoke\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.pane.open\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.pane.focus\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.pane.close\",\"scope\":\"extensions\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"module.config_dir\",\"scope\":\"extensions\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"module.settings.list\",\"scope\":\"extensions\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"module.settings.get\",\"scope\":\"extensions\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"module.settings.set\",\"scope\":\"extensions\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"module.log.list\",\"scope\":\"extensions\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"theme.list\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"theme.path\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"theme.use\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"theme.reload\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"manifest.reload\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.sidebar\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.agent_title.push\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.agent_title.clear\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.dock.push\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"ui.dock.list\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.dock.move\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.bar.push\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"ui.bar.list\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.bar.move\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.bar.remove\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.notification.push\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.notification.clear\",\"scope\":\"admin\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"ui.toast\",\"scope\":\"admin\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"terminal.backend.inventory\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"terminal.backend.snapshot\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"terminal.backend.validate\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"terminal.backend.processes\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"terminal.backend.capture\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":false,\"method\":\"terminal.backend.observe\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.control\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.type_literal\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.paste_text\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.submit_text\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.send_key\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.set_title\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.notify\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.create\",\"scope\":\"terminal\"},{\"access\":\"write\",\"idempotent\":false,\"method\":\"terminal.backend.close\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"terminal.backend.wait_change\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":true,\"method\":\"terminal.backend.wait_output\",\"scope\":\"terminal\"},{\"access\":\"read\",\"idempotent\":false,\"method\":\"terminal.backend.events.subscribe\",\"scope\":\"terminal\"}],\"methods\":[\"uhp.capabilities\",\"uhp.stats\",\"uhp.token.create\",\"uhp.token.list\",\"uhp.token.revoke\",\"ping\",\"server.stop\",\"server.reload_config\",\"server.agent_manifests\",\"server.reload_agent_manifests\",\"config.get\",\"config.patch\",\"session.snapshot\",\"events.subscribe\",\"events.wait\",\"wait.output\",\"workspace.list\",\"workspace.get\",\"workspace.new\",\"workspace.open\",\"workspace.focus\",\"workspace.rename\",\"workspace.pin\",\"workspace.move\",\"workspace.move_block\",\"workspace.report_metadata\",\"workspace.close\",\"node.list\",\"node.new\",\"node.open\",\"node.focus\",\"node.rename\",\"node.pin\",\"node.close\",\"tab.list\",\"tab.get\",\"tab.new\",\"tab.focus\",\"tab.move\",\"tab.swap\",\"tab.rename\",\"tab.close\",\"pane.list\",\"pane.get\",\"pane.current\",\"pane.layout\",\"pane.neighbor\",\"pane.edges\",\"pane.split\",\"pane.move\",\"pane.swap\",\"pane.focus\",\"pane.focus_direction\",\"pane.resize\",\"pane.zoom\",\"pane.rename\",\"pane.run\",\"pane.send_input\",\"pane.read\",\"pane.status\",\"pane.processes\",\"pane.report_session\",\"pane.release_session\",\"pane.report_event\",\"pane.close\",\"attach.pane\",\"layout.export\",\"layout.apply\",\"layout.set_split_ratio\",\"agent.list\",\"agent.get\",\"agent.explain\",\"agent.report\",\"agent.release\",\"agent.start\",\"agent.prompt\",\"agent.wait\",\"agent.name\",\"agent.fork\",\"agent.send\",\"agent.keys\",\"agent.read\",\"agent.sessions\",\"agent.resume\",\"search\",\"search.capabilities\",\"search.query\",\"search.activate\",\"files.tree\",\"files.open\",\"files.reveal\",\"files.refresh\",\"git.status\",\"git.branches\",\"git.log\",\"git.open\",\"mission.snapshot\",\"mission.refresh\",\"mission.open\",\"diff.refresh\",\"diff.list\",\"diff.open\",\"diff.get\",\"diff.navigate\",\"diff.note.add\",\"diff.note.apply\",\"diff.note.list\",\"diff.note.edit\",\"diff.note.resolve\",\"diff.note.reopen\",\"diff.note.remove\",\"diff.note.send\",\"worktree.list\",\"worktree.create\",\"worktree.open\",\"worktree.remove\",\"task.add\",\"task.list\",\"task.get\",\"task.claim\",\"task.next\",\"task.start\",\"task.heartbeat\",\"task.update\",\"task.done\",\"task.retry\",\"task.merge\",\"task.release\",\"task.delete\",\"automation.create\",\"automation.list\",\"automation.get\",\"automation.update\",\"automation.enable\",\"automation.disable\",\"automation.rebind\",\"automation.delete\",\"automation.run\",\"automation.history\",\"automation.preview\",\"automation.health\",\"lease.acquire\",\"lease.list\",\"lease.release\",\"module.list\",\"module.info\",\"module.link\",\"module.unlink\",\"module.uninstall\",\"module.enable\",\"module.disable\",\"module.action.list\",\"module.action.invoke\",\"module.pane.open\",\"module.pane.focus\",\"module.pane.close\",\"module.config_dir\",\"module.settings.list\",\"module.settings.get\",\"module.settings.set\",\"module.log.list\",\"theme.list\",\"theme.path\",\"theme.use\",\"theme.reload\",\"manifest.reload\",\"ui.sidebar\",\"ui.agent_title.push\",\"ui.agent_title.clear\",\"ui.dock.push\",\"ui.dock.list\",\"ui.dock.move\",\"ui.bar.push\",\"ui.bar.list\",\"ui.bar.move\",\"ui.bar.remove\",\"ui.notification.push\",\"ui.notification.clear\",\"ui.toast\",\"terminal.backend.inventory\",\"terminal.backend.snapshot\",\"terminal.backend.validate\",\"terminal.backend.processes\",\"terminal.backend.capture\",\"terminal.backend.observe\",\"terminal.backend.control\",\"terminal.backend.type_literal\",\"terminal.backend.paste_text\",\"terminal.backend.submit_text\",\"terminal.backend.send_key\",\"terminal.backend.set_title\",\"terminal.backend.notify\",\"terminal.backend.create\",\"terminal.backend.close\",\"terminal.backend.wait_change\",\"terminal.backend.wait_output\",\"terminal.backend.events.subscribe\"],\"protocol\":{\"major\":1,\"minor\":0,\"name\":\"luvus-uhp\"},\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"session\":\"p0-issue3\",\"terminal\":{\"capabilities\":[\"inventory\",\"validate\",\"capture\",\"observe\",\"control_stream\",\"type_literal\",\"paste_text\",\"submit_text\",\"send_key\",\"set_title\",\"notify_terminal\",\"create_workspace\",\"create_sibling\",\"close\",\"snapshot\",\"events\",\"wait_change\",\"wait_output\",\"process_inspection\",\"paste_image\",\"upload_start\",\"upload_chunk\",\"upload_finish\",\"upload_cancel\"],\"features\":[\"stream_cursor\",\"create_restore_policy\"],\"limits\":{\"capture_bytes\":524288,\"capture_lines\":300,\"command_arg_bytes\":16384,\"command_args\":128,\"command_bytes\":65536,\"cwd_bytes\":4096,\"event_queue\":256,\"event_subscribers\":64,\"input_bytes\":262144,\"inventory_terminals\":1024,\"logical_keys_per_request\":1,\"notification_body_bytes\":8192,\"notification_title_bytes\":256,\"observe_bytes\":65536,\"observe_lines\":200,\"observer_queue\":2,\"observers\":8,\"queued_input_actions\":4096,\"queued_input_bytes\":8388608,\"request_bytes\":1048576,\"response_bytes\":1048576,\"title_bytes\":256,\"wait_timeout_ms\":300000}},\"type\":\"uhp_capabilities\"}}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 2,
+    "raw_stdout_sha256": "d0490bb61845b50a69baed51a6868cbf1916c2be961ef589abc01664913c73fb",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "direct-ping",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "direct-ping",
+    "wire": "{\"id\":\"direct-ping\",\"method\":\"ping\",\"params\":{}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "direct-ping",
+    "wire": "{\"id\":\"direct-ping\",\"result\":{\"client_protocol\":20,\"protocol\":1,\"revision\":2,\"session\":\"p0-issue3\",\"type\":\"pong\",\"version\":\"0.14.3\"}}\n"
+  },
+  {
+    "kind": "eof",
+    "channel": "direct-ping"
+  },
+  {
+    "kind": "client_close",
+    "channel": "direct-ping"
+  },
+  {
+    "label": "proxy-ping",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"proxy-ping\",\"method\":\"ping\",\"params\":{}}\n",
+    "stdout": "{\"id\":\"proxy-ping\",\"result\":{\"client_protocol\":20,\"protocol\":1,\"revision\":2,\"session\":\"p0-issue3\",\"type\":\"pong\",\"version\":\"0.14.3\"}}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "8087d6072c7ed063f40deba0ad4374669f5d8596eab1b4aeb49341091e8f62ba",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "proxy-two-requests",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"first\",\"method\":\"ping\",\"params\":{}}\n{\"id\":\"second\",\"method\":\"ping\",\"params\":{}}\n",
+    "stdout": "{\"id\":\"first\",\"result\":{\"client_protocol\":20,\"protocol\":1,\"revision\":2,\"session\":\"p0-issue3\",\"type\":\"pong\",\"version\":\"0.14.3\"}}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "f892fbc9837e149fa81fbeda3e191e369da98da7246feaf51bf1cb240bfc6280",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "proxy-no-final-lf",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"no-lf\",\"method\":\"ping\",\"params\":{}}",
+    "stdout": "",
+    "stderr": "Error: invalid request frame: request is missing LF\n",
+    "exit_code": 1,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw_stderr_sha256": "d9bf378c12fcce22d88f1fe7e2d67cdd636f15430043fb91b5db186d814a1e30"
+  },
+  {
+    "label": "proxy-malformed-json",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\n",
+    "stdout": "",
+    "stderr": "Error: EOF while parsing an object at line 1 column 1\n",
+    "exit_code": 1,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw_stderr_sha256": "897bd9d7f9e40874d22430eceb2eaec3b0d251c2e2cdf32f57121d5d0053ee77"
+  },
+  {
+    "label": "proxy-unknown-method",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"proxy-unknown-method\",\"method\":\"p0.unknown\",\"params\":{}}\n",
+    "stdout": "{\"error\":{\"code\":\"invalid_request\",\"message\":\"unknown method: p0.unknown\"},\"id\":\"proxy-unknown-method\"}\n",
+    "stderr": "",
+    "exit_code": 1,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "05798b412f5e8e94dcc827727465aa0048759f217a655eac733285f73fc66f17",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "events-primary",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "events-primary",
+    "wire": "{\"id\":\"events-primary\",\"method\":\"events.subscribe\",\"params\":{}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"id\":\"events-primary\",\"result\":{\"loss_behavior\":\"resync_required_then_close\",\"queue_capacity\":256,\"replayed\":0,\"sequence\":2,\"type\":\"subscription_started\"}}\n"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "events-independent",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "events-independent",
+    "wire": "{\"id\":\"events-independent\",\"method\":\"events.subscribe\",\"params\":{}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-independent",
+    "wire": "{\"id\":\"events-independent\",\"result\":{\"loss_behavior\":\"resync_required_then_close\",\"queue_capacity\":256,\"replayed\":0,\"sequence\":2,\"type\":\"subscription_started\"}}\n"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "snapshot-before-create",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "snapshot-before-create",
+    "wire": "{\"id\":\"snapshot-before-create\",\"method\":\"session.snapshot\",\"params\":{}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "snapshot-before-create",
+    "wire": "{\"id\":\"snapshot-before-create\",\"result\":{\"event_sequence\":2,\"protocol\":{\"major\":1,\"minor\":0,\"name\":\"luvus-uhp\"},\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"session\":\"p0-issue3\",\"type\":\"session_snapshot\",\"workspaces\":[{\"active\":true,\"branch\":null,\"cwd\":\"/fixture/issue3/project\",\"index\":1,\"name\":\"project\",\"pinned\":false,\"tabs\":[{\"active\":true,\"index\":1,\"kind\":\"panes\",\"name\":null,\"panes\":[{\"agent\":\"sh\",\"agent_authority\":\"command_fallback\",\"agent_name\":null,\"agent_session\":null,\"agent_session_title\":null,\"agent_status\":\"working\",\"content_revision\":1,\"cwd\":\"/fixture/issue3/project\",\"focused\":true,\"is_agent\":false,\"kind\":\"terminal\",\"pane_id\":\"1\",\"root_process\":{\"pid\":1517,\"start_marker\":\"46066\"},\"terminal_id\":\"acf840440882a6ed79aeea5ad5750221\"}]}]}]}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "snapshot-before-create"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "terminal-create",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "terminal-create",
+    "wire": "{\"id\":\"terminal-create\",\"method\":\"terminal.backend.create\",\"params\":{\"cwd\":\"/fixture/issue3/project\",\"command\":[\"/usr/bin/python3\",\"-u\",\"-c\",\"import sys\\nfor line in sys.stdin: print('CONSUMED:' + line.rstrip('\\\\n')[::-1], flush=True)\"],\"label\":\"issue3-synthetic-terminal\",\"placement\":{\"kind\":\"workspace\"},\"focus\":false,\"restore\":false}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-create",
+    "wire": "{\"id\":\"terminal-create\",\"result\":{\"cwd\":\"/fixture/issue3/project\",\"dispatch\":\"executed\",\"pane_id\":\"2\",\"placement\":{\"kind\":\"workspace\",\"tab\":2,\"workspace\":1},\"restore\":false,\"root_process\":{\"pid\":1549,\"start_marker\":\"46072\"},\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"state\":\"succeeded\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"type\":\"terminal_backend_created\"}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "terminal-create"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"data\":{\"pane\":\"2\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\"},\"event\":\"pane.created\",\"sequence\":3}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"data\":{\"content_revision\":0,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.created\",\"sequence\":4}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-independent",
+    "wire": "{\"data\":{\"pane\":\"2\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\"},\"event\":\"pane.created\",\"sequence\":3}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-independent",
+    "wire": "{\"data\":{\"content_revision\":0,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.created\",\"sequence\":4}\n"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "snapshot-after-create",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "snapshot-after-create",
+    "wire": "{\"id\":\"snapshot-after-create\",\"method\":\"session.snapshot\",\"params\":{}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "snapshot-after-create",
+    "wire": "{\"id\":\"snapshot-after-create\",\"result\":{\"event_sequence\":4,\"protocol\":{\"major\":1,\"minor\":0,\"name\":\"luvus-uhp\"},\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"session\":\"p0-issue3\",\"type\":\"session_snapshot\",\"workspaces\":[{\"active\":true,\"branch\":null,\"cwd\":\"/fixture/issue3/project\",\"index\":1,\"name\":\"project\",\"pinned\":false,\"tabs\":[{\"active\":true,\"index\":1,\"kind\":\"panes\",\"name\":null,\"panes\":[{\"agent\":\"sh\",\"agent_authority\":\"command_fallback\",\"agent_name\":null,\"agent_session\":null,\"agent_session_title\":null,\"agent_status\":\"working\",\"content_revision\":1,\"cwd\":\"/fixture/issue3/project\",\"focused\":true,\"is_agent\":false,\"kind\":\"terminal\",\"pane_id\":\"1\",\"root_process\":{\"pid\":1517,\"start_marker\":\"46066\"},\"terminal_id\":\"acf840440882a6ed79aeea5ad5750221\"}]},{\"active\":false,\"index\":2,\"kind\":\"panes\",\"name\":null,\"panes\":[{\"agent\":\"python3\",\"agent_authority\":\"command_fallback\",\"agent_name\":null,\"agent_session\":null,\"agent_session_title\":null,\"agent_status\":\"idle\",\"content_revision\":0,\"cwd\":\"/fixture/issue3/project\",\"focused\":false,\"is_agent\":false,\"kind\":\"terminal\",\"pane_id\":\"2\",\"root_process\":{\"pid\":1549,\"start_marker\":\"46072\"},\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\"}]}]}]}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "snapshot-after-create"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "terminal-inventory",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "terminal-inventory",
+    "wire": "{\"id\":\"terminal-inventory\",\"method\":\"terminal.backend.inventory\",\"params\":{}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-inventory",
+    "wire": "{\"id\":\"terminal-inventory\",\"result\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminals\":[{\"content_revision\":1,\"cwd\":\"/fixture/issue3/project\",\"label\":null,\"pane_id\":\"1\",\"restore\":true,\"root_process\":{\"pid\":1517,\"start_marker\":\"46066\"},\"tab\":{\"index\":1,\"name\":null},\"terminal_id\":\"acf840440882a6ed79aeea5ad5750221\",\"terminal_title\":null,\"workspace\":{\"index\":1,\"name\":\"project\",\"root\":\"/fixture/issue3/project\"}},{\"content_revision\":0,\"cwd\":\"/fixture/issue3/project\",\"label\":\"issue3-synthetic-terminal\",\"pane_id\":\"2\",\"restore\":false,\"root_process\":{\"pid\":1549,\"start_marker\":\"46072\"},\"tab\":{\"index\":2,\"name\":null},\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"terminal_title\":null,\"workspace\":{\"index\":1,\"name\":\"project\",\"root\":\"/fixture/issue3/project\"}}],\"truncated\":false,\"type\":\"terminal_backend_inventory\"}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "terminal-inventory"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "terminal-observe",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "terminal-observe",
+    "wire": "{\"id\":\"terminal-observe\",\"method\":\"terminal.backend.observe\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\",\"mode\":\"visible\",\"lines\":24,\"ansi\":false}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-observe",
+    "wire": "{\"id\":\"terminal-observe\",\"result\":{\"ansi\":false,\"capture_mode\":\"visible\",\"content_revision\":0,\"frame_bytes\":65536,\"lines\":24,\"loss_behavior\":\"resync_required_then_close\",\"mode\":\"observe\",\"pane_id\":\"2\",\"queue_capacity\":2,\"sequence\":4,\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"type\":\"terminal_backend_stream\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-observe",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":23,\"content_revision\":0,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":4}\n"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "control-stale-generation",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "control-stale-generation",
+    "wire": "{\"id\":\"control-stale-generation\",\"method\":\"terminal.backend.control\",\"params\":{\"server_generation\":\"00000000000000000000000000000000\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "control-stale-generation",
+    "wire": "{\"error\":{\"code\":\"stale_server\",\"message\":\"server generation does not match\"},\"id\":\"control-stale-generation\"}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "control-stale-generation"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "control-wrong-terminal",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "control-wrong-terminal",
+    "wire": "{\"id\":\"control-wrong-terminal\",\"method\":\"terminal.backend.control\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"00000000000000000000000000000000\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "control-wrong-terminal",
+    "wire": "{\"error\":{\"code\":\"stale_terminal\",\"message\":\"terminal identity no longer exists\"},\"id\":\"control-wrong-terminal\"}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "control-wrong-terminal"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "terminal-control",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "terminal-control",
+    "wire": "{\"id\":\"terminal-control\",\"method\":\"terminal.backend.control\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\",\"mode\":\"visible\",\"lines\":24,\"ansi\":false}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-control",
+    "wire": "{\"id\":\"terminal-control\",\"result\":{\"ansi\":false,\"capture_mode\":\"visible\",\"content_revision\":0,\"frame_bytes\":65536,\"lines\":24,\"loss_behavior\":\"resync_required_then_close\",\"mode\":\"control\",\"pane_id\":\"2\",\"queue_capacity\":2,\"sequence\":4,\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"type\":\"terminal_backend_stream\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-control",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":23,\"content_revision\":0,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":4}\n"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "control-lease-conflict",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "control-lease-conflict",
+    "wire": "{\"id\":\"control-lease-conflict\",\"method\":\"terminal.backend.control\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "control-lease-conflict",
+    "wire": "{\"error\":{\"code\":\"control_conflict\",\"message\":\"terminal already has an active control stream\"},\"id\":\"control-lease-conflict\"}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "control-lease-conflict"
+  },
+  {
+    "kind": "send",
+    "channel": "terminal-control",
+    "wire": "{\"id\":\"input-1\",\"action\":\"submit_text\",\"params\":{\"text\":\"p0-input-abc123\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-control",
+    "wire": "{\"id\":\"input-1\",\"result\":{\"dispatch\":\"queued\",\"state\":\"succeeded\",\"type\":\"terminal_backend_action\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-observe",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":38,\"content_revision\":1,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"p0-input-abc123\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":5}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-observe",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":38,\"content_revision\":2,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"p0-input-abc123\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":6}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-observe",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":62,\"content_revision\":3,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"p0-input-abc123\\nCONSUMED:321cba-tupni-0p\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":7}\n"
+  },
+  {
+    "kind": "send",
+    "channel": "terminal-control",
+    "wire": "{\"id\":\"input-invalid\",\"action\":\"not_a_native_action\",\"params\":{}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-control",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":38,\"content_revision\":1,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"p0-input-abc123\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":5}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-control",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":38,\"content_revision\":2,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"p0-input-abc123\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":6}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-control",
+    "wire": "{\"data\":{\"ansi\":false,\"bytes\":62,\"content_revision\":3,\"lines\":24,\"mode\":\"visible\",\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"text\":\"p0-input-abc123\\nCONSUMED:321cba-tupni-0p\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\",\"truncated\":false},\"event\":\"terminal.frame\",\"sequence\":7}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-control",
+    "wire": "{\"error\":{\"code\":\"invalid_params\",\"message\":\"unknown terminal control action\"},\"id\":\"input-invalid\"}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "terminal-control"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "control-reacquire-0",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "control-reacquire-0",
+    "wire": "{\"id\":\"control-reacquire-0\",\"method\":\"terminal.backend.control\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "control-reacquire-0",
+    "wire": "{\"id\":\"control-reacquire-0\",\"result\":{\"ansi\":true,\"capture_mode\":\"visible\",\"content_revision\":3,\"frame_bytes\":65536,\"lines\":80,\"loss_behavior\":\"resync_required_then_close\",\"mode\":\"control\",\"pane_id\":\"2\",\"queue_capacity\":2,\"sequence\":7,\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"type\":\"terminal_backend_stream\"}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "control-reacquire-0"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "validate-after-stream-close",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "validate-after-stream-close",
+    "wire": "{\"id\":\"validate-after-stream-close\",\"method\":\"terminal.backend.validate\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "validate-after-stream-close",
+    "wire": "{\"id\":\"validate-after-stream-close\",\"result\":{\"state\":\"alive\",\"type\":\"terminal_backend_validation\"}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "validate-after-stream-close"
+  },
+  {
+    "label": "native-wait-timeout",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"native-wait-timeout\",\"method\":\"terminal.backend.wait_output\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\",\"after_revision\":0,\"match\":\"never-produced-p0-marker\",\"timeout_ms\":30}}\n",
+    "stdout": "{\"error\":{\"code\":\"timeout\",\"message\":\"terminal wait timed out\"},\"id\":\"native-wait-timeout\"}\n",
+    "stderr": "",
+    "exit_code": 1,
+    "timed_out": false,
+    "elapsed_ms": 31,
+    "raw_stdout_sha256": "304d282660716353d33b1a6e12ba51e423f8a9d0ab279d0638b15639d3cdabf8",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "client-deadline",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "uhp",
+      "proxy"
+    ],
+    "stdin": "{\"id\":\"client-deadline\",\"method\":\"terminal.backend.wait_output\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\",\"after_revision\":0,\"match\":\"never-produced-p0-marker\",\"timeout_ms\":5000}}\n",
+    "stdout": "",
+    "stderr": "",
+    "exit_code": -15,
+    "timed_out": true,
+    "elapsed_ms": 51,
+    "raw_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "validate-after-deadline",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "validate-after-deadline",
+    "wire": "{\"id\":\"validate-after-deadline\",\"method\":\"terminal.backend.validate\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "validate-after-deadline",
+    "wire": "{\"id\":\"validate-after-deadline\",\"result\":{\"state\":\"alive\",\"type\":\"terminal_backend_validation\"}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "validate-after-deadline"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "terminal-close",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "terminal-close",
+    "wire": "{\"id\":\"terminal-close\",\"method\":\"terminal.backend.close\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-close",
+    "wire": "{\"id\":\"terminal-close\",\"result\":{\"dispatch\":\"executed\",\"state\":\"succeeded\",\"type\":\"terminal_backend_action\"}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "terminal-close"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"data\":{\"content_revision\":1,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.output_ready\",\"sequence\":5}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"data\":{\"content_revision\":2,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.output_ready\",\"sequence\":6}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"data\":{\"content_revision\":3,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.output_ready\",\"sequence\":7}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"data\":{\"agent\":\"python3\",\"authority\":\"command_fallback\",\"branch\":null,\"cwd\":\"/fixture/issue3/project\",\"pane\":\"2\",\"project\":\"project\",\"state_source\":\"shell_activity\",\"status\":\"working\"},\"event\":\"pane.agent_status_changed\",\"sequence\":8}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-primary",
+    "wire": "{\"data\":{\"content_revision\":3,\"detail\":{\"reason\":\"closed\"},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.closed\",\"sequence\":9}\n"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "events-replay",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "events-replay",
+    "wire": "{\"id\":\"events-replay\",\"method\":\"events.subscribe\",\"params\":{\"after_sequence\":4}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-replay",
+    "wire": "{\"id\":\"events-replay\",\"result\":{\"loss_behavior\":\"resync_required_then_close\",\"queue_capacity\":256,\"replayed\":6,\"sequence\":10,\"type\":\"subscription_started\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-replay",
+    "wire": "{\"data\":{\"content_revision\":1,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.output_ready\",\"sequence\":5}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-replay",
+    "wire": "{\"data\":{\"content_revision\":2,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.output_ready\",\"sequence\":6}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-replay",
+    "wire": "{\"data\":{\"content_revision\":3,\"detail\":{},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.output_ready\",\"sequence\":7}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-replay",
+    "wire": "{\"data\":{\"agent\":\"python3\",\"authority\":\"command_fallback\",\"branch\":null,\"cwd\":\"/fixture/issue3/project\",\"pane\":\"2\",\"project\":\"project\",\"state_source\":\"shell_activity\",\"status\":\"working\"},\"event\":\"pane.agent_status_changed\",\"sequence\":8}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "events-replay",
+    "wire": "{\"data\":{\"content_revision\":3,\"detail\":{\"reason\":\"closed\"},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.closed\",\"sequence\":9}\n"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "validate-after-terminal-close",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "validate-after-terminal-close",
+    "wire": "{\"id\":\"validate-after-terminal-close\",\"method\":\"terminal.backend.validate\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "validate-after-terminal-close",
+    "wire": "{\"id\":\"validate-after-terminal-close\",\"result\":{\"state\":\"gone\",\"type\":\"terminal_backend_validation\"}}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "validate-after-terminal-close"
+  },
+  {
+    "kind": "endpoint_validation",
+    "components": [
+      {
+        "path": "/",
+        "uid": 65534,
+        "mode": "0o755"
+      },
+      {
+        "path": "/workspace",
+        "uid": 1000,
+        "mode": "0o755"
+      },
+      {
+        "path": "/fixture/issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3",
+        "uid": 1000,
+        "mode": "0o700"
+      },
+      {
+        "path": "/fixture/issue3/state/sessions/p0-issue3/luvus.sock",
+        "uid": 1000,
+        "mode": "0o600"
+      }
+    ],
+    "identity": [
+      27,
+      267527,
+      1792303249776053097
+    ]
+  },
+  {
+    "kind": "peer_credentials",
+    "channel": "input-after-close",
+    "pid": 1515,
+    "uid": 1000,
+    "gid": 1000
+  },
+  {
+    "kind": "send",
+    "channel": "input-after-close",
+    "wire": "{\"id\":\"input-after-close\",\"method\":\"terminal.backend.type_literal\",\"params\":{\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"pane_id\":\"2\",\"text\":\"must-not-send\"}}\n"
+  },
+  {
+    "kind": "receive",
+    "channel": "input-after-close",
+    "wire": "{\"error\":{\"code\":\"stale_terminal\",\"dispatch\":\"rejected\",\"message\":\"terminal identity no longer exists\"},\"id\":\"input-after-close\"}\n"
+  },
+  {
+    "kind": "client_close",
+    "channel": "input-after-close"
+  },
+  {
+    "kind": "receive",
+    "channel": "terminal-observe",
+    "wire": "{\"data\":{\"content_revision\":3,\"detail\":{\"reason\":\"closed\"},\"pane_id\":\"2\",\"server_generation\":\"a6fde26d8ee0f74d029dbce6300f7b5b\",\"tab\":2,\"terminal_id\":\"51aed25fc4d1e94678fbf4ad72818333\",\"workspace\":1},\"event\":\"terminal.closed\",\"sequence\":9}\n"
+  },
+  {
+    "kind": "eof",
+    "channel": "terminal-observe"
+  },
+  {
+    "kind": "client_close",
+    "channel": "events-primary"
+  },
+  {
+    "kind": "client_close",
+    "channel": "events-independent"
+  },
+  {
+    "kind": "client_close",
+    "channel": "terminal-observe"
+  },
+  {
+    "kind": "client_close",
+    "channel": "events-replay"
+  },
+  {
+    "kind": "server_exit",
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "label": "discovery-after-cleanup",
+    "kind": "process",
+    "argv": [
+      "/fixture/bin/luvus",
+      "--session",
+      "p0-issue3",
+      "session",
+      "list",
+      "--json"
+    ],
+    "stdin": "",
+    "stdout": "{\n  \"sessions\": [\n    {\n      \"default\": true,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"default\",\n      \"running\": false,\n      \"session_dir\": \"/fixture/issue3/state\",\n      \"socket_path\": \"/fixture/issue3/state/luvus.sock\"\n    },\n    {\n      \"default\": false,\n      \"endpoint\": {\n        \"address\": \"/fixture/issue3/state/sessions/p0-issue3/luvus.sock\",\n        \"transport\": \"unix_socket\"\n      },\n      \"name\": \"p0-issue3\",\n      \"running\": false,\n      \"session_dir\": \"/fixture/issue3/state/sessions/p0-issue3\",\n      \"socket_path\": \"/fixture/issue3/state/sessions/p0-issue3/luvus.sock\"\n    }\n  ]\n}\n",
+    "stderr": "",
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_ms": 1,
+    "raw_stdout_sha256": "facd96c117aa35ee8395a897bb192634a56920d3d93a46da946b993cb9b9e518",
+    "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

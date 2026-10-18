@@ -4,15 +4,22 @@
   "private": true,
   "description": "Multi-machine Luvus MCP gateway and connector (foundation only)",
   "type": "module",
-  "engines": { "node": ">=24.0.0 <25 || >=26.0.0 <27" },
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "test:p0": "node --test scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py",
+    "p0:audit": "node scripts/p0/audit-fixtures.mjs"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "26.6.5",
+    "ajv": "8.20.0",
     "tsx": "4.23.15",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "ws": "8.22.0"
   }
 }
