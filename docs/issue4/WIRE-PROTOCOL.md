@@ -1,12 +1,8 @@
 # Rovloom Wire v2：provider 绑定与执行边界
 
-日期：2026-10-18 UTC。执行版本 major **2** / minor **0**。
-基础 main `5124d459fa0f712fd1dbb9f164a3513e3e538716`；本地 v1 交付 `61374089961d5324a94d0b604f516f9c6cf218ae` 保留。
-本轮依据父会话批准并冻结的多 provider 字段和权限/版本边界；设计任务本地引用为 `71ce53a`，由父会话统一合入，
-本环境不伪造该未导入提交的远端链接。本文件取代当前工作树中的 v1 执行说明，旧文档可从 `6137408` 查阅。
+执行版本 major **2** / minor **0**。Wire codec、provider scope、关联和有界对象判断已通过 `src/integration/luvus-wire.ts` 接入真实 Luvus NativeValidator，见 [接入契约](../ISSUE4-INTEGRATION.md)。真实认证、生产 transport 与存储迁移仍未完成；#4 保持部分完成。
 
-仓库名与历史原生记录不改。新增产品文档使用 Rovloom；原生 runtime Luvus/Herdr、UHP 标识与真实 fixture 原样保留。
-本交付仅纯 codec/context/关联/有界对象判断，不是可运行的 provider adapter、认证服务或存储迁移。
+原生 runtime Luvus/Herdr、UHP 标识与源协议 fixture 保持原样。
 
 ## v2 与只读历史
 
@@ -50,7 +46,7 @@ type ProviderBinding = {
 };
 ```
 
-V2Target 仅定义在 wire 内，与当前公共 contracts.Target 隔离；未修改 contracts/store/router/package。
+V2Target 定义在 wire 内；integration adapter 显式投影到公共 contracts.Target，并在 NativeBinding 单独保留 provider 身份。
 Target 不包含 kind 或 expected_binding_revision；未知字段严格拒绝。session 显式非空，不继承 shell/current/default。
 provider_id 只在所属 machine 内解析，稳定且不可复用；binding_revision 为正安全整数、单调且不可复用。
 配置/启用状态变化必须分配新 revision。历史分配与不可复用由可信 registry/#5 事务保证，codec 不伪称能从单个快照证明。
@@ -228,9 +224,8 @@ transport_status、authorized、secret_result_authorized、raw_contract_authoriz
 只有独立显式 raw 授权可放宽参数 schema；原生 permit 的 generic/unavailable 状态必须保留，不映成 complete。
 Owner 身份、raw 选择、未来方法或未知子动作不绕过分类/高权限/秘密门禁。
 
-生产 native-contract 的精确导出/Check/handle 适配由父会话统一集成；本任务不修改其目录或伪造实际联调通过。
-测试注入器真实编译固定 P0 的 29 个离线 documents，但分类/权限与 opaque handle/source 是 synthetic。
-没有用 mock 宣称真实认证或生产 native gate 已完成。
+`createLuvusWireAdapter` 已实现 NativeValidator 的 Check/handle 适配：从 backend 取得原登记请求、双端 provider 和独立 nativeSource，私有保存最初 DispatchPermit，用同一 permit 验证开流 ack，并逐次重新授权控制输入与结果读取。精确 native 签名见 [IMPLEMENTATION-API](IMPLEMENTATION-API.md)，完整 backend 与宿主调用顺序见 [接入契约](../ISSUE4-INTEGRATION.md)。
+集成测试使用真实 native 模块编译固定 P0 的 29 个离线 documents；认证、分类及 provider 来源由明确的 synthetic backend 提供，不构成生产来源证明。
 
 ## Provider scope 权限
 
@@ -294,40 +289,10 @@ MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依�
 stream open 建 opening，首个合法 data 转外层 open；input 仅 open 的 terminal_control，data/input 各自从 0 严格递增。
 重复由 MessageWindow 先过滤，错序/关闭后输入拒绝；这不替代原生握手成功、队列消费或终端 lease 证明。
 
-## 本轮验收与剩余边界
+## 构建、验证与剩余边界
 
-Bun 精确 1.4.3 / revision `c6da4a4d3010e5553438c60f6bd76d981976867c`，现有依赖不变；不用 Node/npm/npx 回退。
-生产 native-contract 薄适配、真实身份/分类来源、Herdr P0、旧 DB/provider registry 迁移与 #5 调度不在本交付中冒称完成。
-原 scripts/bun/verify.py 固定 20 项且只扫描顶层测试，仍由集成任务统一修复；不得跳过或删测试使其变绿。
-最终命令、实际数量/退出码与收据在下方追加；无发布/合并/改仓库名授权，交付仅本地。
+统一 build 包含 contracts/store/router/protocol、native-contract、wire、integration 七个入口；Ajv 8.20.0 为运行依赖。产物 smoke 覆盖 v2 及真实原生适配，历史 v1 只通过显式只读入口解析。
 
-### 最终本地结果
+`python3 scripts/bun/verify.py --output /tmp/rovloom-verification` 使用固定 Bun 1.4.3，执行冻结安装、strict/noUncheckedIndexedAccess、递归测试发现与原 20 项保障、P0/兼容测试、构建及产物 smoke。输出目录必须在仓库外；测试失败或 skip/todo/disabled 均不能作为通过。
 
-所有 Bun 调用均显式 `--no-env-file`，使用原精确 Bun/TypeScript/依赖锁，package.json/bun.lock 无修改。
-
-| 命令/检查 | 实际结果 | 退出码 |
-|---|---|---|
-| run typecheck | strict/noUncheckedIndexedAccess；包含全部源码与测试 | 0 |
-| run test | 45 pass / 0 fail / 0 skip，9 文件；17 项非协议既有回归 + 28 项协议/v2 测试 | 0 |
-| run test:p0 | 原 P0 JS 7 pass，Python 7 OK | 0 |
-| run test:bun | 5 pass / 0 fail | 0 |
-| run p0:audit | 29 文档；30 request / 29 response / 23 event / 2 故意无效 | 0 |
-| run p0:bun-native | 既有 Bun 原生归档 729 项历史断言重放，未启动新 Luvus/Herdr | 0 |
-| run build | 原四入口，10 个 ESM/chunk/map 产物 | 0 |
-| run smoke | 原运行时导出集合、共享错误类、真实 SQLite 重开 | 0 |
-| 独立 protocol 产物 smoke | dist 中 v2 heartbeat 往返、v1 拒绝、epoch-only 拒绝 | 0 |
-
-Linux strace 完整记录以上命令，PATH 前置 Node/nodejs/npm/npx exit99 拒绝脚本；这些可执行文件尝试为 0，
-没有未核算 execveat。日志/收据在 `/tmp/issue4-v2-final-verification/verification.json`，
-SHA-256 `ff5dc71f159102499b76c606af51859308f5e17a7beac330387ade1580b6b314`。
-这是本地临时证据，没有冒称已上传持久附件。
-
-确实执行原版 `python3 scripts/bun/verify.py --bun /tmp/issue4-tools/bun --output /tmp/issue4-v2-unmodified-verify`：
-空缓存冻结安装、实装依赖审计、版本、strict/全部文件发现与类型错误负例通过，45 项测试进程退出 0；
-随后固定预期 20 的校验抛 `foundation: test count differs`，整体退出 1。递归发现/最低保障统一由集成任务修复，
-本任务未改 scripts/CI，也没有删测或宣称 CI 通过。
-
-构建仍只有原四入口；未被 protocol 引用的 history/evidence/object/lifecycle 辅助源码已通过 tsc/test，
-后续被 transport/store 导入时才进入其产物，不在本轮扩展公共构建入口。
-全部本轮验证命令已退出；未启动后台 listener、真实临时 Luvus/Herdr 服务或持久凭据流程。
-保留 v1 提交，本轮另建本地 v2 提交；未推送/合并/部署/改仓库名，未启动下一轮任务。
+#4 仍待 provider-scoped Store 迁移、durable dispatch/history/晚到事务、retention/配额/恢复、真实认证与 transport/custody 接线，以及硬 schema-worker CPU/heap 隔离。Herdr 仍等待独立 P0-H。完整限制见 [接入契约](../ISSUE4-INTEGRATION.md)，验收摘要留在 PR 描述与 CI。

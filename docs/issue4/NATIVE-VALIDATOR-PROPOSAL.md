@@ -1,12 +1,8 @@
-# #4 原生契约 validator 前置提案
+# #4 原生契约 validator 设计提案
 
-日期：2026-10-18 UTC。状态：**待接口评审的设计与纯 fixture 草案；没有生产 validator 实现，#4 未完成。**
+本文保留原生契约覆盖分析及设计理由；其中接口草案与 worker 预算是设计目标，不是当前实现签名或完成证明。Luvus native 模块与 Wire v2 薄适配已经实现；当前接口见 [IMPLEMENTATION-API](IMPLEMENTATION-API.md)，backend、构建与未完成项见 [接入契约](../ISSUE4-INTEGRATION.md)。**#4 整体仍未完成**，认证传输、持久化与硬 worker 隔离仍有缺口。
 
-历史设计快照说明：下文是原前置交付的范围与提案，不作为后续实现完成报告。纯 Luvus 模块已在 Bun main 上另行实施，当前精确接口见 [IMPLEMENTATION-API](IMPLEMENTATION-API.md)，实际测试与未完成项见 [IMPLEMENTATION-REPORT](IMPLEMENTATION-REPORT.md)；整个 #4 仍须 wire/持久化等集成验收。
-
-本分支从已验收 main `9c4a7fe34fc3efa461d96a502860e61b05817c44` 建立。已读仓库 README、[HANDOVER](../HANDOVER.md)、[P0 REVIEW](../p0/REVIEW.md)、[ADR 0001](../adr/0001-p0-version-and-contract-baseline.md)、DESIGN/IMPLEMENTATION-PLAN v0.2，以及 [#4](https://github.com/ArnoChenFx/luvus-mcp/issues/4)（含新增 #15 前置评论）和 [#15](https://github.com/ArnoChenFx/luvus-mcp/issues/15)。未发现适用的 AGENTS.md。
-
-本提案只覆盖安装版原生契约的编译、发现映射、结构校验和安全接缝。wire envelope 冻结、认证传输、持久化/迟到结果更新、Bun 迁移分别由对应任务负责；不重复原生 P0。实现必须从包含 #15 验收的最新基线开始，使用其精确 Bun pin、唯一锁文件及无 Node 回退门禁。SDK 固定 `@modelcontextprotocol/sdk@1.32.1`，实证 MCP revision 仍为 `2025-11-25`；本提案不升级 SDK。
+本设计覆盖安装版原生契约的编译、发现映射、结构校验和安全接缝。源协议证据沿用固定 P0 fixture；SDK 固定 `@modelcontextprotocol/sdk@1.32.1`，实证 MCP revision 为 `2025-11-25`。
 
 ## 1. 已审查的原文与覆盖含义
 
@@ -86,7 +82,7 @@ function bindCapabilities(
 
 含 auth 的 CheckedRequest 仅留在 Connector 受保护内存，不能序列化到 wire、describe、账本、普通结果或错误诊断；Gateway 可先验证不含 auth 的完整根，Connector 注入后复验。边界输入应由有界 bytes parser 生成无行为 JSON；不承诺 JavaScript 可以无副作用识别任意 Proxy。直接 object 入口仅供内部 JSON 值，拒绝访问器/异常原型，调用方不能把任意可执行对象传入。
 
-独立的 `checkDispatch`（由授权任务持有）应消耗候选请求 + 显式执行模式 + 受信分类 + 已认证 principal + 双方策略 + 管理/秘密 gate；raw-contract 另需 `VerifiedRawGrant`。成功才产生内存内不可序列化的 `DispatchPermit`，附带真实参数验证状态。Connector 在写入本地 UHP 前再核对同一 context。协议层与 Router 接入只消费这些结果，不复制第二套 schema 判断；本任务不修改既有 check/authorize 函数。
+独立的 `checkDispatch`（由授权任务持有）应消耗候选请求 + 显式执行模式 + 受信分类 + 已认证 principal + 双方策略 + 管理/秘密 gate；raw-contract 另需 `VerifiedRawGrant`。成功才产生内存内不可序列化的 `DispatchPermit`，附带真实参数验证状态。Connector 在写入本地 UHP 前再核对同一 context。协议层与 Router 接入只消费这些结果，不复制第二套 schema 判断。
 
 ```ts
 type ExecutionMode = 'strict' | 'raw_contract';
@@ -152,7 +148,7 @@ control frame 必须按 action 的完整 oneOf 校验，绑定已授权 control 
 
 resolver 只在预先接纳的 documents 中按 URI 基址解析绝对/相对 $ref 与 JSON Pointer；键与显式 $id 须一致，无 $id 的 method 文档以 URL 键为基址。所有别名副本（bundle.request/response/event/event_catalog、terminal.documents/methods 等）必须与 documents 的对应原文一致；不能让 describe 和执行各用不同副本。未知 dialect、未登记文档、缺 fragment、重复 $id、URL/路径逃逸、非法 schema、未支持的引用关键字均失败关闭。预扫描 schema 位置的关键字白名单，避免 strict:false 静默忽略未来约束；properties/$defs 内的业务键不误当关键字。URL 是索引，绝不读文件/取网络。
 
-本版无生产可用的循环契约需求；提案拒绝有引用递归的 bundle，区分合法重复 DAG 引用与当前展开栈中的递归。预扫描限额先于 Ajv 编译，避免依赖库栈溢出；编译放在可被超时终止的 worker，超过时间预算整体不可用。不能假设同步 Promise 超时可终止 CPU 编译。
+本版无生产可用的循环契约需求；提案拒绝有引用递归的 bundle，区分合法重复 DAG 引用与当前展开栈中的递归。预扫描限额先于 Ajv 编译，避免依赖库栈溢出；设计目标是将编译放在可被超时终止的 worker，超过时间预算整体不可用；当前同步内核尚未实现该隔离。不能假设同步 Promise 超时可终止 CPU 编译。
 
 | 对象 | 初始建议上限 | 说明 |
 |---|---|---|
@@ -163,7 +159,7 @@ resolver 只在预先接纳的 documents 中按 URI 基址解析绝对/相对 $r
 | 单 schema document | 512 KiB，最多 2,048 个 $ref，依赖路径最多 32 层 | 总预算继续生效，重复目标缓存，不指数展开 |
 | 编译 | worker 2 秒/64 MiB 预算提案 | 需 #15 Bun worker 实测，超限给 compile_limit，不自动放宽 |
 
-这些是待实现压测的本地预算，不是原生协议宣称的固定值。wire 分片/重组由 wire 任务另行冻结：总对象长度、checksum、索引/数量、超时、并发对象数均有界；只有完整重组并验 hash 后才调用 validator。拆成很多小 frame 不能越过整体对象上限。本模块不实现分片。
+预算是设计目标；当前结构上限以 `src/native-contract/types.ts` 与实现为准，硬 worker 预算仍待实现。Wire 分片/重组的总对象长度、checksum、索引/数量、超时、并发对象数边界见 [WIRE-PROTOCOL](WIRE-PROTOCOL.md)；只有完整重组并验 hash 后才调用 validator。拆成很多小 frame 不能越过整体对象上限。本模块不实现分片。
 
 ## 5. 受信安全分类与独立边界
 
@@ -233,19 +229,4 @@ raw 只放宽已明确承认的参数覆盖缺口：继续执行有界 JSON/原�
 
 `python3 scripts/issue4/audit_native_design.py` 仅验证映射与源文件一致、seed/变更可物化、矩阵不缺关键族、P0 文件 hash 不变，不执行 JSON Schema/授权/流/存储校验。通过数不得写成 validator 测试通过数。实现后为每个 case 接入 #15 Bun 测试，拒绝以 skip/mock dispatch 替代实际 gate，并补 144 generic 的全量 Ajv 接受 + strict 拒绝，以及有可信分类/范围 grant 的 raw 准入和正确 validation 标记。保留现有公共/P0 测试，不能挪走或改写历史结果。
 
-## 9. 可分配文件范围、冲突及交接
-
-| 可独立任务 | 可写范围（实现阶段建议） | 依赖/禁止范围 |
-|---|---|---|
-| A：编译与索引 | src/native-contract/bundle.ts、types.ts、limits.ts；新增 test/native-contract/bundle.test.ts | #15 通过后使用已锁 Ajv；不动 protocol/store/锁文件 |
-| B：原生结构校验 | src/native-contract/validator.ts、catalog.ts；新增 test/native-contract/native.test.ts | A 的内部类型可先一起评审；不实现传输/数据库 |
-| C：受信分类与安全 gate | src/native-contract/safety.ts、reviewed 分类数据；新增 test/native-contract/safety.test.ts | 与授权负责人冻结 VerifiedNativeSource/DispatchPermit；不从 native scope 自动授予权限 |
-| D：wire 接入 | 由 wire 负责人独占 src/protocol.ts 与其测试 | 接入 A/B/C；认证、方向、ID、分片、minor 协商另做，不混淆为 schema 成功 |
-| E：持久化与迟到证据 | 由 #5 负责人独占 src/store.ts 及相关测试 | 记录原契约/attempt 锚点、retention/discard；不在 validator 修改存储 |
-| F：迁移门禁 | #15 负责人独占 package.json、锁文件、运行脚本/CI | 本任务不安装/迁移 Bun，不升级 SDK |
-
-当前变更仅新增 docs/issue4、fixtures/issue4/native-validator、scripts/issue4 下文件；未改 src、package.json、锁文件、现有公共测试或 P0 原文。独立交接写在本文，不改共享 HANDOVER，减少并行冲突。后续新增 test 子目录是否被 Bun 发现必须由 #15 验收后的命令验证。
-
-需要显式对齐的语义：DESIGN §8 和 IMPLEMENTATION-PLAN §9 的显式 raw-contract 能力保留；其 Owner/future 表述须补充 #4 新采纳的安全分类强制门禁。未知安全分类默认拒绝，不等于缺参数 schema 永久禁用。generic 144 / schema unavailable 仅在 strict 下拒绝；显式有范围 raw 在可信分类与全部其它 gate 满足时可准入，保留 generic/unavailable 状态。本次只提出接口与矩阵，没有实际启用任何模式；映射表 runtime_enabled=false 表示尚无实现，不表示产品级永久拒绝。README/HANDOVER 的历史分支/Node 命令由迁移/集成负责人更新；不改历史 P0 结果。P0 audit 的一般事件 catalog 特例仅覆盖 terminal.frame，生产 validator 还需登记 terminal.resync_required；这不是重做 P0 或宣称其原生溢出已验收。
-
-剩余实施前接缝：wire 负责人冻结外壳错误映射/分片和 late anchor 的字段编码；安全负责人冻结可信来源/分类配置/管理授权/custody 的具体提供者；#15 确认 Ajv 编译与 worker 限制在 Bun 的实际行为。任何未提供者保持禁用。无需部署选择即可实现纯编译/结构检查，但这些模块完成仍不等于 #4、认证传输、原生 adapter 或生产可用。
+映射表的 `runtime_enabled=false` 表示静态设计材料不授予执行权限，不表示产品能力永久禁用。generic/unavailable 仅在 strict 下拒绝；显式有范围 raw 仍须满足可信分类与其它全部 gate。P0 一般事件 catalog 的特殊处理不证明原生终端溢出已验收；实际 validator 同时处理 terminal.frame 与 terminal.resync_required。

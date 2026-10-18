@@ -1,8 +1,8 @@
-# Rovloom 的 Luvus validator 接口（本地接入契约）
+# Rovloom 的 Luvus validator 接口
 
-实现分支 `task/issue-4-native-validator-impl` 基于 Bun main `5124d459fa0f712fd1dbb9f164a3513e3e538716`；两项提案分别重放为 `33b7ec0`、`b053360`。原分支及 `backup/issue-4-native-validator-design-8ac180d` 保留。当前依据为 DESIGN v0.4、ADR 0002/0003；提案 v0.2 的历史来源记录不改写。
+当前模块通过 `src/integration/luvus-wire.ts` 接入 Wire v2；宿主 backend、生命周期及未完成边界见 [接入契约](../ISSUE4-INTEGRATION.md)。设计依据为 DESIGN 与 ADR 0002/0003/0004；源码类型是准确签名的维护来源。
 
-wire 只需从 `src/native-contract/index.js` 导入以下公共函数/类型，不需要修改顶层导出、Router、Store 或锁文件：
+原生公共入口为 `src/native-contract/index.js`，导出以下函数及相关类型：
 
 ```ts
 compileBundle(bytes: Uint8Array | string, options: CompileOptions): Check<CompiledContract>
@@ -24,19 +24,19 @@ NativeBinding 另强制 `kind:'luvus'`、`provider_id:string`、`binding_revisio
 
 `supported_transports` 是必须显式提供才能准入的 adapter 能力输入（省略即不支持）；`supported_control_actions` 是控制输入的独立上限。未知在线方法的 descriptor.transport 为 unclassified，只能由受信评审声明普通 RPC/Host transport 且 provider 显式支持后进入 raw；未知未来 stream 不自动适配。
 
-strict 默认拒绝 generic/unavailable。按 DESIGN v0.4，raw 必须是 Owner 显式选择并具有绑定 principal/目标/精确方法/版本与 revisions/时效的 raw grant；仅放宽参数覆盖，保留 validation=generic/unavailable。Owner 本身不等于 grant，raw 不绕过独立管理、确认、秘密结果、传输或已存在约束。
+strict 默认拒绝 generic/unavailable。raw 必须是 Owner 显式选择并具有绑定 principal/目标/精确方法/版本与 revisions/时效的 raw grant；仅放宽参数覆盖，保留 validation=generic/unavailable。Owner 本身不等于 grant，raw 不绕过独立管理、确认、秘密结果、传输或已存在约束。
 
-raw unavailable 的本地切片是：已有可信且可编译 bundle/response 边界，但在线方法没有方法参数 schema。整个 bundle 不可编译时不制造安全响应边界，仍返回 schema_unavailable；若要支持完全无 bundle 的 raw，须由父会话另行冻结独立最小 request/response 契约。高级图片/上传 action 无 adapter 证明默认不启用。
+raw unavailable 的本地切片是：已有可信且可编译 bundle/response 边界，但在线方法没有方法参数 schema。整个 bundle 不可编译时不制造安全响应边界，仍返回 schema_unavailable；若要支持完全无 bundle 的 raw，须另行定义受信的独立最小 request/response 契约。高级图片/上传 action 无 adapter 证明默认不启用。
 
-编译内核同步、无 I/O，执行解析/大小/深度/引用闭包/关键字检查。宿主 worker 的硬 CPU/内存隔离不在纯模块内，不能宣称已兑现提案的 2 秒/64 MiB；wire/运行时宿主接入时独立补门禁。Ajv 仍是已锁 devDependency，部署依赖归属留统一集成，不修改 package.json。
+编译内核同步、无 I/O，执行解析/大小/深度/引用闭包/关键字检查。宿主 worker 的硬 CPU/内存隔离不在纯模块内，不能宣称已兑现提案的 2 秒/64 MiB；运行时宿主仍须补齐该门禁。Ajv 8.20.0 已列为运行依赖，统一 build 包含 native-contract、wire 与 integration 入口。
 
-迟到证据/TTL/discard/去重与流队列状态由 wire/#5 实现；本模块只提供完整原生响应与来源绑定检查，不更新账本或证明持久化成功。
+Wire 已提供有界重组、去重窗、流状态及迟到证据意图；#5 的持久化、TTL/discard 事务与恢复仍待实现。本模块只提供完整原生响应与来源绑定检查，不更新账本或证明持久化成功。
 
 ## Wire 薄适配边界
 
 Wire 的 `raw-contract` 映射为模块的 `raw_contract`。Wire adapter 用可信 resolveAttempt 建立 binding；reject caller 自带的原生 id/auth，再注入受信 binding.native_request_id（auth 只由 Connector 注入）。必须核对 context.method 与 request.method。模块 binding 不重定义公共 Target/provider，也不自行理解 call/attempt envelope；adapter 的私有 handle 表必须按完整 AttemptBinding 定位，不能只用 method 或 native ID 查找。
 
-`requestGate` 可先调用 checkRawRequest 建立候选，再调用 inspectRequestGate。后者恰好返回 classification_status、schema_status、transport_status、authorized、secret_result_authorized、raw_contract_authorized 七个字段；不生成 permit。schema complete 只表示有安装版条件约束且已实际应用，generic 必定 incomplete，不能解释成业务语义完备。raw grant 为真与分类 missing 可同时存在；Wire 必须合取门禁，不能只检查 raw flag。
+`requestGate` 可先调用 checkRawRequest 建立候选，再调用 inspectRequestGate。后者返回 classification_status、schema_status、transport_status、authorized、secret_result_authorized、raw_contract_authorized 六个字段；不生成 permit。schema complete 只表示有安装版条件约束且已实际应用，generic 必定 incomplete，不能解释成业务语义完备。raw grant 为真与分类 missing 可同时存在；Wire 必须合取门禁，不能只检查 raw flag。
 
 `validateRequest():void` 再调用 checkDispatch；只有成功 permit 可进入后续实际派发，由 wire/账本控制是否已经发送。Check 的失败可转为仅 code/reason 的异常，不写入原生 error，也不记录 payload。模块不创建任何真实认证或权限来源。
 
@@ -48,4 +48,6 @@ Wire 的 contractDigest 若是组合契约摘要，不得直接强转为本模�
 
 `validateStreamFrame` 对事件 data 调用 checkEvent；control input 调用 checkControl，再逐帧 checkDispatch。control 的 ack 是 native response，不是 event：按同一 stream/attempt 下的 input native ID 找到其 permit 后调用 checkResponse，不把 open native ID 误用到每条 ack。绑定 ack 后才可 openStream；shape-only response 或复制的 handle 都不能建立流。纯 checkSequence 只作有界顺序判断，不实现 replay、队列、lease 释放或 close 的网络副作用。
 
-聚焦复核后的精确约束：openStream 的 ack 必须由 `checkResponse(同一份 DispatchPermit, ack, trustedSource)` 产生；仅由 CheckedRequest 验证后 bound=true，或同一候选产生的另一份 permit，均不足以建立流。类型签名未变，实际许可关联已收紧。复核记录见 [FOCUSED-REVIEW](FOCUSED-REVIEW.md)，完整跨环境类型快照见 [FOCUSED-REVIEW-API](FOCUSED-REVIEW-API.md)。
+`openStream` 的 ack 必须由 `checkResponse(同一份 DispatchPermit, ack, trustedSource)` 产生；仅由 CheckedRequest 验证后 bound=true，或同一候选产生的另一份 permit，均不足以建立流。复制的 ack/permit 不能建立许可。
+
+JSON 对象快照按字符串转义、UTF-8、键、标点和标量逐项扣累计字节预算，超限立即拒绝，不先克隆或序列化整份超限对象。同一 CompiledContract 的工厂可以共享内存 handle，但完整可信 binding 仍须精确一致；工厂对象身份不是 provider 身份。

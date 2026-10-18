@@ -2,17 +2,7 @@
 
 日期：2026-10-18（UTC）
 
-## Issue #4 原生校验与 Wire v2 本地整合（当前）
-
-本轮已在 `task/issue4-native-wire-integration` 本地整合两个获授权发布的原成果：native `5531020`（tree `76802ce`）及 Wire `7d7c661`（tree `3d8ac6f`），均保留原提交历史。起点/main/origin/main 为 `5ce1ee585265f456cb5e85d0d2d821cb5abfe897`；仓库实际已改名 `ArnoChenFx/Rovloom`，ID `1423932347`，origin 已更新，实际 checkout 目录名仍为 luvus-mcp。身份通过 ArnoChenFx 连接核实，未使用 projCC 或以作者元数据冒充授权。本地集成未推送/建 PR/合并 main/关闭 issue。
-
-已补真实 native→wire 薄适配、双端 provider 与独立原生来源核对、原登记请求/permit/流输入 ack 关联、结果重授权和元数据晚到意图。generic 严格模式拒绝，Herdr 在 P0-H 前仍拒绝。Bun 验收器保留原 20 项并完整发现新增测试；原协议 3 项完整断言移到显式只读历史入口，不恢复 v1 业务执行。统一 build/产物 smoke 包含新模块，Ajv 精确版本移为运行依赖，119 项 lock package 条目不变。
-
-最终全量 199/199（包含原 20、native/Wire 与 10 项真实适配集成），验收脚本 5、P0 JS/Python 各 7、Bun 兼容 5 均通过；strict 类型检查、构建、产物 smoke 与零 Node/npm/npx 追踪通过。详情、确切来源与限制见 [本地整合记录](ISSUE4-INTEGRATION.md) 和 [验证清单](issue4/integration-verification.json)。
-
-**#4 尚未全部完成。** #5 的 provider-scoped migration、durable dispatch/history/晚到事务、TTL/配额/隔离恢复尚未实现；没有把旧 Store v3 当作新可信 backend。真实认证、endpoint/确认/custody、网络接线、worker 硬资源隔离及跨平台/P0-H 仍有门禁。下面旧交接段落保留历史，不能当作当前完成声明。
-
-## Rovloom 品牌文案交接（历史）
+## Rovloom 品牌文案交接（当前）
 
 用户已确定展示名 **Rovloom**，要求更新项目文本物料，同时暂不更改仓库实际名称。品牌增量在 task/multi-runtime-provider-design 上独立提交，父提交保持多 provider 设计 `71ce53a37712bf9ccbc4ace8689249ae51c5e346`，不改写该提交。
 

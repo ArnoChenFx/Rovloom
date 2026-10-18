@@ -1,2 +1,0 @@
-Expected existing CI inventory rejection: foundation: test count differs
-154 project tests passed; this gate still expects 20 and top-level-only names.
