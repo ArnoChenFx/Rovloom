@@ -59,7 +59,18 @@ schema_unavailable，不能建立 validator/许可，也不能借 raw 作为无 
 具体子动作，raw grant 绑定 principal、完整目标、精确方法、契约/revisions 与时效。
 
 `checkResponseShape` 仅证明结构；`checkResponse` 再关联原候选/permit、native ID、
-方法结果及可信来源。`openStream` 的 ack 必须由同一份 DispatchPermit 验证，
+方法结果及可信来源。RPC 可由真实 permit 的 `sealResponseContext` 固定最小结果约束、
+原生 ID、完整 NativeBinding 与含 LF 的在线响应帧预算；独立 opaque 上下文不保留请求参数、
+原 permit/candidate 或完整 capabilities。`releaseRequestContext` 撤销同一 RPC 候选的全部许可，
+一并断开原请求及分类登记；持有先前 CheckedResponse 也不能通过内部关联反向保留原请求。
+宿主同步丢弃自己的原文引用。`checkResponseOnly` 只返回 `Check<void>`，复验同一契约和来源，
+不返回载荷、不授予读取/派发/开流能力；`releaseResponseContext` 释放它。没有 JSON 恢复工厂，
+不能让旧 epoch 或恢复代次重新有效。流/控制许可不走此 RPC 释放路径。
+Luvus adapter 把内容清理后的 RPC 切换为这种上下文；仅响应状态共享 attempt/快照预算，
+只允许原固定去重期限内的 metadata-only 证据提交。Store 提交后通知与 adapter 独立内存期限维护
+共同回收原文；断连、撤销、provider fence、关闭或去重到期释放句柄。证据提交失败不变更已提交
+结果，也不触发重发；存储恢复后仍须使用原存活句柄及当前独立来源复验。
+`openStream` 的 ack 必须由同一份 DispatchPermit 验证，
 另一份 permit 或复制 handle 均无效。`checkEvent`、`checkControl` 及
 `checkSequence` 不提供实际 replay、队列消费、lease 释放或网络副作用。
 保留完整原生 error/data，网关错误不写回原生 error。
@@ -113,5 +124,11 @@ contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数
 默认至多 128 attempts、每个 128 control IDs、合计 16 MiB 保留 JSON 快照；
 快照逐项扣 UTF-8/转义/键/标点预算，超限先拒绝。共享 CompiledContract 可共享
 handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离。
+
+对象分片使用独立 Wire 传输子额：每连接方向最多 4 个活动对象、20 MiB 声明总长预约，
+活动对象与拒绝墓碑合计最多 4096 项；不计入上述快照字节。首片固定 30 秒截止时间，
+进度和重复片不续期，adapter 空闲维护也释放到期组装引用。内容或身份 fence 发生时，
+未完成对象尚不能可信关联到具体调用，adapter 保守释放该连接所有活动分片，保留有界 ID
+墓碑拒绝续传与短期重建；可能中止其它调用的在途分片，不据此自动重派原动作。
 
 宿主能力的交付范围与后续门禁见 [实施计划](../IMPLEMENTATION-PLAN.md)。

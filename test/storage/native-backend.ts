@@ -1,3 +1,4 @@
+// 为隔离 SQLite 测试构造真实原生校验与 Wire 后端，记录模拟发送并提交响应证据。
 import type { Store } from '../../src/store.js'
 import type { CallOptions } from '../../src/store.js'
 import { contractRef } from '../../src/wire/index.js'
@@ -10,16 +11,32 @@ import { source } from '../wire/helpers.js'
 import { connected, options, responseFrame } from './helpers.js'
 
 // 只用固定 P0 fixture 和隔离身份；编码/响应检查使用真实 NativeValidator 与 Wire adapter。
-export function nativeBackend(store: Store) {
-  const device = connected(store)
-  const target = { ...device.target, session: 'synthetic' }
-  const nativeRequest = { method: 'task.add', params: { title: 'synthetic' } }
+export function nativeBackend(
+  store: Store,
+  configuration: {
+    method?: string
+    params?: Record<string, unknown>
+    device?: ReturnType<typeof connected>
+    provider_id?: string
+    limits?: Parameters<typeof createLuvusWireAdapter>[1]
+  } = {}
+) {
+  const device = configuration.device ?? connected(store)
+  const target = {
+    ...device.target,
+    provider_id: configuration.provider_id ?? device.target.provider_id,
+    session: 'synthetic'
+  }
+  const nativeRequest = {
+    method: configuration.method ?? 'task.add',
+    params: configuration.params ?? { title: 'synthetic' }
+  }
   const reviewed = auth(request(view(), { id: 'unused', ...nativeRequest }))
   const origin = { ...source, runtime_generation: G, classification_revision: 'review1' }
   const bindings = new Map<string, AttemptBinding>()
   const state = { sourceVerified: true, sends: 0 }
   const grants: ProviderPolicies['caller']['grants'] = [
-    { target, methods: ['task.add'], actions: ['dispatch', 'read', 'cancel'] }
+    { target, methods: [nativeRequest.method], actions: ['dispatch', 'read', 'cancel'] }
   ]
   const capabilities = json('session-capabilities.json')
   capabilities.result.session = 'synthetic'
@@ -32,48 +49,56 @@ export function nativeBackend(store: Store) {
     active: true,
     negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'late_evidence'] }
   }
-  const adapter = createLuvusWireAdapter(
-    persistentBackend(store, {
-      connection: () => connection,
-      localProvider: () => store.provider(device.machine_id, target.provider_id),
-      contract: () => ({
-        wire: { source: origin, support_status: 'validated' },
-        compiled,
-        capabilities,
-        capability_revision: 'caps1'
-      }),
-      nativeSource: (call, attempt) => {
-        const binding = bindings.get(call)
-        if (!binding || binding.attempt_id !== attempt) {
-          return undefined
-        }
-        const nativeBinding: NativeBinding = {
-          kind: 'luvus',
-          provider_id: target.provider_id,
-          binding_revision: 1,
-          contract_source_ref: binding.contract_ref,
-          target: { machine_id: device.machine_id, profile: 'session', session: 'synthetic' },
-          server_generation: G,
-          connection_epoch: device.epoch,
-          recovery_generation: store.generation(),
-          capability_revision: 'caps1',
-          caller_policy_revision: 'caller1',
-          local_policy_revision: 'local1',
-          classification_revision: 'review1',
-          contract: identity
-        }
-        return { authenticated: true, source_verified: state.sourceVerified, binding: nativeBinding }
-      },
-      policies: () => ({ caller: { revision: 'caller1', grants }, local: { revision: 'local1', grants } }),
-      authority: () => reviewed,
-      currentPrincipal: () => 'synthetic'
-    })
-  )
+  const backend = persistentBackend(store, {
+    // 返回该隔离设备当前的真实 Store 连接绑定。
+    connection: () => connection,
+    // 从同一隔离 Store 查询连接器配置，供适配器核对完整 provider 绑定。
+    localProvider: () => store.provider(device.machine_id, target.provider_id),
+    // 返回已固定来源的真实编译契约与能力广告，避免 mock 绕过原生校验。
+    contract: () => ({
+      wire: { source: origin, support_status: 'validated' },
+      compiled,
+      capabilities,
+      capability_revision: 'caps1'
+    }),
+    // 核对已登记的测试 attempt 后独立构造真实原生绑定，未派发 ID 不提供来源。
+    nativeSource: (call, attempt) => {
+      const binding = bindings.get(call)
+      if (!binding || binding.attempt_id !== attempt) {
+        return undefined
+      }
+      const nativeBinding: NativeBinding = {
+        kind: 'luvus',
+        provider_id: target.provider_id,
+        binding_revision: 1,
+        contract_source_ref: binding.contract_ref,
+        target: { machine_id: device.machine_id, profile: 'session', session: 'synthetic' },
+        server_generation: G,
+        connection_epoch: device.epoch,
+        recovery_generation: store.generation(),
+        capability_revision: 'caps1',
+        caller_policy_revision: 'caller1',
+        local_policy_revision: 'local1',
+        classification_revision: 'review1',
+        contract: identity
+      }
+      return { authenticated: true, source_verified: state.sourceVerified, binding: nativeBinding }
+    },
+    // 为实际测试方法提供当前双端精确 grant，避免其它方法借用授权。
+    policies: () => ({ caller: { revision: 'caller1', grants }, local: { revision: 'local1', grants } }),
+    // 返回测试显式配置的完整分类及秘密边界权限事实。
+    authority: () => reviewed,
+    // 把当前读取者固定为合成身份，使测试不接触真实账号。
+    currentPrincipal: () => 'synthetic'
+  })
+  const adapter = createLuvusWireAdapter(backend, configuration.limits)
   return {
+    backend,
     device,
     target,
     adapter,
     state,
+    // 使用固定测试身份及当前历史 scope 登记调用，允许测试覆盖单次调用选项。
     create(extra: Partial<CallOptions> = {}) {
       return store.createCall(
         'synthetic',
@@ -87,6 +112,7 @@ export function nativeBackend(store: Store) {
         })
       )
     },
+    // 先持久化完整派发锚点再通过真实 Wire 编码，仅将编码成功计为模拟发送。
     dispatch(callId: string) {
       const binding = store.dispatch('synthetic', callId, device.epoch)
       bindings.set(callId, binding)
@@ -107,6 +133,7 @@ export function nativeBackend(store: Store) {
       state.sends++
       return binding
     },
+    // 构造绑定原 attempt 的响应，并经真实适配器与 Store 同事务提交证据。
     respond(binding: AttemptBinding, result: Record<string, unknown> = { id: 'task-created' }) {
       return commitLuvusResponse(store, adapter, responseFrame(binding, { result }))
     }

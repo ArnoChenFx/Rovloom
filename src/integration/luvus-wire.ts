@@ -1,3 +1,4 @@
+// 衔接 Wire 与真实原生校验器，隔离派发上下文、仅响应上下文及其回收预算。
 import {
   checkDispatch,
   checkResultBoundary,
@@ -14,6 +15,7 @@ import type {
   DispatchAuthorization,
   DispatchCandidate,
   DispatchPermit,
+  ResponseOnlyContext,
   NativeBinding,
   NativeValidator,
   TrustedNativeContext
@@ -58,6 +60,7 @@ import type {
   V2Target,
   WireEnvelope
 } from '../wire/types.js'
+import type { LedgerInvalidation } from '../storage/model.js'
 import type { ResponseAnchor } from '../wire/evidence.js'
 import type { StreamState } from '../wire/lifecycle.js'
 
@@ -86,18 +89,32 @@ type Authority = Omit<
 // 仅由宿主认证、双端配置及账本实现。这里没有默认授权、设备广告或从消息导入上下文的工厂。
 // persistence 模块只提供持久化事实；当前认证、配置与原生来源仍必须由宿主独立实现。
 export interface NativeWireBackend {
+  // 取得宿主已认证连接，调用方仍须核对当前 epoch 与恢复 generation。
   connection(): AuthenticatedContext['connection']
+  // 按调用与尝试 ID 查询仍有请求原文的可信账本记录。
   attempt(callId: string, attemptId: string): TrustedAttempt | undefined
+  // 查询网关登记的目标 provider 绑定及其当前 revision。
   provider(target: V2Target): ProviderBinding | undefined
+  // 查询连接器本机配置，用于与网关 provider 绑定逐项核对。
   localProvider(target: V2Target): ProviderBinding | undefined
+  // 按固定引用查找 Wire 来源、离线编译契约及当前能力广告。
   contract(ref: string): NativeContractRecord | undefined
+  // 独立核验指定尝试所连接的原生 endpoint 和身份。
   nativeSource(callId: string, attemptId: string): TrustedNativeContext | undefined
+  // 取得指定 principal 当前的调用方与本地双端策略。
   policies(principal: string): ProviderPolicies
+  // 提供独立核验的派发、秘密边界和分类权限事实，不能从消息自报导入。
   authority(attempt: TrustedAttempt, binding: NativeBinding): Authority
+  // 取得当前结果读取方身份，避免借用原调用者的派发许可。
   currentPrincipal(): string | undefined
+  // 返回宿主可信时钟，用于不可延长的期限检查。
   now(): number
+  // 查询调用原文的可见状态，过期或删除后不能由派发许可恢复。
   contentStatus(binding: AttemptBinding): 'available' | 'expired' | 'discarded' | 'unavailable'
+  // 只查询原派发锚点及固定保留期限，不取回请求或响应正文。
   responseAnchor?(binding: AttemptBinding): ResponseAnchor | undefined
+  // 订阅已提交的内容回收、绑定失效及关闭通知，返回取消订阅入口。
+  subscribeInvalidation?(listener: (event: LedgerInvalidation) => void): () => void
 }
 
 type State = {
@@ -115,10 +132,27 @@ type State = {
   validatorCaps: unknown
   snapshotBytes: number
   wireStream?: StreamState
+  retention?: { content_expires_at: number; dedup_expires_at: number }
   controls: Map<string, { frame: string; candidate: CheckedControl; permit?: DispatchPermit }>
 }
+type ResponseState = {
+  attempt: Omit<TrustedAttempt, 'native_request'>
+  validator: NativeValidator
+  source: TrustedNativeContext
+  handle: object
+  sourceToken: object
+  sealed: ResponseOnlyContext
+  capsDigest: string
+  expires: number
+  contentExpires: number
+  snapshotBytes: number
+}
+type AssemblySlot = { assembler: ObjectAssembler | undefined; expires: number; reserved: number }
+type AssemblyEntry = { connection: string; machine: string; objects: Map<string, AssemblySlot>; reserved: number }
+// 限制序列化字节数后复制输入，隔离外部对象修改与私有状态。
 const copy = <T>(value: T, maxBytes: number = LIMITS.frame_bytes): T => JSON.parse(boundedJson(value, maxBytes)) as T
 
+// 将原生 Check 失败转换为固定 Wire 错误，只向外传递稳定错误码。
 function unwrap<T>(result: Check<T>): T {
   if (!result.ok) {
     fail(result.error.code)
@@ -126,8 +160,9 @@ function unwrap<T>(result: Check<T>): T {
   return result.value
 }
 
+// 包装宿主入口并屏蔽非 Wire 异常，避免底层异常泄露私有内容。
 function guarded<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
-  return (...args) => {
+  return /* 执行宿主操作并保留固定 Wire 错误，将其它异常统一收敛为适配器不可用。 */ (...args) => {
     try {
       return fn(...args)
     } catch (error) {
@@ -138,16 +173,19 @@ function guarded<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) =>
     }
   }
 }
+// 用调用与尝试 ID 组合本进程缓存键，使同调用的不同尝试分离。
 const key = (value: AttemptIdentity) => value.call_id + ':' + value.attempt_id
 
+// 从完整绑定剥离连接外壳字段，保留 Wire 尝试身份用于独立核对。
 function attemptIdentity(binding: AttemptBinding): AttemptIdentity {
   const { machine_id: _machine, recovery_generation: _recovery, connection_epoch: _epoch, ...attempt } = binding
   return attempt
 }
 
+// 建立有界的原生校验适配器，分别管理可派发状态与仅响应状态。
 export function createLuvusWireAdapter(
   backend: NativeWireBackend,
-  limits: { attempts: number; control_ids: number; snapshot_bytes?: number } = {
+  limits: { attempts: number; control_ids: number; snapshot_bytes?: number; maintenance_interval_ms?: number } = {
     attempts: 128,
     control_ids: 128
   }
@@ -162,6 +200,11 @@ export function createLuvusWireAdapter(
   if (snapshotLimit > LIMITS.buffered_bytes) {
     fail('adapter_limit')
   }
+  const maintenanceInterval = limits.maintenance_interval_ms ?? 1000
+  uint(maintenanceInterval, true)
+  if (maintenanceInterval > 60_000) {
+    fail('adapter_limit')
+  }
   let retainedBytes = 0
 
   // 计量保留 JSON 快照；不把此计量冒称 JS heap/worker 的硬内存隔离。
@@ -172,11 +215,91 @@ export function createLuvusWireAdapter(
     retainedBytes += bytes
   }
   const states = new Map<string, State>()
+  const responseStates = new Map<string, ResponseState>()
+  const responseHandles = new WeakMap<object, ResponseState>()
+  let closed = false
+  let maintenance: ReturnType<typeof setInterval> | undefined
+  let unsubscribe: (() => void) | undefined
+  const pendingInvalidations = new Map<string, LedgerInvalidation>()
   const handles = new WeakMap<object, State>()
-  const assemblers = new Map<Direction, { connection: string; assembler: ObjectAssembler }>()
+  const assemblers = new Map<Direction, AssemblyEntry>()
   const windows = new Map<Direction, { connection: string; window: MessageWindow }>()
+  let observedTime = -1
+
+  // 独立检查宿主时钟为单调安全整数，避免 NaN、回拨或溢出延长私有上下文与分片期限。
+  function time(): number {
+    try {
+      const value = backend.now()
+      uint(value)
+      if (value < observedTime || !Number.isSafeInteger(value + LIMITS.transfer_timeout_ms)) {
+        fail('clock_untrusted')
+      }
+      observedTime = value
+      return value
+    } catch {
+      // 原子校验期间排队关闭，finally 在回滚后统一释放，避免恢复已不可信的原请求状态。
+      invalidate({ kind: 'closed' })
+      fail('clock_untrusted')
+    }
+  }
+
+  // 释放该对象的全部组装引用，但继续保留有界 ID 墓碑，拒绝原传输在短期内重新开始。
+  function closeAssembly(entry: AssemblyEntry, slot: AssemblySlot, now: number): void {
+    if (slot.assembler) {
+      entry.reserved -= slot.reserved
+      slot.reserved = 0
+      slot.assembler = undefined
+      slot.expires = now + LIMITS.transfer_timeout_ms
+    }
+  }
+
+  // 部分内容尚不能可信解析到调用；按可信设备作用域丢弃在途正文，不受其它设备的广播通知影响。
+  function flushAssemblies(now: number, machine: string): void {
+    for (const entry of assemblers.values()) {
+      if (entry.machine !== machine) {
+        continue
+      }
+      for (const slot of entry.objects.values()) {
+        closeAssembly(entry, slot, now)
+      }
+    }
+  }
+
+  // 按首片固定截止时间主动释放空闲组装器，再按独立期限清理只含元数据的对象墓碑。
+  function maintainAssemblies(now: number): void {
+    for (const entry of assemblers.values()) {
+      for (const [objectId, slot] of entry.objects) {
+        if (now >= slot.expires) {
+          if (slot.assembler) {
+            closeAssembly(entry, slot, now)
+          } else {
+            entry.objects.delete(objectId)
+          }
+        }
+      }
+    }
+  }
+
+  // 只返回传输预约和对象数量，不暴露分片 Buffer、请求或响应正文。
+  function transferStats() {
+    let transfer_bytes = 0
+    let active_transfers = 0
+    let object_tombstones = 0
+    for (const entry of assemblers.values()) {
+      transfer_bytes += entry.reserved
+      for (const slot of entry.objects.values()) {
+        if (slot.assembler) {
+          active_transfers++
+        } else {
+          object_tombstones++
+        }
+      }
+    }
+    return { transfer_bytes, active_transfers, object_tombstones }
+  }
 
   let undo: Map<string, State | undefined> | undefined
+  // 首次触及尝试时保存回滚快照，复制控制项以隔离后续许可修改。
   function remember(name: string): void {
     if (!undo || undo.has(name)) {
       return
@@ -186,7 +309,14 @@ export function createLuvusWireAdapter(
       name,
       state && {
         ...state,
-        controls: new Map([...state.controls].map(([nativeId, input]) => [nativeId, { ...input }]))
+        controls: new Map(
+          [...state.controls].map(
+            /* 复制每个控制项的可变许可字段，使失败操作不会污染回滚快照。 */ ([nativeId, input]) => [
+              nativeId,
+              { ...input }
+            ]
+          )
+        )
       }
     )
   }
@@ -194,15 +324,26 @@ export function createLuvusWireAdapter(
   // codec/native 回调可能先改状态，后续 envelope、序号或去重检查才失败。
   // 只回滚本次触及的 attempt；此前成功操作及其 permit 仍保留。
   function atomic<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
-    return (...args) => {
+    return /* 先执行期限回收，再保存本次变更；失败恢复尝试及预算，最后应用已提交的失效通知。 */ (...args) => {
+      if (closed) {
+        fail('adapter_closed')
+      }
       if (undo) {
         fail('native_adapter_unavailable')
+      }
+      maintain()
+      if (closed) {
+        fail('adapter_closed')
       }
       const pending = new Map<string, State | undefined>()
       const before = retainedBytes
       undo = pending
       try {
-        return fn(...args)
+        const result = fn(...args)
+        if (closed) {
+          fail('adapter_closed')
+        }
+        return result
       } catch (error) {
         for (const [name, saved] of pending) {
           const current = states.get(name)
@@ -220,10 +361,237 @@ export function createLuvusWireAdapter(
         throw error
       } finally {
         undo = undefined
+        const invalidations = [...pendingInvalidations.values()]
+        pendingInvalidations.clear()
+        for (const event of invalidations) {
+          invalidate(event)
+        }
       }
     }
   }
 
+  // 释放 RPC 原许可及候选，并扣除执行缓存和对应快照预算。
+  function dropExecution(name: string): void {
+    const state = states.get(name)
+    if (!state) {
+      return
+    }
+    if (state.permit && state.attempt.transport === 'rpc') {
+      state.validator.releaseRequestContext(state.permit)
+    }
+    handles.delete(state.handle)
+    retainedBytes -= state.snapshotBytes
+    states.delete(name)
+  }
+  // 销毁密封响应句柄并返还快照预算，阻止继续使用已失效的元数据。
+  function dropResponse(name: string): void {
+    const state = responseStates.get(name)
+    if (!state) {
+      return
+    }
+    state.validator.releaseResponseContext(state.sealed)
+    responseHandles.delete(state.handle)
+    retainedBytes -= state.snapshotBytes
+    responseStates.delete(name)
+  }
+  // 从真实 RPC 许可密封最小响应上下文，再销毁原请求状态；密封或预算失败则全部释放。
+  function compact(name: string): void {
+    const state = states.get(name)
+    if (!state || state.attempt.transport !== 'rpc') {
+      return
+    }
+    flushAssemblies(time(), state.attempt.binding.machine_id)
+    if (!state.permit || !state.retention) {
+      dropExecution(name)
+      return
+    }
+    const sealed = state.validator.sealResponseContext(state.permit)
+    if (!sealed.ok) {
+      dropExecution(name)
+      return
+    }
+    const attempt: ResponseState['attempt'] = {
+      binding: {
+        machine_id: state.attempt.binding.machine_id,
+        recovery_generation: state.attempt.binding.recovery_generation,
+        connection_epoch: state.attempt.binding.connection_epoch,
+        call_id: state.attempt.binding.call_id,
+        attempt_id: state.attempt.binding.attempt_id,
+        native_request_id: state.attempt.binding.native_request_id,
+        target: state.attempt.binding.target,
+        provider_kind: state.attempt.binding.provider_kind,
+        binding_revision: state.attempt.binding.binding_revision,
+        contract_ref: state.attempt.binding.contract_ref,
+        registration: state.attempt.binding.registration
+      },
+      principal_id: state.attempt.principal_id,
+      method: state.attempt.method,
+      mode: state.attempt.mode,
+      transport: 'rpc'
+    }
+    const capsDigest = hash(boundedJson(state.validatorCaps))
+    const snapshotBytes =
+      2 *
+        Buffer.byteLength(
+          boundedJson({
+            attempt,
+            source: state.source,
+            capsDigest,
+            expires: state.retention.dedup_expires_at,
+            contentExpires: state.retention.content_expires_at
+          })
+        ) +
+      sealed.value.retained_bytes
+    if (retainedBytes - state.snapshotBytes + snapshotBytes > snapshotLimit) {
+      state.validator.releaseResponseContext(sealed.value)
+      dropExecution(name)
+      return
+    }
+    const response: ResponseState = {
+      attempt,
+      validator: state.validator,
+      source: state.source,
+      handle: Object.freeze({}),
+      sourceToken: Object.freeze({}),
+      sealed: sealed.value,
+      capsDigest,
+      expires: state.retention.dedup_expires_at,
+      contentExpires: state.retention.content_expires_at,
+      snapshotBytes
+    }
+    dropExecution(name)
+    retainedBytes += snapshotBytes
+    responseStates.set(name, response)
+    responseHandles.set(response.handle, response)
+  }
+  // 把已提交的回收通知映射到内容压缩或彻底失效，原子校验中收到通知则延后应用。
+  function invalidate(event: LedgerInvalidation): void {
+    if (undo) {
+      if (event.kind === 'closed') {
+        closed = true
+      }
+      const name =
+        event.kind === 'closed'
+          ? 'closed'
+          : boundedJson([event.machine_id, event.kind === 'device_fence' ? null : event.call_id])
+      if (pendingInvalidations.get(name)?.kind === 'fence' && event.kind === 'content') {
+        return
+      }
+      pendingInvalidations.set(name, event)
+      return
+    }
+    if (event.kind === 'closed') {
+      closed = true
+      if (maintenance) {
+        clearInterval(maintenance)
+        maintenance = undefined
+      }
+      unsubscribe?.()
+      unsubscribe = undefined
+      for (const name of states.keys()) {
+        dropExecution(name)
+      }
+      for (const name of responseStates.keys()) {
+        dropResponse(name)
+      }
+      assemblers.clear()
+      windows.clear()
+      return
+    }
+    try {
+      flushAssemblies(time(), event.machine_id)
+    } catch {
+      invalidate({ kind: 'closed' })
+      return
+    }
+    for (const [name, state] of states) {
+      if (
+        state.attempt.binding.machine_id === event.machine_id &&
+        (event.kind === 'device_fence' || state.attempt.binding.call_id === event.call_id)
+      ) {
+        if (event.kind === 'content') {
+          compact(name)
+        } else {
+          dropExecution(name)
+        }
+      }
+    }
+    if (event.kind === 'fence' || event.kind === 'device_fence') {
+      for (const [name, state] of responseStates) {
+        if (
+          state.attempt.binding.machine_id === event.machine_id &&
+          (event.kind === 'device_fence' || state.attempt.binding.call_id === event.call_id)
+        ) {
+          dropResponse(name)
+        }
+      }
+    }
+  }
+  // 在进入校验事务前按固定期限回收原文与密封上下文，降级时保留可恢复的可信证据路径。
+  function maintain(): void {
+    if (undo || closed) {
+      return
+    }
+    let now: number
+    try {
+      now = time()
+    } catch {
+      invalidate({ kind: 'closed' })
+      return
+    }
+    maintainAssemblies(now)
+    for (const [name, state] of states) {
+      if (state.attempt.transport !== 'rpc') {
+        continue
+      }
+      if (state.retention && now >= state.retention.content_expires_at) {
+        compact(name)
+        continue
+      }
+      try {
+        if (backend.contentStatus(state.attempt.binding) !== 'available') {
+          compact(name)
+        }
+      } catch (error) {
+        if (!(error && typeof error === 'object' && 'code' in error && error.code === 'storage_degraded')) {
+          dropExecution(name)
+        }
+      }
+    }
+    for (const [name, state] of responseStates) {
+      if (now >= state.expires) {
+        dropResponse(name)
+      }
+    }
+  }
+  // 只用当前连接、独立来源及原锚点复核密封上下文，拒绝期限被改写或能力漂移。
+  function refreshResponse(state: ResponseState) {
+    const ctx = context('connector_to_gateway', state.attempt.principal_id)
+    assertBinding({ ...ctx.connection, ...attemptIdentity(state.attempt.binding) }, state.attempt.binding)
+    const anchor = backend.responseAnchor?.(state.attempt.binding)
+    if (!anchor) {
+      fail('attempt_anchor_unavailable')
+    }
+    assertBinding(anchor.binding, state.attempt.binding)
+    if (
+      anchor.method !== state.attempt.method ||
+      anchor.mode !== state.attempt.mode ||
+      anchor.content_expires_at !== state.contentExpires ||
+      anchor.dedup_expires_at !== state.expires ||
+      time() >= state.expires
+    ) {
+      fail('attempt_binding_mismatch')
+    }
+    const current = source(state.attempt, ctx)
+    if (
+      boundedJson(current.source) !== boundedJson(state.source) ||
+      hash(boundedJson(current.registry.capabilities)) !== state.capsDigest
+    ) {
+      fail('capability_stale')
+    }
+  }
+
+  // 复制并验证持久化尝试及其连接身份，拒绝请求、principal 或传输模式不一致。
   function record(value: AttemptIdentity): TrustedAttempt {
     validateAttempt(value)
     const found = backend.attempt(value.call_id, value.attempt_id)
@@ -269,6 +637,7 @@ export function createLuvusWireAdapter(
     return result
   }
 
+  // 要求网关和本机配置完全相同，再向 Wire 提供 provider 绑定。
   function provider(target: V2Target): ProviderBinding | undefined {
     const gateway = backend.provider(copy(target))
     const local = backend.localProvider(copy(target))
@@ -278,8 +647,9 @@ export function createLuvusWireAdapter(
     return copy(gateway)
   }
 
+  // 交叉核对固定契约、provider 与宿主独立认证的原生来源，构造可信原生绑定。
   function source(
-    attempt: TrustedAttempt,
+    attempt: Omit<TrustedAttempt, 'native_request'>,
     ctx: AuthenticatedContext
   ): { source: TrustedNativeContext; registry: NativeContractRecord } {
     providerFor(attempt.binding, ctx)
@@ -321,9 +691,13 @@ export function createLuvusWireAdapter(
     if (boundedJson(proven.binding) !== boundedJson(binding)) {
       fail('native_identity_mismatch')
     }
-    return { registry, source: copy(proven) }
+    return {
+      registry,
+      source: copy({ authenticated: proven.authenticated, source_verified: proven.source_verified, binding })
+    }
   }
 
+  // 为当前消息方向构造认证上下文，仅在响应方向解析已密封的 RPC 句柄。
   function context(direction: Direction, principal?: string): AuthenticatedContext {
     const ctx: AuthenticatedContext = {
       phase: 'authenticated',
@@ -331,15 +705,40 @@ export function createLuvusWireAdapter(
       connection: copy(backend.connection()),
       ...(principal ? { policies: copy(backend.policies(principal)) } : {}),
       resolveProvider: provider,
+      // 从宿主固定契约注册表解析 Wire 来源，不接受消息自报契约。
       resolveContract: (ref) => backend.contract(ref)?.wire,
       validators: { luvus: validator },
+      // 响应方向优先解析仅响应句柄，其它路径必须回到原请求账本并复核完整绑定。
       resolveAttempt: (value) => {
+        const response = responseStates.get(key(value))
+        if (response) {
+          if (direction !== 'connector_to_gateway') {
+            fail('response_context_not_executable')
+          }
+          assertBinding({ ...ctx.connection, ...value }, response.attempt.binding)
+          refreshResponse(response)
+          ctx.policies = copy(backend.policies(response.attempt.principal_id))
+          return {
+            binding: copy(response.attempt.binding),
+            method: response.attempt.method,
+            mode: response.attempt.mode,
+            transport: 'rpc',
+            native_handle: response.handle
+          }
+        }
         const resolved = resolve(value)
         const state = states.get(key(value))!
         ctx.policies = copy(backend.policies(state.attempt.principal_id))
         return resolved
       },
+      // 按执行或密封状态核对独立来源，再返回该状态私有的来源令牌。
       resolveNativeSource: (binding) => {
+        const response = responseStates.get(key(binding))
+        if (response) {
+          assertBinding(binding, response.attempt.binding)
+          refreshResponse(response)
+          return response.sourceToken
+        }
         const state = states.get(key(binding))
         if (!state) {
           fail('native_handle_unavailable')
@@ -352,6 +751,7 @@ export function createLuvusWireAdapter(
     return ctx
   }
 
+  // 重新读取原尝试并核对来源与能力快照，拒绝缓存建立后的身份或原文修改。
   function refresh(state: State) {
     const attempt = record(attemptIdentity(state.attempt.binding))
     if (boundedJson(attempt) !== boundedJson(state.attempt)) {
@@ -368,6 +768,7 @@ export function createLuvusWireAdapter(
     return { ctx, current, attempt }
   }
 
+  // 按真实账本建立或复核有界执行缓存，缓存原锚点期限并返回私有原生句柄。
   function resolve(value: AttemptIdentity): ResolvedAttempt {
     const attempt = record(value)
     const ctx = context('gateway_to_connector', attempt.principal_id)
@@ -375,16 +776,29 @@ export function createLuvusWireAdapter(
     let state = states.get(key(value))
     remember(key(value))
     if (!state) {
-      if (states.size >= limits.attempts) {
+      if (states.size + responseStates.size >= limits.attempts) {
         fail('adapter_limit')
       }
       const native = createNativeValidator(current.registry.compiled)
       const view = unwrap(native.bindCapabilities(current.registry.capabilities, current.source))
+      const anchor = attempt.transport === 'rpc' ? backend.responseAnchor?.(attempt.binding) : undefined
+      if (anchor) {
+        assertBinding(anchor.binding, attempt.binding)
+        uint(anchor.content_expires_at, true)
+        uint(anchor.dedup_expires_at, true)
+        if (anchor.method !== attempt.method || anchor.mode !== attempt.mode) {
+          fail('attempt_binding_mismatch')
+        }
+      }
+      const retention = anchor
+        ? { content_expires_at: anchor.content_expires_at, dedup_expires_at: anchor.dedup_expires_at }
+        : undefined
       const snapshotBytes =
         2 *
         Buffer.byteLength(
           boundedJson({
             attempt,
+            ...(retention ? { retention } : {}),
             source: current.source,
             capabilities: current.registry.capabilities
           })
@@ -400,7 +814,8 @@ export function createLuvusWireAdapter(
         closed: false,
         controls: new Map(),
         validatorCaps: copy(current.registry.capabilities),
-        snapshotBytes
+        snapshotBytes,
+        retention
       }
       states.set(key(value), state)
       handles.set(state.handle, state)
@@ -416,6 +831,7 @@ export function createLuvusWireAdapter(
     }
   }
 
+  // 根据私有句柄及完整 Wire 上下文取得同一执行状态，拒绝复制或跨尝试句柄。
   function stateFor(c: NativeValidationContext): State {
     if (!c.native_handle || typeof c.native_handle !== 'object') {
       fail('native_handle_unavailable')
@@ -442,6 +858,7 @@ export function createLuvusWireAdapter(
     return state
   }
 
+  // 从当前双端策略和宿主权限构造原生派发授权，不继承旧的读取权限。
   function authorization(state: State): DispatchAuthorization {
     const { ctx, attempt } = refresh(state)
     const binding = state.source.binding
@@ -456,22 +873,26 @@ export function createLuvusWireAdapter(
       machines: [binding.target.machine_id],
       sessions: binding.target.profile === 'session' ? [binding.target.session] : [],
       methods: side.grants
-        .filter((g) => boundedJson(g.target) === boundedJson(attempt.binding.target) && g.actions.includes('dispatch'))
-        .flatMap((g) => g.methods)
-        .filter((m, i, all) => all.indexOf(m) === i),
+        .filter(
+          /* 只保留目标完全相同且含 dispatch 动作的当前 grant。 */ (g) =>
+            boundedJson(g.target) === boundedJson(attempt.binding.target) && g.actions.includes('dispatch')
+        )
+        .flatMap(/* 展开当前目标已授权的原生方法，供双端方法集合校验。 */ (g) => g.methods)
+        .filter(/* 去除双端策略投影中的重复方法，保持方法集合稳定。 */ (m, i, all) => all.indexOf(m) === i),
       host: binding.target.profile === 'host'
     })
     return {
       ...copy(backend.authority(copy(attempt), binding)),
       source: state.source,
       principal_id: attempt.principal_id,
-      now: backend.now(),
+      now: time(),
       caller_policy: project(ctx.policies!.caller),
       local_policy: project(ctx.policies!.local),
       mode: attempt.mode === 'raw-contract' ? 'raw_contract' : 'strict'
     }
   }
 
+  // 只允许消息使用已登记的原请求正文及原生 ID，随后缓存真实校验候选。
   function candidate(request: JsonObject, state: State): DispatchCandidate {
     const expected = {
       ...state.attempt.native_request,
@@ -483,6 +904,7 @@ export function createLuvusWireAdapter(
     return (state.candidate ??= unwrap(state.validator.checkRawRequest(state.view, request)))
   }
 
+  // 要求已存在真实派发许可，不从消息或响应反向创建执行能力。
   function permit(state: State): DispatchPermit {
     if (!state.permit) {
       fail('dispatch_permit_unavailable')
@@ -542,6 +964,7 @@ export function createLuvusWireAdapter(
   }
 
   const validator = Object.freeze<NativePayloadValidator>({
+    // 把真实原生请求候选的分类与 schema 结果提供给 Wire 请求门禁。
     requestGate(request, c) {
       const state = stateFor(c)
       const gate = unwrap(inspectRequestGate(candidate(request, state), authorization(state)))
@@ -551,6 +974,7 @@ export function createLuvusWireAdapter(
       }
     },
 
+    // 执行当前双端原生派发授权，并保留首次生成的真实许可用于响应绑定。
     validateRequest(request, c) {
       const state = stateFor(c)
       const checked = unwrap(checkDispatch(candidate(request, state), authorization(state)))
@@ -558,7 +982,28 @@ export function createLuvusWireAdapter(
       state.permit ??= checked
     },
 
+    // 分别用执行许可或密封上下文验证响应，二者均要求同一私有来源令牌。
     validateResponse(response, c) {
+      const retained =
+        c.native_handle && typeof c.native_handle === 'object' ? responseHandles.get(c.native_handle) : undefined
+      if (retained) {
+        assertBinding(c.binding, retained.attempt.binding)
+        if (
+          c.method !== retained.attempt.method ||
+          c.mode !== retained.attempt.mode ||
+          c.transport !== 'rpc' ||
+          c.feature !== undefined ||
+          c.stream_id !== undefined
+        ) {
+          fail('attempt_binding_mismatch')
+        }
+        refreshResponse(retained)
+        if (c.trusted_source !== retained.sourceToken) {
+          fail('native_source_untrusted')
+        }
+        unwrap(retained.validator.checkResponseOnly(retained.sealed, response, retained.source))
+        return
+      }
       const state = stateFor(c)
       if (c.trusted_source !== state.sourceToken) {
         fail('native_source_untrusted')
@@ -566,6 +1011,7 @@ export function createLuvusWireAdapter(
       unwrap(state.validator.checkResponse(permit(state), response, state.source))
     },
 
+    // 按输入或输出方向选择控制帧及流事件校验，并核对独立来源令牌。
     validateStreamFrame(frame, c) {
       const state = stateFor(c)
       if (c.trusted_source !== state.sourceToken) {
@@ -578,6 +1024,7 @@ export function createLuvusWireAdapter(
       }
     },
 
+    // 针对当前控制输入重新检查 stream_input 权限及原生授权，保存该输入的独立许可。
     checkDispatch(frame, c) {
       const state = stateFor(c)
       const { ctx } = refresh(state)
@@ -590,6 +1037,7 @@ export function createLuvusWireAdapter(
       input.permit ??= checked
     }
   })
+  // 处理已认证的 stream_close，标记关闭并清除未再可用的控制项。
   function close(frame: WireEnvelope): void {
     if (frame.type !== 'stream_close' || !('connection_epoch' in frame)) {
       return
@@ -605,6 +1053,14 @@ export function createLuvusWireAdapter(
 
   // RPC 只有原请求；stream 必须给出实际待交付的原生响应/事件，不能隐式借开流许可。
   function result(binding: AttemptBinding, nativeFrame?: JsonObject): void {
+    const response = responseStates.get(key(binding))
+    if (response) {
+      assertBinding(binding, response.attempt.binding)
+      if (backend.currentPrincipal() !== response.attempt.principal_id) {
+        fail('forbidden')
+      }
+      fail('content_unavailable')
+    }
     const state = states.get(key(binding))
     if (!state) {
       fail('dispatch_permit_unavailable')
@@ -670,12 +1126,14 @@ export function createLuvusWireAdapter(
   }
 
   const api = {
+    // 按当前认证上下文解码完整 Wire 帧，并同步成功的流关闭状态。
     decode(input: string | Uint8Array, direction: Direction): WireEnvelope {
       const checked = decodeWireFrame(input, context(direction))
       close(checked)
       return checked
     },
 
+    // 复制并完整校验待编码帧后生成 Wire 文本，同步流关闭状态。
     encode(frame: WireEnvelope, direction: Direction): string {
       const snapshot = copy(frame)
       const raw = encodeWireFrame(snapshot, context(direction))
@@ -683,12 +1141,14 @@ export function createLuvusWireAdapter(
       return raw
     },
 
+    // 对重组后的对象再次执行 Wire 和原生校验，再同步流关闭状态。
     decodeObject(input: Uint8Array, direction: Direction) {
       const checked = decodeWireObject(input, context(direction))
       close(checked)
       return checked
     },
 
+    // 按方向和连接维护逐对象组装器，固定首片期限、总预约和 ID 墓碑，完成后执行完整对象校验。
     acceptChunk(input: string | Uint8Array, direction: Direction) {
       const ctx = context(direction)
       const frame = decodeWireFrame(input, ctx)
@@ -696,18 +1156,56 @@ export function createLuvusWireAdapter(
         fail('invalid_chunk')
       }
       const stamp = boundedJson(ctx.connection)
+      const now = time()
       let entry = assemblers.get(direction)
       if (!entry || entry.connection !== stamp) {
-        entry = { connection: stamp, assembler: new ObjectAssembler() }
+        entry = { connection: stamp, machine: ctx.connection.machine_id, objects: new Map(), reserved: 0 }
         assemblers.set(direction, entry)
       }
-      const completed = entry.assembler.push(frame, ctx, backend.now())
-      if (completed?.kind === 'envelope') {
-        close(completed.envelope)
+      let slot = entry.objects.get(frame.payload.object_id)
+      if (slot && !slot.assembler) {
+        fail('object_closed')
       }
-      return completed
+      if (!slot) {
+        if (frame.payload.index !== 0) {
+          fail('chunk_out_of_order')
+        }
+        let active = 0
+        for (const value of entry.objects.values()) {
+          if (value.assembler) {
+            active++
+          }
+        }
+        if (
+          active >= LIMITS.transfers ||
+          entry.objects.size >= LIMITS.dedup_entries ||
+          entry.reserved + frame.payload.total_bytes > LIMITS.buffered_bytes
+        ) {
+          fail('object_capacity')
+        }
+        slot = {
+          assembler: new ObjectAssembler(),
+          expires: now + LIMITS.transfer_timeout_ms,
+          reserved: frame.payload.total_bytes
+        }
+        entry.objects.set(frame.payload.object_id, slot)
+        entry.reserved += slot.reserved
+      }
+      const assembler = slot.assembler!
+      try {
+        const completed = assembler.push(frame, ctx, now)
+        if (completed?.kind === 'envelope') {
+          close(completed.envelope)
+        }
+        return completed
+      } finally {
+        if (assembler.activeTransfers === 0) {
+          closeAssembly(entry, slot, now)
+        }
+      }
     },
     checkResult: result,
+    // 校验流消息并推进尝试的 Wire 生命周期，错误类型不能留下原生许可。
     advanceStream(frame: AuthenticatedEnvelope, direction: Direction) {
       const snapshot = copy(frame, LIMITS.object_bytes)
       const ctx = context(direction)
@@ -725,6 +1223,7 @@ export function createLuvusWireAdapter(
       return copy(state.wireStream)
     },
 
+    // 按方向与连接维护消息去重窗口，冲突时由外层原子包装回滚新许可。
     observeMessage(frame: AuthenticatedEnvelope, direction: Direction) {
       const ctx = context(direction)
       const stamp = boundedJson(ctx.connection)
@@ -733,11 +1232,23 @@ export function createLuvusWireAdapter(
         entry = { connection: stamp, window: new MessageWindow() }
         windows.set(direction, entry)
       }
-      return entry.window.observe(copy(frame, LIMITS.object_bytes), ctx, backend.now())
+      return entry.window.observe(copy(frame, LIMITS.object_bytes), ctx, time())
     },
 
+    // 基于原锚点生成可信响应证据；密封上下文强制仅保留元数据且不授权内容交付。
     planEvidence(frame: Extract<AuthenticatedEnvelope, { type: 'response' }>) {
       const snapshot = copy(frame, LIMITS.object_bytes)
+      const retained = responseStates.get(key(snapshot.payload.attempt))
+      if (retained) {
+        refreshResponse(retained)
+        return planResponseEvidence(
+          snapshot,
+          context('connector_to_gateway'),
+          backend.responseAnchor?.(retained.attempt.binding),
+          time(),
+          { classification_status: 'trusted_complete', retain_content_authorized: false }
+        )
+      }
       const attempt = record(snapshot.payload.attempt)
       const ctx = context('connector_to_gateway')
       const state = states.get(key(attempt.binding))
@@ -752,13 +1263,20 @@ export function createLuvusWireAdapter(
       } catch {
         /* 撤权/过期/禁存仍允许可信最小证据。 */
       }
-      return planResponseEvidence(snapshot, ctx, backend.responseAnchor?.(attempt.binding), backend.now(), {
+      return planResponseEvidence(snapshot, ctx, backend.responseAnchor?.(attempt.binding), time(), {
         classification_status: 'trusted_complete',
         retain_content_authorized: retain
       })
     },
 
+    // 显式释放指定尝试的缓存与预算，密封上下文同时撤销其原生登记。
     release(binding: AttemptBinding) {
+      const response = responseStates.get(key(binding))
+      if (response) {
+        assertBinding(binding, response.attempt.binding)
+        dropResponse(key(binding))
+        return
+      }
       const state = states.get(key(binding))
       if (!state) {
         return
@@ -771,7 +1289,33 @@ export function createLuvusWireAdapter(
     }
   }
 
+  unsubscribe = backend.subscribeInvalidation?.(invalidate)
+  if (!closed) {
+    maintenance = setInterval(
+      // 即使账本清理提交失败，空闲适配器也按可信时钟回收原文；无法可信维护时销毁全部上下文。
+      () => {
+        try {
+          maintain()
+        } catch {
+          invalidate({ kind: 'closed' })
+        }
+      },
+      maintenanceInterval
+    )
+    maintenance.unref()
+  }
   return Object.freeze({
+    maintain: guarded(maintain),
+    // 关闭适配器并销毁所有执行、密封、分片和去重缓存，取消 Store 订阅。
+    close: () => invalidate({ kind: 'closed' }),
+    // 仅返回上下文数量、快照计量及关闭状态，不暴露请求、响应或身份内容。
+    stats: () => ({
+      executions: states.size,
+      responses: responseStates.size,
+      snapshot_bytes: retainedBytes,
+      ...transferStats(),
+      closed
+    }),
     decode: guarded(atomic(api.decode)),
     encode: guarded(atomic(api.encode)),
     decodeObject: guarded(atomic(api.decodeObject)),
