@@ -88,6 +88,7 @@ bun run build
 - [实施路线](docs/IMPLEMENTATION-PLAN.md)
 - [管理 UI 设计](docs/GATEWAY-WEBUI.md)
 - [开发与验证](docs/DEVELOPMENT.md)
+- [开机服务模块与接线边界](docs/SERVICE.md#简体中文)
 
 ## 许可证
 

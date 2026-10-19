@@ -14,6 +14,46 @@
 写服务不复制查询、Router、MCP facade、HTTPMCP 或 CLI。`refresh()` 逐连接校验实际 Store fence，
 不会按 machine_id 盲目关闭重连后的新连接。
 
+### 给共享服务与运行宿主的稳定接口
+
+组合代码由运行宿主持有；下例变量都是宿主已经建立的真实对象/认证端口，不创建第二个 Store、Router、
+Gateway 或管理员，也不改写 `StoreGatewayService` 的 readonly `management` 字段。
+
+```ts
+import { StoreManagementWriteService, createManagementHandler } from './admin/index.js'
+
+const management = new StoreManagementWriteService({
+  store: openedStore,
+  identities,
+  reads: sharedGatewayService.management,
+  transport: gateway,
+  pairingPolicy,
+  providerEnable
+})
+const managementHttp = createManagementHandler({
+  service: management,
+  origin: managementOrigin,
+  authenticate,
+  verifyCsrf,
+  publicError: classifyManagementReadError,
+  assets
+})
+```
+
+`sharedGatewayService` 已使用同一 `openedStore`、`identities` 与宿主 Router。
+`management` 实现 `GatewayManagementService.execute<K>(name, args, AdminContext): Promise<ManagementReply[K]>`；
+共用参数与 DTO 唯一来源是 `src/mcp/management.ts`。原六读由 `reads` 处理，写侧返回固定
+`ManagementServiceError.code`；`classifyManagementReadError` 沿用原读桥的可信错误分类，不能透传任意异常正文。
+
+现有管理 listener 挂接 `managementHttp.fetch(Request): Promise<Response>`；宿主仍负责实际 loopback
+地址、端口与连接/正文上限。退出时调用 `managementHttp.stop(): void` 停止等待，再沿原运行宿主的
+资源顺序关闭 Gateway/Store；handler 不拥有共享业务资源。这里不提供第二 listener、角色 CLI 或自动开机安装。
+`pairingPolicy`、`providerEnable` 未装配时对应操作明确拒绝，不以默认 true 占位。
+
+普通 MCP caller 不能合成 `AdminContext`、管理员 session 或后台确认。MCP/CLI 工具如需管理能力，
+必须经过同一受保护管理员桥；未接该桥时保留拒绝，不在 facade 内将普通 caller 升级为管理员。
+秘密签发另用下述受保护 Store/custody 端口，不能把其返回值交给此 HTTP handler。
+
 `identities.principal/administrator` 每次请求及事务内重新解析。管理员 principal 必须匹配当前
 会话，assurance 必须是 administrator，grant 必须匹配具体动作及 machine/provider。
 恢复本机身份不能通过普通写服务解除隔离。MCP caller、设备凭据、loopback 和按钮状态均不构成管理授权。
