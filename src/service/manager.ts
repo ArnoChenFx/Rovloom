@@ -126,12 +126,24 @@ export class ServiceManager {
               // 即使原本停止，也取消潜在待启动 Job；不调用 enable/remove 或注销注册。
               quiesce: async () => {
                 assertActive()
+                let failure: unknown
                 for (const snapshot of snapshots) {
-                  await observe(snapshot)
-                  await this.backend.stop(snapshot.spec)
-                  await this.settle(snapshot.spec, false)
+                  try {
+                    await observe(snapshot)
+                    await this.backend.stop(snapshot.spec)
+                    await this.settle(snapshot.spec, false)
+                  } catch (error) {
+                    failure ??= error
+                  }
                 }
-                await session.assertQuiescent()
+                try {
+                  await session.assertQuiescent()
+                } catch (error) {
+                  failure ??= error
+                }
+                if (failure) {
+                  throw failure
+                }
               },
               // 原生 inspect 对 stopped/failed 的 PID、Job 和来源证明保持有效。
               assertQuiescent: async () => {

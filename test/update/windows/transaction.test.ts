@@ -152,6 +152,15 @@ if (process.platform === 'win32') {
       state: 'rolled_back'
     },
     {
+      name: 'quiesces both new roles even when the first rollback journal write fails',
+      healthFailure: true,
+      unknownTarget: false,
+      journalFailure: true,
+      code: 7,
+      version: '0.1.1',
+      state: 'recovery_required'
+    },
+    {
       name: 'retains the old PE and all locks rather than overwriting an unknown target during rollback',
       healthFailure: true,
       unknownTarget: true,

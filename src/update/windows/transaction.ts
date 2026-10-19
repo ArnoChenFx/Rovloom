@@ -620,10 +620,19 @@ export async function handleWindowsUpdateHelperCommand(
             throw error
           }
           try {
-            journal('rolling_back')
-            receipt!('rolling_back')
+            let recordFailed = false
+            try {
+              journal('rolling_back')
+              receipt!('rolling_back')
+            } catch {
+              recordFailed = true
+            }
+            // 即使记录写入失败，也先尽力静止可能运行的新版；未记录的新移动不能继续。
             await session.quiesce()
             await session.assertQuiescent()
+            if (recordFailed) {
+              throw new UpdateError('staging_failed')
+            }
             if (moved) {
               if (
                 !same(readWindowsExecutable(win32.join(directory, 'previous.exe'), plan.platform.arch), job.original)

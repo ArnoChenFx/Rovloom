@@ -55,6 +55,7 @@ async function services(root: string, executable: string) {
   const mode = JSON.parse(await fs.readFile(join(root, 'mode.json'), 'utf8')) as {
     healthFailure: boolean
     unknownTarget: boolean
+    journalFailure?: boolean
   }
   const snapshots = new Map<ServiceRole, ServiceSnapshot>()
   const children = new Map<ServiceRole, { child: ChildProcess; nonce: string; closed: Promise<void> }>()
@@ -157,6 +158,13 @@ async function services(root: string, executable: string) {
         throw new Error('fixture_wrong_version')
       }
       if (expected === newVersion && spec.role === 'gateway' && mode.healthFailure) {
+        if (mode.journalFailure && !tampered) {
+          tampered = true
+          const directory = dirname(process.execPath)
+          const journal = JSON.parse(await fs.readFile(join(directory, 'journal.json'), 'utf8'))
+          // 只在本 fixture 的私有目录占用下次独占记录名，模拟 journal 失败；不改 ACL、时间或产品写入 API。
+          await fs.mkdir(join(directory, `journal-${journal.sequence + 1}.tmp`))
+        }
         if (mode.unknownTarget && !tampered) {
           tampered = true
           for (const snapshot of snapshots.values()) {

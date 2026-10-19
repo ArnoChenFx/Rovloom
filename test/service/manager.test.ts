@@ -2,8 +2,56 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ServiceManager } from '../../src/service/manager.js'
-import { ServiceError, type ServicePlatform } from '../../src/service/types.js'
+import { ServiceError, type ServicePlatform, type ServiceSnapshot, type ServiceRole } from '../../src/service/types.js'
 import { model, sampleSpec } from './helpers.js'
+
+for (const platform of ['linux', 'darwin', 'win32'] as ServicePlatform[]) {
+  test(
+    `${platform}: update quiescence still stops the second role when the first stop fails`,
+    /* 只验证现有生命周期模型；故障不能让其它已运行新版角色被跳过。 */ async () => {
+      const m = model(platform)
+      const snapshots = new Map<ServiceRole, ServiceSnapshot>()
+      for (const role of ['gateway', 'connector'] as const) {
+        snapshots.set(role, { spec: { ...sampleSpec(platform), role }, state: 'running', enabled: true })
+      }
+      const held = new Set<ServiceRole>()
+      const stopped: ServiceRole[] = []
+      m.backend.lock = /* 模型按角色持锁，允许更新同时持有两种角色。 */ async (role, operation) => {
+        assert(!held.has(role))
+        held.add(role)
+        try {
+          return await operation()
+        } finally {
+          held.delete(role)
+        }
+      }
+      m.backend.inspect = /* 返回独立监管快照，不能被 updater 就地改写。 */ async (role) => ({
+        ...snapshots.get(role)!,
+        spec: { ...snapshots.get(role)!.spec }
+      })
+      m.backend.stop = /* 首角色失败后仍须请求停止第二个角色，且保留原错误。 */ async (spec) => {
+        stopped.push(spec.role)
+        if (spec.role === 'gateway') {
+          throw new ServiceError('system_command_failed', 73)
+        }
+        snapshots.get(spec.role)!.state = 'stopped'
+      }
+      await assert.rejects(
+        /* 不把部分停止当作整体静止。 */ () =>
+          new ServiceManager(m.backend, m.clock).withBinaryUpdate(
+            sampleSpec(platform).executable,
+            /* 原作用域失败仍释放普通测试锁，不清除或重建角色声明。 */ async (session) => session.quiesce()
+          ),
+        { code: 'system_command_failed' }
+      )
+      assert.deepEqual(stopped, ['gateway', 'connector'])
+      assert.equal(snapshots.get('gateway')!.state, 'running')
+      assert.equal(snapshots.get('connector')!.state, 'stopped')
+      assert.equal(held.size, 0)
+      assert([...snapshots.values()].every(/* boot 意图不参与静止更改。 */ (s) => s.enabled))
+    }
+  )
+}
 
 for (const platform of ['linux', 'darwin', 'win32'] as ServicePlatform[]) {
   test(
