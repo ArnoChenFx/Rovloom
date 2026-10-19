@@ -72,7 +72,11 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
       async (signal) => checkPage(await read(current, signal), current),
       /** 更新稳定工具栏，并保留内容中当前键盘焦点。 */
       (state) => {
-        refresh.disabled = state.pending || state.problem === 'unauthenticated' || state.problem === 'forbidden'
+        refresh.disabled =
+          state.pending ||
+          state.problem === 'unauthenticated' ||
+          state.problem === 'forbidden' ||
+          state.problem === 'not_found'
         cancel.disabled = !state.pending
         indicator.textContent = state.pending
           ? '正在读取…'

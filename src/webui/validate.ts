@@ -4,10 +4,13 @@ import type {
   ManagementStatus,
   Observed,
   PermissionSnapshot,
-  ProviderSnapshot
+  ProviderSnapshot,
+  ManagementArguments,
+  ManagementReply
 } from '../mcp/management.js'
 import { ReadError, type TimedSnapshot } from './reader.js'
 import type { PageRoute, PageView } from './view.js'
+import type { ManagementReadOperation } from './read.js'
 
 /** 只抛出固定分类，避免把非法响应正文变成页面错误。 */
 function invalid(): never {
@@ -19,9 +22,12 @@ function record(value: unknown, allowed: string[], required = allowed): void {
   if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) {
     invalid()
   }
-  for (const key of Object.keys(value)) {
+  if (Object.getOwnPropertySymbols(value).length) {
+    invalid()
+  }
+  for (const key of Object.getOwnPropertyNames(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    if (!allowed.includes(key) || !descriptor || !('value' in descriptor)) {
+    if (!allowed.includes(key) || !descriptor || !descriptor.enumerable || !('value' in descriptor)) {
       invalid()
     }
   }
@@ -69,8 +75,29 @@ function revision(value: number | null): void {
 
 /** 数组有界，拒绝稀疏槽与非数组。 */
 function bounded(value: unknown, limit: number): asserts value is unknown[] {
-  if (!Array.isArray(value) || value.length > limit || Object.keys(value).length !== value.length) {
+  if (
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    value.length > limit ||
+    Object.keys(value).length !== value.length ||
+    Object.getOwnPropertySymbols(value).length
+  ) {
     invalid()
+  }
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (key === 'length') {
+      continue
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (
+      !/^(0|[1-9][0-9]*)$/u.test(key) ||
+      Number(key) >= value.length ||
+      !descriptor ||
+      !descriptor.enumerable ||
+      !('value' in descriptor)
+    ) {
+      invalid()
+    }
   }
 }
 
@@ -228,7 +255,7 @@ function status(value: ManagementStatus): void {
 }
 
 /** 权限快照只作短期提示，必须绑定当前目标/代次/策略；不授予动作权限。 */
-function permissions(value: PermissionSnapshot, page: PageView, route: PageRoute): void {
+function permissionShape(value: PermissionSnapshot): void {
   record(value, [
     'target',
     'principal_id',
@@ -241,13 +268,9 @@ function permissions(value: PermissionSnapshot, page: PageView, route: PageRoute
     'decisions'
   ])
   record(value.target, ['machine_id', 'provider_id'], ['machine_id'])
-  if (
-    value.target.machine_id !== route.machineId ||
-    value.target.provider_id !== undefined ||
-    value.policy_revision !== page.status.policy_revision ||
-    value.recovery_generation !== page.status.recovery_generation
-  ) {
-    invalid()
+  text(value.target.machine_id)
+  if (value.target.provider_id !== undefined) {
+    text(value.target.provider_id)
   }
   text(value.principal_id)
   text(value.policy_revision)
@@ -278,6 +301,84 @@ function permissions(value: PermissionSnapshot, page: PageView, route: PageRoute
       'recovery_quarantined',
       'storage_degraded'
     ])
+  }
+}
+
+/** 页面权限还必须属于当前设备和全局 fence；HTTP 单操作校验复用相同字段规则。 */
+function permissions(value: PermissionSnapshot, page: PageView, route: PageRoute): void {
+  permissionShape(value)
+  if (
+    value.target.machine_id !== route.machineId ||
+    value.target.provider_id !== undefined ||
+    value.policy_revision !== page.status.policy_revision ||
+    value.recovery_generation !== page.status.recovery_generation
+  ) {
+    invalid()
+  }
+}
+
+/** 对六项共享读取的传输回复复用展示字段校验；不替代服务的查询和资源授权。 */
+export function checkManagementReadReply<K extends ManagementReadOperation>(
+  operation: K,
+  input: unknown,
+  args: ManagementArguments[K]
+): ManagementReply[K] {
+  try {
+    const value = input as ManagementReply[K]
+    const target = args as { machine_id?: string; provider_id?: string }
+    if (operation === 'status') {
+      status(value as ManagementStatus)
+    } else if (operation === 'devices_get') {
+      const item = value as DeviceSnapshot
+      device(item)
+      if (item.machine_id !== target.machine_id) {
+        invalid()
+      }
+    } else if (operation === 'providers_get') {
+      const item = value as ProviderSnapshot
+      provider(item)
+      if (item.machine_id !== target.machine_id || item.provider_id !== target.provider_id) {
+        invalid()
+      }
+    } else if (operation === 'permissions_get') {
+      const item = value as PermissionSnapshot
+      permissionShape(item)
+      if (item.target.machine_id !== target.machine_id || item.target.provider_id !== target.provider_id) {
+        invalid()
+      }
+    } else if (operation === 'devices_list' || operation === 'providers_list') {
+      const page = value as { items: (DeviceSnapshot | ProviderSnapshot)[]; next_cursor?: string }
+      record(page, ['items', 'next_cursor'], ['items'])
+      bounded(page.items, 200)
+      if (page.next_cursor !== undefined) {
+        text(page.next_cursor)
+      }
+      const seen = new Set<string>()
+      for (const item of page.items) {
+        if (operation === 'devices_list') {
+          device(item as DeviceSnapshot)
+        } else {
+          provider(item as ProviderSnapshot)
+          if (item.machine_id !== target.machine_id) {
+            invalid()
+          }
+        }
+        const key = operation === 'devices_list' ? item.machine_id : (item as ProviderSnapshot).provider_id
+        if (seen.has(key)) {
+          invalid()
+        }
+        seen.add(key)
+      }
+    } else {
+      invalid()
+    }
+    const result = structuredClone(value)
+    if (new TextEncoder().encode(JSON.stringify(result)).byteLength > 524_288) {
+      invalid()
+    }
+    return result
+  } catch {
+    throw new ReadError('invalid_response')
   }
 }
 

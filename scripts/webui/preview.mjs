@@ -34,6 +34,12 @@ const server = Bun.serve({
     if (request.method !== 'GET') {
       return new Response('method_not_allowed', { status: 405, headers })
     }
+    if (url.pathname === '/admin/v1/status' && !url.search) {
+      return new Response(JSON.stringify({ error: 'unavailable' }), {
+        status: 503,
+        headers: { ...headers, 'content-type': 'application/json' }
+      })
+    }
     let body
     let type
     if (url.pathname === '/' || url.pathname === '/fixtures/') {

@@ -172,7 +172,7 @@ test(
 )
 
 // 两类授权失败都立即擦除快照并停止轮询，手动刷新不能复活会话。
-for (const problem of ['unauthenticated', 'forbidden'] as const) {
+for (const problem of ['unauthenticated', 'forbidden', 'not_found'] as const) {
   test(
     `${problem} 清空内存并停止读取`,
     /* 验证 `${problem} 清空内存并停止读取` 的读取与展示边界。 */ async () => {

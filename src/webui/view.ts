@@ -1,13 +1,13 @@
 /** 管理页直接渲染共享管理 DTO；不补造未核实状态，也不建立另一套管理协议。 */
-import type { DeviceSnapshot, ManagementStatus, Page, PermissionSnapshot, ProviderSnapshot } from '../mcp/management.js'
+import type { DeviceSnapshot, ManagementStatus, ManagementReply, PermissionSnapshot } from '../mcp/management.js'
 import type { ReaderState } from './reader.js'
 
 /** 仅组合一次页面读取，所有业务对象仍是共享 DTO。 */
 export interface PageView {
   status: ManagementStatus
-  devices: Page<DeviceSnapshot>
+  devices: ManagementReply['devices_list']
   device: DeviceSnapshot | null
-  providers: Page<ProviderSnapshot>
+  providers: ManagementReply['providers_list']
   permissions: PermissionSnapshot | null
   providersProblem: 'forbidden' | 'unavailable' | null
 }
@@ -36,6 +36,7 @@ const runtimeNames = {
 const problemNames: Record<NonNullable<ReaderState<PageView>['problem']>, string> = {
   unauthenticated: '管理会话未登录或已过期。请通过受保护的管理员入口重新登录。',
   forbidden: '当前管理员没有此范围的查看权限。',
+  not_found: '资源不存在或当前管理员无法查看此范围。',
   conflict: '观测范围或版本已变化，请刷新。',
   unavailable: '管理读取尚不可用，请检查 Gateway 的受保护管理接线。',
   invalid_response: '管理响应未通过展示边界校验。',
@@ -491,7 +492,7 @@ export function renderPage(content: HTMLElement, state: ReaderState<PageView>, r
     gateway.append(badge(state.stale ? '快照已过期' : '快照有效', state.stale ? 'warning' : 'neutral'))
     gateway.append(
       facts([
-        ['管理监听', '尚未接入实际管理 listener；共享状态接口未提供监听范围'],
+        ['管理监听', '共享状态接口未提供实际管理监听范围'],
         [
           '管理员认证',
           snapshot.sessionExpiresAt === null
