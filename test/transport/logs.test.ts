@@ -16,7 +16,14 @@ test(
       ['--no-env-file', fileURLToPath(new URL('./log-fixture.ts', import.meta.url))],
       { input: secret, encoding: 'utf8', timeout: 10_000 }
     )
-    assert.equal(child.status, 0)
+    // 初始化失败只报告固定诊断，绝不把子进程原始输出或随机 mock secret 放入断言。
+    assert.equal(
+      child.status,
+      0,
+      child.stderr.includes('"reason":"compiler_timeout"')
+        ? 'fixture_schema_compiler_timeout'
+        : 'fixture_process_failed'
+    )
     assert.equal((child.stdout + child.stderr).includes(secret), false)
     assert.equal(child.stdout.trim(), 'mock fixture closed')
     const f = fixture()

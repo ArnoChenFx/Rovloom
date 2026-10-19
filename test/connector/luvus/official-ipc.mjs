@@ -30,6 +30,15 @@ const frameBytes = 131_072
 const effects = Object.freeze({ 'task.add': 'execute', 'task.update': 'execute', 'automation.list': 'read' })
 const methods = Object.keys(effects)
 
+/** 真实验收和离线回归共用异步 schema 接缝；仅等待工厂并核对结果，不启动 native。 */
+export async function compileOfficialSchema(schema) {
+  const compiled = await compileBundle(schema, {
+    identity: { binary_sha256: binaryHash, schema_sha256: schemaHash, revision: 'official-ipc-0.14.3-1' }
+  })
+  assert(compiled.ok, 'official_schema_compile_failed')
+  return compiled
+}
+
 /** 只对已知有界字节求摘要，报告不包含真实 native 正文、token 或私有路径。 */
 function hash(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
@@ -219,10 +228,7 @@ export async function officialIpc(binaryPath) {
     assert.equal(cli(['--version']).toString().trim(), 'luvus ' + version)
     const schema = cli(['uhp', 'schema'])
     assert.equal(hash(schema), schemaHash)
-    const compiled = compileBundle(schema, {
-      identity: { binary_sha256: binaryHash, schema_sha256: schemaHash, revision: 'official-ipc-0.14.3-1' }
-    })
-    assert(compiled.ok, 'official_schema_compile_failed')
+    const compiled = await compileOfficialSchema(schema)
     const validator = createNativeValidator(compiled.value)
     libc = dlopen('libc.so.6', {
       pidfd_open: { args: [FFIType.i32, FFIType.u32], returns: FFIType.i32 },

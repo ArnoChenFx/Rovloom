@@ -39,7 +39,7 @@ export function rejects(result: Check<unknown>, code: string): void {
     assert.equal(result.error.code, code)
   }
 }
-export const compiled = unwrap(compileBundle(bytes, { identity }))
+export const compiled = unwrap(await compileBundle(bytes, { identity }))
 export const validator = createNativeValidator(compiled)
 export const G = '0'.repeat(32)
 export const T = '1'.repeat(32)

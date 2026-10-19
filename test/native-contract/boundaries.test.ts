@@ -419,7 +419,7 @@ test(
 
 test(
   'schema 关键字/别名/字节预算 fail closed，不把未引用原生属性字典当约束',
-  /* 构造未知关键字、非法属性字典引用及字节预算反例，确认编译保守拒绝。 */ () => {
+  /* 构造未知关键字、非法属性字典引用及字节预算反例，确认编译保守拒绝。 */ async () => {
     const b = json('schema-bundle.json')
     const uri = 'https://luvus.dev/protocol/uhp/v1/request.schema.json'
     b.documents[uri].synthetic_future_keyword = true
@@ -429,17 +429,17 @@ test(
       ...identity,
       schema_sha256: createHash('sha256').update(encoded).digest('hex')
     })
-    rejects(compileBundle(encoded, { identity: changedIdentity() }), 'schema_unavailable')
+    rejects(await compileBundle(encoded, { identity: changedIdentity() }), 'schema_unavailable')
     const original = json('schema-bundle.json')
     original.documents[uri].allOf[0].then.properties.params.$ref =
       'https://luvus.dev/protocol/uhp/v1/schema/terminal/common.schema.json#/$defs/locatorProperties'
     encoded = JSON.stringify(original)
-    const bad = compileBundle(encoded, { identity: changedIdentity() })
+    const bad = await compileBundle(encoded, { identity: changedIdentity() })
     rejects(bad, 'schema_unavailable')
     if (!bad.ok) {
       assert.equal(bad.error.reason, 'unsupported_reference')
     }
-    rejects(compileBundle(bytes, { identity, limits: { bundle_bytes: 16 } }), 'schema_unavailable')
-    rejects(compileBundle(bytes, { identity, limits: { bundle_bytes: 2_097_153 } }), 'invalid_limits')
+    rejects(await compileBundle(bytes, { identity, limits: { bundle_bytes: 16 } }), 'schema_unavailable')
+    rejects(await compileBundle(bytes, { identity, limits: { bundle_bytes: 2_097_153 } }), 'invalid_limits')
   }
 )

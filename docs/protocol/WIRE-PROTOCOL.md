@@ -288,8 +288,12 @@ expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可�
 超时于下一次 push 清理，内存始终受预约与数量上限；断开后销毁该连接 assembler。checksum 不是认证。
 重组 envelope 再完整走 v2 provider/契约/关联/原生门禁，不允许嵌套 object_chunk；bundle 只作为未授信 JSON 对象交付，
 需原生模块离线编译引用闭包/dialect/根/条件约束后才能使用，不联网抓任意 URL。
-原生默认 bundle 编译预算为 2 MiB/64 documents，与 Wire 重组预算独立；完整数值及
-尚未交付的硬编译隔离边界见 [原生校验接口](NATIVE-CONTRACT.md#契约与内存许可)。
+原生默认 bundle 编译预算为 2 MiB/64 documents，与 Wire 重组预算独立；完整数值见
+[原生校验接口](NATIVE-CONTRACT.md#契约与内存许可)。首版 Luvus 只编译宿主已审核的本地安装
+schema，由 Bun Worker 完整编译并生成 standalone，以 2 秒逻辑接纳期限、取消及迟到拒绝
+控制初始化；宿主同步执行已接纳的生成函数，不承诺硬 heap 上限或 Worker 物理退出时限。
+重组对象不因此成为受信安装 schema；流程与限制见
+[编译接纳边界](NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
 MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依赖宿主持久化，不能将窗口过期视为新派发许可。
 stream open 建 opening，首个合法 data 转外层 open；input 仅 open 的 terminal_control，data/input 各自从 0 严格递增。

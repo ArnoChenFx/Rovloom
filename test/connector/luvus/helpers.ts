@@ -58,7 +58,7 @@ export async function fixture(transport: 'ipc' | 'cli' = 'ipc', method = 'task.a
   writeFileSync(binary, script, { mode: 0o700 })
   const binarySha = createHash('sha256').update(script).digest('hex')
   const installedIdentity = { ...identity, binary_sha256: binarySha }
-  const compiled = unwrap(compileBundle(bytes, { identity: installedIdentity }))
+  const compiled = unwrap(await compileBundle(bytes, { identity: installedIdentity }))
   const params =
     method === 'task.add'
       ? { title: 'synthetic' }

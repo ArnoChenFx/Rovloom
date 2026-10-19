@@ -157,10 +157,12 @@ stderr 只有有界字节计数，不向普通错误回显内容；不输出 tok
 
 默认 request/response 各 1 MiB、stderr 64 KiB、discovery/schema 至多 2 MiB、
 单次本地等待最多 30 秒，登记 deadline 可以进一步缩短；配置只能收紧。
-这些是有界输入/输出计量，不是进程 CPU/heap 的硬隔离。schema 编译仍复用现行
-同步 NativeValidator 内核；schema CPU/heap 硬隔离需要另外提供执行边界。
+这些是有界输入/输出计量，不是进程 CPU/heap 的硬隔离。schema 初始化等待
+Bun Worker 完整编译并生成 standalone，随后 NativeValidator 同步校验；编译接纳期限、
+取消、迟到拒绝及首版无硬 heap 保证见[原生契约](NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
-`installedSchema` 仅运行真实 CLI schema 命令、保留原字节并复用 `compileBundle`。
+`installedSchema` 仅运行固定安装的 CLI schema 命令，保留原字节并等待 `compileBundle`，
+向工厂传播本次取消/期限信号；完成后再次核验安装身份、取消和 adapter 关闭状态，才返回契约。
 在线 `uhp.capabilities` 必须由宿主经授权取得并发布到 registry，不能用不存在的
 `uhp.schema` RPC，也不能为完成发现而授予 Owner/raw。普通 `dispatch` 不豁免
 `uhp.capabilities` 的现行 strict schema/许可门禁；生产 bootstrap 未提供时拒绝。
