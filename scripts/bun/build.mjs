@@ -17,6 +17,7 @@ const result = await Bun.build({
     'src/transport/index.ts',
     'src/herdr/readonly.ts',
     'src/webui/index.ts',
+    'src/admin/index.ts',
     'src/connector/luvus/index.ts',
     'src/mcp/index.ts',
     'src/cli/index.ts',
@@ -53,5 +54,5 @@ for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
   copyFileSync(`docs/assets/brand/${asset}`, `dist/webui/${asset}`)
 }
 console.log(
-  `Built ${result.outputs.length} Bun ESM files/maps and ${browser.outputs.length} browser files/maps; MCP/CLI host and management read adapter remain explicit`
+  `Built ${result.outputs.length} Bun ESM files/maps and ${browser.outputs.length} browser files/maps; MCP/CLI and management listener require explicit host services and trusted identity/session adapters`
 )

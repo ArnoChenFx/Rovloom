@@ -11,10 +11,10 @@
 宿主通过 `ManagementReadTransport` 接入既有受保护管理传输，每个读取仍由后端重新认证、核对精确目标与权限。
 该传输须把公共失败映射为 `ReadError`；原始错误/正文不应传给页面。
 
-当前构建同时输出 Bun 展示模块和 `dist/webui/` 静态资源，默认浏览器入口使用明确不可用的读取器，
+当前构建同时输出 Bun 展示/宿主模块和 `dist/webui/` 静态资源，默认浏览器入口通过固定同源 GET 读取六项管理资源，
 不自动启动管理 listener、提供登录/退出或加载测试数据。确认、配对、设备/provider 变更与回执后端尚未接入，
 相关操作保持不可用；没有后台一次性确认或持久提交证明时不显示成功。
-此模块通过不表示 issue #14、管理 API 安全门禁或真实设备链路已完成。
+展示、HTTP 接口测试通过不表示 issue #14、生产会话接线或真实设备链路已完成。
 
 共享读取未提供设备 ready 证明、配对进度、最近连接/重连时间、OS/version、实际监听范围或管理员会话截止时间；
 页面明确显示缺口。`persisted_state=online` 不填补 `Observed.verification=unverified`，
@@ -24,9 +24,41 @@
 读取前后核对全局模式、恢复代次、管理策略/history fence 及详情的设备 revision/epoch；变化拒绝混合快照，并取前后 status 较早的观测时间计算页面年龄。
 设备、连接、认证、provider 登记与原生运行观测还分别按自己的 `observed_at` 和服务时间/单调经过时间计算十五秒过期；新 status 不续期旧子观测。过期状态只作历史展示，不显示绿色在线/ready；当前认证未核实不显示绿色在线，provider 运行观测或所依赖设备认证/链路未核实也不显示绿色 ready。
 待配对登记不显示旧连接的在线或已认证徽标；新鲜原生运行观测仍可独立展示，但不能据此显示 provider 绿色 ready。
-展示边界最多 200 行、512 KiB，并拒绝未知字段和越目标数据；该限制仅是 UI 本地防护，不替代 HTTP 解析/大小/速率门禁。
-恢复隔离仅读取并展示最小 status；provider 的 403/暂不可用单独显示，401 使整页失效。
+展示边界最多 200 行、512 KiB，并拒绝未知字段和越目标数据；HTTP 桥同时执行输入、输出和在途任务预算；这不替代宿主会话服务及共享业务授权。
+恢复隔离仅读取并展示最小 status；provider 的 403/暂不可用单独显示，401 使整页失效；设备/整页读取不可见的404同样清空旧页并停止读取，provider/权限提示的局部404只降级该部分且仍复核设备，避免撤权后保留旧详情。
 隔离 fixture 与真实 Chromium 的复现入口见[开发指引](DEVELOPMENT.md#管理页面的隔离验证)。
+
+## 只读 HTTP 宿主桥
+
+[宿主入口](../src/admin/index.ts)提供 `startManagementReadListener`、可嵌入的
+`createManagementReadHandler` 和固定构建产物加载器 `loadManagementAssets`。
+listener 只绑定 `127.0.0.1` 的显式独立端口，不自动启动、不关闭宿主共享 Store。
+宿主必须注入同一 `GatewayManagementService`（现行 Store 服务的 `.management`），以及
+`authenticate(request, signal): Promise<Pick<AdminContext, 'caller' | 'management_session_ref'> | null>`。
+该适配器验证既有受信管理会话；返回 null 表示未登录或过期。缺少适配器时开端口前失败，
+没有默认 admin、测试 token 或浏览器自报身份字段。HTTP 请求的等待信号由桥创建，
+每个 read 仅调用一次共享 `execute`，授权与查询仍由共享服务执行。
+
+静态壳可在未登录时加载，不包含身份或管理数据；所有六项数据请求均重新认证。
+登录、会话签发/续期/撤销及 CSRF/session cookie 配置由宿主的既有身份服务负责，本模块不发行 cookie。
+宿主 `publicError` 仅把已识别共享服务错误映射到固定 HTTP 分类：
+`unauthenticated`→401、`forbidden`→403、`not_found`→404、
+`invalid_arguments`→`invalid_request`/400、`invalid_cursor`→400、
+`conflict`/`binding_revision_conflict`→`conflict`/409、`deadline_exceeded`→`timeout`/504，
+其余不可用/容量/隔离错误映射到 `unavailable`/503。分类器省略、抛错或返回未知值均只给固定503，
+不检查任意错误对象上的自报 code，不返回异常正文。输出 DTO 复用页面字段白名单校验，失败为502。
+浏览器把400视为需要重新取范围的冲突；404显示“资源不存在或无法查看”，不泄露存在性。
+
+桥只接受六项固定 GET；Host/URL 必须匹配实际端口，存在的 Origin 必须同源，跨站 Fetch Metadata 拒绝。
+无 CORS 放行；响应均 no-store、固定 CSP、nosniff，静态文件只来自宿主提供的固定内存白名单，
+不提供源码映射或请求指定的文件路径。URL最多32 KiB、48个/16 KiB请求头、单次输出512 KiB、
+每页200项、最多16个未结束任务；全局准入桶允许32次突发、每秒补8次，未登录请求同样计费，耗尽返回429/Retry-After；读取5秒超时。断开、停止及超时立即终止等待并传播 AbortSignal，
+迟到响应/拒绝不能写回；不理会取消的实际任务结束前仍占额度。
+浏览器使用 same-origin credentials、禁止重定向及缓存，流式限制正文后才解析 JSON，
+不将后端正文错误或身份参数传给页面。
+
+当前接口测试使用显式合成 service/会话；生产宿主仍须装配真实共享 service 与受信会话适配器。
+Store 服务未提供的 transport/native 观测继续显示 unverified，不从持久 online 生成心跳或 epoch。
 
 ## 范围与服务边界
 
@@ -83,6 +115,7 @@ UI 可只读查看已配置 bindings；实例新建/替换与受信配置变更�
 | GET /admin/v1/devices/{machine_id} | 设备身份、连接/认证/配对状态、最近心跳、脱敏失败原因、revision 和观测时间；无 result 内容或 credential |
 | GET /admin/v1/devices/{machine_id}/providers | 分页返回授权内的已配置 runtime provider 状态、binding_revision 与观测来源；默认50/最大200，不返回 binary/root/endpoint 路径或秘密，不创建 binding/scope |
 | GET /admin/v1/devices/{machine_id}/providers/{provider_id} | 返回该 binding 的 kind/config_ref 安全引用、启停/可达、契约摘要/保证与未核实原因；未知/不明来源禁用，不能从 name 默认替代 |
+| GET /admin/v1/devices/{machine_id}/permissions | `permissions_get` 的精确设备范围；可选 `provider_id` 指定同一设备的 provider。返回当前受信管理 principal 的权限提示和截止时间，GET 不创建 scope，不接受 caller/session 参数 |
 | GET /admin/v1/operations/{request_id} | 同一管理 principal/原 history_epoch 下的操作回执、结果确认程度和审计关联；过期/缺失历史明确报错，不能按“没有记录”自动新建。恢复的回执注明备份时点，不能当当前送达证明 |
 | POST /admin/v1/confirmations | 提交固定 action、目标、操作摘要与预期 revision/epoch；创建待真人确认记录。页面展示摘要并由同一管理员交互确认；后端确认步骤不能由普通 MCP/Connector 身份调用 |
 | POST /admin/v1/confirmations/{id}/confirm | 当前管理员会话 + CSRF，确认先前摘要；返回一次性 confirmation_id/截止时间，不执行设备动作；重复确认不延长期限 |

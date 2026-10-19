@@ -40,6 +40,17 @@ assert.throws(
 )
 const webui = await import('../../dist/src/webui/index.js')
 assert.equal(typeof webui.mountWebUi, 'function')
+assert.equal(typeof webui.createManagementHttpRead, 'function')
+const admin = await import('../../dist/src/admin/index.js')
+assert.equal(typeof admin.startManagementReadListener, 'function')
+assert.throws(
+  /** 产物没有默认身份，缺少可信会话适配器时不能开端口。 */
+  () => admin.startManagementReadListener({ service: { /** 未配置认证时此服务不应被调用。 */ execute() {} }, port: 0 }),
+  /management_authentication_required/u
+)
+const managementAssets = admin.loadManagementAssets(new URL('../../dist/webui/', import.meta.url).pathname)
+assert(managementAssets.has('/rovloom-mark-orange.png'))
+assert(!managementAssets.has('/browser.js.map'))
 assert.deepEqual(webui.parseRoute('#machine=a%2Fb'), { machineId: 'a/b', cursor: null, providerCursor: null })
 await assert.rejects(webui.unavailableRead(), { problem: 'unavailable' })
 const browserEntry = readFileSync(new URL('../../dist/webui/browser.js', import.meta.url), 'utf8')

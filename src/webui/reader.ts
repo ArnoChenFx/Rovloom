@@ -1,6 +1,13 @@
 /** 管理页面的有界只读快照生命周期；不建立管理员身份，也不执行管理变更。 */
 
-export type ReadProblem = 'unauthenticated' | 'forbidden' | 'conflict' | 'unavailable' | 'invalid_response' | 'timeout'
+export type ReadProblem =
+  | 'unauthenticated'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'unavailable'
+  | 'invalid_response'
+  | 'timeout'
 
 /** 只携带可公开的失败分类，禁止把后端原始错误或响应正文显示给页面。 */
 export class ReadError extends Error {
@@ -219,7 +226,7 @@ export function createSnapshotReader<T>(
           if (problem === 'conflict') {
             snapshot = null
           }
-          if (problem === 'unauthenticated' || problem === 'forbidden') {
+          if (problem === 'unauthenticated' || problem === 'forbidden' || problem === 'not_found') {
             snapshot = null
             stopped = true
             clearPoll()

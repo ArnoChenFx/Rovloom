@@ -13,7 +13,7 @@
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
 | 设备通道 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector | 原生 adapter 与 CLI 联合接线、生产宿主 |
-| 产品服务 | 双角色 CLI、MCP stdio、实际 Store/Router 查询及清理、本机 caller 文件绑定、transport 宿主工厂、受信 Luvus catalog、共享管理 DTO 与六项管理只读服务、WebUI 展示/快照生命周期模块 | 管理 HTTP/认证宿主、管理 history/回执/actor 事务端口、原子准入、唯一持久 claim、生产身份/custody/读取及五方法族验收和部署发行 |
+| 产品服务 | 双角色 CLI、MCP stdio、实际 Store/Router 查询及清理、本机 caller 文件绑定、transport 宿主工厂、受信 Luvus catalog、共享管理 DTO 与六项管理只读服务、WebUI 展示/快照生命周期模块 | 生产管理认证宿主、管理 history/回执/actor 事务端口、原子准入的服务装配、唯一持久 claim、生产身份/custody/读取及五方法族验收和部署发行 |
 | Herdr | 固定官方 binary/schema 来源、完整根回放、专用边界/并发验证器、只读原生编解码与共享 attempt 接缝 | P0-H 副作用覆盖与独立评审、精确生产 allowlist、硬预算 schema 编译、可信原生 backend、共享门禁与实际网关接线；写入/终端另行设计 |
 
 

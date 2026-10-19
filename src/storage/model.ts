@@ -43,6 +43,10 @@ export type CallOptions = {
   timeoutMs?: number
   history?: HistoryReference
 }
+// 绝对截止时间与相对 timeout 互斥；调用方重送必须保持首次意图的精确 deadline。
+export type CallAdmissionOptions = Omit<CallOptions, 'timeoutMs'> & { deadline: number; timeoutMs?: never }
+// created 仅表示本事务首次登记成功，不代表已派发或取得原生执行许可；重复意图不得再次发送。
+export type CallAdmission = { call: Call; created: boolean }
 export type Call = {
   call_id: string
   principal: string

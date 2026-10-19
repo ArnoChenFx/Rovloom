@@ -97,7 +97,8 @@ runtime_call/call_cancel/result_read 尚未完成服务装配，返回 backend_u
 实际 LuvusRpcAdapter.dispatch，不能用原生 JSON execute 代替或重新注入 auth。唯一持久 claim、
 事务准入及当前内容读取模块仍须独立组合，不能以 hook 已存在宣称公共调用成功。
 调用准入须在同一 Store 事务使用绝对 deadline，并区分新登记与原 history/key 命中；
-公共 createCall 目前只接收相对 timeoutMs、返回 Call，服务不能猜测是否首次登记或刷新期限。
+现有 Router.admit 已提供同步 CallAdmission（call/created）与绝对 deadline 端口，MCP runtime 尚未装配；
+不能从旧 createCall 的相对 timeout 或既有 state 猜测首次登记，created=false 即使仍为 created 也不得派发。
 读取须通过原 Wire adapter 的 checkResult，绑定当前 reader、完整 attempt、原 permit 和普通交付通道；
 只用当前分类、原请求重校验或 responseAnchor 不能恢复原派发时的秘密/保留授权。
 transport 默认在提交后释放执行上下文；显式 retainOriginalRead 的有界保留仍须通过原 resolver，
