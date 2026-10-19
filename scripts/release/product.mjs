@@ -2,5 +2,7 @@
 export const product = {
   entrypoint: 'src/cli/main.ts',
   workers: ['src/native-contract/compiler-worker.ts'],
-  assets: []
+  assets: [],
+  // 真实 HTTP 产品须提供隔离二进制验收脚本；未接线的预览入口不能进入 tag 发行。
+  releaseSmoke: null
 }
