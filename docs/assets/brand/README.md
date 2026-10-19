@@ -9,6 +9,14 @@ followed by dark ink-blue **ovloom**. Read the whole word as **Rovloom**.
 | --- | --- |
 | [rovloom-logo.png](rovloom-logo.png) | Original transparent PNG / 原始透明 PNG |
 | [rovloom-logo-panel.svg](rovloom-logo-panel.svg) | README display panel with a fixed white background for light and dark themes / README 浅色底板展示包装，兼顾深浅主题 |
+| [rovloom-mark-black.png](rovloom-mark-black.png) | 192 × 192 PNG; black R for light surfaces / 黑色 R，适合浅色界面 |
+| [rovloom-mark-navy.png](rovloom-mark-navy.png) | 192 × 192 PNG; navy tile with white R for app icons and compact branding / 深蓝底白色 R，用于应用图标和紧凑品牌展示 |
+| [rovloom-mark-orange.png](rovloom-mark-orange.png) | 192 × 192 PNG; orange R for brand accents on light surfaces / 橙色 R，用于浅色界面的品牌强调 |
+
+The three square marks retain their original backgrounds. They are opaque RGB
+PNGs, not transparent versions.
+
+三款方形图标均保留原图背景，为不透明 RGB PNG，不是透明版本。
 
 Original PNG: **2172 × 724**, **428,629 bytes**.
 SHA256: `e0940cf61b4feee2c6db2226a8fe6c998f057427819f04e40a0902b3639d7dbe`.
