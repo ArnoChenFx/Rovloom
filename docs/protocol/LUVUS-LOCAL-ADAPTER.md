@@ -5,7 +5,8 @@
 [Native contract](NATIVE-CONTRACT.md) 和 Wire v2。
 它不提供 Gateway listener、Connector 认证通道、生产身份验证器或默认许可。
 
-`src/connector/luvus/index.ts` 导出 `LuvusRpcAdapter`、`createLuvusCatalog` 及所需宿主类型。
+`src/connector/luvus/index.ts` 导出 `LuvusRpcAdapter`、`createLuvusCatalog`、
+`createLuvusResultAccess` 及所需宿主类型。
 构造参数只能来自受保护本机配置，不能由 MCP 参数、设备广告或 Wire 消息构造。
 一个 adapter 固定一个完整 session Target、provider revision 和 opaque config_ref。
 Host、流、access/machines 和 Herdr 不在本目录范围内。
@@ -128,11 +129,62 @@ binary/schema、provider、epoch、策略或分类 revision 变化均失效。�
 `task.next` 虽列为 read，却可认领或在 `start: true` 时启动任务。宿主必须审核
 具体 method 与参数，不得从 token scope 或 read 标签自动生成无副作用白名单。
 
+## 持久结果访问
+
+`createLuvusResultAccess` 复用现有 Store 和 Router，提供 `open(callId)`、
+`read(resultId, cursor, maxBytes)` 和 `discard(callId)`。它不拥有 Store/Wire 的
+生命周期，不缓存正文、许可或截止时间，不提供 MCP 工具或服务入口。
+
+结果访问要求受保护宿主遵守原 Wire 的可信接口契约。`localPolicies` 可以返回
+独立策略快照，不要求返回活对象；旧对象引用或摘要都不作为当前授权版本的证明。
+宿主不得替换原 Wire 的安全方法，再将包装对象冒充登记原请求的真实上下文。
+
+受保护宿主必须提供当前 `principal()`、`localPolicies(target)` 和
+`resolveOriginalRead(callId)`。
+全部接口同步完成；Promise 被拒绝，晚到拒绝被消费。`resolveOriginalRead`
+只能返回登记原请求持有的完整 `binding` 和真实原 Wire 实例；上下文缺失、
+关闭或仅响应态均拒绝内容读取，不能从 Store、JSON 或相同摘要重建派发许可。
+open 还必须调用原 Wire 的 `checkResultRetention(binding, nativeFrame)`，独立
+检查原派发分类和当前分类均允许保留。现行 Wire 已提供该真实能力；旧宿主若缺少
+该能力，open 在 `saveResult` 前以 `result_retention_context_unavailable` 拒绝。不能以
+`checkResult` 成功或分类 JSON 代替原 permit 保留门禁，不能填入固定成功回调。
+基础 read/discard 测试仍使用依法保留阶段在 Store 预置的句柄；通道组合测试则由
+真实 `executeWire`、对象重组及证据提交取得响应，再通过原 Wire 保留门禁 open。
+组合使用自建 IPC 和合成身份，不代表真实 Luvus 会话或授权一致性验收。
+分页直接使用现有 `Store.readResult` 的 `ResultPage`，其中 `expires` 是实际
+results 记录的绝对毫秒截止时间，以 `now < expires` 为有效条件。没有独立元数据
+注入或期限缓存；读取不调用 `saveResult`、不创建句柄或刷新期限。
+
+open/read 使用完整 binding 核对 Store 的原响应锚点，对保存的完整原生响应运行
+原 Wire `checkResult`，并重新检查身份和双方 ACL。策略回调返回后重新读取调用
+状态，最终授权后重新查询实际句柄及结果页，避免交付回调前准备的 Store 副本。
+最后一次策略回调后还须重新解析同一原 Wire 并执行原生门禁，防止回调关闭或释放
+上下文、撤销来源或原生读取权限；门禁返回后同步复核主体及实际正文。读取使用
+最终真实门禁的成功作为原生读取授权判断点，与读取重叠的后续撤权约束后续操作。
+实现中的策略对象摘要比较只是附加防御，不能替代 Router 或原 Wire 授权，也不能
+证明背后的当前策略版本。对真实门禁成功后主动注入副作用的替代方法，不承诺其
+满足原 Wire 契约；不据此要求其它模块新增全局一致性框架。
+
+保留门禁通过后，open 仅调用现有 `saveResult` 创建或复用句柄；
+重复 open 不刷新有效句柄，read 从不重开已到期句柄或重发原生请求。
+
+read 返回既有 base64 字节页、下一游标、eof、完整原生响应的字节数和 SHA-256，
+另返回实际句柄 `expires`。每页最多 65,536 字节，游标是 UTF-8 字节偏移，单页
+可能拆开多字节字符；应先拼接解码后的所有字节，再校验完整 hash 和解析 JSON。
+保留原生 id/result/error/error.data 的解析字段和值；摘要针对 Store 保存的完整
+原生 JSON，不承诺原始传输空白、键序或 Wire 外层对象的 hash 相同。
+显式 discard 独立要求当前调用归属、双方读取 ACL 和 `discard_response` 权限，
+通过 Store 删除正文和句柄；原读取上下文已回收也不妨碍获得专门授权的清理。
+
 ## 接入限制
 
 生产 peer/CLI 证明、delegated auth custody、认证通道及 durable 派发账本必须由
 宿主独立提供。本目录不能凭合成回调作为公开接入入口。大于配置上限的结果
-直接失败；尚未连接受限结果对象、分页/TTL/清理与大结果完整重组，不能将有界普通 RPC 模块视为完整结果交付实现。默认 build 入口尚未包含本目录，发行接线需要单独纳入。
+直接失败。结果访问层直接复用 Store 的实际句柄期限，策略回调后重新读取真实
+调用与结果页；Store 正文丢弃或句柄删除后不能交付旧副本。原 Wire 保留门禁、
+对象编码/接收提交及原上下文查询已在受控测试中组合，真实原生会话、生产身份
+及公开入口仍需独立验收，不能据此宣称大结果生产交付完成。
+默认 build 入口尚未包含本目录，发行接线需要单独纳入。
 
 `test/connector/luvus` 只使用仓库 P0 字节、自建私有 socket 和固定 Bun 测试子进程。
 synthetic peer/CLI 回调仅用于测试，不能代表生产身份实现；这些测试不证明真实
