@@ -6,7 +6,7 @@ import { createLuvusWireAdapter } from '../integration/luvus-wire.js'
 import type { NativeWireBackend } from '../integration/luvus-wire.js'
 import type { TrustedNativeContext } from '../native-contract/index.js'
 import { createConnector } from '../transport/index.js'
-import type { Connection, ConnectorWireSession } from '../transport/index.js'
+import type { Adapter, Connection, ConnectorWireSession } from '../transport/index.js'
 import { assertBinding, boundedJson, fail } from '../wire/index.js'
 import type { AttemptBinding } from '../wire/types.js'
 import { connectorAdmissionAdapter } from './connector-attempts.js'
@@ -57,7 +57,7 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
       fail('runtime_closed')
     }
     const resource = options.session(structuredClone(connection))
-    let wire: ReturnType<typeof createLuvusWireAdapter> | undefined
+    let wire: Adapter | undefined
     let rpc: LuvusRpcAdapter | undefined
     let ended = false
     const pending = new Map<string, Pending>()

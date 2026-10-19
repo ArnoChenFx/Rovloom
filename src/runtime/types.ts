@@ -23,7 +23,7 @@ import type {
   LuvusRpcHost,
   LuvusNativeAuth
 } from '../connector/luvus/index.js'
-import type { AttemptBinding, ProviderBinding, V2Target } from '../wire/types.js'
+import type { AttemptBinding, JsonObject, ProviderBinding, V2Target } from '../wire/types.js'
 
 export type RuntimeProviderBinding = Readonly<{
   binding: ProviderBinding
@@ -34,6 +34,8 @@ export type RuntimeProviderBinding = Readonly<{
   ready(): boolean
   // 旧 Luvus 入口固定为 1MiB；中性入口必须显式提供此预算。
   max_response_bytes?: number
+  // 可选原生完整根预检只验证登记候选，不创建 permit；接收 Store 本次真实 native request ID。
+  preflightRequest?(request: JsonObject): void
 }>
 export type RuntimeProvider = RuntimeProviderBinding &
   Readonly<{

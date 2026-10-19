@@ -126,6 +126,28 @@ Gateway Store，也不保存请求正文或制造执行许可。缺回执、冲�
 启动失败的 `ConnectorHostStartupError.shutdown`保留同一关闭与所有者观察入口，调用者须
 保留它直到实际释放确认；`owner_held`仅表示本宿主保留引用，不证明内核退出状态。
 
+### Herdr 资源工厂
+
+`createHerdrGatewayResources`提供中性 Gateway 所需的 `providers/session/catalog/describe/release`。
+其 session 消费现有已认证 `connection/channel`及 `GatewayProviderServices`，以
+`persistentHerdrBackend(services.store, ...)`复用唯一 Store 的原 caller、完整 Target、契约、
+响应/内容锚点和固定期限。Gateway 来源仅代表已认证 Connector 通道，不冒充本机 Herdr 安装。
+
+`createHerdrConnectorResources`要求宿主交付真实 `HerdrInstallation`、时钟、当前 policies 与
+`releaseOwner`，返回给 `createProviderConnectorRuntime`的 session。双端须实际协商
+`rpc/admission_receipt/admission_context`，普通 receipt 或 JSON 自报不能补齐完整准入上下文。
+Connector 使用独立 receipts、内存 attempt book 和原持久 claims，不打开 Gateway writer。
+正常重启以 `open`重开同一账本；`create`仅用于显式首次初始化。
+
+单个 session 关闭只撤销其 adapter/ledger/桥接等待；长期 receipts/claims 与 child 归资源 owner。
+资源 release 先关闭全部 epoch，再关闭 writers 和 installation，最后只调用一次 `releaseOwner`。
+安装关闭不证明 child 已退出，原 owner 须停止并等待自己持有的进程；Gateway release 不关闭外部 Store。
+所有 provider 仍共享 Store 的正文与句柄总预算。Herdr 当前单条原生 JSON LF 上限 65536 字节，
+不使用对象/流分片；超限、schema 错误和未知结果不能变成成功或自动重放。目录逐方法公开 request/response 的完整 UTF-8 JSON 加 LF 帧预算、无响应分页和无对象传输。固定官方 schema 的 snapshot/list 没有分页参数；`pane.read/agent.read`的 `lines`只取末尾行、最多 1000 行，不能限制字节，也没有 continuation cursor。不能把 Store 对已收到结果的分页当作原生响应分页。
+
+唯一 CLI/HTTP MCP 装配须增加 provider 工厂与目录分支，保留当前 Luvus 接口和管理宿主。
+原生副作用和 Agent 状态保持原义，桥接取消不等于 native cancel，同会话多轮回答另行验收。
+
 ### 生产来源边界
 
 当前提供受控 Linux Luvus child 来源、显式有限 custody 与认证原截止交付；外部 supervisor

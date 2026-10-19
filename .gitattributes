@@ -1,0 +1,2 @@
+# 官方安装 schema 按原始字节核对摘要，检出时禁止换行转换。
+test/fixtures/herdr/0.9.5/schema.json -text

@@ -6,7 +6,7 @@ import type { Socket } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compileBundle } from '../../../src/native-contract/index.js'
-import type { NativeBinding, SafetyClassification } from '../../../src/native-contract/index.js'
+import type { CompiledContract, NativeBinding, SafetyClassification } from '../../../src/native-contract/index.js'
 import type { NativeWireBackend, TrustedAttempt } from '../../../src/integration/luvus-wire.js'
 import { contractRef } from '../../../src/wire/index.js'
 import type {
@@ -30,6 +30,25 @@ import {
   view
 } from '../../native-contract/helpers.js'
 
+// 每个 fixture 都写入相同受控脚本；编译只与这些固定字节及其来源身份有关，不含临时路径或用例状态。
+const script =
+  '#!' +
+  process.execPath +
+  ' --no-env-file\nawait import(' +
+  JSON.stringify(new URL('./child-fixture.ts', import.meta.url).href) +
+  ')\n'
+const binarySha = createHash('sha256').update(script).digest('hex')
+const fixedIdentity = Object.freeze({ ...identity, binary_sha256: binarySha })
+let compilation: Promise<CompiledContract> | undefined
+
+/** 同一测试模块只编译一次真实完整根，保留原 Worker 品牌；失败不重试，许可和 adapter 仍逐 fixture 创建。 */
+function compiledFixture(): Promise<CompiledContract> {
+  compilation ??= compileBundle(bytes, { identity: fixedIdentity }).then(
+    /** 只缓存真实工厂已接纳的不可变编译句柄，不复制或重建来源品牌。 */ (result) => unwrap(result)
+  )
+  return compilation
+}
+
 /** 建立仅使用仓库证据、合成许可和受控 Bun 子进程的私有 fixture，并返回显式清理入口。 */
 export async function fixture(transport: 'ipc' | 'cli' = 'ipc', method = 'task.add') {
   const root = mkdtempSync(
@@ -49,16 +68,9 @@ export async function fixture(transport: 'ipc' | 'cli' = 'ipc', method = 'task.a
     mkdirSync(path, { mode: 0o700 })
   }
   const binary = join(root, 'test-luvus')
-  const script =
-    '#!' +
-    process.execPath +
-    ' --no-env-file\nawait import(' +
-    JSON.stringify(new URL('./child-fixture.ts', import.meta.url).href) +
-    ')\n'
   writeFileSync(binary, script, { mode: 0o700 })
-  const binarySha = createHash('sha256').update(script).digest('hex')
-  const installedIdentity = { ...identity, binary_sha256: binarySha }
-  const compiled = unwrap(await compileBundle(bytes, { identity: installedIdentity }))
+  const installedIdentity = { ...fixedIdentity }
+  const compiled = await compiledFixture()
   const params =
     method === 'task.add'
       ? { title: 'synthetic' }

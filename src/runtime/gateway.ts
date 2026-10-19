@@ -450,7 +450,14 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
         if (!localProvider(input.target)) {
           fail('provider_binding_mismatch')
         }
-        const admitted = router.admit(principal(), input.target, input.native_request, input.options)
+        const configured = providers.get(key(input.target))!
+        const admitted = router.admit(
+          principal(),
+          input.target,
+          input.native_request,
+          input.options,
+          configured.preflightRequest?.bind(configured)
+        )
         if (admitted.created) {
           try {
             active.dispatch(admitted.call.call_id)
