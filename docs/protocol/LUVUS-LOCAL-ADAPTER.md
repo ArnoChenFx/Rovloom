@@ -71,10 +71,14 @@ Wire request 或账本 rpc 标记判断；即使 backend 同时支持持久流�
 响应提交须通过持有原请求 Wire 状态的 `commitLuvusResponse`，事务成功后才能
 发布 durable responded；本模块的 `RpcResult` 不代替该提交。
 
-现行认证 Connector 通道的 `nativeInput`/`execute` 接口处理已经注入 id/auth 的
-原生 JSON，本模块的 `dispatch` 则接收完整 Wire request 并持有自己的校验状态。
-两者尚未接线，不能直接把 `dispatch` 当作 `execute`，也不能剥掉认证或重新包装
-原生请求来绕过许可。生产接入仍需宿主设计共享原请求状态和唯一派发登记的桥接。
+认证 Connector 可通过逐会话 `ConnectorWireSession.executeWire(raw, signal)` 直接将
+收到的原始已验证 Wire request 交给本模块 `dispatch`。该 hook 与 `nativeInput`/`execute`
+互斥，不能剥掉字段后重包装原生请求，失败也不回退到另一执行路径。每个新 epoch 新建
+本模块及 transport 的独立 Wire adapter，并由会话 close 关闭本模块。
+接缝及响应对象/活读取 port 见 [transport 接线](../TRANSPORT.md#原始-wire-执行接缝)。
+`RpcResult.binding` 必须匹配 transport 的原 attempt；原生 auth 只在本模块注入，
+唯一 durable claim 仍由可信宿主实现。两端分别保留原请求状态，Gateway 通过原 adapter
+调用 `commitLuvusResponse`，不能让本模块的完成返回代替 durable responded。
 
 auth 仅在通过 Wire 校验后注入；原生 ID 来自登记 attempt。加入 id/auth 并加上 LF
 之后才计算本地与在线 general/terminal 上限交集，并复用原生 validator 校验完整请求；

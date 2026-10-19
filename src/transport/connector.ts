@@ -1,6 +1,14 @@
 // 实现主动出站的 Connector 通道，隔离连接 epoch、原生执行与退避重连，禁止自动重放。
 import { randomUUID } from 'node:crypto'
-import { boundedJson, decodeWireFrame, encodeWireFrame, fail, LIMITS, validateOffer } from '../wire/index.js'
+import {
+  assertBinding,
+  boundedJson,
+  decodeWireFrame,
+  encodeWireFrame,
+  fail,
+  LIMITS,
+  validateOffer
+} from '../wire/index.js'
 import type { AttemptBinding, AuthenticatedEnvelope, JsonObject, VersionOffer } from '../wire/types.js'
 import type { DeviceCredential } from './identity.js'
 import {
@@ -17,18 +25,17 @@ import {
 } from './common.js'
 import type { Connection, Session, Socket } from './common.js'
 
-export type ConnectorOptions = {
+export type WireExecutionResult = Readonly<{ binding: AttemptBinding; native_response: JsonObject }>
+export type ConnectorWireSession = Session & {
+  /** 将收到的原始已验证 Wire request 交给本会话原生 adapter；不得剥字段重包装或再次注入 auth。 */
+  executeWire(wireRequest: string, signal: AbortSignal): Promise<WireExecutionResult>
+}
+type ConnectorBaseOptions = {
   url: string
   developmentLoopback?: boolean
   ca?: string
   /** 从受保护启动输入取得稳定设备凭据，不能按自报 hostname 创建身份。 */
   credential(): DeviceCredential
-  /** 为当前认证连接创建独立 adapter、可信 readiness 和资源清理接口。 */
-  session(connection: Connection): Session
-  /** 只向已校验请求注入受信原生 auth；调用方随后检查完整 JSON 帧预算。 */
-  nativeInput(request: JsonObject, binding: AttemptBinding): JsonObject
-  /** 按账本固定 binding 选择受信本机 adapter，接收观察中止并返回原生响应。 */
-  execute(raw: string, signal: AbortSignal, binding: AttemptBinding): Promise<JsonObject>
   offer?: VersionOffer
   /** 提供有界退避的随机采样，不影响请求授权或派发去重。 */
   random?: () => number
@@ -42,10 +49,25 @@ export type ConnectorOptions = {
     reconnect_max_ms: number
     inflight: number
     frame_bytes: number
-    native_bytes: number
     messages_per_second: number
   }>
 }
+export type NativeConnectorOptions = ConnectorBaseOptions & {
+  limits?: ConnectorBaseOptions['limits'] & { native_bytes?: number }
+  /** 为当前认证连接创建独立 Wire adapter、可信 readiness 和资源清理接口。 */
+  session(connection: Connection): Session & { executeWire?: never }
+  /** 只向已校验请求注入受信原生 auth；调用方随后检查完整 JSON 帧预算。 */
+  nativeInput(request: JsonObject, binding: AttemptBinding): JsonObject
+  /** 按账本固定 binding 选择受信本机 adapter，接收观察中止并返回原生响应。 */
+  execute(raw: string, signal: AbortSignal, binding: AttemptBinding): Promise<JsonObject>
+}
+export type WireConnectorOptions = ConnectorBaseOptions & {
+  /** 为每个新 epoch 创建专用执行 hook；close 必须同时关闭该原生 adapter，不能复用旧会话状态。 */
+  session(connection: Connection): ConnectorWireSession
+  nativeInput?: never
+  execute?: never
+}
+export type ConnectorOptions = NativeConnectorOptions | WireConnectorOptions
 /** 建立受信配置驱动的出站通道，管理握手、心跳、限额和退避；重连不迁入或重放原请求。 */
 export function createConnector(options: ConnectorOptions) {
   const url = endpoint(options.url, options.developmentLoopback).href
@@ -72,7 +94,7 @@ export function createConnector(options: ConnectorOptions) {
   const instance = randomUUID()
   let ws: Socket | undefined
   let connection: Connection | undefined
-  let session: Session | undefined
+  let session: Session | ConnectorWireSession | undefined
   let stopped = false
   let phase = 'disconnected'
   let next = 0
@@ -138,13 +160,62 @@ export function createConnector(options: ConnectorOptions) {
       fail('transport_backpressure')
     }
   }
+  /** 在原 Wire 上下文内发送单帧或已协商的响应对象，逐片复核读取和会话并有界等待背压。 */
+  async function sendResponse(
+    binding: AttemptBinding,
+    response: JsonObject,
+    active: Connection,
+    current: Session,
+    signal: AbortSignal
+  ): Promise<void> {
+    const { machine_id: _machine, recovery_generation: _generation, connection_epoch: _epoch, ...attempt } = binding
+    const frame = envelope(active, 'response', { attempt, native_response: response })
+    const bytes = Buffer.byteLength(boundedJson(frame, LIMITS.object_bytes))
+    if (bytes <= limits.frame_bytes) {
+      write(frame)
+      return
+    }
+    const chunks = current.adapter.encodeResponseObject(frame, randomUUID())
+    for (const raw of chunks) {
+      budget(raw, limits.frame_bytes)
+    }
+    const expires = performance.now() + LIMITS.transfer_timeout_ms
+    for (const raw of chunks) {
+      const size = Buffer.byteLength(raw)
+      while (true) {
+        if (signal.aborted || stopped || connection !== active || session !== current || !ws || ws.readyState !== 1) {
+          fail('connection_unavailable')
+        }
+        current.adapter.checkResult(binding)
+        if (performance.now() >= expires) {
+          fail('transport_backpressure')
+        }
+        if (ws.bufferedAmount + size <= limits.frame_bytes) {
+          break
+        }
+        await new Promise<void>(
+          /** 只为当前有界在途响应等待 socket 腾出空间，关闭后不把分片移交给新 epoch。 */
+          (resolve) => setTimeout(resolve, 5)
+        )
+      }
+      if (ws!.send(raw) <= 0) {
+        fail('transport_backpressure')
+      }
+    }
+  }
   /** 消费单次 attempt，复验 ready/deadline 并在 auth 注入后检查完整预算；旧会话响应不再交付。 */
   async function request(
     frame: Extract<AuthenticatedEnvelope, { type: 'request' }>,
+    wireRequest: string,
     active: Connection,
-    current: Session
+    current: Session | ConnectorWireSession
   ): Promise<void> {
-    const binding: AttemptBinding = { ...active, ...frame.payload.attempt }
+    const binding: AttemptBinding = {
+      machine_id: active.machine_id,
+      recovery_generation: active.recovery_generation,
+      connection_epoch: active.connection_epoch,
+      ...frame.payload.attempt
+    }
     const name = binding.call_id + ':' + binding.attempt_id
     if (seen.has(name)) {
       fail('attempt_replay_rejected')
@@ -162,13 +233,20 @@ export function createConnector(options: ConnectorOptions) {
     const controller = new AbortController()
     running.set(name, { controller, binding })
     try {
-      const original = { ...frame.payload.native_request, id: binding.native_request_id }
-      const injected = options.nativeInput(structuredClone(original), structuredClone(binding))
-      const { auth: _auth, ...withoutAuth } = injected
-      if (boundedJson(withoutAuth) !== boundedJson(original)) {
-        fail('native_input_mismatch')
+      const executeWire = 'executeWire' in current ? current.executeWire : undefined
+      let nativeRequest: string | undefined
+      if (!executeWire) {
+        if (!options.nativeInput || !options.execute) {
+          fail('connector_execution_required')
+        }
+        const original = { ...frame.payload.native_request, id: binding.native_request_id }
+        const injected = options.nativeInput(structuredClone(original), structuredClone(binding))
+        const { auth: _auth, ...withoutAuth } = injected
+        if (boundedJson(withoutAuth) !== boundedJson(original)) {
+          fail('native_input_mismatch')
+        }
+        nativeRequest = budget(boundedJson(injected, limits.native_bytes), limits.native_bytes)
       }
-      const raw = budget(boundedJson(injected, limits.native_bytes), limits.native_bytes)
       if (trustedTime() >= binding.registration.deadline) {
         fail('deadline_exceeded')
       }
@@ -187,11 +265,25 @@ export function createConnector(options: ConnectorOptions) {
       if (trustedTime() >= binding.registration.deadline) {
         fail('deadline_exceeded')
       }
-      const response = await options.execute(raw, controller.signal, execution)
+      // Wire hook 保留原帧、原 message_id 和无 id/auth 的 native_request，由原生 adapter 唯一注入。
+      let result: WireExecutionResult | undefined
+      let response: JsonObject
+      if (executeWire) {
+        result = await executeWire.call(current, wireRequest, controller.signal)
+        if (!result) {
+          fail('wire_execution_result_required')
+        }
+        response = result.native_response
+      } else {
+        response = await options.execute!(nativeRequest!, controller.signal, execution)
+      }
       if (controller.signal.aborted || connection !== active || session !== current || stopped) {
         return
       }
-      write(envelope(active, 'response', { attempt: frame.payload.attempt, native_response: response }))
+      if (result) {
+        assertBinding(result.binding, binding)
+      }
+      await sendResponse(binding, response, active, current, controller.signal)
     } finally {
       running.delete(name)
       current.adapter.release(binding)
@@ -283,6 +375,20 @@ export function createConnector(options: ConnectorOptions) {
             const { in_reply_to: _reply, selected, ...identity } = frame.payload
             connection = { ...identity, authenticated: true, active: true, negotiated: selected }
             session = options.session(structuredClone(connection))
+            if ('executeWire' in session) {
+              if (
+                typeof session.executeWire !== 'function' ||
+                options.nativeInput !== undefined ||
+                options.execute !== undefined
+              ) {
+                fail('connector_execution_conflict')
+              }
+              if (options.limits && 'native_bytes' in options.limits) {
+                fail('wire_native_budget_owned_by_adapter')
+              }
+            } else if (typeof options.nativeInput !== 'function' || typeof options.execute !== 'function') {
+              fail('connector_execution_required')
+            }
             phase = 'authenticated'
             last = now
             return
@@ -306,7 +412,7 @@ export function createConnector(options: ConnectorOptions) {
             }
             last = now
           } else if (frame.type === 'request') {
-            void request(frame, connection, session).catch(
+            void request(frame, event.data, connection, session).catch(
               /** 仅关闭仍对应当前 socket 的失败执行，避免旧会话异常影响新连接。 */
               () => {
                 if (ws === current) {

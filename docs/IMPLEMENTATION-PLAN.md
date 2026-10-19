@@ -85,6 +85,10 @@ Store 身份桥完成隔离组合验证。生产管理员/配置来源、全局�
 
 ### 3.4 Luvus RPC、MCP 与多机可靠性
 
+认证通道已有原始 Wire RPC hook、受控响应对象发送/重组、活原请求读取及原 permit 保留检查 port，接口见
+[transport 接线](TRANSPORT.md#原始-wire-执行接缝)。隔离 IPC 组合不替代生产 peer/auth/唯一
+claim、公共发现/结果分页或真实 stdio/MCP 联合验收；各层继续保留自身原请求状态和提交归属。
+
 - 交付固定 binary/root、shell=false 的 RPC/Host adapter，以及目标平台的本地 endpoint/peer 验证；发现/缓存按完整来源隔离。
 - 实现 DESIGN 的通用机器/provider/runtime 工具面及 stdio facade，短 wait 与执行 deadline 分离，大结果有界分页，原生 result/error 深度保真。
 - 用真实 SDK 客户端验证工具发现、参数、结构化结果与错误；所选 MCP revision 不自动继承其它 revision 兼容性。

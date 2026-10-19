@@ -135,4 +135,16 @@ handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离�
 未完成对象尚不能可信关联到具体调用，adapter 保守释放该连接所有活动分片，保留有界 ID
 墓碑拒绝续传与短期重建；可能中止其它调用的在途分片，不据此自动重派原动作。
 
+`encodeResponseObject(responseFrame, objectId)` 只封装原 adapter 私有上下文中的响应编码，
+复用 `fragmentObject` 并返回只读的有界 Wire 文本分片；没有公开 context 或新的许可工厂。
+必须仍持有原请求状态、当前读取许可和协商的 objects，不能由 JSON、冷 adapter 或 binding
+重建。接收端复用 `acceptChunk`，只在完整内层响应验证后调用原 `commitLuvusResponse`。
+发送、背压与受保护的活读取解析见 [transport 接线](../TRANSPORT.md#响应对象与原始读取)。
+
+结果层创建句柄前使用原 adapter 的 `checkResultRetention(binding, nativeFrame): void`。
+它先核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发时及当前分类的保留许可；
+`retention:none` 即使可读也拒绝保存，当前放宽不能复活派发时禁存内容。无原上下文时拒绝，
+不从账本或响应 JSON 创建 permit；证据计划与该 port 共用这一检查。
+该保留 port 仅支持普通 RPC；流及控制 ack 报 `result_retention_rpc_only`，不借开流许可保留控制结果。
+
 宿主能力的交付范围与后续门禁见 [实施计划](../IMPLEMENTATION-PLAN.md)。
