@@ -10,12 +10,47 @@ export type ConnectorHostOptions = Readonly<{
   session(connection: Connection): ConnectorWireSession
   // 全部 epoch 停止后释放角色拥有的长期资源，不清除调用墓碑或宣称原生工作回滚。
   release(): Promise<void>
+  // 逻辑关闭默认最多等待 5000ms；只可用 1..5000 的正安全整数收紧，不改变原 release 的生命周期。
+  release_timeout_ms?: number
 }>
+
+export type ConnectorReleaseStatus = Readonly<{
+  state: 'not_started' | 'pending' | 'released' | 'failed'
+  // 仅表示仍保留所交付 owner/release 回调引用；pending/failed 都不确认物理资源已经释放。
+  owner_held: boolean
+}>
+export type ConnectorHostShutdown = Readonly<{
+  closed: Promise<void>
+  close(): Promise<void>
+  // 只报告原 release 回调的最终结算，不推断进程退出、不启动第二次释放，也不改判 closed。
+  releaseSettled: Promise<'released' | 'failed'>
+  releaseStatus(): ConnectorReleaseStatus
+}>
+
+export class ConnectorHostStartupError extends GatewayError {
+  /** 启动失败仍交付同一个关闭观察入口，长期 pending 或失败所有者不能随公开错误丢失。 */
+  constructor(readonly shutdown: ConnectorHostShutdown) {
+    super('connector_runtime_start_failed')
+  }
+}
+
+const DEFAULT_RELEASE_TIMEOUT_MS = 5000
 
 /** 只复用现有 Connector 通道；身份、原生来源及逐 provider 授权仍由已审会话负责。 */
 export async function createProviderConnectorRuntime(options: ConnectorHostOptions) {
   let stopping = false
   let cleanupFailed = false
+  let releaseTimeoutMs = DEFAULT_RELEASE_TIMEOUT_MS
+  let retainedOwner: ConnectorHostOptions | undefined = options
+  let releaseState: ConnectorReleaseStatus['state'] = 'not_started'
+  let closeSettled = false
+  let releaseTimer: ReturnType<typeof setTimeout> | undefined
+  let resolveRelease!: (state: 'released' | 'failed') => void
+  const releaseSettled = new Promise<'released' | 'failed'>(
+    /** 原所有者只结算一次；公开观察只返回安全状态，不传播底层异常。 */ (resolve) => {
+      resolveRelease = resolve
+    }
+  )
   let transport: ReturnType<typeof createConnector> | undefined
   let resolveClosed!: () => void
   let rejectClosed!: (error: unknown) => void
@@ -43,7 +78,31 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
     }
   }
 
-  /** 先同步停止传输及全部会话，再释放长期所有者；关闭只安排一次。 */
+  /** 只返回 owner 回调的观察状态；保留引用与内核中的资源状态是不同事实。 */
+  function releaseStatus(): ConnectorReleaseStatus {
+    return Object.freeze({ state: releaseState, owner_held: retainedOwner !== undefined })
+  }
+
+  /** 逻辑结果一旦超时或失败便不改判；晚到 release 只更新独立观察入口。 */
+  function settleClose(timedOut = false): void {
+    if (closeSettled) {
+      return
+    }
+    closeSettled = true
+    if (releaseTimer) {
+      clearTimeout(releaseTimer)
+      releaseTimer = undefined
+    }
+    if (timedOut) {
+      rejectClosed(new GatewayError('connector_runtime_close_timeout'))
+    } else if (cleanupFailed) {
+      rejectClosed(new GatewayError('connector_runtime_close_failed'))
+    } else {
+      resolveClosed()
+    }
+  }
+
+  /** 先同步停止传输及全部会话，再只调用一次长期释放；逻辑等待有界，未确认所有者仍被保留。 */
   function close(): Promise<void> {
     if (!stopping) {
       stopping = true
@@ -51,20 +110,30 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
       for (const active of sessions) {
         cleanup([/** 原 closeSession 顺序保证 adapter 与 provider 资源均被回收。 */ () => closeSession(active)])
       }
-      void Promise.resolve().then(
-        /** 延后释放，使同步 session 构建回调的关闭回滚先完成并计入同一个结果。 */ async () => {
-          try {
-            await options.release()
-          } catch {
-            cleanupFailed = true
-          }
-          if (cleanupFailed) {
-            rejectClosed(new GatewayError('connector_runtime_close_failed'))
-          } else {
-            resolveClosed()
-          }
-        }
+      releaseState = 'pending'
+      releaseTimer = setTimeout(
+        /** 到达逻辑预算仅拒绝关闭结果，不取消、重试或丢弃仍未结算的 release。 */ () => settleClose(true),
+        releaseTimeoutMs
       )
+      void Promise.resolve()
+        .then(
+          /** 延后调用使同步构建回滚先完成；保留同一个 owner，不能在超时后开启并行释放。 */ () =>
+            retainedOwner!.release()
+        )
+        .then(
+          /** 原回调晚成功只解除 owner 引用并通知独立观察者，原超时结果保持不变。 */ () => {
+            releaseState = 'released'
+            retainedOwner = undefined
+            resolveRelease('released')
+            settleClose()
+          },
+          /** 原回调晚拒绝也必须消费；失败保留所有者引用，不泄漏异常或自动重试。 */ () => {
+            releaseState = 'failed'
+            cleanupFailed = true
+            resolveRelease('failed')
+            settleClose()
+          }
+        )
     }
     return closed
   }
@@ -159,11 +228,20 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
     }
   }
 
+  const shutdown: ConnectorHostShutdown = Object.freeze({ closed, close, releaseSettled, releaseStatus })
   try {
+    // 配置错误也已经归属同一个 owner；使用默认保守预算清理，不能因先抛校验异常跳过释放。
+    const configured = options.release_timeout_ms
+    if (configured !== undefined) {
+      if (!Number.isSafeInteger(configured) || configured < 1 || configured > DEFAULT_RELEASE_TIMEOUT_MS) {
+        throw new GatewayError('connector_runtime_release_timeout_invalid')
+      }
+      releaseTimeoutMs = configured
+    }
     transport = createConnector({ ...options.transport, session })
   } catch {
-    await close().catch(/** 启动失败仍等待所有者清理，公开结果只保留稳定启动错误。 */ () => {})
-    throw new GatewayError('connector_runtime_start_failed')
+    await close().catch(/** 启动失败只等待有界逻辑结果，未确认物理释放继续由 shutdown 暴露。 */ () => {})
+    throw new ConnectorHostStartupError(shutdown)
   }
-  return Object.freeze({ transport, closed, close })
+  return Object.freeze({ transport, ...shutdown })
 }

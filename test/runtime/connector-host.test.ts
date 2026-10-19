@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { GatewayError } from '../../src/contracts.js'
-import { createProviderConnectorRuntime } from '../../src/runtime/connector-host.js'
+import { ConnectorHostStartupError, createProviderConnectorRuntime } from '../../src/runtime/connector-host.js'
 import type { ConnectorHostOptions } from '../../src/runtime/connector-host.js'
 import type { Connection, ConnectorWireSession } from '../../src/transport/index.js'
 import { decodeWireFrame, encodeWireFrame } from '../../src/wire/index.js'
@@ -61,6 +61,8 @@ test(
       await first
       assert.equal(runtime.close(), first)
       assert.equal(releases, 1)
+      assert.equal(await runtime.releaseSettled, 'released')
+      assert.deepEqual(runtime.releaseStatus(), { state: 'released', owner_held: false })
       assert.equal(runtime.transport.status().phase, 'stopped')
     } finally {
       await runtime.close()
@@ -88,6 +90,8 @@ test(
     assert.equal(runtime.close(), first)
     assert.equal(runtime.transport.status().phase, 'stopped')
     assert.equal(releases, 1)
+    assert.equal(await runtime.releaseSettled, 'failed')
+    assert.deepEqual(runtime.releaseStatus(), { state: 'failed', owner_held: true })
   }
 )
 
@@ -295,3 +299,237 @@ for (const cleanupFailure of ['adapter', 'resource', 'async_resource', 'release'
       welcome('session', cleanupFailure)
   )
 }
+
+/** 显式控制原 release 的唯一结算，不依靠额外释放或重试来结束回归。 */
+function releaseGate() {
+  let resolve!: () => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<void>(
+    /** 保存原回调的唯一结算入口，晚结果仍属于同一次所有者释放。 */ (accept, refuse) => {
+      resolve = accept
+      reject = refuse
+    }
+  )
+  return { promise, resolve, reject }
+}
+
+/** 为坏实现设置较宽测试等待上限；产品关闭预算仍由公开的 release_timeout_ms 决定。 */
+async function bounded<T>(promise: Promise<T>, milliseconds = 1000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>(
+        /** 缺产品逻辑上限时快速暴露回归，不让测试进程永久等待。 */ (_resolve, reject) => {
+          timer = setTimeout(
+            /** 只使用隔离错误，不能混入 owner 原异常。 */ () => reject(new Error('isolated_test_wait_exceeded')),
+            milliseconds
+          )
+        }
+      )
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+test(
+  'provider Connector permanent release has a bounded logical failure and retains its unsettled owner',
+  /** 永久 pending 不能卡死 close，也不能伪称释放完成、解除 owner 或启动第二次释放。 */ async () => {
+    const owner = releaseGate()
+    let releases = 0
+    const runtime = await createProviderConnectorRuntime({
+      ...options(
+        /** 这个唯一回调始终不结算，长期观察入口必须保持 pending。 */ () => {
+          releases++
+          return owner.promise
+        }
+      ),
+      release_timeout_ms: 20
+    })
+    assert.deepEqual(runtime.releaseStatus(), { state: 'not_started', owner_held: true })
+    const closing = runtime.close()
+    assert.equal(closing, runtime.closed)
+    await assert.rejects(bounded(closing), failure('connector_runtime_close_timeout'))
+    assert.equal(runtime.close(), closing)
+    assert.equal(releases, 1)
+    assert.deepEqual(runtime.releaseStatus(), { state: 'pending', owner_held: true })
+    assert.equal(runtime.transport.status().phase, 'stopped')
+    let observed = false
+    void runtime.releaseSettled.then(
+      /** 逻辑超时不结算独立的物理回调观察。 */ () => {
+        observed = true
+      }
+    )
+    await new Promise<void>(/** 留出事件循环证明长期观察尚未被伪结算。 */ (resolve) => setImmediate(resolve))
+    assert.equal(observed, false)
+  }
+)
+
+for (const later of ['released', 'failed'] as const) {
+  test(
+    'provider Connector keeps the timed-out close result after its original release later ' + later,
+    /** 晚成功或晚拒绝只更新原回调观察，close 同一 Promise 不改判且永远只释放一次。 */ async () => {
+      const owner = releaseGate()
+      let releases = 0
+      const runtime = await createProviderConnectorRuntime({
+        ...options(
+          /** 原回调重入也只能观察同一个有界关闭结果。 */ () => {
+            releases++
+            assert.equal(runtime.close(), runtime.closed)
+            return owner.promise
+          }
+        ),
+        release_timeout_ms: 20
+      })
+      const closing = runtime.close()
+      await assert.rejects(bounded(closing), failure('connector_runtime_close_timeout'))
+      const initial = await Promise.allSettled([closing, runtime.closed])
+      assert.deepEqual(runtime.releaseStatus(), { state: 'pending', owner_held: true })
+      if (later === 'released') {
+        owner.resolve()
+      } else {
+        owner.reject(new Error(privateFailure))
+      }
+      assert.equal(await bounded(runtime.releaseSettled), later)
+      assert.deepEqual(runtime.releaseStatus(), { state: later, owner_held: later !== 'released' })
+      assert.equal(runtime.close(), closing)
+      const final = await Promise.allSettled([closing, runtime.closed])
+      for (let index = 0; index < initial.length; index++) {
+        const before = initial[index]!
+        const after = final[index]!
+        assert.equal(before.status, 'rejected')
+        assert.equal(after.status, 'rejected')
+        if (before.status === 'rejected' && after.status === 'rejected') {
+          assert.equal(after.reason, before.reason)
+          failure('connector_runtime_close_timeout')(after.reason)
+        }
+      }
+      assert.equal(releases, 1)
+    }
+  )
+}
+
+test(
+  'provider Connector startup failure exposes the same bounded shutdown while its owner remains pending',
+  /** 启动异常同样有界返回，错误对象继续保留唯一 owner 和长期观察入口。 */ async () => {
+    const owner = releaseGate()
+    let releases = 0
+    const input = options(
+      /** 即使 transport 启动失败也必须保留并调用这个原所有者。 */ () => {
+        releases++
+        return owner.promise
+      }
+    )
+    const error = await bounded(
+      createProviderConnectorRuntime({
+        ...input,
+        transport: { ...input.transport, url: 'invalid' },
+        release_timeout_ms: 20
+      })
+    ).catch(/** 只取公开错误对象验证归属，不展开原异常。 */ (failure: unknown) => failure)
+    assert(error instanceof ConnectorHostStartupError)
+    failure('connector_runtime_start_failed')(error)
+    assert.equal(error.shutdown.close(), error.shutdown.closed)
+    await assert.rejects(error.shutdown.closed, failure('connector_runtime_close_timeout'))
+    assert.deepEqual(error.shutdown.releaseStatus(), { state: 'pending', owner_held: true })
+    let observed = false
+    void error.shutdown.releaseSettled.then(
+      /** 未结算的原回调不能被 startup 包装伪装成释放完成。 */ () => {
+        observed = true
+      }
+    )
+    await new Promise<void>(/** 检查 pending 观察经过事件循环仍保持未结算。 */ (resolve) => setImmediate(resolve))
+    assert.equal(observed, false)
+    assert.equal(releases, 1)
+  }
+)
+
+for (const later of ['released', 'failed'] as const) {
+  test(
+    'provider Connector startup shutdown retains observation when the original owner later ' + later,
+    /** 工厂已经拒绝后，错误句柄仍能观察原回调晚结算且不产生第二次释放。 */ async () => {
+      const owner = releaseGate()
+      let releases = 0
+      const input = options(
+        /** 此 promise 在启动失败返回以后才由测试结算。 */ () => {
+          releases++
+          return owner.promise
+        }
+      )
+      const error = await bounded(
+        createProviderConnectorRuntime({
+          ...input,
+          transport: { ...input.transport, url: 'invalid' },
+          release_timeout_ms: 20
+        })
+      ).catch(/** 保留同一个带 shutdown 的安全启动错误。 */ (failure: unknown) => failure)
+      assert(error instanceof ConnectorHostStartupError)
+      failure('connector_runtime_start_failed')(error)
+      const closing = error.shutdown.close()
+      await assert.rejects(closing, failure('connector_runtime_close_timeout'))
+      if (later === 'released') {
+        owner.resolve()
+      } else {
+        owner.reject(new Error(privateFailure))
+      }
+      assert.equal(await bounded(error.shutdown.releaseSettled), later)
+      assert.deepEqual(error.shutdown.releaseStatus(), { state: later, owner_held: later !== 'released' })
+      assert.equal(error.shutdown.close(), closing)
+      await assert.rejects(closing, failure('connector_runtime_close_timeout'))
+      assert.equal(releases, 1)
+    }
+  )
+}
+
+test(
+  'provider Connector invalid release budgets still clean the accepted owner with a safe startup error',
+  /** 坏配置不能在 owner 交付后直接抛错跳过释放；默认清理预算适用于全部非法值。 */ async () => {
+    for (const budget of [0, -1, 1.5, NaN, Infinity, 5001, null, '20']) {
+      let releases = 0
+      const error = await bounded(
+        createProviderConnectorRuntime({
+          ...options(
+            /** 原所有者快速结算，验证非法预算也会恰好清理一次。 */ async () => {
+              releases++
+            }
+          ),
+          release_timeout_ms: budget as number
+        })
+      ).catch(/** 只验证稳定启动错误与关闭观察，不泄露校验内部细节。 */ (failure: unknown) => failure)
+      assert(error instanceof ConnectorHostStartupError)
+      failure('connector_runtime_start_failed')(error)
+      await error.shutdown.closed
+      assert.equal(await error.shutdown.releaseSettled, 'released')
+      assert.deepEqual(error.shutdown.releaseStatus(), { state: 'released', owner_held: false })
+      assert.equal(releases, 1)
+    }
+  }
+)
+
+test(
+  'provider Connector invalid release budget uses the finite product default for an indefinitely pending owner',
+  { timeout: 10_000 },
+  /** Infinity 不能使启动清理永久等待；默认五秒预算结束后仍保留未确认 owner。 */ async () => {
+    const owner = releaseGate()
+    let releases = 0
+    const error = await bounded(
+      createProviderConnectorRuntime({
+        ...options(
+          /** 永久等待用于核实坏配置的默认有界兜底。 */ () => {
+            releases++
+            return owner.promise
+          }
+        ),
+        release_timeout_ms: Infinity
+      }),
+      8000
+    ).catch(/** 超时只能公开稳定启动错误和同一个长期观察句柄。 */ (failure: unknown) => failure)
+    assert(error instanceof ConnectorHostStartupError)
+    failure('connector_runtime_start_failed')(error)
+    await assert.rejects(error.shutdown.closed, failure('connector_runtime_close_timeout'))
+    assert.deepEqual(error.shutdown.releaseStatus(), { state: 'pending', owner_held: true })
+    assert.equal(error.shutdown.close(), error.shutdown.closed)
+    assert.equal(releases, 1)
+  }
+)
