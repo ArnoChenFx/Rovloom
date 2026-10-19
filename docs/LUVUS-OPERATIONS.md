@@ -167,6 +167,46 @@ Agent，因此不代表同 session 真实模型两轮验收。当前工厂是明
 attach + Connector managed 组合；跨机 Gateway 的独立 native 来源不能由本机
 `/proc` 或设备广告补造。
 
+完整的稳定 ID **WSS** 验收直接在同一入口加 `--stable-selection`。以下命令从当前
+检出版本构建，预先在受保护的 `/workspace` 下选择短私有父目录，再启动唯一一轮实例：
+
+```sh
+(
+set -e
+bun --no-env-file run build
+operations_parent=$(mktemp -d /workspace/rvw.XXXXXX)
+bun --no-env-file scripts/runtime/verify-luvus-operations.mjs \
+  --binary /absolute/protected/luvus \
+  --temporary-parent "$operations_parent" \
+  --acknowledge-nonproduction \
+  --stable-selection
+# 仅在报告 cleanup_pending:false、root_retained:false 后移除空父目录。
+rmdir "$operations_parent"
+)
+```
+
+父目录须由当前用户独占、权限 0700、各级祖先受保护；`/workspace/rvw.XXXXXX` 只是
+当前保存环境的短路径示例。入口也使用短 `.rvop-` 私有 root 前缀。
+[官方 socket 规则](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/session.rs#L208-L255)
+在逻辑路径达到 100 字节时改用 root 外的短别名；本例固定 session 的两条 socket
+都留在 root 内，要求实际 `state_root` 路径不超过 52 字节。首次启动前就应选短父目录；
+遇到 `endpoint_outside_state_root` 应保留该次失败，不自动换路径重试或放宽 root 检查。
+退出未确认时保留 root，不能强行删除或把后一次成功改写为前一次成功。
+
+该选项先完成原 11 次操作，再经同一认证通道、唯一 Store/Router、官方 IPC adapter、
+持久 claims 和原 Wire 分页结果门禁调用同一稳定选择 helper 的 47 次操作。固定空白
+拓扑必须得到 `native_rpc:58` 与 `stable_selection.checks` 的 27 项检查，否则立即失败。
+`dispatch_observations` 按实际 call/attempt 核对各一次：`created:58`、
+`confirmed_claims:58`、`native_write_calls:58`、`original_result_frames:58`，以及
+`per_call_attempt_once:true`。claim 只在原持久实现成功提交并独立读回确认后计数；
+write 计数只表示原实际 socket 写调用正常返回，原生结果仍须完整经过原读门禁。
+报告仅含安全汇总、逐方法耗时及清理标志，不输出 call/attempt 身份或原生正文。
+
+本模式不接受 `--opencode-binary`，不启动模型 Agent，报告 `model_requests:0`、
+`tokens_issued:0`；这不是模型两轮验收。默认 20 秒连接 idle、每次 30 秒业务 deadline
+和固定 claims 截止不变；观察等待不续期，失败不重放，两个旧 CAS 负例各发送一次。
+版本化入口及 helper 足以复跑上述流程，无需任何作者私有 `/tmp` 脚本。
+
 同一维护脚本可额外传 `--opencode-binary /absolute/protected/opencode`，固定核对官方
 OpenCode 1.19.3 的安装摘要。它只在本轮临时 HOME 写入免费 Big Pickle 白名单和
 固定 Agent 模型，保留保存环境原代理及证书变量，不读取用户账户；随后经同一原
