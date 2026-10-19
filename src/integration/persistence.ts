@@ -34,9 +34,9 @@ export function persistentBackend(store: Store, services: Services): NativeWireB
 }
 // 由 Store 在 BEGIN IMMEDIATE 写事务内重新取得锚点并调用真实适配器，统一固定接收时钟。
 // 提交成功后才返回结果；可信冲突先提交审计再抛错误，写入失败不得对外发布 responded。
-export function commitLuvusResponse(
+export function commitNativeResponse(
   store: Store,
-  adapter: ReturnType<typeof createLuvusWireAdapter>,
+  adapter: Pick<ReturnType<typeof createLuvusWireAdapter>, 'planEvidence'>,
   frame: Extract<AuthenticatedEnvelope, { type: 'response' }>
 ) {
   const binding = {
@@ -50,3 +50,5 @@ export function commitLuvusResponse(
     /* 在 Store 固定的事务时钟下调用真实适配器，禁止接受序列化计划作为证据。 */ () => adapter.planEvidence(frame)
   )
 }
+
+export { commitNativeResponse as commitLuvusResponse }

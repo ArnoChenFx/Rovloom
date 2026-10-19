@@ -8,6 +8,7 @@ export const WIRE_MINOR = 0
 const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   rpc: 0,
   admission_receipt: 0,
+  admission_context: 0,
   history_scope: 0,
   late_evidence: 0,
   objects: 0,
@@ -101,6 +102,12 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
     ) {
       fail('invalid_negotiation')
     }
+  }
+  if (
+    v.capabilities.includes('admission_context') &&
+    (!v.capabilities.includes('admission_receipt') || !v.capabilities.includes('rpc'))
+  ) {
+    fail('invalid_capabilities')
   }
   if (v.capabilities.includes('admission_receipt') && !v.capabilities.includes('rpc')) {
     fail('invalid_capabilities')
