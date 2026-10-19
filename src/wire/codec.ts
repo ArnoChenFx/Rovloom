@@ -32,6 +32,7 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   authenticate: ['connector_to_gateway'],
   welcome: ['gateway_to_connector'],
   request: ['gateway_to_connector'],
+  admission_receipt: ['gateway_to_connector'],
   accepted: ['connector_to_gateway'],
   response: ['connector_to_gateway'],
   cancel: ['gateway_to_connector'],
@@ -440,6 +441,21 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   }
 
   switch (frame.type) {
+    case 'admission_receipt': {
+      capability(context, 'admission_receipt')
+      fields(p, ['attempt', 'request_sha256', 'dedup_expires_at'])
+      const binding = bind(frame, p.attempt)
+      providerFor(binding, context)
+      if (binding.registration.history !== null) {
+        capability(context, 'history_scope')
+      }
+      sha(p.request_sha256)
+      uint(p.dedup_expires_at, true)
+      if (p.dedup_expires_at < binding.registration.deadline) {
+        fail('admission_receipt_deadline_invalid')
+      }
+      break
+    }
     case 'request':
       capability(context, 'rpc')
       validateRequestPayload(frame, p, context, false)

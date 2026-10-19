@@ -33,6 +33,7 @@ export type ContractSource = {
 export type ContractRecord = { source: ContractSource; support_status: 'candidate' | 'validated' }
 export type Capability =
   | 'rpc'
+  | 'admission_receipt'
   | 'history_scope'
   | 'late_evidence'
   | 'objects'
@@ -118,6 +119,7 @@ export type RequestPayload = {
   validation: ValidationMode
 }
 export type Payloads = {
+  admission_receipt: { attempt: AttemptIdentity; request_sha256: string; dedup_expires_at: number }
   request: RequestPayload
   accepted: { attempt: AttemptIdentity }
   response: { attempt: AttemptIdentity; native_response: JsonObject }
