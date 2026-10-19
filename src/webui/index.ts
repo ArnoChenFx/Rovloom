@@ -4,6 +4,7 @@ export { ReadError, createSnapshotReader, type ReadClock, type TimedSnapshot } f
 export { parseRoute, routeHref, type PageRoute, type PageView } from './view.js'
 export { createManagementPageRead, type ManagementReadTransport, type ManagementReadOperation } from './read.js'
 export { createManagementHttpRead, type ManagementFetch } from './http-client.js'
+export { createManagementPageCsrf } from './bootstrap.js'
 
 export { createManagementWriteClient, type ManagementWriteClientOptions } from './write-client.js'
 export {
