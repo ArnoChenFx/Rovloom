@@ -1,6 +1,7 @@
 /** 管理页直接渲染共享管理 DTO；不补造未核实状态，也不建立另一套管理协议。 */
 import type { DeviceSnapshot, ManagementStatus, ManagementReply, PermissionSnapshot } from '../mcp/management.js'
 import type { ReaderState } from './reader.js'
+import { createLocalizer, type Localizer, type MessageKey } from './i18n.js'
 
 /** 仅组合一次页面读取，所有业务对象仍是共享 DTO。 */
 export interface PageView {
@@ -14,34 +15,52 @@ export interface PageView {
 export type PageRoute = { machineId: string | null; cursor: string | null; providerCursor: string | null }
 
 const connectionNames = {
-  connecting: '连接中',
-  reconnecting: '重新握手中',
-  online: '在线',
-  degraded: '连接降级',
-  offline: '离线'
-}
+  connecting: 'connection.connecting',
+  reconnecting: 'connection.reconnecting',
+  online: 'connection.online',
+  degraded: 'connection.degraded',
+  offline: 'connection.offline'
+} as const satisfies Record<string, MessageKey>
 const authenticationNames = {
-  pending: '等待认证',
-  authenticated: '已认证',
-  failed: '认证失败',
-  expired: '认证过期',
-  revoked: '身份已撤销'
-}
+  pending: 'authentication.pending',
+  authenticated: 'authentication.authenticated',
+  failed: 'authentication.failed',
+  expired: 'authentication.expired',
+  revoked: 'authentication.revoked'
+} as const satisfies Record<string, MessageKey>
 const runtimeNames = {
-  ready: '运行观测就绪',
-  unreachable: '不可达',
-  binding_mismatch: '配置不一致',
-  migration_unresolved: '来源待核实'
-}
-const problemNames: Record<NonNullable<ReaderState<PageView>['problem']>, string> = {
-  unauthenticated: '管理会话未登录或已过期。请通过受保护的管理员入口重新登录。',
-  forbidden: '当前管理员没有此范围的查看权限。',
-  not_found: '资源不存在或当前管理员无法查看此范围。',
-  conflict: '观测范围或版本已变化，请刷新。',
-  unavailable: '管理读取尚不可用，请检查 Gateway 的受保护管理接线。',
-  invalid_response: '管理响应未通过展示边界校验。',
-  timeout: '读取超过 5 秒。当前显示不是实时状态。',
-  cancelled: '已取消本次读取。'
+  ready: 'runtime.ready',
+  unreachable: 'runtime.unreachable',
+  binding_mismatch: 'runtime.binding_mismatch',
+  migration_unresolved: 'runtime.migration_unresolved'
+} as const satisfies Record<string, MessageKey>
+const readinessNames = {
+  ready: 'readiness.ready',
+  unavailable: 'readiness.unavailable',
+  unverified: 'readiness.unverified'
+} as const satisfies Record<string, MessageKey>
+const componentNames = {
+  available: 'component.available',
+  degraded: 'component.degraded',
+  quarantined: 'component.quarantined',
+  unavailable: 'component.unavailable',
+  unverified: 'component.unverified'
+} as const satisfies Record<string, MessageKey>
+const persistedNames = {
+  pending: 'persisted.pending',
+  offline: 'persisted.offline',
+  online: 'persisted.online',
+  revoked: 'persisted.revoked'
+} as const satisfies Record<string, MessageKey>
+const problemNames: Record<NonNullable<ReaderState<PageView>['problem']>, MessageKey> = {
+  unauthenticated: 'error.unauthenticated',
+  forbidden: 'error.forbidden',
+  not_found: 'error.not_found',
+  conflict: 'error.conflict',
+  unavailable: 'error.unavailable',
+  invalid_response: 'error.invalid_response',
+  timeout: 'error.timeout',
+  cancelled: 'error.cancelled'
 }
 
 /** 创建节点，所有后端文本通过 textContent 转义。 */
@@ -50,16 +69,6 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   result.textContent = text
   result.className = className
   return result
-}
-
-/** 显示共享 DTO 的可信服务时间，缺失不使用客户端时间填充。 */
-function timestamp(value: number | null): string {
-  return value === null ? '尚无可信观测' : new Date(value).toISOString().replace('T', ' ').replace('.000Z', ' UTC')
-}
-
-/** 年龄仅由服务时间与读取后的单调经过时间计算。 */
-function age(value: number | null, serverNow: number): string {
-  return value === null ? '尚无可信心跳' : `${Math.max(0, Math.floor((serverNow - value) / 1_000))} 秒前`
 }
 
 /** 渲染只含文本的键值信息。 */
@@ -117,6 +126,7 @@ interface Freshness {
   now: number
   staleAfter: number
   pageStale: boolean
+  i18n: Localizer
 }
 
 /** 新 status 只更新当前时间，不续期旧设备、认证或原生观测。 */
@@ -126,10 +136,16 @@ function current(observedAt: number, freshness: Freshness): boolean {
 
 /** 同时显示每层原始时间、年龄和过期标记；未知没有可补造的时间。 */
 function observationTime(observedAt: number | null, freshness: Freshness): string {
+  const { i18n } = freshness
+  const { t } = i18n
   if (observedAt === null) {
-    return '未核实'
+    return t('value.unverified')
   }
-  return `${timestamp(observedAt)} · ${age(observedAt, freshness.now)}${current(observedAt, freshness) ? '' : ' · 已过期'}`
+  return t('time.observed', {
+    time: i18n.timestamp(observedAt),
+    age: i18n.age(observedAt, freshness.now),
+    expired: current(observedAt, freshness) ? '' : t('time.expiredSuffix')
+  })
 }
 
 /** Provider 的绿色就绪提示还要求当前设备、连接与认证观测均有效。 */
@@ -148,22 +164,27 @@ function currentDeviceLink(device: DeviceSnapshot, freshness: Freshness): boolea
 
 /** 分开显示持久状态、连接与认证；过期的已验证来源仅可作为历史，不呈绿色在线。 */
 function deviceBadges(device: DeviceSnapshot, freshness: Freshness): HTMLElement {
+  const { i18n } = freshness
+  const { t } = i18n
   const result = node('div', '', 'badges')
   const deviceCurrent = current(device.observed_at, freshness)
   if (!deviceCurrent) {
-    result.append(badge('设备观测已过期', 'warning'))
+    result.append(badge(t('device.expired'), 'warning'))
   }
   if (device.persisted_state === 'revoked') {
     result.append(
-      badge(deviceCurrent ? '身份已撤销' : '上次持久登记：身份已撤销（已过期）', deviceCurrent ? 'danger' : 'warning'),
-      badge('旧连接与认证记录不能恢复授权')
+      badge(
+        deviceCurrent ? t('authentication.revoked') : t('device.revokedHistory'),
+        deviceCurrent ? 'danger' : 'warning'
+      ),
+      badge(t('device.oldRecords'))
     )
     return result
   }
   if (device.persisted_state === 'pending') {
     result.append(
-      badge(deviceCurrent ? '待配对' : '上次登记：待配对', 'warning'),
-      badge('连接与认证状态未核实（待配对）', 'warning')
+      badge(deviceCurrent ? t('device.pending') : t('device.pendingHistory'), 'warning'),
+      badge(t('device.pendingUnverified'), 'warning')
     )
     return result
   }
@@ -177,15 +198,18 @@ function deviceBadges(device: DeviceSnapshot, freshness: Freshness): HTMLElement
     result.append(
       deviceCurrent && ownCurrent
         ? connection.value.state === 'online' && !authenticationCurrent
-          ? badge('连接观测：在线（当前认证未核实）', 'warning')
-          : badge(connectionNames[connection.value.state], connection.value.state === 'online' ? 'good' : 'neutral')
+          ? badge(t('device.onlineAuthUnknown'), 'warning')
+          : badge(t(connectionNames[connection.value.state]), connection.value.state === 'online' ? 'good' : 'neutral')
         : badge(
-            `${ownCurrent ? '连接状态未核实（设备观测已过期）' : '连接观测已过期'} · 上次：${connectionNames[connection.value.state]}`,
+            t('device.lastState', {
+              label: t(ownCurrent ? 'device.connectionParentExpired' : 'device.connectionExpired'),
+              state: t(connectionNames[connection.value.state])
+            }),
             'warning'
           )
     )
   } else {
-    result.append(badge(`连接未核实 · ${connection.reason_code}`, 'warning'))
+    result.append(badge(t('device.connectionUnknown', { reason: i18n.reason(connection.reason_code) }), 'warning'))
   }
   const authentication = device.authentication
   if (authentication.verification === 'verified') {
@@ -193,34 +217,38 @@ function deviceBadges(device: DeviceSnapshot, freshness: Freshness): HTMLElement
     result.append(
       deviceCurrent && ownCurrent
         ? badge(
-            authenticationNames[authentication.value.state],
+            t(authenticationNames[authentication.value.state]),
             ['failed', 'expired', 'revoked'].includes(authentication.value.state) ? 'danger' : 'neutral'
           )
         : badge(
-            `${ownCurrent ? '认证状态未核实（设备观测已过期）' : '认证观测已过期'} · 上次：${authenticationNames[authentication.value.state]}`,
+            t('device.lastState', {
+              label: t(ownCurrent ? 'device.authParentExpired' : 'device.authExpired'),
+              state: t(authenticationNames[authentication.value.state])
+            }),
             'warning'
           )
     )
   } else {
-    result.append(badge(`认证未核实 · ${authentication.reason_code}`, 'warning'))
+    result.append(badge(t('device.authUnknown', { reason: i18n.reason(authentication.reason_code) }), 'warning'))
   }
-  result.append(badge('设备 ready 尚无独立观测'))
+  result.append(badge(t('device.readyUnknown')))
   return result
 }
 
 /** 只展示未接后端操作的含义，不提交确认或变更。 */
-function unavailableActions(kind: 'device' | 'provider' | 'list'): HTMLElement {
+function unavailableActions(kind: 'device' | 'provider' | 'list', i18n: Localizer): HTMLElement {
+  const { t } = i18n
   const section = node('section', '', 'actions')
   const noteId = `unavailable-${kind}`
-  const note = node('p', '受保护的管理确认与后端变更尚未接入，以下操作不可用。', 'muted')
+  const note = node('p', t('actions.unavailable'), 'muted')
   note.id = noteId
   section.append(note)
   const labels =
     kind === 'list'
-      ? ['新建设备 / 配对申请']
+      ? [t('actions.register')]
       : kind === 'provider'
-        ? ['禁用 / 重新启用 provider']
-        : ['改名 / 标签', '配对 / 重新配对', '断开当前连接', '撤销设备身份']
+        ? [t('actions.provider')]
+        : [t('actions.rename'), t('actions.pair'), t('actions.disconnect'), t('actions.revoke')]
   for (const label of labels) {
     const button = node('button', label)
     button.type = 'button'
@@ -229,27 +257,23 @@ function unavailableActions(kind: 'device' | 'provider' | 'list'): HTMLElement {
     section.append(button)
   }
   if (kind === 'device') {
-    section.append(
-      node(
-        'p',
-        '断开仅关闭指定连接，保留设备授权，Connector 可以主动重连。撤销将持久拒绝旧身份，并影响全部 providers。在途工作可能仍执行，结果保持未确认。',
-        'muted'
-      )
-    )
+    section.append(node('p', t('actions.effect'), 'muted'))
   }
   return section
 }
 
 /** 列表只展示后端返回的授权页，不将页长宣称为设备总数。 */
 function deviceList(page: PageView, freshness: Freshness): HTMLElement {
+  const { i18n } = freshness
+  const { t } = i18n
   const section = node('section')
   section.append(
-    node('h1', '设备'),
-    node('p', '设备身份、连接与 runtime providers 分开观测。', 'muted'),
-    unavailableActions('list')
+    node('h1', t('devices.heading')),
+    node('p', t('devices.description'), 'muted'),
+    unavailableActions('list', i18n)
   )
   if (page.devices.items.length === 0) {
-    section.append(node('div', '此范围尚无设备。由受保护的本机管理渠道建立配对申请后再刷新。', 'empty'))
+    section.append(node('div', t('devices.empty'), 'empty'))
   }
   const list = node('ul', '', 'device-list')
   for (const device of page.devices.items) {
@@ -260,24 +284,44 @@ function deviceList(page: PageView, freshness: Freshness): HTMLElement {
     row.append(
       node(
         'p',
-        device.labels === null ? '标签未记录' : device.labels.length ? device.labels.join(' · ') : '无标签',
+        device.labels === null
+          ? t('value.noLabelRecord')
+          : device.labels.length
+            ? device.labels.join(' · ')
+            : t('value.noLabels'),
         'muted'
       )
     )
     const heartbeat = device.connection.verification === 'verified' ? device.connection.value.last_heartbeat_at : null
-    row.append(node('p', `最近心跳：${age(heartbeat, freshness.now)} · Gateway 接收 ${timestamp(heartbeat)}`, 'muted'))
-    row.append(node('p', `设备状态观测：${observationTime(device.observed_at, freshness)}`, 'muted'))
     row.append(
       node(
         'p',
-        `连接观测：${observationTime(device.connection.verification === 'verified' ? device.connection.observed_at : null, freshness)}`,
+        t('devices.heartbeat', { age: i18n.age(heartbeat, freshness.now), time: i18n.timestamp(heartbeat) }),
+        'muted'
+      )
+    )
+    row.append(node('p', t('devices.observed', { time: observationTime(device.observed_at, freshness) }), 'muted'))
+    row.append(
+      node(
+        'p',
+        t('devices.connectionObserved', {
+          time: observationTime(
+            device.connection.verification === 'verified' ? device.connection.observed_at : null,
+            freshness
+          )
+        }),
         'muted'
       )
     )
     row.append(
       node(
         'p',
-        `认证观测：${observationTime(device.authentication.verification === 'verified' ? device.authentication.observed_at : null, freshness)}`,
+        t('devices.authObserved', {
+          time: observationTime(
+            device.authentication.verification === 'verified' ? device.authentication.observed_at : null,
+            freshness
+          )
+        }),
         'muted'
       )
     )
@@ -285,7 +329,7 @@ function deviceList(page: PageView, freshness: Freshness): HTMLElement {
   }
   section.append(list)
   if (page.devices.next_cursor !== undefined) {
-    const next = node('a', '下一页设备', 'button-link')
+    const next = node('a', t('devices.next'), 'button-link')
     next.href = routeHref({ machineId: null, cursor: page.devices.next_cursor, providerCursor: null })
     section.append(next)
   }
@@ -294,25 +338,22 @@ function deviceList(page: PageView, freshness: Freshness): HTMLElement {
 
 /** 已配置 provider 的启停、readiness 与原生观测分别来自共享 DTO。 */
 function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshness): HTMLElement {
+  const { i18n } = freshness
+  const { t } = i18n
   const section = node('section')
-  section.append(
-    node('h2', 'Runtime providers'),
-    node('p', '仅展示此设备当前获授权的已配置实例；实例故障不等于整机离线。', 'muted')
-  )
+  section.append(node('h2', t('providers.heading')), node('p', t('providers.description'), 'muted'))
   if (page.providersProblem) {
     section.append(
       node(
         'p',
-        page.providersProblem === 'forbidden'
-          ? '没有 provider 查看权限。'
-          : 'Provider 读取暂不可用，设备观测仍单独展示。',
+        page.providersProblem === 'forbidden' ? t('providers.forbidden') : t('providers.unavailable'),
         'notice warning'
       )
     )
     return section
   }
   if (page.providers.items.length === 0) {
-    section.append(node('p', '此范围没有可展示的 provider。', 'empty'))
+    section.append(node('p', t('providers.empty'), 'empty'))
   }
   for (const provider of page.providers.items) {
     const row = node('article', '', 'provider-card')
@@ -331,17 +372,19 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
       badge(
         registryCurrent
           ? provider.enabled
-            ? '已启用'
-            : '已禁用'
-          : `启停观测已过期 · 上次：${provider.enabled ? '已启用' : '已禁用'}`,
+            ? t('providers.enabled')
+            : t('providers.disabled')
+          : t('providers.enabledHistory', { state: t(provider.enabled ? 'providers.enabled' : 'providers.disabled') }),
         registryCurrent ? 'neutral' : 'warning'
       )
     )
     row.append(
       badge(
         provider.readiness === 'ready' && !ready
-          ? '当前就绪未核实 · 上次管理 readiness：ready'
-          : `${registryCurrent ? '管理 readiness' : 'readiness 观测已过期 · 上次'}：${provider.readiness}`,
+          ? t('providers.readyUnknown')
+          : t(registryCurrent ? 'providers.readiness' : 'providers.readinessHistory', {
+              state: t(readinessNames[provider.readiness])
+            }),
         ready ? 'good' : 'warning'
       )
     )
@@ -349,42 +392,48 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
       runtime
         ? badge(
             runtimeCurrent
-              ? runtimeNames[runtime.value.state]
-              : `运行观测已过期 · 上次：${runtimeNames[runtime.value.state]}`,
+              ? t(runtimeNames[runtime.value.state])
+              : t('providers.runtimeHistory', { state: t(runtimeNames[runtime.value.state]) }),
             runtimeCurrent ? 'neutral' : 'warning'
           )
         : badge(
-            `运行状态未核实 · ${provider.runtime.verification === 'unverified' ? provider.runtime.reason_code : 'not_recorded'}`,
+            t('providers.runtimeUnknown', {
+              reason: i18n.reason(
+                provider.runtime.verification === 'unverified' ? provider.runtime.reason_code : 'not_recorded'
+              )
+            }),
             'warning'
           )
     )
     row.append(
       facts([
-        ['Binding revision', String(provider.binding_revision)],
-        ['Config 安全引用', provider.config_ref ?? '未核实'],
+        [t('providers.bindingRevision'), String(provider.binding_revision)],
+        [t('providers.configRef'), provider.config_ref ?? t('value.unverified')],
         [
-          runtimeCurrent ? '契约引用' : '历史契约引用（当前未核实）',
-          runtime?.value.contract_ref ?? '未核实，不授予执行许可'
+          runtimeCurrent ? t('providers.contractRef') : t('providers.contractHistory'),
+          runtime?.value.contract_ref ?? t('value.noExecutionPermission')
         ],
         [
-          'Binary / schema 摘要',
-          runtime ? `${runtime.value.binary_sha256 ?? '未核实'} / ${runtime.value.schema_sha256 ?? '未核实'}` : '未核实'
+          t('providers.digests'),
+          runtime
+            ? `${runtime.value.binary_sha256 ?? t('value.unverified')} / ${runtime.value.schema_sha256 ?? t('value.unverified')}`
+            : t('value.unverified')
         ],
-        ['分类 revision', runtime?.value.classification_revision ?? '未核实'],
+        [t('providers.classification'), runtime?.value.classification_revision ?? t('value.unverified')],
         [
-          runtimeCurrent ? '已核实传输' : '历史传输（当前未核实）',
-          runtime?.value.supported_transports.join(' · ') || '未核实'
+          runtimeCurrent ? t('providers.transports') : t('providers.transportsHistory'),
+          runtime?.value.supported_transports.join(' · ') || t('value.unverified')
         ],
-        ['观测来源', runtime?.source ?? '未核实'],
-        ['Provider 状态观测', observationTime(provider.observed_at, freshness)],
-        ['原生观测', observationTime(runtime?.observed_at ?? null, freshness)]
+        [t('providers.source'), runtime?.source ?? t('value.unverified')],
+        [t('providers.observed'), observationTime(provider.observed_at, freshness)],
+        [t('providers.nativeObserved'), observationTime(runtime?.observed_at ?? null, freshness)]
       ])
     )
     section.append(row)
   }
-  section.append(unavailableActions('provider'))
+  section.append(unavailableActions('provider', i18n))
   if (page.providers.next_cursor !== undefined) {
-    const next = node('a', '下一页 providers', 'button-link')
+    const next = node('a', t('providers.next'), 'button-link')
     next.href = routeHref({ machineId: device.machine_id, cursor: null, providerCursor: page.providers.next_cursor })
     section.append(next)
   }
@@ -393,13 +442,15 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
 
 /** 详情只使用该 machine_id 的共享快照，未提供的配对/ready/重连信息明确未知。 */
 function deviceDetail(page: PageView, freshness: Freshness): HTMLElement {
+  const { i18n } = freshness
+  const { t } = i18n
   const section = node('section')
-  const back = node('a', '← 设备列表', 'back-link')
+  const back = node('a', t('detail.back'), 'back-link')
   back.href = '#'
   section.append(back)
   const device = page.device
   if (!device) {
-    section.append(node('h1', '设备详情不可用'), node('p', '目标不存在或当前范围不可见。'))
+    section.append(node('h1', t('detail.unavailable')), node('p', t('detail.invisible')))
     return section
   }
   const connection = device.connection.verification === 'verified' ? device.connection : null
@@ -407,65 +458,71 @@ function deviceDetail(page: PageView, freshness: Freshness): HTMLElement {
   section.append(node('h1', device.name), node('code', device.machine_id), deviceBadges(device, freshness))
   section.append(
     facts([
-      ['持久登记状态（非实时依据）', device.persisted_state],
-      ['标签', device.labels === null ? '未记录' : device.labels.join(' · ') || '无标签'],
-      ['资源 revision', device.resource_revision === null ? '未提供' : String(device.resource_revision)],
-      ['Connection epoch 安全引用', connection?.value.connection_epoch_ref ?? '未核实 / 无当前连接'],
+      [t('detail.persisted'), t(persistedNames[device.persisted_state])],
       [
-        '最近心跳（Gateway 接收）',
-        `${timestamp(connection?.value.last_heartbeat_at ?? null)} · ${age(connection?.value.last_heartbeat_at ?? null, freshness.now)}`
+        t('detail.labels'),
+        device.labels === null ? t('value.notRecorded') : device.labels.join(' · ') || t('value.noLabels')
       ],
-      ['设备状态观测时间', observationTime(device.observed_at, freshness)],
-      ['连接观测时间', observationTime(connection?.observed_at ?? null, freshness)],
-      ['认证观测时间', observationTime(authentication?.observed_at ?? null, freshness)],
-      ['连接观测来源', connection?.source ?? '未核实'],
-      ['认证观测来源', authentication?.source ?? '未核实'],
       [
-        '最近失败代码',
+        t('detail.revision'),
+        device.resource_revision === null ? t('value.notProvided') : String(device.resource_revision)
+      ],
+      [t('detail.epoch'), connection?.value.connection_epoch_ref ?? t('value.noConnection')],
+      [
+        t('detail.heartbeat'),
+        `${i18n.timestamp(connection?.value.last_heartbeat_at ?? null)} · ${i18n.age(connection?.value.last_heartbeat_at ?? null, freshness.now)}`
+      ],
+      [t('detail.observed'), observationTime(device.observed_at, freshness)],
+      [t('detail.connectionObserved'), observationTime(connection?.observed_at ?? null, freshness)],
+      [t('detail.authObserved'), observationTime(authentication?.observed_at ?? null, freshness)],
+      [t('detail.connectionSource'), connection?.source ?? t('value.unverified')],
+      [t('detail.authSource'), authentication?.source ?? t('value.unverified')],
+      [
+        t('detail.failure'),
         authentication?.value.last_failure
-          ? `${authentication.value.last_failure.reason_code} · ${timestamp(authentication.value.last_failure.occurred_at)}`
-          : '未记录 / 未核实'
+          ? `${i18n.reason(authentication.value.last_failure.reason_code)} · ${i18n.timestamp(authentication.value.last_failure.occurred_at)}`
+          : t('value.noFailure')
       ]
     ])
   )
-  section.append(
-    node(
-      'p',
-      '当前共享读取未提供配对进度、设备 ready 证明、最近连接/重连时间或 OS/version；不从历史状态推测。Enrollment 和设备凭据仅通过受保护本机渠道交付及安全输入。',
-      'muted'
-    )
-  )
+  section.append(node('p', t('detail.missing'), 'muted'))
   if (page.permissions) {
     const expired = !current(page.permissions.observed_at, freshness) || freshness.now >= page.permissions.expires_at
     section.append(
       node(
         'p',
         expired
-          ? '权限提示已过期，等待刷新；它不授予后端权限。'
-          : `短期权限提示有效至 ${timestamp(page.permissions.expires_at)}；每次操作仍须后端重新验证。`,
+          ? t('detail.permissionExpired')
+          : t('detail.permissionUntil', { time: i18n.timestamp(page.permissions.expires_at) }),
         'muted'
       )
     )
   }
-  section.append(unavailableActions('device'), providerList(page, device, freshness))
+  section.append(unavailableActions('device', i18n), providerList(page, device, freshness))
   return section
 }
 
 /** 渲染页面主体，并在年龄刷新时保留当前链接的键盘焦点。 */
-export function renderPage(content: HTMLElement, state: ReaderState<PageView>, route: PageRoute): void {
+export function renderPage(
+  content: HTMLElement,
+  state: ReaderState<PageView>,
+  route: PageRoute,
+  i18n: Localizer = createLocalizer('zh-CN')
+): void {
+  const { t } = i18n
   const focused =
     content.contains(document.activeElement) && document.activeElement instanceof HTMLAnchorElement
       ? document.activeElement.getAttribute('href')
       : null
   const view = document.createDocumentFragment()
   if (state.problem) {
-    const message = node('p', problemNames[state.problem], 'notice warning')
+    const message = node('p', t(problemNames[state.problem]), 'notice warning')
     message.setAttribute('role', 'status')
     view.append(message)
   }
   if (!state.snapshot) {
-    view.append(node('h1', state.pending ? '正在读取管理状态…' : '管理状态不可用'))
-    view.append(node('p', '管理员身份与管理权限由独立的受保护后端验证。登录入口尚未接入时，设备数据不可用。', 'muted'))
+    view.append(node('h1', state.pending ? t('gateway.pending') : t('gateway.unavailable')))
+    view.append(node('p', t('gateway.authorization'), 'muted'))
   } else {
     const snapshot = state.snapshot
     const page = snapshot.value
@@ -473,48 +530,54 @@ export function renderPage(content: HTMLElement, state: ReaderState<PageView>, r
     const freshness: Freshness = {
       now: snapshot.observedAt + state.ageMs,
       staleAfter: status.stale_after_ms,
-      pageStale: state.stale
+      pageStale: state.stale,
+      i18n
     }
     const gateway = node('section', '', 'gateway')
-    gateway.append(node('h2', 'Gateway 状态'))
+    gateway.append(node('h2', t('gateway.heading')))
     gateway.append(
       badge(
         status.mode === 'active'
           ? state.stale
-            ? '上次正常模式（快照已过期）'
-            : '正常模式'
+            ? t('gateway.activeHistory')
+            : t('gateway.active')
           : status.mode === 'recovery_quarantined'
-            ? '恢复隔离 · 仅诊断'
-            : '存储降级 · 只读',
+            ? t('gateway.quarantined')
+            : t('gateway.degraded'),
         status.mode === 'active' && !state.stale ? 'good' : 'warning'
       )
     )
-    gateway.append(badge(state.stale ? '快照已过期' : '快照有效', state.stale ? 'warning' : 'neutral'))
+    gateway.append(badge(state.stale ? t('reader.stale') : t('gateway.fresh'), state.stale ? 'warning' : 'neutral'))
     gateway.append(
       facts([
-        ['管理监听', '共享状态接口未提供实际管理监听范围'],
+        [t('gateway.listener'), t('gateway.listenerUnknown')],
         [
-          '管理员认证',
+          t('gateway.authentication'),
           snapshot.sessionExpiresAt === null
-            ? '每次读取重新验证；此接口未提供会话期限'
-            : `会话期限 ${timestamp(snapshot.sessionExpiresAt)}`
+            ? t('gateway.sessionUnknown')
+            : t('gateway.sessionUntil', { time: i18n.timestamp(snapshot.sessionExpiresAt) })
         ],
-        ['恢复代次', status.recovery_generation],
-        ['管理策略 revision', status.policy_revision],
+        [t('gateway.generation'), status.recovery_generation],
+        [t('gateway.policy'), status.policy_revision],
         [
-          'Store / Transport / Native',
-          `${status.components.store} / ${status.components.transport} / ${status.components.native}`
+          t('gateway.components'),
+          `${t(componentNames[status.components.store])} / ${t(componentNames[status.components.transport])} / ${t(componentNames[status.components.native])}`
         ],
-        ['快照观测', `${timestamp(snapshot.observedAt)} · ${Math.floor(state.ageMs / 1_000)} 秒前`]
+        [
+          t('gateway.observed'),
+          t('time.observed', {
+            time: i18n.timestamp(snapshot.observedAt),
+            age: i18n.age(snapshot.observedAt, snapshot.observedAt + state.ageMs),
+            expired: ''
+          })
+        ]
       ])
     )
     if (status.mode !== 'active') {
       gateway.append(
         node(
           'p',
-          status.mode === 'recovery_quarantined'
-            ? '当前仅显示获授权的最小恢复诊断。旧连接和认证均不能作为当前状态；请使用独立受保护本机恢复流程。'
-            : '当前禁止管理写入；持久撤销等操作可能尚未生效，请使用受保护本机诊断。',
+          status.mode === 'recovery_quarantined' ? t('gateway.recoveryNote') : t('gateway.degradedNote'),
           'notice warning'
         )
       )
