@@ -207,6 +207,35 @@ test(
 )
 
 test(
+  'Windows source paths retain per-file batched syntax diagnostics',
+  /* 在所有平台使用真实虚拟 Windows 路径，验证诊断分隔符规范化且不混淆相邻文件。 */ async () => {
+    const sources = new Map([
+      ['C:\\__comment_regression__\\valid.ts', header + 'export const value = 1\n'],
+      ['C:\\__comment_regression__\\first.ts', header + 'const = invalid\n'],
+      ['C:/__comment_regression__/second.ts', header + 'function broken( {\n']
+    ])
+    const parsed = await parseJavaScriptSources(sources)
+    assert.equal(parsed.size, 3)
+    for (const [path, { sourceFile, diagnostics }] of parsed) {
+      const checked = inspectJavaScript(sourceFile, diagnostics)
+      if (path.endsWith('valid.ts')) {
+        assert.deepEqual(checked.errors, [])
+      } else {
+        assert(diagnostics.length > 0)
+        assert(
+          checked.errors.every(
+            /* 每个错误仍归属原输入对应的规范化路径。 */ (error) => error.path === path.replaceAll('\\', '/')
+          )
+        )
+        assert(
+          checked.errors.every(/* 路径规范化不能丢弃语法错误。 */ (error) => error.message.startsWith('syntax TS'))
+        )
+      }
+    }
+  }
+)
+
+test(
   'the module responsibility block is not a first-function description',
   /* 文件职责与函数职责分别检查。 */ async () => {
     const result = await inspect('// 维护模块职责。\nfunction first() {}\n')
@@ -356,6 +385,38 @@ test(
         assert.equal(maintainedFiles(root).length, 3)
       }
     )
+  }
+)
+
+test(
+  'Python discovery covers dot basenames and platform case matching',
+  /* 对照真实 Python 发现集合，防止跳过仅含点文件或 Windows 大写扩展名的根目录。 */ async () => {
+    for (const name of ['src/.py', 'scripts/UPPER.PY']) {
+      await isolated(
+        /* 每个隔离根只放一份 Python 候选，不能借其它小写文件触发检查器。 */ async (root) => {
+          const path = write(root, name, 'def broken(:\n')
+          const python = spawnSync(
+            'python3',
+            [join(repositoryRoot, 'scripts/maintenance/check_comments.py'), root, '--json'],
+            {
+              encoding: 'utf8',
+              timeout: 30_000
+            }
+          )
+          assert.ifError(python.error)
+          assert([0, 1].includes(python.status), python.stderr)
+          const expected = JSON.parse(python.stdout)
+          const actual = await checkRepository(root)
+          assert.equal(actual.files, expected.files, name)
+          assert.equal(actual.functions, expected.functions, name)
+          assert.deepEqual(
+            actual.errors.map(/* 比较真实 Python 返回的语法错误内容。 */ (error) => error.message),
+            expected.errors.map(/* 保留发现集合决定的全部错误。 */ (error) => error.message)
+          )
+          assert(maintainedFiles(root).includes(path), name)
+        }
+      )
+    }
   }
 )
 

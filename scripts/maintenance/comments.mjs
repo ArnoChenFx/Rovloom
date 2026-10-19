@@ -30,6 +30,16 @@ const wrapperKinds = new Set([
 ])
 const chinese = /\p{Script=Han}/u
 
+// 保守覆盖 Python glob 的点文件与 Windows 大小写匹配，是否检查仍由原 Python 发现器决定。
+function mayBePythonSource(path) {
+  return path.toLowerCase().endsWith('.py')
+}
+
+// 虚拟文件系统、项目清单和原生诊断统一使用 TypeScript 的正斜杠路径键。
+function parserPath(path) {
+  return path.replaceAll('\\', '/')
+}
+
 // 只遍历维护根目录中的源码；不依赖 Git，也不跟随可能越出根目录的符号链接。
 export function maintainedFiles(root) {
   if (!statSync(root).isDirectory()) {
@@ -42,7 +52,7 @@ export function maintainedFiles(root) {
       const path = join(directory, entry.name)
       if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '__pycache__') {
         walk(path)
-      } else if (entry.isFile() && (javascriptExtensions.has(extname(path)) || extname(path) === '.py')) {
+      } else if (entry.isFile() && (javascriptExtensions.has(extname(path)) || mayBePythonSource(path))) {
         files.push(path)
       }
     }
@@ -68,10 +78,19 @@ export async function parseJavaScriptSources(sources) {
     return new Map()
   }
   const config = '/__rovloom_comment_check__/tsconfig.json'
-  const files = Object.fromEntries(sources)
+  const files = {}
+  const originalPaths = new Map()
+  for (const [path, source] of sources) {
+    const normalized = parserPath(path)
+    if (originalPaths.has(normalized)) {
+      throw new Error(`Duplicate normalized comment-check path: ${normalized}`)
+    }
+    files[normalized] = source
+    originalPaths.set(normalized, path)
+  }
   files[config] = JSON.stringify({
     compilerOptions: { allowJs: true, checkJs: false, noLib: true, noResolve: true, types: [], target: 'ESNext' },
-    files: [...sources.keys()]
+    files: [...originalPaths.keys()]
   })
   const api = new API({ cwd: dirname(config), fs: createVirtualFileSystem(files) })
   try {
@@ -83,24 +102,25 @@ export async function parseJavaScriptSources(sources) {
     // 整个项目只取一次语法诊断，避免每个文件重复往返原生解析进程；所有诊断仍逐文件保留。
     const diagnostics = new Map()
     for (const diagnostic of await project.program.getSyntacticDiagnostics()) {
-      if (!sources.has(diagnostic.fileName)) {
+      const path = parserPath(diagnostic.fileName)
+      if (!originalPaths.has(path)) {
         throw new Error('TypeScript returned a syntactic diagnostic outside the comment-check project')
       }
-      let entries = diagnostics.get(diagnostic.fileName)
+      let entries = diagnostics.get(path)
       if (!entries) {
         entries = []
-        diagnostics.set(diagnostic.fileName, entries)
+        diagnostics.set(path, entries)
       }
       entries.push(diagnostic)
     }
     const entries = await Promise.all(
-      [...sources.keys()].map(
-        /* 并发读取同一快照的独立 AST，结果顺序仍按输入文件固定，不重复启动解析器。 */ async (path) => {
+      [...originalPaths].map(
+        /* 并发读取同一快照的独立 AST，返回键保持原输入路径，不重复启动解析器。 */ async ([path, original]) => {
           const sourceFile = await project.program.getSourceFile(path)
           if (!sourceFile) {
             throw new Error(`TypeScript did not parse ${path}`)
           }
-          return [path, { sourceFile, diagnostics: diagnostics.get(path) ?? [] }]
+          return [original, { sourceFile, diagnostics: diagnostics.get(path) ?? [] }]
         }
       )
     )
@@ -294,9 +314,7 @@ export async function checkRepository(root = repositoryRoot) {
     result.errors.push(...checked.errors)
   }
   // 同次完整发现没有 Python 文件时，无需为零个输入再启动检查器；有文件时保留原完整扫描与时限。
-  if (
-    paths.some(/* Python 检查只能由实际维护文件决定，目录名或 Git 状态不能豁免。 */ (path) => extname(path) === '.py')
-  ) {
+  if (paths.some(mayBePythonSource)) {
     const python = spawnSync(
       'python3',
       [fileURLToPath(new URL('./check_comments.py', import.meta.url)), root, '--json'],

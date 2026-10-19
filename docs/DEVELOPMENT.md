@@ -67,17 +67,40 @@ bun --no-env-file scripts/webui/preview.mjs
 python3 scripts/webui/check-browser.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-browser-new
 ```
 
-语言/主题另有覆盖两语两主题、系统变化、偏好存储失败及认证失效的浏览器检查：
+语言/主题另有覆盖图标按钮的键盘/外部关闭、八种屏宽、两语两主题、系统变化、偏好存储失败及认证失效的浏览器检查：
 
 ```sh
 python3 scripts/webui/check-preferences.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-preferences-new
 ```
 
+控制台布局检查另外核对桌面行列对齐、首屏设备可见、详情分区、320px 命中尺寸，
+以及原生诊断折叠区在年龄/语言重绘后的键盘焦点，并记录两语两主题及主要空/错/过期状态：
+
+```sh
+python3 scripts/webui/check-layout.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-layout-new
+```
+
 将 `PORT` 替换为本次预览端口；输出目录必须全新且位于 checkout 外。
-原展示检查固定使用中文，语言/主题检查覆盖中文与 English 及320px布局；两者生成截图与 JSON 断言结果。
+原展示检查固定使用中文，语言/主题及布局检查覆盖中文与 English 及320px布局；均生成截图与 JSON 断言结果。
 它们验证真实 Chromium 上的合成 UI 数据、转义、
 焦点、导航、取消、部分失败及会话失效展示，不验证真实管理后端或安全认证。
 浏览器检查需显式运行，不从工具链通过推导浏览器或跨平台验收。
+
+三项设备操作可独立使用临时 Store、现有会话/CSRF handler 和页面状态机验收：
+
+```sh
+bun --no-env-file scripts/webui/preview.mjs 33231 --actions
+python3 scripts/webui/check-actions.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-actions-new
+python3 scripts/webui/check-bootstrap.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-bootstrap-new
+python3 scripts/webui/check-retry-deadline.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-retry-deadline-new
+```
+
+该服务只在显式 `/fixtures/` 让生产 `browser.js` 消费 CLI 同式 meta，拒绝根入口，所有设备和会话均为本次内存 fixture。
+检查包括两语两主题、桌面/320px、实际改名/断开/撤销、一次确认、重复点击、错误恢复、
+取消/导航与迟到、丢响应后原回执核对及原确认截止。bootstrap 检查额外覆盖实际 DOM 消费、
+重复/无效交付、在页过期及永久卸载；不验证真实管理员、宿主秘密交付或用户设备。
+跨截止检查在真实临时 Store 提交后延迟回执，验证提交中、未确认及查询中的重试事件均保留原关联，
+直接交付或查询原回执只对应一次设备提交；覆盖英文桌面与中文深色320px。
 
 ## 隔离验收
 
@@ -209,7 +232,7 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 ## Herdr 离线输入
 
 [方法表](../src/connector/herdr/methods.ts)实现固定来源的 65 个普通 RPC，参数由安装 schema 完整根验证。
-[静态 policy](../test/fixtures/herdr/0.9.5/method-policy.json)记录条件与风险，不发行派发权限；其冻结版本尚待完整交接，不能用旧基线或单独 allowlist 冒充整文件。
+[静态 policy](../test/fixtures/herdr/0.9.5/method-policy.json)记录条件与风险，不发行派发权限；完整版本已随限定的三文件包恢复，仍保持 `authorizes_dispatch: false`。
 离线回放仍只接纳 `ping {}` 和 `session.snapshot {}`，且 `authorizes_dispatch:false`。
 离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
@@ -322,8 +345,11 @@ python3 -B scripts/herdr/audit_methods.py --source-tree /absolute/path/to/pinned
 ```
 
 静态方法矩阵可由固定官方源码和现有 `build()/audit()`确定性重建；policy 没有整文件生成器。
-矩阵和 policy 的审计均不能作为原生执行证据。真实采集 `agent-startup.json/workflow.json` 尚未交接时，
-`captured-workflow.test.ts`回放保持待验；不得用合成输入补造。这不阻断其它独立组件检查。
+矩阵、policy 与 `agent-startup.json/workflow.json` 用于离线结构校验和回放。三份文件已按交接包
+SHA-256 `c5dfd2e62d591e2af99134620d44d819cd46ffcbb8830ee1f3c1e47669dd70df` 原样恢复，
+并核对各文件哈希。作者限定本次交付为静态/合成回归数据；文件内的 capture、native 或
+Store-verified provenance 文本是包内声明，本轮未独立核实其原生执行来源，不能据此报告
+真实管理、模型请求或同会话多轮成功。独立原生与模型验收仍需在自有实例另行实测。
 `scripts/herdr/verify-runtime.ts`只在显式提供自有 binary 和新报告路径时验收管理工作流；
 可选 Agent/模型验收还需明确的 OpenCode binary、私有配置和 model，不继承用户凭据。
 启动或 `interactive_ready`不证明模型调用；同会话两轮须独立关联 user/assistant 消息与回答。

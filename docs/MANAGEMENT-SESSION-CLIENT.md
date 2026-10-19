@@ -2,7 +2,7 @@
 
 本切片接在 [管理写服务](MANAGEMENT-WRITES.md) 的既有事务和 HTTP handler 上，语义沿用
 [DESIGN](DESIGN.md) 与 [GATEWAY-WEBUI](GATEWAY-WEBUI.md)。仅提供改名、显式断开和持久撤销的
-可复用逻辑；页面挂载、视觉布局、公开 CLI、管理 listener 与生产登录/bootstrap 尚未在此接线。
+可复用逻辑；生产 `browser.ts` 已通过 `mountWebUi` 的第四参数消费既有写客户端。真实管理员来源、管理 listener、受保护 cookie 与 bootstrap HTML 的交付仍由宿主接线。
 没有生产会话来源时不能启用写操作。测试里的临时管理员、cookie 与 CSRF 不是生产身份。
 
 ## 运行宿主接口
@@ -56,7 +56,10 @@ HTTP handler 原有的五秒等待、并发与正文边界仍然生效；不合�
 
 `src/webui/index.ts` 导出 `createManagementWriteClient`、`createDeviceManagementFlow`、
 `ManagementClientError` 与共用类型。模块能独立构建到浏览器，不依赖 Node、Store 或服务端会话解析器。
-`browser.ts`、页面、样式与按钮保持原状；未来 UI 所有者组合下列逻辑。
+设备详情与默认 `browser.ts` 已消费下列逻辑。`createManagementPageCsrf(document)` 沿用 CLI 的单 meta 契约：
+宿主在 `no-store` HTML 中交付 `meta[name="rovloom-management-bootstrap"]`，其 `content` 为43字符 base64url CSRF，
+`data-expires-at` 为实际 Unix 毫秒截止。消费立即移除全部匹配 meta，重复/无效交付拒绝，截止后清空内存原值。
+该回调不建立身份、不读取 cookie、不写 URL 或浏览器存储；缺失原值时客户端在发送前拒绝。
 
 ```ts
 const client = createManagementWriteClient({ csrf: protectedBootstrapCsrf })
@@ -67,6 +70,12 @@ const result = await flow.confirm()
 // result.phase === 'unconfirmed'时，只可按原关联查询：
 const reconciled = await flow.checkReceipt()
 ```
+
+页面宿主接缝为 `mountWebUi(root, read, clock?, client)`。`client` 可由上例的
+`createManagementWriteClient({ csrf: protectedBootstrapCsrf })` 创建，只消费宿主既有受保护内存结果。
+页面卸载函数释放本页 flow；客户端的创建者随后显式调用 `client.close()`。
+此接口不定义新的登录、bootstrap HTTP 端点或管理员身份来源。实际页面交互的隔离验收见
+[开发说明](DEVELOPMENT.md#管理页面的隔离验证)。
 
 示例各步骤是独立用户交互，不能在准备完成后自动执行确认或对账。每个 flow 只处理一个意图：
 

@@ -36,16 +36,109 @@ def contrast_check(page):
     assert ratios and min(ratios) >= 4.5, min(ratios)
 
 
+class PreferenceControl:
+    """通过用户实际可见的图标和选项操作偏好，不直接修改展示状态。"""
+
+    def __init__(self, page, kind):
+        """取得稳定入口与它控制的选项面板。"""
+        self.root = page.locator(f'[data-preference="{kind}"]')
+        self.trigger = self.root.locator('.preference-trigger')
+        self.panel = self.root.locator('.preference-panel')
+
+    def choose(self, value):
+        """点击图标后选择固定枚举，并核对面板收起和焦点返回。"""
+        if self.trigger.get_attribute('aria-expanded') != 'true':
+            self.trigger.click()
+        self.panel.locator(f'[data-choice="{value}"]').click()
+        expect(self.panel).to_be_hidden()
+        expect(self.trigger).to_be_focused()
+        assert self.value() == value
+
+    def value(self):
+        """从对辅助技术公开的选择状态读取当前枚举。"""
+        return self.panel.locator('[aria-pressed="true"]').get_attribute('data-choice')
+
+
 def controls(page):
-    """取得不随文案改变而失效的两个稳定偏好控件。"""
-    return page.locator('.preference select').nth(0), page.locator('.preference select').nth(1)
+    """取得不随文案改变而失效的两个图标偏好控件。"""
+    return PreferenceControl(page, 'language'), PreferenceControl(page, 'theme')
+
+
+def icon_interactions(page, output, checks):
+    """验证图标入口、展开、选择、键盘退出、外部关闭及窄屏面板边界。"""
+    language, theme = controls(page)
+    route = page.evaluate('location.hash')
+    assert page.locator('.preferences select').count() == 0
+    assert page.locator('.preference-trigger svg[aria-hidden="true"]').count() == 2
+    for control in [language, theme]:
+        assert control.trigger.inner_text() == ''
+        assert control.trigger.get_attribute('title')
+        control.trigger.focus()
+        page.keyboard.press('Enter')
+        expect(control.panel).to_be_visible()
+        page.keyboard.press('Tab')
+        expect(control.panel.locator('button').first).to_be_focused()
+        page.keyboard.press('End')
+        expect(control.panel.locator('button').last).to_be_focused()
+        page.keyboard.press('Home')
+        page.keyboard.press('ArrowUp')
+        expect(control.panel.locator('button').last).to_be_focused()
+        page.keyboard.press('ArrowDown')
+        expect(control.panel.locator('button').first).to_be_focused()
+        page.keyboard.press('Escape')
+        expect(control.panel).to_be_hidden()
+        expect(control.trigger).to_be_focused()
+        page.keyboard.press('ArrowUp')
+        expect(control.panel.locator('button').last).to_be_focused()
+        page.keyboard.press('Escape')
+        control.trigger.dblclick()
+        expect(control.panel).to_be_hidden()
+    language.trigger.click()
+    theme.trigger.click()
+    expect(language.panel).to_be_hidden()
+    expect(theme.panel).to_be_visible()
+    page.locator('h1').click()
+    expect(theme.panel).to_be_hidden()
+    language.trigger.focus()
+    page.keyboard.press('Space')
+    page.keyboard.press('Tab')
+    page.keyboard.press('Shift+Tab')
+    page.keyboard.press('Shift+Tab')
+    expect(language.panel).to_be_hidden()
+    theme.trigger.focus()
+    page.keyboard.press('ArrowDown')
+    page.keyboard.press('ArrowDown')
+    page.keyboard.press('Enter')
+    expect(theme.trigger).to_be_focused()
+    assert theme.value() == 'light'
+    assert route == page.evaluate('location.hash')
+    for width in [320, 480, 481, 760, 761, 1050, 1051, 1440]:
+        page.set_viewport_size({'width': width, 'height': 960})
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        brand = page.locator('.brand').bounding_box()
+        first = language.trigger.bounding_box()
+        assert brand['x'] + brand['width'] <= first['x']
+        for control in [language, theme]:
+            control.trigger.click()
+            box = control.panel.bounding_box()
+            assert box['x'] >= 0 and box['x'] + box['width'] <= width
+            assert box['y'] > control.trigger.bounding_box()['y']
+            if width in [320, 1440]:
+                page.screenshot(path=str(output / f'icons-{control.root.get_attribute("data-preference")}-{width}.png'), full_page=True)
+            page.keyboard.press('Escape')
+    language.trigger.click()
+    page.evaluate("location.hash='#machine=fixture-a'")
+    page.locator('.provider-card').first.wait_for()
+    expect(language.panel).to_be_hidden()
+    expect(page.locator('main')).to_be_focused()
+    checks.append('icon controls: localized names/current values, keyboard selection, Escape/focus exit/outside close, repeated clicks, navigation and eight viewport widths')
 
 
 
 def first_paint(browser, base, output, checks, page_error):
     """暂停主模块，核对保存主题在首次绘制前生效且无需主模块装载。"""
     records = []
-    for system, saved, background in [('light', 'dark', 'rgb(15, 27, 27)'), ('dark', 'light', 'rgb(243, 246, 245)')]:
+    for system, saved, background in [('light', 'dark', 'rgb(17, 19, 24)'), ('dark', 'light', 'rgb(246, 247, 249)')]:
         context = browser.new_context(locale='en-US', color_scheme=system, viewport={'width': 900, 'height': 650})
         context.add_init_script("localStorage.setItem('rovloom.webui.theme'," + json.dumps(saved) + ");window.themePaints=[];new PerformanceObserver(/** 捕获实际首帧属性和背景，不依赖模块完成后的断言。 */list=>{for(const entry of list.getEntries())window.themePaints.push({name:entry.name,theme:document.documentElement.dataset.theme,background:getComputedStyle(document.documentElement).backgroundColor})}).observe({type:'paint',buffered:true})")
         page = context.new_page()
@@ -88,10 +181,10 @@ def first_paint(browser, base, output, checks, page_error):
     page.route('**/browser.js', hold_system)
     page.goto(base + '/', wait_until='commit')
     page.wait_for_selector('body', state='attached')
-    page.wait_for_function("() => getComputedStyle(document.documentElement).backgroundColor==='rgb(243, 246, 245)'")
+    page.wait_for_function("() => getComputedStyle(document.documentElement).backgroundColor==='rgb(246, 247, 249)'")
     assert page.locator('html').get_attribute('data-theme') is None
     page.emulate_media(color_scheme='dark')
-    page.wait_for_function("() => getComputedStyle(document.documentElement).backgroundColor==='rgb(15, 27, 27)'")
+    page.wait_for_function("() => getComputedStyle(document.documentElement).backgroundColor==='rgb(17, 19, 24)'")
     assert page.locator('html').get_attribute('data-theme') is None
     assert page.locator('#rovloom-management').inner_text() == ''
     for route in held:
@@ -128,6 +221,13 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
         first_paint(browser, base, output, checks, page_error)
+        icon_context = browser.new_context(locale='zh-CN', color_scheme='light')
+        icon_page = icon_context.new_page()
+        icon_page.on('pageerror', page_error)
+        icon_page.goto(base + '/fixtures/')
+        icon_page.locator('.device-card').first.wait_for()
+        icon_interactions(icon_page, output, checks)
+        icon_context.close()
         for language, locale in [('zh-CN', 'zh-TW'), ('en', 'en-GB')]:
             for theme in ['light', 'dark']:
                 words = WORDS[language]
@@ -141,8 +241,8 @@ def main():
                 assert page.locator('html').get_attribute('lang') == language
                 assert page.locator('html').get_attribute('data-theme') == theme
                 assert page.evaluate("CSS.supports('color', 'light-dark(white, black)')")
-                assert page.get_by_role('combobox', name=words['language'], exact=True).count() == 1
-                assert page.get_by_role('combobox', name=words['theme'], exact=True).count() == 1
+                assert page.get_by_role('button', name=words['language'], exact=True).count() == 1
+                assert page.get_by_role('button', name=words['theme'], exact=True).count() == 1
                 assert page.evaluate('localStorage.length + sessionStorage.length') == 0
                 assert page.evaluate('typeof window.webUiFixture') == 'undefined'
                 csp = response.headers['content-security-policy']
@@ -163,13 +263,13 @@ def main():
                 page.get_by_role('button', name=words['refresh'], exact=True).click()
                 page.wait_for_function('/* 只等隔离请求进入挂起。 */ ()=>window.webUiFixture.pending.length===1')
                 before = page.evaluate('({reads:window.webUiFixture.reads,aborted:window.webUiFixture.aborted,hash:location.hash})')
-                language_select, theme_select = controls(page)
-                language_select.focus()
-                language_select.select_option(other)
+                language_control, theme_control = controls(page)
+                language_control.trigger.focus()
+                language_control.choose(other)
                 assert page.title() == WORDS[other]['title']
-                assert page.evaluate('document.activeElement===document.querySelectorAll(".preference select")[0]')
-                theme_select.focus()
-                theme_select.select_option('dark' if theme == 'light' else 'light')
+                assert page.evaluate('document.activeElement===document.querySelectorAll(".preference-trigger")[0]')
+                theme_control.trigger.focus()
+                theme_control.choose('dark' if theme == 'light' else 'light')
                 after = page.evaluate('({reads:window.webUiFixture.reads,aborted:window.webUiFixture.aborted,hash:location.hash})')
                 assert before == after
                 assert page.evaluate('window.webUiFixture.pending.length') == 1
@@ -178,30 +278,30 @@ def main():
                 checks.append(f'{language}/{theme}: language/theme changes preserve route, device, focus and pending read without cancellation')
                 page.get_by_role('button', name=WORDS[other]['cancel'], exact=True).click()
                 page.evaluate("window.webUiFixture.mode='normal';window.webUiFixture.release()")
-                language_select.select_option(language)
-                theme_select.select_option(theme)
+                language_control.choose(language)
+                theme_control.choose(theme)
                 page.get_by_role('button', name=words['refresh'], exact=True).click()
                 expect(page.get_by_role('button', name=words['refresh'], exact=True)).to_be_enabled()
                 page.screenshot(path=str(output / f'{language}-{theme}-desktop.png'))
                 page.set_viewport_size({'width': 320, 'height': 900})
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-                language_select.focus()
+                language_control.trigger.focus()
                 page.keyboard.press('Tab')
-                assert theme_select.evaluate('/* 核对键盘焦点与可见轮廓。 */ (el)=>document.activeElement===el&&getComputedStyle(el).outlineStyle!=="none"')
+                assert theme_control.trigger.evaluate('/* 核对键盘焦点与可见轮廓。 */ (el)=>document.activeElement===el&&getComputedStyle(el).outlineStyle!=="none"')
                 page.screenshot(path=str(output / f'{language}-{theme}.png'), full_page=True)
                 checks.append(f'{language}/{theme}: square logo, text contrast, keyboard focus and 320px layout')
 
                 page.evaluate("window.webUiFixture.mode='stale_children'")
                 page.get_by_role('button', name=words['refresh'], exact=True).click()
                 page.get_by_text(words['stale'], exact=False).first.wait_for()
-                language_select.select_option(other)
+                language_control.choose(other)
                 assert page.locator('main .badges .good, .provider-card .good').count() == 0
                 page.get_by_text(WORDS[other]['stale'], exact=False).first.wait_for()
-                language_select.select_option(language)
+                language_control.choose(language)
                 page.evaluate("window.webUiFixture.mode='unverified'")
                 page.get_by_role('button', name=words['refresh'], exact=True).click()
                 page.get_by_text(words['unknown'], exact=False).first.wait_for()
-                language_select.select_option(other)
+                language_control.choose(other)
                 page.get_by_text(WORDS[other]['unknown'], exact=False).first.wait_for()
                 assert page.locator('main .badges .good, .provider-card .good').count() == 0
                 checks.append(f'{language}/{theme}: switching never revives expired or unverified observations')
@@ -209,15 +309,15 @@ def main():
                 for mode, error in [('401', 'unauthenticated'), ('403', 'forbidden'), ('expired', 'unauthenticated')]:
                     page.goto(base + '/fixtures/')
                     page.locator('.device-card').first.wait_for()
-                    language_select, theme_select = controls(page)
-                    language_select.select_option(language)
-                    theme_select.select_option(theme)
+                    language_control, theme_control = controls(page)
+                    language_control.choose(language)
+                    theme_control.choose(theme)
                     page.evaluate('/* 仅调整显式隔离fixture情景。 */ (mode)=>{window.webUiFixture.mode=mode}', mode)
                     page.get_by_role('button', name=words['refresh'], exact=True).click()
                     page.get_by_text(words[error], exact=False).wait_for()
                     count = page.evaluate('window.webUiFixture.reads')
-                    language_select.select_option(other)
-                    theme_select.select_option('dark' if theme == 'light' else 'light')
+                    language_control.choose(other)
+                    theme_control.choose('dark' if theme == 'light' else 'light')
                     page.get_by_text(WORDS[other][error], exact=False).wait_for()
                     assert page.locator('.device-card,.provider-card').count() == 0
                     assert page.get_by_role('button', name=WORDS[other]['refresh'], exact=True).is_disabled()
@@ -226,9 +326,9 @@ def main():
 
                 page.goto(base + '/fixtures/')
                 page.locator('.device-card').first.wait_for()
-                language_select, theme_select = controls(page)
-                language_select.select_option('en')
-                theme_select.select_option('dark')
+                language_control, theme_control = controls(page)
+                language_control.choose('en')
+                theme_control.choose('dark')
                 page.reload()
                 page.locator('.device-card').first.wait_for()
                 assert page.locator('html').get_attribute('lang') == 'en'
@@ -243,7 +343,7 @@ def main():
         page.on('pageerror', page_error)
         page.goto(base + '/fixtures/')
         page.locator('.device-card').first.wait_for()
-        language_select, theme_select = controls(page)
+        language_control, theme_control = controls(page)
         page.locator('.device-name').first.focus()
         focused = page.locator('.device-name').first.get_attribute('href')
         page.evaluate("Object.defineProperty(navigator,'languages',{configurable:true,value:['en-US']});window.dispatchEvent(new Event('languagechange'))")
@@ -251,35 +351,35 @@ def main():
         assert page.evaluate('document.activeElement.getAttribute("href")') == focused
         page.emulate_media(color_scheme='dark')
         expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
-        language_select.select_option('zh-CN')
-        theme_select.select_option('light')
+        language_control.choose('zh-CN')
+        theme_control.choose('light')
         page.evaluate("window.dispatchEvent(new Event('languagechange'))")
         page.emulate_media(color_scheme='light')
         page.emulate_media(color_scheme='dark')
         assert page.locator('html').get_attribute('lang') == 'zh-CN'
         assert page.locator('html').get_attribute('data-theme') == 'light'
-        language_select.select_option('system')
-        theme_select.select_option('system')
+        language_control.choose('system')
+        theme_control.choose('system')
         expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
         assert page.locator('html').get_attribute('lang') == 'en'
         checks.append('system language/theme changes are live; manual choices remain independent; focused route link survives localization')
         page.goto(base + '/fixtures/#machine=fixture-a')
         page.locator('.provider-card').first.wait_for()
-        language_select, theme_select = controls(page)
-        language_select.select_option('en')
+        language_control, theme_control = controls(page)
+        language_control.choose('en')
         page.evaluate("window.webUiFixture.mode='near_stale'")
         page.get_by_role('button', name='Refresh', exact=True).click()
         page.get_by_text('Management readiness: Ready (ready)', exact=True).wait_for()
         count = page.evaluate('window.webUiFixture.reads')
-        language_select.select_option('zh-CN')
-        theme_select.select_option('light')
+        language_control.choose('zh-CN')
+        theme_control.choose('light')
         page.get_by_text('运行观测已过期', exact=False).first.wait_for(timeout=3500)
         assert page.locator('main .badges .good,.provider-card .good').count() == 0
         assert page.evaluate('window.webUiFixture.reads') == count
         checks.append('language/theme switches preserve the original monotonic expiry boundary without a new read')
         page.evaluate("Object.defineProperty(navigator,'languages',{configurable:true,value:['en-US']})")
-        language_select.select_option('system')
-        theme_select.select_option('system')
+        language_control.choose('system')
+        theme_control.choose('system')
         before = page.evaluate('({language:document.documentElement.lang,theme:document.documentElement.dataset.theme})')
         page.evaluate("window.webUiFixture.dispose();Object.defineProperty(navigator,'languages',{configurable:true,value:['zh-CN']});window.dispatchEvent(new Event('languagechange'))")
         page.emulate_media(color_scheme='light')
@@ -303,11 +403,11 @@ def main():
             page.locator('.device-card').first.wait_for()
             assert page.locator('html').get_attribute('lang') == 'en'
             assert page.locator('html').get_attribute('data-theme') == 'dark'
-            language_select, theme_select = controls(page)
-            assert language_select.input_value() == 'system'
-            assert theme_select.input_value() == 'system'
-            language_select.select_option('zh-CN')
-            theme_select.select_option('light')
+            language_control, theme_control = controls(page)
+            assert language_control.value() == 'system'
+            assert theme_control.value() == 'system'
+            language_control.choose('zh-CN')
+            theme_control.choose('light')
             assert page.locator('html').get_attribute('lang') == 'zh-CN'
             assert page.locator('html').get_attribute('data-theme') == 'light'
             page.reload()
