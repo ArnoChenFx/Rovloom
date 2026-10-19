@@ -3,12 +3,83 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   admissionRequestDigest,
+  admissionRegisteredRequestDigest,
   decodeWireFrame,
   encodeWireFrame,
   negotiate,
   validateNegotiated
 } from '../../src/wire/index.js'
 import { attempt, binding, context, frame, request } from './helpers.js'
+
+test(
+  'admission context is a separate optional capability and requires complete original metadata',
+  /** 旧 receipt 不隐式升级；新能力依赖 rpc/receipt 且同帧 context 必须完整。 */ () => {
+    const offered = {
+      major: 2,
+      minor: 0,
+      capabilities: ['rpc', 'admission_receipt', 'admission_context'],
+      required: ['rpc']
+    }
+    assert.deepEqual(negotiate(offered, { ...offered, capabilities: ['rpc', 'admission_receipt'] }).capabilities, [
+      'admission_receipt',
+      'rpc'
+    ])
+    assert.throws(
+      /** 缺 receipt 的孤立 context 无效。 */ () =>
+        validateNegotiated({ major: 2, minor: 0, capabilities: ['rpc', 'admission_context'] }),
+      /invalid_capabilities/
+    )
+    const ctx = context()
+    ctx.connection.negotiated.capabilities.push('admission_receipt', 'admission_context')
+    const input = {
+      binding,
+      native_request: { method: 'task.add', params: { title: 'synthetic' } },
+      validation: 'strict' as const
+    }
+    const receipt = frame('admission_receipt', {
+      attempt,
+      request_sha256: admissionRequestDigest(input),
+      dedup_expires_at: 2000
+    })
+    assert.throws(
+      /** 新能力已协商时不能降为 cutoff-only。 */ () => decodeWireFrame(JSON.stringify(receipt), ctx),
+      /admission_context_required/
+    )
+    const full = {
+      ...receipt,
+      payload: {
+        ...receipt.payload,
+        context: {
+          principal_id: 'synthetic',
+          registered_request_sha256: admissionRegisteredRequestDigest(input, 'synthetic'),
+          sequence: 1,
+          fenced: false,
+          anchor: {
+            binding,
+            method: 'task.add',
+            mode: 'strict' as const,
+            state: 'dispatching' as const,
+            content_status: 'available' as const,
+            content_expires_at: 1500,
+            dedup_expires_at: 2000
+          }
+        }
+      }
+    }
+    assert.equal(decodeWireFrame(encodeWireFrame(full, ctx), ctx).type, 'admission_receipt')
+    const mismatch = structuredClone(full)
+    mismatch.payload.context.anchor.dedup_expires_at++
+    assert.throws(
+      /** 内外原 dedup 截止必须完全相同。 */ () => decodeWireFrame(JSON.stringify(mismatch), ctx),
+      /admission_context_mismatch/
+    )
+    ctx.connection.negotiated.capabilities = ['rpc', 'admission_receipt']
+    assert.throws(
+      /** 只协商旧能力时附加 context 必须拒绝。 */ () => decodeWireFrame(JSON.stringify(full), ctx),
+      /unsupported_capability/
+    )
+  }
+)
 
 test(
   'admission receipt is optional, depends on rpc and requires both peers to advertise it',

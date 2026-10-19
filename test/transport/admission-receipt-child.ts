@@ -20,7 +20,9 @@ type Config = {
   provider: ProviderBinding
   path: string
   clock: number
+  contextual?: boolean
 }
+let configuration: Config | undefined
 let client: ReturnType<typeof createConnector> | undefined
 let receipts: ConnectorAdmissionReceipts | undefined
 let readyTimer: ReturnType<typeof setInterval> | undefined
@@ -49,10 +51,20 @@ try {
       report('closed', { executions })
       break
     }
+    if (command.type === 'snapshot' && receipts) {
+      report('snapshot', { snapshot: receipts.snapshot(command.binding) })
+      continue
+    }
+    if (command.type === 'clock' && configuration) {
+      configuration.clock = command.clock
+      report('clock')
+      continue
+    }
     if (command.type !== 'start' || client) {
       throw new Error('unexpected_fixture_command')
     }
     const config = command.config as Config
+    configuration = config
     const origin = { ...source, runtime_generation: G, classification_revision: 'review1' }
     const reference = contractRef(origin)
     const capabilities = json('session-capabilities.json')
@@ -79,9 +91,15 @@ try {
       mode: 'create',
       ledger_id: 'isolated_child_receipts',
       limits: { entries: 128, bytes: 1_048_576 },
+      ...(config.contextual ? { routes: [{ target: config.target, principal_id: 'synthetic' }] } : {}),
       now: /** 与隔离 Gateway 的明确测试时钟一致，不读取共享进程状态。 */ () => config.clock
     })
     const sink = receipts
+    if (config.contextual) {
+      sink.subscribeInvalidation(
+        /** 仅报告真实持久提交后的类型，便于父进程比较回滚与成功提交。 */ (event) => report('invalidated', { event })
+      )
+    }
     const book = new ConnectorAttemptBook({
       now: /** 固定测试时钟不会按重连刷新 Gateway 原截止。 */ () => config.clock,
       dedupExpires: /** 只读本进程独立持久 receipt，不打开 Gateway writer。 */ (binding) => sink.dedupExpires(binding)
@@ -90,7 +108,12 @@ try {
       url: config.url,
       developmentLoopback: true,
       credential: /** stdin 只交付隔离配对凭据。 */ () => config.credential,
-      offer: { major: 2, minor: 0, capabilities: ['rpc', 'admission_receipt'], required: ['rpc', 'admission_receipt'] },
+      offer: {
+        major: 2,
+        minor: 0,
+        capabilities: ['rpc', 'admission_receipt', ...(config.contextual ? ['admission_context'] : [])],
+        required: ['rpc', 'admission_receipt', ...(config.contextual ? ['admission_context'] : [])]
+      },
       now: /** 使用显式测试时钟验证固定期限。 */ () => config.clock,
       limits: { heartbeat_ms: 100, idle_ms: 5000, handshake_ms: 1000, reconnect_ms: 1000 },
       /** 实际 welcome 才创建独立本机准入；请求候选及 Store 不从父进程传入。 */

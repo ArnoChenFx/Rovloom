@@ -34,6 +34,7 @@ export type ContractRecord = { source: ContractSource; support_status: 'candidat
 export type Capability =
   | 'rpc'
   | 'admission_receipt'
+  | 'admission_context'
   | 'history_scope'
   | 'late_evidence'
   | 'objects'
@@ -119,7 +120,12 @@ export type RequestPayload = {
   validation: ValidationMode
 }
 export type Payloads = {
-  admission_receipt: { attempt: AttemptIdentity; request_sha256: string; dedup_expires_at: number }
+  admission_receipt: {
+    attempt: AttemptIdentity
+    request_sha256: string
+    dedup_expires_at: number
+    context?: import('./admission.js').AdmissionReceiptContext
+  }
   request: RequestPayload
   accepted: { attempt: AttemptIdentity }
   response: { attempt: AttemptIdentity; native_response: JsonObject }
