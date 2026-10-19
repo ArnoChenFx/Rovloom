@@ -393,6 +393,18 @@ export class ManagementLedger {
           throw new GatewayError('revision_conflict')
         }
         beforeMutation()
+        // 外部proof可刷新身份或政策；最后一次外部回调之后复验原scope、摘要与资源，才允许业务修改。
+        this.history(write, authority(), now, true)
+        if (canonical(saved) !== canonical(expected)) {
+          throw new GatewayError('confirmation_mismatch')
+        }
+        const currentResource = this.resource(intent)
+        if (
+          currentResource.revision !== write.expected_revision ||
+          currentResource.fingerprint !== row.resource_digest
+        ) {
+          throw new GatewayError('revision_conflict')
+        }
         let target: ResourceTarget = {
           machine_id: 'machine_id' in intent.target ? intent.target.machine_id : '',
           ...('provider_id' in intent.target ? { provider_id: intent.target.provider_id } : {})

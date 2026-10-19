@@ -218,3 +218,97 @@ for (const failure of ['unknown_host', 'sqlite'] as const) {
     }
   )
 }
+
+for (const action of ['pairing_create', 'provider_enable'] as const) {
+  for (const refusal of ['session', 'policy'] as const) {
+    test(
+      `${action} proof回调返回true但刷新并撤回${refusal}时，最后复验拒绝且writer健康`,
+      /** 受信proof没有纯函数限制，因此它返回之后必须重读当前session/政策，不能只复验回调之前的快照。 */ async () => {
+        const root = mkdtempSync(join(tmpdir(), 'rovloom-owned-proof-refresh-'))
+        const path = join(root, 'gateway.sqlite')
+        const store = new Store(path, Date.now, { management })
+        const f = setup(store)
+        let armed = false
+        let proofReads = 0
+        try {
+          const machine = store.register('owned_last_authority').machine_id
+          store.defineProvider({
+            machine_id: machine,
+            provider_id: 'one',
+            kind: 'luvus',
+            config_ref: 'fixture_only',
+            enabled: false,
+            binding_revision: 1
+          })
+          f.grant({ action: 'providers_manage', machine_id: machine, provider_id: 'one' })
+          const originalAdmin = f.admin!
+          /** 模拟合法受信proof刷新同一身份后端后返回true，而非从请求体伪造身份。 */
+          const proof = () => {
+            proofReads++
+            if (armed) {
+              f.admin = refusal === 'session' ? null : { ...originalAdmin, policy_revision: 'fixture_policy_refreshed' }
+            }
+            return true
+          }
+          const service = new StoreManagementWriteService({
+            store,
+            identities: f.identities,
+            transport: { /** 此隔离事务测试没有活socket。 */ refresh() {} },
+            pairingPolicy: proof,
+            providerEnable: proof
+          })
+          const operation =
+            action === 'pairing_create'
+              ? { action, target: { name: 'must_not_commit_refreshed', labels: [], policy_ref: 'fixture_policy' } }
+              : {
+                  action,
+                  target: { machine_id: machine, provider_id: 'one', kind: 'luvus' as const },
+                  expected_binding_revision: 1
+                }
+          const c = await confirmed(service, operation, action === 'pairing_create' ? 0 : 1)
+          const args =
+            action === 'pairing_create'
+              ? { ...c.write, ...operation.target }
+              : { ...c.write, ...operation.target, expected_binding_revision: 1 }
+          const before = proofReads
+          armed = true
+          await assert.rejects(
+            service.execute(
+              action === 'pairing_create' ? 'pairings_create' : 'providers_enable',
+              args as never,
+              context()
+            ),
+            refusal === 'session' ? /unauthenticated/ : /management_history_unavailable/
+          )
+          assert.equal(proofReads, before + 1)
+          assert.equal(store.health().mode, 'active')
+          unchanged(path, c.write)
+          assert.equal(store.provider(machine, 'one')!.enabled, false)
+          const db = new DatabaseSync(path, { readOnly: true })
+          try {
+            assert.equal(db.prepare('SELECT COUNT(*) n FROM machines').get()!.n, 1)
+            assert.equal(db.prepare('SELECT COUNT(*) n FROM admin_pairings').get()!.n, 0)
+          } finally {
+            db.close()
+          }
+          armed = false
+          f.admin = originalAdmin
+          assert.equal(
+            (
+              await service.execute(
+                action === 'pairing_create' ? 'pairings_create' : 'providers_enable',
+                args as never,
+                context()
+              )
+            ).operation_state,
+            'committed'
+          )
+          assert.equal(store.health().mode, 'active')
+        } finally {
+          store.close()
+          rmSync(root, { recursive: true, force: true })
+        }
+      }
+    )
+  }
+}

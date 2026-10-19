@@ -106,7 +106,8 @@ history 在接收截止加 audit_ttl 后清理，相关确认/回执先清理；
 
 writer 内会话到期、权限撤销或当前证明返回拒绝，只转换本服务白名单中的已知管理拒绝为 Store 业务错误，
 回滚且保持健康库 active；确认不消费、回执不产生，后续健康业务仍可继续。未知宿主异常或真实 SQLite 异常
-保持原存储故障降级路径，不将全部异常降格为业务拒绝。相关回归见 test/admin/write-refusals.test.ts。
+保持原存储故障降级路径，不将全部异常降格为业务拒绝。最后一次外部 proof 回调之后再次读取当前 authority，并复核原 history 政策、确认摘要及资源 fence，
+证明回调期间撤回的会话或政策不能提交。相关回归见 test/admin/write-refusals.test.ts。
 
 ## 证据边界
 
