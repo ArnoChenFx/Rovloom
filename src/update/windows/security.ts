@@ -4,6 +4,13 @@ import { UpdateError } from '../contract.js'
 import { WindowsNativeError, windowsFfi, windowsLibrary, windowsPointer, windowsWide } from './native.js'
 
 export type WindowsAce = Readonly<{ kind: 'allow' | 'deny'; sid: string; mask: number; inheritOnly: boolean }>
+export type WindowsSecuritySnapshot = Readonly<{
+  owner: string
+  group: string
+  entries: readonly WindowsAce[]
+  canonical: string
+  digest: string
+}>
 type Security = {
   ConvertStringSecurityDescriptorToSecurityDescriptorW(
     text: Buffer,
@@ -237,7 +244,7 @@ export function checkWindowsAcl(
 }
 
 // 对同一持有文件对象读取 owner/DACL 与规范 SDDL；未知 ACE 类型、NULL DACL 和超预算均拒绝。
-export function verifyWindowsFileSecurity(handle: bigint, ancestor: boolean): string {
+export function inspectWindowsFileSecurity(handle: bigint, ancestor: boolean): WindowsSecuritySnapshot {
   const { security: a, kernel: k } = api()
   const owner = Buffer.alloc(8)
   const group = Buffer.alloc(8)
@@ -249,7 +256,7 @@ export function verifyWindowsFileSecurity(handle: bigint, ancestor: boolean): st
   }
   const allocation = descriptor.readBigUInt64LE()
   const text = Buffer.alloc(8)
-  let digest: string | undefined
+  let result: WindowsSecuritySnapshot | undefined
   let failure: unknown
   try {
     const pAcl = windowsPointer(acl.readBigUInt64LE())
@@ -282,13 +289,9 @@ export function verifyWindowsFileSecurity(handle: bigint, ancestor: boolean): st
         inheritOnly: (flags & 8) !== 0
       })
     }
-    checkWindowsAcl(
-      sidText(windowsPointer(owner.readBigUInt64LE())),
-      entries,
-      windowsCurrentSid(),
-      trustedInstaller(),
-      ancestor
-    )
+    const ownerSid = sidText(windowsPointer(owner.readBigUInt64LE()))
+    const groupSid = group.readBigUInt64LE() === 0n ? '' : sidText(windowsPointer(group.readBigUInt64LE()))
+    checkWindowsAcl(ownerSid, entries, windowsCurrentSid(), trustedInstaller(), ancestor)
     const length = Buffer.alloc(4)
     if (!a.ConvertSecurityDescriptorToStringSecurityDescriptorW(windowsPointer(allocation), 1, 7, text, length)) {
       throw new WindowsNativeError(k.GetLastError())
@@ -298,7 +301,13 @@ export function verifyWindowsFileSecurity(handle: bigint, ancestor: boolean): st
       throw new UpdateError('unsafe_installation')
     }
     const sddl = Buffer.from(windowsFfi().toArrayBuffer(windowsPointer(text.readBigUInt64LE()), 0, units * 2))
-    digest = createHash('sha256').update(sddl).digest('hex')
+    result = Object.freeze({
+      owner: ownerSid,
+      group: groupSid,
+      entries: Object.freeze(entries.map(/* 固定只读权限事实，不返回原生指针。 */ (entry) => Object.freeze(entry))),
+      canonical: sddl.toString('utf16le').replace(/\0$/u, ''),
+      digest: createHash('sha256').update(sddl).digest('hex')
+    })
   } catch (error) {
     failure = error
   }
@@ -311,5 +320,10 @@ export function verifyWindowsFileSecurity(handle: bigint, ancestor: boolean): st
   if (!textFreed || !descriptorFreed) {
     throw new UpdateError('staging_failed')
   }
-  return digest!
+  return result!
+}
+
+// 普通更新身份仅携带摘要，完整权限事实只供受信内部核验，不写公共 CLI 诊断或回执。
+export function verifyWindowsFileSecurity(handle: bigint, ancestor: boolean): string {
+  return inspectWindowsFileSecurity(handle, ancestor).digest
 }

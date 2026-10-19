@@ -3,7 +3,12 @@ import { win32 } from 'node:path'
 import { createHash } from 'node:crypto'
 import { MAX_BINARY_BYTES, UpdateError } from '../contract.js'
 import { windowsLibrary, windowsWide, WindowsNativeError } from './native.js'
-import { verifyWindowsFileSecurity, windowsPrivateAttributes } from './security.js'
+import {
+  inspectWindowsFileSecurity,
+  verifyWindowsFileSecurity,
+  windowsPrivateAttributes,
+  type WindowsSecuritySnapshot
+} from './security.js'
 import type { WindowsFileIdentity } from './protocol.js'
 
 type Kernel = {
@@ -260,6 +265,26 @@ export function readWindowsExecutable(value: string, arch: 'x64' | 'arm64'): Win
   }
   if (!closed) {
     throw new WindowsNativeError(k.GetLastError())
+  }
+  return result!
+}
+
+// 受信调用者可比较完整 owner/group/DACL 事实；本方法不执行、替换或放宽任何权限。
+export function readWindowsExecutableSecurity(value: string): WindowsSecuritySnapshot {
+  const handle = open(value, false)
+  let result: WindowsSecuritySnapshot | undefined
+  let failure: unknown
+  try {
+    result = inspectWindowsFileSecurity(handle, false)
+  } catch (error) {
+    failure = error
+  }
+  const closed = api().CloseHandle(handle) !== 0
+  if (failure) {
+    throw failure
+  }
+  if (!closed) {
+    throw new WindowsNativeError(api().GetLastError())
   }
   return result!
 }

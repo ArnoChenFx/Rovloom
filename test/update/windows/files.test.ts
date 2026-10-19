@@ -10,6 +10,7 @@ import { checkWindowsAcl } from '../../../src/update/windows/security.js'
 import {
   WindowsPathLease,
   readWindowsExecutable,
+  readWindowsExecutableSecurity,
   replaceWindowsExecutable,
   writeWindowsReceipt
 } from '../../../src/update/windows/files.js'
@@ -96,6 +97,7 @@ test(
       await fs.copyFile(join(root, 'old.exe'), executable)
       const arch = process.arch as 'x64' | 'arm64'
       const original = readWindowsExecutable(executable, arch)
+      const originalSecurity = readWindowsExecutableSecurity(executable)
       const alias = join(root, 'alias.exe')
       await fs.link(executable, alias)
       assert.throws(/* 额外硬链接不能被默默替换。 */ () => readWindowsExecutable(executable, arch), {
@@ -110,7 +112,7 @@ test(
       lease = WindowsPathLease.acquire(executable)
       const transactionId = randomBytes(16).toString('hex')
       const directory = lease.createDirectory(transactionId)
-      await fs.copyFile(join(root, 'next.exe'), join(directory, 'candidate.exe'))
+      await fs.writeFile(join(directory, 'candidate.exe'), await fs.readFile(join(root, 'next.exe')), { flag: 'wx' })
       const next = readWindowsExecutable(join(directory, 'candidate.exe'), arch)
       const receipt = {
         schemaVersion: 1,
@@ -125,6 +127,7 @@ test(
       const installed = readWindowsExecutable(executable, arch)
       assert.equal(installed.fileId, next.fileId)
       assert.equal(installed.sha256, next.sha256)
+      assert.deepEqual(readWindowsExecutableSecurity(executable), originalSecurity)
       assert.equal(installed.security, original.security)
       assert.equal(readWindowsExecutable(join(directory, 'previous.exe'), arch).fileId, original.fileId)
       assert.deepEqual(await runSystemCommand({ executable, args: ['--version'], timeout: 10000 }), {
