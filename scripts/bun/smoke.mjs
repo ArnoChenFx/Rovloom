@@ -28,6 +28,15 @@ assert.equal(typeof transport.PersistentProofIdentity, 'function')
 assert.equal(typeof transport.ChannelRegistry, 'function')
 assert.equal(typeof transport.createDeviceLifecycleWiring, 'function')
 assert.equal(typeof transport.createDeviceLifecycleAdapter, 'function')
+// Herdr 产物复用共享 Wire 错误身份；导入本身不启动或连接原生实例。
+const herdr = await import('../../dist/src/herdr/readonly.js')
+assert.equal(typeof herdr.createHerdrReadonlyAdapter, 'function')
+assert.deepEqual(herdr.HERDR_READONLY_REVIEW.methods, ['ping'])
+assert.throws(
+  /** 用未受信来源触发产物错误，核对跨入口共享 GatewayError 身份。 */
+  () => herdr.createHerdrCodec({}, {}),
+  contracts.GatewayError
+)
 assert.equal(typeof persistence.persistentBackend, 'function')
 assert.equal(typeof persistence.commitLuvusResponse, 'function')
 assert.deepEqual(
