@@ -1,4 +1,4 @@
-// 导出不含调用原文和有效凭据的 v4 隔离快照，并限制备份大小、同步落盘及清理失败产物。
+// 导出不含调用原文和有效凭据的 v5 隔离快照，并限制备份大小、同步落盘及清理失败产物。
 import { DatabaseSync } from 'node:sqlite'
 import { closeSync, fsyncSync, openSync, unlinkSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
