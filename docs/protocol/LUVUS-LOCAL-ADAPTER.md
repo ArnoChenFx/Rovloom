@@ -51,6 +51,9 @@ SO_PEERCRED 实现，缺回调即拒绝。CLI 的 native socket 隐藏在子进�
 adapter 内部直接构造现有 `createLuvusWireAdapter`，不复制认证/策略逻辑，不提供
 跳过 Wire 的公开 execute 函数。请求解码先核对登记 attempt、双端 binding、契约、
 能力、许可和完整原请求；额外核对本地 config_ref/Target/revision 与 binary hash。
+原生 method descriptor 的 transport 还必须为 `single_request_rpc`，不能仅凭
+Wire request 或账本 rpc 标记判断；即使 backend 同时支持持久流，也在本地发现、
+认证、claim 和原生写入前拒绝流方法及未分类 transport。
 
 宿主还必须提供：
 

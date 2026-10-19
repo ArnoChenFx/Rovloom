@@ -112,7 +112,7 @@ export class LuvusRpcAdapter {
     this.#lastNow = now
     return now
   }
-  /** 将受信任在线能力绑定原生 validator，计算本地与在线通用、终端帧预算的交集。 */
+  /** 绑定可信能力并限定原生单请求 RPC，再计算本地与在线通用、终端帧预算的交集。 */
   #nativeBoundary(binding: AttemptBinding, method: string) {
     const record = this.#host.backend.contract(binding.contract_ref)
     const source = this.#host.backend.nativeSource(binding.call_id, binding.attempt_id)
@@ -126,6 +126,14 @@ export class LuvusRpcAdapter {
     const bound = validator.bindCapabilities(capabilities, source)
     if (!bound.ok) {
       throw new LuvusAdapterError(bound.error.code)
+    }
+    const descriptor = validator.describe(bound.value, method)
+    if (!descriptor.ok) {
+      throw new LuvusAdapterError(descriptor.error.code)
+    }
+    // backend 可以同时服务流模块；其支持集合不能扩大本 adapter 的单请求传输边界。
+    if (descriptor.value.transport !== 'single_request_rpc') {
+      throw new LuvusAdapterError('ordinary_rpc_required')
     }
     const online = object(capabilities.result ?? null)
     const general = object(online.limits ?? null).frame_bytes as number

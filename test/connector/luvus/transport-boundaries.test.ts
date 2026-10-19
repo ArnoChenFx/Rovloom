@@ -11,6 +11,45 @@ import { fixture } from './helpers.js'
 
 const methods = ['task.add', 'terminal.backend.validate'] as const
 const transports = ['ipc', 'cli'] as const
+
+for (const transport of transports) {
+  test(
+    `ordinary RPC refuses persistent native transport before auth, claim or IO: ${transport}`,
+    /* 即使可信 backend 同时支持流且登记为 rpc，也须在本模块的任何本地 IO 前拒绝原生 observe。 */ async (t) => {
+      const f = await fixture(transport, 'terminal.backend.observe')
+      t.after(/* 释放本用例拥有的 adapter、连接和私有目录。 */ () => f.close())
+      let auth = 0
+      f.host.nativeAuth = /* 记录认证副作用，确保非普通 RPC 方法在认证前已被本模块拒绝。 */ async () => {
+        auth++
+        return f.state.auth
+      }
+      const observed = await f.adapter.dispatch(f.input()).then(
+        /* 捕获意外完成的原生响应，随后仍核对认证与派发的实际副作用。 */ (result) => ({ result }),
+        /* 消费安全拒绝并保留错误对象，随后与真实 claim/IO 计数共同核对。 */ (error: unknown) => ({ error })
+      )
+      const input = join(f.cwd, 'request.jsonl')
+      const effects = {
+        auth,
+        claims: f.state.claims,
+        ipc_frames: f.state.responses,
+        cli_input_bytes: existsSync(input) ? readFileSync(input).length : 0,
+        local_process_started: existsSync(join(f.cwd, 'observed.json'))
+      }
+      assert.deepEqual(effects, {
+        auth: 0,
+        claims: 0,
+        ipc_frames: 0,
+        cli_input_bytes: 0,
+        local_process_started: false
+      })
+      assert('error' in observed)
+      assert(observed.error instanceof LuvusAdapterError)
+      assert.equal(observed.error.code, 'ordinary_rpc_required')
+      assert.equal(observed.error.outcome, 'not_dispatched')
+    }
+  )
+}
+
 /** 构造安全错误码断言，确保传输边界失败不夹带底层内容。 */
 function rejected(code: string) {
   return /* 核对拒绝值的 adapter 类型、错误码和公开消息。 */ (error: unknown) => {
