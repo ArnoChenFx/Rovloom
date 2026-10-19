@@ -32,6 +32,8 @@ export { DEFAULT_RETENTION }
 export type {
   Call,
   CallOptions,
+  CallAdmissionOptions,
+  CallAdmission,
   ManagementRequest,
   DeviceLifecycleRequest,
   StoreOptions,
@@ -40,6 +42,8 @@ export type {
 import type {
   Call,
   CallOptions,
+  CallAdmissionOptions,
+  CallAdmission,
   Machine,
   Metadata,
   Row,
@@ -787,22 +791,78 @@ export class Store {
     }
     return result
   }
-  // 验证目标、请求与历史去重作用域，按预算原子登记调用及不可延长的期限。
-  createCall(principal: string, target: V2Target, request: NativeRequest, options: CallOptions): Call {
-    validateTarget(target)
-    validateRequest(request)
+  // 保留内部相对 timeout 调用路径；与绝对准入共用同一 writer 登记，返回原有 Call 视图。
+  createCall(
+    principal: string,
+    target: V2Target,
+    request: NativeRequest,
+    options: CallOptions,
+    authorize?: () => void
+  ): Call {
+    return this.registerCall(principal, target, request, options, { timeoutMs: options.timeoutMs ?? 30_000 }, authorize)
+      .call
+  }
+  // 原子登记绝对 deadline 并返回首次登记标志；同步 authorize 只供可信 Router 复验，不能来自请求参数。
+  admitCall(
+    principal: string,
+    target: V2Target,
+    request: NativeRequest,
+    options: CallAdmissionOptions,
+    authorize?: () => void
+  ): CallAdmission {
+    if (options.timeoutMs !== undefined) {
+      throw new GatewayError('invalid_deadline')
+    }
+    return this.registerCall(principal, target, request, options, { deadline: options.deadline }, authorize)
+  }
+  // 快照完整意图，在唯一 writer 事务中决定新旧；不提供查询后创建、派发或通用 SQL 回调入口。
+  private registerCall(
+    principal: string,
+    targetValue: V2Target,
+    requestValue: NativeRequest,
+    supplied: CallOptions,
+    timing: { timeoutMs: number } | { deadline: number },
+    authorize?: () => void
+  ): CallAdmission {
+    validateTarget(targetValue)
+    validateRequest(requestValue)
+    if ('timeoutMs' in timing) {
+      if (!Number.isSafeInteger(timing.timeoutMs) || timing.timeoutMs <= 0 || timing.timeoutMs > 600_000) {
+        throw new GatewayError('invalid_timeout')
+      }
+    } else if (!Number.isSafeInteger(timing.deadline) || timing.deadline <= 0) {
+      throw new GatewayError('invalid_deadline')
+    }
+    if (authorize !== undefined && typeof authorize !== 'function') {
+      throw new GatewayError('synchronous_authorization_required')
+    }
+    const { target, request } = JSON.parse(canonical({ target: targetValue, request: requestValue })) as {
+      target: V2Target
+      request: NativeRequest
+    }
+    const options: CallOptions = {
+      binding_revision: supplied.binding_revision,
+      contract_ref: supplied.contract_ref,
+      caller_policy_revision: supplied.caller_policy_revision,
+      local_policy_revision: supplied.local_policy_revision,
+      ...(supplied.validation === undefined ? {} : { validation: supplied.validation }),
+      ...(supplied.history === undefined ? {} : { history: JSON.parse(canonical(supplied.history)) })
+    }
     return this.transaction(
-      /* 校验完整登记条件与历史准入，重复键返回原调用，否则按子额登记新调用。 */ (now) => {
+      /* 在同一 writer 事务复验授权、查询去重并登记；预算和审计提交后才返回 created 判定。 */ (now) => {
+        const authorized: unknown = authorize?.()
+        if (authorized !== undefined) {
+          if (authorized instanceof Promise) {
+            void authorized.catch(/* 观察违规异步授权的拒绝；准入仍同步失败，不把后续结果当作许可。 */ () => {})
+          }
+          throw new GatewayError('synchronous_authorization_required')
+        }
         const provider = this.provider(target.machine_id, target.provider_id)
         if (!provider || !provider.enabled || provider.binding_revision !== options.binding_revision) {
           throw new GatewayError('provider_binding_mismatch')
         }
         if (provider.kind === 'herdr') {
           throw new GatewayError('provider_support_candidate')
-        }
-        const timeout = options.timeoutMs ?? 30_000
-        if (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 600_000) {
-          throw new GatewayError('invalid_timeout')
         }
         const identity: AttemptIdentity = {
           call_id: id('call'),
@@ -813,7 +873,7 @@ export class Store {
           binding_revision: provider.binding_revision,
           contract_ref: options.contract_ref,
           registration: {
-            deadline: now + timeout,
+            deadline: 'deadline' in timing ? timing.deadline : now + timing.timeoutMs,
             history: options.history ?? null,
             caller_policy_revision: options.caller_policy_revision,
             local_policy_revision: options.local_policy_revision
@@ -848,7 +908,9 @@ export class Store {
           if (old) {
             // deadline 是初次登记的绝对值，重送不能以当前时刻刷新；其余条件仍逐项摘要核对。
             const prior = JSON.parse(old.identity_json) as AttemptIdentity
-            identity.registration.deadline = prior.registration.deadline
+            if ('timeoutMs' in timing) {
+              identity.registration.deadline = prior.registration.deadline
+            }
             hash = registeredRequestDigest(
               {
                 attempt: identity,
@@ -858,7 +920,7 @@ export class Store {
               },
               principal
             )
-            if (prior.registration.deadline - old.created !== timeout) {
+            if ('timeoutMs' in timing && prior.registration.deadline - old.created !== timing.timeoutMs) {
               throw new GatewayError('request_key_conflict')
             }
           }
@@ -876,9 +938,18 @@ export class Store {
             : undefined
           const decision = planHistoryAdmission(options.history, this.generation(), hash, scope, record, now)
           if (decision.action === 'return_existing') {
-            return publicCall(this.owned(principal, decision.call_id, now), now)
+            return { call: publicCall(this.owned(principal, decision.call_id, now), now), created: false }
           }
           dedupExpires = decision.dedup_expires_at
+        }
+        // 有效墓碑命中只返回旧意图；只有首次登记才要求绝对截止时间仍在未来且不超过十分钟。
+        if ('deadline' in timing) {
+          if (timing.deadline <= now) {
+            throw new GatewayError('deadline_exceeded')
+          }
+          if (timing.deadline - now > 600_000) {
+            throw new GatewayError('invalid_deadline')
+          }
         }
         if (this.machine(target.machine_id).status !== 'online') {
           throw new GatewayError('machine_offline')
@@ -911,7 +982,7 @@ export class Store {
           )
         const row = this.row(identity.call_id)
         this.audit('created', principal, now, row)
-        return publicCall(row, now)
+        return { call: publicCall(row, now), created: true }
       }
     )
   }

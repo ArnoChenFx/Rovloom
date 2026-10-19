@@ -73,6 +73,21 @@ policy revision。Router 按完整 target/method/action grant 双端求交，并
 和取消；discard_response 另需独立权限。provider 启停消耗独立管理确认并递增 revision，旧
 attempt/句柄不复用。设备撤销覆盖所有 providers，且不表示原生动作已经停止。
 
+`Router.admit(principal, target, request, options)` 使用必填的绝对毫秒 `deadline`，返回
+`{ call, created }`；底层为 `Store.admitCall`。首次登记须满足 `now < deadline <= now + 600000`，
+非正安全整数或与 `timeoutMs` 混用返回 invalid_deadline，首次已到期返回 deadline_exceeded。
+双端当前授权、policy revision 复验、完整 provider 绑定、scope/key 摘要查询、新行和审计在同一
+writer 事务内完成，预算及 COMMIT 成功后才返回 `created: true`。同范围同 key 的精确重复返回
+原调用及 `created: false`，原执行期限已过或 scope 已退役也不续期；任何登记条件差异返回
+request_key_conflict，未知或失效 history 继续拒绝。调用方必须仅对首次登记尝试取得派发锚点，
+重复返回即使仍为 created 状态也不得重发；`created: true` 本身不是派发或原生执行许可。
+Router 登记和取消统一返回 `response: null` 的元数据投影；响应原文仅由另经当前 read 授权的
+get/readResult 返回，命中已完成旧调用也不能凭 dispatch/cancel 权限取得原文。
+Store 的可选 `authorize` 是独立可信宿主参数，必须同步返回 undefined；异常或非 undefined
+返回值回滚登记，不支持异步授权，也不承诺撤销异步回调已产生的外部影响。Router 不从工具 JSON
+接收该回调。内部 `Router.create` / `Store.createCall` 保留相对 `timeoutMs` 和原有 Call 返回值，
+共用上述 writer 登记；旧键仍须匹配首次持续时长，不能按重送时间刷新绝对期限。
+
 `createCall` 保存不可变意图和期限；`dispatch` 在同一 writer 事务固定 machine/provider/kind/
 revision、恢复代次、连接 epoch、call/attempt/native ID、契约、登记条件和审计，并预约收尾
 预算。只有事务成功返回的 binding 才可用于实际发送。当前每个调用只允许一次 attempt，
