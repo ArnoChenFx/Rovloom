@@ -28,8 +28,8 @@
         "server_version": "0.9.5",
         "native_protocol_version": "22",
         "runtime_generation": null,
-        "adapter_revision": "herdr-ping-2",
-        "classification_revision": "herdr-0.9.5-ping-2",
+        "adapter_revision": "herdr-session-3",
+        "classification_revision": "herdr-0.9.5-session-3",
         "support_basis": "schema_and_version"
       },
       "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
@@ -44,10 +44,108 @@
         "current_native_source_and_installation_identity",
         "durable_unique_dispatch_claim_before_write"
       ]
+    },
+    {
+      "method": "workspace.report_metadata",
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-session-3",
+        "classification_revision": "herdr-0.9.5-session-3",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "workspace_id",
+          "source",
+          "tokens",
+          "seq",
+          "ttl_ms"
+        ],
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^w[123456789ABCDEFGHJKMNPQRSTVWXYZ0]{1,12}$"
+          },
+          "source": {
+            "const": "rovloom"
+          },
+          "tokens": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rovloom_note"
+            ],
+            "properties": {
+              "rovloom_note": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[!-~](?:[ -~]{0,62}[!-~])?$"
+                  }
+                ]
+              }
+            }
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "ttl_ms": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 60000
+          }
+        }
+      },
+      "effect": "metadata_write_with_app_prelude_and_workspace_event",
+      "local_passive_review": false,
+      "native_result": "ok_including_stale_sequence_noop_not_write_receipt",
+      "native_boundaries": {
+        "source": "native_sequence_namespace_not_authority_or_ownership",
+        "sequence": "in_memory_per_workspace_source_not_durable_idempotency",
+        "tokens": "not_persisted",
+        "ttl": "shared_metadata_sweep_no_exact_instant_removal_guarantee",
+        "event": "workspace_metadata_updated_bypasses_plugin_hooks_but_app_prelude_is_shared",
+        "app_prelude": "pending_terminal_title_sync_and_possible_process_probes_not_passive"
+      },
+      "acceptance_fixture_scope": "owned_blank_instance_fixed_workspace_label_quiet_synthetic_shell_no_agents_plugins_or_clients"
     }
   ],
   "authorizes_dispatch": false,
-  "scope": "static capability, risk and conditional H1 implementation inventory; no execution authorization; runtime must independently verify every referenced condition",
+  "scope": "static capability, risk and conditional reviewed runtime implementation inventory; no execution authorization; runtime must independently verify every referenced condition",
   "sources_sha256": {
     "src/api/schema.rs": "0e3015fd11e089b97586dfb786c31e7c232659c25ce35201b3ad50e1773e8e09",
     "src/api/server.rs": "3555e07db3dc9d6a1a08a198b3d9276ff2f1f8fb0d4c32d7d2c78a8c5310b3a6",
@@ -64,11 +162,18 @@
     "src/app/api/tabs.rs": "7cf21978dfc1007d2c44436c8acfaedb75de346d3d016a93f35d3237a33f4545",
     "src/app/api/workspaces.rs": "15dd978d8be6859b662edaf7d91d77c7e4a84e3d8d6a7cf2b2a08c6b1cd10974",
     "src/app/api/worktrees/deferred.rs": "2b3448ccd12047109a4a69eb58c419fd5400dbc1d267caacc6e9644b0553435d",
+    "src/app/api_helpers.rs": "fe80fccf99e4cce641bbcb9ebfb84458d0bb1f367a2a904e91eb8a5e3b88473a",
+    "src/app/creation.rs": "b914231e835768e3a35061759f2fed76385dd4799e3cbd7673bbbc20ebb48b17",
     "src/app/custom_commands.rs": "24464ba302da017aa2237a5b43f449987f7e67ef3dca9be5aa4b1959b9b07b14",
+    "src/app/runtime.rs": "1b9f56f1c84761d1bb3e846d348525b81c0a1ad3a184b7c173109b0468de48c8",
+    "src/metadata_tokens.rs": "7a1253274c5cae1ff4987d78041c0e3595e763a52d3a11ce7eaebf06723e39bd",
+    "src/persist/restore.rs": "17d0a12757e1496f5382d8cc1eb87b71c0a8e21e606f3f6ff74f644ffde55c29",
+    "src/persist/snapshot.rs": "62498f417377a4fd416fbd48ba75369110a3111bd25b813cce9943cfd82fa1e6",
     "src/server/headless.rs": "413808d4f916541783c5f74fd7a98c96bab565175e9a35e4a97293140327f3ba",
     "src/server/headless/endpoint_requests.rs": "4146a00d1826e79d6a88522ae55c5f1e3e460f22d6cdbc36006ad9f3ffc49164",
     "src/server/headless/lifecycle.rs": "f2d452cf1e1c3de8f7d2232d3d9a67a4aeeb93bf019d30c6360dcee77e700a4d",
-    "src/server/headless/notifications.rs": "82a4637841a03c5870fcc2ce77b8d20a0e4e4f676f070115eae791b9352bd548"
+    "src/server/headless/notifications.rs": "82a4637841a03c5870fcc2ce77b8d20a0e4e4f676f070115eae791b9352bd548",
+    "src/workspace.rs": "ce70e6190bb2635444517560ac0a649f15a687f7726894261278b8f11021eb65"
   },
   "source_anchors": {
     "src/api/schema.rs#L101": "WorktreeOpen(WorktreeOpenParams),",
@@ -272,6 +377,8 @@
     "src/app/api.rs#L1250": "Method::PluginPaneOpen(params) => {",
     "src/app/api.rs#L1253": "Method::PluginPaneFocus(params) => {",
     "src/app/api.rs#L1256": "Method::PluginPaneClose(params) => {",
+    "src/app/api.rs#L809": "pub(crate) fn emit_workspace_token_updated(&mut self, ws_idx: usize) {",
+    "src/app/api.rs#L936": "self.sync_pending_terminal_titles();",
     "src/app/api.rs#L976": "Method::ServerAgentManifests(_) => {",
     "src/app/api.rs#L994": "Method::ServerReloadAgentManifests(_) => {",
     "src/app/api/agent_view.rs#L43": "pub(super) fn handle_agent_view_clear(",
@@ -358,17 +465,31 @@
     "src/app/api/worktrees/deferred.rs#L23": "| crate::api::schema::Method::WorktreeOpen(_) => {",
     "src/app/api/worktrees/deferred.rs#L27": "crate::api::schema::Method::WorktreeCreate(params) => {",
     "src/app/api/worktrees/deferred.rs#L31": "crate::api::schema::Method::WorktreeRemove(params) => {",
+    "src/app/api_helpers.rs#L210": "pub(super) fn normalize_metadata_source(value: String) -> Result<String, &'static str> {",
+    "src/app/api_helpers.rs#L229": "pub(super) fn normalize_metadata_ttl(",
+    "src/app/api_helpers.rs#L244": "pub(super) fn normalize_metadata_tokens(",
+    "src/app/creation.rs#L388": "pub(super) fn workspace_info(&self, index: usize) -> crate::api::schema::WorkspaceInfo {",
     "src/app/custom_commands.rs#L80": "pub(crate) fn handle_command_invoke(",
+    "src/app/runtime.rs#L43": "pub(crate) fn sync_agent_metadata_deadline(&mut self) {",
+    "src/app/runtime.rs#L58": "pub(crate) fn expire_metadata_at(&mut self, deadline: Instant, now: Instant) {",
+    "src/metadata_tokens.rs#L17": "pub(crate) fn sequence_is_fresh(",
+    "src/metadata_tokens.rs#L25": "pub(crate) fn accept_sequence(",
+    "src/metadata_tokens.rs#L44": "pub(crate) fn patch(",
+    "src/metadata_tokens.rs#L98": "pub(crate) fn expire_at(&mut self, now: Instant) -> bool {",
+    "src/persist/restore.rs#L428": "metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),",
+    "src/persist/restore.rs#L429": "metadata_token_sequences: HashMap::new(),",
+    "src/persist/snapshot.rs#L52": "pub struct WorkspaceSnapshot {",
     "src/server/headless.rs#L1521": "fn handle_client_window_title_api(&mut self, id: String, title: Option<String>) -> String {",
     "src/server/headless.rs#L2909": "fn handle_api_request_with_shutdown_check_inner(",
     "src/server/headless.rs#L3071": "let report = self.reload_server_config(true);",
     "src/server/headless/endpoint_requests.rs#L39": "if let api::schema::Method::ClientShellSurfaceSet(params) = &request.method {",
     "src/server/headless/lifecycle.rs#L25": "pub(super) fn perform_live_handoff(",
-    "src/server/headless/notifications.rs#L222": "pub(super) fn handle_notification_show_api("
+    "src/server/headless/notifications.rs#L222": "pub(super) fn handle_notification_show_api(",
+    "src/workspace.rs#L1049": "pub fn display_name_from("
   },
   "source_validation": "audit --source-tree checks file bytes and exact line anchors; default audit is offline schema coverage only",
   "guarantee_scope": "unavailable in the current bridge; native local identity checks, content revisions and method-specific acknowledgements are not interchangeable with these guarantees",
-  "parameter_scope": "original schema pointers only; source review and exact method+params evidence remain required",
+  "parameter_scope": "original native schema pointers plus narrower referenced runtime policy; source review and exact method+params evidence remain required",
   "transport_scope": "local JSON socket; client_shell.surface.set is rejected there and handled on its separate client endpoint",
   "not_advertised_as_methods": [
     "agent.run",
@@ -1153,7 +1274,23 @@
         "transport_dispatch": "src/api/server.rs#L601",
         "implementation": "src/app/api/workspaces.rs#L241",
         "app_dispatch": "src/app/api.rs#L1079",
-        "app_prelude": "src/server/headless.rs#L2909"
+        "app_prelude": "src/server/headless.rs#L2909",
+        "normalize_source": "src/app/api_helpers.rs#L210",
+        "normalize_ttl": "src/app/api_helpers.rs#L229",
+        "normalize_tokens": "src/app/api_helpers.rs#L244",
+        "sequence_freshness": "src/metadata_tokens.rs#L17",
+        "sequence_acceptance": "src/metadata_tokens.rs#L25",
+        "token_patch": "src/metadata_tokens.rs#L44",
+        "token_expiry": "src/metadata_tokens.rs#L98",
+        "shared_expiry_schedule": "src/app/runtime.rs#L43",
+        "shared_expiry_sweep": "src/app/runtime.rs#L58",
+        "metadata_event": "src/app/api.rs#L809",
+        "pending_title_prelude": "src/app/api.rs#L936",
+        "workspace_event_payload": "src/app/creation.rs#L388",
+        "workspace_label_resolution": "src/workspace.rs#L1049",
+        "persisted_workspace_shape": "src/persist/snapshot.rs#L52",
+        "restore_sequence_reset": "src/persist/restore.rs#L429",
+        "restore_tokens_reset": "src/persist/restore.rs#L428"
       },
       "transport": "json_socket_one_response_then_close",
       "risk_category": "authority_metadata",
@@ -1161,12 +1298,13 @@
         "agent_identity_or_metadata_authority",
         "possible_detection_or_notification_change"
       ],
-      "review_scope": "requires_independent_method_and_params_review",
+      "review_scope": "generated_workspace_id_rovloom_note_safe_seq_and_bounded_ttl",
       "adapter_support": {
-        "codec": false,
+        "codec": true,
         "local_passive_review": false,
-        "production_dispatch": false,
-        "status": "not_implemented"
+        "production_dispatch": true,
+        "status": "conditional_workspace_metadata_runtime",
+        "runtime_policy_ref": "method-policy.json#/production_allowlist/1"
       },
       "unavailable_bridge_guarantees": [
         "generic_cancel",

@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Store } from '../../../src/store.js'
+import type { NativeRequest } from '../../../src/contracts.js'
 import { createConnector } from '../../../src/transport/index.js'
 import type { Adapter, Connection, ConnectorWireSession } from '../../../src/transport/index.js'
 import { assertBinding, boundedJson, contractRef, fail } from '../../../src/wire/index.js'
@@ -17,7 +18,7 @@ import { createHerdrWireAdapter } from '../../../src/connector/herdr/wire.js'
 import { fixture, until } from '../../transport/helpers.js'
 
 /** 先完成现有 mock 配对并暴露完整 Target；调用方随后显式安装/监管自己的 Herdr，再传入 connect。 */
-export function createHerdrRuntimeChain(root: string) {
+export function createHerdrRuntimeChain(root: string, methods: readonly string[] = ['ping']) {
   inspectHerdrPath(root, 'directory')
   const config_ref = 'owned-herdr-runtime-chain'
   const binding_revision = 1
@@ -148,10 +149,10 @@ export function createHerdrRuntimeChain(root: string) {
     profile: 'session' as const,
     session: 'synthetic'
   })
-  // pair 原有 Luvus 授权只属于 fixture；本链精确收窄为当前 Herdr 目标的 ping。
+  // pair 原有 Luvus 授权只属于 fixture；只为本测试显式选择的 Herdr 方法建立完整 Target grants。
   f.principal.policy.grants.splice(0, f.principal.policy.grants.length, {
     target,
-    methods: ['ping'],
+    methods: [...methods],
     actions: ['dispatch', 'read', 'cancel']
   })
 
@@ -163,6 +164,40 @@ export function createHerdrRuntimeChain(root: string) {
     } finally {
       reader.close()
     }
+  }
+
+  /** 经真实 Router/Wire/Store 发送显式请求；产品门禁仍逐次决定方法和参数是否可执行。 */
+  async function request(
+    nativeRequest: NativeRequest
+  ): Promise<{ binding: AttemptBinding; response: JsonObject; claims: number }> {
+    if (closed || !installation || !client || client.status().phase !== 'ready') {
+      fail('herdr_chain_not_ready')
+    }
+    const call = f.router.create(f.principal, target, nativeRequest, {
+      binding_revision,
+      contract_ref: contractRef(installation.record().wire.source),
+      validation: 'strict',
+      timeoutMs: 10_000
+    })
+    const binding = f.gateway.dispatch(call.call_id)
+    await until(
+      /** 只有 Gateway 的真实证据 COMMIT 才产生 responded。 */ () =>
+        f.store.call(f.principal.id, call.call_id).state === 'responded',
+      8000
+    )
+    const original = f.gateway.resolveOriginalRead(call.call_id)
+    if (!original) {
+      fail('herdr_chain_original_read_required')
+    }
+    assertBinding(binding, original.binding)
+    const result = f.router.get(f.principal, call.call_id)
+    if (!result.response) {
+      fail('herdr_chain_response_required')
+    }
+    const response = JSON.parse(result.response) as JsonObject
+    original.wire.checkResult(binding, response)
+    original.wire.checkResultRetention(binding, response)
+    return { binding, response, claims: claimCount() }
   }
 
   return {
@@ -322,41 +357,10 @@ export function createHerdrRuntimeChain(root: string) {
         8000
       )
     },
-    /** 经现有 Router 登记、Gateway 派发及 Store 证据事务，最后在原 Wire 和当前读取 ACL 上验收。 */
-    async ping(): Promise<{ binding: AttemptBinding; response: JsonObject; claims: number }> {
-      if (closed || !installation || !client || client.status().phase !== 'ready') {
-        fail('herdr_chain_not_ready')
-      }
-      const call = f.router.create(
-        f.principal,
-        target,
-        { method: 'ping', params: {} },
-        {
-          binding_revision,
-          contract_ref: contractRef(installation.record().wire.source),
-          validation: 'strict',
-          timeoutMs: 10_000
-        }
-      )
-      const binding = f.gateway.dispatch(call.call_id)
-      await until(
-        /** 只有 Gateway 的真实证据 COMMIT 才产生 responded。 */ () =>
-          f.store.call(f.principal.id, call.call_id).state === 'responded',
-        8000
-      )
-      const original = f.gateway.resolveOriginalRead(call.call_id)
-      if (!original) {
-        fail('herdr_chain_original_read_required')
-      }
-      assertBinding(binding, original.binding)
-      const result = f.router.get(f.principal, call.call_id)
-      if (!result.response) {
-        fail('herdr_chain_response_required')
-      }
-      const response = JSON.parse(result.response) as JsonObject
-      original.wire.checkResult(binding, response)
-      original.wire.checkResultRetention(binding, response)
-      return { binding, response, claims: claimCount() }
+    request,
+    /** 固定 ping 沿用同一实际路径，不为健康探测建立另一执行通道。 */
+    ping(): Promise<{ binding: AttemptBinding; response: JsonObject; claims: number }> {
+      return request({ method: 'ping', params: {} })
     },
     /** 清理本 helper 自有通道、runtime 与 SQLite 句柄；安装、server 和目录仍由 caller 清理。 */
     close(): void {

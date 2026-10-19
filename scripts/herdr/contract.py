@@ -102,9 +102,9 @@ def read_file(root, name):
     return data
 
 
-# 返回固定 H1 代码支持的精确条件记录；此数据不创建安装来源、认证或派发许可。
+# 返回固定已评审方法的条件记录；此数据不创建安装来源、认证或派发许可。
 def reviewed_production_allowlist():
-    return [{
+    ping = {
         'method': 'ping', 'params': {}, 'platform': 'linux-x86_64',
         'profile': 'session', 'validation': 'strict', 'transport': 'single_request_rpc',
         'source': {
@@ -114,7 +114,7 @@ def reviewed_production_allowlist():
             'schema_sha256': '9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b',
             'schema_origin': 'installed_cli', 'schema_command': 'herdr api schema --json',
             'server_version': '0.9.5', 'native_protocol_version': '22', 'runtime_generation': None,
-            'adapter_revision': 'herdr-ping-2', 'classification_revision': 'herdr-0.9.5-ping-2',
+            'adapter_revision': 'herdr-session-3', 'classification_revision': 'herdr-0.9.5-session-3',
             'support_basis': 'schema_and_version',
         },
         'instance_source': 'protected_launch_and_same_supervised_child_kernel_peer',
@@ -129,15 +129,60 @@ def reviewed_production_allowlist():
             'current_native_source_and_installation_identity',
             'durable_unique_dispatch_claim_before_write',
         ],
-    }]
+    }
+    metadata = deepcopy(ping)
+    metadata.pop('params')
+    metadata.update({
+        'method': 'workspace.report_metadata',
+        'params_schema': {
+            'type': 'object', 'additionalProperties': False,
+            'required': ['workspace_id', 'source', 'tokens', 'seq', 'ttl_ms'],
+            'properties': {
+                'workspace_id': {'type': 'string', 'pattern': '^w[123456789ABCDEFGHJKMNPQRSTVWXYZ0]{1,12}$'},
+                'source': {'const': 'rovloom'},
+                'tokens': {
+                    'type': 'object', 'additionalProperties': False, 'required': ['rovloom_note'],
+                    'properties': {'rovloom_note': {'anyOf': [
+                        {'type': 'null'},
+                        {'type': 'string', 'minLength': 1, 'maxLength': 64,
+                         'pattern': '^[!-~](?:[ -~]{0,62}[!-~])?$'},
+                    ]}},
+                },
+                'seq': {'type': 'integer', 'minimum': 1, 'maximum': 9007199254740991},
+                'ttl_ms': {'type': 'integer', 'minimum': 100, 'maximum': 60000},
+            },
+        },
+        'effect': 'metadata_write_with_app_prelude_and_workspace_event',
+        'local_passive_review': False,
+        'native_result': 'ok_including_stale_sequence_noop_not_write_receipt',
+        'native_boundaries': {
+            'source': 'native_sequence_namespace_not_authority_or_ownership',
+            'sequence': 'in_memory_per_workspace_source_not_durable_idempotency',
+            'tokens': 'not_persisted',
+            'ttl': 'shared_metadata_sweep_no_exact_instant_removal_guarantee',
+            'event': 'workspace_metadata_updated_bypasses_plugin_hooks_but_app_prelude_is_shared',
+            'app_prelude': 'pending_terminal_title_sync_and_possible_process_probes_not_passive',
+        },
+        'acceptance_fixture_scope': 'owned_blank_instance_fixed_workspace_label_quiet_synthetic_shell_no_agents_plugins_or_clients',
+    })
+    return [ping, metadata]
 
 
-# 核对静态记录只描述唯一 H1 实现；即使 fixture 自报 true 也不能让离线工具签发许可。
+# 按 JSON 类型和结构精确比较，避免 Python 将 true/1 或 1.0/1 视作同一约束。
+def reviewed_allowlist_matches(value):
+    try:
+        return json.dumps(value, sort_keys=True, allow_nan=False) == json.dumps(
+            reviewed_production_allowlist(), sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError):
+        return False
+
+
+# 核对静态记录只描述精确已评审实现；即使 fixture 自报 true 也不能让离线工具签发许可。
 def audit_method_policy(policy):
     require(type(policy) is dict and type(policy.get('format')) is int and policy.get('format') == 1 and policy.get('runtime') == 'herdr',
             'invalid reviewed method policy')
     require(policy.get('authorizes_dispatch') is False, 'offline policy cannot authorize dispatch')
-    require(policy.get('production_allowlist') == reviewed_production_allowlist(),
+    require(reviewed_allowlist_matches(policy.get('production_allowlist')),
             'reviewed production scope mismatch')
     candidates = policy.get('offline_replay_candidates')
     require(type(candidates) is list and len(candidates) == 2 and
@@ -151,10 +196,12 @@ def audit_method_policy(policy):
     }, 'unsupported guarantee promotion')
 
 
-# 离线回放始终没有执行权限，固定 H1 产品实现也不能由这次分类调用获得许可。
+# 离线回放始终没有执行权限，已评审产品实现也不能由这次分类调用获得许可。
 def method_classification(method, params):
     if method == 'ping' and type(params) is dict and not params:
         reason = 'offline_audit_has_no_execution_authority'
+    elif method == 'workspace.report_metadata':
+        reason = 'metadata_write_requires_current_runtime_authority'
     elif method == 'session.snapshot' and type(params) is dict and not params:
         reason = 'snapshot_side_effects_unverified'
     elif method in ('pane.read', 'agent.read'):
@@ -337,7 +384,7 @@ def audit(root):
     return {'offline_audit': 'passed', 'evidence_kind': manifest['evidence_kind'],
             'manifest_sha256': sha(raw_manifest),
             'native_verified': False, 'authorizes_dispatch': False, 'production_allowlist': [],
-            'reviewed_runtime_methods': ['ping'], 'schema': closure,
+            'reviewed_runtime_methods': [record['method'] for record in reviewed_production_allowlist()], 'schema': closure,
             'outcomes': outcomes, 'bytes': total,
             'observations_recorded_only': len(observations),
             'unverified': ['official_binary_origin', 'installed_binary_execution', 'endpoint_and_peer',

@@ -231,8 +231,8 @@ test(
       /** 解析 snapshot attempt，检查在创建执行句柄前拒绝。 */ () => adapter.resolve(fixture.identity),
       /herdr_method_unreviewed/
     )
-    assert.deepEqual(review.methods, ['ping'])
-    assert.deepEqual(review.protocol_methods, ['ping', 'session.snapshot'])
+    assert.deepEqual(review.methods, ['ping', 'workspace.report_metadata'])
+    assert.deepEqual(review.protocol_methods, ['ping', 'session.snapshot', 'workspace.report_metadata'])
   }
 )
 

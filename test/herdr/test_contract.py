@@ -4,6 +4,7 @@
 from copy import deepcopy
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -182,17 +183,17 @@ class ReviewedRuntimePolicy(unittest.TestCase):
     # 验证固定来源与版本对应实际安装 provenance，TS 运行时修订也同步维护。
     def test_fixed_identity_matches_provenance_and_runtime_revision(self):
         audit_method_policy(self.policy)
-        record, = self.policy['production_allowlist']
         provenance = decode((ROOT / 'test/fixtures/herdr/0.9.5/provenance.json').read_bytes())
-        for name in ('binary_sha256', 'schema_sha256'):
-            self.assertEqual(record['source'][name], provenance[name])
-        self.assertEqual(record['source']['binary_version'], provenance['version'])
-        self.assertEqual(record['platform'], provenance['platform'])
         review = (ROOT / 'src/connector/herdr/review.ts').read_text()
-        for name in ('adapter_revision', 'classification_revision'):
-            self.assertIn(name + ": '" + record['source'][name] + "'", review)
-        self.assertEqual(record['native_process_image_hash'], 'not_measured')
-        self.assertFalse(method_classification(record['method'], record['params'])['dispatch_allowed'])
+        for record in self.policy['production_allowlist']:
+            for name in ('binary_sha256', 'schema_sha256'):
+                self.assertEqual(record['source'][name], provenance[name])
+            self.assertEqual(record['source']['binary_version'], provenance['version'])
+            self.assertEqual(record['platform'], provenance['platform'])
+            for name in ('adapter_revision', 'classification_revision'):
+                self.assertIn(name + ": '" + record['source'][name] + "'", review)
+            self.assertEqual(record['native_process_image_hash'], 'not_measured')
+            self.assertFalse(method_classification(record['method'], record.get('params', {}))['dispatch_allowed'])
 
     # 验证方法、参数、平台、进程边界、来源摘要和修订都不能从 fixture 放宽。
     def test_each_runtime_scope_dimension_is_exact(self):
@@ -224,6 +225,78 @@ class ReviewedRuntimePolicy(unittest.TestCase):
         with self.assertRaisesRegex(Rejected, 'guarantee promotion'):
             audit_method_policy(self.policy)
         self.assertEqual(reviewed_production_allowlist()[0]['params'], {})
+
+    # 验证元数据仅允许固定 source、单一 token、生成式 ID、有限 TTL 与安全序号。
+    def test_metadata_schema_matches_pure_runtime_scope(self):
+        record = self.policy['production_allowlist'][1]
+        self.assertEqual(record['method'], 'workspace.report_metadata')
+        self.assertFalse(record['local_passive_review'])
+        schema = record['params_schema']
+        props = schema['properties']
+        self.assertEqual(schema['required'], ['workspace_id', 'source', 'tokens', 'seq', 'ttl_ms'])
+        self.assertFalse(schema['additionalProperties'])
+        self.assertEqual(props['source'], {'const': 'rovloom'})
+        self.assertEqual(props['tokens']['required'], ['rovloom_note'])
+        self.assertFalse(props['tokens']['additionalProperties'])
+        scope = (ROOT / 'src/connector/herdr/methods.ts').read_text()
+        self.assertIn("workspace_id_pattern: '" + props['workspace_id']['pattern'] + "'", scope)
+        for name, value in [('value_max_chars', 64), ('ttl_min_ms', 100), ('ttl_max_ms', 60000)]:
+            match = re.search(name + r': ([0-9_]+)', scope)
+            self.assertIsNotNone(match)
+            self.assertEqual(int(match[1].replace('_', '')), value)
+        pattern = props['workspace_id']['pattern']
+        for value in ('w1', 'w0', 'wABCDEFGHJKMN'):
+            self.assertIsNotNone(re.fullmatch(pattern, value))
+        for value in ('current', 'w', 'wabc', 'wI', 'wO', 'wU', 'w123456789ABCD', 'w1\n'):
+            self.assertIsNone(re.fullmatch(pattern, value))
+        token = props['tokens']['properties']['rovloom_note']['anyOf'][1]
+        for value in ('note', '!', 'A' * 64, 'a b'):
+            self.assertTrue(len(value) <= token['maxLength'] and re.fullmatch(token['pattern'], value))
+        for value in ('', ' ', ' note', 'note ', 'tab\tvalue', 'line\nvalue', '中文', 'a' * 65):
+            self.assertFalse(len(value) <= token['maxLength'] and re.fullmatch(token['pattern'], value))
+        self.assertEqual(props['seq'], {'type': 'integer', 'minimum': 1, 'maximum': 9007199254740991})
+        self.assertEqual(props['ttl_ms'], {'type': 'integer', 'minimum': 100, 'maximum': 60000})
+
+    # 验证每个 metadata 参数约束不能由静态文件放宽，布尔数值混淆也拒绝。
+    def test_metadata_scope_cannot_be_broadened(self):
+        for path, value in [
+            (['additionalProperties'], True), (['required'], ['workspace_id']),
+            (['properties', 'workspace_id', 'pattern'], '.*'),
+            (['properties', 'source', 'const'], 'other'),
+            (['properties', 'tokens', 'additionalProperties'], True),
+            (['properties', 'tokens', 'properties', 'rovloom_note', 'anyOf', 1, 'maxLength'], 80),
+            (['properties', 'seq', 'minimum'], True),
+            (['properties', 'seq', 'minimum'], 0),
+            (['properties', 'seq', 'maximum'], 9007199254740992),
+            (['properties', 'ttl_ms', 'minimum'], 1),
+            (['properties', 'ttl_ms', 'maximum'], 86400000),
+        ]:
+            changed = deepcopy(self.policy)
+            target = changed['production_allowlist'][1]['params_schema']
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = value
+            with self.subTest(path=path), self.assertRaisesRegex(Rejected, 'production scope'):
+                audit_method_policy(changed)
+
+    # 验证 metadata 的 Ok 不是应用回执，source 和序号不是权限、持久幂等或精确 TTL 保证。
+    def test_metadata_native_guarantees_and_offline_execution_stay_unavailable(self):
+        metadata = self.policy['production_allowlist'][1]
+        self.assertIn('stale_sequence_noop', metadata['native_result'])
+        self.assertIn('not_authority_or_ownership', metadata['native_boundaries']['source'])
+        self.assertIn('not_durable_idempotency', metadata['native_boundaries']['sequence'])
+        self.assertIn('no_exact_instant', metadata['native_boundaries']['ttl'])
+        for field, value in [('local_passive_review', True), ('native_result', 'write_applied'),
+                             ('native_boundaries', {'source': 'ownership'})]:
+            changed = deepcopy(self.policy)
+            changed['production_allowlist'][1][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(Rejected, 'production scope'):
+                audit_method_policy(changed)
+        params = {'workspace_id': 'w1', 'source': 'rovloom', 'tokens': {'rovloom_note': 'note'},
+                  'seq': 1, 'ttl_ms': 100}
+        self.assertFalse(method_classification('workspace.report_metadata', params)['dispatch_allowed'])
+        with self.assertRaisesRegex(Rejected, 'offline replay candidates'):
+            exchange(encoded({'id': 'metadata', 'method': 'workspace.report_metadata', 'params': params}), None)
 
 
 class Archive(unittest.TestCase):
@@ -257,7 +330,7 @@ class Archive(unittest.TestCase):
         self.assertFalse(result['native_verified'])
         self.assertEqual(result['production_allowlist'], [])
         self.assertFalse(result['authorizes_dispatch'])
-        self.assertEqual(result['reviewed_runtime_methods'], ['ping'])
+        self.assertEqual(result['reviewed_runtime_methods'], ['ping', 'workspace.report_metadata'])
         self.assertEqual(result['outcomes'], ['response', 'response', 'native_error', 'outcome_unknown', 'outcome_unknown'])
         self.assertIn('endpoint_and_peer', result['unverified'])
 

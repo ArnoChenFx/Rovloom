@@ -14,7 +14,7 @@
 | Store/Router | 规范 v5 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
 | 开机服务 | systemd 系统单元、系统域 LaunchDaemon、Windows BootTrigger 计划任务的独立状态机、原生后端与最小 parser 接缝；受控测试，不修改系统启动项 | 唯一 CLI/后台角色接线、Windows 有效 ACL 与运行配置验证、三平台真实开机及全生命周期验收；见 [SERVICE](SERVICE.md) |
 | 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector、消费共享管理 DTO 的 WebUI 展示/快照生命周期模块 | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 的受保护 HTTP/认证接线和部署发行 |
-| Herdr | 固定官方来源与全方法矩阵；H1 schema Worker、受监管 Unix peer、精确 ping 的 Store/Wire/runtime 及五组检查的独立验收器 | 独立原生证据复核；#8 正式宿主、身份/部署与 CLI/MCP 联合验收；其余 101 方法按切片接入，跨平台 native 另验 |
+| Herdr | 固定官方来源与全方法矩阵；schema Worker、受监管 Unix peer、精确 ping 与受限 workspace metadata 的 Store/Wire/runtime 及独立验收器 | 独立原生证据复核；#8 正式宿主、身份/部署与 CLI/MCP 联合验收；其余 100 方法按切片接入，跨平台 native 另验 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -114,7 +114,7 @@ claim、公共发现/结果分页或真实 stdio/MCP 联合验收；各层继续
 ### 3.6 Herdr 原生验证与完整接入
 
 离线输入、安装/编译约束和独立验收命令见[开发指引](DEVELOPMENT.md#h1-ping-runtime-与宿主接缝)。
-H1 policy/matrix 仅记录固定来源和实时检查条件下的 `ping {}` 实现；归档审计仍返回
+policy/matrix 仅记录固定来源和实时检查条件下的 `ping {}` 与受限 workspace metadata 实现；归档审计仍返回
 `native_verified: false`、空执行允许集和 `authorizes_dispatch: false`。独立验收器覆盖
 Linux 空白实例的安装→Store/Wire→原生 ping 检查；实际运行结果留在 PR/CI，
 独立原生证据复核仍未完成，不能外推其它切片。
@@ -124,7 +124,7 @@ Linux 空白实例的安装→Store/Wire→原生 ping 检查；实际运行结�
 覆盖、分派来源和 H1 条件实现；schema 枚举和矩阵记录均不授予执行权限。
 
 当前 H1 限 Linux 固定 Herdr 0.9.5 binary/schema、协议 22、session Target 和 strict
-`ping {}` 普通 RPC；其余 101 个方法及其它参数保持拒绝。实际 CLI schema 原字节经
+`ping {}` 普通 RPC，另有下述受限 workspace metadata 切片；其余 100 个方法及其它参数保持拒绝。实际 CLI schema 原字节经
 固定 Bun Worker 编译完整 request/success/error 根，受控 standalone 产物按任务、来源
 和摘要接纳；同步校验不转写 UHP。单在途、取消/超时退役及有界输入/生成物已实现，
 首版仍无硬 heap、硬 CPU 或物理退出时限保证。
@@ -140,8 +140,16 @@ H1 验收器的五组检查覆盖安装/schema Worker/内核 peer；32 次 ping�
 claim 与 32 次证据提交；三组方法/参数拒绝且零新 claim；当前策略撤权；同 binary
 字节的新 inode 使来源失效，并检查所属 child 与临时根清理。身份、策略和时钟使用
 隔离 fixture，两侧账本投影共用 Store 并经既有认证 loopback 接线。独立原生证据复核、
-正式宿主、CLI/MCP、跨平台 native 与其余 101 方法的验收仍未完成。
+正式宿主、CLI/MCP、跨平台 native 与其它方法的验收仍未完成。
 合成 IO/关闭/取消和 standalone 测试只证明各自范围，不补作真实 Herdr 对应场景。
+
+受限 `workspace.report_metadata` 使用显式 workspace ID、固定来源/自定义键、有界文本或
+null、正序号及有限 TTL；共享 Store/Wire 门禁和持久 claim，不借用 Luvus delegation。
+该方法是元数据写入，公共 App 前置和 workspace 展示信息可能探测进程，不能作为被动读。
+原生 Ok 包含旧序号 no-op，token/序号不持久化；到期与清除不回收序号，不构成重放保证。
+验收器通过自有静默实例的独立状态读取验证设置/清除/最终过期及错误，内容回收只留密封
+响应类型与原身份。具体范围见[开发指引](DEVELOPMENT.md#workspace-metadata-rpc)。
+独立原生证据复核仍未完成；fixture 共用 Store 不代替正式 Connector 的可信准入来源。
 
 - P0-H 固定官方 binary 来源/hash、安装 schema/方言/闭包、实际 ping/protocol、endpoint 归属/peer、framing/大小及断线行为，使用自建隔离实例。
 - 按 method+params+版本核实被动读，断言焦点、viewport、输入、agent 状态/通知均无未声明副作用；recent 等未经证明不进 allowlist。

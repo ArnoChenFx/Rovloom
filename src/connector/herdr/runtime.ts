@@ -1,4 +1,4 @@
-/** 将 Herdr 单次 ping 执行挂到既有 ConnectorWireSession，复用 Store/Wire 和持久唯一发送账本。 */
+/** 将 Herdr 已评审 RPC 挂到既有 ConnectorWireSession，复用 Store/Wire 和持久唯一发送账本。 */
 import { LuvusDispatchClaims } from '../luvus/claims.js'
 import { LuvusAdapterError } from '../luvus/types.js'
 import { readLinuxPeer } from '../local/linux-peer.js'

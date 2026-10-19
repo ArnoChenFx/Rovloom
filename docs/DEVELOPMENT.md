@@ -213,7 +213,7 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 ## Herdr 离线输入
 
 [方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)记录固定 H1 来源、平台与实时检查
-条件下的唯一 `ping {}` 实现范围；该文件和离线工具均不签发运行时许可。精确 ping
+条件下的 `ping {}` 与下述受限 workspace metadata 实现范围；该文件和离线工具均不签发运行时许可。精确 ping
 的固定源码分类、headless 对照及原生贯通检查由版本化输入和下述验收器覆盖，
 独立原生证据复核仍未完成。
 `session.snapshot {}` 因应用前置副作用保持未验证；其它参数、读取变体、订阅和写入
@@ -304,10 +304,10 @@ pane.updated 观察窗。窗口无事件不等于所有 UI/agent/通知都已实
 ### H1 ping runtime 与宿主接缝
 
 H1 的安装、完整 schema 编译、Unix socket backend 和 Store/Wire/runtime 接口已实现，
-独立验收器覆盖下述五组检查；实际运行结果只记录在 PR/CI，独立原生证据复核仍未完成。
+独立验收器覆盖下述安装/ping 检查及 workspace metadata 检查；实际运行结果只记录在 PR/CI，独立原生证据复核仍未完成。
 范围仅为 Linux、固定官方
 Herdr 0.9.5 binary/schema、协议 22 和 session Target 的 strict `ping {}` 普通 RPC。
-完整 schema 包含 102 个方法不表示它们均可执行：其余 101 个方法、其它 ping 参数、raw、
+完整 schema 包含 102 个方法不表示它们均可执行：除精确 ping 与下述受限 metadata 方法，其余方法、其它参数、raw、
 流、对象传输和 Host 入口均拒绝。固定来源见[provenance](../test/fixtures/herdr/0.9.5/provenance.json)
 与[逐项评审](../src/connector/herdr/review.ts)。
 
@@ -338,8 +338,8 @@ attempt 与既有持久发送 claim 共同阻止重复执行，claim 提交失�
 
 [Store 接缝](../src/connector/herdr/persistence.ts)复用 registry、双端本机配置、原
 `responseAnchor`、提交后失效通知与证据事务。Store/Wire 的代码门禁仅对完整固定来源
-和精确 `ping {}` 建立准入条件，仍逐次检查当前授权。内容回收后仅已许可 ping 保留
-原 dedup 期限内的最小响应元数据；撤权、过期或 discard 不恢复请求、原文或派发权。
+和已评审的精确参数建立准入条件，仍逐次检查当前授权。内容回收后仅已许可请求保留
+原 dedup 期限内的响应类型枚举和原身份，不保留 metadata token 正文；撤权、过期或 discard 不恢复请求、原文或派发权。
 关闭和 AbortSignal 仅清理所属 socket/桥接等待，不发送 native cancel，也不停止 Herdr
 server；可能写出后的失败保守标记 `outcome_unknown`。server 归显式启动它的宿主回收。
 
@@ -354,7 +354,7 @@ provider 选择分支。后续组合必须保持 Herdr 原生 schema/source 类�
 bun --no-env-file scripts/herdr/verify-runtime.ts --binary /absolute/verified/herdr --report /tmp/rovloom-herdr-h1-new.json
 ```
 
-验收器要求证明以下五组：
+安装与 ping 检查要求证明：
 
 1. 核对实际安装 binary、raw CLI schema、异步 Worker 与受监管进程的内核 socket peer。
 2. 通过既有 Router/Gateway/Connector/Wire/Store 与认证 loopback 完成 32 次原生 ping，
@@ -370,8 +370,41 @@ bun --no-env-file scripts/herdr/verify-runtime.ts --binary /absolute/verified/he
 须原样保留，不为匹配历史 fixture 改写。取消、部分帧、EOF、资源
 上限等边界另有合成端口或自有 Unix listener 测试；这些测试以及 schema standalone
 探针都不等于相同场景已在真实 Herdr 上执行。H1 不代表 #8 正式宿主、完整 CLI/MCP、
-跨平台 native、非受监管实例或其余 101 个方法已验收。静态 policy/matrix 只记录条件
+跨平台 native、非受监管实例或其它方法已验收。静态 policy/matrix 只记录条件
 实现，实际准入仍独立核对安装、完整 Target、当前授权和原账本。
+
+### Workspace metadata RPC
+
+`workspace.report_metadata` 是普通元数据写入，不属于被动 observer。当前参数子集由
+[methods.ts](../src/connector/herdr/methods.ts)统一供 Store 与编码器核对：显式生成式
+workspace ID、`source: "rovloom"`、仅 `rovloom_note` 一个键、1–64 个无首尾空白的
+可打印 ASCII 字符或显式 null、正 safe integer `seq`、`ttl_ms: 100..60000`。
+省略期限、永久 token、其它来源/键/参数与 workspace 索引别名均拒绝。
+完整安装 schema 仍逐次验证，不以本地参数检查代替原生根。
+
+原生依赖私有 socket 的本机账户权限，没有逐 caller 的 metadata grant；Rovloom 仍要求
+当前双方对完整 session Target 和精确方法的 dispatch 授权，结果的 read/retention 独立检查。
+`source`只是 workspace 内的序号命名空间，不是权限凭据或 token 键所有权。
+原生序号只抑制相同 source 的旧 patch，不提供桥接去重、重试许可或原子执行保证。
+
+处理函数修改内存 token/序号，更新共享过期调度并发布绕过插件 hooks 的
+`workspace.metadata_updated`。该事件可携带完整 workspace 信息；自动标签可派生进程 cwd。
+公共 App 前置还可能同步待处理终端标题、发布 pane 更新并查询进程信息，因此不能宣称
+该方法在任意实例无探测或旁支状态变化。原生 token/序号不保存到会话快照，重启清空；
+TTL 从原生处理时开始，依赖共享清扫，不保证截止瞬间消失。清除与 TTL 到期均不回收序号。
+
+原生 `ok` 同时用于应用 patch、清除不存在键以及旧序号 no-op；结果保留原样，不能解释为
+“本次修改已应用”。丢回复仍为 unknown，不自动重放。此 token TTL 与 Store 的执行、内容、
+dedup 期限分别治理，不互相刷新。已派发上下文只密封 `ok` 响应类型和原身份，内容回收后
+依照完整 success/error 根继续核对原请求 ID，不恢复参数或保存 token 文本。
+
+同一 `verify-runtime.ts` 验收器还要求证明设置/清除、旧序号 no-op、最终到期、原生错误、
+非法参数零新增 claim、独立读取的 workspace 状态及合成终端零输入。它只创建固定标签、
+静默合成终端、空配置且无 agent/plugin/client 的自有实例；`workspace.create/get` 仅供
+fixture 构造与独立状态核对，产品仍拒绝。验收进程以临时 subreaper 回收自己创建的后代，
+只对已知合成 PID 调用 waitpid，不枚举进程或用进程查询建立原生权限。
+[脱敏协议回放](../test/fixtures/herdr/0.9.5/metadata.json)只固定最小 request/result/error 值，
+不建立来源、许可或独立验收结论。实际运行记录留在 PR/CI，独立原生证据复核仍未完成。
 
 `ping` 只核对存活、版本及有限 capabilities，不能提供当前 session 状态。
 `session.snapshot` 经过公共请求前置的待处理终端标题同步，可能更新标题缓存并发布

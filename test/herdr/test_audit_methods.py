@@ -9,7 +9,7 @@ import unittest
 # 显式载入当前 checkout 的离线盘点工具，避免依赖外部安装。
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/herdr'))
 
-from contract import Rejected
+from contract import Rejected, reviewed_production_allowlist
 from audit_methods import FIXTURES, MATRIX, audit, methods, read_json
 
 
@@ -39,7 +39,7 @@ class MethodInventory(unittest.TestCase):
         self.assertFalse(result['source_bytes_verified'])
         self.assertEqual(result['production_allowlist'], [])
         self.assertFalse(result['authorizes_dispatch'])
-        self.assertEqual(result['reviewed_runtime_methods'], ['ping'])
+        self.assertEqual(result['reviewed_runtime_methods'], ['ping', 'workspace.report_metadata'])
         self.assertFalse(result['guarantees_promoted'])
 
     def test_missing_duplicate_or_new_schema_method_cannot_hide_in_counts(self):
@@ -84,7 +84,8 @@ class MethodInventory(unittest.TestCase):
         self.assertEqual(self.row('ping')['adapter_support']['status'], 'conditional_h1_runtime')
         self.assertEqual(self.row('ping')['adapter_support']['runtime_policy_ref'],
                          'method-policy.json#/production_allowlist/0')
-        self.assertEqual(sum(row['adapter_support']['production_dispatch'] for row in self.matrix['methods']), 1)
+        self.assertEqual([row['method'] for row in self.matrix['methods'] if row['adapter_support']['production_dispatch']],
+                         [record['method'] for record in reviewed_production_allowlist()])
         self.assertTrue(self.row('session.snapshot')['adapter_support']['codec'])
         self.assertFalse(self.row('session.snapshot')['adapter_support']['local_passive_review'])
         for name, field in [('session.snapshot', 'local_passive_review'), ('events.subscribe', 'codec'),
@@ -105,6 +106,38 @@ class MethodInventory(unittest.TestCase):
         self.setUp()
         self.row('ping')['adapter_support']['runtime_policy_ref'] = 'untrusted.json'
         with self.assertRaisesRegex(Rejected, 'support or permission'):
+            self.checked()
+
+    def test_workspace_metadata_is_a_narrow_write_with_source_boundaries(self):
+        """元数据不是被动读，必须保留精确策略引用和实际源码的前置/序号/TTL/持久化边界。"""
+        row = self.row('workspace.report_metadata')
+        self.assertTrue(row['adapter_support']['codec'])
+        self.assertFalse(row['adapter_support']['local_passive_review'])
+        self.assertTrue(row['adapter_support']['production_dispatch'])
+        self.assertEqual(row['adapter_support']['runtime_policy_ref'], 'method-policy.json#/production_allowlist/1')
+        self.assertEqual(row['adapter_support']['status'], 'conditional_workspace_metadata_runtime')
+        for name in ('session.snapshot', 'workspace.create', 'workspace.get'):
+            self.assertFalse(self.row(name)['adapter_support']['production_dispatch'])
+        for name in ('normalize_source', 'normalize_ttl', 'normalize_tokens', 'sequence_freshness',
+                     'sequence_acceptance', 'token_patch', 'token_expiry', 'shared_expiry_sweep',
+                     'metadata_event', 'pending_title_prelude', 'workspace_event_payload',
+                     'workspace_label_resolution', 'persisted_workspace_shape', 'restore_sequence_reset',
+                     'restore_tokens_reset'):
+            self.assertIn(row['source_refs'][name], self.matrix['source_anchors'])
+        changed = deepcopy(self.matrix)
+        metadata = next(row for row in changed['methods'] if row['method'] == 'workspace.report_metadata')
+        metadata['adapter_support']['local_passive_review'] = True
+        with self.assertRaisesRegex(Rejected, 'support or permission'):
+            self.checked(matrix=changed)
+
+    def test_metadata_missing_or_mismatched_source_boundaries_are_rejected(self):
+        """删去 TTL/恢复来源或替换成别的函数引用，都不能通过默认离线审计。"""
+        self.row('workspace.report_metadata')['source_refs'].pop('shared_expiry_sweep')
+        with self.assertRaisesRegex(Rejected, 'metadata source boundary'):
+            self.checked()
+        self.setUp()
+        self.row('workspace.report_metadata')['source_refs']['sequence_acceptance'] = self.row('ping')['source_refs']['implementation']
+        with self.assertRaisesRegex(Rejected, 'metadata source boundary'):
             self.checked()
 
     def test_stream_and_endpoint_transports_cannot_be_flattened(self):

@@ -205,6 +205,14 @@ H1 仅接纳固定 Linux x86_64 Herdr 0.9.5/protocol 22 的 session、strict `pi
 现有正式角色宿主按 Luvus 契约/委托装配，Herdr 的 provider 选择及结果读取组合仍是独立门禁，不能以 UHP 替代其原生契约。
 H1 已接通共享传输 hook，未认领正式 Herdr Role、CLI/MCP 或跨平台 native 验收；编译资源上限不表示硬 heap 或 Worker 物理退出时限。
 
+受限 `workspace.report_metadata` 另行接纳显式 workspace ID、固定 `rovloom` 来源与
+`rovloom_note` 键、有界 ASCII 文本或 null、正序号和有限 TTL，复用同一 session RPC、
+双方精确方法 grants、原账本和持久 claim。它是元数据写入，公共前置与展示投影可能同步
+标题或查询进程；不作为被动 observer。原生 `ok` 包含旧序号 no-op，source 不提供键所有权，
+token/序号不持久化；TTL 清扫与 Store 期限分别治理，不提供可重放保证。
+已派发状态在内容回收后仅保留密封响应类型和原身份，不保留 token 正文或从元数据重建许可。
+实现及验收器覆盖不代替独立原生证据复核，后者仍为未完成门禁。
+
 被动读精确 allowlist、写入/终端原子身份保证、prompt 完成归属与取消语义尚无充分证据的部分属于待设计决策，默认拒绝；不能用 Luvus 证据或外层 revision 补造保证。
 
 ## 10. Gateway ↔ Connector Wire

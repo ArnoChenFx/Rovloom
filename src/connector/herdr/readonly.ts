@@ -1,4 +1,4 @@
-/** Herdr 首切片的原生编解码与 Wire 接缝；固定 ping 之外的能力继续逐项取得原生证据。 */
+/** Herdr 固定评审 RPC 的原生编解码与 Wire 接缝；其它能力继续逐项取得原生证据。 */
 import type { NativeWireBackend, TrustedAttempt } from '../../integration/luvus-wire.js'
 import type { LedgerInvalidation } from '../../storage/model.js'
 import type { ResponseAnchor } from '../../wire/evidence.js'
@@ -35,6 +35,7 @@ export { HERDR_READONLY_REVIEW } from './review.js'
 import { HERDR_READONLY_REVIEW } from './review.js'
 import { isReviewedHerdrSource } from './review.js'
 import { isCompiledHerdrSchemas } from './compiler-api.js'
+import { herdrResponseRule, reviewedHerdrRequest } from './methods.js'
 
 /** 宿主从安装 schema 完整根编译的校验器；编译须先满足独立 worker 的资源门禁。 */
 export interface HerdrSchemas {
@@ -83,26 +84,76 @@ function reviewedSource(source: ContractSource, schemas: HerdrSchemas): void {
   }
 }
 
-/** 协议回放限两个精确 RPC；snapshot 的协议可解析不表示已获执行分类。 */
-function readonlyRequest(value: unknown): JsonObject {
+/** 参数必须属于固定评审；snapshot 仅保留离线空参回放，不获得生产执行分类。 */
+function readonlyRequest(value: unknown): JsonObject & { id: string; method: string } {
   const request = object(parseJson(boundedJson(value, HERDR_READONLY_REVIEW.frame_bytes)))
   fields(request, ['id', 'method', 'params'])
-  text(request.id, 128)
-  if (!HERDR_READONLY_REVIEW.protocol_methods.includes(request.method as string)) {
+  const { id, method, params } = request
+  text(id, 128)
+  text(method, 256)
+  if (method === 'session.snapshot') {
+    fields(object(params), [])
+  } else if (!reviewedHerdrRequest({ method, params })) {
     fail('herdr_method_unreviewed')
   }
-  fields(object(request.params), [])
-  return request
+  return { id, method, params }
+}
+
+/** 密封响应规则只有固定枚举；不保存原参数、token 正文或用于重新构造请求的材料。 */
+type ResponseRule = NonNullable<ReturnType<typeof herdrResponseRule>> | 'session_snapshot'
+
+/** 验证完整原生响应根与原 ID；成功类型由已验证请求的规则约束，不依赖已回收的正文。 */
+function responseFrame(
+  bytes: Uint8Array,
+  expectedId: string,
+  rule: ResponseRule,
+  source: ContractSource,
+  schemas: HerdrSchemas
+): JsonObject {
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength > HERDR_READONLY_REVIEW.frame_bytes ||
+    bytes.at(-1) !== 10 ||
+    bytes.subarray(0, -1).includes(10)
+  ) {
+    fail('herdr_native_framing')
+  }
+  const response = object(parseJson(bytes, HERDR_READONLY_REVIEW.frame_bytes))
+  const error = Object.hasOwn(response, 'error')
+  fields(response, ['id', error ? 'error' : 'result'])
+  if (response.id !== expectedId || !schemas.response(response)) {
+    fail('herdr_native_response_invalid')
+  }
+  if (error) {
+    const body = object(response.error)
+    text(body.code, 128)
+    if (typeof body.message !== 'string') {
+      fail('herdr_native_response_invalid')
+    }
+  } else {
+    const result = object(response.result)
+    if (result.type !== rule) {
+      fail('herdr_native_response_invalid')
+    }
+    if (rule === 'ok') {
+      // 元数据方法仅返回原生 Ok；旧序号同样可能 Ok/no-op，不能声称一定已修改。
+      fields(result, ['type'])
+    } else {
+      const state = rule === 'pong' ? result : object(result.snapshot)
+      if (state.version !== source.server_version || state.protocol !== HERDR_READONLY_REVIEW.protocol) {
+        fail('herdr_native_response_invalid')
+      }
+    }
+  }
+  return response
 }
 
 /** 原生协议组件可独立离线回放；它只做验证，不建立生产授权或连接。 */
 export function createHerdrCodec(source: ContractSource, schemas: HerdrSchemas) {
   reviewedSource(source, schemas)
-  const serverVersion = source.server_version
   const requestRoot = schemas.request
-  const responseRoot = schemas.response
   return Object.freeze({
-    /** 先检查精确被动参数和完整安装 schema，再生成单条有界 JSON LF。 */
+    /** 先检查精确评审参数和完整安装 schema，再生成单条有界 JSON LF。 */
     encode(request: JsonObject): Uint8Array {
       const checked = readonlyRequest(request)
       if (!requestRoot(checked)) {
@@ -116,38 +167,11 @@ export function createHerdrCodec(source: ContractSource, schemas: HerdrSchemas) 
       if (!requestRoot(checked)) {
         fail('herdr_native_request_invalid')
       }
-      if (
-        bytes.byteLength === 0 ||
-        bytes.byteLength > HERDR_READONLY_REVIEW.frame_bytes ||
-        bytes.at(-1) !== 10 ||
-        bytes.subarray(0, -1).includes(10)
-      ) {
-        fail('herdr_native_framing')
+      const rule = checked.method === 'session.snapshot' ? 'session_snapshot' : herdrResponseRule(checked.method)
+      if (!rule) {
+        fail('herdr_method_unreviewed')
       }
-      const response = object(parseJson(bytes, HERDR_READONLY_REVIEW.frame_bytes))
-      const error = Object.hasOwn(response, 'error')
-      fields(response, ['id', error ? 'error' : 'result'])
-      if (response.id !== checked.id || !responseRoot(response)) {
-        fail('herdr_native_response_invalid')
-      }
-      if (error) {
-        const body = object(response.error)
-        text(body.code, 128)
-        if (typeof body.message !== 'string') {
-          fail('herdr_native_response_invalid')
-        }
-      } else {
-        const result = object(response.result)
-        const state = checked.method === 'ping' ? result : object(result.snapshot)
-        if (
-          result.type !== (checked.method === 'ping' ? 'pong' : 'session_snapshot') ||
-          state.version !== serverVersion ||
-          state.protocol !== HERDR_READONLY_REVIEW.protocol
-        ) {
-          fail('herdr_native_response_invalid')
-        }
-      }
-      return response
+      return responseFrame(bytes, checked.id, rule, source, schemas)
     }
   })
 }
@@ -163,6 +187,7 @@ type State = {
   requestRoot: HerdrSchemas['request']
   responseRoot: HerdrSchemas['response']
   permitted: boolean
+  responseRule?: NonNullable<ReturnType<typeof herdrResponseRule>>
   responseOnly: boolean
   contentExpires: number
   dedupExpires: number
@@ -183,7 +208,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     states.delete(state.key)
   }
 
-  /** 只保留已许可 ping 的固定响应元数据，原请求及宿主扩展立即脱离缓存。 */
+  /** 只保留已许可 RPC 的固定响应规则与身份元数据，原请求及 token 正文立即脱离缓存。 */
   function compact(state: State): void {
     if (state.responseOnly) {
       return
@@ -314,7 +339,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     }
     fields(object(attempt.native_request), ['method', 'params'])
     readonlyRequest({ ...attempt.native_request, id: attempt.binding.native_request_id })
-    if (!HERDR_READONLY_REVIEW.methods.includes(attempt.method)) {
+    if (!reviewedHerdrRequest(attempt.native_request)) {
       fail('herdr_method_unreviewed')
     }
     return attempt
@@ -434,6 +459,11 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
   /** 仅显式准备派发时建立 permit；Wire 的纯校验回调不改变已派发状态。 */
   function encodeRequest(request: JsonObject, context: NativeValidationContext): Uint8Array {
     const { state, bytes } = checkedRequest(request, context)
+    const rule = herdrResponseRule(state.attempt.method)
+    if (!rule) {
+      fail('herdr_method_unreviewed')
+    }
+    state.responseRule = rule
     state.permitted = true
     return bytes
   }
@@ -441,19 +471,20 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
   /** 仅验证原生响应证据；当前读取权和保留状态由 checkResult/原 Store 事务分别处理。 */
   function decodeResponse(bytes: Uint8Array, context: NativeValidationContext): JsonObject {
     const state = current(context, 'evidence')
-    if (!state.permitted) {
+    if (!state.permitted || !state.responseRule) {
       fail('dispatch_permit_unavailable')
     }
-    return createHerdrCodec(state.contract.wire.source, state.contract.schemas).decode(bytes, {
-      // 已评审执行范围只有无参数 ping，响应约束无需保留或恢复任何请求正文。
-      method: state.attempt.method,
-      params: {},
-      id: state.attempt.binding.native_request_id
-    })
+    return responseFrame(
+      bytes,
+      state.attempt.binding.native_request_id,
+      state.responseRule,
+      state.contract.wire.source,
+      state.contract.schemas
+    )
   }
 
   const validator: NativePayloadValidator = Object.freeze({
-    /** 执行分类仅覆盖固定来源的 ping；snapshot 和事件的未知副作用保持拒绝。 */
+    /** 执行分类仅覆盖固定来源的精确参数；snapshot 和事件的未知副作用保持拒绝。 */
     requestGate(request: JsonObject, context: NativeValidationContext) {
       checkedRequest(request, context)
       return {
@@ -461,7 +492,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         schema_status: 'complete' as const,
         transport_status: 'supported' as const,
         authorized: true,
-        // 共享字段表示结果边界校验通过；ordinary ping 不要求也不签发秘密权限。
+        // 共享字段表示普通 Pong/Ok 结果边界通过，不签发秘密权限或放宽其它结果类型。
         secret_result_authorized: true,
         raw_contract_authorized: false
       }

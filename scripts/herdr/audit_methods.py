@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 import re
 import sys
 
-from contract import audit_method_policy, decode, require, reviewed_production_allowlist
+from contract import audit_method_policy, decode, require, reviewed_allowlist_matches, reviewed_production_allowlist
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -105,14 +105,48 @@ UNAVAILABLE = [
 ]
 
 
+# 新方法的源码锚点按实际函数/语句定位，整文件摘要由 source_ref 固定而非抄写行号。
+METADATA_SOURCE_REFS = {
+    'normalize_source': ('src/app/api_helpers.rs', 'pub(super) fn normalize_metadata_source('),
+    'normalize_ttl': ('src/app/api_helpers.rs', 'pub(super) fn normalize_metadata_ttl('),
+    'normalize_tokens': ('src/app/api_helpers.rs', 'pub(super) fn normalize_metadata_tokens('),
+    'sequence_freshness': ('src/metadata_tokens.rs', 'pub(crate) fn sequence_is_fresh('),
+    'sequence_acceptance': ('src/metadata_tokens.rs', 'pub(crate) fn accept_sequence('),
+    'token_patch': ('src/metadata_tokens.rs', 'pub(crate) fn patch('),
+    'token_expiry': ('src/metadata_tokens.rs', 'pub(crate) fn expire_at('),
+    'shared_expiry_schedule': ('src/app/runtime.rs', 'pub(crate) fn sync_agent_metadata_deadline('),
+    'shared_expiry_sweep': ('src/app/runtime.rs', 'pub(crate) fn expire_metadata_at('),
+    'metadata_event': ('src/app/api.rs', 'pub(crate) fn emit_workspace_token_updated('),
+    'pending_title_prelude': ('src/app/api.rs', 'self.sync_pending_terminal_titles();'),
+    'workspace_event_payload': ('src/app/creation.rs', 'pub(super) fn workspace_info('),
+    'workspace_label_resolution': ('src/workspace.rs', 'pub fn display_name_from('),
+    'persisted_workspace_shape': ('src/persist/snapshot.rs', 'pub struct WorkspaceSnapshot {'),
+    'restore_sequence_reset': ('src/persist/restore.rs', 'metadata_token_sequences: HashMap::new(),'),
+    'restore_tokens_reset': ('src/persist/restore.rs', 'metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),'),
+}
+
+
+# 返回精确分类范围；原生完整 schema 中的通用参数并不扩大 runtime 允许集。
+def review_scope(name):
+    if name == 'ping':
+        return 'exact_empty_object'
+    if name == 'workspace.report_metadata':
+        return 'generated_workspace_id_rovloom_note_safe_seq_and_bounded_ttl'
+    return 'requires_independent_method_and_params_review'
+
+
 # 返回当前代码支持状态及固定条件引用，不把静态方法清单当作实际执行授权。
 def adapter_support(name):
-    codec = name in ('ping', 'session.snapshot')
+    reviewed = [record['method'] for record in reviewed_production_allowlist()]
+    codec = name in ('ping', 'session.snapshot', 'workspace.report_metadata')
     return {
         'codec': codec, 'local_passive_review': name == 'ping',
-        'production_dispatch': name == 'ping',
-        'status': 'conditional_h1_runtime' if name == 'ping' else 'codec_only_candidate' if codec else 'not_implemented',
-        **({'runtime_policy_ref': 'method-policy.json#/production_allowlist/0'} if name == 'ping' else {}),
+        'production_dispatch': name in reviewed,
+        'status': ('conditional_h1_runtime' if name == 'ping' else
+                   'conditional_workspace_metadata_runtime' if name == 'workspace.report_metadata' else
+                   'codec_only_candidate' if codec else 'not_implemented'),
+        **({'runtime_policy_ref': 'method-policy.json#/production_allowlist/' + str(reviewed.index(name))}
+           if name in reviewed else {}),
     }
 
 
@@ -261,6 +295,9 @@ def build(tree, schema, provenance):
             refs['retained_history'] = source_ref(tree, 'src/api/subscriptions.rs', 'fn subscription_events_after(', anchors, sources)
         if name == 'agent.prompt':
             refs['wait_dispatch'] = source_ref(tree, 'src/api/wait.rs', 'fn prompt_agent(', anchors, sources)
+        if name == 'workspace.report_metadata':
+            for key, (path, anchor) in METADATA_SOURCE_REFS.items():
+                refs[key] = source_ref(tree, path, anchor, anchors, sources)
         rows.append({
             'method': name,
             'request_schema': 'schema.json#/schemas/request/oneOf/' + str(index),
@@ -270,7 +307,7 @@ def build(tree, schema, provenance):
             'transport': transport_for(name),
             'risk_category': group,
             'risk_boundaries': RISKS[group],
-            'review_scope': 'exact_empty_object' if name == 'ping' else 'requires_independent_method_and_params_review',
+            'review_scope': review_scope(name),
             'adapter_support': adapter_support(name),
             'unavailable_bridge_guarantees': UNAVAILABLE,
             'next_slice': SLICE_OVERRIDES.get(name, SLICE_FOR_GROUP[group]),
@@ -282,11 +319,11 @@ def build(tree, schema, provenance):
         'schema_file': 'schema.json', 'schema_sha256': provenance['schema_sha256'],
         'method_count': len(rows), 'production_allowlist': reviewed_production_allowlist(),
         'authorizes_dispatch': False,
-        'scope': 'static capability, risk and conditional H1 implementation inventory; no execution authorization; runtime must independently verify every referenced condition',
+        'scope': 'static capability, risk and conditional reviewed runtime implementation inventory; no execution authorization; runtime must independently verify every referenced condition',
         'sources_sha256': dict(sorted(sources.items())), 'source_anchors': dict(sorted(anchors.items())),
         'source_validation': 'audit --source-tree checks file bytes and exact line anchors; default audit is offline schema coverage only',
         'guarantee_scope': 'unavailable in the current bridge; native local identity checks, content revisions and method-specific acknowledgements are not interchangeable with these guarantees',
-        'parameter_scope': 'original schema pointers only; source review and exact method+params evidence remain required',
+        'parameter_scope': 'original native schema pointers plus narrower referenced runtime policy; source review and exact method+params evidence remain required',
         'transport_scope': 'local JSON socket; client_shell.surface.set is rejected there and handled on its separate client endpoint',
         'not_advertised_as_methods': ['agent.run', 'session.create', 'session.destroy', 'server.start', 'cancel'],
         'slices': SLICES, 'methods': rows,
@@ -302,7 +339,7 @@ def audit(matrix, schema, provenance, tree=None):
     require(matrix['version'] == provenance['version'] and matrix['protocol'] == provenance['protocol'], 'native version mismatch')
     require(matrix['schema_sha256'] == provenance['schema_sha256'], 'schema hash mismatch')
     require(matrix.get('authorizes_dispatch') is False, 'inventory cannot grant production permission')
-    require(matrix['production_allowlist'] == reviewed_production_allowlist(), 'reviewed production scope mismatch')
+    require(reviewed_allowlist_matches(matrix['production_allowlist']), 'reviewed production scope mismatch')
     expected, grouped = methods(schema), categories()
     rows = matrix['methods']
     require(matrix['method_count'] == len(rows) == len(expected), 'method count mismatch')
@@ -316,12 +353,18 @@ def audit(matrix, schema, provenance, tree=None):
         group = grouped[name]
         require(row['risk_category'] == group and row['risk_boundaries'] == RISKS[group], 'risk classification mismatch')
         require(row['next_slice'] == SLICE_OVERRIDES.get(name, SLICE_FOR_GROUP[group]), 'implementation slice mismatch')
-        require(row['review_scope'] == ('exact_empty_object' if name == 'ping' else 'requires_independent_method_and_params_review'), 'review scope broadened')
+        require(row['review_scope'] == review_scope(name), 'review scope broadened')
         require(row['adapter_support'] == adapter_support(name), 'inventory adapter support or permission broadened')
         require(row['unavailable_bridge_guarantees'] == UNAVAILABLE, 'unsupported guarantee promotion')
         require({'declaration', 'transport_dispatch', 'implementation'} <= set(row['source_refs']), 'missing source dispatch evidence')
         for key in row['source_refs'].values():
             require(key in matrix['source_anchors'], 'missing source anchor')
+        if name == 'workspace.report_metadata':
+            require(set(METADATA_SOURCE_REFS) <= set(row['source_refs']), 'missing metadata source boundary')
+            for key, (path, needle) in METADATA_SOURCE_REFS.items():
+                reference = row['source_refs'][key]
+                require(reference.startswith(path + '#L') and needle in matrix['source_anchors'][reference],
+                        'metadata source boundary mismatch')
         variant = ''.join(part[0].upper() + part[1:] for part in re.split(r'[._]', name))
         require(matrix['source_anchors'][row['source_refs']['declaration']].startswith(variant + '('),
                 'method declaration anchor mismatch')
@@ -343,7 +386,8 @@ def audit(matrix, schema, provenance, tree=None):
     return {'method_count': len(rows), 'categories': dict(sorted(Counter(row['risk_category'] for row in rows).items())),
             'source_bytes_verified': tree is not None, 'native_methods_executed': 0,
             'production_allowlist': [], 'authorizes_dispatch': False,
-            'reviewed_runtime_methods': ['ping'], 'guarantees_promoted': False}
+            'reviewed_runtime_methods': [record['method'] for record in reviewed_production_allowlist()],
+            'guarantees_promoted': False}
 
 
 def main():

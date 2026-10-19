@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { boundedJson, providerFor } from '../../../src/wire/index.js'
-import { createHerdrReadonlyAdapter } from '../../../src/connector/herdr/readonly.js'
+import { createHerdrCodec, createHerdrReadonlyAdapter } from '../../../src/connector/herdr/readonly.js'
 import { persistentHerdrBackend, commitHerdrResponse } from '../../../src/connector/herdr/persistence.js'
 import { Store } from '../../../src/store.js'
 import { createHerdrWireAdapter } from '../../../src/connector/herdr/wire.js'
+import type { JsonObject } from '../../../src/wire/types.js'
 import type { Adapter } from '../../../src/transport/common.js'
 import { connected, management, responseFrame } from '../../storage/helpers.js'
-import { backendFixture, fixture } from './helpers.js'
+import { backendFixture, fixture, schemas, source } from './helpers.js'
 
 /** 为每个反例准备合成完整来源与私有 permit；没有原生 socket 或 Store 写入。 */
 function prepared() {
@@ -240,7 +241,7 @@ for (const status of ['expired', 'discarded', 'unavailable'] as const) {
 }
 
 /** 用自有临时 SQLite、真实品牌编译器和固定来源构造准入/派发链；原生响应来自脱敏 fixture。 */
-function stored(prepare = true) {
+function stored(prepare = true, requestValue = { method: 'ping', params: {} as JsonObject }) {
   const directory = mkdtempSync(join(tmpdir(), 'rovloom-herdr-store-'))
   let now = 100
   const store = new Store(join(directory, 'db'), /** 只由测试推进可信时钟。 */ () => now, {
@@ -249,6 +250,8 @@ function stored(prepare = true) {
   })
   const device = connected(store)
   const state = backendFixture()
+  state.record.method = requestValue.method
+  state.record.native_request = requestValue
   const provider = {
     machine_id: device.machine_id,
     provider_id: 'herdr',
@@ -283,6 +286,7 @@ function stored(prepare = true) {
   }
   for (const side of [state.context.policies!.caller, state.context.policies!.local]) {
     side.grants[0]!.target = target
+    side.grants[0]!.methods = [requestValue.method]
   }
   const local = { ...provider }
   const token = Object.freeze({ owned_synthetic_socket: true })
@@ -294,11 +298,13 @@ function stored(prepare = true) {
   })
   const adapter = createHerdrReadonlyAdapter(backend)
   const context = adapter.resolve(identity)
-  const request = { method: 'ping', params: {}, id: binding.native_request_id }
+  const request = { ...requestValue, id: binding.native_request_id }
   if (prepare) {
     adapter.encodeRequest(request, context)
   }
-  const frame = responseFrame(binding, { result: fixture().response.result })
+  const frame = responseFrame(binding, {
+    result: requestValue.method === 'workspace.report_metadata' ? { type: 'ok' } : fixture().response.result
+  })
   return {
     ...state,
     store,
@@ -322,6 +328,269 @@ function stored(prepare = true) {
       rmSync(directory, { recursive: true, force: true })
     }
   }
+}
+
+/** 合成有期限自定义元数据意图；不调用原生 workspace，也不使用模型凭据或私人数据。 */
+function metadataRequest(value: string | null = 'synthetic note') {
+  return {
+    method: 'workspace.report_metadata',
+    params: { workspace_id: 'w1', source: 'rovloom', tokens: { rovloom_note: value }, seq: 1, ttl_ms: 100 }
+  }
+}
+
+for (const value of ['synthetic note', null]) {
+  test(
+    `reviewed metadata ${value === null ? 'clear' : 'write'} shares Wire, native codec and real Store commit`,
+    /** 写入与清除均经完整 schema、同一 permit 和真实 Store；合成 Ok 不声称原生状态已改变。 */ () => {
+      const state = stored(false, metadataRequest(value))
+      const wire = createHerdrWireAdapter(state.backend, state.adapter)
+      try {
+        const request = {
+          ...state.frame,
+          type: 'request' as const,
+          message_id: 'metadata-request',
+          payload: {
+            attempt: state.identity,
+            expected_binding_revision: 1,
+            native_request: metadataRequest(value),
+            validation: 'strict' as const
+          }
+        }
+        assert.deepEqual(wire.decode(wire.encode(request, 'gateway_to_connector'), 'gateway_to_connector'), request)
+        assert.deepEqual(
+          JSON.parse(Buffer.from(state.adapter.encodeRequest(state.request, state.context)).toString()),
+          state.request
+        )
+        const response = state.frame.payload.native_response
+        assert.deepEqual(response, { id: state.binding.native_request_id, result: { type: 'ok' } })
+        assert.deepEqual(
+          wire.decode(wire.encode(state.frame, 'connector_to_gateway'), 'connector_to_gateway'),
+          state.frame
+        )
+        wire.checkResult(state.binding, response)
+        wire.checkResultRetention(state.binding, response)
+        const result = state.store.commitEvidence(
+          state.binding,
+          /** 事务内用原 permit 重新规划证据，不接受 caller 制造的提交计划。 */ () => wire.planEvidence(state.frame)
+        )
+        assert.equal(result.state, 'responded')
+        assert.deepEqual(JSON.parse(result.response!), response)
+      } finally {
+        wire.close()
+        state.close()
+      }
+    }
+  )
+}
+
+test(
+  'metadata scope rejects invalid parameters in both codec and real Store before dispatch',
+  /** 同一组反例经过两个真实边界，拒绝缺省、越界、额外字段及命名空间漂移。 */ () => {
+    const state = stored(false, metadataRequest())
+    try {
+      const params = metadataRequest().params
+      const invalid: JsonObject[] = [
+        {},
+        { ...params, workspace_id: 'wl' },
+        { ...params, workspace_id: 'wO' },
+        { ...params, workspace_id: 'w' },
+        { ...params, workspace_id: 'w' + '1'.repeat(13) },
+        { ...params, source: 'other' },
+        { ...params, tokens: {} },
+        { ...params, tokens: { rovloom_note: '' } },
+        { ...params, tokens: { rovloom_note: ' padded' } },
+        { ...params, tokens: { rovloom_note: 'padded ' } },
+        { ...params, tokens: { rovloom_note: '\n' } },
+        { ...params, tokens: { rovloom_note: '汉字' } },
+        { ...params, tokens: { rovloom_note: 'a'.repeat(65) } },
+        { ...params, tokens: { rovloom_note: false } },
+        { ...params, tokens: { rovloom_note: null, another: null } },
+        { ...params, seq: 0 },
+        { ...params, seq: 1.5 },
+        { ...params, seq: Number.MAX_SAFE_INTEGER + 1 },
+        { ...params, ttl_ms: 99 },
+        { ...params, ttl_ms: 60_001 },
+        { ...params, ttl_ms: null },
+        { ...params, extra: true }
+      ]
+      for (const missing of Object.keys(params)) {
+        const incomplete: JsonObject = { ...params }
+        delete incomplete[missing]
+        invalid.push(incomplete)
+      }
+      for (const value of invalid) {
+        const request = { method: 'workspace.report_metadata', params: value }
+        assert.throws(
+          /** 编码前校验固定参数范围，不能由完整 schema 的较宽范围放行。 */ () =>
+            createHerdrCodec(source, schemas).encode({ ...request, id: 'metadata-invalid' }),
+          /herdr_method_unreviewed|invalid_integer/
+        )
+        assert.throws(
+          /** 真实 Store 在创建派发锚点前拒绝同一意图。 */ () =>
+            state.store.createCall('principal1', state.target, request, state.options),
+          /provider_support_candidate/
+        )
+      }
+      const upper = metadataRequest('~'.repeat(64))
+      upper.params.seq = Number.MAX_SAFE_INTEGER
+      upper.params.ttl_ms = 60_000
+      upper.params.workspace_id = 'w' + 'Z'.repeat(12)
+      assert.doesNotThrow(
+        /** 边界值仍走完整原生 schema。 */ () =>
+          createHerdrCodec(source, schemas).encode({ ...upper, id: 'metadata-upper' })
+      )
+      assert.doesNotThrow(
+        /** 真实 Store 接纳同一有界意图。 */ () =>
+          state.store.createCall('principal1', state.target, upper, state.options)
+      )
+    } finally {
+      state.close()
+    }
+  }
+)
+
+test(
+  'metadata dispatch and delivery require its own current grants and the original request body',
+  /** ping 授权不能扩展到元数据；原请求正文、当前派发权和当前读权分别检查。 */ () => {
+    const state = stored(false, metadataRequest())
+    try {
+      const policy = state.backend.context('principal1', 'gateway_to_connector').policies!
+      policy.local.grants[0]!.methods = ['ping']
+      assert.throws(
+        /** 仅拥有旧 ping grant 时禁止派发新方法。 */ () => state.adapter.encodeRequest(state.request, state.context),
+        /provider_scope_forbidden/
+      )
+      policy.local.grants[0]!.methods = ['workspace.report_metadata']
+      assert.throws(
+        /** 原 binding 不能改写 token 内容后重新编码。 */ () =>
+          state.adapter.encodeRequest(
+            { ...metadataRequest('different'), id: state.binding.native_request_id },
+            state.context
+          ),
+        /attempt_request_mismatch/
+      )
+      state.adapter.encodeRequest(state.request, state.context)
+      policy.local.grants[0]!.actions = ['dispatch']
+      assert.deepEqual(
+        state.adapter.decodeResponse(
+          Buffer.from(JSON.stringify(state.frame.payload.native_response) + '\n'),
+          state.context
+        ),
+        state.frame.payload.native_response
+      )
+      assert.throws(
+        /** 合法响应证据不绕过当前读取授权。 */ () => state.adapter.checkResult(state.context),
+        /provider_scope_forbidden/
+      )
+    } finally {
+      state.close()
+    }
+  }
+)
+
+test(
+  'metadata accepts only its original id and body-free Ok or the complete native error root',
+  /** 合成原生错误保持原样；其它方法结果、正文回显和未准备状态均不能变成元数据成功。 */ () => {
+    const state = stored(false, metadataRequest())
+    try {
+      const response = state.frame.payload.native_response
+      assert.throws(
+        /** schema 合法的 Ok 不能自行创建派发许可。 */ () =>
+          state.adapter.decodeResponse(Buffer.from(JSON.stringify(response) + '\n'), state.context),
+        /dispatch_permit_unavailable/
+      )
+      state.adapter.encodeRequest(state.request, state.context)
+      for (const wrong of [
+        { ...response, id: 'another' },
+        { ...response, result: fixture().response.result },
+        { ...response, result: { type: 'ok', rovloom_note: 'echoed input' } },
+        { ...response, error: { code: 'unknown_workspace', message: 'synthetic' } },
+        { id: response.id, error: { code: 'unknown_workspace', message: 1 } }
+      ]) {
+        assert.throws(
+          /** 保持完整 response 根与请求特定类型校验；不能隐式采纳其它结果。 */ () =>
+            state.adapter.decodeResponse(Buffer.from(JSON.stringify(wrong) + '\n'), state.context)
+        )
+      }
+      const error = { id: response.id, error: { code: 'unknown_workspace', message: 'synthetic native error' } }
+      assert.deepEqual(state.adapter.decodeResponse(Buffer.from(JSON.stringify(error) + '\n'), state.context), error)
+      assert.throws(
+        /** 共享纯分类通过也不能绕过完整 request 根。 */ () =>
+          createHerdrCodec(source, { ...schemas, request: /** 模拟完整根拒绝。 */ () => false }).encode(state.request),
+        /herdr_native_request_invalid/
+      )
+      assert.throws(
+        /** 完整 response 根拒绝优先于正确的 Ok 类型。 */ () =>
+          createHerdrCodec(source, { ...schemas, response: /** 模拟完整根拒绝。 */ () => false }).decode(
+            Buffer.from(JSON.stringify(response) + '\n'),
+            state.request
+          ),
+        /herdr_native_response_invalid/
+      )
+    } finally {
+      state.close()
+    }
+  }
+)
+
+for (const cleanup of ['ttl', 'discard', 'late'] as const) {
+  test(
+    `real Store metadata ${cleanup} keeps the original response rule without rebuilding cleared params`,
+    /** 真实回收后只验证原 ID/Ok；不保留 token 正文、延长期限或从空参数重建新请求。 */ () => {
+      const state = stored(true, metadataRequest('synthetic note that must leave the cached request'))
+      try {
+        const before = state.adapter.stats().attempt_bytes
+        const anchor = state.store.responseAnchor(state.binding)
+        if (cleanup === 'discard') {
+          state.store.discardResponse('principal1', state.binding.call_id)
+        } else {
+          state.advance(cleanup === 'ttl' ? 150 : 120)
+          state.store.expire()
+        }
+        const response = state.frame.payload.native_response
+        assert.deepEqual(
+          state.adapter.decodeResponse(Buffer.from(JSON.stringify(response) + '\n'), state.context),
+          response
+        )
+        const result = commitHerdrResponse(state.store, state.adapter, state.frame)
+        const retained = state.store.responseAnchor(state.binding)
+        assert.equal(retained.content_expires_at, anchor.content_expires_at)
+        assert.equal(retained.dedup_expires_at, anchor.dedup_expires_at)
+        if (cleanup === 'late') {
+          assert.equal(result.state, 'responded')
+          assert.deepEqual(JSON.parse(result.response!), response)
+          assert(
+            state.store
+              .auditRecords()
+              .some(/** 迟到 Ok 只记录原调用证据。 */ (entry) => entry.action === 'late_evidence')
+          )
+        } else {
+          assert.equal(result.response, null)
+          assert.equal(state.backend.attempt(state.binding.call_id, state.binding.attempt_id), undefined)
+          assert.equal(state.adapter.stats().executions, 0)
+          assert.equal(state.adapter.stats().responses, 1)
+          assert(state.adapter.stats().attempt_bytes < before)
+          assert.throws(
+            /** 回收态不能重新编码原写入。 */ () => state.adapter.encodeRequest(state.request, state.context),
+            /content_unavailable/
+          )
+          assert.throws(
+            /** 已回收的响应不能交付。 */ () => state.adapter.checkResult(state.context),
+            /content_unavailable/
+          )
+        }
+        state.advance(anchor.dedup_expires_at)
+        assert.equal(state.adapter.stats().responses, 0)
+        assert.throws(
+          /** 原去重期限到达即撤销密封响应规则。 */ () =>
+            state.adapter.decodeResponse(Buffer.from(JSON.stringify(response) + '\n'), state.context),
+          /native_handle_unavailable/
+        )
+      } finally {
+        state.close()
+      }
+    }
+  )
 }
 
 test(

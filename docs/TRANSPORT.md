@@ -72,7 +72,7 @@ token，再以该 token 读取实际能力并确认实例空白。秘密仅驻�
 
 ### Herdr 对通用角色的消费契约
 
-Herdr 的固定 `ping {}` 已由
+Herdr 的固定 `ping {}` 与受限 `workspace.report_metadata` 已由
 [`createHerdrRuntime`](../src/connector/herdr/runtime.ts)提供实际原生执行 hook；
 当前角色工厂仍按 Luvus 装配。下一片通用角色须消费下列接口与可信准入来源，
 这些是尚待实现的组合要求，不代表现有 Wire 已包含准入凭据。
@@ -125,7 +125,8 @@ H1 要求真实账本实例，不接受返回 true 的自报 claim 回调，也�
 断连先 fence 旧 epoch，再关闭其 adapter/session；factory 构造中重入关闭也须释放已取得资源。
 session 同步 close 只关闭所属桥接等待与订阅，不能宣称原生回滚或退出。角色停止重连并清理
 全部 epoch 后，再由显式 release 释放长期 claims/安装/进程所有权；墓碑保留到原期限。
-已许可 ping 的内容回收只保留原 dedup 期限内的最小响应上下文，fence 直接销毁。
+已许可 RPC 的内容回收只保留原 dedup 期限内的密封响应类型和原身份，fence 直接销毁。
+metadata 的原生 token TTL/seq 不替代 Store 的内容/dedup 锚点，也不提供重复派发许可。
 Gateway 的结果读取/保留与 `planEvidence`消费公共 Adapter，证据仍经
 [`commitNativeResponse`](../src/integration/persistence.ts)进入唯一 Store 事务；
 不能强制走仅接受 Luvus provider/source 的结果工厂。正式 provider 选择、独立准入持久化、

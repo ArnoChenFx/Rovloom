@@ -29,6 +29,7 @@ import { completionReservation } from './storage/completion.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, privateFile, privatePath } from './storage/files.js'
 import { fixedHerdrSource } from './connector/herdr/review.js'
+import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
 export { DEFAULT_RETENTION }
 export type {
@@ -1037,7 +1038,7 @@ export class Store {
           (target.profile !== 'session' ||
             (options.validation ?? 'strict') !== 'strict' ||
             options.contract_ref !== contractRef(fixedHerdrSource()) ||
-            canonical(request) !== '{"method":"ping","params":{}}')
+            !reviewedHerdrRequest(request))
         ) {
           throw new GatewayError('provider_support_candidate')
         }

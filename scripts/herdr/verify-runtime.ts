@@ -1,4 +1,4 @@
-/** 显式创建自有空白 Herdr，验收实际安装→Store/Router/Wire→原生 ping；报告和临时库均不入仓。 */
+/** 显式创建自有空白 Herdr，验收实际安装→Store/Router/Wire→已评审 RPC；报告和临时库均不入仓。 */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import {
@@ -21,6 +21,8 @@ import { fixedHerdrSource, HERDR_READONLY_REVIEW } from '../../src/connector/her
 import { contractRef } from '../../src/wire/index.js'
 import { createHerdrRuntimeChain } from '../../test/connector/herdr/runtime-chain.js'
 import { until } from '../../test/transport/helpers.js'
+import { prepareMetadataTerminal, reapMetadataTerminal, verifyWorkspaceMetadata } from './verify-workspace-metadata.js'
+import type { MetadataNativeDiagnostics } from './verify-workspace-metadata.js'
 
 /** 停止且回收本次显式启动的唯一子进程，不按名称、PID 文件或 socket 枚举其它实例。 */
 async function stop(child: ChildProcess): Promise<void> {
@@ -66,8 +68,11 @@ async function main(): Promise<void> {
   let diagnostics: unknown
   let observedPong: unknown
   let observedClaims = 0
+  let observedMetadata: Awaited<ReturnType<typeof verifyWorkspaceMetadata>> | undefined
+  const metadataDiagnostics: MetadataNativeDiagnostics = { stage: 'not_started' }
+  let terminalCleaned = false
   try {
-    const chain = createHerdrRuntimeChain(root)
+    const chain = createHerdrRuntimeChain(root, ['ping', 'workspace.report_metadata'])
     resourceChain = chain
     copyFileSync(values.binary, binary)
     chmodSync(binary, 0o700)
@@ -100,7 +105,8 @@ async function main(): Promise<void> {
     }
     writeFileSync(
       join(config.config_home, 'herdr', 'config.toml'),
-      'onboarding = false\n[update]\nversion_check = false\nmanifest_check = false\n[session]\nresume_agents_on_restore = false\n',
+      'onboarding = false\n[update]\nversion_check = false\nmanifest_check = false\n[session]\nresume_agents_on_restore = false\n' +
+        prepareMetadataTerminal(root),
       { mode: 0o600 }
     )
     const supervised = await launchHerdrProcess(config)
@@ -169,6 +175,8 @@ async function main(): Promise<void> {
         identity: 'synthetic_fixture_only'
       }
     })
+    observedMetadata = await verifyWorkspaceMetadata(installation, chain, root, checks, metadataDiagnostics)
+    observedClaims = chain.claimCount()
     const before = chain.claimCount()
     for (const request of [
       { method: 'ping', params: { extra: true } },
@@ -239,6 +247,13 @@ async function main(): Promise<void> {
             : 'unknown'
   } finally {
     diagnostics = resourceChain?.diagnostics()
+    if (installation && resourceChain) {
+      try {
+        observedClaims = resourceChain.claimCount()
+      } catch {
+        failure ??= 'claim_diagnostics_unavailable'
+      }
+    }
     try {
       resourceChain?.close()
     } finally {
@@ -248,27 +263,37 @@ async function main(): Promise<void> {
           await stop(child)
         }
       } finally {
-        rmSync(root, { recursive: true })
+        terminalCleaned = await reapMetadataTerminal(root)
+        if (terminalCleaned) {
+          rmSync(root, { recursive: true })
+        } else {
+          failure ??= 'owned_terminal_cleanup_incomplete'
+        }
       }
     }
   }
   const report = {
     format: 1,
     runtime: 'herdr',
-    scope: 'H1 exact ping only',
+    scope: 'reviewed ping and bounded workspace metadata RPC',
     checks,
     failures: resourceChain?.failures ?? [],
     diagnostics,
     observed_pong: observedPong,
     observed_claims: observedClaims,
+    observed_metadata: observedMetadata,
+    metadata_diagnostics: metadataDiagnostics,
     failure: failure ?? null,
-    passed: !failure && checks.length === 5,
+    passed: !failure && checks.length === 9,
     cleanup: {
       owned_child_exited: !child || child.exitCode !== null || child.signalCode !== null,
+      owned_synthetic_terminal_reaped: terminalCleaned,
       private_root_removed: !existsSync(root)
     },
-    native_method_scope: ['ping {}'],
-    untested_native_methods: 101,
+    native_method_scope: ['ping {}', 'workspace.report_metadata bounded custom token'],
+    fixture_only_methods: ['workspace.create', 'workspace.get'],
+    untested_native_methods: 98,
+    other_product_methods_refused: 100,
     non_claims: [
       'full_product_cli',
       'cross_platform_native',
