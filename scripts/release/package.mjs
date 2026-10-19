@@ -57,7 +57,7 @@ export async function packageProduct(context, destination) {
         ? { ...check, stderr: new RegExp(`^Rovloom ${context.version.replaceAll('.', '\\.')}\\r?\\n$`, 'u') }
         : check
   )
-  smokeStandalone(output.binary, checks)
+  await smokeStandalone(output.binary, checks)
   // 该脚本由产品入口负责：只复制此 binary，在空 cwd/PATH 和隔离用户目录验收真实 HTTP 服务及全部资源。
   run(process.execPath, ['--no-env-file', acceptance, output.binary, context.version])
   if (platform.os === 'windows') {
