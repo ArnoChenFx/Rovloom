@@ -322,8 +322,24 @@ class DevelopmentInstance implements OwnedLuvusInstance {
   /** 关闭所有内存委托并只终止本轮直接 child；不删除运行状态或接管其它实例。 */
   close(): Promise<void> {
     this.#clear()
-    this.#closing ??= this.#process.close()
-    return this.#closing
+    if (this.#closing) {
+      return this.#closing
+    }
+    const attempt = this.#process.close()
+    this.#closing = attempt
+    void attempt.then(
+      /* 成功后重复关闭复用真实 child 已退出的事实，来源不会恢复。 */ () => {
+        if (this.#closing === attempt) {
+          this.#closing = undefined
+        }
+      },
+      /* 失败只允许后续显式停止重试；秘密已撤销，拥有标记和真实 child 归属仍保留。 */ () => {
+        if (this.#closing === attempt) {
+          this.#closing = undefined
+        }
+      }
+    )
+    return attempt
   }
 
   /** 失效后永久释放本对象及其全部已交付 delegation 的秘密引用。 */
@@ -569,6 +585,7 @@ export async function startDevelopmentLuvus(
     return instance
   } catch (error) {
     token = undefined
+    // 未确认退出时 close 会有界拒绝并保留 child/pidfd 与拥有标记，不向 caller 宣称清理成功。
     await child?.close()
     releaseMarkers(markers)
     throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('development_bootstrap_failed')

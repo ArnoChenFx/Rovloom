@@ -38,7 +38,7 @@ Gateway 准入仅 `created=true` 才调用真实 transport 派发；重复 key �
 身份库从总安全、审计和磁盘预算保守预留独立份额，实际目录字节仍计入 Store 总量。
 身份安装/轮换需要宿主独立的动作级确认。`changed(machine)` 必须交给同一 Gateway 的正常
 断连；prepare 使用共享 ChannelRegistry 仅同步封锁通道，不重入 Store。开启失败与显式关闭
-均完成资源清理；`close()` 与 `closed` 使用相同完成结果，释放失败保持失败。
+均尝试清理所属资源；`close()` 与 `closed` 使用相同完成结果，释放失败保持失败。
 
 ### 明确受限的原生开发来源
 
@@ -52,7 +52,8 @@ binary/root/session、最小环境和固定 argv 启动直接 child，持有 pid
 私有 bootstrap 只在同一受控 peer 上签发最多五分钟的 `read` 或显式 `read + orchestration`
 token，再以该 token 读取实际能力并确认实例空白。秘密仅驻留专用内存，不进入 Store、普通
 响应、日志或参数；每个实际准入 binding 延迟取得 `LuvusBoundDelegation`，所有 epoch 沿用
-原签发/到期时刻，不刷新 token。关闭只终止本轮直接 child 并移除内存秘密，不自动删除状态。
+原签发/到期时刻，不刷新 token。关闭移除内存秘密并仅向本轮 child 的 pidfd 请求终止，不自动
+删除状态；信号失败或等待截止不等于物理退出，须保留拥有标记并准确报告清理未完成。
 `createDevelopmentLuvusProvider`只为 `automation.list`、`task.add`、`task.update`提供固定手工
 审核的普通 RPC 分类；仍须 caller/local grants、原生权限及原 Wire 许可，不开放 raw、Host、
 终端、token 方法或秘密结果。其它能力缺分类继续拒绝。
@@ -68,6 +69,51 @@ token，再以该 token 读取实际能力并确认实例空白。秘密仅驻�
 首次固定期限，不能证明 Gateway 的原期限。跨 epoch 共享 book，实际发送继续受
 `LuvusDispatchClaims`持久唯一记录约束，断连不清墓碑。正式跨进程部署还须交付可信截止元数据，
 缺来源不能用重连时钟补造。
+
+### 正式宿主的最小交付顺序
+
+下表区分已经可消费的装配端口与尚未实现的生产来源。把返回值写成 `true`、复制开发对象，
+或让 CLI 再包一层 callback 都不完成右列的责任。
+
+| 已有消费端口 | 正式来源须补齐的代码与验收 |
+|---|---|
+| `RuntimeProvider.source/ready/contract`、session 的 `verifyPeer/assertEvidence` | 受控 supervisor 固定发行 binary/schema 摘要、私有 root/session 和启动配置，直接创建并持有 child/pidfd，核对实际每条 IPC socket 的 peer；退出、路径替换、generation 变化同步废止来源 |
+| session 的 `delegation`、`LuvusBoundDelegation` | 专用 custody 从显式批准的本机发行/交付取得受限 token 与原始签发记录，绑定完整 config/native generation、方法、scope、issued/expires；不接受调用 JSON 自报权限，不回退 Owner，不在重连时刷新 |
+| `ConnectorAttemptBookOptions.dedupExpires`、session 的 `dedupExpires` | 同进程可直接读唯一 Store 的已提交 `responseAnchor(binding)`；跨进程需要受认证交付的原始准入记录，核对完整 binding、请求摘要及固定 dedup 截止后持久登记，再交给 book/claims |
+| `GatewayRuntimeOptions.identities`、`runAuthenticated` | 唯一 HTTP 认证 adapter 交付受保护身份引用，逐操作重查当前 principal；设备凭据、管理员 session 和 MCP caller 分别保留各自来源 |
+
+建议第一片在 `src/runtime/managed-instance.ts` 实现正式实例租约，在
+`src/runtime/native-custody.ts` 实现受保护交付；这两个名称是待实现的职责划分，当前没有
+同名占位导出。前者产出与现有 `source/verifyPeer/assertEvidence/ready/close` 对接的本机
+opaque 句柄，后者只在该句柄与原发行记录均有效时产出 `LuvusBoundDelegation`。随后才装配
+公开角色，顺序如下：
+
+1. 在独立本机 provisioning 操作中，核实已批准的安装清单、账户、固定路径和实例目录，
+   将首次创建或接管动作与精确目标绑定。常驻启动只消费这份受保护记录，不扫描用户会话、
+   不认领 discovery PID、不自动安装或提高权限。持久目录的可信历史需要单独检查，不能删掉
+   开发来源的空白检查后便称生产来源。实例创建与关闭复用受控进程和真实 peer 核验；停止
+   请求失败必须报告尚未确认退出，保留拥有记录，不能释放后让第二个宿主重新认领。
+2. 新增专用 custody 实现：显式交付时核对该实例的实际 socket 与原生发行响应，秘密只送入
+   私有内存或受保护凭据设施，普通角色配置只引用 custody 项。每个实际 attempt 延迟构造
+   既有 `LuvusBoundDelegation`，固定原期限；来源失效或关闭时清除内存引用。真实持久凭据的
+   创建、轮换或原生撤销另需动作级授权，运行时不替用户执行这些配置动作。
+3. 最小同进程宿主由同一受控启动者持有 opaque 实例、custody 和唯一 Gateway Store，再分别
+   调用现有 Gateway/Connector 工厂。它可以共享原截止读取端口，不需第二个账本。若公开
+   Gateway 与 Connector 分属进程或机器，则必须先实现受保护实例证明交付和准入元数据
+   交付；opaque 对象不能 JSON 序列化后继续充当归属证明。通用 OS 服务的 `running` 状态、
+   release 的文件校验和设备通道认证都不能单独建立原生实例事实。
+4. 跨进程准入交付需独立的小切片：Gateway 在原 dispatch 事务提交后，从 Store 原锚点生成
+   精确 binding、请求摘要及原 dedup 截止的认证记录；Connector 在原 Wire 请求准入前复验
+   签发来源、当前设备/generation/epoch、唯一性和固定期限，并将原值写入本机受保护记录。
+   重复交付只能接受完全相同记录，断线不得续期或重放工作。当前 Wire 没有这个字段/通道，
+   因而该项需要正式 transport/Wire 扩展评审，不能把新字段塞入普通原生请求或直接开放
+   Gateway writer。记录缺失、冲突、过期或来源不可验证时保持拒绝。
+5. 唯一 CLI 消费已解析配置和上述正式来源，组合 HTTP 常驻服务与 runtime，显式进程停止
+   才调用关闭。验收分别覆盖发行产物运行、真实认证 HTTP caller、独立 Connector、一次
+   普通 RPC、原 Wire 结果读取、显式取消与断线不重放；随后再验证远端及 OpenCode。
+
+这些是下一阶段的具体生产代码责任，当前模块没有导出占位的正式 supervisor/custody，
+也没有把服务安装或开发 fixture 的成功作为这些步骤的完成证据。
 
 `test/runtime`覆盖隔离双库、实际认证连接、唯一派发、原 Wire 结果、关闭重入、迟到请求作用域、
 能力冲突及开发来源拒绝。自建 native listener 的回归与官方 binary 的隔离运行是不同证据。

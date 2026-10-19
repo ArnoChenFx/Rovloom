@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 仅保留官方 LogonType 的枚举与可选基数语义；不充当完整 Scheduler schema 或实机证据。
+来源：https://learn.microsoft.com/en-us/windows/win32/taskschd/task-scheduler-schema -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:simpleType name="logonType"><xs:restriction base="xs:string">
+    <xs:enumeration value="S4U"/><xs:enumeration value="Password"/>
+    <xs:enumeration value="InteractiveToken"/><xs:enumeration value="InteractiveTokenOrPassword"/>
+  </xs:restriction></xs:simpleType>
+  <xs:complexType name="principalLogon"><xs:all>
+    <xs:element name="LogonType" type="logonType" minOccurs="0" maxOccurs="1"/>
+  </xs:all></xs:complexType>
+</xs:schema>

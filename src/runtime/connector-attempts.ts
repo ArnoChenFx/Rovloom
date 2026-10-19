@@ -67,7 +67,7 @@ export class ConnectorAttemptBook {
   }
 
   /** 预查同一意图和固定预算；仅真实 Wire 校验成功之后才由 commit 建立记录。 */
-  #prepare(attempt: TrustedAttempt): Entry {
+  #prepare(attempt: TrustedAttempt, localExpiry?: number): Entry {
     const now = this.#time()
     if (now >= attempt.binding.registration.deadline) {
       fail('deadline_exceeded')
@@ -75,7 +75,7 @@ export class ConnectorAttemptBook {
     const name = attempt.binding.call_id + ':' + attempt.binding.attempt_id
     const digest = hash(boundedJson(attempt))
     const originalExpiry = this.#options.dedupExpires?.(attempt.binding)
-    if (originalExpiry !== undefined) {
+    if (this.#options.dedupExpires !== undefined) {
       uint(originalExpiry, true)
     }
     const previous = this.#entries.get(name)
@@ -89,7 +89,7 @@ export class ConnectorAttemptBook {
     const entry = {
       binding: JSON.parse(boundedJson(attempt.binding)) as AttemptBinding,
       digest,
-      expires: originalExpiry ?? now + this.#options.retention_ms!
+      expires: originalExpiry ?? localExpiry ?? now + this.#options.retention_ms!
     }
     // Connector 自有固定保留期必须覆盖执行期限；不能暗中延长配置或采信消息中的 TTL。
     if (entry.expires < attempt.binding.registration.deadline) {
@@ -108,8 +108,13 @@ export class ConnectorAttemptBook {
   admit<T>(attempt: TrustedAttempt, verify: () => T): T {
     const entry = this.#prepare(attempt)
     const result = verify()
-    const current = this.#prepare(attempt)
-    if (current.digest !== entry.digest || boundedJson(current.binding) !== boundedJson(entry.binding)) {
+    // 相对本机 TTL 沿用首次预留；独立原截止仍须重读并完全一致，不能在 verify 中漂移。
+    const current = this.#prepare(attempt, this.#options.retention_ms === undefined ? undefined : entry.expires)
+    if (
+      current.digest !== entry.digest ||
+      current.expires !== entry.expires ||
+      boundedJson(current.binding) !== boundedJson(entry.binding)
+    ) {
       fail('attempt_request_mismatch')
     }
     const name = attempt.binding.call_id + ':' + attempt.binding.attempt_id

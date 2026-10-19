@@ -96,6 +96,14 @@ pending/revoked 优先保留共享服务已有且新鲜的 Store 认证证明，
 真实双 SQLite、持久设备证明与 loopback Connector 的验证位于
 [集成测试](../test/webui/observations.integration.test.ts)；测试管理员与 native 执行来源仍是隔离 fixture，不能据此宣称生产会话或原生能力已验收。
 
+## 管理写服务组件
+
+[共享管理写服务](MANAGEMENT-WRITES.md)已提供同 Store 事务、独立管理员授权、后台一次性确认与持久回执，
+支持 pending 注册/配对申请、改名、进度、取消、精确 epoch 断开、持久撤销及 provider 启停的受信端口。
+生产 session/CSRF、秘密交付进度和 provider 重新启用证明仍须运行宿主接线，缺失即拒绝。
+窄 HTTP handler 复用现有读桥，不启动第二 listener；UI 操作与目标 REST 路由尚未连接，
+不因服务模块或合成测试称管理产品已上线。
+
 ## 范围与服务边界
 
 Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，页面不展示包兼容标识作为产品名。

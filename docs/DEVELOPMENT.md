@@ -33,12 +33,12 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、Herdr、webui 与 admin 十二个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport、Herdr、webui、admin、独立 service 与 update 十四个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
-SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
+SQLite 文件重开及无副作用的 service 模块导入。开机服务模块及 CLI 接缝见 [SERVICE](SERVICE.md)；当前没有已装配的服务 CLI、Node target 或声明产物。
 
 产品分发使用独立的 [Bun 单文件构建与验收](DISTRIBUTION.md)，输出到 `dist/release/`。
 它复用真实 CLI 入口与 WebUI 构建；入口未合入或宿主未接通时明确保留待验状态。
@@ -333,7 +333,7 @@ SDK 实证 revision 为 `2025-11-25`，Bun 的 `process.version` 只是 Node 兼
 [Wire v2](protocol/WIRE-PROTOCOL.md)。产品设计、保留/恢复规则及 Herdr 门禁以
 [DESIGN](DESIGN.md)、[实施计划](IMPLEMENTATION-PLAN.md)和 ADR 为准。
 
-SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v4 要求全新库并拒绝未发布的旧库。
+SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v5 要求全新库并拒绝未发布的旧库。
 Store/Router 已提供 provider/binding、固定原文期限、持久 history、全局预算、降级与隔离快照；
 本机管理接口与独立可信来源的接线边界见[存储运行指引](STORAGE.md)。测试使用临时 SQLite
 文件、真实 SQLITE_FULL 与异常退出，不触及真实库。WSS/loopback 模块与独立宿主接线见

@@ -1,4 +1,4 @@
-// 验证 v4 句柄去重、删除授权和原文保留期限，确保重开数据库不延长内容寿命。
+// 验证 v5 句柄去重、删除授权和原文保留期限，确保重开数据库不延长内容寿命。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'

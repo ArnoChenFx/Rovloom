@@ -1,0 +1,20 @@
+# 复用经过官方归档摘要核验的固定 Bun 安装，Windows 使用本机 Python 启动原生工具链。
+name: Pinned release Bun
+description: Install the repository's exact official Bun for a native release target
+inputs:
+  target:
+    required: true
+    description: Target from scripts/release/platforms.json
+runs:
+  using: composite
+  steps:
+    - if: runner.os != 'Windows'
+      shell: bash
+      env:
+        RELEASE_TARGET: ${{ inputs.target }}
+      run: python3 scripts/release/install-bun.py --target "$RELEASE_TARGET" --directory "$RUNNER_TEMP/release-bun"
+    - if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        RELEASE_TARGET: ${{ inputs.target }}
+      run: python scripts/release/install-bun.py --target $env:RELEASE_TARGET --directory "$env:RUNNER_TEMP/release-bun"

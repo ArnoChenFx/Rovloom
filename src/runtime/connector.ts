@@ -63,9 +63,13 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
     const pending = new Map<string, Pending>()
     const delegations = new Set<LuvusBoundDelegation>()
     const resolvedDelegations = new Map<string, LuvusBoundDelegation>()
-    const suppliedDelegation = resource.delegation
-    if (suppliedDelegation instanceof LuvusBoundDelegation) {
-      delegations.add(suppliedDelegation)
+    let suppliedDelegation: typeof resource.delegation | undefined
+
+    /** 每个外部构建回调返回后都复核角色状态，关闭中的资源只能进入清理分支。 */
+    function assertSessionOpen(): void {
+      if (stopping || ended) {
+        fail('runtime_closed')
+      }
     }
 
     /** 只在真实准入 binding 已建立后解析一次委托；后续复核沿用原对象，不能重新签发或刷新期限。 */
@@ -103,7 +107,15 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
     }
 
     try {
-      if (resource.config.transport !== 'ipc') {
+      // session 回调可能已同步关闭角色；先登记直接交付对象，确保复验失败也会清理，绝不调用 lazy。
+      suppliedDelegation = resource.delegation
+      if (suppliedDelegation instanceof LuvusBoundDelegation) {
+        delegations.add(suppliedDelegation)
+      }
+      assertSessionOpen()
+      const configuredTransport = resource.config.transport
+      assertSessionOpen()
+      if (configuredTransport !== 'ipc') {
         fail('connector_runtime_transport_unsupported')
       }
       if (backends.has(resource.backend)) {
@@ -113,6 +125,7 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
       if (boundedJson(resource.backend.connection()) !== boundedJson(connection)) {
         fail('connection_binding_mismatch')
       }
+      assertSessionOpen()
       /** 原 adapter 每次 beforeWrite 解码都经此来源端口复核同一实测 socket 和仍有效的 delegation。 */
       function boundSource(call: string, attemptId: string): TrustedNativeContext | undefined {
         const source = resource.backend.nativeSource(call, attemptId)
@@ -154,7 +167,9 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
           return result
         }
       }
+      assertSessionOpen()
       wire = connectorAdmissionAdapter(resource.backend, createLuvusWireAdapter(guardedBackend))
+      assertSessionOpen()
       const adapter = wire
 
       /** 在每次 secret/claim 边界重跑原 Wire，全量复验当前策略、来源、epoch 和不可延长的 deadline。 */
@@ -250,13 +265,22 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
             state.attempt.method,
             resource.backend.now()
           )
-          resource.claims.claim(binding, resource.dedupExpires(binding))
+          const expires = resource.dedupExpires(binding)
+          assertSessionOpen()
+          resource.claims.claim(binding, expires)
         }
       })
+      assertSessionOpen()
       const execution = rpc
       const result: ConnectorWireSession = {
         adapter,
-        readiness: resource.readiness,
+        /** 宿主 readiness 也可能同步关闭角色，返回值不能越过关闭 fence。 */
+        readiness() {
+          assertSessionOpen()
+          const readiness = resource.readiness()
+          assertSessionOpen()
+          return readiness
+        },
         /** 原始帧直接进入原 LuvusRpcAdapter.dispatch；不复制协议、注入第二份 auth 或重新排队。 */
         async executeWire(raw, signal) {
           if (stopping || ended) {
@@ -293,6 +317,8 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
           pending.clear()
         }
       }
+      // 最终注册必须在最后一个外部构建回调之后；已开始 close 的 epoch 不能在遍历结束后补入集合。
+      assertSessionOpen()
       sessions.add(result)
       return result
     } catch (error) {
