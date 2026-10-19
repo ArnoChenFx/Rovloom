@@ -465,3 +465,26 @@ for (const kind of ['closed', 'content', 'fence'] as const) {
     }
   )
 }
+
+test(
+  'independent Store retention windows need not place dedup after content expiry',
+  /** 保持 Store 各期限独立；相等或较短的去重窗口不能被 adapter 擅自改成无效配置。 */ () => {
+    for (const expires of [500, 1000]) {
+      const state = backendFixture()
+      const anchor = state.backend.responseAnchor
+      state.backend.responseAnchor = /** 使用仍在未来、但不大于内容期限的原锚点去重期限。 */ (binding) => ({
+        ...anchor(binding)!,
+        dedup_expires_at: expires
+      })
+      const adapter = createHerdrReadonlyAdapter(state.backend)
+      try {
+        adapter.resolve(state.identity)
+        assert.equal(adapter.stats().executions, 1)
+        state.backend.now = /** 达到各自原截止时间后精确释放，不延长任何窗口。 */ () => expires
+        assert.equal(adapter.stats().executions, 0)
+      } finally {
+        adapter.close()
+      }
+    }
+  }
+)

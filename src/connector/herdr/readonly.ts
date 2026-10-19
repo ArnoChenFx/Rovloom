@@ -562,7 +562,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         !Number.isSafeInteger(retention.content_expires_at) ||
         !Number.isSafeInteger(retention.dedup_expires_at) ||
         retention.content_expires_at <= backend.now() ||
-        retention.dedup_expires_at <= retention.content_expires_at ||
+        retention.dedup_expires_at <= backend.now() ||
         retention.content_status !== 'available' ||
         retention.state === 'not_dispatched'
       ) {
