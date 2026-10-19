@@ -13,12 +13,14 @@ export type WindowsFileIdentity = Readonly<{
   sha256: string
   security: string
 }>
+export type WindowsDirectoryIdentity = Readonly<{ volume: string; fileId: string; security: string }>
 export type WindowsHelperJob = Readonly<{
   schemaVersion: 1
   transactionId: string
   plan: UpdatePlan
   parent: WindowsProcessStamp
   original: WindowsFileIdentity
+  directory: WindowsDirectoryIdentity
 }>
 export type WindowsHelperTicket = Readonly<{ schemaVersion: 1; transactionId: string; secret: string }>
 export type WindowsHelperState =
@@ -31,6 +33,7 @@ export type WindowsHelperState =
   | 'rolled_back'
   | 'aborted'
   | 'recovery_required'
+  | 'cleanup_required'
 export type WindowsHelperCode =
   | 'permission_denied'
   | 'parent_timeout'
@@ -59,7 +62,8 @@ const states: readonly string[] = [
   'rolling_back',
   'rolled_back',
   'aborted',
-  'recovery_required'
+  'recovery_required',
+  'cleanup_required'
 ]
 const codes: readonly string[] = [
   'permission_denied',
@@ -115,9 +119,26 @@ function fileIdentity(value: unknown): WindowsFileIdentity {
   })
 }
 
+// helper 重开固定事务目录后必须匹配封存对象身份；路径字符串本身不授予目录能力。
+export function windowsDirectoryIdentity(value: unknown): WindowsDirectoryIdentity {
+  const v = fields(value, ['volume', 'fileId', 'security'])
+  if (
+    typeof v.volume !== 'string' ||
+    !/^[1-9]\d{0,19}$/u.test(v.volume) ||
+    BigInt(v.volume) > 0xffffffffffffffffn ||
+    typeof v.fileId !== 'string' ||
+    !/^[0-9a-f]{32}$/u.test(v.fileId) ||
+    typeof v.security !== 'string' ||
+    !/^[0-9a-f]{64}$/u.test(v.security)
+  ) {
+    throw new UpdateError('invalid_manifest')
+  }
+  return Object.freeze({ volume: v.volume, fileId: v.fileId, security: v.security })
+}
+
 // 相同官方更新计划在 producer 和 helper 各自核验；默认稳定与禁止降级规则继续共用。
 function job(value: unknown): WindowsHelperJob {
-  const v = fields(value, ['schemaVersion', 'transactionId', 'plan', 'parent', 'original'])
+  const v = fields(value, ['schemaVersion', 'transactionId', 'plan', 'parent', 'original', 'directory'])
   if (v.schemaVersion !== 1 || typeof v.transactionId !== 'string' || !/^[0-9a-f]{32}$/u.test(v.transactionId)) {
     throw new UpdateError('invalid_manifest')
   }
@@ -149,7 +170,8 @@ function job(value: unknown): WindowsHelperJob {
     transactionId: v.transactionId,
     plan: frozen,
     parent: windowsProcessStamp(v.parent),
-    original: fileIdentity(v.original)
+    original: fileIdentity(v.original),
+    directory: windowsDirectoryIdentity(v.directory)
   })
 }
 
@@ -172,9 +194,10 @@ export function parseWindowsTicket(bytes: Uint8Array): WindowsHelperTicket {
 export function sealWindowsJob(
   plan: UpdatePlan,
   parent: WindowsProcessStamp,
-  original: WindowsFileIdentity
+  original: WindowsFileIdentity,
+  resources: Readonly<{ transactionId: string; directory: WindowsDirectoryIdentity }>
 ): Readonly<{ job: WindowsHelperJob; bytes: Uint8Array; ticket: WindowsHelperTicket; digest: string }> {
-  const value = job({ schemaVersion: 1, transactionId: randomBytes(16).toString('hex'), plan, parent, original })
+  const value = job({ schemaVersion: 1, ...resources, plan, parent, original })
   const ticket = Object.freeze({
     schemaVersion: 1 as const,
     transactionId: value.transactionId,
@@ -243,7 +266,9 @@ export function parseWindowsReceipt(bytes: Uint8Array): WindowsHelperReceipt {
     typeof v.state !== 'string' ||
     !states.includes(v.state) ||
     (v.code !== null && (typeof v.code !== 'string' || !codes.includes(v.code))) ||
-    (['rolled_back', 'aborted', 'recovery_required'].includes(v.state) ? v.code === null : v.code !== null)
+    (['rolled_back', 'aborted', 'recovery_required', 'cleanup_required'].includes(v.state)
+      ? v.code === null
+      : v.code !== null)
   ) {
     throw new UpdateError('invalid_manifest')
   }

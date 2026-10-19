@@ -77,11 +77,8 @@ export class ServiceManager {
     throw new ServiceError(running ? 'service_start_failed' : 'service_timeout')
   }
 
-  // 同时持有两个既有角色锁，阻止安装/卸载/启停与文件替换交错；Windows 交付另走受控 helper。
+  // 同时持有两个既有角色锁；Windows helper 自己取得并持有到父退出后的替换/恢复结束，不转交锁。
   async withBinaryUpdate<T>(executable: string, operation: (session: ServiceUpdateSession) => Promise<T>): Promise<T> {
-    if (this.backend.platform === 'win32') {
-      throw new ServiceError('backend_unavailable')
-    }
     await this.backend.authorize()
     return this.backend.lock(
       'gateway',

@@ -13,6 +13,10 @@ import {
 } from '../../../src/update/windows/protocol.js'
 
 const parent = { image: 'C:\\Program Files\\Rovloom\\rovloom.exe', born: '134000000000000000' }
+const resources = {
+  transactionId: 'cd'.repeat(16),
+  directory: { volume: '12345', fileId: 'ef'.repeat(16), security: 'a'.repeat(64) }
+}
 const original = {
   volume: '12345',
   fileId: 'ab'.repeat(16),
@@ -31,7 +35,7 @@ async function plan() {
 test(
   'Windows helper seals one official plan and local installation identity without serializing its IPC secret',
   /* MAC 仅对本次固定字节进行绑定，不是发行签名认证。 */ async () => {
-    const sealed = sealWindowsJob(await plan(), parent, original)
+    const sealed = sealWindowsJob(await plan(), parent, original, resources)
     const opened = openWindowsJob(sealed.bytes, sealed.ticket)
     assert.deepEqual(opened.job, sealed.job)
     assert.equal(opened.digest, sealed.digest)
@@ -45,7 +49,7 @@ test(
 test(
   'Windows helper rejects tampered bytes, wrong credential, noncanonical base64 and extra URL/PID fields',
   /* 不从 IPC 建立任意路径、PID、镜像或脚本通路。 */ async () => {
-    const sealed = sealWindowsJob(await plan(), parent, original)
+    const sealed = sealWindowsJob(await plan(), parent, original, resources)
     const envelope = JSON.parse(Buffer.from(sealed.bytes).toString())
     const changed = Buffer.from(envelope.payload, 'base64')
     changed[changed.length - 2] = changed[changed.length - 2]! ^ 1
@@ -73,12 +77,12 @@ test(
     const p = await plan()
     assert.throws(
       /* 生产端不能封存带任意 URL 的伪计划。 */ () =>
-        sealWindowsJob({ ...p, url: 'https://other.invalid' } as never, parent, original),
+        sealWindowsJob({ ...p, url: 'https://other.invalid' } as never, parent, original, resources),
       { code: 'invalid_manifest' }
     )
     assert.throws(
       /* 当前版本之后必须为更高的稳定版本。 */ () =>
-        sealWindowsJob({ ...p, currentVersion: '0.3.0' }, parent, original),
+        sealWindowsJob({ ...p, currentVersion: '0.3.0' }, parent, original, resources),
       { code: 'invalid_manifest' }
     )
   }
@@ -87,7 +91,7 @@ test(
 test(
   'only committed Windows helper receipts are successful and all other states stay distinguishable',
   /* 下载、准备、已替换未验证都不能退出零；回滚完成与需恢复分别有固定非零码。 */ async () => {
-    const sealed = sealWindowsJob(await plan(), parent, original)
+    const sealed = sealWindowsJob(await plan(), parent, original, resources)
     const base = { schemaVersion: 1, transactionId: sealed.job.transactionId, jobSha256: sealed.digest, sequence: 1 }
     const states = [
       'awaiting_parent',
@@ -98,10 +102,13 @@ test(
       'rolling_back',
       'rolled_back',
       'aborted',
-      'recovery_required'
+      'recovery_required',
+      'cleanup_required'
     ]
     for (const state of states) {
-      const code = ['rolled_back', 'aborted', 'recovery_required'].includes(state) ? 'verification_failed' : null
+      const code = ['rolled_back', 'aborted', 'recovery_required', 'cleanup_required'].includes(state)
+        ? 'verification_failed'
+        : null
       const receipt = parseWindowsReceipt(Buffer.from(JSON.stringify({ ...base, state, code })))
       const expected =
         state === 'updated'

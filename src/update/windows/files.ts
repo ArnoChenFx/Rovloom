@@ -9,7 +9,7 @@ import {
   windowsPrivateAttributes,
   type WindowsSecuritySnapshot
 } from './security.js'
-import type { WindowsFileIdentity } from './protocol.js'
+import { windowsDirectoryIdentity, type WindowsDirectoryIdentity, type WindowsFileIdentity } from './protocol.js'
 
 type Kernel = {
   CreateFileW(
@@ -39,9 +39,13 @@ type Kernel = {
   ReadFile(handle: bigint, bytes: Buffer, count: number, read: Buffer, overlapped: number): number
   WriteFile(handle: bigint, bytes: Buffer, count: number, written: Buffer, overlapped: number): number
   FlushFileBuffers(handle: bigint): number
+  SetFilePointerEx(handle: bigint, offset: bigint, position: Buffer, origin: number): number
+  SetEndOfFile(handle: bigint): number
+  GetDriveTypeW(root: Buffer): number
   CopyFileW(source: Buffer, destination: Buffer, failIfExists: number): number
   MoveFileExW(from: Buffer, to: Buffer, flags: number): number
   CreateDirectoryW(path: Buffer, attributes: Buffer): number
+  RemoveDirectoryW(path: Buffer): number
 }
 let kernel: Kernel | undefined
 const INVALID = 0xffffffffffffffffn
@@ -62,9 +66,13 @@ function api(): Kernel {
     ReadFile: { args: ['u64', 'buffer', 'u32', 'buffer', 'ptr'], returns: 'i32' },
     WriteFile: { args: ['u64', 'buffer', 'u32', 'buffer', 'ptr'], returns: 'i32' },
     FlushFileBuffers: { args: ['u64'], returns: 'i32' },
+    SetFilePointerEx: { args: ['u64', 'i64', 'buffer', 'u32'], returns: 'i32' },
+    SetEndOfFile: { args: ['u64'], returns: 'i32' },
+    GetDriveTypeW: { args: ['buffer'], returns: 'u32' },
     CopyFileW: { args: ['buffer', 'buffer', 'i32'], returns: 'i32' },
     MoveFileExW: { args: ['buffer', 'buffer', 'u32'], returns: 'i32' },
-    CreateDirectoryW: { args: ['buffer', 'buffer'], returns: 'i32' }
+    CreateDirectoryW: { args: ['buffer', 'buffer'], returns: 'i32' },
+    RemoveDirectoryW: { args: ['buffer'], returns: 'i32' }
   })
   return kernel
 }
@@ -97,6 +105,9 @@ function path(value: string): string {
 // 查询真实卷类型；未证明 NTFS 的卷不套用本模块的文件 ID、ACL 与同盘移动语义。
 function ntfs(value: string): void {
   const k = api()
+  if (k.GetDriveTypeW(windowsWide(win32.parse(value).root)) !== 3) {
+    throw new UpdateError('unsupported_platform')
+  }
   const type = Buffer.alloc(32)
   if (
     !k.GetVolumeInformationW(
@@ -282,10 +293,24 @@ export function readWindowsExecutableSecurity(value: string): WindowsSecuritySna
   return result!
 }
 
+// 目录身份来自持有句柄，避免用路径存在或 ACL 相同冒充同一私有事务对象。
+function directoryIdentity(handle: bigint): WindowsDirectoryIdentity {
+  const id = Buffer.alloc(24)
+  if (!api().GetFileInformationByHandleEx(handle, 18, id, id.length)) {
+    throw new WindowsNativeError(api().GetLastError())
+  }
+  return windowsDirectoryIdentity({
+    volume: id.readBigUInt64LE().toString(),
+    fileId: id.subarray(8, 24).toString('hex'),
+    security: verifyWindowsFileSecurity(handle, true)
+  })
+}
+
 export class WindowsPathLease {
   #handles: bigint[]
   #directories = new Map<string, string>()
   #closed = false
+  #lock: { path: string; handle: bigint; identity: WindowsDirectoryIdentity } | undefined
   // 私有工厂持有全体祖先目录句柄，不能靠 caller 的布尔标志跳过路径证明。
   private constructor(
     readonly executable: string,
@@ -347,6 +372,82 @@ export class WindowsPathLease {
     return directory
   }
 
+  // 只有已封存的目录身份能被 helper 重开；不能按 nonce 接管未知同名目录。
+  adoptDirectory(transactionId: string, expected: WindowsDirectoryIdentity): void {
+    this.assertActive()
+    if (!/^[0-9a-f]{32}$/u.test(transactionId) || this.#directories.has(transactionId)) {
+      throw new UpdateError('invalid_arguments')
+    }
+    const directory = win32.join(win32.dirname(this.executable), `.rovloom-update-${transactionId}`)
+    const handle = open(directory, true)
+    try {
+      if (JSON.stringify(directoryIdentity(handle)) !== JSON.stringify(windowsDirectoryIdentity(expected))) {
+        throw new UpdateError('target_changed')
+      }
+    } catch (error) {
+      api().CloseHandle(handle)
+      throw error
+    }
+    this.#handles.push(handle)
+    this.#directories.set(transactionId, directory)
+  }
+
+  // producer 封存其自建事务目录的真实身份，不传递可复用的原生句柄或 PID。
+  identity(transactionId: string): WindowsDirectoryIdentity {
+    const handle = open(this.directory(transactionId), true)
+    let identity: WindowsDirectoryIdentity | undefined
+    let failure: unknown
+    try {
+      identity = directoryIdentity(handle)
+    } catch (error) {
+      failure = error
+    }
+    const closed = api().CloseHandle(handle)
+    if (failure) {
+      throw failure
+    }
+    if (!closed) {
+      throw new WindowsNativeError(api().GetLastError())
+    }
+    return identity!
+  }
+
+  // 安装锁由 helper 独占创建并独自持有；未知残余目录立即报 busy，不按年龄/PID 回收。
+  acquireInstallationLock(): void {
+    this.assertActive()
+    if (this.#lock) {
+      throw new UpdateError('update_busy')
+    }
+    const target = win32.join(win32.dirname(this.executable), '.rovloom-update.lock')
+    const attributes = windowsPrivateAttributes()
+    const created = api().CreateDirectoryW(windowsWide(target), attributes.bytes)
+    const code = created ? 0 : api().GetLastError()
+    attributes.dispose()
+    if (!created) {
+      throw code === 183 ? new UpdateError('update_busy') : new WindowsNativeError(code)
+    }
+    const handle = open(target, true)
+    this.#handles.push(handle)
+    this.#lock = { path: target, handle, identity: directoryIdentity(handle) }
+  }
+
+  // 只释放此 helper 自己创建且身份未变的锁；恢复保护分支仅 close，不调用本方法。
+  releaseInstallationLock(): void {
+    this.assertActive()
+    const lock = this.#lock
+    if (!lock || JSON.stringify(directoryIdentity(lock.handle)) !== JSON.stringify(lock.identity)) {
+      throw new UpdateError('target_changed')
+    }
+    if (!api().CloseHandle(lock.handle)) {
+      throw new WindowsNativeError(api().GetLastError())
+    }
+    this.#handles = this.#handles.filter(/* 已关闭的句柄不能在 close 中再次释放。 */ (h) => h !== lock.handle)
+    this.#lock = undefined
+    if (!api().RemoveDirectoryW(windowsWide(lock.path))) {
+      throw new WindowsNativeError(api().GetLastError())
+    }
+  }
+
   // 文件原语只操作此能力自己创建的事务目录，不能用另一个 nonce 指向未知已有目录。
   directory(transactionId: string): string {
     this.assertActive()
@@ -387,14 +488,18 @@ export function cloneWindowsCandidate(
   lease: WindowsPathLease,
   transactionId: string,
   arch: 'x64' | 'arm64',
-  original: WindowsFileIdentity
+  original: WindowsFileIdentity,
+  name: 'candidate.exe' | 'helper.exe' = 'candidate.exe'
 ): WindowsFileIdentity {
   lease.assertActive()
   const current = readWindowsExecutable(lease.executable, arch)
   if (JSON.stringify(current) !== JSON.stringify(original)) {
     throw new UpdateError('unsafe_installation')
   }
-  const candidate = win32.join(lease.directory(transactionId), 'candidate.exe')
+  if (!['candidate.exe', 'helper.exe'].includes(name)) {
+    throw new UpdateError('invalid_arguments')
+  }
+  const candidate = win32.join(lease.directory(transactionId), name)
   const k = api()
   if (!k.CopyFileW(windowsWide(lease.executable), windowsWide(candidate), 1)) {
     throw new WindowsNativeError(k.GetLastError())
@@ -410,6 +515,80 @@ export function cloneWindowsCandidate(
     throw new UpdateError('unsafe_installation')
   }
   return clone
+}
+
+export class WindowsCandidateWriter {
+  #closed = false
+  #size = 0
+  // 写句柄仅由已核验的自有候选工厂建立，不能传入用户文件路径。
+  private constructor(private readonly handle: bigint) {}
+
+  // 独占打开克隆的候选、核对对象身份再截断默认流；旧程序与 helper 均不进入写路径。
+  static open(lease: WindowsPathLease, transactionId: string, expected: WindowsFileIdentity): WindowsCandidateWriter {
+    const target = win32.join(lease.directory(transactionId), 'candidate.exe')
+    const k = api()
+    const handle = k.CreateFileW(windowsWide(target), 0xc0020000, 0, 0, 3, 0x80200080, 0n)
+    if (!handle || handle === INVALID) {
+      throw new WindowsNativeError(k.GetLastError())
+    }
+    try {
+      const id = Buffer.alloc(24)
+      const info = Buffer.alloc(52)
+      if (!k.GetFileInformationByHandleEx(handle, 18, id, id.length) || !k.GetFileInformationByHandle(handle, info)) {
+        throw new WindowsNativeError(k.GetLastError())
+      }
+      if (
+        id.readBigUInt64LE().toString() !== expected.volume ||
+        id.subarray(8, 24).toString('hex') !== expected.fileId ||
+        (info.readUInt32LE() & (16 | 0x400)) !== 0 ||
+        info.readUInt32LE(40) !== 1 ||
+        verifyWindowsFileSecurity(handle, false) !== expected.security
+      ) {
+        throw new UpdateError('target_changed')
+      }
+      if (!k.SetFilePointerEx(handle, 0n, Buffer.alloc(8), 0) || !k.SetEndOfFile(handle)) {
+        throw new WindowsNativeError(k.GetLastError())
+      }
+      return new WindowsCandidateWriter(handle)
+    } catch (error) {
+      k.CloseHandle(handle)
+      throw error
+    }
+  }
+
+  // 同步原生短写循环在返回前真正结束；下载取消只能阻止下一片写入，不能宣称终止已进入的 syscall。
+  write(bytes: Uint8Array): void {
+    if (this.#closed || this.#size + bytes.length > MAX_BINARY_BYTES) {
+      throw new UpdateError('size_mismatch')
+    }
+    let offset = 0
+    while (offset < bytes.length) {
+      const count = Buffer.alloc(4)
+      const block = Buffer.from(bytes.subarray(offset))
+      if (!api().WriteFile(this.handle, block, block.length, count, 0)) {
+        throw new WindowsNativeError(api().GetLastError())
+      }
+      const size = count.readUInt32LE()
+      if (!size || size > block.length) {
+        throw new UpdateError('staging_failed')
+      }
+      offset += size
+      this.#size += size
+    }
+  }
+
+  // flush 和 close 均被观察；任一失败不可放行候选执行或替换。
+  close(): void {
+    if (!this.#closed) {
+      const flushed = api().FlushFileBuffers(this.handle)
+      const code = flushed ? 0 : api().GetLastError()
+      const closed = api().CloseHandle(this.handle)
+      this.#closed = !!closed
+      if (!flushed || !closed) {
+        throw new WindowsNativeError(code || api().GetLastError())
+      }
+    }
+  }
 }
 
 // 每步仅移动同盘固定文件，拒绝覆盖目标；两步替换之间有空窗，调用方必须先持锁并写入可恢复回执。
@@ -444,6 +623,17 @@ export function writeWindowsReceipt(
   sequence: number,
   bytes: Uint8Array
 ): void {
+  writeWindowsRecord(lease, transactionId, 'receipt', sequence, bytes)
+}
+
+// 恢复日志与公开短回执使用相同受控写入路径；只允许两个固定目的文件名。
+export function writeWindowsRecord(
+  lease: WindowsPathLease,
+  transactionId: string,
+  kind: 'receipt' | 'journal',
+  sequence: number,
+  bytes: Uint8Array
+): void {
   lease.assertActive()
   if (
     !/^[0-9a-f]{32}$/u.test(transactionId) ||
@@ -451,12 +641,13 @@ export function writeWindowsReceipt(
     sequence < 1 ||
     sequence > 64 ||
     bytes.length < 1 ||
-    bytes.length > 4096
+    !['receipt', 'journal'].includes(kind) ||
+    bytes.length > (kind === 'receipt' ? 4096 : 32768)
   ) {
     throw new UpdateError('invalid_arguments')
   }
   const directory = lease.directory(transactionId)
-  const temporary = win32.join(directory, `receipt-${sequence}.tmp`)
+  const temporary = win32.join(directory, `${kind}-${sequence}.tmp`)
   const k = api()
   const handle = k.CreateFileW(windowsWide(temporary), 0xc0020000, 0, 0, 1, 0x80000080, 0n)
   if (!handle || handle === INVALID) {
@@ -491,7 +682,7 @@ export function writeWindowsReceipt(
   if (!closed) {
     throw new WindowsNativeError(k.GetLastError())
   }
-  if (!k.MoveFileExW(windowsWide(temporary), windowsWide(win32.join(directory, 'receipt.json')), 9)) {
+  if (!k.MoveFileExW(windowsWide(temporary), windowsWide(win32.join(directory, `${kind}.json`)), 9)) {
     throw new WindowsNativeError(k.GetLastError())
   }
 }
