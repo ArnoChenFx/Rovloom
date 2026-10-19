@@ -285,6 +285,11 @@ export function createConnector(options: ConnectorOptions) {
         assertBinding(result.binding, binding)
       }
       await sendResponse(binding, response, active, current, controller.signal)
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        throw error
+      }
+      // 此 attempt 的观察已取消；原生 adapter 可拒绝其本地等待，不能因此关闭其它活调用。
     } finally {
       running.delete(name)
       current.adapter.release(binding)
@@ -412,6 +417,13 @@ export function createConnector(options: ConnectorOptions) {
               fail('heartbeat_sequence_mismatch')
             }
             last = now
+          } else if (frame.type === 'cancel') {
+            const binding = { ...connection, ...frame.payload.attempt }
+            const active = running.get(binding.call_id + ':' + binding.attempt_id)
+            if (active) {
+              assertBinding(binding, active.binding)
+              active.controller.abort(frame.payload.reason)
+            }
           } else if (frame.type === 'request') {
             void request(frame, event.data, connection, session).catch(
               /** 仅关闭仍对应当前 socket 的失败执行，避免旧会话异常影响新连接。 */

@@ -6,7 +6,8 @@
 它不提供 Gateway listener、Connector 认证通道、生产身份验证器或默认许可。
 
 `src/connector/luvus/index.ts` 导出 `LuvusRpcAdapter`、`createLuvusCatalog`、
-`createLuvusResultAccess` 及所需宿主类型。
+`createLuvusResultAccess`、`readLinuxLuvusPeer`、`LuvusBoundDelegation`、
+`LuvusDispatchClaims` 及所需宿主类型。
 构造参数只能来自受保护本机配置，不能由 MCP 参数、设备广告或 Wire 消息构造。
 一个 adapter 固定一个完整 session Target、provider revision 和 opaque config_ref。
 Host、流、access/machines 和 Herdr 不在本目录范围内。
@@ -37,7 +38,10 @@ session list 只选择显式配置的唯一 running session，endpoint 必须是
 
 IPC 对同一已连接 Socket 要求 `verifyPeer` 返回独立测量的 pid/uid/gid；必须与
 受保护来源的期望身份核对，uid 匹配并不单独证明进程身份。模块没有可移植的
-SO_PEERCRED 实现，缺回调即拒绝。CLI 的 native socket 隐藏在子进程内，必须由
+跨平台 peer 实现；Linux/Bun 的 `readLinuxLuvusPeer(socket)` 同步读取该实际 socket 的
+`SO_PEERCRED`，拒绝已关闭句柄及同形 JSON，缺少 Bun FFI/系统 libc 即拒绝。
+它只做内核测量，不能发行或恢复可信实例句柄。`verifyPeer` 必须再与正式 supervisor
+持有的活实例核对，缺少这个来源或回调仍拒绝。CLI 的 native socket 隐藏在子进程内，必须由
 `verifyProxy` 独立证明固定子进程/binary/root 与原生实例归属；仅提供 child.pid 或
 复述 discovery JSON 不能满足该证明。没有生产实现时 CLI 也保持关闭。
 
@@ -68,7 +72,8 @@ Wire request 或账本 rpc 标记判断；即使 backend 同时支持持久流�
 现行 `persistentBackend(store, services)` 可复用 Store 的原 attempt、provider、
 响应锚点和内容期限；认证、原生来源及当前双端权限仍由 services 独立提供。
 `Store.dispatch` 是取得原登记 binding 的持久步骤，不能把对同一 attempt 再次
-调用它当作 `claimDispatch`。Connector 的唯一发送登记仍需宿主实现。
+调用它当作 `claimDispatch`。Connector 的唯一发送登记可以复用下述独立账本，
+当前认证、来源、完整 binding 和权限复核仍由宿主承担。
 响应提交须通过持有原请求 Wire 状态的 `commitLuvusResponse`，事务成功后才能
 发布 durable responded；本模块的 `RpcResult` 不代替该提交。
 
@@ -101,6 +106,45 @@ terminal 或终止原生 session。派发后超时、取消、断线和未知退
 `outcome_unknown`，不得据此重发写入。
 `close()` 还会释放私有 Wire 的请求/响应上下文、维护定时器及账本失效订阅；
 重复关闭安全。单次取消不会关闭整个 Wire，也不会删除已见 attempt 的重放防线。
+
+### 受限 custody 交付绑定与持久发送账本
+
+`LuvusBoundDelegation` 只绑定已有 native 委托，不创建或持久保存凭据。
+受保护 custody 须交付真实 token、完整 `NativeBinding`、`config_ref`、精确方法清单、
+真实 scope 及固定 `issued_at`/`expires_at`。当前 helper 只接受 `read`/`orchestration`，
+禁止 Owner/admin/all、重复 scope 和方法通配符；不从 scope 或原生 read 标签生成许可。
+其 `assertCurrent(context, source, method, now)` 和 `read(...)` 逐项核对完整来源及目标，
+包含 binary/schema、server generation、provider/config revision、epoch、双方策略及分类 revision。
+输入会被复制，读取不刷新期限，close、过期或时钟回拨使本对象不可逆失效。
+完整 NativeValidator/Wire 许可及实际 native token 校验仍是必需门禁；helper 构造成功
+不能证明 token metadata 真实或发行者可信。宿主 `nativeSource` 每次都须检查当前实例及
+custody 有效性，`nativeAuth` 只在同 socket peer 已证明后调用 `read`。外部撤销须同时
+关闭 helper 并撤销真实 native token，不能只依赖这份内存 metadata。
+
+`LuvusDispatchClaims` 只保存 Connector 唯一发送墓碑，不新增业务 Store 或权限系统。
+构造器接收受保护配置的 `path`、稳定 `ledger_id`、`limits: { entries, bytes }`、可信
+`now()` 及显式 `mode`。`create` 只允许明确的首次配置；正常启动必须 `open`，
+缺库、错误 ledger ID、遗留锁或额外 schema 均拒绝。不得每次启动生成新 ledger ID/路径，
+也不得自动删除旧库或接管崩溃锁；恢复须先 fence 旧来源，并由受保护宿主单独处理。
+
+宿主完成原有当前门禁后调用 `claim(binding, expires)`；`expires` 必须取自同一个
+`backend.responseAnchor(binding).dedup_expires_at` 并完整核对原 binding，不能取自
+caller、当前 token TTL、结果正文 TTL 或“现在加一个时长”。helper 拒绝期限早于
+原登记 deadline，并用 SQLite FULL 事务的 `(call_id, attempt_id)` 唯一键和独立只读连接
+确认提交。新 adapter、epoch、provider、close、cancel 或 outcome_unknown 都不重新认领
+同一 fence；仅在后续合法新 claim 中回收已到原固定 dedup 截止的墓碑，过期原请求仍拒绝。
+
+账本要求私有 Linux 路径、0600 单链接文件及独占锁，打开 SQLite 前检查 sidecar，
+持续核对数据库和锁的 inode/归属/权限，拒绝 WAL 和断链 journal。实际数据库页、文件及
+rollback journal 字节都计入独立配额，SQLite page 上限为 journal 预留余量；行数最多
+4096、字节配置为 256 KiB 至 16 MiB。关闭保留数据库和墓碑；存储失败或无法确认提交
+时不得写 native。这个局部配额仍须由宿主从整体存储预算中分配，不代替全局磁盘治理。
+
+当前 main 没有正式的 Luvus supervisor/opaque 实例发行者及 native custody 生产来源。
+#6 的设备 `Connection`、`ChannelRegistry`、设备 proof 和配对 credential custody
+不能证明 Luvus 进程/socket/token 归属。上述三个 helper 可被正式宿主复用，但它们没有
+把缺失来源变成已完成的生产接线。公开 CLI/MCP/管理入口归 #8，认证取消传递归 #6；
+这里不新增默认 actor、直接 Store.connect 认证回退或公开引导 token 入口。
 
 ## framing、输出与发现
 
@@ -180,14 +224,67 @@ read 返回既有 base64 字节页、下一游标、eof、完整原生响应的�
 
 ## 接入限制
 
-生产 peer/CLI 证明、delegated auth custody、认证通道及 durable 派发账本必须由
-宿主独立提供。本目录不能凭合成回调作为公开接入入口。大于配置上限的结果
+正式实例 peer/CLI 归属证明、delegated auth custody 来源及认证通道必须由宿主独立提供，
+并装配上述持久派发账本。本目录不能凭合成回调作为公开接入入口。大于配置上限的结果
 直接失败。结果访问层直接复用 Store 的实际句柄期限，策略回调后重新读取真实
 调用与结果页；Store 正文丢弃或句柄删除后不能交付旧副本。原 Wire 保留门禁、
-对象编码/接收提交及原上下文查询已在受控测试中组合，真实原生会话、生产身份
-及公开入口仍需独立验收，不能据此宣称大结果生产交付完成。
+对象编码/接收提交及原上下文查询已在受控测试中组合。下述官方进程验收进一步覆盖
+新建自有会话的真实 IPC；生产身份、认证通道及公开入口仍需独立验收，不能据此
+宣称大结果生产交付完成。
 默认 build 入口尚未包含本目录，发行接线需要单独纳入。
 
-`test/connector/luvus` 只使用仓库 P0 字节、自建私有 socket 和固定 Bun 测试子进程。
+`test/connector/luvus` 的默认测试只使用仓库 P0 字节、自建私有 socket 和固定 Bun 测试子进程。
 synthetic peer/CLI 回调仅用于测试，不能代表生产身份实现；这些测试不证明真实
 Luvus 安装、私有会话、Owner/Host admin 或真实多机链路可用。
+
+## 显式官方 IPC 验收
+
+`test/connector/luvus/official-ipc.mjs` 提供最小自有宿主接线，默认测试不会执行。
+需要操作者事先取得官方 Linux x86_64 musl Luvus v0.14.3 二进制，显式运行：
+
+```sh
+bun --no-env-file test/connector/luvus/official-ipc.mjs /absolute/path/to/luvus
+```
+
+该版本在 2026-10-19 核对为[官方 latest](https://github.com/RizRiyz/luvus/releases/tag/v0.14.3)。
+官方 release 的 musl 归档 SHA-256 为
+`1d96580525f23b21143c05850dbd9a1b4fe95e66d7e173dc27aab6caf9b676bf`；
+脚本固定执行副本 SHA-256 为
+`895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9`，
+并核对真实 CLI version/schema。版本或指纹变化须先独立复核；脚本不下载或安装软件。
+
+脚本只在 `/workspace` 下新建 0700 私有目录，使用空白 HOME/XDG/state 和随机 session，
+以固定 argv 启动自己的官方 server。它从直接子进程 spawn 起持续持有 Linux pidfd，
+每次对实际已连接的同一 socket 测量 `SO_PEERCRED`，核对 pid/uid/gid、实例存活、
+binary 和 endpoint 身份。缺少 pidfd、FFI 或实际 peer 测量即失败；不复用旧会话记录，
+也不连接用户已有会话。结束时停止本轮子进程，退出确认后删除自己的临时状态。
+
+native token 只在这次自有会话的本机引导阶段通过实测 peer 创建，限期 120 秒且仅含
+`read`、`orchestration`。token 仅保存在内存，adapter 每次仍显式注入并校验；不委托
+Owner/admin/all，不回退无 auth。在线 capabilities 也来自该真实受限 token 和同一实例。
+本地 Store 实际注册、credential connect、精确一次 provider 管理确认和独立 SQLite
+`synchronous=FULL` 唯一 claim 均在该私有宿主内执行；它证明这条受限本地接线，
+不代表生产管理认证或 #6 认证通道。生产宿主仍须提供其真实身份与当前授权来源。
+同 socket 内核测量、委托 metadata 绑定和 claim 直接复用本目录 helper；
+脚本中的自有 child/pidfd 生命周期与本机 token 引导仍是显式验收夹具，不是正式发行者。
+
+固定版本的 `task.list`、`task.get`、`task.delete` 只有通用参数 schema；strict 派发
+仍以 `parameter_schema_incomplete` 拒绝，native token scope 不会扩大 schema 覆盖。
+验收改用完整 schema 分支的 `task.add`/`task.update`：有界的合成 paths、prompt、
+notes/outputs 只存入新会话任务账本；不改 status、不认领或启动 worker。脚本先核对
+task、automation、module 列表为空，避免事件 hook 或已有自动化产生副作用。
+`task.delete` 只在独立受限的本机清理口处理本轮自建 ID，不算 strict adapter 正例。
+
+第二个真实普通 RPC 方法族使用完整 emptyParams 分支的 `automation.list {}`，
+经相同 strict adapter/原 Wire/Store 路径断言原 id、`type=automation_list` 和空 automation
+列表；没有为了造数据创建或运行 automation/worker。源码审核确认该具体 handler 只做
+内存投影，但可能返回完整 task 配置，因此仍按 potentially_sensitive、当前 read 许可
+和保留策略处理。它不代表第二个大结果方法，也不扩大到全部 automation.*。
+
+该接线覆盖真实 native 响应 → adapter → 两端原 Wire 对象编码/重组 →
+`commitLuvusResponse` → Store → 原 `checkResultRetention` → 65,535 字节分页，
+核对完整原生 JSON/id、字节数和 SHA-256；并以实际墙钟验证句柄与正文 TTL、
+新句柄被固定正文截止钳制、到期拒绝且不隐式续期，
+专门 discard 权限及真实原 Wire 关闭后的读取拒绝。受控的 claim 后、写入前终止
+还验证新 adapter 会命中同一个 SQLite 唯一 fence。脚本仅输出脱敏计数与检查结论；
+真实正文、密钥、运行日志和数据库均不入库。CLI provenance 门禁保持关闭。

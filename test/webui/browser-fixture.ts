@@ -187,7 +187,8 @@ const root = document.getElementById('rovloom-management')
 if (root) {
   fixture.dispose = mountWebUi(root, read)
   const notice = document.createElement('p')
-  notice.textContent = '隔离测试 fixture：以下展示不代表真实管理后端、管理员授权或设备链路完成。'
+  notice.textContent =
+    '隔离测试 fixture / Synthetic fixture: 以下展示不代表真实管理后端、管理员授权或设备链路完成。No production management backend, administrator authorization or device link is verified.'
   notice.setAttribute('role', 'note')
   document.body.prepend(notice)
 }

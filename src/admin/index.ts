@@ -8,3 +8,9 @@ export {
   type ManagementAssets
 } from './read-http.js'
 export { loadManagementAssets } from './assets.js'
+export {
+  sampleManagementTransport,
+  createManagementTransportProjection,
+  type ManagementObservationFence,
+  type ManagementTransportProjection
+} from '../mcp/transport-observations.js'

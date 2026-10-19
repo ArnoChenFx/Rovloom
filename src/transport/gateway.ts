@@ -1,6 +1,6 @@
 // 实现 Gateway 设备 listener，连接可信认证、逐 provider ready 与事务派发/响应账本。
 import { randomUUID } from 'node:crypto'
-import type { Store } from '../store.js'
+import type { Call, Store } from '../store.js'
 import type { Router, Principal } from '../router.js'
 import { commitLuvusResponse } from '../integration/persistence.js'
 import {
@@ -598,7 +598,10 @@ export function createGateway(options: GatewayOptions) {
       }
       const binding = { ...peer.connection, ...decoded.payload.attempt }
       if (decoded.type === 'accepted') {
-        options.store.accepted(binding)
+        // 取消先提交后，原 accepted 仍可能在途；完整绑定已核验，不能借迟到确认复活状态或关闭其它调用。
+        if (options.store.responseAnchor(binding).state !== 'outcome_unknown') {
+          options.store.accepted(binding)
+        }
       } else {
         commitLuvusResponse(options.store, peer.session.adapter, decoded)
         inflight.delete(binding.call_id)
@@ -805,6 +808,45 @@ export function createGateway(options: GatewayOptions) {
       } catch {
         return undefined
       }
+    },
+    /** 先按当前主体持久取消，再尽力通知原活 attempt；无取消 ack，不宣称桥接或原生已停止。 */
+    cancel(callId: string): Call {
+      const call = options.router.cancel(options.principal(), callId)
+      const original = inflight.get(callId)
+      if (!original || call.state !== 'outcome_unknown') {
+        return call
+      }
+      // 移除本地等待并消费唯一发送机会；重入、写出失败和重复取消均不自动重发。
+      inflight.delete(callId)
+      const peer = machines.get(original.machine_id)
+      try {
+        if (
+          !peer ||
+          call.epoch !== original.connection_epoch ||
+          call.attempt_id !== original.payload.attempt.attempt_id
+        ) {
+          return call
+        }
+        assertPeer(peer)
+        if (
+          peer.connection.machine_id !== original.machine_id ||
+          peer.connection.recovery_generation !== original.recovery_generation ||
+          peer.connection.connection_epoch !== original.connection_epoch
+        ) {
+          return call
+        }
+        options.store.assertConnection(peer.connection)
+        write(
+          peer,
+          envelope(peer.connection, 'cancel', {
+            attempt: structuredClone(original.payload.attempt),
+            reason: 'caller_cancelled'
+          })
+        )
+      } catch {
+        /* 持久取消已提交；缺原上下文、撤权、关闭或发送失败只保留 unknown，不恢复队列或泄漏异常。 */
+      }
+      return call
     },
     /** 从宿主 principal 经 Router 授权并提交 Store binding 后才编码发送；后续失败保持 unknown。 */
     dispatch(callId: string) {

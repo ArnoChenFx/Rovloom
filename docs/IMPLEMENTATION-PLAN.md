@@ -89,7 +89,7 @@ Gateway 已提供独立的[可信只读观测端口](TRANSPORT.md#可信只读�
 
 ### 3.4 Luvus RPC、MCP 与多机可靠性
 
-认证通道已有原始 Wire RPC hook、受控响应对象发送/重组、活原请求读取及原 permit 保留检查 port，接口见
+认证通道已有原始 Wire RPC hook、精确 attempt 的取消观察传递、受控响应对象发送/重组、活原请求读取及原 permit 保留检查 port，接口见
 [transport 接线](TRANSPORT.md#原始-wire-执行接缝)。隔离 IPC 组合不替代生产 peer/auth/唯一
 claim、公共发现/结果分页或真实 stdio/MCP 联合验收；各层继续保留自身原请求状态和提交归属。
 

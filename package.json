@@ -12,6 +12,8 @@
   "scripts": {
     "toolchain": "bun --no-env-file scripts/bun/toolchain.mjs",
     "build": "bun --no-env-file scripts/bun/build.mjs",
+    "release:build": "bun --no-env-file scripts/release/build.mjs",
+    "release:smoke": "bun --no-env-file scripts/release/smoke.mjs",
     "typecheck": "bun --no-env-file node_modules/typescript/bin/tsc --noEmit",
     "test": "bun --no-env-file test ./test",
     "smoke": "bun --no-env-file scripts/bun/smoke.mjs",
