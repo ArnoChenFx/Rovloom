@@ -49,8 +49,8 @@ test(
         return {
           code: present ? 0 : 4,
           stdout: present
-            ? `LoadState=loaded\nActiveState=${running ? 'active' : 'inactive'}\nSubState=${running ? 'running' : 'dead'}\nFragmentPath=/etc/systemd/system/rovloom-connector.service\nDropInPaths=\nExecMainStatus=0\nUnitFileState=${enabled ? 'enabled' : 'disabled'}\n`
-            : 'LoadState=not-found\nActiveState=inactive\nSubState=dead\nMainPID=0\nFragmentPath=\nDropInPaths=\n',
+            ? `LoadState=loaded\nActiveState=${running ? 'active' : 'inactive'}\nSubState=${running ? 'running' : 'dead'}\nFragmentPath=/etc/systemd/system/rovloom-connector.service\nDropInPaths=\nExecMainStatus=0\nMainPID=${running ? '123' : '0'}\nJob=\nUnitFileState=${enabled ? 'enabled' : 'disabled'}\n`
+            : 'LoadState=not-found\nActiveState=inactive\nSubState=dead\nMainPID=0\nJob=\nFragmentPath=\nDropInPaths=\n',
           stderr: ''
         }
       }
@@ -107,7 +107,7 @@ test(
     const spec = sampleSpec()
     m.data.set('rovloom-connector.service', renderDefinition(spec))
     let stdout =
-      'LoadState=loaded\nActiveState=inactive\nSubState=dead\nFragmentPath=/etc/systemd/system/rovloom-connector.service\nDropInPaths=/etc/systemd/system/override.conf\nExecMainStatus=0\nUnitFileState=enabled\n'
+      'LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nJob=\nFragmentPath=/etc/systemd/system/rovloom-connector.service\nDropInPaths=/etc/systemd/system/override.conf\nExecMainStatus=0\nUnitFileState=enabled\n'
     let code = 0
     const backend = createNativeServiceBackend({
       platform: 'linux',
@@ -382,7 +382,7 @@ test(
         commands.push(plan)
         return {
           code: 4,
-          stdout: `LoadState=not-found\nActiveState=${active}\nSubState=${sub}\nMainPID=${pid}\nFragmentPath=\nDropInPaths=\n`,
+          stdout: `LoadState=not-found\nActiveState=${active}\nSubState=${sub}\nMainPID=${pid}\nJob=\nFragmentPath=\nDropInPaths=\n`,
           stderr: ''
         }
       }
@@ -559,5 +559,47 @@ test(
     assert(!TASK_SCRIPT.includes('$t.Enabled ='))
     assert(TASK_SCRIPT.includes('$expected.Principal.LogonType = 5'))
     assert(TASK_SCRIPT.includes('RegisterTaskDefinition($p.name, $definition, 52'))
+  }
+)
+
+test(
+  'Linux pending Job and unproven absence cannot be treated as stopped or cleaned',
+  /* 启动 Job 可在 inactive/dead 且 MainPID=0 时等待依赖；空值以外仅接受官方十进制 Job ID。 */ async () => {
+    const memory = memoryFiles()
+    const spec = sampleSpec('linux')
+    memory.data.set('rovloom-connector.service', renderDefinition(spec))
+    let job: string | undefined = '42'
+    let pid = '0'
+    let load = 'loaded'
+    const native = createNativeServiceBackend({
+      platform: 'linux',
+      files: memory.files,
+      verifyRuntime: /* 不装配真实程序。 */ async () => {},
+      runner: /* 固定无运行 PID，分别注入排队 Job 或无效展示。 */ async () => ({
+        code: load === 'loaded' ? 0 : 4,
+        stdout: `LoadState=${load}\nActiveState=inactive\nSubState=dead\nMainPID=${pid}\n${job === undefined ? '' : `Job=${job}\n`}FragmentPath=${load === 'loaded' ? '/etc/systemd/system/rovloom-connector.service' : ''}\nDropInPaths=\nExecMainStatus=0\nUnitFileState=disabled\n`,
+        stderr: ''
+      })
+    })
+    assert.equal((await native.inspect('connector'))?.state, 'starting')
+    assert.equal(await native.remove(spec), false)
+    assert.deepEqual(memory.removed, [])
+    for (const invalid of [undefined, '0', 'waiting', '-1', '4294967296']) {
+      job = invalid
+      await assert.rejects(/* 缺失或未知 Job 值不能被当成没有任务。 */ () => native.inspect('connector'), {
+        code: 'system_command_failed'
+      })
+    }
+    job = ''
+    pid = '123'
+    await assert.rejects(/* 声称已静止却还有 MainPID 的记录也不可清理。 */ () => native.inspect('connector'), {
+      code: 'service_conflict'
+    })
+    pid = '0'
+    load = 'not-found'
+    job = '42'
+    await assert.rejects(/* not-found 不覆盖 Job 尚在等待的事实。 */ () => native.inspect('connector'), {
+      code: 'service_conflict'
+    })
   }
 )

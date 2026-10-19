@@ -34,8 +34,11 @@ so later explicit stop remains authorized. Results distinguish `bootEnabled: fal
 `controlRetained: true`; `stopMode: "not_requested"` confirms that uninstall issued no stop request.
 Repeated uninstall succeeds. Reinstalling the same manifest restores boot startup without restarting the instance.
 
-An already quiescent disabled record may be removed after a fresh ownership/state check. Linux requires
-inactive/dead state and MainPID=0 before treating a not-found unit as absent. Windows requires known task
+Linux uninstall always retains its declaration, including inactive units: a boot job waiting on a dependency
+can start between observation and unlink. Pending Unit.Job is reported as starting; only an explicit stop
+issues systemctl stop to cancel such jobs before cleanup, then requires no Job and MainPID=0. Other already
+quiescent disabled records may be removed after ownership/state checks. Linux requires inactive/dead,
+MainPID=0 and no Job before treating a not-found unit as absent. Windows requires known task
 state DISABLED/READY and no running instances before deletion; UNKNOWN/future states fail closed.
 macOS retains even an exited **loaded** job, because cleanup must not bootout it; explicit stop may bootout
 that job and then remove its disabled declaration. Natural exit followed by another uninstall can clean up
@@ -150,8 +153,9 @@ macOS 使用 `/Library/LaunchDaemons` 的 **system** 域，Windows 使用原生 
 卸载的 `stopMode` 始终为 `not_requested`。只有确认静止且可安全释放时才清理记录。
 
 macOS 已退出但仍 loaded 的 job 也保留，绝不为卸载而 bootout；用户显式 stop 后才可卸载该 job 并
-清理已禁用声明。Linux 仅在 inactive/dead 且 MainPID=0 时把 not-found 判为不存在，加载态和运行态
-不能混淆。Windows 只切换 BootTrigger.Enabled，保持 task 本身可用于显式 Run/Stop；删除前正向
+清理已禁用声明。Linux 卸载始终保留声明，避免待启动 boot Job 在观察和 unlink 间启动；Unit.Job 非零即
+报告 starting，只有显式 stop 发出 systemctl stop 取消待执行 Job，并确认无 Job、MainPID=0 后
+才清理。只有 inactive/dead、MainPID=0 且无 Job 才把 not-found 判为不存在，加载态与运行态不能混淆。Windows 只切换 BootTrigger.Enabled，保持 task 本身可用于显式 Run/Stop；删除前正向
 核验 DISABLED/READY 且无实例，UNKNOWN、未来值或查询不完整均拒绝。ServiceAccount 使用 COM
 类型值 5，XML 省略 LogonType，不使用非法枚举字符串。任何清理均保留 foreign/并发变更保护。
 配置、数据库、日志、凭据、账户和用户数据永不删除或扩大权限。角色名称固定，不接收任意 service/task 名。

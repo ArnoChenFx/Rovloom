@@ -212,20 +212,35 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
           '--no-ask-password',
           'show',
           '--no-pager',
-          '--property=LoadState,ActiveState,SubState,FragmentPath,DropInPaths,ExecMainStatus,MainPID,UnitFileState',
+          '--all',
+          '--property=LoadState,ActiveState,SubState,FragmentPath,DropInPaths,ExecMainStatus,MainPID,Job,UnitFileState',
           '--',
           filename(role)
         ],
         timeout: 5000
       })
       const data = properties(result.stdout)
+      if (result.code !== 0 && !(result.code === 4 && data.get('LoadState') === 'not-found')) {
+        throw new ServiceError('system_command_failed', result.code)
+      }
+      // systemctl show 将零 Job 输出为空值，非零 Job 输出十进制 uint32；缺失或未知格式不能视为静止。
+      const job = data.get('Job')
+      if (job === undefined || (job !== '' && (!/^[1-9]\d{0,9}$/u.test(job) || Number(job) > 0xffffffff))) {
+        throw new ServiceError('system_command_failed')
+      }
+      const pending = job !== ''
       if (
         data.get('LoadState') === 'not-found' &&
         !data.get('FragmentPath') &&
         !data.get('DropInPaths') &&
         [0, 4].includes(result.code)
       ) {
-        if (data.get('ActiveState') !== 'inactive' || data.get('SubState') !== 'dead' || data.get('MainPID') !== '0') {
+        if (
+          pending ||
+          data.get('ActiveState') !== 'inactive' ||
+          data.get('SubState') !== 'dead' ||
+          data.get('MainPID') !== '0'
+        ) {
           throw new ServiceError('service_conflict')
         }
         return spec ? { spec, state: 'stopped', enabled: false } : undefined
@@ -242,8 +257,15 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
         throw new ServiceError('service_conflict')
       }
       const active = data.get('ActiveState')
-      const state =
-        active === 'active' && data.get('SubState') === 'running'
+      if (
+        !['active', 'inactive', 'failed', 'activating', 'deactivating'].includes(active ?? '') ||
+        !/^\d+$/u.test(data.get('MainPID') ?? '')
+      ) {
+        throw new ServiceError('system_command_failed')
+      }
+      const state = pending
+        ? 'starting'
+        : active === 'active' && data.get('SubState') === 'running'
           ? 'running'
           : active === 'inactive'
             ? 'stopped'
@@ -256,6 +278,12 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
                   : undefined
       if (!state || !/^\d+$/u.test(data.get('ExecMainStatus') ?? '')) {
         throw new ServiceError('system_command_failed')
+      }
+      if (
+        ['stopped', 'failed'].includes(state) &&
+        (data.get('MainPID') !== '0' || (state === 'stopped' && data.get('SubState') !== 'dead'))
+      ) {
+        throw new ServiceError('service_conflict')
       }
       return {
         spec,

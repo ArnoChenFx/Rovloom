@@ -207,15 +207,20 @@ for (const platform of ['linux', 'darwin', 'win32'] as ServicePlatform[]) {
       await manager.execute({ action: 'uninstall', role: spec.role })
       m.get()!.state = 'stopped'
       const cleaned = await manager.execute({ action: 'uninstall', role: spec.role })
-      assert.equal(cleaned.state, 'absent')
-      assert.equal(cleaned.controlRetained, false)
+      assert.equal(cleaned.state, platform === 'linux' ? 'stopped' : 'absent')
+      assert.equal(cleaned.controlRetained, platform === 'linux')
       assert(!m.calls.includes('stop'))
+      if (platform === 'linux') {
+        assert(!m.calls.includes('remove'))
+        assert.equal((await manager.execute({ action: 'stop', role: spec.role })).state, 'absent')
+      }
       m.set({ spec, enabled: false, state: 'stopped' })
       m.backend.remove = /* 模拟清理前发现同名异物，不允许删除它。 */ async () => {
         throw new ServiceError('service_conflict')
       }
       await assert.rejects(
-        /* 外部替换后的记录必须保留供人工检查。 */ () => manager.execute({ action: 'uninstall', role: spec.role }),
+        /* 外部替换后的记录必须保留供人工检查。 */ () =>
+          manager.execute({ action: platform === 'linux' ? 'stop' : 'uninstall', role: spec.role }),
         { code: 'service_conflict' }
       )
       assert(m.get())
@@ -241,8 +246,8 @@ for (const platform of ['linux', 'darwin', 'win32'] as ServicePlatform[]) {
 test(
   'cleanup races retain current ownership and reobserve state instead of reporting absent',
   /* 已静止实例在清理前重新运行时只保留控制记录，不停止它或误报删除。 */ async () => {
-    const m = model()
-    const spec = sampleSpec()
+    const m = model('darwin')
+    const spec = sampleSpec('darwin')
     m.set({ spec, enabled: false, state: 'stopped' })
     m.backend.remove = /* 模拟原生监管器在安全检查时发现实例已经运行。 */ async () => {
       m.set({ spec, enabled: false, state: 'running' })

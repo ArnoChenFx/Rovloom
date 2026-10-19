@@ -113,8 +113,8 @@ export class ServiceManager {
             if (current.enabled) {
               throw new ServiceError('system_command_failed')
             }
-            // 运行中只撤销自启，不等待退出，也不调用停止或释放仍被监管器使用的记录。
-            if (['stopped', 'failed'].includes(current.state)) {
+            // Linux 卸载始终保留声明，避免等待依赖的 boot Job 在观察与删除之间启动并失去控制记录。
+            if (this.backend.platform !== 'linux' && ['stopped', 'failed'].includes(current.state)) {
               if (await this.backend.remove(spec)) {
                 current = undefined
                 changed = true
@@ -126,9 +126,9 @@ export class ServiceManager {
             if (
               request.action !== 'start' &&
               (!['stopped', 'failed'].includes(current.state) ||
-                (request.action === 'stop' && !current.enabled && this.backend.platform === 'darwin'))
+                (request.action === 'stop' && !current.enabled && ['darwin', 'linux'].includes(this.backend.platform)))
             ) {
-              // macOS 的显式 stop 也释放已退出但仍 loaded 的 job；卸载分支永远不走这里。
+              // 撤销自启后，Linux 显式 stop 仍须取消待启动 Job；macOS 则释放 loaded job。卸载分支不走这里。
               stopRequested = true
               await this.backend.stop(spec)
               current = await this.settle(spec, false)

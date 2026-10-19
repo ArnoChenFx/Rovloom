@@ -1,4 +1,4 @@
-// 通过原生后端的受控 runner 验证 Windows 自启与运行实例独立，绝不执行 PowerShell 或注册系统任务。
+// 通过受控 runner 验证 Windows 排队与 Linux 启动 Job、自启和运行控制的分离，不实际注册系统服务。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ServiceManager } from '../../src/service/manager.js'
@@ -8,6 +8,7 @@ import type { RegistrationFiles } from '../../src/service/files.js'
 import type { CommandRunner } from '../../src/service/runner.js'
 import { model, sampleSpec } from './helpers.js'
 import { inspectTask } from '../../src/service/windows.js'
+import { renderDefinition } from '../../src/service/render.js'
 
 test(
   'Windows uninstall updates boot only, reinstall preserves instance, explicit stop cleans up later',
@@ -110,6 +111,121 @@ for (const action of ['start', 'restart'] as const) {
       assert.equal(m.clock.now(), 30000)
       assert.equal(state, 2)
       assert.equal(instances, 1)
+    }
+  )
+}
+
+for (const scenario of ['waiting_dependency', 'unlink_window_start', 'idle', 'stop_job_not_canceled'] as const) {
+  test(
+    `Linux uninstall retains its declaration through ${scenario}; explicit stop cancels before cleanup`,
+    /* 通过真实 manager/native 组合模拟待启动 Job 与 unlink 窗口，不实际注册 systemd 单元。 */ async () => {
+      const spec = sampleSpec('linux')
+      const definition = renderDefinition(spec)
+      let present = true
+      let enabled = true
+      let job = ['waiting_dependency', 'stop_job_not_canceled'].includes(scenario) ? '42' : ''
+      let active = 'inactive'
+      let pid = 0
+      let stops = 0
+      let removals = 0
+      const operations: string[] = []
+      // 模拟依赖满足后由系统调度启动，独立于 CLI 文件锁及 enable 状态。
+      function activate() {
+        active = 'active'
+        pid = 123
+        job = ''
+      }
+      const files: RegistrationFiles = {
+        verify: /* 内存声明不检查或写入真实系统目录。 */ async () => {},
+        read: /* 保留所有权清单，确保后续显式 stop 能找到它。 */ async () => (present ? definition : undefined),
+        create: /* 本用例从已注册服务开始，不允许创建另一个。 */ async () => assert.fail(),
+        remove: /* 若卸载触及已读静止后的 unlink 窗口，依赖可立即满足并启动，不能丢掉声明。 */ async (
+          _name,
+          content
+        ) => {
+          if (stops === 0 && scenario === 'unlink_window_start') {
+            activate()
+          }
+          assert(stops > 0, 'only explicit stop may reach declaration cleanup')
+          assert.equal(job, '')
+          assert.equal(pid, 0)
+          assert.equal(content, definition)
+          operations.push('unlink')
+          removals++
+          present = false
+        },
+        lock: /* 角色锁不能冻结内核调度，运行状态由上面的独立模型控制。 */ async (_name, f) => f()
+      }
+      const runner: CommandRunner = /* 仿真 Unit.Job 的官方 systemctl 展示格式及 stop 的取消效果。 */ async (p) => {
+        assert.equal(p.executable, '/usr/bin/systemctl')
+        if (p.args.includes('show')) {
+          assert(p.args.includes('--all'))
+          assert(
+            p.args.some(
+              /* 确保查询未遗漏 Unit.Job。 */ (a) => a.startsWith('--property=') && a.split(',').includes('Job')
+            )
+          )
+          return {
+            code: present ? 0 : 4,
+            stdout: `LoadState=${present ? 'loaded' : 'not-found'}\nActiveState=${active}\nSubState=${active === 'active' ? 'running' : 'dead'}\nMainPID=${pid}\nJob=${job}\nFragmentPath=${present ? '/etc/systemd/system/rovloom-connector.service' : ''}\nDropInPaths=\nExecMainStatus=0\nUnitFileState=${enabled ? 'enabled' : 'disabled'}\n`,
+            stderr: ''
+          }
+        }
+        if (p.args.includes('disable')) {
+          enabled = false
+          operations.push('disable')
+        }
+        if (p.args.includes('stop')) {
+          stops++
+          operations.push('stop')
+          if (scenario !== 'stop_job_not_canceled') {
+            job = ''
+          }
+          active = 'inactive'
+          pid = 0
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }
+      const backend = createNativeServiceBackend({
+        platform: 'linux',
+        files,
+        runner,
+        verifyRuntime: /* 受控用例不启动真实程序。 */ async () => {}
+      })
+      const m = model('linux')
+      const manager = new ServiceManager(backend, m.clock)
+      const removed = await manager.execute({ action: 'uninstall', role: 'connector' })
+      assert.equal(removed.bootEnabled, false)
+      assert.equal(removed.controlRetained, true)
+      assert.equal(removed.stopMode, 'not_requested')
+      assert.equal(
+        removed.state,
+        ['waiting_dependency', 'stop_job_not_canceled'].includes(scenario) ? 'starting' : 'stopped'
+      )
+      assert.equal(stops, 0)
+      assert.equal(removals, 0)
+      assert.equal(present, true)
+      assert.equal((await manager.execute({ action: 'uninstall', role: 'connector' })).changed, false)
+      if (scenario === 'unlink_window_start') {
+        activate()
+        assert.equal((await backend.inspect('connector'))?.state, 'running')
+      }
+      if (scenario === 'stop_job_not_canceled') {
+        await assert.rejects(
+          /* stop 受理后 Job 仍在也不能误报已停止并清理声明。 */ () =>
+            manager.execute({ action: 'stop', role: 'connector' }),
+          { code: 'service_timeout' }
+        )
+        assert.equal(m.clock.now(), 30000)
+        assert.equal(stops, 1)
+        assert.equal(removals, 0)
+        assert.equal(present, true)
+        return
+      }
+      assert.equal((await manager.execute({ action: 'stop', role: 'connector' })).state, 'absent')
+      assert.equal(stops, 1)
+      assert.equal(removals, 1)
+      assert(operations.indexOf('stop') < operations.indexOf('unlink'))
     }
   )
 }
