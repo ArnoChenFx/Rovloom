@@ -126,7 +126,7 @@ test(
 
 test(
   'pending sync or cleanup keeps ownership until settlement before releasing the lock',
-  /* 不把 race 结束当作 fsync 或 unlink 完成。 */ async () => {
+  /* 先命中目标阶段再触发期限，不把较早 I/O 的超时误认成 unlink 隔离。 */ async (context) => {
     if (process.platform !== 'linux') {
       return
     }
@@ -140,6 +140,14 @@ test(
               release = resolve
             }
           )
+          let arrive!: () => void
+          const entered = new Promise<void>(
+            /* 明确证明已进入本轮 sync 或 unlink，而非在较早的真实 I/O 上超时。 */ (resolve) => {
+              arrive = resolve
+            }
+          )
+          const operations: string[] = []
+          let targetSettled = false
           let closes = 0
           let removals = 0
           const files: UpdateStagingFiles = {
@@ -150,23 +158,34 @@ test(
               const sync = file.sync.bind(file)
               const close = file.close.bind(file)
               file.sync = /* 延迟系统同步，不谎报已取消。 */ async () => {
+                operations.push('sync')
                 if (phase === 'sync') {
+                  arrive()
                   await gate
                 }
                 await sync()
+                if (phase === 'sync') {
+                  targetSettled = true
+                }
               }
-              file.close = /* 记录是否在 sync 静止之前提前关闭。 */ async () => {
-                closes++
+              file.close = /* 只把真实 close 完成计入证据，不能以发起关闭代替。 */ async () => {
                 await close()
+                closes++
+                operations.push('close')
               }
               return file
             },
             // cleanup 自身也可能长期 pending，不能接着删除父目录或锁。
             unlink: async (path) => {
+              operations.push('unlink')
               if (phase === 'unlink') {
+                arrive()
                 await gate
               }
               await fs.unlink(path)
+              if (phase === 'unlink') {
+                targetSettled = true
+              }
             },
             // 目录和锁必须在本次 unlink 静止后才可删除。
             rmdir: async (...args: Parameters<typeof fs.rmdir>) => {
@@ -174,25 +193,42 @@ test(
               await fs.rmdir(...args)
             }
           }
+          context.mock.timers.enable({ apis: ['setTimeout'] })
           try {
-            await assert.rejects(
-              /* 无论下载成功与否，底层 pending 都返回隔离错误。 */ () =>
-                withStagedUpdate(
-                  root,
-                  { ...f.network, timeoutMs: 25 },
-                  plan,
-                  /* 校验观察者只读返回。 */ async () => true,
-                  files
-                ),
-              { code: 'staging_io_pending' }
+            const pending = withStagedUpdate(
+              root,
+              { ...f.network, timeoutMs: 25 },
+              plan,
+              /* 校验观察者只读返回。 */ async () => true,
+              files
             )
+            await Promise.race([
+              entered,
+              pending.then(
+                /* 未到目标阶段就完成必须使回归失败。 */ () => assert.fail('staging completed before target phase'),
+                /* 其它阶段的错误不能冒充目标阶段超时。 */ (error) => {
+                  throw new Error('staging failed before target phase', { cause: error })
+                }
+              )
+            ])
+            assert.deepEqual([...operations], phase === 'sync' ? ['sync'] : ['sync', 'close', 'unlink'])
+            assert.equal(targetSettled, false)
+            context.mock.timers.tick(25)
+            await assert.rejects(/* 只有已观测到的目标阶段仍 pending 时才验证隔离错误。 */ pending, {
+              code: 'staging_io_pending'
+            })
+            assert.equal(targetSettled, false)
             assert.equal(removals, 0)
             assert.equal(closes, phase === 'sync' ? 0 : 1)
             assert((await fs.readdir(root)).includes('.rovloom-update.lock'))
           } finally {
             release()
+            context.mock.timers.reset()
+            await cleaned(root)
           }
-          await cleaned(root)
+          assert.equal(targetSettled, true)
+          assert.equal(closes, 1)
+          assert.equal(removals, 2)
           assert.deepEqual(await fs.readdir(root), [])
         }
       )
