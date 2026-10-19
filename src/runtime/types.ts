@@ -7,6 +7,8 @@ import type { LocalPolicies, Principal } from '../router.js'
 import type { CallAdmissionOptions, Store } from '../store.js'
 import type {
   ChannelRegistry,
+  SocketChannel,
+  Session,
   DeviceLifecycleWiring,
   GatewayOptions,
   Connection,
@@ -22,18 +24,38 @@ import type {
 } from '../connector/luvus/index.js'
 import type { AttemptBinding, ProviderBinding, V2Target } from '../wire/types.js'
 
-export type RuntimeProvider = Readonly<{
+export type RuntimeProviderBinding = Readonly<{
   binding: ProviderBinding
   target: V2Target
   // 来自独立受保护设备配置的预期政策修订，不从本机政策复制或设备广告自证。
   peer_policy_revision: string
-  contract: NativeContractRecord
-  // 每次从受保护本机来源复核实例；设备广告或请求 JSON 不能建立该事实。
-  source(binding: AttemptBinding): TrustedNativeContext | undefined
-  authority: NativeWireBackend['authority']
-  // 来源丢失必须返回 false 或抛错，不以设备认证代替原生就绪。
+  // 就绪由各 provider 的受保护实际来源重新核对，不能由设备认证或广告建立。
   ready(): boolean
+  // 旧 Luvus 入口固定为 1MiB；中性入口必须显式提供此预算。
+  max_response_bytes?: number
 }>
+export type RuntimeProvider = RuntimeProviderBinding &
+  Readonly<{
+    contract: NativeContractRecord
+    // 每次从受保护本机来源复核实例；设备广告或请求 JSON 不能建立该事实。
+    source(binding: AttemptBinding): TrustedNativeContext | undefined
+    authority: NativeWireBackend['authority']
+  }>
+export type GatewayProviderServices = Readonly<{
+  store: Store
+  router: import('../router.js').Router
+  localPolicies: LocalPolicies
+  localProvider(target: V2Target): ProviderBinding | undefined
+  policies: NativeWireBackend['policies']
+  currentPrincipal(): string | undefined
+}>
+export type ProviderGatewayRuntimeOptions = Omit<GatewayRuntimeOptions, 'lifecycle' | 'providers'> &
+  Readonly<{
+    lifecycle: Pick<DeviceLifecycleWiring, 'store' | 'identityHost'>
+    providers: readonly (RuntimeProviderBinding & { max_response_bytes: number })[]
+    // 异步安装在宿主准备阶段完成；这里只交付当前认证 epoch 的实际 Wire 会话。
+    session(connection: Connection, channel: SocketChannel, services: GatewayProviderServices): Session
+  }>
 export type GatewayRuntimeOptions = Readonly<{
   lifecycle: DeviceLifecycleWiring
   channels?: ChannelRegistry
