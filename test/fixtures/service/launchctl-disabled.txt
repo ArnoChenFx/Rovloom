@@ -1,0 +1,3 @@
+disabled services = {
+  "com.xpc.example.agent" => disabled
+}
