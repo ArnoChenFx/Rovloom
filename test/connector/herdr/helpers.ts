@@ -5,6 +5,7 @@ import { HERDR_READONLY_REVIEW as review } from '../../../src/connector/herdr/re
 import type { HerdrReadonlyBackend, HerdrSchemas } from '../../../src/connector/herdr/readonly.js'
 import { contractRef, hash } from '../../../src/wire/index.js'
 import type { AttemptBinding, AuthenticatedContext, ContractSource, JsonObject } from '../../../src/wire/types.js'
+import type { LedgerInvalidation } from '../../../src/storage/model.js'
 
 export const raw = readFileSync(new URL('../../fixtures/herdr/0.9.5/schema.json', import.meta.url))
 const bundle = JSON.parse(raw.toString())
@@ -132,9 +133,38 @@ export function backendFixture() {
     now: /** 返回固定测试时钟，避免真实时间影响期限边界。 */ () => 100,
     currentPrincipal: /** 返回本测试原调用者，供当前内容授权检查。 */ () => record.principal_id,
     contentStatus: /** 仅在此 fixture 模拟内容仍可用，不改变 Store 保留逻辑。 */ () => 'available',
+    responseAnchor: /** 返回原固定期限和派发状态，不能把测试响应作为锚点来源。 */ () => ({
+      binding,
+      method: record.method,
+      mode: record.mode,
+      state: 'dispatching',
+      content_status: 'available',
+      content_expires_at: 1000,
+      dedup_expires_at: 2000
+    }),
+    subscribeInvalidation: /** 在合成接缝中登记通知，真实 Store 集成另行验证。 */ (listener) => {
+      listeners.add(listener)
+      return /** 关闭 adapter 后解除本轮监听。 */ () => {
+        listeners.delete(listener)
+      }
+    },
     context: /** 复用本测试当前认证上下文，让反例显式改变其连接或策略。 */ () => context,
     contract: /** 返回同一固定契约及完整根校验器，检查对象来源一致性。 */ () => ({ wire, schemas }),
     nativeSource: /** 返回原 binding 与私有合成 token，供替换来源反例使用。 */ () => ({ binding, token })
   }
-  return { binding, identity, record, wire, context, backend }
+  const listeners = new Set<(event: LedgerInvalidation) => void>()
+  return {
+    binding,
+    identity,
+    record,
+    wire,
+    context,
+    backend,
+    listeners,
+    emit: /** 模拟已提交的账本通知，不生成生产授权。 */ (event: LedgerInvalidation) => {
+      for (const listener of listeners) {
+        listener(event)
+      }
+    }
+  }
 }

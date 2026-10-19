@@ -223,6 +223,48 @@ def concurrent_snapshot(run):
         close_channel(run, channel)
 
 
+def passive_ping(run):
+    """仅在静态合成 pane 上重复精确 ping，记录有限窗口状态、事件与输入对照。"""
+    before = run.request('session.snapshot', {}, 'ping-before')['result']['snapshot']
+    channel = run.connect()
+    request = {'id': 'ping-observer', 'method': 'events.subscribe',
+               'params': {'subscriptions': [{'type': 'pane.updated'}]}}
+    try:
+        channel.sendall(encoded(request))
+        ack = run.read_line(channel)
+        run.save('ping-observer.request.jsonl', encoded(request))
+        run.save('ping-observer.ack.jsonl', ack)
+        assert decode(ack) == {'id': request['id'], 'result': {'type': 'subscription_started'}}
+        replies = []
+        for index in range(32):
+            value = run.request('ping', {}, f'passive-ping-{index}')
+            assert set(value) == {'id', 'result'}
+            assert value['result']['type'] == 'pong'
+            assert value['result']['version'] == before['version']
+            assert value['result']['protocol'] == before['protocol']
+            replies.append(value['result'])
+        assert all(value == replies[0] for value in replies), 'ping capabilities changed in a fixed instance'
+        after = run.request('session.snapshot', {}, 'ping-after')['result']['snapshot']
+        assert before == after, 'exact ping changed observable synthetic state'
+        assert int((run.root/'shell.input.bytes').read_text()) == 0, 'ping wrote synthetic PTY input'
+        # 只报告本次有限窗口没有事件；超时不是订阅无副作用的普遍证明。
+        readable, _, _ = select.select([channel], [], [], 0.2)
+        if readable:
+            raw = run.read_line(channel)
+            run.save('ping-unexpected-observer.raw', raw)
+            raise AssertionError('unexpected pane event or observer EOF during static ping comparison')
+        record = {'method': 'ping', 'params': {}, 'calls': len(replies),
+                  'whole_snapshot_equal': True, 'synthetic_pty_input_bytes': 0,
+                  'pane_event_observation_ms': 200, 'pane_event_observed': False,
+                  'native_result': replies[0], 'production_permission': False,
+                  'not_covered': ['active_ui', 'real_agent', 'notifications', 'other_method_or_params'],
+                  'source_review_required': 'src/api/server.rs::handle_request returns ping before dispatch_to_app'}
+        run.save('ping-passive-observation.json', record)
+        return record
+    finally:
+        close_channel(run, channel)
+
+
 def start_title_fixture(run):
     """在创建任何 pane 前替换自己的合成 shell，仅由私有文件触发已知输出。"""
     result = run.start()
@@ -301,7 +343,8 @@ def execute(binary, output):
     for label, action in [('blocked-write-control', blocked_write_control),
                           ('retained-512', lambda run: retained_boundary(run, 512)),  # 将本次独立实例限定为精确 512 条保留窗实验。
                           ('lost-513', lambda run: retained_boundary(run, 513)),  # 将本次独立实例限定为精确 513 条溢出实验。
-                          ('concurrent-snapshot', concurrent_snapshot), ('title-snapshot', title_snapshot)]:
+                          ('concurrent-snapshot', concurrent_snapshot), ('title-snapshot', title_snapshot),
+                          ('passive-ping', passive_ping)]:
         run = Run(binary, output/label)
         run.report['readonly_verifier_sha256'] = sha(Path(__file__).read_bytes())
         run.report['backpressure_control_passed'] = control_passed

@@ -6,6 +6,10 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { after, test } from 'node:test'
 import { providerFor } from '../../../src/wire/index.js'
+import { createHerdrReadonlyAdapter } from '../../../src/connector/herdr/readonly.js'
+import { persistentHerdrBackend, commitHerdrResponse } from '../../../src/connector/herdr/persistence.js'
+import { Store } from '../../../src/store.js'
+import { connected, management, responseFrame } from '../../storage/helpers.js'
 import { backendFixture, fixture } from './helpers.js'
 
 const root = mkdtempSync(join(tmpdir(), 'rovloom-herdr-seams-'))
@@ -15,7 +19,8 @@ let derived = original
 for (const [relative, absolute] of [
   ['../../integration/luvus-wire.js', new URL('../../../src/integration/luvus-wire.ts', import.meta.url).href],
   ['../../wire/index.js', new URL('../../../src/wire/index.ts', import.meta.url).href],
-  ['../../wire/types.js', new URL('../../../src/wire/types.ts', import.meta.url).href]
+  ['../../wire/types.js', new URL('../../../src/wire/types.ts', import.meta.url).href],
+  ['./persistence.js', new URL('../../../src/connector/herdr/persistence.ts', import.meta.url).href]
 ]) {
   assert(derived.includes(relative!))
   derived = derived.replaceAll(relative!, absolute!)
@@ -286,6 +291,177 @@ for (const status of ['expired', 'discarded', 'unavailable'] as const) {
         /** 按当前保留状态检查内容交付必须拒绝。 */ () => state.adapter.checkResult(state.context),
         /content_unavailable/
       )
+    }
+  )
+}
+
+test(
+  'real Store admission stays closed and persistent backend checks local configuration and shutdown',
+  /** 真实 Store 拒绝 Herdr 建档；仅检验已授权配置核对与关闭通知，不伪造成功派发链路。 */ () => {
+    const directory = mkdtempSync(join(tmpdir(), 'rovloom-herdr-store-'))
+    const store = new Store(join(directory, 'db'), /** 固定真实账本的测试时钟。 */ () => 100, { management })
+    const device = connected(store)
+    const state = backendFixture()
+    const provider = {
+      machine_id: device.machine_id,
+      provider_id: 'herdr',
+      kind: 'herdr' as const,
+      config_ref: 'owned-synthetic-herdr',
+      binding_revision: 1,
+      enabled: true
+    }
+    store.defineProvider(provider)
+    const target = { ...device.target, provider_id: provider.provider_id }
+    state.context.connection = {
+      ...state.context.connection,
+      machine_id: device.machine_id,
+      connection_epoch: device.epoch,
+      recovery_generation: store.generation()
+    }
+    const local = { ...provider }
+    const backend = persistentHerdrBackend(store, {
+      ...state.backend,
+      localProvider: /** 受保护本机配置由独立对象表达，不从响应或设备广告生成。 */ () => local
+    })
+    const adapter = createHerdrReadonlyAdapter(backend)
+    try {
+      assert.deepEqual(backend.context('principal1', 'gateway_to_connector').resolveProvider!(target), provider)
+      local.config_ref = 'different-protected-instance'
+      assert.throws(
+        /** 同 kind 不同实例也必须拒绝。 */ () =>
+          backend.context('principal1', 'gateway_to_connector').resolveProvider!(target),
+        /provider_binding_mismatch/
+      )
+      local.config_ref = provider.config_ref
+      assert.throws(
+        /** 真实 Store 不因 adapter 存在而自动开放建档。 */ () =>
+          store.createCall('principal1', target, state.record.native_request, {
+            binding_revision: 1,
+            contract_ref: state.binding.contract_ref,
+            caller_policy_revision: 'caller1',
+            local_policy_revision: 'local1'
+          }),
+        /provider_support_candidate/
+      )
+      assert.throws(
+        /** 缺行仍保留 Store 的固定错误，不补造空调用。 */ () =>
+          backend.attempt(state.binding.call_id, state.binding.attempt_id),
+        /call_not_found/
+      )
+      assert.throws(
+        /** 没有真实 attempt 不能从响应补造许可。 */ () => adapter.resolve(state.identity),
+        /call_not_found/
+      )
+      const frame = responseFrame(state.binding, { result: (fixture().response as any).result })
+      assert.throws(/** 真实提交同样缺锚点，不会写成功结果。 */ () => commitHerdrResponse(store, adapter, frame))
+      store.close()
+      assert.throws(
+        /** Store 关闭已经同步撤销 adapter 及监听。 */ () => adapter.resolve(state.identity),
+        /native_adapter_closed/
+      )
+    } finally {
+      adapter.close()
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
+)
+
+for (const cleanup of ['ttl', 'discard'] as const) {
+  test(
+    `synthetic ${cleanup} releases request anchor and keeps only the already permitted ping response`,
+    /** 合成许可前提下覆盖请求已不可恢复的路径；不宣称真实 Store 的 Herdr 正向接通。 */ () => {
+      const state = prepared()
+      try {
+        const before = state.adapter.stats().attempt_bytes
+        if (cleanup === 'ttl') {
+          state.backend.now = /** 原内容期限到达，但去重期限仍有效。 */ () => 1000
+        } else {
+          state.emit({ kind: 'content', machine_id: state.binding.machine_id, call_id: state.binding.call_id })
+        }
+        state.backend.attempt = /** 内容回收后不再保留请求锚点。 */ () => undefined
+        assert.equal(state.adapter.stats().executions, 0)
+        assert.equal(state.adapter.stats().responses, 1)
+        assert(state.adapter.stats().attempt_bytes < before)
+        const context = state.adapter.resolve(state.identity)
+        assert.equal(context.native_handle, state.context.native_handle)
+        assert.deepEqual(
+          state.adapter.decodeResponse(Buffer.from(JSON.stringify(fixture().response) + '\n'), context),
+          fixture().response
+        )
+        assert.throws(
+          /** 最小响应上下文不能重新派发。 */ () => state.adapter.encodeRequest(state.request, context),
+          /content_unavailable/
+        )
+        assert.throws(
+          /** 最小响应上下文不能复活交付权。 */ () => state.adapter.checkResult(context),
+          /content_unavailable/
+        )
+      } finally {
+        state.adapter.close()
+        assert.equal(state.listeners.size, 0)
+      }
+    }
+  )
+}
+
+test(
+  'minimal response context rejects changed anchor retention and expires without refreshing dedup',
+  /** 回收后固定期限不可变，改锚点或达到原去重期限均不能延长证据能力。 */ () => {
+    const state = prepared()
+    try {
+      state.emit({ kind: 'content', machine_id: state.binding.machine_id, call_id: state.binding.call_id })
+      state.backend.attempt = /** 模拟请求原文已不可恢复。 */ () => undefined
+      const anchor = state.backend.responseAnchor
+      state.backend.responseAnchor = /** 模拟错误地延长固定内容期限。 */ (binding) => ({
+        ...anchor(binding)!,
+        content_expires_at: 1001
+      })
+      assert.throws(
+        /** 原期限变更拒绝旧能力。 */ () => state.adapter.decodeResponse(Buffer.alloc(0), state.context),
+        /attempt_binding_mismatch/
+      )
+      state.backend.responseAnchor = anchor
+      state.backend.now = /** 达到原去重截止时间，不从新回复刷新。 */ () => 2000
+      assert.equal(state.adapter.stats().responses, 0)
+      assert.throws(
+        /** 到期后没有旧句柄可取。 */ () => state.adapter.decodeResponse(Buffer.alloc(0), state.context),
+        /native_handle_unavailable/
+      )
+    } finally {
+      state.adapter.close()
+      assert.equal(state.listeners.size, 0)
+    }
+  }
+)
+
+for (const kind of ['closed', 'content', 'fence'] as const) {
+  test(
+    `reentrant ${kind} notification during resolution cannot register a handle after invalidation`,
+    /** 原生宿主回调同步触发回收时，真实组件也不能在关闭或 fence 后登记上下文。 */ () => {
+      const state = backendFixture()
+      const anchor = state.backend.responseAnchor
+      state.backend.responseAnchor = /** 在真实组件读取锚点期间注入同步通知，不放行生产 provider gate。 */ (
+        binding
+      ) => {
+        const result = anchor(binding)
+        state.emit(kind === 'closed' ? { kind } : { kind, machine_id: binding.machine_id, call_id: binding.call_id })
+        return result
+      }
+      const adapter = createHerdrReadonlyAdapter(state.backend)
+      try {
+        assert.throws(
+          /** 在所有 callbacks 完成后仍须核对关闭与本轮失效代次。 */ () => adapter.resolve(state.identity),
+          kind === 'closed' ? /native_adapter_closed/ : /attempt_context_invalidated/
+        )
+        if (kind !== 'closed') {
+          assert.equal(adapter.stats().executions, 0)
+          assert.equal(adapter.stats().responses, 0)
+        }
+      } finally {
+        adapter.close()
+        assert.equal(state.listeners.size, 0)
+      }
     }
   )
 }

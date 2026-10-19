@@ -208,8 +208,9 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 
 ## Herdr 离线输入
 
-[方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)的生产允许集为空；`ping {}` 和
-`session.snapshot {}` 仅是固定官方来源中的研究候选，任意其它参数、读取变体、
+[方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)的生产允许集为空；精确 `ping {}`
+已有固定源码的被动分类与专用 headless 对照，`session.snapshot {}` 仍因应用前置
+副作用保持未验证。任意其它参数、读取变体、
 订阅和写入均不获产品许可。离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
 
@@ -288,6 +289,10 @@ python3 scripts/herdr/verify_readonly.py --binary /absolute/verified/herdr --out
 初始保留窗。生成预算包含最后一次请求返回，不能只检查请求开始时间。
 大事件只用于测试，不放宽产品 64 KiB 帧限额。并发场景记录真实客户端请求区间、
 脏刷新和整体替换；另用合成 OSC 标题/输出观察元数据变化，不向 PTY 发送输入。
+精确 ping 场景重复 32 次空参数调用，对比完整合成状态及 PTY 输入，记录有限的
+pane.updated 观察窗。窗口无事件不等于所有 UI/agent/通知都已实测；固定源码
+`src/api/server.rs::handle_request` 在应用派发之前返回 pong，记录连接及诊断资源
+副作用，不把健康响应解释为 session 状态或通用 live catalog。
 原生日志与失败轮次继续只留在临时输出和 PR/CI。
 
 ### 只读 adapter 接缝
@@ -310,19 +315,41 @@ endpoint/peer 后持有不可序列化来源 token。实例或连接改变时替
 原生响应证据验证不依赖当前内容读者、read grant 或原策略 revision 仍生效；它始终
 核对原锚点/permit、当前有效连接/provider 与独立来源。读取撤权、过期或 discard
 只能进入 Store 的最小证据分流，原文保存和交付仍须另查当前权限及原期限。
-完整 schema 编译仍须满足 DESIGN 的可终止 worker 与硬资源预算；测试中的直接
-编译不能满足这个生产门禁。原生传输、共享 provider 支持切换、Store 证据提交及
-实际 Gateway/Connector 接线未由这个组件交付。
+Herdr 完整 schema 根仍需有界异步编译与受控生成物接纳；测试中的直接编译不能满足
+这个生产门禁。不能给现有 Luvus 编译器输入伪造 UHP bundle，也不能沿用已撤回的
+硬 heap/物理退出时限承诺。
 
-当前证据测试由合成 backend 保留原 attempt；它不证明真实 Store 清理请求后的迟到路径。
-Herdr 尚未接入共享的 `responseAnchor`、`subscribeInvalidation`、失效关闭及最小仅响应
-上下文，不能直接充当现行 transport 的完整 adapter。宿主原 attempt 回收后仍需补齐
-这些接口及事务接线，不能从保留状态反例推导生产 metadata-only 已可用。
+[Store 接缝](../src/connector/herdr/persistence.ts)提供 `persistentHerdrBackend` 和
+`commitHerdrResponse`，复用原账本事务、当前连接/配置、`responseAnchor` 与
+`subscribeInvalidation`。内容回收后仅已许可 ping 能保留最小响应元数据；固定期限、
+provider/设备 fence、来源替换及 Store 关闭分别限制或销毁句柄。响应校验不需要
+恢复请求，最小上下文永远不能派发或交付内容。关闭只回收桥接资源。
+
+真实 Store 在 Herdr 建档阶段仍拒绝；共享 Wire provider gate 也关闭。测试明确区分
+真实 Store 的拒绝/配置/关闭通知与隔离 reviewed-provider 前提下的合成正向压缩、
+请求已不可恢复的迟到校验。事务入口的成功路径仍须在 backend、编译及精确生产
+门禁一并交付后验收，不把合成上下文当作真实 Store metadata-only 已接通。
+原生 socket backend、当前 transport 的完整 adapter 接口和真实宿主仍待实现。
 
 `ping` 足以核对存活和版本，不能提供当前 session 状态。`session.snapshot` 经过公共
 请求前置的待处理终端标题同步，可能更新标题缓存并发布 pane 元数据事件；它不是
 冻结状态读取。只测静态 pane、合成输出和并发重命名，不证明活动 UI、真实 agent
 或通知路径无副作用，不能据此默认给 observer 开放。生产允许集继续为空。
+
+### 全方法覆盖与后续接入
+
+Herdr 与 Luvus 均以各自受支持的完整原生能力接入统一 runtime 工具面为目标；
+只读只定义 P0-H 的验收范围。[固定全方法矩阵](../test/fixtures/herdr/0.9.5/method-coverage.json)
+保存安装 request 根的参数分支、官方分派来源、原生传输/作用及当前支持状态。
+离线审计核对完整覆盖；额外提供固定官方源码目录时核对原文 hash 和行锚：
+
+```sh
+python3 scripts/herdr/audit_methods.py
+```
+
+后续普通调用、输入/prompt、生命周期、事件/终端和宿主接线按[实施计划](IMPLEMENTATION-PLAN.md#36-herdr-原生验证与完整接入)
+独立交付，未实现逐项可见，不能以只读替代完整能力目标，也不能为对齐工具名伪造
+原生缺少的 Host、cancel、lease、fence、replay 或 input ack。
 
 ## 实现范围
 

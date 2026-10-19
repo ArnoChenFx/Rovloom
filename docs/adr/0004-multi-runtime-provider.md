@@ -24,7 +24,7 @@ provider、契约来源及完整关联是执行安全必需字段，不能藏在
 
 项目尚未发布，取消 Wire v1 的兼容承诺并移除两套历史 decoder，仅维护当前 v2。旧帧直接拒绝，不分配默认 provider；缺少 provider 或可信 binding 时不得执行，不借旧 key 缺失重新派发。当前 history scope/TTL 保留，Store 只维护当前规范 schema；MCP、管理 API 及外部原生协议各自版本不受影响。
 
-## Herdr 研究与有限目标
+## Herdr 研究与分阶段完整接入
 
 研究固定于官方 Herdr v0.9.5 源码 `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`，协议常量 22。这个 hash 锁定外部协议证据，不是 Rovloom 开发基线。研究不是安装 binary 的生产契约，也不是 P0-H 或 adapter 执行证明；运行时须重新取得安装 schema/hash、实际版本和独立 endpoint 来源。
 
@@ -37,7 +37,7 @@ provider、契约来源及完整关联是执行安全必需字段，不能藏在
 | recent 等读取路径可能滚动或送输入 | 被动只读必须按 method+params+实现逐项核实，不能凭 read 名或 schema 授 observer |
 | prompt wait 观察状态，不能单凭状态归属本次提交 | 不宣称 turn-correlated 完成；写入/终端需单独研究与设计 |
 
-因此首个目标限发现、状态、核实被动只读与事件失效后状态重建。P0-H 是必要原生证据门禁，之后还需 adapter、可信 backend、授权/持久化、MCP 及多 provider 集成验收；P0-H 通过不表示架构上线。精确被动读允许集、写入/终端、prompt 归属与取消未定部分保持拒绝，不为工具面一致降低 Luvus 保证。
+完整接入 Herdr 受支持原生能力是产品目标，P0-H 先取得发现、状态、核实被动只读与事件失效后状态重建的证据。之后普通调用、输入/prompt、生命周期、订阅和终端控制按各自原生语义接入同一工具面，不把只读阶段当作永久能力上限。P0-H 是必要原生证据门禁，之后还需 adapter、可信 backend、授权/持久化、MCP 及多 provider 集成验收；通过不表示架构上线。未验证能力暂时拒绝，缺少的原生保证明确标出，不为工具面一致降低已有安全约束。
 
 ## 官方来源与核验边界
 

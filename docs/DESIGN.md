@@ -13,7 +13,7 @@ Rovloom 是一个多机器 MCP 网关项目，同一发行产物提供 Gateway �
 - 一个 runtime provider binding 对应一个 Luvus 或 Herdr 实例；同 kind 的多个实例也各有独立 provider_id。runtime provider 与 LLM/model provider 是不同概念。
 - 每次调用使用显式 Target 和预期 binding revision；权限、契约、原生身份、去重、结果与流都隔离到该实例，禁止跨 provider 自动 failover。
 - 对外提供少量通用 MCP 工具，按目标发现和描述原生方法；普通 RPC、Host 与持续/双向流分别适配。
-- Luvus 的目标范围是受支持版本内获授权的 UHP 能力。Herdr 的初始范围是发现、状态、经核实被动只读和事件失效后的当前状态重建；写入、终端控制及更强保证须独立设计和验证。
+- Luvus 与 Herdr 都以受支持版本内获授权的完整原生能力接入统一 runtime 工具面为目标。Herdr 按自己的 JSON socket/CLI 语义逐项适配；P0-H 的只读验证是首阶段门禁，后续普通调用、输入/prompt、生命周期、订阅和终端控制分别取得证据后开放。缺少的原生保证须如实暴露。
 
 ## 2. 用户需求与边界
 
@@ -190,6 +190,8 @@ observe 永不可写；图片/上传等高级 action 只有在契约、分类、
 ### 9.4 Herdr JSON adapter
 
 保留 Herdr 原生 request/result/error，不模拟 UHP、Host、通用 cancel、原子 terminal fence 或 UI renderer。初始切片必须在独立 P0-H 证明安装契约、endpoint/peer、framing、被动读和事件重建后接入。recent 等读取可能有滚动/输入副作用，按具体 method+params+实现审核，未核实不进 observer。prompt wait 的状态变化不能证明本次 prompt 完成。
+
+完整原生方法覆盖以固定安装 schema 和官方分派源码为依据，方法枚举不等于已授权或已接入。当前阶段及后续可独立交付的能力切片见[实施计划](IMPLEMENTATION-PLAN.md#36-herdr-原生验证与完整接入)；各切片复用现有 provider、完整 Target、双端授权、Store 和 runtime 工具，不另建 Gateway、CLI 或认证模型。
 
 被动读精确 allowlist、写入/终端原子身份保证、prompt 完成归属与取消语义尚无充分证据的部分属于待设计决策，默认拒绝；不能用 Luvus 证据或外层 revision 补造保证。
 

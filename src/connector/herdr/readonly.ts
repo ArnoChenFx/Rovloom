@@ -1,5 +1,7 @@
 /** Herdr 首切片的原生编解码与 Wire 接缝；共享 candidate 门禁仍负责阻止生产派发。 */
 import type { NativeWireBackend, TrustedAttempt } from '../../integration/luvus-wire.js'
+import type { LedgerInvalidation } from '../../storage/model.js'
+import type { ResponseAnchor } from '../../wire/evidence.js'
 import {
   assertBinding,
   assertProviderAccess,
@@ -9,6 +11,7 @@ import {
   fields,
   object,
   parseJson,
+  planResponseEvidence,
   providerFor,
   text,
   validateAttempt,
@@ -18,6 +21,7 @@ import type {
   AttemptBinding,
   AttemptIdentity,
   AuthenticatedContext,
+  AuthenticatedEnvelope,
   ContractRecord,
   ContractSource,
   Direction,
@@ -74,6 +78,10 @@ export interface HerdrReadonlyBackend extends Pick<
   contract(ref: string): HerdrContractRecord | undefined
   /** 按原 attempt 独立解析本机配置及来源，实例/连接变化必须替换 token。 */
   nativeSource(binding: AttemptBinding): HerdrNativeSource | undefined
+  /** 只取 Store 原派发锚点与固定期限，不能从消息重建或刷新保留时间。 */
+  responseAnchor(binding: AttemptBinding): ResponseAnchor | undefined
+  /** 使用 Store 已提交的回收及身份失效通知；关闭时必须解除订阅。 */
+  subscribeInvalidation(listener: (event: LedgerInvalidation) => void): () => void
 }
 
 /** 校验固定外部来源与分类 revision；未知版本、原生 generation 或 catalog 声明均拒绝。 */
@@ -173,19 +181,130 @@ export function createHerdrCodec(source: ContractSource, schemas: HerdrSchemas) 
 type State = {
   key: string
   handle: object
-  attempt: TrustedAttempt
+  attempt: Omit<TrustedAttempt, 'native_request'> & { native_request?: TrustedAttempt['native_request'] }
   contract: HerdrContractRecord
   source: HerdrNativeSource
   sourceToken: object
   requestRoot: HerdrSchemas['request']
   responseRoot: HerdrSchemas['response']
   permitted: boolean
+  responseOnly: boolean
+  contentExpires: number
+  dedupExpires: number
 }
 
 /** 生产接缝继续调用共享 provider gate；当前 main 的 Herdr candidate 硬拒绝不会被绕过。 */
 export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
   const handles = new Map<object, State>()
   const states = new Map<string, State>()
+  let closed = false
+  let invalidationRevision = 0
+  let unsubscribe: (() => void) | undefined
+  let maintenance: ReturnType<typeof setInterval> | undefined
+
+  /** 销毁能力句柄；释放不发送 Herdr cancel，也不重派原工作。 */
+  function drop(state: State): void {
+    handles.delete(state.handle)
+    states.delete(state.key)
+  }
+
+  /** 只保留已许可 ping 的固定响应元数据，原请求及宿主扩展立即脱离缓存。 */
+  function compact(state: State): void {
+    if (state.responseOnly) {
+      return
+    }
+    if (!state.permitted) {
+      drop(state)
+      return
+    }
+    state.attempt = {
+      binding: state.attempt.binding,
+      principal_id: state.attempt.principal_id,
+      method: state.attempt.method,
+      mode: state.attempt.mode,
+      transport: 'rpc'
+    }
+    state.responseOnly = true
+  }
+
+  /** Store 内容回收压缩原文，身份 fence 销毁能力，关闭停计时器并解除通知订阅。 */
+  function invalidate(event: LedgerInvalidation): void {
+    invalidationRevision++
+    if (event.kind === 'closed') {
+      closed = true
+      clearInterval(maintenance)
+      maintenance = undefined
+      const stop = unsubscribe
+      unsubscribe = undefined
+      try {
+        stop?.()
+      } finally {
+        handles.clear()
+        states.clear()
+      }
+      return
+    }
+    for (const state of states.values()) {
+      if (
+        state.attempt.binding.machine_id === event.machine_id &&
+        (event.kind === 'device_fence' || state.attempt.binding.call_id === event.call_id)
+      ) {
+        if (event.kind === 'content') {
+          compact(state)
+        } else {
+          drop(state)
+        }
+      }
+    }
+  }
+
+  /** 固定期限即使 Store 尚未清理也生效；读取失败关闭，不留可复活的旧能力。 */
+  function maintain(): void {
+    if (closed) {
+      fail('native_adapter_closed')
+    }
+    const now = backend.now()
+    if (!Number.isSafeInteger(now) || now < 0) {
+      invalidate({ kind: 'closed' })
+      fail('deadline_exceeded')
+    }
+    for (const state of states.values()) {
+      if (now >= state.dedupExpires) {
+        drop(state)
+      } else if (!state.responseOnly) {
+        if (now >= state.contentExpires) {
+          compact(state)
+        } else {
+          try {
+            if (backend.contentStatus(state.attempt.binding) !== 'available') {
+              compact(state)
+            }
+          } catch {
+            drop(state)
+          }
+        }
+      }
+    }
+  }
+
+  /** 锚点始终来自原 Store 记录；固定方法、模式和期限不允许被晚到消息改写。 */
+  function retainedAnchor(state: State): ResponseAnchor {
+    const found = backend.responseAnchor(state.attempt.binding)
+    if (!found) {
+      fail('attempt_anchor_unavailable')
+    }
+    assertBinding(found.binding, state.attempt.binding)
+    if (
+      found.method !== state.attempt.method ||
+      found.mode !== state.attempt.mode ||
+      found.content_expires_at !== state.contentExpires ||
+      found.dedup_expires_at !== state.dedupExpires ||
+      found.state === 'not_dispatched'
+    ) {
+      fail('attempt_binding_mismatch')
+    }
+    return found
+  }
 
   /** 只投影共享 AttemptIdentity，保留 validateAttempt 对额外字段的严格拒绝。 */
   function identityOf(binding: AttemptBinding): AttemptIdentity {
@@ -258,15 +377,24 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
 
   /** 证据只查原 permit 与当前身份/来源；派发和内容交付另查各自的当前权限。 */
   function current(context: NativeValidationContext, access: 'resolve' | 'evidence' | 'dispatch' | 'read'): State {
+    maintain()
     const state = stateFor(context)
-    const attempt = anchor(identityOf(state.attempt.binding))
-    if (boundedJson(attempt) !== boundedJson(state.attempt)) {
+    const attempt = state.responseOnly ? state.attempt : anchor(identityOf(state.attempt.binding))
+    if (!state.responseOnly && boundedJson(attempt) !== boundedJson(state.attempt)) {
       fail('attempt_binding_mismatch')
     }
     const ctx = backend.context(
       attempt.principal_id,
       access === 'dispatch' || access === 'resolve' ? 'gateway_to_connector' : 'connector_to_gateway'
     )
+    if (!ctx.connection.authenticated || !ctx.connection.active) {
+      fail('authentication_required')
+    }
+    assertBinding({ ...ctx.connection, ...identityOf(attempt.binding) }, attempt.binding)
+    retainedAnchor(state)
+    if (state.responseOnly && (access === 'dispatch' || access === 'read')) {
+      fail('content_unavailable')
+    }
     if (access !== 'resolve') {
       providerFor(attempt.binding, ctx)
     }
@@ -307,6 +435,12 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       fail('native_source_untrusted')
     }
     reviewedSource(contract.wire.source, contract.schemas)
+    if (closed || handles.get(state.handle) !== state) {
+      fail('native_handle_unavailable')
+    }
+    if (state.responseOnly && (access === 'dispatch' || access === 'read')) {
+      fail('content_unavailable')
+    }
     return state
   }
 
@@ -335,7 +469,9 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       fail('dispatch_permit_unavailable')
     }
     return createHerdrCodec(state.contract.wire.source, state.contract.schemas).decode(bytes, {
-      ...state.attempt.native_request,
+      // 已评审执行范围只有无参数 ping，响应约束无需保留或恢复任何请求正文。
+      method: state.attempt.method,
+      params: {},
       id: state.attempt.binding.native_request_id
     })
   }
@@ -368,20 +504,37 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     }
   })
 
-  return Object.freeze({
+  const api = Object.freeze({
     validator,
     encodeRequest,
     decodeResponse,
     /** 注册有界私有句柄；只有后续共享 provider/授权门禁通过才会产生原生请求。 */
     resolve(identity: AttemptIdentity): ResolvedAttempt {
-      const attempt = anchor(identity)
-      const key = boundedJson(attempt.binding)
-      const previous = states.get(key)
+      maintain()
+      const observedInvalidation = invalidationRevision
+      validateAttempt(identity)
+      // 仅响应状态可能已无 Store 请求正文，先按原身份和当前连接查找，仍不改写旧 epoch。
+      const previous = [...states.values()].find(
+        /** 缓存只复用相同身份和当前连接的原句柄。 */ (state) => {
+          if (boundedJson(identityOf(state.attempt.binding)) !== boundedJson(identity)) {
+            return false
+          }
+          const connection = backend.context(state.attempt.principal_id, 'gateway_to_connector').connection
+          return (
+            state.attempt.binding.machine_id === connection.machine_id &&
+            state.attempt.binding.connection_epoch === connection.connection_epoch &&
+            state.attempt.binding.recovery_generation === connection.recovery_generation
+          )
+        }
+      )
       if (previous) {
+        assertBinding({ ...previous.attempt.binding, ...identity }, previous.attempt.binding)
         const context = resolved(previous)
         current(context, 'resolve')
         return context
       }
+      const attempt = anchor(identity)
+      const key = boundedJson(attempt.binding)
       if (handles.size >= 128) {
         fail('adapter_limit')
       }
@@ -398,6 +551,23 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         fail('native_source_untrusted')
       }
       reviewedSource(contract.wire.source, contract.schemas)
+      const retention = backend.responseAnchor(attempt.binding)
+      if (!retention) {
+        fail('attempt_anchor_unavailable')
+      }
+      assertBinding(retention.binding, attempt.binding)
+      if (
+        retention.method !== attempt.method ||
+        retention.mode !== attempt.mode ||
+        !Number.isSafeInteger(retention.content_expires_at) ||
+        !Number.isSafeInteger(retention.dedup_expires_at) ||
+        retention.content_expires_at <= backend.now() ||
+        retention.dedup_expires_at <= retention.content_expires_at ||
+        retention.content_status !== 'available' ||
+        retention.state === 'not_dispatched'
+      ) {
+        fail('attempt_anchor_unavailable')
+      }
       const handle = Object.freeze({})
       const state: State = {
         key,
@@ -408,7 +578,16 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         sourceToken: Object.freeze({}),
         requestRoot: contract.schemas.request,
         responseRoot: contract.schemas.response,
-        permitted: false
+        permitted: false,
+        responseOnly: false,
+        contentExpires: retention.content_expires_at,
+        dedupExpires: retention.dedup_expires_at
+      }
+      if (closed) {
+        fail('native_adapter_closed')
+      }
+      if (observedInvalidation !== invalidationRevision) {
+        fail('attempt_context_invalidated')
       }
       handles.set(handle, state)
       states.set(key, state)
@@ -425,13 +604,79 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         fail('content_unavailable')
       }
     },
+    /** 只在现有 Store 事务中生成证据计划；仅响应上下文不能重新保留原文。 */
+    planEvidence(frame: Extract<AuthenticatedEnvelope, { type: 'response' }>) {
+      const context = api.resolve(frame.payload.attempt)
+      const state = current(context, 'evidence')
+      const ctx = backend.context(state.attempt.principal_id, 'connector_to_gateway')
+      const wire: AuthenticatedContext = {
+        ...ctx,
+        direction: 'connector_to_gateway',
+        validators: { ...ctx.validators, herdr: validator },
+        resolveAttempt: /** 只解析本适配器已登记的原 attempt，不能由响应帧生成新许可。 */ (identity) =>
+          api.resolve(identity),
+        resolveNativeSource: /** 完整来源仍在可信回调中复核，不采信响应自报。 */ (binding) =>
+          api.trustedSource(api.resolve(identityOf(binding)))
+      }
+      let retain = false
+      if (!state.responseOnly) {
+        try {
+          api.checkResult(context)
+          retain = true
+        } catch {
+          // 当前撤权或内容不可用只允许最小证据，不恢复交付权。
+        }
+      }
+      return planResponseEvidence(frame, wire, retainedAnchor(state), backend.now(), {
+        classification_status: 'trusted_complete',
+        retain_content_authorized: retain
+      })
+    },
     /** 释放桥接句柄，不关闭 pane/agent，也不向 Herdr 发送 cancel。 */
     release(context: NativeValidationContext): void {
       if (handles.has(context.native_handle as object)) {
         const state = stateFor(context)
-        handles.delete(state.handle)
-        states.delete(state.key)
+        drop(state)
+      }
+    },
+    /** 关闭原生桥接缓存与通知，不停止 Herdr 实例或模拟原生取消。 */
+    close(): void {
+      invalidate({ kind: 'closed' })
+    },
+    /** 仅暴露计数供资源验收，不输出请求、来源 token 或原生响应。 */
+    stats() {
+      maintain()
+      return {
+        executions: [...states.values()].filter(/** 只计尚未压缩的执行上下文。 */ (state) => !state.responseOnly)
+          .length,
+        responses: [...states.values()].filter(/** 只计最小仅响应上下文。 */ (state) => state.responseOnly).length,
+        attempt_bytes: [...states.values()].reduce(
+          /** 计量已知 attempt 快照，不暴露原文或来源 token。 */ (sum, state) =>
+            sum + Buffer.byteLength(boundedJson(state.attempt)),
+          0
+        )
       }
     }
   })
+  unsubscribe = backend.subscribeInvalidation(invalidate)
+  if (closed) {
+    unsubscribe()
+    unsubscribe = undefined
+  } else {
+    maintenance = setInterval(
+      /** 空闲时同样回收固定期限；维护失败使本 adapter 关闭。 */ () => {
+        try {
+          maintain()
+        } catch {
+          invalidate({ kind: 'closed' })
+        }
+      },
+      1000
+    )
+    maintenance.unref()
+  }
+  return api
 }
+
+export { persistentHerdrBackend, commitHerdrResponse } from './persistence.js'
+export type { HerdrHostServices } from './persistence.js'
