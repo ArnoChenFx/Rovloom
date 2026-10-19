@@ -1,5 +1,5 @@
 // 用真实原生校验器验证 Wire 的授权、流状态、证据、回滚及预算边界；宿主和消息均为合成，不连接原生进程。
-import { test } from 'node:test'
+import { afterEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
 import type { NativeWireBackend, TrustedAttempt } from '../../src/integration/luvus-wire.js'
@@ -13,6 +13,27 @@ import type {
 } from '../../src/wire/types.js'
 import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js'
 import { auth, clone, compiled, G, identity, json, request, T, view } from '../native-contract/helpers.js'
+
+const adapters = new Set<ReturnType<typeof createLuvusWireAdapter>>()
+
+// 集中登记所有测试adapter，包括预算边界用例额外创建的实例，避免遗漏维护计时器。
+function testAdapter(...args: Parameters<typeof createLuvusWireAdapter>) {
+  const adapter = createLuvusWireAdapter(...args)
+  adapters.add(adapter)
+  return adapter
+}
+
+afterEach(
+  /* 每个用例都销毁自建adapter的维护定时器和许可；unref不等于释放，失败路径同样必须清理。 */ () => {
+    try {
+      for (const adapter of adapters) {
+        adapter.close()
+      }
+    } finally {
+      adapters.clear()
+    }
+  }
+)
 
 // 全部是隔离 P0 fixture 与明确的测试权限；生产模块不导入本工厂或测试 gate。
 function fixture(
@@ -233,7 +254,7 @@ function fixture(
       }
     }
   }
-  const adapter = createLuvusWireAdapter(backend, limits)
+  const adapter = testAdapter(backend, limits)
   // 从完整测试绑定提取消息所携带的尝试身份，连接外壳保持独立。
   const attempt = ({
     machine_id: _machine,
@@ -1486,7 +1507,7 @@ test(
   '私有 attempt/快照预算满额拒绝，显式释放后不继承旧 permit',
   /* 分别耗尽快照与 attempt 配额，显式释放后确认容量返还且旧调用不能继承已释放许可。 */ () => {
     const f = fixture()
-    const tiny = createLuvusWireAdapter(f.backend, {
+    const tiny = testAdapter(f.backend, {
       attempts: 1,
       control_ids: 1,
       snapshot_bytes: 1
@@ -1496,7 +1517,7 @@ test(
         tiny.decode(JSON.stringify(f.opening), 'gateway_to_connector'),
       'adapter_limit'
     )
-    const limited = createLuvusWireAdapter(f.backend, { attempts: 1, control_ids: 1 })
+    const limited = testAdapter(f.backend, { attempts: 1, control_ids: 1 })
     limited.decode(JSON.stringify(f.opening), 'gateway_to_connector')
     const second = clone(f.row)
     second.binding.call_id = 'call2'

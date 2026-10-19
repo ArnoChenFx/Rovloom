@@ -128,7 +128,8 @@ binary/schema、provider、epoch、策略或分类 revision 变化均失效。�
 
 生产 peer/CLI 证明、delegated auth custody、认证通道及 durable 派发账本必须由
 宿主独立提供。本目录不能凭合成回调作为公开接入入口。大于配置上限的结果
-直接失败；尚未连接受限结果对象、分页/TTL/清理与大结果完整重组，不能将有界普通 RPC 模块视为完整结果交付实现。默认 build 入口尚未包含本目录，发行接线需要单独纳入。
+直接失败；尚未连接受限结果对象、分页/TTL/清理与大结果完整重组，不能将有界普通 RPC 模块视为完整结果交付实现。
+统一 build 已导出本目录模块，MCP 可在受信来源显式注入后复用 catalog；独立 CLI 仍未装配生产 RPC 宿主。
 
 `test/connector/luvus` 只使用仓库 P0 字节、自建私有 socket 和固定 Bun 测试子进程。
 synthetic peer/CLI 回调仅用于测试，不能代表生产身份实现；这些测试不证明真实

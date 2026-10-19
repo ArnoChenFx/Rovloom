@@ -12,8 +12,10 @@
 | Wire 2 | 严格 codec/协商、显式 provider/context、内存去重、对象重组、流状态、历史准入/晚到证据计划 | 真认证/WSS、持久化事务、实际发送/重复抑制/资源释放的宿主接线 |
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
-| 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 和部署发行 |
+| 设备通道 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector | 原生 adapter 与 CLI 联合接线、生产宿主 |
+| 产品服务 | 双角色 CLI、MCP stdio、实际 Store/Router 查询及清理、本机 caller 文件绑定、transport 宿主工厂、受信 Luvus catalog 授权接线、独立管理读模型/完整类型、隔离 SDK 测试 | 管理 history/回执/actor 事务端口、Wire/原生 JSON 桥、唯一持久 claim、生产身份/custody/读取及五方法族验收、管理 UI 和部署发行 |
 | Herdr | 固定官方 binary/schema 来源、完整根回放、专用边界/并发验证器、只读原生编解码与共享 attempt 接缝 | P0-H 副作用覆盖与独立评审、精确生产 allowlist、硬预算 schema 编译、可信原生 backend、共享门禁与实际网关接线；写入/终端另行设计 |
+
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -26,7 +28,10 @@ profile Target，provider fence 独立核对。生产宿主必须注入真实认
 
 产品名统一为 Rovloom。`package.json` 的实际包标识仍为 `luvus-mcp`；其迁移需要同步 package/lock、消费者与构建验证，作为独立代码交付项，不能通过文档替换伪装完成。该标识只用于解释现存技术兼容，不作为产品或拟议命令名。
 
-尚无可运行的 Gateway/Connector 服务 CLI，不能给出虚构的 `rovloom gateway` 或旧包名启动命令。原生 `luvus`、`herdr` 命令及 UHP/原生字段保留原义；`luvus_*` 若交付，只能是 DESIGN 规定的受限 Luvus 兼容别名。
+已有同一预览入口的 Gateway/Connector 参数、help、无密钥配置校验及 MCP facade，
+但独立 CLI 缺少生产宿主时明确返回 backend_unavailable；不能把 SDK 服务 stub 当作原生垂直切片。
+本地命令及宿主接口见 [MCP stdio 契约](protocol/MCP-STDIO.md)。
+原生 `luvus`、`herdr` 命令及 UHP/原生字段保留原义；`luvus_*` 若交付，只能是 DESIGN 规定的受限 Luvus 兼容别名。
 
 ## 2. 交付顺序
 

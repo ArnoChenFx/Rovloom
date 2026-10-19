@@ -34,10 +34,12 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport 与 Herdr 十个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport、Herdr、Luvus connector、mcp、cli 模块及 CLI main 共十四个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
-SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
+SQLite 文件重开，以及 CLI help 和配置模板解析。缺后端启动的退出码与输出由
+[CLI 测试](../test/cli/cli.test.ts)验证。CLI 预览及受信宿主接口见
+[MCP stdio 契约](protocol/MCP-STDIO.md)；当前没有 Node target 或声明产物。
 
 ## 隔离验收
 

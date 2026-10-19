@@ -1,6 +1,7 @@
 # Rovloom 管理 UI：最小管理面设计
 
-本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[实施计划](IMPLEMENTATION-PLAN.md)，文档职责见[导航](README.md)。以下是目标契约，不表示服务已交付。
+本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[实施计划](IMPLEMENTATION-PLAN.md)，文档职责见[导航](README.md)。以下是目标契约，不表示 HTTP 服务与页面已交付。当前共享服务类型见 [management.ts](../src/mcp/management.ts)，
+实际 Store 只读接线与尚未开放的写端口见 [MCP/管理宿主契约](protocol/MCP-STDIO.md#实际-store-服务与独立管理接口)。
 
 ## 范围与服务边界
 

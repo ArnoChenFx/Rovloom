@@ -11,6 +11,7 @@
 | Native validator、handle、可信宿主与调用顺序 | [原生契约](protocol/NATIVE-CONTRACT.md)；准确签名见对应源码类型 |
 | SQLite 宿主接线、保留/预算、备份隔离恢复与 unknown 对账 | [存储运行指引](STORAGE.md) |
 | WSS/loopback 通道、ready、配对 custody、重连与 transport 限额 | [通道接线](TRANSPORT.md) |
+| MCP stdio、受信 caller/服务接口、双角色 CLI 与预览限制 | [MCP stdio 契约](protocol/MCP-STDIO.md) |
 | 工具链、构建、隔离验证、固定原生输入和回放 | [开发指引](DEVELOPMENT.md) |
 | 现行决策理由和外部研究边界 | [ADR 索引](#现行决策) |
 

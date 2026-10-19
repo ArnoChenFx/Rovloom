@@ -15,7 +15,11 @@ const result = await Bun.build({
     'src/integration/luvus-wire.ts',
     'src/integration/persistence.ts',
     'src/transport/index.ts',
-    'src/herdr/readonly.ts'
+    'src/herdr/readonly.ts',
+    'src/connector/luvus/index.ts',
+    'src/mcp/index.ts',
+    'src/cli/index.ts',
+    'src/cli/main.ts'
   ],
   outdir: 'dist/src',
   root: 'src',
@@ -29,5 +33,5 @@ if (!result.success) {
   throw new AggregateError(result.logs, 'Bun build failed')
 }
 console.log(
-  `Built ${result.outputs.length} ESM files/maps for Bun; foundation, native, wire and integration entrypoints`
+  `Built ${result.outputs.length} ESM files/maps for Bun; foundation, native, wire, integration, transport, MCP and CLI entrypoints`
 )

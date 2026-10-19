@@ -201,17 +201,32 @@ test(
       'object_capacity'
     )
     assert.equal(capacity.activeTransfers, LIMITS.transfers)
-    const byteCapacity = new ObjectAssembler()
-    const big = { data: 'x'.repeat(11 * LIMITS.frame_bytes) }
-    byteCapacity.push(fragmentObject(big, 'schema_bundle', 'large_schema_1', ctx)[0]!, ctx, 0)
-    rejects(
-      /* 提交该用例输入，确认活动传输或预约字节容量已满时被拒绝。 */ () =>
-        byteCapacity.push(fragmentObject(big, 'schema_bundle', 'large_schema_2', ctx)[0]!, ctx, 0),
-      'object_capacity'
-    )
     assert.doesNotThrow(
       /* 验证达到标识长度上限的对象仍能分片。 */ () => fragmentObject(response, 'envelope', 'a'.repeat(128), ctx)
     )
+  }
+)
+
+test(
+  '分片预约字节容量拒绝第二个11MiB对象，首次传输仍保持有界',
+  /* 保留原11MiB预约边界，独立计时；复用合法首片，避免为只消费一片的断言重复生成整对象分片。 */ () => {
+    const ctx = context('connector_to_gateway')
+    const byteCapacity = new ObjectAssembler()
+    const big = { data: 'x'.repeat(11 * LIMITS.frame_bytes) }
+    const first = fragmentObject(big, 'schema_bundle', 'large_schema_1', ctx)[0]!
+    byteCapacity.push(first, ctx, 0)
+    assert.equal(byteCapacity.activeTransfers, 1)
+    const second = {
+      ...first,
+      message_id: 'capacity_bytes_second',
+      payload: { ...first.payload, object_id: 'large_schema_2' }
+    }
+    rejects(
+      /* 第二传输同样声明完整11MiB；失败来自总预约字节，而非传输数、重复ID或片内容不合法。 */ () =>
+        byteCapacity.push(second, ctx, 0),
+      'object_capacity'
+    )
+    assert.equal(byteCapacity.activeTransfers, 1)
   }
 )
 
