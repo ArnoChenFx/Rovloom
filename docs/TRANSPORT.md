@@ -1,0 +1,160 @@
+# Gateway / Connector 通道接线
+
+本模块是 Bun 的受信进程内 transport 接口，不是服务 CLI、身份服务或生产部署入口。
+语义以 [DESIGN](DESIGN.md) 为准，帧只使用现有 [Wire v2](protocol/WIRE-PROTOCOL.md)，
+账本接线复用 [Store/Router](STORAGE.md)。源码入口为 [transport](../src/transport/index.ts)。
+
+## 通道与可信宿主
+
+`createGateway` 监听 `/connector`，`createConnector` 主动出站。默认必须 WSS；
+Connector 强制 `rejectUnauthorized: true`，可从受保护配置传入 CA，仍核对 hostname。
+开发 WS 必须显式开启 `developmentLoopback`，且 listener / URL 使用数字 loopback 地址。
+不接受 URL 用户信息、查询或 fragment；设备 listener 拒绝浏览器 Origin 和其它路径。
+本模块不配置系统信任、TLS 反代或公网入口。
+
+宿主分别注入设备 `IdentityHost`、当前 caller principal、双端固定 binding / policy、
+契约、原生来源和 native adapter。设备自报名称、connector_instance_id、JSON 或 welcome
+都不能建立这些事实。Gateway session 应由 `persistentBackend` 接到 Store；生产模块没有
+测试授权工厂。fixture 仅位于 test 中，其来源、策略、管理员和 delegated token 均无生产效力。
+
+状态依次为连接中、已认证、provider ready。设备认证后才分配 epoch；ready 逐 provider 核对
+双端 binding（含 enabled/revision/config_ref）、策略 revision 与宿主原生健康。一个实例不 ready
+不阻止其它实例。`status()` 只返回有界状态和 ID，不返回凭据、请求或原生内容。
+宿主须独立保证对端配置来源，不能把设备广告转换成 readiness 中的 trusted 本地配置。
+
+## 配对、凭据与管理
+
+`IdentityStore` 是 Linux 专用 hash-only SQLite。`PersistentIdentity` 复用它实施凭据管理；
+`PersistentProofIdentity` 与生命周期接线复用同一实例，提供 Store 事务消费的证明和 Gateway `IdentityHost`。
+单 writer 锁、FULL synchronous、DELETE journal、schema/完整性检查、时间高水位、确认消费、
+轮换/撤销和管理审计均持久保存；凭据原文不入 Gateway 身份库。每次认证及业务入口核对当前
+租期、恢复代次和业务 Store epoch。时钟回退、提交/预算失败或原始恢复代次不符默认拒绝；
+不会删崩溃锁或自动解除拒绝标记。管理操作须由宿主核实精确 action/target/revision/epoch，
+一次性 confirmation 最多有效五分钟，消费记录跨重启保留至原确认期限结束。
+
+轮换最多两份凭据，旧凭据重叠至 min(原期限, now + overlap)，重叠最多十分钟；显式结束轮换
+即时使旧凭据失效。显式 takeover 绑定原 epoch、签发只交给新 custody 的新凭据，并立即废止
+旧凭据；旧 Connector 或复制者不能通过自动重连抢回连接。默认凭据期限为一天，宿主可在
+一毫秒至 31 天范围内明确配置，不自动续期。
+同 ID 重配、撤销和 takeover 采用先提交 blocked，再完成 Store 操作并收敛的顺序；中途失败
+或进程退出仍为 blocked，不自动恢复权限。重配先由 Store 核对管理确认和精确 epoch，再在
+同一 writer 事务中调用同步 prepare 提交身份拒绝状态，旧管理快照不能先破坏当前连接。
+prepare 先通过独立身份确认并提交 blocked，再关闭实际通道；身份确认拒绝时原 socket 与 epoch
+保持可用，关闭失败时 blocked 仍持久保留。
+`PersistentIdentityOptions.block(machine)` 专用于 prepare，应组合
+`gateway.channels.blockAndClose(machine)`；它同步拒绝通道、销毁 adapter/订阅，再关闭 socket，
+不能调用 `Store.disconnect` 或重入主 Store。`changed(machine)` 用于管理提交之后，应组合
+`gateway.disconnect(machine)` 或等价正常断连，释放旧 Store epoch，让轮换后的凭据可以重连。
+已配置一次性证明的 Gateway 使用生命周期接线返回的 `identityHost`，凭据管理实例不能替代
+受保护证明协调器直接认证。
+
+`createStoreIdentityFacts` 可独立组合当前 Store 的 generation、active/clock 门禁、连接 fence、
+精确 epoch 断开与持久撤销，提供这些事实不代表签发认证或重配权限。
+`createStoreDeviceLedger` 可组合明确注入的受信生命周期扩展，再用真实 Store 核对返回 epoch。
+`createDeviceLifecycleWiring(open, identity)` 要求 `open(verify)` 将同步 verify 注入受保护的
+`StoreOptions.deviceLifecycle`，并独立配置 management。返回值必须实际实现下列原子方法：
+
+```ts
+connectVerifiedDevice(machineId: string, generation: string): string
+resetDeviceEnrollment(machineId: string, generation: string, expectedEpoch: string | null, prepare: () => void): void
+```
+
+连接事务须核对当前代次、offline、epoch 为 null、无需确认，并同步消费一次性证明；预算、
+审计和 fresh epoch 提交后才返回。重配须先核对精确 nullable epoch 及独立管理确认：action 为
+`device_enrollment_reset`，target 为 machine ID，fence 为
+`boundedJson({recovery_generation: generation, connection_epoch: expectedEpoch})`。
+Store 先暂存清除 enrollment/凭据/epoch 和停止调用并预检预算，再恰好一次调用同步 prepare，
+最后在独立身份连接观察到匹配 blocked 后提交。Promise 或非 undefined prepare 结果均拒绝。
+
+Store 已提供这两个受保护方法；无 deviceLifecycle 证明回调仍拒绝，较旧宿主缺任一方法时
+构造报 `identity_bridge_unavailable`。没有私有 SQL、原始 credential 持久代理或占位成功。
+隔离组合测试使用真实磁盘 Store、同一 IdentityStore、实际 WSS socket 和真实 adapter；
+仅管理员、凭据、CA 与原生来源使用无生产效力 fixture，不声称生产身份服务或远端多机验收。
+
+`PersistentProofIdentity` 的证明只接受私有注册表中完全相同的进程内对象，不能克隆、序列化
+或跨重启恢复；每个最多五秒，最多 128 个，失败消费也销毁。消费时从同一身份库的独立只读
+SQLite 连接复验已提交 revision、hash、代次、active 和固定期限；读快照显式结束事务。
+独立观察也维护持久时间高水位。身份 schema 从全新 version 2 建立，旧未发布/未知版本拒绝，
+不提供迁移。精确 blocked fence 与凭据、确认、审计在同一库，不复制第二份身份真相。
+
+`ChannelRegistry` 为具体 socket 分配独立 `SocketChannel`。Gateway 只在认证提交成功后绑定
+该 socket 的 epoch，再创建/注册 session，之后才发布 routing/ready。认证提交后复验本次精确
+凭据 hash，不能用同时 active 的其它 hash 代替。重配 prepare 先同步提交精确身份 blocked，
+再使全部旧作用域不可取身份、释放 session/订阅/adapter、关闭 socket；不重入 Store 断连。
+主 Store 后续失败仍保留外部 blocked，不能提前新配对。
+只有 reset 成功返回后才收敛到 pending。`createDeviceLifecycleAdapter` 复用 persistentBackend，
+每次 connection 和 nativeSource 解析前后都复验所属 socket、独立身份库和 Store 当前 fence，
+原生来源的 machine/恢复代次/epoch 必须匹配。旧 backend 不因同设备新 socket 上线而复活。
+通道关闭显式调用 adapter.close，销毁执行/仅响应/分片/去重上下文，取消 Store 提交后失效订阅
+与维护 timer，再关闭宿主资源。正常 Store COMMIT 的 device_fence 通知仍独立按设备作用域回收。
+身份库默认最多 1024 设备、8192 条未到期审计、4096 个有效确认，文件/事务上限 8 MiB。
+审计默认 90 天，确认按原到期时间清理；满额不提前删有效记录。构造必须注入 guard/checkBudget：
+宿主须从总安全/审计子额中明确预留身份库份额，并将文件纳入 Store 全受管存储预算，不能把
+独立限额当作额外免费容量。内存租期和代理原始凭据的 mock 工厂仅保留在 test/transport，生产入口不导出它们。
+
+注册及一次性短时 enrollment 复用 Store。`createPairingDelivery` 将 Store 原子兑换、身份 hash
+提交和独立 `CredentialSink` 串起；配对和轮换仅向受信专用 sink 交付 secret，普通返回只有
+machine/delivery ID 与 delivered 状态。渠道授权先于消费，按 enroll/rotate 与固定身份分别核对。
+sink 只可在收到专用 custody 完成确认后 resolve，确认须精确回显 delivery ID、machine、
+恢复代次及 credential revision，不能把已排队当交付成功。每次交付有超时、
+AbortSignal 和并发上限；失败按精确凭据 hash 核对当前及过渡租期并持久拒绝，revision 推进
+不能绕过，已完全替换的旧交付清理不误封新凭据。签发提交后 changed 通知抛错也先持久拒绝
+尚未返回 custody 的新凭据。交付前固定内部摘要与确认轴，只向 sink 传副本，sink 清理入参
+不能改变撤销依据或确认目标。忽略关闭的发送仍占额度直到真正结束。
+不自动重发、不重置 enrollment 消费。丢交付须新的独立授权同 ID 重配；跨库失败保持拒绝，
+不承诺跨库原子提交。Wire 没有专用凭据交付响应，listener 继续拒绝 enroll，不将秘密放入 welcome。
+
+Connector 从受保护启动回调读凭据，`saveCredential` / `loadCredential` 提供 Linux 专用绝对路径、
+无符号链接祖先、当前用户的 0700 父目录及 0600 单链接普通文件校验。创建用独占/no-follow，
+替换用同目录 fsync / rename；不自动修改现存目录权限，不支持未经验证的 Windows ACL。
+只应在用户另行批准后配置真实持久凭据。正常 Connector 重启继续读同一 machine ID；
+文件丢失直接拒绝，不按 hostname/name 重建或接管设备。
+`createFileCredentialSink` 把经过授权的交付写入固定启动配置的受限路径；它核对预期 machine /
+恢复代次、只使用一次，并在文件及父目录 fsync 完成后报告交付成功。路径不从工具输入指定。
+
+## 派发、响应与关闭
+
+Gateway `dispatch(call_id)` 从宿主当前 principal 经 Router 重授权，Store 事务返回 binding 后
+才编码和发送。Connector 以独立宿主账本与原生来源校验 request，不从消息构造 attempt。
+原生 auth 由宿主 `nativeInput` 注入；它只能添加 auth，完整注入后 JSON 再按原生帧预算计量，
+成功才发 accepted 并调用宿主 execute。响应通过原 adapter 和 `commitLuvusResponse` 事务提交，
+提交前不发布 durable responded。accepted 不等于原生完成。
+
+模块可直接组合既有服务 backend：Gateway 接 call_id 与宿主 current principal；Connector
+execute 接完整原生 JSON、AbortSignal 和独立账本固定的 AttemptBinding，宿主据此选择固定
+provider adapter，不能从原生 JSON 的路径/endpoint 或自报 provider 选择执行来源。本模块没有
+第二套 CLI。schema 的硬 CPU/heap worker 隔离仍未产品化，本通道与身份库不解除该执行门禁，
+不能仅因连接 ready 或 fixture 编译成功而宣称生产 native 执行可用。
+
+当前业务范围为普通 RPC。流、对象分片、cancel 尚不接到原生执行；不得广告为可用能力。
+每次实际执行前检查 deadline；观察取消/关闭通过 AbortSignal 通知宿主，**不代表原生回滚**。
+宿主 execute 必须有界并响应观察关闭，忽略 AbortSignal 的工作仍占并发预算直至完成。
+provider 不可用时停止其响应交付/观察，设备撤销或断线关闭全部 session 资源。
+
+断线后原 epoch 的在途调用由 Store 保守记 outcome_unknown。抖动指数退避只重建通道，
+不排队或重放任何 request，也不跨 runtime failover。新连接使用稳定设备 ID 和新 epoch。
+旧 epoch、恢复代次、binding/policy fence 或缺少原生 handle 的响应拒绝。同一 adapter 的有界
+仅响应上下文可配合 Store 原锚点提交 metadata-only 晚到证据，仍要求独立当前原生来源及契约；
+宿主失去这些来源时拒绝，不能把 Store 请求字段当来源。重启丢失内存 handle 后保持拒绝，
+不从 JSON/hash 补造上下文或执行许可。
+
+## 资源与验证边界
+
+默认 Gateway 同时 64 条连接、8 条未认证连接、每分钟 120 次认证、每秒每连接 256 条消息、
+128 条全局在途请求；Connector 同时 8 个原生执行。每帧与完整原生 JSON 默认上限 1 MiB。
+握手 5 秒、心跳 5 秒、无有效心跳 20 秒关闭；有界单个维护 timer 覆盖失效与清理。
+发送不建立应用排队，背压或超限直接关闭，已经提交派发锚点的调用保持 unknown。
+接收窗口满拒绝、不提前淘汰；同一 attempt 不执行两次，已完成原生状态及时释放。
+一个 Connector epoch 最多记录 4096 个已接收 attempt，达到上限后关闭并经退避重连。
+所有重连都不迁入旧工作。宿主 stop 必须停止 timer、listener、session 和观察资源。
+
+`bun run test` 自动发现 test/transport；它使用两个本地模拟 Connector、临时 SQLite/凭据目录、
+一日自签 mock TLS 证书和合成 native adapter。TLS 负例在独立 loopback listener 验证未知 CA
+及错误 hostname；证书生成只调用 Linux `/usr/bin/openssl`，不导入系统信任。
+日志负例用 stdin 交付随机 mock secret，并扫描子进程 stdout/stderr、普通审计和业务帧。
+基础生命周期单测保留明确 mock 扩展的失败窗口；真实组合测试另使用实际 Store 两个桥方法、
+磁盘双库和双 Connector，覆盖 WSS、精确重配/同 ID、新凭据/撤销、主库失败后公开恢复、
+旧 backend 封锁、重启、epoch 不重放及 adapter 关闭后释放监听容量。未用第二张模拟身份表替代
+IdentityStore，也未向共享 Store/Wire 文件加入 transport 专用逻辑。
+完整工具链门禁见 [开发指引](DEVELOPMENT.md)。这些证据不构成实际远端多机、生产身份服务、
+跨平台凭据存储、MCP facade 或发布验收。

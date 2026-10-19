@@ -1,3 +1,4 @@
+// 按固定 Bun 工具链构建模块化 ESM 产物并清除旧输出；不启动 Gateway 或 Connector 服务。
 import { rmSync } from 'node:fs'
 import { toolchain } from './toolchain.mjs'
 
@@ -12,7 +13,8 @@ const result = await Bun.build({
     'src/native-contract/index.ts',
     'src/wire/index.ts',
     'src/integration/luvus-wire.ts',
-    'src/integration/persistence.ts'
+    'src/integration/persistence.ts',
+    'src/transport/index.ts'
   ],
   outdir: 'dist/src',
   root: 'src',
