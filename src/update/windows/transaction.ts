@@ -539,8 +539,10 @@ export async function handleWindowsUpdateHelperCommand(
           if (!(await input.next(controller.signal)).equals(Buffer.from('commit'))) {
             throw new UpdateError('update_io_pending')
           }
+          journal('awaiting_parent')
           await parent!.waitForExit(controller.signal)
           parent!.assertExited()
+          journal('parent_exited')
           live()
           await currentRelease(host, plan)
           live()
