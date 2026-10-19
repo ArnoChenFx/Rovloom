@@ -668,6 +668,10 @@ export async function handleWindowsUpdateHelperCommand(
             }
             await version(job.parent.image, plan.currentVersion)
             await restore(plan.currentVersion, new AbortController().signal)
+            // 异步角色恢复可能改变安装路径；最后一次版本探针不能替代恢复结束后的原对象/字节/ACL 复核。
+            if (!same(readWindowsExecutable(job.parent.image, plan.platform.arch), job.original)) {
+              throw new UpdateError('target_changed')
+            }
             journal('rolled_back')
             receipt!('rolled_back', 'verification_failed')
             verifiedOutcome = true

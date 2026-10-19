@@ -152,6 +152,15 @@ if (process.platform === 'win32') {
       state: 'rolled_back'
     },
     {
+      name: 'retains recovery locks when old-role readiness swaps the restored file for an unknown object',
+      healthFailure: true,
+      unknownTarget: false,
+      restoreUnknownTarget: true,
+      code: 7,
+      version: '0.1.0-dev',
+      state: 'recovery_required'
+    },
+    {
       name: 'quiesces both new roles even when the first rollback journal write fails',
       healthFailure: true,
       unknownTarget: false,
@@ -253,7 +262,16 @@ if (process.platform === 'win32') {
           const receipt = parseWindowsReceipt(await fs.readFile(receiptPath))
           assert.equal(receipt.state, mode.state)
           assert.equal(windowsReceiptExit(receipt), mode.code)
-          if (mode.code === 6) {
+          const changedDuringRestore = 'restoreUnknownTarget' in mode && mode.restoreUnknownTarget
+          if (changedDuringRestore) {
+            await assert.rejects(fs.stat(join(directory, 'previous.exe')), { code: 'ENOENT' })
+            assert.equal(readWindowsExecutable(join(root, 'restored-moved.exe'), arch).fileId, original.fileId)
+            const unknown = readWindowsExecutable(executable, arch)
+            assert.notEqual(unknown.fileId, original.fileId)
+            assert.equal(unknown.sha256, original.sha256)
+            assert.equal(unknown.security, original.security)
+            assert.match(await fs.readFile(join(root, 'observations.jsonl'), 'utf8'), /replaced_during_old_restore/u)
+          } else if (mode.code === 6) {
             await assert.rejects(fs.stat(join(directory, 'previous.exe')), { code: 'ENOENT' })
           } else {
             assert.equal(readWindowsExecutable(join(directory, 'previous.exe'), arch).fileId, original.fileId)
@@ -265,7 +283,7 @@ if (process.platform === 'win32') {
           }
           for (const snapshot of done.snapshots) {
             assert.equal(snapshot.enabled, snapshot.spec.role === 'connector')
-            assert.equal(snapshot.state, mode.code === 7 ? 'stopped' : 'running')
+            assert.equal(snapshot.state, mode.code === 7 && !changedDuringRestore ? 'stopped' : 'running')
           }
           for (const file of ['gateway.json', 'connector.json', 'state.db']) {
             assert.equal(await fs.readFile(join(root, file), 'utf8'), `unchanged ${file}`)

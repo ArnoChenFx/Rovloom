@@ -56,6 +56,7 @@ async function services(root: string, executable: string) {
     healthFailure: boolean
     unknownTarget: boolean
     journalFailure?: boolean
+    restoreUnknownTarget?: boolean
   }
   const snapshots = new Map<ServiceRole, ServiceSnapshot>()
   const children = new Map<ServiceRole, { child: ChildProcess; nonce: string; closed: Promise<void> }>()
@@ -174,6 +175,19 @@ async function services(root: string, executable: string) {
           await fs.copyFile(join(root, 'next.exe'), executable)
         }
         throw new Error('fixture_new_health_failed')
+      }
+      if (expected === oldVersion && spec.role === 'connector' && mode.restoreUnknownTarget && !tampered) {
+        tampered = true
+        for (const snapshot of snapshots.values()) {
+          await backend.stop(snapshot.spec)
+        }
+        // 仅在已回滚后的旧版就绪窗口替换自有安装；未知对象使用相同旧字节/ACL，不能靠 --version 或摘要发现。
+        await fs.rename(executable, join(root, 'restored-moved.exe'))
+        await fs.copyFile(process.execPath, executable)
+        for (const snapshot of snapshots.values()) {
+          await backend.start(snapshot.spec)
+        }
+        await record('replaced_during_old_restore', spec.role, expected)
       }
       await record('ready', spec.role, expected)
     },
