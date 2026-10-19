@@ -257,7 +257,8 @@ def main():
         junit = (project / 'foundation.junit.xml').read_text().replace(str(root), '/isolated')
         (output / 'foundation.junit.xml').write_text(junit)
         run('luvus-audit', ['bun', '--no-env-file', 'run', 'audit:luvus'])
-        (project / 'dist').mkdir()
+        # 单文件回归可能已生成发行探针；仍放入 stale 标记，核对正式构建清除所有旧输出。
+        (project / 'dist').mkdir(exist_ok=True)
         (project / 'dist' / 'stale.js').write_text('throw new Error("stale")')
         run('build', ['bun', '--no-env-file', 'run', 'build'])
         if (project / 'dist' / 'stale.js').exists():
