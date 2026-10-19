@@ -521,7 +521,8 @@ export async function handleWindowsUpdateHelperCommand(
                 throw new UpdateError('replacement_unavailable')
               }
               await host.verifyRoleReady(spec, expected, signal)
-            }
+            },
+            signal
           )
         try {
           live()
@@ -610,6 +611,9 @@ export async function handleWindowsUpdateHelperCommand(
           }
           await version(job.parent.image, plan.targetVersion)
           live()
+          if (!same(readWindowsExecutable(job.parent.image, plan.platform.arch), candidate)) {
+            throw new UpdateError('target_changed')
+          }
           journal('committed')
           receipt!('updated')
           verifiedOutcome = true
