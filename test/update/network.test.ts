@@ -17,6 +17,30 @@ import { fixture } from './fixtures.js'
 async function discard(_chunk: Uint8Array): Promise<void> {}
 
 test(
+  'a stalled consumer times out and receives cancellation without claiming physical quiescence',
+  /* consumer 等待也属于同一总期限。 */ async () => {
+    let consumerSignal: AbortSignal | undefined
+    await assert.rejects(
+      /* 保持 consumer pending 复现独审发现的缺口。 */ () =>
+        readOfficial(
+          {
+            fetch: /* 合成单块响应，不依赖网络进展。 */ async () => new Response('x'),
+            timeoutMs: 10
+          },
+          { kind: 'release' },
+          1,
+          /* Promise 未静止前不能被调用方视为可复用副作用。 */ async (_chunk, signal) => {
+            consumerSignal = signal
+            await new Promise<void>(/* 模拟无法强退的底层异步操作。 */ () => {})
+          }
+        ),
+      { code: 'request_timeout' }
+    )
+    assert.equal(consumerSignal?.aborted, true)
+  }
+)
+
+test(
   'external metadata rejects duplicate and escaped duplicate keys, BOM and deep containers',
   /* 不允许 JSON.parse 覆盖歧义字段。 */ async () => {
     for (const raw of [

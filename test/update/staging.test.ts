@@ -27,6 +27,179 @@ async function planned() {
   return { f, plan }
 }
 
+// 等待已经静止后的后台精确清理；只轮询测试自有目录，并为测试本身保留独立上界。
+async function cleaned(root: string): Promise<void> {
+  const until = performance.now() + 2000
+  while ((await fs.readdir(root)).some(/* 仅观察本更新器命名空间。 */ (name) => name.startsWith('.rovloom-update'))) {
+    if (performance.now() > until) {
+      assert.fail('quarantine cleanup did not settle')
+    }
+    await new Promise(/* 让已结算的 I/O 和后台清理继续推进。 */ (resolve) => setTimeout(resolve, 1))
+  }
+}
+
+test(
+  'pending writes return nonzero and quarantine the lock until late I/O is really quiescent',
+  /* 迟到写入只能落到旧私有候选。 */ async () => {
+    if (process.platform !== 'linux') {
+      return
+    }
+    const { f, plan } = await planned()
+    await isolated(
+      /* 隔离期间第二实例必须拒绝，静止清理后才可开始新事务。 */ async (root) => {
+        await fs.writeFile(join(root, 'keep.db'), 'unchanged data')
+        let release!: () => void
+        const gate = new Promise<void>(
+          /* 保存受控晚到写入的放行器。 */ (resolve) => {
+            release = resolve
+          }
+        )
+        let writes = 0
+        let removals = 0
+        const files: UpdateStagingFiles = {
+          ...fs,
+          // 持有真实自有句柄；Promise 静止之前仍可能发出本次写入。
+          open: async (...args: Parameters<typeof fs.open>) => {
+            const file = await fs.open(...args)
+            const write = file.write.bind(file)
+            file.write = /* 模拟不能被 AbortSignal 强退的单次系统写入。 */ (async (
+              buffer: Uint8Array,
+              offset: number,
+              length: number
+            ) => {
+              await gate
+              writes++
+              return await write(buffer, offset, length)
+            }) as typeof file.write
+            return file
+          },
+          // 未静止前不得删除旧候选。
+          unlink: async (path) => {
+            removals++
+            await fs.unlink(path)
+          },
+          // 未静止前不得释放本次锁。
+          rmdir: async (...args: Parameters<typeof fs.rmdir>) => {
+            removals++
+            await fs.rmdir(...args)
+          }
+        }
+        try {
+          await assert.rejects(
+            /* 超时必须返回，而不是无限等待底层 write。 */ () =>
+              withStagedUpdate(
+                root,
+                { ...f.network, timeoutMs: 25 },
+                plan,
+                /* 未完整落盘时没有可用候选。 */ async () => assert.fail(),
+                files
+              ),
+            { code: 'staging_io_pending' }
+          )
+          assert.equal(writes, 0)
+          assert.equal(removals, 0)
+          assert((await fs.readdir(root)).includes('.rovloom-update.lock'))
+          await assert.rejects(
+            /* 旧 syscall pending 时根不能重用。 */ () =>
+              withStagedUpdate(root, f.network, plan, /* 锁冲突时不可调用观察者。 */ async () => assert.fail()),
+            { code: 'update_busy' }
+          )
+        } finally {
+          release()
+        }
+        await cleaned(root)
+        assert.equal(writes, 1)
+        assert.equal(await fs.readFile(join(root, 'keep.db'), 'utf8'), 'unchanged data')
+        await withStagedUpdate(
+          root,
+          f.network,
+          plan,
+          /* 新事务只接收新候选原字节。 */ async (staged) => {
+            assert.deepEqual(await fs.readFile(staged.path), f.payload)
+          }
+        )
+        assert.deepEqual(await fs.readdir(root), ['keep.db'])
+      }
+    )
+  }
+)
+
+test(
+  'pending sync or cleanup keeps ownership until settlement before releasing the lock',
+  /* 不把 race 结束当作 fsync 或 unlink 完成。 */ async () => {
+    if (process.platform !== 'linux') {
+      return
+    }
+    for (const phase of ['sync', 'unlink']) {
+      const { f, plan } = await planned()
+      await isolated(
+        /* 每个故障使用不同的根，不能相互复用旧句柄。 */ async (root) => {
+          let release!: () => void
+          const gate = new Promise<void>(
+            /* 独立控制真实 I/O 的结算时间。 */ (resolve) => {
+              release = resolve
+            }
+          )
+          let closes = 0
+          let removals = 0
+          const files: UpdateStagingFiles = {
+            ...fs,
+            // 只对本次自有候选注入延迟同步。
+            open: async (...args: Parameters<typeof fs.open>) => {
+              const file = await fs.open(...args)
+              const sync = file.sync.bind(file)
+              const close = file.close.bind(file)
+              file.sync = /* 延迟系统同步，不谎报已取消。 */ async () => {
+                if (phase === 'sync') {
+                  await gate
+                }
+                await sync()
+              }
+              file.close = /* 记录是否在 sync 静止之前提前关闭。 */ async () => {
+                closes++
+                await close()
+              }
+              return file
+            },
+            // cleanup 自身也可能长期 pending，不能接着删除父目录或锁。
+            unlink: async (path) => {
+              if (phase === 'unlink') {
+                await gate
+              }
+              await fs.unlink(path)
+            },
+            // 目录和锁必须在本次 unlink 静止后才可删除。
+            rmdir: async (...args: Parameters<typeof fs.rmdir>) => {
+              removals++
+              await fs.rmdir(...args)
+            }
+          }
+          try {
+            await assert.rejects(
+              /* 无论下载成功与否，底层 pending 都返回隔离错误。 */ () =>
+                withStagedUpdate(
+                  root,
+                  { ...f.network, timeoutMs: 25 },
+                  plan,
+                  /* 校验观察者只读返回。 */ async () => true,
+                  files
+                ),
+              { code: 'staging_io_pending' }
+            )
+            assert.equal(removals, 0)
+            assert.equal(closes, phase === 'sync' ? 0 : 1)
+            assert((await fs.readdir(root)).includes('.rovloom-update.lock'))
+          } finally {
+            release()
+          }
+          await cleaned(root)
+          assert.deepEqual(await fs.readdir(root), [])
+        }
+      )
+    }
+  }
+)
+
 test(
   'private staging is nonexecutable, verified, cross-instance locked and fully cleaned',
   /* 真实落盘仅限自有临时根。 */ async () => {

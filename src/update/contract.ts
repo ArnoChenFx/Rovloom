@@ -53,6 +53,7 @@ export type UpdateErrorCode =
   | 'unsafe_staging'
   | 'update_busy'
   | 'staging_failed'
+  | 'staging_io_pending'
   | 'replacement_unavailable'
 
 export class UpdateError extends Error {
@@ -71,7 +72,9 @@ export function updateExitCode(error: unknown): number {
   if (['invalid_arguments', 'invalid_current_version', 'unsupported_platform'].includes(error.code)) {
     return 2
   }
-  if (['permission_denied', 'unsafe_staging', 'update_busy', 'staging_failed'].includes(error.code)) {
+  if (
+    ['permission_denied', 'unsafe_staging', 'update_busy', 'staging_failed', 'staging_io_pending'].includes(error.code)
+  ) {
     return 4
   }
   return error.code === 'replacement_unavailable' ? 5 : 3

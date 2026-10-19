@@ -23,7 +23,7 @@ main 尚未合入唯一 CLI 及后台宿主；此表是模块行为，不能写�
 缺少下文 service/runtime 事务前，`update` 的可用新版本路径始终返回非零。
 
 退出码：0 完成检查或明确无更新；1 未分类宿主错误；2 参数/当前版本/平台错误；
-3 网络/超时/元数据/大小/摘要错误；4 暂存权限/命名空间/锁/文件失败；5 缺安全替换宿主。
+3 网络/超时/元数据/大小/摘要错误；4 暂存权限/命名空间/锁/文件失败或 `staging_io_pending`；5 缺安全替换宿主。
 原始响应、底层异常、签名 URL、用户路径和 argv 不进入公开错误信息。
 
 ## 发布契约协调
@@ -51,7 +51,7 @@ Release 来源固定为 `https://api.github.com/repos/ArnoChenFx/Rovloom/release
 官方资产地址由本地 tag 和名称构造。fetch 必须 `redirect: manual`、`credentials: omit`；
 API 禁止跳转，资产只允许一次 HTTPS 跳往精确的 `release-assets.githubusercontent.com`，
 拒绝凭据、非默认端口、fragment、其它主机及多跳。模块不提供替换仓库、镜像或 URL 的 CLI 参数。
-每次请求与响应体共用最多 60 秒时限；流式检查总字节、Content-Length、清单大小及 SHA256，
+每次 fetch、跳转、响应体读取和异步 consumer 共用最多 60 秒逻辑等待时限；流式检查总字节、Content-Length、清单大小及 SHA256，
 不解压、不调用 shell、不执行下载内容。JSON 使用既有受预算解析器拒绝重复键（含转义后相同键）、损坏 UTF-8、BOM、不安全整数、超过 32 层或 50000 节点的结构。
 
 **未签名的 checksum 只能证明清单与载荷的传输完整性，不能认证发布者，不能抵御仓库或发布凭据被攻陷。**
@@ -62,6 +62,8 @@ API 禁止跳转，资产只允许一次 HTTPS 跳往精确的 `release-assets.g
 
 `downloadUpdate(network, plan, sink)` 重新核验计划，只有精确大小与 SHA256 都通过才返回 receipt。
 sink 中的字节在返回前不可信；它必须属于能在失败时清理的隔离事务。
+sink 签名为 `(chunk, signal) => Promise<void>`，取消会传播到该 signal；其 Promise 的完成必须代表全部相关副作用真实静止，不能只启动后台写入就提前完成。
+`request_timeout` 使调用方有界返回，但不证明底层 syscall、适配器或线程已经停止；自定义 sink 的所有者须在真实 Promise 静止前保持其资源隔离，不能立即重用同一文件或释放更新锁。
 `withStagedUpdate(root, network, plan, inspect, files?)` 提供这样的 Linux 暂存事务：
 
 - root 必须已存在、为当前 UID 的私有真实目录、无符号链接，组/其他用户没有权限；
@@ -70,9 +72,13 @@ sink 中的字节在返回前不可信；它必须属于能在失败时清理的
 - 一次 `mkdir` 获取固定根锁，冲突立即返回 `update_busy`；不按 PID、进程名或锁年龄删除未知锁。
   调用方选用的 root 必须在全部更新实例间一致；它不能替代 service 的跨角色注册锁。
 - `mkdtemp` 自建私有子目录，`O_EXCL|O_NOFOLLOW` 创建 0600 候选文件；处理短写、fsync 和关闭。
-  文件不可执行；inspect 仅在完整验证后取得临时候选路径，返回后候选会清理。
+  文件不可执行；inspect 仅在完整验证后取得临时候选路径及取消 signal，完成后候选会清理。
 - 成功、网络失败、摘要失败、文件失败和 inspect 失败都会尝试关闭及精确清理自建文件/目录/锁，
   不递归删除其它内容。清理失败也非零，可能保留私有残余文件供人工检查；不能称为清理成功。
+- 原生 I/O 与观察者每次逻辑等待也至多 60 秒（测试可收紧），并跟踪真实 Promise 的静止状态。
+  pending write、fsync、open 或 cleanup 超时返回 `staging_io_pending` / 4；已取得或迟到取得的锁、私有目录和候选均隔离保留，不继续删除或允许下一实例复用。
+  只有全部旧 I/O/consumer 真正静止后才按句柄、候选、子目录、锁的顺序尝试后台清理；迟到结果只更新原事务的所有权记录，不能二次删除新实例的锁。
+  永久 pending 时后台清理与锁释放没有有限完成保证；进程崩溃后也不自动清旧锁。这是有界逻辑返回与隔离保证，不是 OS I/O 强退保证，不得凭超时/PID/锁年龄手动假定已静止。
 - macOS/Windows 缺有效 ACL 证明接口，原生暂存明确拒绝。流式内存 sink 和计划测试可模型验证 Windows 元组，
   不表示 Windows 写盘或替换可用。
 
@@ -100,6 +106,25 @@ PR61 当前是按角色的控制后端，不具备以下完整事务。必须由
    父 CLI 何时返回成功、helper 如何报告失败/中断，必须有持久且可核验的交付协议。
 
 在这些端口和实机验收完成前，不能添加一个不检查上述事实的 `apply()` 回调来放行产品 `update`。
+
+### 最小端口建议与后续实施
+
+以下是由父协调交给原 service/runtime 所有者的接线建议，**尚未实现**；本检查切片不等于用户的完整 `update` 已完成。
+
+| 所有者 | 最小端口 | 必须提供的事实 |
+| --- | --- | --- |
+| service | `beginInstallationUpdate(verifiedInstallation, signal) -> lease` | 与该安装两个角色的注册和全部 lifecycle 操作互斥；opaque lease 与不可变原始角色快照，含 config/account 引用、运行态、bootEnabled、controlRetained |
+| service lease | `quiesce(signal) -> receipt` | 仅停止快照中原本运行且使用该 binary 的本项目实例；可靠静止证明，无任意 PID/进程名输入 |
+| service lease | `restoreOriginalState(verifiedBinary, signal) -> health` | 恢复原本运行的角色并核验版本/业务就绪；原 boot/control/config 状态保留，恢复失败保留可恢复记录 |
+| service lease | `finish(committed | rolled_back)` | 只有旧/新版状态已核验才结束事务；未恢复或未静止时保留保护，不把注销注册当解锁 |
+| runtime | `inspectInstallation(execPath) -> verifiedInstallation` | 真实文件身份、OS/arch/libc、路径/所有权/有效 ACL/符号链接策略及受保护状态根；不从不可信配置自报 |
+| runtime | `verifyCandidate(path, expectedIdentity, signal) -> verifiedBinary` | 固定维护的产品版本/平台/启动探针，不能接受远端命令、脚本或 URL；逻辑取消和真实静止分别证明 |
+
+按以下顺序继续落地，每段分别审查和验收，不以永久 stub 结束：
+
+1. 审合本检查/下载/暂存切片，并在唯一 CLI 接入该窄 hook；原地更新继续明确拒绝。
+2. 在上述租约上实现 POSIX 文件事务：可信目标路径与 ACL/符号链接策略、同盘私有候选、可恢复旧版、原子替换、目录持久化与失败回滚；保留旧版直到候选和原角色恢复就绪均通过。加入每阶段故障/崩溃恢复、双角色及并发注册测试，再分别进行 Linux 与 macOS 实装验证。
+3. 实现随同产品构建并审查的 Windows 受控 helper：经受保护事务 ID、IPC/句柄与已验证父进程身份交付，不接受任意 PID；退出后按固定文件事务替换，持久报告成功/回滚/未恢复状态。完成 exe 占用、ACL、断电/中断、失败恢复和原服务状态的 Windows 实装验收后才开放该平台 `update` 成功路径。
 
 ## 验证范围 / Verification boundary
 

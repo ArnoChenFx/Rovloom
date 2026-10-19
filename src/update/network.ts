@@ -36,7 +36,7 @@ export function officialMetadataUrl(source: Exclude<OfficialSource, { kind: 'ass
 }
 
 // 以 AbortSignal 约束网络 Promise；注入适配器忽略取消时也不会无限阻塞调用方。
-async function bounded<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+export async function waitForUpdateOperation<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
   let stop!: () => void
   const aborted = new Promise<never>(
     /* 把统一请求时限转换为固定错误。 */ (_resolve, reject) => {
@@ -60,7 +60,7 @@ export async function readOfficial(
   network: UpdateNetwork,
   source: OfficialSource,
   limit: number,
-  consume: (chunk: Uint8Array) => Promise<void>,
+  consume: (chunk: Uint8Array, signal: AbortSignal) => Promise<void>,
   expected?: number
 ): Promise<number> {
   const timeout = network.timeoutMs ?? 60_000
@@ -82,7 +82,7 @@ export async function readOfficial(
   try {
     let url = source.kind === 'asset' ? officialAssetUrl(source.tag, source.name) : officialMetadataUrl(source)
     for (let hop = 0; ; hop++) {
-      response = await bounded(
+      response = await waitForUpdateOperation(
         network.fetch(url, {
           method: 'GET',
           redirect: 'manual',
@@ -134,7 +134,7 @@ export async function readOfficial(
     reader = response.body.getReader()
     let total = 0
     while (true) {
-      const item = await bounded(reader.read(), controller.signal)
+      const item = await waitForUpdateOperation(reader.read(), controller.signal)
       if (item.done) {
         break
       }
@@ -145,7 +145,7 @@ export async function readOfficial(
       if (total > limit || (expected !== undefined && total > expected)) {
         throw new UpdateError('size_mismatch')
       }
-      await consume(item.value)
+      await waitForUpdateOperation(consume(item.value, controller.signal), controller.signal)
       controller.signal.throwIfAborted()
     }
     if (
