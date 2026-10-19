@@ -4,6 +4,20 @@ import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { protectedPath } from './security.js'
 import { ServiceError } from './types.js'
+import type { FileHandle } from 'node:fs/promises'
+
+// 关闭失败的自有锁句柄不能交给 GC 隐式处理；对应持久锁仍阻止再次进入。
+const unclosedLocks = new Set<FileHandle>()
+
+// 显式观察 close 失败并保留资源所有权，不让 finally 覆盖生命周期分支控制。
+async function closeLockHandle(file: FileHandle): Promise<void> {
+  try {
+    await file.close()
+  } catch (error) {
+    unclosedLocks.add(file)
+    throw error
+  }
+}
 
 export type RegistrationFiles = {
   // 验证控制目录的管理员所有权及不可替换性。
@@ -101,12 +115,16 @@ export function registrationFiles(
         throw error
       }
       const owned = await fd.stat()
+      let retain = false
       try {
         return await operation()
+      } catch (error) {
+        retain = error instanceof ServiceError && error.code === 'service_recovery_required'
+        throw error
       } finally {
-        await fd.close()
+        await closeLockHandle(fd)
         const current = await lstat(target)
-        if (owned.ino === current.ino && owned.dev === current.dev && !current.isSymbolicLink()) {
+        if (!retain && owned.ino === current.ino && owned.dev === current.dev && !current.isSymbolicLink()) {
           await unlink(target)
         }
       }

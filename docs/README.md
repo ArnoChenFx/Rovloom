@@ -12,6 +12,7 @@
 | Native validator、handle、可信宿主与调用顺序 | [原生契约](protocol/NATIVE-CONTRACT.md)；准确签名见对应源码类型 |
 | SQLite 宿主接线、保留/预算、备份隔离恢复与 unknown 对账 | [存储运行指引](STORAGE.md) |
 | WSS/loopback 通道、ready、配对 custody、重连与 transport 限额 | [通道接线](TRANSPORT.md) |
+| 共享管理写事务、确认/回执、窄 HTTP handler 与生产接线边界 | [管理写服务](MANAGEMENT-WRITES.md) |
 | 工具链、构建、隔离验证、固定原生输入和回放 | [开发指引](DEVELOPMENT.md) |
 | Bun 单文件、tag 门禁、发布资产/manifest、Worker/静态资源、Windows 图标及本机验收 | [发行构建](DISTRIBUTION.md) |
 | 官方稳定版本检查、下载契约、唯一 CLI 接缝及替换阻断边界 | [自更新模块](UPDATE.md) |

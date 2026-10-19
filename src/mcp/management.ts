@@ -128,6 +128,7 @@ export type PermissionSnapshot = {
   decisions: readonly PermissionDecision[]
 }
 export type ManagementAction =
+  | 'device_rename'
   | 'pairing_create'
   | 'pairing_cancel'
   | 'device_disconnect'
@@ -135,6 +136,7 @@ export type ManagementAction =
   | 'provider_disable'
   | 'provider_enable'
 export type ManagementIntent =
+  | { action: 'device_rename'; target: { machine_id: string }; name: string }
   | { action: 'pairing_create'; target: { name: string; policy_ref: string; labels: readonly string[] } }
   | { action: 'pairing_create'; target: { machine_id: string; policy_ref: string } }
   | { action: 'pairing_cancel'; target: { machine_id: string; pairing_id: string } }
@@ -148,6 +150,13 @@ export type ManagementIntent =
 export type IntentFence = { recovery_generation: string; expected_revision: number; reason: string }
 export type ConfirmationDraft = ManagementIntent & IntentFence & { request_id: string; history_epoch: string }
 export type ConfirmationView = {
+  /** 撤销影响的当前实例摘要；不含config路径或秘密，资源变化使确认失效。 */
+  affected_providers?: readonly {
+    provider_id: string
+    kind: 'luvus' | 'herdr'
+    binding_revision: number
+    enabled: boolean
+  }[]
   confirmation_id: string
   state: 'pending' | 'confirmed' | 'consumed' | 'expired'
   operation_digest: string
@@ -176,6 +185,10 @@ export type OperationReceipt = {
   }
 }
 export type ManagementArguments = {
+  history_open: Record<string, never>
+  write_state_get: ResourceTarget
+  pairings_get: { machine_id: string; pairing_id: string }
+  devices_rename: ManagementWrite & { machine_id: string; name: string }
   status: Record<string, never>
   devices_list: AdminPage & { states?: readonly DeviceSnapshot['persisted_state'][] }
   devices_get: { machine_id: string }
@@ -202,6 +215,23 @@ export type ManagementArguments = {
   providers_enable: ManagementArguments['providers_disable']
 }
 export type ManagementReply = {
+  history_open: { history_epoch: string; recovery_generation: string; accept_new_until: number }
+  write_state_get: {
+    target: ResourceTarget
+    resource_revision: number
+    recovery_generation: string
+    connection_epoch: string | null
+    binding_revision: number | null
+  }
+  pairings_get: {
+    machine_id: string
+    pairing_id: string
+    status: 'pending' | 'paired' | 'cancelled' | 'expired'
+    expires_at: number
+    issuance: 'unverified'
+    requires_local_issuance: true
+  }
+  devices_rename: OperationReceipt
   status: ManagementStatus
   devices_list: Page<DeviceSnapshot>
   devices_get: DeviceSnapshot

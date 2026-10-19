@@ -1,4 +1,4 @@
-// 验证 v4 结果句柄的授权和字节分页，以及未发布旧数据库被无损拒绝。
+// 验证 v5 结果句柄的授权和字节分页，以及未发布旧数据库被无损拒绝。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
