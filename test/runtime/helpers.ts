@@ -102,7 +102,8 @@ export async function runtimeFixture() {
       port: 0,
       developmentLoopback: true,
       offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] },
-      limits: { heartbeat_ms: 100, idle_ms: 10_000 }
+      // 组合双持久身份库时使用产品默认心跳，避免追踪测试制造每秒十次持久校验/心跳写入。
+      limits: { heartbeat_ms: 5000, idle_ms: 20_000 }
     },
     /** 角色显式关闭后释放唯一双库。 */
     async release() {
@@ -136,7 +137,7 @@ export async function runtimeFixture() {
       developmentLoopback: true,
       credential: /** 仅交付本临时双库签发的短期 fixture 凭据。 */ () => credential,
       offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] },
-      limits: { heartbeat_ms: 100, idle_ms: 10_000, reconnect_ms: 1000 }
+      limits: { heartbeat_ms: 5000, idle_ms: 20_000, reconnect_ms: 1000 }
     },
     /** 每个实际 welcome 建立独立准入后端与委托，身份不从业务帧自报取得。 */
     session(connection) {
