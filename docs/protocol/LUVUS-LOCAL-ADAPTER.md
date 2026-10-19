@@ -182,10 +182,55 @@ read 返回既有 base64 字节页、下一游标、eof、完整原生响应的�
 宿主独立提供。本目录不能凭合成回调作为公开接入入口。大于配置上限的结果
 直接失败。结果访问层直接复用 Store 的实际句柄期限，策略回调后重新读取真实
 调用与结果页；Store 正文丢弃或句柄删除后不能交付旧副本。原 Wire 保留门禁、
-对象编码/接收提交及原上下文查询已在受控测试中组合，真实原生会话、生产身份
-及公开入口仍需独立验收，不能据此宣称大结果生产交付完成。
+对象编码/接收提交及原上下文查询已在受控测试中组合。下述官方进程验收进一步覆盖
+新建自有会话的真实 IPC；生产身份、认证通道及公开入口仍需独立验收，不能据此
+宣称大结果生产交付完成。
 默认 build 入口尚未包含本目录，发行接线需要单独纳入。
 
-`test/connector/luvus` 只使用仓库 P0 字节、自建私有 socket 和固定 Bun 测试子进程。
+`test/connector/luvus` 的默认测试只使用仓库 P0 字节、自建私有 socket 和固定 Bun 测试子进程。
 synthetic peer/CLI 回调仅用于测试，不能代表生产身份实现；这些测试不证明真实
 Luvus 安装、私有会话、Owner/Host admin 或真实多机链路可用。
+
+## 显式官方 IPC 验收
+
+`test/connector/luvus/official-ipc.mjs` 提供最小自有宿主接线，默认测试不会执行。
+需要操作者事先取得官方 Linux x86_64 musl Luvus v0.14.3 二进制，显式运行：
+
+```sh
+bun --no-env-file test/connector/luvus/official-ipc.mjs /absolute/path/to/luvus
+```
+
+该版本在 2026-10-19 核对为[官方 latest](https://github.com/RizRiyz/luvus/releases/tag/v0.14.3)。
+官方 release 的 musl 归档 SHA-256 为
+`1d96580525f23b21143c05850dbd9a1b4fe95e66d7e173dc27aab6caf9b676bf`；
+脚本固定执行副本 SHA-256 为
+`895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9`，
+并核对真实 CLI version/schema。版本或指纹变化须先独立复核；脚本不下载或安装软件。
+
+脚本只在 `/workspace` 下新建 0700 私有目录，使用空白 HOME/XDG/state 和随机 session，
+以固定 argv 启动自己的官方 server。它从直接子进程 spawn 起持续持有 Linux pidfd，
+每次对实际已连接的同一 socket 测量 `SO_PEERCRED`，核对 pid/uid/gid、实例存活、
+binary 和 endpoint 身份。缺少 pidfd、FFI 或实际 peer 测量即失败；不复用旧会话记录，
+也不连接用户已有会话。结束时停止本轮子进程，退出确认后删除自己的临时状态。
+
+native token 只在这次自有会话的本机引导阶段通过实测 peer 创建，限期 120 秒且仅含
+`read`、`orchestration`。token 仅保存在内存，adapter 每次仍显式注入并校验；不委托
+Owner/admin/all，不回退无 auth。在线 capabilities 也来自该真实受限 token 和同一实例。
+本地 Store 实际注册、credential connect、精确一次 provider 管理确认和独立 SQLite
+`synchronous=FULL` 唯一 claim 均在该私有宿主内执行；它证明这条受限本地接线，
+不代表生产管理认证或 #6 认证通道。生产宿主仍须提供其真实身份与当前授权来源。
+
+固定版本的 `task.list`、`task.get`、`task.delete` 只有通用参数 schema；strict 派发
+仍以 `parameter_schema_incomplete` 拒绝，native token scope 不会扩大 schema 覆盖。
+验收改用完整 schema 分支的 `task.add`/`task.update`：有界的合成 paths、prompt、
+notes/outputs 只存入新会话任务账本；不改 status、不认领或启动 worker。脚本先核对
+task、automation、module 列表为空，避免事件 hook 或已有自动化产生副作用。
+`task.delete` 只在独立受限的本机清理口处理本轮自建 ID，不算 strict adapter 正例。
+
+该接线覆盖真实 native 响应 → adapter → 两端原 Wire 对象编码/重组 →
+`commitLuvusResponse` → Store → 原 `checkResultRetention` → 65,535 字节分页，
+核对完整原生 JSON/id、字节数和 SHA-256；并以实际墙钟验证句柄与正文 TTL、
+新句柄被固定正文截止钳制、到期拒绝且不隐式续期，
+专门 discard 权限及真实原 Wire 关闭后的读取拒绝。受控的 claim 后、写入前终止
+还验证新 adapter 会命中同一个 SQLite 唯一 fence。脚本仅输出脱敏计数与检查结论；
+真实正文、密钥、运行日志和数据库均不入库。CLI provenance 门禁保持关闭。
