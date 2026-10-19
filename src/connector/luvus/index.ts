@@ -1,0 +1,6 @@
+/** 导出本地 Luvus RPC adapter、能力目录及宿主接入类型，保持独立 adapter 入口。 */
+export { LuvusRpcAdapter } from './adapter.js'
+export type { RpcResult } from './adapter.js'
+export { createLuvusCatalog } from './catalog.js'
+export { LuvusAdapterError } from './types.js'
+export type * from './types.js'
