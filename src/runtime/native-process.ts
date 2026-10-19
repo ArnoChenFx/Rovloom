@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { lstatSync, readFileSync, readlinkSync, statSync } from 'node:fs'
-import { dirname, sep } from 'node:path'
+import { dirname, isAbsolute, resolve, sep } from 'node:path'
 import { getSystemErrorName } from 'node:util'
 import { childEnvironment } from '../connector/luvus/local.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
@@ -170,9 +170,16 @@ export async function stopOwnedProcess(
 
 /** 对路径链逐层检查归属与可写性；目录 ctime 的正常内容变化不改变其身份。 */
 export function ownedPathStamp(path: string, kind: 'directory' | 'binary' | 'socket'): string {
+  if (typeof path !== 'string' || !isAbsolute(path) || resolve(path) !== path || path.includes('\0')) {
+    throw new LuvusAdapterError('owned_path_untrusted')
+  }
   const paths = [path]
   while (paths[0] !== sep) {
-    paths.unshift(dirname(paths[0]!))
+    const parent = dirname(paths[0]!)
+    if (parent === paths[0]) {
+      throw new LuvusAdapterError('owned_path_untrusted')
+    }
+    paths.unshift(parent)
   }
   const rootOwner = lstatSync(sep, { bigint: true }).uid
   const uid = BigInt(process.geteuid!())

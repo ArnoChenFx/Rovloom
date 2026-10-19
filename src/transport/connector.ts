@@ -11,6 +11,8 @@ import {
 } from '../wire/index.js'
 import type { AttemptBinding, AuthenticatedEnvelope, JsonObject, VersionOffer } from '../wire/types.js'
 import type { DeviceCredential } from './identity.js'
+import { authenticateAdmissionReceipt } from './admission-proof.js'
+import type { AdmissionReceiptSink } from './admission-proof.js'
 import {
   budget,
   closeSession,
@@ -27,6 +29,8 @@ import type { Connection, Session, Socket } from './common.js'
 
 export type WireExecutionResult = Readonly<{ binding: AttemptBinding; native_response: JsonObject }>
 export type ConnectorWireSession = Session & {
+  /** 只接收已协商的认证 receipt；缺持久接收端时不能在该能力下派发。 */
+  admissions?: AdmissionReceiptSink
   /** 将收到的原始已验证 Wire request 交给本会话原生 adapter；不得剥字段重包装或再次注入 auth。 */
   executeWire(wireRequest: string, signal: AbortSignal): Promise<WireExecutionResult>
 }
@@ -395,6 +399,18 @@ export function createConnector(options: ConnectorOptions) {
             } else if (typeof options.nativeInput !== 'function' || typeof options.execute !== 'function') {
               fail('connector_execution_required')
             }
+            if (
+              connection.negotiated.capabilities.includes('admission_receipt') &&
+              (!('admissions' in session) ||
+                !session.admissions ||
+                typeof session.admissions.accept !== 'function' ||
+                typeof session.admissions.assertRequest !== 'function')
+            ) {
+              fail('admission_receipt_sink_required')
+            }
+            if (stopped || ws !== current || !connection || !session) {
+              fail('connection_unavailable')
+            }
             phase = 'authenticated'
             last = now
             return
@@ -424,7 +440,58 @@ export function createConnector(options: ConnectorOptions) {
               assertBinding(binding, active.binding)
               active.controller.abort(frame.payload.reason)
             }
+          } else if (frame.type === 'admission_receipt') {
+            if (!('admissions' in session) || !session.admissions) {
+              fail('admission_receipt_sink_required')
+            }
+            const active = connection
+            const owner = session
+            const proof = authenticateAdmissionReceipt(
+              {
+                binding: {
+                  machine_id: frame.machine_id,
+                  recovery_generation: frame.recovery_generation,
+                  connection_epoch: frame.connection_epoch,
+                  ...frame.payload.attempt
+                },
+                request_sha256: frame.payload.request_sha256,
+                dedup_expires_at: frame.payload.dedup_expires_at
+              },
+              /** 证明不能迁入新 socket、epoch 或已停止角色。 */ () =>
+                !stopped && ws === current && current.readyState === 1 && connection === active && session === owner
+            )
+            const received = session.admissions.accept(proof)
+            if (received !== undefined) {
+              void Promise.resolve(received).catch(
+                /** 消费违规异步接收端的晚到拒绝，不把它当成持久接收完成。 */ () => {}
+              )
+              fail('synchronous_admission_receipt_required')
+            }
           } else if (frame.type === 'request') {
+            if (connection.negotiated.capabilities.includes('admission_receipt')) {
+              if (!('admissions' in session) || !session.admissions) {
+                fail('admission_receipt_sink_required')
+              }
+              const checked = session.admissions.assertRequest({
+                binding: {
+                  machine_id: frame.machine_id,
+                  recovery_generation: frame.recovery_generation,
+                  connection_epoch: frame.connection_epoch,
+                  ...frame.payload.attempt
+                },
+                native_request: frame.payload.native_request,
+                validation: frame.payload.validation
+              })
+              if (checked !== undefined) {
+                void Promise.resolve(checked).catch(
+                  /** 消费违规异步请求门禁的晚到拒绝，始终保持派发前失败。 */ () => {}
+                )
+                fail('synchronous_admission_receipt_required')
+              }
+              if (stopped || ws !== current || !connection || !session) {
+                fail('connection_unavailable')
+              }
+            }
             void request(frame, event.data, connection, session).catch(
               /** 仅关闭仍对应当前 socket 的失败执行，避免旧会话异常影响新连接。 */
               () => {
