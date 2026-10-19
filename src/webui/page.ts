@@ -5,6 +5,7 @@ import { checkPage } from './validate.js'
 import type { ReaderState } from './reader.js'
 import { createLocalizer } from './i18n.js'
 import { createUiPreferences, type UiPreferences } from './preferences.js'
+import { createPreferenceControl } from './preference-control.js'
 
 /** 接入共享管理读取后的页面投影函数；不是授权接口，不能代替每次后端鉴权。 */
 export type PageRead = (route: Readonly<PageRoute>, signal: AbortSignal) => Promise<TimedSnapshot<PageView>>
@@ -36,14 +37,18 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   logo.alt = 'Rovloom'
   logo.width = 48
   logo.height = 48
-  brand.append(logo)
-  const title = element('span', '', 'muted')
+  brand.append(logo, element('span', 'Rovloom', 'brand-name'))
+  const title = element('span', '', 'brand-context')
+  const preferencesBar = element('div', '', 'preferences')
+  const commandbar = element('nav', '', 'commandbar')
+  const sectionLink = element('a', '', 'section-nav')
+  sectionLink.href = '#'
   const toolbar = element('div', '', 'toolbar')
   const refresh = element('button', '')
   refresh.type = 'button'
   const cancel = element('button', '')
   cancel.type = 'button'
-  const indicator = element('span', '', 'muted')
+  const indicator = element('span', '', 'read-indicator')
   indicator.setAttribute('role', 'status')
   indicator.setAttribute('aria-live', 'polite')
   const content = element('main', '', 'content')
@@ -51,30 +56,32 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   content.tabIndex = -1
   refresh.setAttribute('aria-controls', content.id)
   cancel.setAttribute('aria-controls', content.id)
-  const languageLabel = element('label', '', 'preference')
-  const languageCaption = element('span', '')
-  const language = element('select', '')
-  for (const value of ['system', 'zh-CN', 'en']) {
-    const option = element('option', '')
-    option.value = value
-    language.append(option)
-  }
-  languageLabel.append(languageCaption, language)
-  const themeLabel = element('label', '', 'preference')
-  const themeCaption = element('span', '')
-  const theme = element('select', '')
-  for (const value of ['system', 'light', 'dark']) {
-    const option = element('option', '')
-    option.value = value
-    theme.append(option)
-  }
-  themeLabel.append(themeCaption, theme)
-  toolbar.append(refresh, cancel, indicator, languageLabel, themeLabel)
-  header.append(brand, title, toolbar)
+  const language = createPreferenceControl(
+    'language',
+    [
+      ['system', 'language.system'],
+      ['zh-CN', 'language.chinese'],
+      ['en', 'language.english']
+    ],
+    /** 语言选择只保存现有展示枚举，不触发设备读取。 */ (value) => preferences.setLanguage(value)
+  )
+  const theme = createPreferenceControl(
+    'theme',
+    [
+      ['system', 'theme.system'],
+      ['light', 'theme.light'],
+      ['dark', 'theme.dark']
+    ],
+    /** 主题选择只更新本页样式与既有偏好。 */ (value) => preferences.setTheme(value)
+  )
+  preferencesBar.append(language.root, theme.root)
+  toolbar.append(indicator, refresh, cancel)
+  commandbar.append(sectionLink, toolbar)
+  header.append(brand, title, preferencesBar)
   const skip = element('a', '', 'skip-link')
   skip.href = '#management-content'
   const footer = element('footer', '', 'muted')
-  root.replaceChildren(skip, header, content, footer)
+  root.replaceChildren(skip, header, commandbar, content, footer)
   let route = parseRoute(location.hash)
   let reader: SnapshotReader<PageView>
   let disposed = false
@@ -94,6 +101,8 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
           : 'reader.empty'
     )
     content.setAttribute('aria-busy', String(state.pending))
+    indicator.dataset.state = state.pending ? 'pending' : state.stale ? 'stale' : state.snapshot ? 'current' : 'empty'
+    sectionLink.setAttribute('aria-current', current.machineId === null ? 'page' : 'location')
     renderPage(content, state, current, i18n)
   }
 
@@ -108,39 +117,21 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     document.documentElement.dataset.theme = state.theme
     document.title = t('app.title')
     brand.setAttribute('aria-label', t('app.navigation'))
-    title.textContent = t('app.subtitle')
+    title.textContent = t('app.console')
+    sectionLink.textContent = t('devices.heading')
+    commandbar.setAttribute('aria-label', t('app.subtitle'))
     refresh.textContent = t('action.refresh')
     cancel.textContent = t('action.cancel')
     skip.textContent = t('app.skip')
     footer.textContent = t('app.footer')
-    languageCaption.textContent = t('language.label')
-    language.setAttribute('aria-label', t('language.label'))
-    language.options[0]!.textContent = t('language.system')
-    language.options[1]!.textContent = t('language.chinese')
-    language.options[2]!.textContent = t('language.english')
-    language.value = state.languageChoice
-    themeCaption.textContent = t('theme.label')
-    theme.setAttribute('aria-label', t('theme.label'))
-    theme.options[0]!.textContent = t('theme.system')
-    theme.options[1]!.textContent = t('theme.light')
-    theme.options[2]!.textContent = t('theme.dark')
-    theme.value = state.themeChoice
+    language.update(i18n, state.languageChoice)
+    theme.update(i18n, state.themeChoice)
     if (languageChanged && reader) {
       paint(reader.state(), route)
     }
   }
   const preferences = createUiPreferences(applyPreferences)
   applyPreferences(preferences.state())
-
-  /** 手选语言只保存固定枚举，不读取设备或重连后台。 */
-  function selectLanguage(): void {
-    preferences.setLanguage(language.value)
-  }
-
-  /** 手选主题仅更新本页样式及该项偏好。 */
-  function selectTheme(): void {
-    preferences.setTheme(theme.value)
-  }
 
   /** 每个路由拥有独立 reader，拒绝旧机器或旧分页响应写入新页面。 */
   function start(): void {
@@ -178,6 +169,8 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
 
   /** 哈希导航、后退与分页都先清理旧路由资源，再获取新目标。 */
   function navigate(): void {
+    language.close()
+    theme.close()
     if (location.hash === '#management-content') {
       content.focus()
       return
@@ -205,6 +198,8 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
 
   /** 页面离开时销毁在途请求及定时器，后退不会重复任何写入。 */
   function hide(): void {
+    language.close()
+    theme.close()
     reader.dispose()
     content.replaceChildren()
   }
@@ -219,8 +214,8 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     skip.removeEventListener('click', skipContent)
     refresh.removeEventListener('click', refreshPage)
     cancel.removeEventListener('click', cancelRead)
-    language.removeEventListener('change', selectLanguage)
-    theme.removeEventListener('change', selectTheme)
+    language.dispose()
+    theme.dispose()
     preferences.dispose()
     window.removeEventListener('hashchange', navigate)
     document.removeEventListener('visibilitychange', visibility)
@@ -232,8 +227,6 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   skip.addEventListener('click', skipContent)
   refresh.addEventListener('click', refreshPage)
   cancel.addEventListener('click', cancelRead)
-  language.addEventListener('change', selectLanguage)
-  theme.addEventListener('change', selectTheme)
   window.addEventListener('hashchange', navigate)
   document.addEventListener('visibilitychange', visibility)
   window.addEventListener('pageshow', show)

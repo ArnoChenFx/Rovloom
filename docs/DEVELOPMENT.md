@@ -67,14 +67,21 @@ bun --no-env-file scripts/webui/preview.mjs
 python3 scripts/webui/check-browser.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-browser-new
 ```
 
-语言/主题另有覆盖两语两主题、系统变化、偏好存储失败及认证失效的浏览器检查：
+语言/主题另有覆盖图标按钮的键盘/外部关闭、八种屏宽、两语两主题、系统变化、偏好存储失败及认证失效的浏览器检查：
 
 ```sh
 python3 scripts/webui/check-preferences.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-preferences-new
 ```
 
+控制台布局检查另外核对桌面行列对齐、首屏设备可见、详情分区、320px 命中尺寸，
+以及原生诊断折叠区在年龄/语言重绘后的键盘焦点，并记录两语两主题及主要空/错/过期状态：
+
+```sh
+python3 scripts/webui/check-layout.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-layout-new
+```
+
 将 `PORT` 替换为本次预览端口；输出目录必须全新且位于 checkout 外。
-原展示检查固定使用中文，语言/主题检查覆盖中文与 English 及320px布局；两者生成截图与 JSON 断言结果。
+原展示检查固定使用中文，语言/主题及布局检查覆盖中文与 English 及320px布局；均生成截图与 JSON 断言结果。
 它们验证真实 Chromium 上的合成 UI 数据、转义、
 焦点、导航、取消、部分失败及会话失效展示，不验证真实管理后端或安全认证。
 浏览器检查需显式运行，不从工具链通过推导浏览器或跨平台验收。
