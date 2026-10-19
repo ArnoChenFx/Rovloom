@@ -102,16 +102,154 @@ def read_file(root, name):
     return data
 
 
-# 仅分类未获派发许可的原因；候选方法仍需完整原生安全评审，所有分类均禁止派发。
+# 固定官方工作流方法的原生成功 result.type；未知方法不以 UHP 或状态推断补齐。
+WORKFLOW_RESPONSE_TYPES = {
+    'ping': ['pong'],
+    'session.snapshot': ['session_snapshot'],
+    'workspace.create': ['workspace_created'],
+    'workspace.list': ['workspace_list'],
+    'workspace.get': ['workspace_info'],
+    'workspace.focus': ['workspace_info'],
+    'workspace.rename': ['workspace_info'],
+    'workspace.move': ['workspace_list'],
+    'workspace.move_block': ['workspace_list'],
+    'workspace.report_metadata': ['ok'],
+    'workspace.close': ['ok'],
+    'tab.create': ['tab_created'],
+    'tab.list': ['tab_list'],
+    'tab.get': ['tab_info'],
+    'tab.focus': ['tab_info'],
+    'tab.rename': ['tab_info'],
+    'tab.move': ['tab_list'],
+    'tab.close': ['ok'],
+    'agent.list': ['agent_list'],
+    'agent.get': ['agent_info'],
+    'agent.read': ['pane_read'],
+    'agent.explain': ['agent_explain'],
+    'agent.send_keys': ['ok'],
+    'agent.rename': ['agent_info'],
+    'agent.view.set': ['agent_view'],
+    'agent.view.clear': ['agent_view'],
+    'agent.focus': ['agent_info'],
+    'agent.start': ['agent_started'],
+    'agent.prompt': ['agent_prompted'],
+    'agent.wait': ['agent_info'],
+    'pane.split': ['pane_info'],
+    'pane.swap': ['pane_swap'],
+    'pane.move': ['pane_move'],
+    'pane.zoom': ['pane_zoom'],
+    'pane.layout': ['pane_layout'],
+    'pane.process_info': ['pane_process_info'],
+    'pane.neighbor': ['pane_neighbor'],
+    'pane.edges': ['pane_edges'],
+    'pane.focus_direction': ['pane_focus_direction'],
+    'pane.resize': ['pane_resize'],
+    'pane.scroll': ['pane_info'],
+    'pane.clear': ['ok'],
+    'pane.edit_scrollback': ['ok'],
+    'pane.selection.read': ['pane_selection'],
+    'pane.copy_motion': ['pane_copy_motion'],
+    'pane.copy_search': ['pane_copy_search'],
+    'pane.list': ['pane_list'],
+    'pane.current': ['pane_current'],
+    'pane.get': ['pane_info'],
+    'pane.focus': ['pane_info'],
+    'pane.input.set': ['ok'],
+    'pane.link.activate': ['pane_link_activated'],
+    'pane.link.resolve': ['pane_link_resolved'],
+    'pane.rename': ['pane_info'],
+    'pane.send_text': ['ok'],
+    'pane.send_keys': ['ok'],
+    'pane.send_input': ['ok'],
+    'pane.read': ['pane_read'],
+    'pane.report_agent': ['ok'],
+    'pane.report_agent_session': ['ok'],
+    'pane.report_metadata': ['ok'],
+    'pane.clear_agent_authority': ['ok'],
+    'pane.release_agent': ['ok'],
+    'pane.close': ['ok'],
+    'pane.wait_for_output': ['output_matched'],
+}
+
+
+# 返回已实现工作流的完整原生参数范围；此数据不创建安装来源、认证或派发许可。
+def reviewed_production_allowlist():
+    common = {
+        'platform': 'linux-x86_64',
+        'profile': 'session', 'validation': 'strict', 'transport': 'single_request_rpc',
+        'source': {
+            'provider_kind': 'herdr', 'protocol_family': 'herdr-json',
+            'binary_version': '0.9.5',
+            'binary_sha256': '14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d',
+            'schema_sha256': '9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b',
+            'schema_origin': 'installed_cli', 'schema_command': 'herdr api schema --json',
+            'server_version': '0.9.5', 'native_protocol_version': '22', 'runtime_generation': None,
+            'adapter_revision': 'herdr-workflow-4', 'classification_revision': 'herdr-0.9.5-workflow-4',
+            'support_basis': 'schema_and_version',
+        },
+        'instance_source': 'protected_launch_and_same_supervised_child_kernel_peer',
+        'native_process_image_hash': 'not_measured',
+        'required_runtime_checks': [
+            'installed_cli_raw_schema_compiled_by_fixed_worker',
+            'protected_installation_and_endpoint_owner_permissions',
+            'same_supervised_child_socket_so_peercred',
+            'complete_target_provider_config_and_binding_revision',
+            'current_authenticated_epoch_and_caller_local_grants',
+            'original_store_attempt_deadline_and_response_anchor',
+            'current_native_source_and_installation_identity',
+            'durable_unique_dispatch_claim_before_write',
+        ],
+    }
+    records = []
+    for method, result_types in WORKFLOW_RESPONSE_TYPES.items():
+        record = deepcopy(common)
+        record.update({
+            'method': method,
+            'parameter_validation': 'complete_installed_request_root_no_adapter_subset',
+            'native_result_types': list(result_types),
+            'local_passive_review': method == 'ping',
+            'effect': 'health_with_diagnostic_resources' if method == 'ping' else 'native_rpc_may_change_runtime_state',
+        })
+        records.append(record)
+    return records
+
+
+# 按 JSON 类型和结构精确比较，避免 Python 将 true/1 或 1.0/1 视作同一约束。
+def reviewed_allowlist_matches(value):
+    try:
+        return json.dumps(value, sort_keys=True, allow_nan=False) == json.dumps(
+            reviewed_production_allowlist(), sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError):
+        return False
+
+
+# 核对静态记录只描述精确已评审实现；即使 fixture 自报 true 也不能让离线工具签发许可。
+def audit_method_policy(policy):
+    require(type(policy) is dict and type(policy.get('format')) is int and policy.get('format') == 1 and policy.get('runtime') == 'herdr',
+            'invalid reviewed method policy')
+    require(policy.get('authorizes_dispatch') is False, 'offline policy cannot authorize dispatch')
+    require(reviewed_allowlist_matches(policy.get('production_allowlist')),
+            'reviewed production scope mismatch')
+    candidates = policy.get('offline_replay_candidates')
+    require(type(candidates) is list and len(candidates) == 2 and
+            [(row.get('method'), row.get('params')) for row in candidates if type(row) is dict] ==
+            [('ping', {}), ('session.snapshot', {})] and
+            all(row.get('dispatch_allowed') is False for row in candidates),
+            'offline replay cannot authorize dispatch')
+    require(policy.get('guarantees') == {
+        'event_recovery': 'unavailable', 'terminal_fence': 'unavailable',
+        'cancel': 'unavailable', 'prompt_completion': 'unavailable',
+    }, 'unsupported guarantee promotion')
+
+
+# 离线回放始终没有执行权限，已评审产品实现也不能由这次分类调用获得许可。
 def method_classification(method, params):
-    if method in ('ping', 'session.snapshot') and type(params) is dict and not params:
-        reason = 'candidate_without_complete_native_safety_review'
-    elif method in ('pane.read', 'agent.read'):
-        reason = 'read_side_effects_unverified'
+    if method in WORKFLOW_RESPONSE_TYPES:
+        reason = 'offline_audit_has_no_execution_authority'
     elif method in ('events.subscribe', 'events.wait'):
         reason = 'subscription_side_effects_unverified'
     else:
-        reason = 'outside_reviewed_readonly_scope'
+        reason = 'outside_reviewed_runtime_slice'
     return {'dispatch_allowed': False, 'reason': reason}
 
 
@@ -282,10 +420,11 @@ def audit(root):
         outcomes.append(result['outcome'])
     require(referenced == set(content), 'unreferenced raw artifact')
     policy = decode(POLICY.read_bytes())
-    require(policy['production_allowlist'] == [], 'Herdr native gate is not satisfied')
+    audit_method_policy(policy)
     return {'offline_audit': 'passed', 'evidence_kind': manifest['evidence_kind'],
             'manifest_sha256': sha(raw_manifest),
-            'native_verified': False, 'production_allowlist': [], 'schema': closure,
+            'native_verified': False, 'authorizes_dispatch': False, 'production_allowlist': [],
+            'reviewed_runtime_methods': [record['method'] for record in reviewed_production_allowlist()], 'schema': closure,
             'outcomes': outcomes, 'bytes': total,
             'observations_recorded_only': len(observations),
             'unverified': ['official_binary_origin', 'installed_binary_execution', 'endpoint_and_peer',

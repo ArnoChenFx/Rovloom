@@ -2,7 +2,7 @@
 import { canonical, GatewayError, validateRequest } from './contracts.js'
 import type { NativeRequest } from './contracts.js'
 import { boundedJson, providerScopeAllowed, validateTarget } from './wire/index.js'
-import type { ProviderAction, ProviderPolicy, V2Target } from './wire/types.js'
+import type { JsonObject, ProviderAction, ProviderPolicy, V2Target } from './wire/types.js'
 import { Store } from './store.js'
 import type { Call, CallOptions, CallAdmissionOptions, CallAdmission } from './store.js'
 
@@ -107,7 +107,8 @@ export class Router {
     principal: Principal,
     target: V2Target,
     request: NativeRequest,
-    options: Omit<CallAdmissionOptions, 'caller_policy_revision' | 'local_policy_revision'>
+    options: Omit<CallAdmissionOptions, 'caller_policy_revision' | 'local_policy_revision'>,
+    preflight?: (request: JsonObject) => void
   ): CallAdmission {
     if (!Number.isSafeInteger(options.deadline) || options.deadline <= 0 || options.timeoutMs !== undefined) {
       throw new GatewayError('invalid_deadline')
@@ -118,7 +119,8 @@ export class Router {
       intent.target,
       intent.request,
       intent.options,
-      intent.authorize
+      intent.authorize,
+      preflight
     )
     return { ...admitted, call: this.metadata(admitted.call) }
   }

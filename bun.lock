@@ -5,10 +5,10 @@
     "": {
       "name": "luvus-mcp",
       "dependencies": {
+        "@modelcontextprotocol/sdk": "1.32.1",
         "ajv": "8.20.0",
       },
       "devDependencies": {
-        "@modelcontextprotocol/sdk": "1.32.1",
         "@types/node": "26.6.5",
         "oxfmt": "0.73.0",
         "oxlint": "1.88.0",

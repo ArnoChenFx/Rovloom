@@ -1,7 +1,2608 @@
 {
   "format": 1,
   "runtime": "herdr",
-  "production_allowlist": [],
+  "production_allowlist": [
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "ping",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pong"
+      ],
+      "local_passive_review": true,
+      "effect": "health_with_diagnostic_resources"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "session.snapshot",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "session_snapshot"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.create",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "workspace_created"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.list",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "workspace_list"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.get",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "workspace_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.focus",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "workspace_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.rename",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "workspace_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.move",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "workspace_list"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.move_block",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "workspace_list"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.report_metadata",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "workspace.close",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "tab.create",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "tab_created"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "tab.list",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "tab_list"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "tab.get",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "tab_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "tab.focus",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "tab_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "tab.rename",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "tab_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "tab.move",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "tab_list"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "tab.close",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.list",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_list"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.get",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.read",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_read"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.explain",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_explain"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.send_keys",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.rename",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.view.set",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_view"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.view.clear",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_view"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.focus",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.start",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_started"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.prompt",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_prompted"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "agent.wait",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "agent_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.split",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.swap",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_swap"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.move",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_move"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.zoom",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_zoom"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.layout",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_layout"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.process_info",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_process_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.neighbor",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_neighbor"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.edges",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_edges"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.focus_direction",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_focus_direction"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.resize",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_resize"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.scroll",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.clear",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.edit_scrollback",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.selection.read",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_selection"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.copy_motion",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_copy_motion"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.copy_search",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_copy_search"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.list",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_list"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.current",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_current"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.get",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.focus",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.input.set",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.link.activate",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_link_activated"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.link.resolve",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_link_resolved"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.rename",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_info"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.send_text",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.send_keys",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.send_input",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.read",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "pane_read"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.report_agent",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.report_agent_session",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.report_metadata",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.clear_agent_authority",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.release_agent",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.close",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "ok"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    },
+    {
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-workflow-4",
+        "classification_revision": "herdr-0.9.5-workflow-4",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ],
+      "method": "pane.wait_for_output",
+      "parameter_validation": "complete_installed_request_root_no_adapter_subset",
+      "native_result_types": [
+        "output_matched"
+      ],
+      "local_passive_review": false,
+      "effect": "native_rpc_may_change_runtime_state"
+    }
+  ],
   "research_ref": {
     "repository": "herdrdev/herdr",
     "release": "v0.9.5",
@@ -20,39 +2621,34 @@
     {
       "method": "ping",
       "params": {},
-      "classification": "unverified",
-      "dispatch_allowed": false
+      "classification": "passive_exact_params_with_diagnostic_resources",
+      "dispatch_allowed": false,
+      "review": {
+        "source": "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/api/server.rs#L559",
+        "implementation": "returns pong before dispatch_to_app; no App request prelude",
+        "declared_effects": [
+          "connection_thread_and_socket_resources",
+          "diagnostic_api_request_logs"
+        ],
+        "native_comparison": "verify_readonly.py passive-ping: 32 exact calls, whole synthetic snapshot equal, zero synthetic PTY input, bounded pane event observation",
+        "not_runtime_state_or_authorization": true
+      }
     },
     {
       "method": "session.snapshot",
       "params": {},
       "classification": "unverified",
-      "dispatch_allowed": false
+      "dispatch_allowed": false,
+      "reason": "App request prelude may synchronize pending terminal titles, foreground UI state and metadata, emit events or notifications; passive scope unverified"
     }
   ],
   "excluded": [
     {
       "methods": [
-        "pane.read",
-        "agent.read"
-      ],
-      "params": "all, including recent/recent-unwrapped/visible/detection/viewport variants",
-      "reason": "unverified per-method and per-parameter side effects; no observer permission"
-    },
-    {
-      "methods": [
-        "events.subscribe",
-        "events.wait"
-      ],
-      "params": "all",
-      "reason": "subscription resource and runtime side effects require independent native evidence"
-    },
-    {
-      "methods": [
         "*"
       ],
-      "params": "all other methods or params",
-      "reason": "outside reviewed readonly scope"
+      "params": "methods outside the implemented workflow family",
+      "reason": "events, host/server administration, worktree, integration and plugin management require their own adapters"
     }
   ],
   "required_native_evidence": [
@@ -70,5 +2666,22 @@
     "terminal_fence": "unavailable",
     "cancel": "unavailable",
     "prompt_completion": "unavailable"
+  },
+  "product_blockers": [
+    "protected production role host, deployment and CLI/MCP joint acceptance remain distinct from the native workflow module",
+    "platforms or binaries beyond fixed Linux x86_64 Herdr 0.9.5 require independent native acceptance",
+    "methods outside the implemented workflow list remain unavailable"
+  ],
+  "capability_goal": "all supported and authorized Herdr native methods through the shared runtime tools, delivered in separately verified slices; P0-H readonly is the first evidence stage",
+  "authorizes_dispatch": false,
+  "scope": "conditional workspace/tab/pane/Agent ordinary RPC workflow using complete installed schema; offline tools never grant dispatch",
+  "native_boundaries": {
+    "passive_review": "only ping is classified passive; snapshot/read/list/state paths may synchronize runtime state or scroll terminals",
+    "metadata": "source is a native sequence namespace, not permission or ownership; tokens and sequence are not durable",
+    "ttl": "native shared cleanup does not promise exact-instant expiry",
+    "agent_start": "agent_started may still have launch_pending; startup submission is not interactive readiness",
+    "agent_prompt": "PTY submission and optional native state wait are not turn-correlated completion",
+    "agent_wait": "native terminal/name/agent state is not a model conversation or assistant turn receipt",
+    "responses": "native result/error values and capability flags are preserved without inferred state"
   }
 }

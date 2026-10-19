@@ -1,0 +1,84 @@
+{
+  "provenance": {
+    "version": "0.9.5",
+    "protocol": 22,
+    "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+    "opencode_version": "1.19.3",
+    "opencode_binary_sha256": "179ca421d61eefeadfa0c50e084a6e79c1623734732f0f4593f81ccfd3ab7ee9",
+    "capture": "Store-verified native responses from a separate owned official SDK stdio startup with official Herdr integration and no model provider.",
+    "sanitization": [
+      "Consistent native/workspace/tab/pane/terminal ID substitution",
+      "Owned cwd substitution"
+    ],
+    "scope": "Launch pending then interactive readiness only; no prompt, model request, conversation, assistant reply or per-turn receipt."
+  },
+  "exchanges": [
+    {
+      "request": {
+        "id": "owned-startup-native-1",
+        "method": "agent.start",
+        "params": {
+          "name": "owned-no-model",
+          "kind": "opencode",
+          "pane_id": "owned-startup-pane",
+          "args": [],
+          "timeout_ms": 30000
+        }
+      },
+      "response": {
+        "id": "owned-startup-native-1",
+        "result": {
+          "agent": {
+            "agent_status": "unknown",
+            "cwd": "/owned/startup/work",
+            "focused": true,
+            "foreground_cwd": "/owned/startup/work",
+            "launch_pending": true,
+            "name": "owned-no-model",
+            "pane_id": "owned-startup-pane",
+            "revision": 0,
+            "state_change_seq": 0,
+            "tab_id": "owned-startup-tab",
+            "terminal_id": "owned-startup-terminal",
+            "workspace_id": "owned-startup-workspace"
+          },
+          "argv": [
+            "opencode"
+          ],
+          "type": "agent_started"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-startup-native-2",
+        "method": "agent.get",
+        "params": {
+          "target": "owned-no-model"
+        }
+      },
+      "response": {
+        "id": "owned-startup-native-2",
+        "result": {
+          "agent": {
+            "agent": "opencode",
+            "agent_status": "idle",
+            "cwd": "/owned/startup/work",
+            "focused": true,
+            "foreground_cwd": "/owned/startup/work",
+            "interactive_ready": true,
+            "name": "owned-no-model",
+            "pane_id": "owned-startup-pane",
+            "revision": 0,
+            "state_change_seq": 1,
+            "tab_id": "owned-startup-tab",
+            "terminal_id": "owned-startup-terminal",
+            "workspace_id": "owned-startup-workspace"
+          },
+          "type": "agent_info"
+        }
+      }
+    }
+  ]
+}

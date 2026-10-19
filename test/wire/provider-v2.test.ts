@@ -8,9 +8,11 @@ import {
   contractRef,
   validateContractSource,
   assertProviderAccess,
+  providerFor,
   planResponseEvidence,
   registeredRequestDigest
 } from '../../src/wire/index.js'
+import { fixedHerdrSource } from '../../src/connector/herdr/review.js'
 import type { AttemptBinding, ContractSource, AuthenticatedContext } from '../../src/wire/types.js'
 import {
   source,
@@ -346,7 +348,7 @@ test(
 )
 
 test(
-  'Herdr 可用 v2 类型准确表示，但无 P0 始终 candidate；Host 先报 unsupported_profile',
+  'Herdr 未评审来源保持 candidate；Host 先报 unsupported_profile',
   /* 用 candidate 夹具验证 Herdr 可由 v2 类型表示但不获得生产许可，Host 请求优先因 profile 被拒。 */ () => {
     const herdrSource: ContractSource = {
       ...source,
@@ -644,5 +646,43 @@ test(
     assert.equal(contractRef(examples.contract_source), attempt.contract_ref)
     assert.equal('id' in examples.request.payload.native_request, false)
     assert.equal('expected_binding_revision' in examples.request.payload.attempt.target, false)
+  }
+)
+
+test(
+  'Herdr provider gate requires validated exact reviewed provenance without claiming an endpoint proof',
+  /** 共享层只接纳完整固定来源；schema_and_version 仍不代表本地 endpoint、peer 或执行授权。 */ () => {
+    const reviewed = fixedHerdrSource()
+    for (const delta of [
+      undefined,
+      { binary_sha256: 'f'.repeat(64) },
+      { adapter_revision: 'future' },
+      { support_basis: 'live_catalog' as const },
+      { runtime_generation: 'invented' }
+    ]) {
+      const current = { ...reviewed, ...delta }
+      const herdrBinding: AttemptBinding = {
+        ...binding,
+        provider_kind: 'herdr',
+        contract_ref: contractRef(current)
+      }
+      const ctx = context('gateway_to_connector', fixtureValidator(), herdrBinding)
+      ctx.resolveProvider = /** 返回独立注册的 Herdr provider 配置。 */ () => ({ ...provider, kind: 'herdr' })
+      ctx.resolveContract = /** 完整来源必须与 binding 摘要同值，然后再比对固定评审。 */ () => ({
+        source: current,
+        support_status: 'validated'
+      })
+      if (delta === undefined) {
+        assert.equal(providerFor(herdrBinding, ctx).kind, 'herdr')
+        ctx.resolveContract = /** 固定来源没有 validated 状态仍然不能派发。 */ () => ({
+          source: current,
+          support_status: 'candidate'
+        })
+      }
+      rejects(
+        /** 未评审字段或 candidate 状态不得变为生产许可。 */ () => providerFor(herdrBinding, ctx),
+        'provider_support_candidate'
+      )
+    }
   }
 )

@@ -13,7 +13,7 @@
 
 ## 契约与内存许可
 
-`await compileBundle(bytes, options, signal?)` 在 Bun Worker 中用 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包，并生成官方 standalone 校验代码；
+`await compileBundle(bytes, options, signal?)` 在 Bun Worker 中接纳安装 bundle 的完整根、条件及引用闭包；精确命中固定官方资产时复用已生成代码，其余使用 Ajv2020 离线完整编译并生成官方 standalone 校验代码。
 不联网解析 $ref，不读路径，不补默认值、不转换类型、不删除原生字段。
 URL 是 bundle 内索引。未知方言、关键字、缺引用、副本冲突及资源超限拒绝。
 `parseNativeJson` 执行有界 JSON 检查；对象入口只供内部无行为 JSON。
@@ -41,11 +41,21 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 配置交付的同一固定资料，本地 Worker 编译，不要求安装或运行 Luvus；不自动信任 Wire 重组对象、远端 URL 或 caller
 提交的 schema。公共工厂只收原字节、安装身份/限额和可选取消信号，不接收代码、路径或
 Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；构建时内嵌 Worker 模块。
-Worker 使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译；
+Worker 每次先完成原字节摘要、文档、方言、关键字、引用闭包、alias 与当前预算检查，
+再以精确 binary/schema SHA 查询受保护的内嵌资产目录。命中时核对编译器、锁定 Ajv、
+代码、完整元数据及独立资产摘要，只缓存冻结产物数据，宿主仍逐次登记独立 opaque handle。
+未知 binary/schema SHA 继续使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译；
 禁止未知方言/关键字、自定义 format/keyword、在线 resolver 和裁剪约束。
 
+固定输入目录为 `scripts/native-contract/precompiled-inputs.json`，只引用已审核的仓库原字节
+及收集记录，不接受外部路径或 URL。`bun run native:generate` 显式重新完整编译并更新资产；
+`bun run native:check` 与正常构建在独立 Worker 中重新完整编译核对，生成器不查询现有资产，
+缺失、额外或过期生成文件均拒绝。构建观察预算为 30 秒，不扩大产品的 2 秒接纳期限。
+单文件打包探针同时验证官方资产内嵌、禁止 Ajv 重新编译的命中路径，以及合成未知 schema
+经实际 Worker 完整编译与两个 runtime helper 的正反例；此探针不验证 CLI 或真实原生执行。
+
 每进程至多一个在途编译、没有等待队列；并发返回 `compiler_busy`。从工厂调用开始的
-2 秒接纳期限覆盖启动、预检、编译、standalone 生成、消息与宿主初始化。失败只返回安全
+2 秒接纳期限覆盖启动、预检、资产核对或完整编译/standalone 生成、消息与宿主初始化。失败只返回安全
 错误码和固定 reason，不透传 schema、生成代码、私人路径或异常原文。普通 schema
 拒绝统一投影为 `origin: contract / code: schema_unavailable / stage: compile` 和固定 reason，
 包括缺失字段、非法根/目录形状及离线引用失败；拒绝后 Worker 可复用。宿主仍严格拒绝

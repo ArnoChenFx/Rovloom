@@ -37,7 +37,9 @@ provider、契约来源及完整关联是执行安全必需字段，不能藏在
 | recent 等读取路径可能滚动或送输入 | 被动只读必须按 method+params+实现逐项核实，不能凭 read 名或 schema 授 observer |
 | prompt wait 观察状态，不能单凭状态归属本次提交 | 不宣称 turn-correlated 完成；写入/终端需单独研究与设计 |
 
-因此首个目标限发现、状态、核实被动只读与事件失效后状态重建。P0-H 是必要原生证据门禁，之后还需 adapter、可信 backend、授权/持久化、MCP 及多 provider 集成验收；P0-H 通过不表示架构上线。精确被动读允许集、写入/终端、prompt 归属与取消未定部分保持拒绝，不为工具面一致降低 Luvus 保证。
+分阶段接入固定 Linux x86_64、0.9.5/protocol 22 下 65 个普通 RPC，复用既有 provider runtime、完整 Target、Store 和双方授权；其余 37 方法继续拒绝。执行保留官方完整参数根和原生结果，不再用早期 ping-only 范围描述已交付模块。代价是普通读取也可能改变终端状态，终端输入和 Agent prompt 具有目标账号执行权限；observer 被动读需另行核实。
+
+模块实现与原生管理/启动采集、唯一 CLI/HTTP MCP 联合接线、同会话真实两轮和跨平台部署分别验收。资源工厂不创建另一套 CLI、Store 或身份服务。不补造 UHP、native cancel、原子 fence、共同序号/replay 或 per-turn receipt；原生 Agent 状态不等于本轮回答，原生 P0-H 与局部测试均不表示完整产品上线。
 
 ## 官方来源与核验边界
 

@@ -13,7 +13,7 @@ Rovloom 是一个多机器 MCP 网关项目，同一发行产物提供 Gateway �
 - 一个 runtime provider binding 对应一个 Luvus 或 Herdr 实例；同 kind 的多个实例也各有独立 provider_id。runtime provider 与 LLM/model provider 是不同概念。
 - 每次调用使用显式 Target 和预期 binding revision；权限、契约、原生身份、去重、结果与流都隔离到该实例，禁止跨 provider 自动 failover。
 - 对外提供少量通用 MCP 工具，按目标发现和描述原生方法；普通 RPC、Host 与持续/双向流分别适配。
-- Luvus 的目标范围是受支持版本内获授权的 UHP 能力。Herdr 的初始范围是发现、状态、经核实被动只读和事件失效后的当前状态重建；写入、终端控制及更强保证须独立设计和验证。
+- Luvus 的目标范围是受支持版本内获授权的 UHP 能力。Herdr 在固定 Linux x86_64、0.9.5/protocol 22 下实现 65 个普通 RPC，覆盖状态、workspace/tab/pane 管理、终端输入与 Agent 启动、prompt 和等待；其余 37 个原生方法尚未接入，更强保证须独立验证。
 
 ## 2. 用户需求与边界
 
@@ -57,7 +57,7 @@ Connector A                   Connector B
 独立交付，契约/generation 不在原 epoch 内更新。原生 opaque 仍由各端本地校验器生成，
 快照不能导入 Owner、compiled/view/permit；准确协议见 Wire 的 provider_snapshot。
 
-Connector 仅执行管理员固定的 binary、状态根和 session 策略。caller 不能提交 binary 路径、环境、endpoint、状态根或 SSH 目标选择 adapter。设备广告不得创建、重绑或扩大 binding；双方受保护配置不一致即拒绝派发。
+Connector 仅执行管理员固定的 binary、状态根和 session 策略。caller 不能提交连接/安装的 binary 路径、环境、endpoint、状态根或 SSH 目标来选择或替换 adapter。已授权普通 RPC 的原生 `workspace.create`、`pane.split` 等参数仍保留官方 `env/cwd` 语义，不把这些业务参数当作 Connector 安装配置。设备广告不得创建、重绑或扩大 binding；双方受保护配置不一致即拒绝派发。
 
 ### 4.1 两种 Gateway 部署
 
@@ -167,7 +167,7 @@ Luvus 安装 schema 与 session/Host 在线能力分别核对；Herdr 安装 sch
 
 strict 必须应用完整根、条件和离线引用闭包，并有方法参数约束；generic/unavailable 不能标完整。Owner 显式选择 raw-contract 且有绑定 principal、完整目标、精确方法、版本/revisions/期限的独立 grant 时，只可放宽明确的参数覆盖缺口。保留所有已有约束、有界 envelope、保留字段、来源、传输、安全分类、权限和结果边界；已知参数不合法不能降格放行。整个 bundle 不可用且没有独立受信最小 request/response 契约时仍拒绝；完全无 bundle 的 raw 路径待另行设计。
 
-schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。首版 Luvus 只编译已审核并精确 pin 的安装版 schema 原字节：完整预检、Ajv 编译与官方 standalone 生成在同版本 Bun Worker 内执行，宿主只加载受控生成函数，不重编译 schema。编译接纳期限为 2 秒，覆盖启动、生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
+schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。首版 Luvus 只接纳已审核并精确 pin 的安装版 schema 原字节：每次在同版本 Bun Worker 内完整预检后，精确 binary/schema SHA 可复用经独立摘要核对的内嵌官方资产，其余继续完整 Ajv 编译与 standalone 生成。固定资产由独立构建 Worker 全量编译产生，每次构建重新生成核对，不通过现有资产自证；宿主只加载受控生成函数，不重编译 schema，并逐次登记独立 opaque handle。编译接纳期限为 2 秒，覆盖启动、预检、资产核对或生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
 派发与流输入前核对当前双端 binding、策略、分类、能力、epoch、generation 及 deadline；任一失效拒绝，不能透明降级。缓存按完整来源和上下文失效。发现、安全分类、参数覆盖、传输与支持状态分别呈现，不合成一个“支持”标记。
 
@@ -197,7 +197,11 @@ observe 永不可写；图片/上传等高级 action 只有在契约、分类、
 
 ### 9.4 Herdr JSON adapter
 
-保留 Herdr 原生 request/result/error，不模拟 UHP、Host、通用 cancel、原子 terminal fence 或 UI renderer。初始切片必须在独立 P0-H 证明安装契约、endpoint/peer、framing、被动读和事件重建后接入。recent 等读取可能有滚动/输入副作用，按具体 method+params+实现审核，未核实不进 observer。prompt wait 的状态变化不能证明本次 prompt 完成。
+Herdr 普通 RPC 保留原生 request/result/error，以安装 CLI 原始 schema 的完整根和固定逐方法成功类型校验。运行时复用既有 Store、完整 Target/provider binding、当前 caller/local grants、原调用期限和持久发送 claims；本机来源由受监管 child 与实际 socket peer 独立核验，Gateway 仅持有已认证 Connector 通道来源。
+
+65 个方法由 `src/connector/herdr/methods.ts` 精确列举；`server.*`、worktree、integration、plugin、事件订阅等其余 37 方法继续拒绝。普通 RPC 可能改变状态、发送终端输入或提交模型任务，read 名称和 schema 枚举均不授予 observer 被动读权限。当前原生请求/响应完整 UTF-8 JSON 加 LF 帧上限为 65536 字节，目录逐方法公开该预算，大结果不走对象分片。固定 snapshot/list/read 接口没有原生 continuation 分页；读取的 `lines`只控制末尾行窗口，最多 1000 行，不保证字节数适配。
+
+模块实现与唯一 CLI/HTTP MCP 联合验收分开。管理交换、Agent 启动和同一真实会话的两个模型回合分别取证；`agent.prompt` 返回提交/状态、`agent.wait` 返回 Agent 状态，均不等于本轮回答。事件恢复、通用原生 cancel、原子 terminal fence、共同序号/replay 和 per-turn receipt 未由本桥接提供。
 
 被动读精确 allowlist、写入/终端原子身份保证、prompt 完成归属与取消语义尚无充分证据的部分属于待设计决策，默认拒绝；不能用 Luvus 证据或外层 revision 补造保证。
 
@@ -336,7 +340,7 @@ HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用�
 
 ## 16. 待设计决策与部署输入
 
-Herdr 被动读精确 allowlist、任何写入/终端控制、prompt 归属和取消保证，以及完全无可用 bundle 的 raw 最小契约，均须独立证据及设计评审，未定默认拒绝。
+Herdr observer 被动读精确 allowlist、原子终端控制、prompt 完成归属和原生取消保证，以及完全无可用 bundle 的 raw 最小契约，均须独立证据及设计评审，未定默认拒绝。已实现普通 RPC 的副作用通过明确目标与双方授权治理，不等于这些更强保证已经成立。
 
 目标 OS/原生版本、Gateway 可达地址、TLS/反代、MCP Host/版本、身份服务及真实双机环境是部署输入；按平台/客户端单独验收，不能由一个 Linux fixture 推导跨平台支持。Owner/Host admin 默认不授予。已经明确的多 provider、安全语义和管理 UI 不因实现滞后退回单 provider 设计。
 
