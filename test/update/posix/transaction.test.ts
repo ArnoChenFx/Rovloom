@@ -380,6 +380,53 @@ test(
 )
 
 test(
+  'a target replaced during new-version readiness cannot commit or delete its old backup',
+  /* 同版本异 inode 不能通过 --version 冒充本事务候选。 */ async () => {
+    if (process.platform === 'win32') {
+      return
+    }
+    const f = await setup()
+    let foreignIdentity: Awaited<ReturnType<typeof fs.stat>> | undefined
+    try {
+      const updater = createPosixUpdater({
+        executable: f.executable,
+        services: f.manager,
+        // 只在自有模型的健康检查中模拟外部管理员替换同版本文件。
+        verifyRoleReady: async (spec, version) => {
+          await f.health(spec, version)
+          if (version === newVersion) {
+            const foreign = join(f.root, 'foreign-ready')
+            await fs.copyFile(f.executable, foreign)
+            foreignIdentity = await fs.stat(foreign)
+            await fs.rename(foreign, f.executable)
+          }
+        }
+      })
+      await assert.rejects(
+        /* 提交前再次核对 inode，发现异物即保留备份及角色恢复保护。 */ () => updater.update(f.network, f.plan),
+        { code: 'update_recovery_required' }
+      )
+      await updater.settled()
+      assert.equal((await fs.stat(f.executable)).ino, foreignIdentity!.ino)
+      await probeVersion(f.executable, newVersion)
+      const directory = (await fs.readdir(f.root)).find(
+        /* 只查找本 fixture 的事务目录。 */ (name) => name.startsWith('.rovloom-update-') && !name.endsWith('.lock')
+      )!
+      await probeVersion(join(f.root, directory, 'previous'), oldVersion)
+      assert.equal(f.snapshots.get('gateway')!.state, 'stopped')
+      assert.equal(await fs.readFile(join(f.root, 'state.db'), 'utf8'), 'unchanged database')
+      await assert.rejects(
+        /* 恢复保护不能让后续管理操作误启来源未知的 binary。 */ () =>
+          f.manager.execute({ action: 'start', role: 'gateway' }),
+        { code: 'service_busy' }
+      )
+    } finally {
+      await f.cleanup()
+    }
+  }
+)
+
+test(
   'new-version health failure atomically restores old binary and both running roles including disabled boot',
   /* 不以 enable/install 重建原服务。 */ async () => {
     if (process.platform === 'win32') {

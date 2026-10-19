@@ -114,7 +114,14 @@ export function registrationFiles(
         }
         throw error
       }
-      const owned = await fd.stat()
+      let owned
+      try {
+        owned = await fd.stat()
+      } catch (error) {
+        // 身份尚未证明时不能删除持久锁，但仍须显式关闭已取得的自有句柄。
+        await closeLockHandle(fd)
+        throw error
+      }
       let retain = false
       try {
         return await operation()

@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { ServiceManager } from '../../../src/service/manager.js'
@@ -34,7 +35,7 @@ export function compiled(): Promise<{ directory: string; old: string; next: stri
       [newVersion, paths.next]
     ]) {
       const result = await Bun.build({
-        entrypoints: [new URL('./probe.ts', import.meta.url).pathname],
+        entrypoints: [fileURLToPath(new URL('./probe.ts', import.meta.url))],
         target: 'bun',
         compile: {
           outfile: output!,

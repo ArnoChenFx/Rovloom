@@ -460,7 +460,13 @@ export class PosixUpdater {
                 }
               )
               await output.sync()
-              await output.chown(installation!.identity.uid, installation!.identity.gid)
+              const created = await output.stat({ bigint: true })
+              if (
+                created.uid !== BigInt(installation!.identity.uid) ||
+                created.gid !== BigInt(installation!.identity.gid)
+              ) {
+                await output.chown(installation!.identity.uid, installation!.identity.gid)
+              }
               await output.chmod(installation!.identity.mode)
               const stat = await output.stat({ bigint: true })
               if (
@@ -527,6 +533,11 @@ export class PosixUpdater {
             await journal('restoring')
             await restore(plan.targetVersion, false)
             await probeVersion(installation!.executable, plan.targetVersion, run)
+            // 业务就绪可能跨越任意异步等待；提交前重新证明目标仍是本事务的候选及访问边界。
+            await protectedExecutablePath(installation!.executable, platform, files, run)
+            if (!(await matches(installation!.executable, currentCandidate!))) {
+              throw new UpdateError('target_changed')
+            }
             live()
             await journal('committed')
             committed = true
@@ -563,6 +574,13 @@ export class PosixUpdater {
                 )
                 await probeVersion(installation!.executable, plan.currentVersion, run)
                 await restore(plan.currentVersion, true)
+                await protectedExecutablePath(
+                  installation!.executable,
+                  platform,
+                  files,
+                  run,
+                  owned.has('previous') ? 2 : 1
+                )
                 if (!(await matches(installation!.executable, installation!.identity))) {
                   return await protect()
                 }
