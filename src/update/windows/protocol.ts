@@ -52,6 +52,7 @@ export type WindowsHelperReceipt = Readonly<{
   sequence: number
   state: WindowsHelperState
   code: WindowsHelperCode | null
+  exitCode: number | null
 }>
 const states: readonly string[] = [
   'awaiting_parent',
@@ -252,7 +253,8 @@ export function parseWindowsReceipt(bytes: Uint8Array): WindowsHelperReceipt {
     'jobSha256',
     'sequence',
     'state',
-    'code'
+    'code',
+    'exitCode'
   ])
   if (
     v.schemaVersion !== 1 ||
@@ -265,10 +267,23 @@ export function parseWindowsReceipt(bytes: Uint8Array): WindowsHelperReceipt {
     (v.sequence as number) > 64 ||
     typeof v.state !== 'string' ||
     !states.includes(v.state) ||
+    (v.exitCode !== null &&
+      (!Number.isSafeInteger(v.exitCode) || (v.exitCode as number) < 0 || (v.exitCode as number) > 7)) ||
     (v.code !== null && (typeof v.code !== 'string' || !codes.includes(v.code))) ||
     (['rolled_back', 'aborted', 'recovery_required', 'cleanup_required'].includes(v.state)
       ? v.code === null
-      : v.code !== null)
+      : v.code !== null) ||
+    (v.state === 'updated'
+      ? v.exitCode !== 0
+      : v.state === 'rolled_back'
+        ? v.exitCode !== 6
+        : v.state === 'recovery_required'
+          ? v.exitCode !== 7
+          : v.state === 'cleanup_required'
+            ? v.exitCode !== 4
+            : v.state === 'aborted'
+              ? v.exitCode === null || (v.exitCode as number) < 1 || (v.exitCode as number) > 5
+              : v.exitCode !== null)
   ) {
     throw new UpdateError('invalid_manifest')
   }
@@ -278,6 +293,9 @@ export function parseWindowsReceipt(bytes: Uint8Array): WindowsHelperReceipt {
 // 只有 helper 已验证提交的成功回执返回零；待交接/中间状态不能冒充更新已完成。
 export function windowsReceiptExit(receipt: WindowsHelperReceipt): number {
   const checked = parseWindowsReceipt(Buffer.from(JSON.stringify(receipt)))
+  if (checked.exitCode !== null) {
+    return checked.exitCode
+  }
   if (checked.state === 'updated') {
     return 0
   }

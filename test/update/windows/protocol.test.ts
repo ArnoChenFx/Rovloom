@@ -109,7 +109,17 @@ test(
       const code = ['rolled_back', 'aborted', 'recovery_required', 'cleanup_required'].includes(state)
         ? 'verification_failed'
         : null
-      const receipt = parseWindowsReceipt(Buffer.from(JSON.stringify({ ...base, state, code })))
+      const exitCode =
+        state === 'updated'
+          ? 0
+          : state === 'rolled_back'
+            ? 6
+            : state === 'recovery_required'
+              ? 7
+              : ['aborted', 'cleanup_required'].includes(state)
+                ? 4
+                : null
+      const receipt = parseWindowsReceipt(Buffer.from(JSON.stringify({ ...base, state, code, exitCode })))
       const expected =
         state === 'updated'
           ? 0

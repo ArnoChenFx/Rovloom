@@ -173,28 +173,6 @@ if (process.platform === 'win32') {
             assert.throws(/* 原生独占安装锁立即拒绝第二更新者。 */ () => competing.acquireInstallationLock(), {
               code: 'update_busy'
             })
-          } catch (error) {
-            let phase = 'unavailable'
-            let state = 'unavailable'
-            let observations = ''
-            try {
-              phase = JSON.parse(await fs.readFile(join(directory!, 'journal.json'), 'utf8')).phase
-            } catch {
-              /* 诊断只读固定阶段，不回显封存票据、角色配置或绝对路径。 */
-            }
-            try {
-              state = parseWindowsReceipt(await fs.readFile(join(directory!, 'receipt.json'))).state
-            } catch {
-              /* 回执缺失本身就是未完成证据。 */
-            }
-            try {
-              observations = (await fs.readFile(join(root, 'observations.jsonl'), 'utf8')).slice(-4096)
-            } catch {
-              /* 仅自有动作/版本日志，不读取配置数据。 */
-            }
-            throw new Error(
-              `fixture_failed: ${error instanceof Error ? error.message : 'unknown'}; phase=${phase}; state=${state}; output=${output.slice(-4096)}; actions=${observations}`
-            )
           } finally {
             competing.close()
           }
@@ -232,6 +210,28 @@ if (process.platform === 'win32') {
               await assert.rejects(fs.stat(join(root, lock)), { code: 'ENOENT' })
             }
           }
+        } catch (error) {
+          let phase = 'unavailable'
+          let state = 'unavailable'
+          let observations = ''
+          try {
+            phase = JSON.parse(await fs.readFile(join(directory!, 'journal.json'), 'utf8')).phase
+          } catch {
+            /* 诊断只读固定阶段，不回显封存票据、角色配置或绝对路径。 */
+          }
+          try {
+            state = parseWindowsReceipt(await fs.readFile(join(directory!, 'receipt.json'))).state
+          } catch {
+            /* 回执缺失本身就是未完成证据。 */
+          }
+          try {
+            observations = (await fs.readFile(join(root, 'observations.jsonl'), 'utf8')).slice(-4096)
+          } catch {
+            /* 仅自有动作/版本日志，不读取配置数据。 */
+          }
+          throw new Error(
+            `fixture_failed: ${error instanceof Error ? error.message : 'unknown'}; phase=${phase}; state=${state}; streamsClosed=${closed}; output=${output.slice(-4096)}; actions=${observations}`
+          )
         } finally {
           await fs.writeFile(join(root, 'allow-parent-exit'), '')
           await fs.writeFile(join(root, 'finish-helper'), '')

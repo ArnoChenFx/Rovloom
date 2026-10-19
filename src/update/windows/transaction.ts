@@ -234,6 +234,8 @@ export class WindowsUpdater {
       cloneWindowsCandidate(lease, transactionId, arch, original, 'helper.exe')
       const child = spawn(win32.join(directory, 'helper.exe'), [WINDOWS_HELPER_COMMAND], {
         shell: false,
+        // Windows 必须独立于 producer 的进程生命周期；unref 仅撤销事件循环引用，不能代替 detached。
+        detached: true,
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'inherit'],
         env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.SystemRoot }
@@ -385,7 +387,9 @@ export async function handleWindowsUpdateHelperCommand(
   let locked = false
   let exitCode = 4
   let versions: { current: string; target: string } | undefined
-  let receipt: ((state: WindowsHelperReceipt['state'], code?: WindowsHelperReceipt['code']) => void) | undefined
+  let receipt:
+    | ((state: WindowsHelperReceipt['state'], code?: WindowsHelperReceipt['code'], terminalExit?: number) => void)
+    | undefined
   // 在所有前进边界检查期限；绝不因逻辑取消中断安全回滚或提前释放锁。
   const live = () => {
     if (controller.signal.aborted || performance.now() >= deadline) {
@@ -441,7 +445,7 @@ export async function handleWindowsUpdateHelperCommand(
     locked = true
     const held = lease
     // 回执不包含 secret、配置内容或原生错误原文；journal 另保留原角色引用和固定阶段。
-    receipt = /* 只产生与当前封存作业绑定的固定状态回执。 */ (state, code = null) =>
+    receipt = /* 只产生与当前封存作业绑定的固定状态回执。 */ (state, code = null, terminalExit?: number) =>
       writeWindowsReceipt(
         held,
         job.transactionId,
@@ -453,7 +457,18 @@ export async function handleWindowsUpdateHelperCommand(
             jobSha256: digest,
             sequence,
             state,
-            code
+            code,
+            exitCode:
+              terminalExit ??
+              (state === 'updated'
+                ? 0
+                : state === 'rolled_back'
+                  ? 6
+                  : state === 'recovery_required'
+                    ? 7
+                    : state === 'cleanup_required' || state === 'aborted'
+                      ? 4
+                      : null)
           })
         )
       )
@@ -591,7 +606,7 @@ export async function handleWindowsUpdateHelperCommand(
           return 0
         } catch (error) {
           if (!armed) {
-            receipt!('aborted', 'verification_failed')
+            receipt!('aborted', 'verification_failed', updateExitCode(failure(error)))
             throw error
           }
           try {
@@ -652,6 +667,17 @@ export async function handleWindowsUpdateHelperCommand(
     const normalized = failure(error)
     if (normalized.code === 'update_recovery_required') {
       retainLock = true
+    }
+    if (receipt && !retainLock) {
+      try {
+        receipt(
+          'aborted',
+          normalized.code === 'update_io_pending' ? 'parent_timeout' : 'verification_failed',
+          updateExitCode(normalized)
+        )
+      } catch {
+        /* 回执写失败仍非零，不覆盖恢复保护。 */
+      }
     }
     if (ticket && digest && !ready) {
       try {
