@@ -21,18 +21,18 @@ const schema = JSON.parse(
 const examples: Record<string, object> = {
   'session.snapshot': {},
   'workspace.list': {},
-  'workspace.get': { workspace: 0 },
-  'workspace.new': { cwd: '/isolated/project' },
-  'workspace.open': { path: '/isolated/project' },
-  'workspace.focus': { workspace: 0 },
-  'workspace.rename': { workspace: 0, name: 'project' },
-  'workspace.close': { workspace: 0 },
+  'workspace.get': { workspace_id: 'workspace_a' },
+  'workspace.new': {},
+  'workspace.open': { path: '/isolated/project', focus: false, if_revision: 10 },
+  'workspace.focus': { workspace_id: 'workspace_a', if_revision: 10 },
+  'workspace.rename': { workspace_id: 'workspace_a', name: 'project', if_revision: 10 },
+  'workspace.close': { workspace_id: 'workspace_a', if_revision: 10 },
   'tab.list': {},
-  'tab.get': { tab: 1 },
+  'tab.get': { workspace_id: 'workspace_a', tab_id: 'tab_a' },
   'tab.new': {},
-  'tab.focus': { tab: 1 },
-  'tab.rename': { tab: 1, name: 'workspace' },
-  'tab.close': { tab: 1 },
+  'tab.focus': { tab_id: 'tab_a', if_revision: 10 },
+  'tab.rename': { tab_id: 'tab_a', name: 'workspace', if_revision: 10 },
+  'tab.close': { tab_id: 'tab_a', if_revision: 10 },
   'pane.list': { all_tabs: true },
   'pane.get': { pane: '1' },
   'pane.current': {},
@@ -90,6 +90,154 @@ test(
       assert.equal(luvusOperationValidation(method), detailed ? 'strict' : 'raw-contract')
       assert.doesNotThrow(
         /** 每个启用方法必须有一条明确可调用的参数样例。 */ () => validateLuvusOperationParams(method, examples[method])
+      )
+    }
+  }
+)
+
+test(
+  'Luvus workspace and tab selectors accept stable identities and explicit native numeric string positions',
+  /** 原列表返回的位置字符串可显式使用；稳定 ID 保持原值，不被 guard 换算成位置。 */ () => {
+    for (const method of ['workspace.get', 'workspace.focus', 'workspace.rename', 'workspace.close']) {
+      for (const selected of [{ workspace_id: 'workspace_a' }, { workspace: 0 }, { workspace: '0' }]) {
+        const params = {
+          ...selected,
+          ...(method === 'workspace.rename' ? { name: 'selected' } : {}),
+          ...(method === 'workspace.get' ? {} : { if_revision: Number.MAX_SAFE_INTEGER })
+        }
+        const before = structuredClone(params)
+        validateLuvusOperationParams(method, params)
+        assert.deepEqual(params, before)
+      }
+    }
+    for (const method of ['tab.get', 'tab.focus', 'tab.rename', 'tab.close']) {
+      for (const selected of [{ tab_id: 'tab_a' }, { tab: 1 }, { tab: '1' }]) {
+        validateLuvusOperationParams(method, {
+          ...selected,
+          ...(method === 'tab.rename' ? { name: '' } : {}),
+          ...(method === 'tab.get' ? { workspace_id: 'workspace_a' } : { if_revision: 0 })
+        })
+      }
+    }
+    for (const params of [
+      {},
+      { workspace_id: 'workspace_a' },
+      { workspace: '0', tab_id: 'tab_a' },
+      { workspace_id: 'workspace_a', tab: '1' }
+    ]) {
+      validateLuvusOperationParams('tab.get', params)
+    }
+    validateLuvusOperationParams('workspace.get', {})
+    validateLuvusOperationParams('workspace.open', { path: '/isolated/project', focus: false, if_revision: 0 })
+    for (const method of ['workspace.new', 'tab.new']) {
+      validateLuvusOperationParams(method, { if_revision: 0 })
+    }
+  }
+)
+
+test(
+  'Luvus stable selectors preserve discovered identities and revisions after preceding rows close',
+  /** 此处验证维护参数投影，不复制原生 resolver；实际命中及 revision_conflict 另由隔离官方实例核验。 */ () => {
+    const workspaces = [
+      { workspace: '0', workspace_id: 'workspace_before' },
+      { workspace: '1', workspace_id: 'workspace_a' }
+    ]
+    const tabs = [
+      { tab: '1', tab_id: 'tab_before' },
+      { tab: '2', tab_id: 'tab_a' }
+    ]
+    const selectedWorkspace = { workspace_id: workspaces[1]!.workspace_id, name: 'selected A', if_revision: 40 }
+    const selectedTab = { tab_id: tabs[1]!.tab_id, name: 'selected A', if_revision: 40 }
+    workspaces.shift()
+    tabs.shift()
+    workspaces[0]!.workspace = '0'
+    tabs[0]!.tab = '1'
+    for (const [method, params] of [
+      ['workspace.rename', selectedWorkspace],
+      ['tab.rename', selectedTab]
+    ] as const) {
+      const before = structuredClone(params)
+      validateLuvusOperationParams(method, params)
+      assert.deepEqual(params, before)
+    }
+    assert.equal(selectedWorkspace.workspace_id, workspaces[0]!.workspace_id)
+    assert.equal(selectedTab.tab_id, tabs[0]!.tab_id)
+    assert.equal(selectedWorkspace.if_revision, 40)
+    assert.equal(selectedTab.if_revision, 40)
+    assert.throws(
+      /** tab 写入不能静默忽略 workspace_id 并误操作当前 workspace 的同位置对象。 */ () =>
+        validateLuvusOperationParams('tab.rename', { ...selectedTab, workspace_id: 'other_workspace' }),
+      /luvus_operation_params_invalid/
+    )
+  }
+)
+
+test(
+  'Luvus snapshot display coordinates project through the stable pane identity rather than a workspace offset',
+  /** snapshot 的两层 index 为一基；用 pane_id 获取稳定 workspace/tab ID，不能把 index 原样当零基 workspace。 */ () => {
+    const snapshot = { event_sequence: 40, workspaces: [{ index: 2, tabs: [{ index: 1, panes: [{ pane_id: '7' }] }] }] }
+    const paneRequest = { pane: String(snapshot.workspaces[0]!.tabs[0]!.panes[0]!.pane_id) }
+    validateLuvusOperationParams('pane.get', paneRequest)
+    const paneResult = {
+      pane: '7',
+      workspace: '1',
+      workspace_id: 'workspace_a',
+      tab: '1',
+      tab_id: 'tab_a',
+      revision: 41
+    }
+    const workspaceRequest = { workspace_id: paneResult.workspace_id, name: 'A', if_revision: paneResult.revision }
+    const tabRequest = { workspace_id: paneResult.workspace_id, tab_id: paneResult.tab_id }
+    validateLuvusOperationParams('workspace.rename', workspaceRequest)
+    validateLuvusOperationParams('tab.get', tabRequest)
+    assert.equal('workspace' in workspaceRequest, false)
+    assert.equal('workspace' in tabRequest, false)
+    assert.deepEqual(paneRequest, { pane: '7' })
+  }
+)
+
+test(
+  'Luvus topology rejects ambiguous selectors, read revisions and native ignored fields',
+  /** 字段逐方法核官方分发；不通过接受原生会忽略的参数伪装跨 workspace 写入或 cwd 创建。 */ () => {
+    const malformed: [string, object][] = [
+      ['workspace.get', { workspace: 0, workspace_id: 'workspace_a' }],
+      ['workspace.get', { workspace_id: '' }],
+      ['workspace.get', { workspace_id: null }],
+      ['workspace.get', { workspace: '1.5' }],
+      ['workspace.get', { workspace: '-1' }],
+      ['workspace.get', { workspace_id: 'workspace_a', if_revision: 1 }],
+      ['workspace.list', { if_revision: 1 }],
+      ['workspace.new', { cwd: '/ignored' }],
+      ['workspace.open', { path: '/isolated', focus: 'false' }],
+      ['tab.get', { workspace: '0', workspace_id: 'workspace_a', tab_id: 'tab_a' }],
+      ['tab.get', { tab: '1', tab_id: 'tab_a' }],
+      ['tab.get', { tab: '0' }],
+      ['tab.get', { tab_id: 'tab_a', if_revision: 1 }],
+      ['tab.list', { workspace_id: 'workspace_a' }],
+      ['tab.new', { workspace_id: 'workspace_a' }],
+      ['tab.focus', { tab_id: 'tab_a', workspace_id: 'workspace_a' }],
+      ['tab.rename', { tab_id: 'tab_a', workspace: '0', name: 'A' }],
+      ['tab.close', { tab_id: '' }]
+    ]
+    for (const method of [
+      'workspace.focus',
+      'workspace.rename',
+      'workspace.close',
+      'tab.focus',
+      'tab.rename',
+      'tab.close'
+    ]) {
+      const selected = method.startsWith('workspace.') ? { workspace_id: 'workspace_a' } : { tab_id: 'tab_a' }
+      const name = method.endsWith('.rename') ? { name: 'A' } : {}
+      malformed.push([method, name])
+      for (const if_revision of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, '1', null, true]) {
+        malformed.push([method, { ...selected, ...name, if_revision }])
+      }
+    }
+    for (const [method, params] of malformed) {
+      assert.throws(
+        /** 每种错形都在派发前拒绝，不通过自动 focus 或重放修补。 */ () => validateLuvusOperationParams(method, params),
+        /luvus_operation_params_invalid/
       )
     }
   }

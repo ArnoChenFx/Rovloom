@@ -85,19 +85,62 @@ generation、选定 pane/alias、`terminal_id` 和已知 native `session`；`rea
 ## 方法、选择和状态映射
 
 Luvus 没有 `window.*` RPC；窗口选择沿原生 workspace → tab → pane 层级进行。
+字段以固定官方 commit 的 [topology 选择器](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch/topology.rs#L1546)
+和 [mutation revision 分发](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch.rs#L107)
+为准；generic schema 不会另外声明这些完整参数规则。
 
 | 需求 | 普通 RPC | 原生字段 |
 |---|---|---|
-| 发现与选择 | `session.snapshot`、`workspace.list/get`、`tab.list/get`、`pane.list/get/current` | workspace 为零基位置，tab 为一基位置；pane 行使用 `pane`，保存 `workspace_id/tab_id/terminal_id` |
-| 窗口管理 | `workspace.new/open/focus/rename/close`、`tab.new/focus/rename/close`、`pane.split/focus/rename/close` | 显式完整 Target 与 pane，不按标题或最近对象重选 |
+| 发现与选择 | `session.snapshot`、`workspace.list/get`、`tab.list/get`、`pane.list/get/current` | 优先保存 `workspace_id/tab_id/terminal_id`；snapshot 的 `index` 与其它接口的位置字段坐标不同，见下表；pane.list/get 使用 `pane`，snapshot 使用 `pane_id` |
+| 窗口管理 | `workspace.new/open/focus/rename/close`、`tab.new/focus/rename/close`、`pane.split/focus/rename/close` | workspace/tab 变更使用已发现的稳定 ID 与本次观察的 `revision`；完整 Target 保持不变，不按标题或最近对象重选 |
 | 状态及输出 | `pane.status/read`、`agent.list/get/explain/read/sessions/wait` | 原样使用 `status/authority/state_source/session`；terminal_id 从 agent.list 取得，未知 session 保留 null |
 | Agent 操作 | `agent.start/prompt/send/keys/resume` | start 的 pane/anchor 互斥；prompt/send/keys 可绑定 terminal_id；resume 仅用于显式选择已有 session |
+
+原生结果原样返回，宿主不统一换算位置字段：
+
+| 原生返回 | 坐标与类型 | 后续选择 |
+|---|---|---|
+| `session.snapshot.workspaces[].index`、其 `tabs[].index` | 都是**一基 number**；workspace/tab 行不含稳定 ID | pane 的 `pane_id` 是 string，可原样作为 `pane.get` 的 `pane`；从结果取得 `workspace_id/tab_id` |
+| `workspace.list/get` 的 `workspace`；`pane.list/get`、Agent 行中出现的 `workspace` | **零基十进制 string**；`display_position` 另为显示顺序，不是对象 ID | 使用同一行的 `workspace_id`；不要把 snapshot 的一基 `index` 原样传给 `workspace` |
+| `tab.list/get`、`pane.list/get` 的 `tab` | **一基十进制 string**；tab.list 只列当前 workspace | 使用 `tab_id`；tab.get 同时返回 `workspace_id` |
+
+同一原生状态下，snapshot 的 workspace index 减一才对应 workspace.list 的位置，
+tab index 则同为一基；这只是坐标关系，不能跨变更后用旧位置写入。
+参数 guard 保留显式 number 或十进制 string 位置兼容，原样转发，不替调用者自动
+换算、focus 或重试。主 Agent 应从 `pane.get` 或最新 list/get 获取稳定 ID；没有
+pane 的 snapshot 行应重新发现 workspace，不用标题或旧位置猜测同一对象。
+
+workspace 的 get/focus/rename/close 接收互斥的 `workspace_id` 或 `workspace`。
+`tab.get` 接收两组独立互斥选择器：`workspace_id/workspace` 与 `tab_id/tab`，可读取
+明确的其它 workspace。tab 的 focus/rename/close **只在当前 workspace** 解析
+`tab_id/tab`，不接受 workspace 选择器；当前 workspace 不含该 tab ID 时保留原生
+`not_found`，不得隐式切换后重放。`tab.list/new` 不接受 workspace 选择器。
+
+窗口/tab mutation 可带原生 `if_revision`（非负安全整数），值取刚才原生结果的
+`revision`；读取不接收该字段。并发变更导致 `revision_conflict` 时重新展示状态，
+不能自动更新 revision 并重发。以下是已发现 ID 的请求形状，示例值须替换为原生
+返回值；跨 workspace 的 tab 写入须先由用户明确选择 workspace，再重新读取状态：
+
+```json
+[
+  {"method":"workspace.get","params":{"workspace_id":"observed_workspace_id"}},
+  {"method":"workspace.rename","params":{"workspace_id":"observed_workspace_id","name":"project","if_revision":42}},
+  {"method":"tab.get","params":{"workspace_id":"observed_workspace_id","tab_id":"observed_tab_id"}},
+  {"method":"tab.rename","params":{"tab_id":"observed_tab_id","name":"agent","if_revision":43}}
+]
+```
+
+`workspace.new` 与 `tab.new` 只接可选 `if_revision`，不接 `cwd` 或 workspace
+选择器；指定路径使用 `workspace.open({path,focus?,if_revision?})`，`focus` 默认为
+true，可明确设 false。新建/open 返回的位置不是稳定 ID，应再次 get/list 发现。
 
 `pane.read` 只接 `pane/lines`；`agent.read` 接 `target/lines/source`，返回真实
 `text/content_revision/terminal_id`。prompt 的 `until/timeout_s` 必须配合 `wait:true`。
 同一 Agent 的等待串行执行；超时、queued 或 observed_state 不能代表模型回复完成。
 两轮须核对完整 Target、server_generation、选定 pane/alias、terminal_id 和有值时的
 Agent session；第二轮验证真正回复对第一轮随机内容的记忆，不能以终端回显代替。
+界面应同时展示 `status` 与 `authority/state_source`；缺少正面状态证据时投影为
+unknown，不能把 idle、queued 或 TUI 文本当作完成或模型回复。
 
 ## 隔离复核
 

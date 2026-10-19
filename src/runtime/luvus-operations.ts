@@ -105,6 +105,35 @@ function index(value: unknown, minimum: number): void {
   }
 }
 
+/** 稳定 ID 与位置选择器互斥；读取可显式省略，写入不得隐式选择当前对象。 */
+function selector(params: Record<string, unknown>, position: 'workspace' | 'tab', required: boolean): void {
+  const stable = position + '_id'
+  if (params[position] !== undefined && params[stable] !== undefined) {
+    invalid()
+  }
+  if (params[position] !== undefined) {
+    const value = params[position]
+    if (typeof value === 'string' && !/^[0-9]+$/.test(value)) {
+      invalid()
+    }
+    index(typeof value === 'string' ? Number(value) : value, position === 'workspace' ? 0 : 1)
+  } else if (params[stable] !== undefined) {
+    text(params[stable], 256)
+  } else if (required) {
+    invalid()
+  }
+}
+
+/** 原生 mutation guard 使用事件 sequence；仅安全整数可精确穿过 JSON，不把旧 revision 自动改成当前值。 */
+function mutationRevision(params: Record<string, unknown>): void {
+  if (
+    params.if_revision !== undefined &&
+    (!Number.isSafeInteger(params.if_revision) || (params.if_revision as number) < 0)
+  ) {
+    invalid()
+  }
+}
+
 /** pane 与 Agent 的 target 必须显式选择；terminal_id 另作真实 PTY 生命周期 fence。 */
 function pane(value: unknown): void {
   if (typeof value !== 'string' || !/^[1-9][0-9]{0,9}$/.test(value)) {
@@ -160,34 +189,40 @@ export function validateLuvusOperationParams(method: string, input: unknown): vo
   try {
     const params = object(JSON.parse(boundedJson(input)))
     if (
-      [
-        'session.snapshot',
-        'workspace.list',
-        'tab.list',
-        'tab.new',
-        'pane.current',
-        'agent.list',
-        'agent.sessions'
-      ].includes(method)
+      ['session.snapshot', 'workspace.list', 'tab.list', 'pane.current', 'agent.list', 'agent.sessions'].includes(
+        method
+      )
     ) {
       fields(params, [])
-    } else if (method === 'workspace.new') {
-      fields(params, [], ['cwd'])
-      if (params.cwd !== undefined) {
-        text(params.cwd, 4096)
-      }
+    } else if (method === 'workspace.new' || method === 'tab.new') {
+      fields(params, [], ['if_revision'])
+      mutationRevision(params)
     } else if (method === 'workspace.open') {
-      fields(params, ['path'])
+      fields(params, ['path'], ['focus', 'if_revision'])
       text(params.path, 4096)
+      if (params.focus !== undefined && typeof params.focus !== 'boolean') {
+        invalid()
+      }
+      mutationRevision(params)
     } else if (['workspace.get', 'workspace.focus', 'workspace.close', 'workspace.rename'].includes(method)) {
-      fields(params, method === 'workspace.rename' ? ['workspace', 'name'] : ['workspace'])
-      index(params.workspace, 0)
+      fields(params, method === 'workspace.rename' ? ['name'] : [], [
+        'workspace',
+        'workspace_id',
+        ...(method === 'workspace.get' ? [] : ['if_revision'])
+      ])
+      selector(params, 'workspace', method !== 'workspace.get')
+      mutationRevision(params)
       if (method === 'workspace.rename') {
         text(params.name, 256, true)
       }
-    } else if (['tab.get', 'tab.focus', 'tab.close', 'tab.rename'].includes(method)) {
-      fields(params, method === 'tab.rename' ? ['tab', 'name'] : ['tab'])
-      index(params.tab, 1)
+    } else if (method === 'tab.get') {
+      fields(params, [], ['workspace', 'workspace_id', 'tab', 'tab_id'])
+      selector(params, 'workspace', false)
+      selector(params, 'tab', false)
+    } else if (['tab.focus', 'tab.close', 'tab.rename'].includes(method)) {
+      fields(params, method === 'tab.rename' ? ['name'] : [], ['tab', 'tab_id', 'if_revision'])
+      selector(params, 'tab', true)
+      mutationRevision(params)
       if (method === 'tab.rename') {
         text(params.name, 256, true)
       }
