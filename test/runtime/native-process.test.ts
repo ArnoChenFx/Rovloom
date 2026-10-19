@@ -1,8 +1,12 @@
 /** 验证受控 native 的有界停止、真实 errno 和退出事实；只启动本测试拥有的隔离 child。 */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { ownedPathStamp } from '../../src/runtime/native-process.js'
 import { OwnedProcessShutdownError, signalOwnedPidfd, stopOwnedProcess } from '../../src/runtime/native-process.js'
 import type {
   OwnedProcessSignal,
@@ -11,6 +15,58 @@ import type {
 } from '../../src/runtime/native-process.js'
 
 const limits = { grace_ms: 5, exit_ms: 20 }
+
+test(
+  'owned path rejects relative and noncanonical inputs before traversing a parent chain',
+  /** 独立自有 Bun 进程受父进程硬截止保护，回归时坏路径不能卡住主测试事件循环。 */ () => {
+    const module = new URL('../../src/runtime/native-process.ts', import.meta.url).href
+    const errors = new URL('../../src/connector/luvus/types.ts', import.meta.url).href
+    const code = `
+      import assert from 'node:assert/strict';
+      import { ownedPathStamp } from ${JSON.stringify(module)};
+      import { LuvusAdapterError } from ${JSON.stringify(errors)};
+      const paths = ['.', '..', 'control/approvals', '../control', '', '/workspace/..', '/workspace/', '//workspace', '/invalid\\0path', null, undefined, 1, {}];
+      let checks = 0;
+      for (const path of paths) {
+        for (const kind of ['directory', 'binary', 'socket']) {
+          assert.throws(() => ownedPathStamp(path, kind), (error) => error instanceof LuvusAdapterError && error.code === 'owned_path_untrusted');
+          checks++;
+        }
+      }
+      for (const kind of ['directory', 'binary', 'socket']) {
+        assert.throws(() => ownedPathStamp('/', kind), (error) => error instanceof LuvusAdapterError && error.code === 'owned_path_untrusted');
+        checks++;
+      }
+      process.stdout.write(JSON.stringify({ checks }));
+    `
+    const result = spawnSync(process.execPath, ['--no-env-file', '--eval', code], {
+      encoding: 'utf8',
+      timeout: 2000,
+      maxBuffer: 4096
+    })
+    assert.equal(result.error, undefined)
+    assert.equal(result.signal, null)
+    assert.equal(result.status, 0)
+    assert.equal(result.stderr, '')
+    assert.deepEqual(JSON.parse(result.stdout), { checks: 42 })
+  }
+)
+
+test(
+  'owned path completes a canonical protected parent chain with the same identity',
+  /** 合法私有目录保留既有身份戳；规范校验不认领 native 实例或读取配置。 */ () => {
+    const root = mkdtempSync(
+      join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.owned-path-')
+    )
+    try {
+      const first = ownedPathStamp(root, 'directory')
+      assert.equal(ownedPathStamp(root, 'directory'), first)
+      assert(first.includes(root))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+)
 
 /** 构造只含合成关闭观察的内部测试端口；不能创建 OwnedNativeProcess 或任何 native 来源。 */
 function observedChild(send: (signal: OwnedProcessSignal) => OwnedProcessSignalAttempt) {

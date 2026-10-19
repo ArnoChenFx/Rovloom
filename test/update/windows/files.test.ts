@@ -139,6 +139,13 @@ test(
         code: null
       }
       writeWindowsReceipt(lease, transactionId, 1, Buffer.from(JSON.stringify(receipt)))
+      await fs.copyFile(executable, join(directory, 'previous.exe'))
+      assert.throws(
+        /* 即使备份路径属于此样例，移动也不得覆盖既有文件。 */ () =>
+          moveWindowsExecutable(lease!, transactionId, 'preserve')
+      )
+      assert.deepEqual(readWindowsExecutable(executable, arch), original)
+      await fs.unlink(join(directory, 'previous.exe'))
       // 逐步回执先落盘；此处只验收移动原语，不假装拥有完整跨进程恢复入口。
       moveWindowsExecutable(lease, transactionId, 'preserve')
       assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'previous.exe')), originalSecurity)

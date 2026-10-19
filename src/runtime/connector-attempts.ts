@@ -1,6 +1,6 @@
 // 在 Connector 受保护路由与原 Wire 校验之间保存有界准入锚点，不打开 Gateway Store 或生成执行许可。
 import type { NativeWireBackend, TrustedAttempt } from '../integration/luvus-wire.js'
-import type { Adapter, Connection } from '../transport/index.js'
+import type { Adapter, Connection, AdmissionReceiptSink } from '../transport/index.js'
 import type { AttemptBinding, Direction, V2Target, WireEnvelope } from '../wire/types.js'
 import {
   assertBinding,
@@ -147,6 +147,8 @@ export type ConnectorAdmissionOptions = Readonly<{
     'provider' | 'localProvider' | 'contract' | 'nativeSource' | 'policies' | 'authority' | 'now'
   >
   book: ConnectorAttemptBook
+  // 原截止能力启用时，在原 Wire 准入提交前校验同一持久认证回执的完整请求摘要。
+  receipts?: Pick<AdmissionReceiptSink, 'assertRequest'>
   limits?: Readonly<{ attempts: number; bytes: number }>
 }>
 
@@ -162,6 +164,9 @@ export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptio
   const connection = JSON.parse(boundedJson(options.connection)) as Connection
   if (connection.authenticated !== true || connection.active !== true) {
     fail('authentication_required')
+  }
+  if (connection.negotiated.capabilities.includes('admission_receipt') && !options.receipts) {
+    fail('admission_receipt_source_required')
   }
   for (const value of [connection.machine_id, connection.recovery_generation, connection.connection_epoch]) {
     id(value)
@@ -284,6 +289,16 @@ export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptio
         mode: payload.validation as 'strict' | 'raw-contract',
         transport: 'rpc',
         native_request: native
+      }
+      if (options.receipts) {
+        const received = options.receipts.assertRequest({ binding, native_request: native, validation: candidate.mode })
+        if (received !== undefined) {
+          void Promise.resolve(received).catch(/** 消费违规异步端口的拒绝，不将其作为准入完成。 */ () => {})
+          fail('synchronous_admission_receipt_required')
+        }
+        if (closed) {
+          fail('adapter_closed')
+        }
       }
       const name = binding.call_id + ':' + binding.attempt_id
       const previous = attempts.get(name)

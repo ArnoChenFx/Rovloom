@@ -320,8 +320,13 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
         }
         const admitted = router.admit(principal(), input.target, input.native_request, input.options)
         if (admitted.created) {
-          active.dispatch(admitted.call.call_id)
+          try {
+            active.dispatch(admitted.call.call_id)
+          } catch {
+            // 登记已经提交；派发失败只保留账本实际状态，不重试，也不丢失可对账的调用引用。
+          }
         }
+        // 即使派发失败或命中旧 key，仍重新核对当前身份和读取权限，禁止用登记快照泄露旧 ID。
         return { created: admitted.created, call: metadata(router.get(principal(), admitted.call.call_id)) }
       },
       /** 即使已回应也只返回当前授权元数据，正文交付由 results 统一完成。 */
