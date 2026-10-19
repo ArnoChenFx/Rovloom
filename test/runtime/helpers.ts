@@ -1,0 +1,253 @@
+// 用自建 Unix listener、合成非生产身份和真实双库/Wire 工厂建立隔离回归，不接触用户原生实例。
+import { randomUUID } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { fixture as localFixture } from '../connector/luvus/helpers.js'
+import { management } from '../storage/helpers.js'
+import { until } from '../transport/helpers.js'
+import { openGatewayState } from '../../src/runtime/state.js'
+import { createGatewayRuntime } from '../../src/runtime/gateway.js'
+import { createConnectorRuntime } from '../../src/runtime/connector.js'
+import { ConnectorAttemptBook, createConnectorAdmissionBackend } from '../../src/runtime/connector-attempts.js'
+import { LuvusBoundDelegation, LuvusDispatchClaims, readLinuxLuvusPeer } from '../../src/connector/luvus/index.js'
+import { contractRef, assertBinding, fail } from '../../src/wire/index.js'
+import type { AttemptBinding, ProviderPolicy } from '../../src/wire/types.js'
+import type { NativeBinding, TrustedNativeContext } from '../../src/native-contract/index.js'
+
+/** Gateway 和 Connector 独立请求锚点仅经真实认证通道关联；native 来源仍为标明的测试 fixture。 */
+export async function runtimeFixture() {
+  const native = await localFixture()
+  const stateDirectory = join(native.root, 'gateway')
+  mkdirSync(stateDirectory, { mode: 0o700 })
+  const state = openGatewayState({
+    state_directory: stateDirectory,
+    store: { management },
+    identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
+    /** 只有本回归的合成管理员生成短期确认，生产宿主不能导入此工厂。 */
+    authorizeIdentity: () => ({
+      actor: 'isolated_fixture_administrator',
+      confirmation_id: randomUUID(),
+      expires_at: state.store.clock() + 1000
+    }),
+    /** 身份提交后正常断开当前真实 socket；从未调用 Store.connect。 */
+    changed: (machine) => gateway?.transport.disconnect(machine)
+  })
+  const machine = state.store.register('isolated_runtime')
+  const redeemed = state.store.redeem(state.store.issueEnrollment(machine.machine_id))
+  const credential = { ...redeemed, recovery_generation: state.store.generation() }
+  state.credentials.install(credential, 60_000)
+  const target = { ...native.config.target, machine_id: machine.machine_id }
+  const binding = {
+    machine_id: machine.machine_id,
+    provider_id: target.provider_id,
+    kind: 'luvus' as const,
+    binding_revision: 1,
+    enabled: true,
+    config_ref: native.config.config_ref
+  }
+  state.store.defineProvider(binding)
+  const caller: ProviderPolicy = {
+    revision: 'caller1',
+    grants: [{ target, methods: ['task.add'], actions: ['dispatch', 'read', 'cancel'] }]
+  }
+  const local: ProviderPolicy = { ...structuredClone(caller), revision: 'local1' }
+  let authorized = true
+  const contract = {
+    wire: { source: native.origin, support_status: 'validated' as const },
+    compiled: native.compiled,
+    capabilities: native.capabilities,
+    capability_revision: 'caps1'
+  }
+  const reference = contractRef(native.origin)
+  /** 仅将已核验测试 listener 的完整上下文投影成测试来源，不是生产 native 信任实现。 */
+  function source(attempt: AttemptBinding): TrustedNativeContext {
+    return { authenticated: true, source_verified: native.state.trusted, binding: nativeBinding(attempt) }
+  }
+  /** 绑定本测试具体设备、epoch、契约及双方政策，不复用 fixture 的原 m1/e1。 */
+  function nativeBinding(attempt: Pick<AttemptBinding, 'connection_epoch' | 'recovery_generation'>): NativeBinding {
+    return {
+      ...native.native,
+      target: { machine_id: target.machine_id, profile: 'session', session: target.session },
+      provider_id: target.provider_id,
+      connection_epoch: attempt.connection_epoch,
+      recovery_generation: attempt.recovery_generation
+    }
+  }
+  const gateway = await createGatewayRuntime({
+    lifecycle: state.lifecycle,
+    channels: state.channels,
+    identities: {
+      /** 测试开关可撤销合成 caller；设备凭据不等于 caller 身份。 */
+      principal: (identity) =>
+        authorized && identity.principal_id === 'synthetic' ? { id: 'synthetic', policy: caller } : null,
+      /** 本切片不注入管理会话，普通 caller 无法升级管理员。 */
+      administrator: () => null
+    },
+    /** 固定本机受保护策略，按完整 tuple 校验。 */
+    localPolicies: () => local,
+    providers: [
+      {
+        binding,
+        target,
+        peer_policy_revision: local.revision,
+        contract,
+        source,
+        authority: native.host.backend.authority,
+        ready: /** 仅代表此自建 listener 的测试健康。 */ () => native.state.active
+      }
+    ],
+    listener: {
+      hostname: '127.0.0.1',
+      port: 0,
+      developmentLoopback: true,
+      offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] },
+      limits: { heartbeat_ms: 100, idle_ms: 10_000 }
+    },
+    /** 角色显式关闭后释放唯一双库。 */
+    async release() {
+      state.close()
+    }
+  })
+  const active = gateway
+  const claimsPath = join(native.root, 'claims.db')
+  const claims = new LuvusDispatchClaims({
+    path: claimsPath,
+    mode: 'create',
+    ledger_id: 'isolated_runtime_claims',
+    limits: { entries: 128, bytes: 1_048_576 },
+    now: Date.now
+  })
+  const book = new ConnectorAttemptBook({
+    /** 组合回归使用独立可信元数据端口取得 Gateway 原截止，Connector 不打开或查询其请求 writer。 */
+    dedupExpires: (attempt) => state.store.responseAnchor(attempt).dedup_expires_at,
+    now: Date.now
+  })
+  native.respond(
+    /** 保留实际请求 ID 的原生 error.data，检测 gateway 是否改写响应。 */
+    (socket, raw) => {
+      const request = JSON.parse(raw.trim())
+      socket.end(JSON.stringify({ ...native.response, id: request.id }) + '\n')
+    }
+  )
+  const connector = await createConnectorRuntime({
+    transport: {
+      url: active.transport.url,
+      developmentLoopback: true,
+      credential: /** 仅交付本临时双库签发的短期 fixture 凭据。 */ () => credential,
+      offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] },
+      limits: { heartbeat_ms: 100, idle_ms: 10_000, reconnect_ms: 1000 }
+    },
+    /** 每个实际 welcome 建立独立准入后端与委托，身份不从业务帧自报取得。 */
+    session(connection) {
+      const services: Parameters<typeof createConnectorAdmissionBackend>[0]['source'] = {
+        /** 双方 provider 均从各自显式固定配置中解析，不从请求创建。 */
+        provider: () => binding,
+        localProvider: /** 返回本机独立受保护 binding。 */ () => binding,
+        contract: /** 只接受固定安装 schema 的契约引用。 */ (ref) => (ref === reference ? contract : undefined),
+        nativeSource: /** 从本机准入锚点找回完整 binding，不读取 Gateway 的 attempt 表。 */ (call, attempt) => {
+          const entry = backend.attempt(call, attempt)
+          return entry ? source(entry.binding) : undefined
+        },
+        policies: /** 固定路由主体与本机政策，不采信请求 JSON principal。 */ () => ({ caller, local }),
+        authority: native.host.backend.authority,
+        now: Date.now
+      }
+      const backend: ReturnType<typeof createConnectorAdmissionBackend> = createConnectorAdmissionBackend({
+        connection,
+        routes: [{ target, principal_id: 'synthetic' }],
+        source: services,
+        book
+      })
+      const delegation = new LuvusBoundDelegation({
+        config_ref: binding.config_ref,
+        binding: nativeBinding(connection),
+        scopes: ['read', 'orchestration'],
+        methods: ['task.add'],
+        token: native.state.auth,
+        issued_at: Date.now(),
+        expires_at: Date.now() + 60_000
+      })
+      return {
+        backend,
+        config: { ...native.config, target },
+        delegation,
+        claims,
+        verifyPeer: /** 对测试自建 listener 也实测同一 socket 的内核身份。 */ async (socket) =>
+          readLinuxLuvusPeer(socket),
+        dedupExpires: backend.dedupExpires,
+        /** 同 uid 不构成生产来源；此处只核对已明确自建的 fixture listener。 */
+        assertEvidence(attempt, evidence) {
+          if (
+            evidence.peer?.pid !== process.pid ||
+            evidence.endpoint.address !== native.endpoint ||
+            evidence.transport !== 'ipc'
+          ) {
+            fail('fixture_evidence_mismatch')
+          }
+          assertBinding(attempt, backend.attempt(attempt.call_id, attempt.attempt_id)!.binding)
+        },
+        readiness: /** 使用独立配置的相同 revision，并保持 native fixture 健康可撤销。 */ () => ({
+          policy_revision: local.revision,
+          peer_policy_revision: 'local1',
+          providers: [{ expected: binding, local: binding, native_ready: native.state.active }]
+        }),
+        close: /** 关闭 epoch 正文，不动长期 claims 墓碑。 */ () => backend.close()
+      }
+    },
+    /** 仅角色显式关闭才释放长期 claims writer。 */
+    async release() {
+      claims.close()
+    }
+  })
+  return {
+    gateway: active,
+    connector,
+    state,
+    native,
+    target,
+    reference,
+    caller: { principal_id: 'synthetic' },
+    /** 等待双方实际认证且完成 provider readiness。 */
+    async ready() {
+      await until(
+        /** 每端都须 ready，不以 TCP 打开代替。 */ () =>
+          connector.transport.status().phase === 'ready' &&
+          active.transport.status().devices.some(/** 当前设备应由真实认证连接建立。 */ (device) => device.ready),
+        10_000
+      )
+    },
+    /** 统计真实持久 claims，测试查询不进入产品宿主。 */
+    claims() {
+      const database = new DatabaseSync(claimsPath, { readOnly: true })
+      try {
+        return Number(database.prepare('SELECT count(*) AS n FROM luvus_dispatch_claims').get()!.n)
+      } finally {
+        database.close()
+      }
+    },
+    /** 切换当前测试主体有效性，结果读取必须即时重新核验。 */
+    authorize(value: boolean) {
+      authorized = value
+    },
+    /** 有界等待真实 Gateway 账本回应；回调不授予读取原文权限。 */
+    async responded(call: string) {
+      await until(
+        /** 测试读取仅比较实际账本状态。 */ () => state.store.call('synthetic', call).state === 'responded',
+        10_000
+      )
+    },
+    /** 停止角色后清除仅属于此 fixture 的私有目录。 */
+    async close() {
+      try {
+        await connector.close()
+      } finally {
+        try {
+          await active.close()
+        } finally {
+          await native.close()
+        }
+      }
+    }
+  }
+}

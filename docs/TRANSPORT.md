@@ -4,6 +4,76 @@
 语义以 [DESIGN](DESIGN.md) 为准，帧只使用现有 [Wire v2](protocol/WIRE-PROTOCOL.md)，
 账本接线复用 [Store/Router](STORAGE.md)。源码入口为 [transport](../src/transport/index.ts)。
 
+## 运行宿主装配
+
+[runtime](../src/runtime/index.ts)提供独立的 Gateway/Connector 宿主工厂，准确类型见
+[types.ts](../src/runtime/types.ts)。CLI、配置解析、HTTP/MCP 协议和管理写服务分别消费这些端口，
+不在本模块增加第二套入口。配置默认路径 `~/.config/rovloom/gateway.json` 或 `connector.json`
+及显式路径优先的规则由 CLI 负责；runtime 只接收其已核实、已解析的受保护宿主输入。
+
+| 接口 | 责任与寿命 |
+|---|---|
+| `openGatewayState(options)` | 在既有私有目录打开唯一 Store、唯一 hash-only 身份库及一次性证明桥；返回同一 ChannelRegistry 和受信凭据管理端口，不自动注册、兑换或签发 |
+| `await createGatewayRuntime(options)` | 组合一个 Router、实际设备 listener、每 socket Wire、可信请求作用域和 `createLuvusResultAccess`；返回 `transport`、`closed/close`、`admit/get/cancel/results` |
+| `runAuthenticated(caller, operation)` | 仅供完成认证的 HTTP/stdio adapter 注入身份引用；逐操作从同一身份源重读 principal，请求结束、迟到异步工作或关闭后不可沿用 |
+| `await createConnectorRuntime(options)` | 复用实际出站认证 transport，每个 epoch 建立独立 Wire 与 `LuvusRpcAdapter.dispatch(raw, signal)`，保留原始请求帧；长期 claims/custody 在显式角色关闭后释放 |
+| `createConnectorAdmissionBackend(options)` | 在认证连接及本机固定路由下暂存候选，原 Wire 全部校验通过后才提交有界本机请求锚点；不打开 Gateway writer、不制造 permit |
+
+HTTP MCP 由认证 adapter 建立 caller，不能把旧 stdio UID/GID、MCP session ID、设备凭据或
+请求 JSON 当成远程身份。管理员认证仍使用独立 session/权限，runtime 不授予管理身份。
+Gateway 是常驻宿主，客户端断开或前端等待结束不调用 `close` 或 `cancel`；终止服务由所属
+进程的显式生命周期控制。模块不写 stdout；唯一入口决定 HTTP 常驻和日志通道。
+
+Gateway 准入仅 `created=true` 才调用真实 transport 派发；重复 key 只返回原元数据，不重新
+发送或延长期限。`get/cancel` 始终不含原文。`results.open/read` 每次通过当前归属、双端 ACL、
+原请求 Wire 的读取/保留门禁及 Store 固定期限；缺原 Wire 时不从数据库重建许可。
+响应保留在同步提交栈内按原持久 caller 的当前权限评估，不使用最近 HTTP caller；普通交付
+仍要求当前请求作用域。显式 cancel 复用现有 Wire 取消，不宣称 native 回滚；断线不重放。
+
+本机 provider 配置须与已注册 canonical binding 一致，工厂不隐式注册、重绑或扩大权限。
+当前每个 runtime provider 配置固定完整 session Target；同一连接的本机策略使用同一全局修订，
+每项查询只贡献该完整 Target 的 grants。相同 contract_ref 的完整 capabilities/修订或编译身份
+冲突在启动时拒绝，不能让另一实例的记录后写覆盖。管理提交后仍须重新配置/发现失效的实例。
+
+身份库从总安全、审计和磁盘预算保守预留独立份额，实际目录字节仍计入 Store 总量。
+身份安装/轮换需要宿主独立的动作级确认。`changed(machine)` 必须交给同一 Gateway 的正常
+断连；prepare 使用共享 ChannelRegistry 仅同步封锁通道，不重入 Store。开启失败与显式关闭
+均完成资源清理；`close()` 与 `closed` 使用相同完成结果，释放失败保持失败。
+
+### 明确受限的原生开发来源
+
+`startDevelopmentLuvus(config, { acknowledge_nonproduction: true, token_ttl_s, scopes })`仅支持
+固定官方 Luvus 0.14.3 Linux x64 IPC，要求 state/cwd 空白、HOME 仅含四个空白私有 XDG 目录。
+这是显式本机隔离启动操作；正常角色工厂不会自动启动原生实例。它独占本轮目录标记，以固定
+binary/root/session、最小环境和固定 argv 启动直接 child，持有 pidfd，反复核对 `/proc`
+启动时钟、exe/inode、argv/env/cwd、路径身份及 socket。每个实际 socket 用内核 SO_PEERCRED
+核对这个仍受控的 child，JSON PID、同 uid、随机 actor 或复制的 evidence 都不是证明。
+
+私有 bootstrap 只在同一受控 peer 上签发最多五分钟的 `read` 或显式 `read + orchestration`
+token，再以该 token 读取实际能力并确认实例空白。秘密仅驻留专用内存，不进入 Store、普通
+响应、日志或参数；每个实际准入 binding 延迟取得 `LuvusBoundDelegation`，所有 epoch 沿用
+原签发/到期时刻，不刷新 token。关闭只终止本轮直接 child 并移除内存秘密，不自动删除状态。
+`createDevelopmentLuvusProvider`只为 `automation.list`、`task.add`、`task.update`提供固定手工
+审核的普通 RPC 分类；仍须 caller/local grants、原生权限及原 Wire 许可，不开放 raw、Host、
+终端、token 方法或秘密结果。其它能力缺分类继续拒绝。
+
+正式外部 supervisor 的 opaque 实例交付、生产受限 native custody 和真实用户持久凭据仍须
+独立受信配置与动作级批准；开发来源不能冒充生产安装。Herdr 不使用这套 Luvus 来源。
+
+### 证据与尚需消费的端口
+
+当前 Wire 未携带 caller principal 或 Gateway dedup 截止。Connector principal 因而必须来自
+受保护的单一固定本机路由，不从消息猜测。共享 `ConnectorAttemptBook`可通过独立可信
+`dedupExpires(binding)`端口保存 Gateway 原截止；显式 `retention_ms`只表示 Connector 自有
+首次固定期限，不能证明 Gateway 的原期限。跨 epoch 共享 book，实际发送继续受
+`LuvusDispatchClaims`持久唯一记录约束，断连不清墓碑。正式跨进程部署还须交付可信截止元数据，
+缺来源不能用重连时钟补造。
+
+`test/runtime`覆盖隔离双库、实际认证连接、唯一派发、原 Wire 结果、关闭重入、迟到请求作用域、
+能力冲突及开发来源拒绝。自建 native listener 的回归与官方 binary 的隔离运行是不同证据。
+正式公开 CLI 的 GatewayHTTP + Connector 产品 smoke、HTTP 认证来源、远端双机、OpenCode
+客户端及生产 supervisor/custody 需各自验收；模块 build 或 help/version 不代替产品运行。
+
 ## 通道与可信宿主
 
 `createGateway` 监听 `/connector`，`createConnector` 主动出站。默认必须 WSS；
