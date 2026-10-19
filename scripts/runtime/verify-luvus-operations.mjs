@@ -7,6 +7,7 @@ import { isAbsolute, join, normalize } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createManagedSmokeCleanup } from './managed-smoke-cleanup.mjs'
 import { prepareIsolatedOpenCode } from './opencode-smoke-setup.mjs'
+import { verifyStableLuvusSelection } from './luvus-stable-selection.mjs'
 import {
   openGatewayState,
   initializeManagedLuvusRoot,
@@ -25,12 +26,16 @@ function argumentsForSmoke() {
     options: {
       binary: { type: 'string' },
       'opencode-binary': { type: 'string' },
+      'stable-selection': { type: 'boolean' },
       'temporary-parent': { type: 'string' },
       'acknowledge-nonproduction': { type: 'boolean' }
     }
   })
   if (!values['acknowledge-nonproduction']) {
     throw new Error('nonproduction_acknowledgement_required')
+  }
+  if (values['stable-selection'] && values['opencode-binary']) {
+    throw new Error('stable_selection_cannot_start_model_agent')
   }
   for (const path of [
     values.binary,
@@ -58,12 +63,18 @@ let stage = 'initialize'
 let report
 let lastNativeError
 let agentInputOutput
+let stableSelection
 try {
   for (const name of ['gateway', 'home', 'state', 'project', 'control', 'connector']) {
     mkdirSync(join(root, name), { mode: 0o700 })
   }
   for (const name of ['config', 'data', 'cache', 'runtime']) {
     mkdirSync(join(root, 'home', name), { mode: 0o700 })
+  }
+  if (paths['stable-selection']) {
+    for (const name of ['project-a', 'project-c']) {
+      mkdirSync(join(root, name), { mode: 0o700 })
+    }
   }
   state = openGatewayState({
     state_directory: join(root, 'gateway'),
@@ -384,6 +395,15 @@ try {
     )
   )
   checks.push('same_session_and_terminal_identity')
+  if (paths['stable-selection']) {
+    stage = 'stable_selection'
+    stableSelection = await verifyStableLuvusSelection(rpc, {
+      project: config.cwd,
+      projectA: join(root, 'project-a'),
+      projectC: join(root, 'project-c')
+    })
+    checks.push('stable_selection_through_original_wire')
+  }
   await connector.close()
   assert.equal(gateway.transport.status().stopped, false)
   checks.push('gateway_survives_connector_exit')
@@ -406,6 +426,7 @@ try {
     agent_state_source: 'native_response',
     conversation: agentInputOutput ? 'not_verified_native_input_output_only' : 'not_exercised_no_real_agent_configured',
     agent_input_output: agentInputOutput,
+    stable_selection: stableSelection,
     user_sessions_used: false,
     paid_fallback: false
   }
