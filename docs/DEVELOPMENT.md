@@ -214,7 +214,8 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 
 [方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)记录固定 H1 来源、平台与实时检查
 条件下的唯一 `ping {}` 实现范围；该文件和离线工具均不签发运行时许可。精确 ping
-已有固定源码分类、专用 headless 对照，以及下述自有实例的 H1 真实贯通验收。
+的固定源码分类、headless 对照及原生贯通检查由版本化输入和下述验收器覆盖，
+独立原生证据复核仍未完成。
 `session.snapshot {}` 因应用前置副作用保持未验证；其它参数、读取变体、订阅和写入
 不在 H1 许可范围。离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
@@ -303,7 +304,8 @@ pane.updated 观察窗。窗口无事件不等于所有 UI/agent/通知都已实
 ### H1 ping runtime 与宿主接缝
 
 H1 的安装、完整 schema 编译、Unix socket backend 和 Store/Wire/runtime 接口已实现，
-独立脚本已在本环境自有空白实例完成五组真实验收。范围仅为 Linux、固定官方
+独立验收器覆盖下述五组检查；实际运行结果只记录在 PR/CI，独立原生证据复核仍未完成。
+范围仅为 Linux、固定官方
 Herdr 0.9.5 binary/schema、协议 22 和 session Target 的 strict `ping {}` 普通 RPC。
 完整 schema 包含 102 个方法不表示它们均可执行：其余 101 个方法、其它 ping 参数、raw、
 流、对象传输和 Host 入口均拒绝。固定来源见[provenance](../test/fixtures/herdr/0.9.5/provenance.json)
@@ -352,20 +354,20 @@ provider 选择分支。后续组合必须保持 Herdr 原生 schema/source 类�
 bun --no-env-file scripts/herdr/verify-runtime.ts --binary /absolute/verified/herdr --report /tmp/rovloom-herdr-h1-new.json
 ```
 
-真实验收覆盖五组：
+验收器要求证明以下五组：
 
-1. 实际安装 binary、raw CLI schema、异步 Worker 与受监管进程的内核 socket peer。
-2. 既有 Router/Gateway/Connector/Wire/Store 经认证 loopback 完成 32 次原生 ping、
-   32 条持久发送 claim 和 32 次 Store 响应证据提交。
-3. `ping` 额外参数、`session.snapshot {}`、`pane.read {}` 三组在生产 Store 拒绝，
-   未增加任何发送 claim；这不表示其余所有方法均逐项亲跑。
-4. 当前策略撤权阻断后续派发。
-5. 同一 binary 字节换成新 inode 后来源失效，readiness 的
-   `herdr_installation_changed` 属预期负向结果；所属 child 退出、私有临时根清理均完成。
+1. 核对实际安装 binary、raw CLI schema、异步 Worker 与受监管进程的内核 socket peer。
+2. 通过既有 Router/Gateway/Connector/Wire/Store 与认证 loopback 完成 32 次原生 ping，
+   并核对 32 条持久发送 claim 和 32 次 Store 响应证据提交。
+3. 断言生产 Store 拒绝 `ping` 额外参数、`session.snapshot {}`、`pane.read {}`，
+   且不增加发送 claim；这不覆盖其余方法的真实执行。
+4. 验证当前策略撤权阻断后续派发。
+5. 验证同一 binary 字节换成新 inode 后来源失效，readiness 返回
+   `herdr_installation_changed`；核对所属 child 退出及私有临时根清理。
 
-这些运行使用真实 Herdr 和真实 Store/claims，但身份与双端策略来自隔离 fixture，
-认证链路为既有 loopback。受监管启动实际返回 `detached_server_daemon: false`，原生
-pong 的 capability 值完整保留，不为匹配历史 fixture 改写。取消、部分帧、EOF、资源
+验收器连接真实 Herdr 与 Store/claims，身份、双端策略和时钟来自隔离 fixture，
+认证链路使用既有 loopback，两侧账本投影共用同一 Store。原生 pong 的 capability 值
+须原样保留，不为匹配历史 fixture 改写。取消、部分帧、EOF、资源
 上限等边界另有合成端口或自有 Unix listener 测试；这些测试以及 schema standalone
 探针都不等于相同场景已在真实 Herdr 上执行。H1 不代表 #8 正式宿主、完整 CLI/MCP、
 跨平台 native、非受监管实例或其余 101 个方法已验收。静态 policy/matrix 只记录条件

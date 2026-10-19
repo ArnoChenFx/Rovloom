@@ -14,7 +14,7 @@
 | Store/Router | 规范 v5 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
 | 开机服务 | systemd 系统单元、系统域 LaunchDaemon、Windows BootTrigger 计划任务的独立状态机、原生后端与最小 parser 接缝；受控测试，不修改系统启动项 | 唯一 CLI/后台角色接线、Windows 有效 ACL 与运行配置验证、三平台真实开机及全生命周期验收；见 [SERVICE](SERVICE.md) |
 | 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector、消费共享管理 DTO 的 WebUI 展示/快照生命周期模块 | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 的受保护 HTTP/认证接线和部署发行 |
-| Herdr | 固定官方来源与全方法矩阵；H1 schema Worker、受监管 Unix peer、精确 ping 的 Store/Wire/runtime 及自有 Linux 实例五组验收 | #8 正式宿主、身份/部署与 CLI/MCP 联合验收；其余 101 方法按切片接入，跨平台 native 另验 |
+| Herdr | 固定官方来源与全方法矩阵；H1 schema Worker、受监管 Unix peer、精确 ping 的 Store/Wire/runtime 及五组检查的独立验收器 | 独立原生证据复核；#8 正式宿主、身份/部署与 CLI/MCP 联合验收；其余 101 方法按切片接入，跨平台 native 另验 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -115,8 +115,9 @@ claim、公共发现/结果分页或真实 stdio/MCP 联合验收；各层继续
 
 离线输入、安装/编译约束和独立验收命令见[开发指引](DEVELOPMENT.md#h1-ping-runtime-与宿主接缝)。
 H1 policy/matrix 仅记录固定来源和实时检查条件下的 `ping {}` 实现；归档审计仍返回
-`native_verified: false`、空执行允许集和 `authorizes_dispatch: false`。独立脚本已在
-自有 Linux 空白实例验收真实安装→Store/Wire→原生 ping，不能从该结果外推其它切片。
+`native_verified: false`、空执行允许集和 `authorizes_dispatch: false`。独立验收器覆盖
+Linux 空白实例的安装→Store/Wire→原生 ping 检查；实际运行结果留在 PR/CI，
+独立原生证据复核仍未完成，不能外推其它切片。
 
 完整原生能力接入统一 runtime 工具面是目标；P0-H 只读证据不定义永久上限。
 [全方法矩阵](../test/fixtures/herdr/0.9.5/method-coverage.json)逐项保存原生存在、schema
@@ -135,16 +136,17 @@ socket 的 `SO_PEERCRED` 核对 PID/UID/GID、路径归属与权限；不读 `/p
 复用原 registry、完整 Target、双端授权、attempt、permit、持久发送 claim、内容保留及
 证据事务，挂入现有 `ConnectorWireSession` hook。取消/关闭只停止桥接等待，发送后失败
 保持 unknown 且不重放。正式 readiness/epoch/宿主生命周期、公共 CLI/MCP 仍与 #8 接口隔离；
-H1 本环境五组真实验收分别覆盖安装/schema Worker/内核 peer；32 次 ping、32 条 durable
+H1 验收器的五组检查覆盖安装/schema Worker/内核 peer；32 次 ping、32 条 durable
 claim 与 32 次证据提交；三组方法/参数拒绝且零新 claim；当前策略撤权；同 binary
-字节的新 inode 使来源失效。所属 child 与临时根均已清理。真实链路仍使用隔离 fixture
-身份和既有认证 loopback，正式宿主、CLI/MCP、跨平台 native 与其余 101 方法仍未验收。
+字节的新 inode 使来源失效，并检查所属 child 与临时根清理。身份、策略和时钟使用
+隔离 fixture，两侧账本投影共用 Store 并经既有认证 loopback 接线。独立原生证据复核、
+正式宿主、CLI/MCP、跨平台 native 与其余 101 方法的验收仍未完成。
 合成 IO/关闭/取消和 standalone 测试只证明各自范围，不补作真实 Herdr 对应场景。
 
 - P0-H 固定官方 binary 来源/hash、安装 schema/方言/闭包、实际 ping/protocol、endpoint 归属/peer、framing/大小及断线行为，使用自建隔离实例。
 - 按 method+params+版本核实被动读，断言焦点、viewport、输入、agent 状态/通知均无未声明副作用；recent 等未经证明不进 allowlist。
 - 验证订阅确认、events_lost/EOF、另一连接 snapshot 与脏刷新，明确 gap/state_rebuild_only，不重放载荷覆盖快照或伪造序号。
-- H1 五组真实验收已完成；后续扩展真实重复/取消/断线和多 provider 场景，不能用已有 mock/合成端口测试代替。正式宿主/MCP 组合仍另验，原生实证不是系统就绪证明。
+- 复核独立原生证据，运行 H1 验收器并验证五组断言；扩展真实重复/取消/断线和多 provider 场景，不能用已有 mock/合成端口测试代替。正式宿主/MCP 组合仍另验，原生实证不是系统就绪证明。
 - 后续宿主切片：现有角色 provider/契约/委托按 Luvus 装配；将 H1 的独立 Herdr 原生端口接入其受保护配置、准入锚点、readiness、认证 epoch、结果读取和资源预算，验证同机多 provider、同 kind 多实例和真实 Connector 通道；不套用 UHP，不另建 Gateway/CLI/auth 或模型凭据体系。
 - 后续普通调用/生命周期切片：按矩阵逐方法分类，保持 session/server 管理各自权限、真实确认和丢回复的 unknown；不把 server.* 伪装为 Luvus Host。
 - 后续输入/prompt 切片：按 agent.start、agent.prompt、pane/agent 输入的真实语义接入调用账本；先用自有合成进程验证。等待状态、原生写成功与本次工作完成分别暴露，不能从状态或回显补造 turn 归属、取消或幂等保证。

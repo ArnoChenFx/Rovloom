@@ -47,10 +47,11 @@ H1 选择先实现 Linux 固定 Herdr 0.9.5 binary/schema、协议 22 的精确 
 安装/open 不自动接管已有会话。H1 已实现现有 Store/Wire/持久发送 claim 到
 `ConnectorWireSession` 的 runtime 接口，保持完整 Target、当前双端授权和原账本期限；
 正式 readiness、认证 epoch 和角色生命周期由 #8 宿主组合，不增加第二 CLI/Gateway/auth。
-独立脚本已在自有 Linux 空白实例完成安装/schema Worker/内核 peer、32 次 ping 与
-32 条 claim/32 次证据提交、三组方法参数拒绝、当前策略撤权、同 binary 字节的新 inode
-撤销来源五组真实验收，并清理所属 child/临时根。身份仍为隔离 fixture，链路为既有认证
-loopback；合成 IO/取消和 schema 打包测试不扩大原生范围。完整 CLI/MCP、跨平台 native、
+独立验收器覆盖安装/schema Worker/内核 peer、ping/claim/证据提交、方法参数拒绝、
+当前策略撤权、同 binary 字节的新 inode 撤销来源及所属 child/临时根清理。它连接
+真实原生端口，但身份、策略和时钟为隔离 fixture，两侧账本投影共用 Store 并经既有认证
+loopback 接线；实际运行结果只记录在 PR/CI，独立原生证据复核仍未完成。
+合成 IO/取消和 schema 打包测试不扩大原生范围。完整 CLI/MCP、跨平台 native、
 非受监管实例、exec 映像摘要与其余 101 方法均未据此声明可用。policy/matrix 保存的
 唯一 ping 条件记录不是授权来源，离线审计继续无执行许可。
 
