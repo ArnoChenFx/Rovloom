@@ -137,6 +137,7 @@ if (process.platform === 'win32') {
           jobSha256: 'a'.repeat(64),
           sequence: 1,
           state: 'prepared',
+          exitCode: null,
           code: null
         }
         writeWindowsReceipt(lease, transactionId, 1, Buffer.from(JSON.stringify(receipt)))
@@ -173,7 +174,7 @@ if (process.platform === 'win32') {
           lease,
           transactionId,
           3,
-          Buffer.from(JSON.stringify({ ...receipt, sequence: 3, state: 'updated' }))
+          Buffer.from(JSON.stringify({ ...receipt, sequence: 3, state: 'updated', exitCode: 0 }))
         )
         assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 0)
         writeWindowsReceipt(
@@ -200,7 +201,9 @@ if (process.platform === 'win32') {
           lease,
           transactionId,
           5,
-          Buffer.from(JSON.stringify({ ...receipt, sequence: 5, state: 'rolled_back', code: 'verification_failed' }))
+          Buffer.from(
+            JSON.stringify({ ...receipt, sequence: 5, state: 'rolled_back', exitCode: 6, code: 'verification_failed' })
+          )
         )
         assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 6)
       } finally {

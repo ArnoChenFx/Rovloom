@@ -3,6 +3,7 @@ import { UpdateError, updateExitCode, updatePlatform } from './contract.js'
 import { checkForUpdate } from './plan.js'
 import type { UpdateNetwork } from './network.js'
 import { PosixUpdater } from './posix/transaction.js'
+import { WindowsUpdater } from './windows/transaction.js'
 
 export type UpdateCommandHost = UpdateNetwork & {
   currentVersion: string
@@ -12,6 +13,7 @@ export type UpdateCommandHost = UpdateNetwork & {
   libc?: 'glibc' | null
   // 仅接受具体受控状态机，由可信运行时绑定安装路径和既有服务管理器。
   posixUpdater?: PosixUpdater
+  windowsUpdater?: WindowsUpdater
   signal?: AbortSignal
   // 同步写入固定诊断；宿主仍负责真实流错误和背压。
   write(message: string): void
@@ -19,7 +21,7 @@ export type UpdateCommandHost = UpdateNetwork & {
 
 export const UPDATE_HELP =
   'rovloom update --check | rovloom update\n' +
-  '检查只读版本元数据；POSIX 原地更新需要受信安装/服务事务，Windows helper 未配置时明确拒绝。\n'
+  '检查只读版本元数据；POSIX 原地更新需要受信安装/服务事务，Windows 交接后以待完成码 4 退出，最终结果见 helper 回执；缺宿主明确拒绝。\n'
 
 // 数字为本命令退出码，undefined 把其它参数原样交还现有 CLI；不支持 URL/路径/脚本参数。
 export async function handleUpdateCommand(
@@ -41,6 +43,16 @@ export async function handleUpdateCommand(
     host.write(`current=${plan.currentVersion} target=${plan.targetVersion} status=${plan.status}\n`)
     if (args[1] === '--check' || plan.status !== 'available') {
       return 0
+    }
+    if (host.platform === 'win32') {
+      if (!(host.windowsUpdater instanceof WindowsUpdater)) {
+        throw new UpdateError('replacement_unavailable')
+      }
+      const result = await host.windowsUpdater.update(plan, host.signal)
+      host.write(
+        `status=${result.status} transaction=${result.transactionId} receipt=${JSON.stringify(result.receipt)} exit=4\n`
+      )
+      return 4
     }
     if (!(host.posixUpdater instanceof PosixUpdater)) {
       throw new UpdateError('replacement_unavailable')

@@ -77,11 +77,8 @@ export class ServiceManager {
     throw new ServiceError(running ? 'service_start_failed' : 'service_timeout')
   }
 
-  // 同时持有两个既有角色锁，阻止安装/卸载/启停与文件替换交错；Windows 交付另走受控 helper。
+  // 同时持有两个既有角色锁；Windows helper 自己取得并持有到父退出后的替换/恢复结束，不转交锁。
   async withBinaryUpdate<T>(executable: string, operation: (session: ServiceUpdateSession) => Promise<T>): Promise<T> {
-    if (this.backend.platform === 'win32') {
-      throw new ServiceError('backend_unavailable')
-    }
     await this.backend.authorize()
     return this.backend.lock(
       'gateway',
@@ -129,12 +126,24 @@ export class ServiceManager {
               // 即使原本停止，也取消潜在待启动 Job；不调用 enable/remove 或注销注册。
               quiesce: async () => {
                 assertActive()
+                let failure: unknown
                 for (const snapshot of snapshots) {
-                  await observe(snapshot)
-                  await this.backend.stop(snapshot.spec)
-                  await this.settle(snapshot.spec, false)
+                  try {
+                    await observe(snapshot)
+                    await this.backend.stop(snapshot.spec)
+                    await this.settle(snapshot.spec, false)
+                  } catch (error) {
+                    failure ??= error
+                  }
                 }
-                await session.assertQuiescent()
+                try {
+                  await session.assertQuiescent()
+                } catch (error) {
+                  failure ??= error
+                }
+                if (failure) {
+                  throw failure
+                }
               },
               // 原生 inspect 对 stopped/failed 的 PID、Job 和来源证明保持有效。
               assertQuiescent: async () => {
