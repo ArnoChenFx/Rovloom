@@ -70,6 +70,67 @@ token，再以该 token 读取实际能力并确认实例空白。秘密仅驻�
 `LuvusDispatchClaims`持久唯一记录约束，断连不清墓碑。正式跨进程部署还须交付可信截止元数据，
 缺来源不能用重连时钟补造。
 
+### Herdr 对通用角色的消费契约
+
+Herdr 的固定 `ping {}` 已由
+[`createHerdrRuntime`](../src/connector/herdr/runtime.ts)提供实际原生执行 hook；
+当前角色工厂仍按 Luvus 装配。下一片通用角色须消费下列接口与可信准入来源，
+这些是尚待实现的组合要求，不代表现有 Wire 已包含准入凭据。
+
+每次认证成功后，角色同步调用 `(connection: Connection) => ConnectorWireSession`。
+`Connection`、`Session`、`Readiness` 与 `Adapter`沿用
+[transport 公共类型](../src/transport/common.ts)，`executeWire`沿用
+[ConnectorWireSession](../src/transport/connector.ts)。异步
+`HerdrInstallation.open`在宿主准备阶段完成，每个 epoch 新建 backend/core/runtime，
+然后把其 `adapter/executeWire/close`及独立 `readiness`交给同一角色。原 Wire 文本、
+message_id 和完整 binding 原样交付；角色不剥字段、注入原生 auth 或改写原生协议。
+通用入口不能要求 Herdr 提供 UHP schema、Luvus delegation 或 Luvus peer evidence。
+
+Connector 本机准入簿须实现
+[`HerdrReadonlyBackend`](../src/connector/herdr/readonly.ts)的同步账本查询：
+
+| 消费端口 | 必须提供的事实 |
+|---|---|
+| `attempt(callId, attemptId)` | 原 `TrustedAttempt`：完整 `binding`、受信 `principal_id`、`method/mode/transport`和仍可见的原 `native_request`；H1 仅 strict/rpc，不带 stream feature |
+| `responseAnchor(binding)` | 原 `ResponseAnchor`：同一完整 binding、method/mode、当前 state/content_status、首次固定的 `content_expires_at/dedup_expires_at`，以及实际已提交时才存在的响应摘要证据 |
+| `contentStatus(binding)` | 同一准入记录的当前内容状态；过期、discard 或 unavailable 不能被重收请求/响应恢复 |
+| `now()` | 受保护、不可回拨且与持久 claims 一致的毫秒时钟；期限比较不能混用未经校准的远端时钟 |
+| `subscribeInvalidation(listener)` | 仅发布已提交的 `content/fence/device_fence/closed`通知，并返回同步退订函数 |
+
+准入凭据须来自 Gateway 唯一 Store 的已提交原登记，由认证通道独立交付并持久保存；
+普通请求 JSON、设备广告和 `verified: true`不构成凭据。所需核对字段是完整
+`AttemptBinding`（machine/recovery/epoch、call/attempt/native_request ID、完整 Target、
+provider kind/revision/contract_ref，以及 registration 的原 deadline/history/双端政策修订）、
+原 caller principal、登记请求摘要和上述原锚点期限/状态。摘要必须复用
+[`registeredRequestDigest(payload, callerId)`](../src/wire/history.ts)，
+与 Store 的 `request_hash`一致；完整 binding 仍须逐项核对，不能以摘要代替。
+当前 Wire 不携带 caller，首切片的 principal 仍须匹配受保护的完整 Target 本机路由；
+不得取最近 caller 或信任未经凭据验证的消息字段。
+
+原帧校验期间可有仅供本次校验的候选视图；完整认证、binding、摘要、当前双端策略和原 Wire
+门禁全部通过后，才提交本机准入记录并允许执行 hook 取得它。凭据缺失或冲突必须在打开
+原生 socket 前拒绝，不打开第二个 Gateway writer，不以 `now + TTL`补造或重连刷新期限。
+deadline、content 和 dedup 截止分别保存，content 与 dedup 不假定固定先后顺序。
+当前发送账本要求原 dedup 截止覆盖原 deadline；不足时拒绝，不延长任一期限。
+重复凭据或旧 epoch 不能升级状态、恢复内容或产生第二 permit；`not_dispatched`不得取得执行许可。
+
+`context/currentPrincipal`仍由当前认证及双端精确配置/策略提供，必须复验当前 epoch、
+recovery 和完整 Target 的 registry/config_ref/revision。同一安装的
+`contract/nativeSource`由本机 `HerdrInstallation`提供完整 Worker 编译契约及私有来源 token；
+准入凭据不证明 binary/schema、进程、socket peer 或当前原生就绪，这些不能序列化为 Wire 权限。
+实际写入前继续复验上述事实，并调用既有 `LuvusDispatchClaims.claim(binding, 原 dedup 截止)`
+同步持久化唯一发送墓碑；该类虽沿用旧名称，记录的是通用完整 binding，不引入 UHP 语义。
+H1 要求真实账本实例，不接受返回 true 的自报 claim 回调，也不另建去重模型。
+
+断连先 fence 旧 epoch，再关闭其 adapter/session；factory 构造中重入关闭也须释放已取得资源。
+session 同步 close 只关闭所属桥接等待与订阅，不能宣称原生回滚或退出。角色停止重连并清理
+全部 epoch 后，再由显式 release 释放长期 claims/安装/进程所有权；墓碑保留到原期限。
+已许可 ping 的内容回收只保留原 dedup 期限内的最小响应上下文，fence 直接销毁。
+Gateway 的结果读取/保留与 `planEvidence`消费公共 Adapter，证据仍经
+[`commitNativeResponse`](../src/integration/persistence.ts)进入唯一 Store 事务；
+不能强制走仅接受 Luvus provider/source 的结果工厂。正式 provider 选择、独立准入持久化、
+结果权限和全局预算组合仍是产品门禁，loopback fixture 不代替这项交付。
+
 ### 生产来源边界
 
 当前工厂消费受信来源，尚未提供正式 supervisor 的实例交付、生产 restricted custody 或
@@ -278,7 +339,7 @@ session(connection) {
 这不是另一个导出工厂。`claimDispatch` 必须独立持久、原子、唯一地登记原 attempt 并复验
 权限/epoch/generation/deadline；再次 `Store.dispatch` 或收到 accepted 均不能代替 claim。
 本机 `RpcResult` 保留原生响应，Connector 复验完整返回 binding，再用自己持有原请求的
-Wire 编码；Gateway 只用其原请求 Wire 调用 `commitLuvusResponse`，提交后才发布 responded。
+Wire 编码；Gateway 只用其原请求 Wire 调用 `commitNativeResponse`，提交后才发布 responded。
 
 ### 响应对象与原始读取
 
@@ -318,7 +379,7 @@ Gateway 默认在完成后释放原请求上下文；尚在途的实际 Wire 可
 Gateway `dispatch(call_id)` 从宿主当前 principal 经 Router 重授权，Store 事务返回 binding 后
 才编码和发送。Connector 以独立宿主账本与原生来源校验 request，不从消息构造 attempt。
 原生 JSON 执行模式的 auth 由宿主 `nativeInput` 注入；它只能添加 auth，完整注入后 JSON 再按原生帧预算计量，
-成功才发 accepted 并调用宿主 execute。响应通过原 adapter 和 `commitLuvusResponse` 事务提交，
+成功才发 accepted 并调用宿主 execute。响应通过原 adapter 和 `commitNativeResponse` 事务提交，
 提交前不发布 durable responded。accepted 不等于原生完成。
 
 `gateway.cancel(call_id): Call` 只从同一可信宿主取得当前 principal，复用 `Router.cancel`
@@ -334,7 +395,7 @@ machine/generation/epoch/call/attempt/native ID 发送既有 Wire cancel。无�
 缺原上下文、关闭、旧 epoch 或发送失败均不重发、不排队，也不回滚已提交的状态。
 原 Wire 响应约束仍受既有容量和固定保留期限限制；取消不主动销毁迟到补证能力。
 取消后在途 accepted 不复活状态或误关共享通道；合法同 attempt 响应仍须协商
-`late_evidence`，经原 `commitLuvusResponse` 事务补证，保留取消历史及原 deadline/history/TTL。
+`late_evidence`，经原 `commitNativeResponse` 事务补证，保留取消历史及原 deadline/history/TTL。
 
 Connector 复用原 Wire 的方向、完整 binding、当前双端 cancel 权限及消息去重，再只中止
 同一运行 attempt 的 AbortController。已有 `executeWire` hook 把该 signal 传给实际
