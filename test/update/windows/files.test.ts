@@ -11,7 +11,8 @@ import {
   WindowsPathLease,
   readWindowsExecutable,
   readWindowsExecutableSecurity,
-  replaceWindowsExecutable,
+  cloneWindowsCandidate,
+  moveWindowsExecutable,
   writeWindowsReceipt
 } from '../../../src/update/windows/files.js'
 import { parseWindowsReceipt, windowsReceiptExit } from '../../../src/update/windows/protocol.js'
@@ -112,8 +113,23 @@ test(
       lease = WindowsPathLease.acquire(executable)
       const transactionId = randomBytes(16).toString('hex')
       const directory = lease.createDirectory(transactionId)
-      await fs.writeFile(join(directory, 'candidate.exe'), await fs.readFile(join(root, 'next.exe')), { flag: 'wx' })
+      const clone = cloneWindowsCandidate(lease, transactionId, arch, original)
+      assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'candidate.exe')), originalSecurity)
+      assert.notEqual(clone.fileId, original.fileId)
+      assert.throws(
+        /* 自有候选也不得被第二次复制覆盖。 */ () => cloneWindowsCandidate(lease!, transactionId, arch, original)
+      )
+      const candidate = await fs.open(join(directory, 'candidate.exe'), 'r+')
+      try {
+        const bytes = await fs.readFile(join(root, 'next.exe'))
+        await candidate.writeFile(bytes)
+        await candidate.truncate(bytes.length)
+        await candidate.sync()
+      } finally {
+        await candidate.close()
+      }
       const next = readWindowsExecutable(join(directory, 'candidate.exe'), arch)
+      assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'candidate.exe')), originalSecurity)
       const receipt = {
         schemaVersion: 1,
         transactionId,
@@ -123,7 +139,17 @@ test(
         code: null
       }
       writeWindowsReceipt(lease, transactionId, 1, Buffer.from(JSON.stringify(receipt)))
-      replaceWindowsExecutable(lease, transactionId)
+      // 逐步回执先落盘；此处只验收移动原语，不假装拥有完整跨进程恢复入口。
+      moveWindowsExecutable(lease, transactionId, 'preserve')
+      assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'previous.exe')), originalSecurity)
+      await assert.rejects(fs.stat(executable), { code: 'ENOENT' })
+      writeWindowsReceipt(
+        lease,
+        transactionId,
+        2,
+        Buffer.from(JSON.stringify({ ...receipt, sequence: 2, state: 'replacing' }))
+      )
+      moveWindowsExecutable(lease, transactionId, 'install')
       const installed = readWindowsExecutable(executable, arch)
       assert.equal(installed.fileId, next.fileId)
       assert.equal(installed.sha256, next.sha256)
@@ -138,15 +164,24 @@ test(
       writeWindowsReceipt(
         lease,
         transactionId,
-        2,
-        Buffer.from(JSON.stringify({ ...receipt, sequence: 2, state: 'updated' }))
+        3,
+        Buffer.from(JSON.stringify({ ...receipt, sequence: 3, state: 'updated' }))
       )
       assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 0)
-      replaceWindowsExecutable(lease, transactionId, true)
+      writeWindowsReceipt(
+        lease,
+        transactionId,
+        4,
+        Buffer.from(JSON.stringify({ ...receipt, sequence: 4, state: 'rolling_back' }))
+      )
+      moveWindowsExecutable(lease, transactionId, 'reject')
+      await assert.rejects(fs.stat(executable), { code: 'ENOENT' })
+      moveWindowsExecutable(lease, transactionId, 'restore')
       const restored = readWindowsExecutable(executable, arch)
       assert.equal(restored.fileId, original.fileId)
       assert.equal(restored.sha256, original.sha256)
       assert.equal(restored.security, original.security)
+      assert.deepEqual(readWindowsExecutableSecurity(executable), originalSecurity)
       assert.equal(readWindowsExecutable(join(directory, 'rejected.exe'), arch).fileId, next.fileId)
       assert.deepEqual(await runSystemCommand({ executable, args: ['--version'], timeout: 10000 }), {
         code: 0,
@@ -156,8 +191,8 @@ test(
       writeWindowsReceipt(
         lease,
         transactionId,
-        3,
-        Buffer.from(JSON.stringify({ ...receipt, sequence: 3, state: 'rolled_back', code: 'verification_failed' }))
+        5,
+        Buffer.from(JSON.stringify({ ...receipt, sequence: 5, state: 'rolled_back', code: 'verification_failed' }))
       )
       assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 6)
     } finally {

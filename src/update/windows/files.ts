@@ -39,14 +39,7 @@ type Kernel = {
   ReadFile(handle: bigint, bytes: Buffer, count: number, read: Buffer, overlapped: number): number
   WriteFile(handle: bigint, bytes: Buffer, count: number, written: Buffer, overlapped: number): number
   FlushFileBuffers(handle: bigint): number
-  ReplaceFileW(
-    target: Buffer,
-    replacement: Buffer,
-    previous: Buffer,
-    flags: number,
-    excluded: number,
-    reserved: number
-  ): number
+  CopyFileW(source: Buffer, destination: Buffer, failIfExists: number): number
   MoveFileExW(from: Buffer, to: Buffer, flags: number): number
   CreateDirectoryW(path: Buffer, attributes: Buffer): number
 }
@@ -69,7 +62,7 @@ function api(): Kernel {
     ReadFile: { args: ['u64', 'buffer', 'u32', 'buffer', 'ptr'], returns: 'i32' },
     WriteFile: { args: ['u64', 'buffer', 'u32', 'buffer', 'ptr'], returns: 'i32' },
     FlushFileBuffers: { args: ['u64'], returns: 'i32' },
-    ReplaceFileW: { args: ['buffer', 'buffer', 'buffer', 'u32', 'ptr', 'ptr'], returns: 'i32' },
+    CopyFileW: { args: ['buffer', 'buffer', 'i32'], returns: 'i32' },
     MoveFileExW: { args: ['buffer', 'buffer', 'u32'], returns: 'i32' },
     CreateDirectoryW: { args: ['buffer', 'buffer'], returns: 'i32' }
   })
@@ -101,7 +94,7 @@ function path(value: string): string {
   return value
 }
 
-// 查询真实卷类型；未证明 NTFS 的卷不套用本模块的文件 ID、ACL 与原子替换语义。
+// 查询真实卷类型；未证明 NTFS 的卷不套用本模块的文件 ID、ACL 与同盘移动语义。
 function ntfs(value: string): void {
   const k = api()
   const type = Buffer.alloc(32)
@@ -389,24 +382,57 @@ export class WindowsPathLease {
   }
 }
 
-// 替换目标固定为已验证安装，候选/备份固定在同盘私有事务目录；不使用忽略 ACL 或不支持的写穿选项。
-export function replaceWindowsExecutable(lease: WindowsPathLease, transactionId: string, rollback = false): void {
+// 只复制原文件到自有新候选；复制后的 owner/group/DACL 必须完全相等，不能重写原安装 ACL 以适配更新器。
+export function cloneWindowsCandidate(
+  lease: WindowsPathLease,
+  transactionId: string,
+  arch: 'x64' | 'arm64',
+  original: WindowsFileIdentity
+): WindowsFileIdentity {
   lease.assertActive()
-  if (!/^[0-9a-f]{32}$/u.test(transactionId)) {
+  const current = readWindowsExecutable(lease.executable, arch)
+  if (JSON.stringify(current) !== JSON.stringify(original)) {
+    throw new UpdateError('unsafe_installation')
+  }
+  const candidate = win32.join(lease.directory(transactionId), 'candidate.exe')
+  const k = api()
+  if (!k.CopyFileW(windowsWide(lease.executable), windowsWide(candidate), 1)) {
+    throw new WindowsNativeError(k.GetLastError())
+  }
+  const clone = readWindowsExecutable(candidate, arch)
+  if (
+    clone.volume !== original.volume ||
+    clone.fileId === original.fileId ||
+    clone.size !== original.size ||
+    clone.sha256 !== original.sha256 ||
+    clone.security !== original.security
+  ) {
+    throw new UpdateError('unsafe_installation')
+  }
+  return clone
+}
+
+// 每步仅移动同盘固定文件，拒绝覆盖目标；两步替换之间有空窗，调用方必须先持锁并写入可恢复回执。
+export function moveWindowsExecutable(
+  lease: WindowsPathLease,
+  transactionId: string,
+  phase: 'preserve' | 'install' | 'reject' | 'restore'
+): void {
+  lease.assertActive()
+  const directory = lease.directory(transactionId)
+  const locations = {
+    preserve: [lease.executable, win32.join(directory, 'previous.exe')],
+    install: [win32.join(directory, 'candidate.exe'), lease.executable],
+    reject: [lease.executable, win32.join(directory, 'rejected.exe')],
+    restore: [win32.join(directory, 'previous.exe'), lease.executable]
+  } as const
+  const pair = locations[phase]
+  if (!pair) {
     throw new UpdateError('invalid_arguments')
   }
-  const directory = lease.directory(transactionId)
   const k = api()
-  if (
-    !k.ReplaceFileW(
-      windowsWide(lease.executable),
-      windowsWide(win32.join(directory, rollback ? 'previous.exe' : 'candidate.exe')),
-      windowsWide(win32.join(directory, rollback ? 'rejected.exe' : 'previous.exe')),
-      0,
-      0,
-      0
-    )
-  ) {
+  // WRITE_THROUGH，不允许跨卷复制、覆盖既有文件或延迟至重启；不调用会合并 ACE 的 ReplaceFileW。
+  if (!k.MoveFileExW(windowsWide(pair[0]), windowsWide(pair[1]), 8)) {
     throw new WindowsNativeError(k.GetLastError())
   }
 }

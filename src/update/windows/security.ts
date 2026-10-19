@@ -300,12 +300,18 @@ export function inspectWindowsFileSecurity(handle: bigint, ancestor: boolean): W
     if (units < 1 || units > 65536) {
       throw new UpdateError('unsafe_installation')
     }
-    const sddl = Buffer.from(windowsFfi().toArrayBuffer(windowsPointer(text.readBigUInt64LE()), 0, units * 2))
+    const pointer = windowsPointer(text.readBigUInt64LE())
+    // API 返回分配容量而非实际字符数；只散列 NUL 前的文本，不把分配尾部填充误当权限变化。
+    const characters = k.lstrlenW(pointer)
+    if (characters < 1 || characters >= units) {
+      throw new UpdateError('unsafe_installation')
+    }
+    const sddl = Buffer.from(windowsFfi().toArrayBuffer(pointer, 0, characters * 2))
     result = Object.freeze({
       owner: ownerSid,
       group: groupSid,
       entries: Object.freeze(entries.map(/* 固定只读权限事实，不返回原生指针。 */ (entry) => Object.freeze(entry))),
-      canonical: sddl.toString('utf16le').replace(/\0$/u, ''),
+      canonical: sddl.toString('utf16le'),
       digest: createHash('sha256').update(sddl).digest('hex')
     })
   } catch (error) {
