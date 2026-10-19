@@ -1,8 +1,8 @@
-// 集中导出 MCP 门面、stdio 生命周期和服务契约；不创建身份、存储或原生执行后端。
+// 集中导出HTTP MCP门面与服务契约；不创建身份、存储或原生执行后端。
 export { createMcpFacade } from './facade.js'
 export type { DiagnosticCode, FacadeOptions } from './facade.js'
-export { startStdioFacade } from './stdio.js'
-export type { RunningStdio } from './stdio.js'
+export { createHttpFacade, startHttpFacade, HTTP_BODY_BYTES } from './http.js'
+export type { HttpAuthenticationProvider, HttpFacadeOptions, RunningHttp } from './http.js'
 export {
   MCP_REVISION,
   PRODUCT_VERSION,
@@ -16,8 +16,7 @@ export {
 export { FacadeServiceError } from './types.js'
 export type {
   CallerIdentity,
-  LocalOsIdentity,
-  StdioCallerProvider,
+  McpContextProvider,
   ServiceContext,
   ServiceReply,
   ServiceErrorCode,

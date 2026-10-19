@@ -9,8 +9,10 @@ export type GatewayConfig = Readonly<{
   schema_version: 1
   role: 'gateway'
   state_dir: string
-  mcp: 'stdio'
-  caller_binding_ref: string
+  mcp: 'http'
+  mcp_hostname: '127.0.0.1' | '::1'
+  mcp_port: number
+  authentication_ref: string
 }>
 export type ConnectorConfig = Readonly<{
   schema_version: 1
@@ -27,6 +29,8 @@ export const CLI_ERROR_CODES = [
   'config_platform_unsupported',
   'config_not_protected',
   'config_unreadable',
+  'config_not_found',
+  'config_home_unavailable',
   'invalid_arguments',
   'config_role_mismatch',
   'backend_unavailable'
@@ -110,14 +114,18 @@ export function parseConfig(value: unknown): RoleConfig {
     return fail()
   }
   if (snapshot.role === 'gateway') {
-    const allowed = ['schema_version', 'role', 'state_dir', 'mcp', 'caller_binding_ref']
+    const allowed = ['schema_version', 'role', 'state_dir', 'mcp', 'mcp_hostname', 'mcp_port', 'authentication_ref']
     if (
       Object.keys(snapshot).length !== allowed.length ||
       Object.keys(snapshot).some(
         /* 识别 Gateway 配置中未声明的字段，拒绝额外身份或秘密参数。 */ (key) => !allowed.includes(key)
       ) ||
-      snapshot.mcp !== 'stdio' ||
-      !ref(snapshot.caller_binding_ref)
+      snapshot.mcp !== 'http' ||
+      !['127.0.0.1', '::1'].includes(snapshot.mcp_hostname as string) ||
+      !Number.isSafeInteger(snapshot.mcp_port) ||
+      (snapshot.mcp_port as number) < 1 ||
+      (snapshot.mcp_port as number) > 65_535 ||
+      !ref(snapshot.authentication_ref)
     ) {
       return fail()
     }
@@ -153,8 +161,10 @@ export function configTemplate(role: 'gateway' | 'connector'): RoleConfig {
           schema_version: 1,
           role,
           state_dir: '/absolute/protected/rovloom/gateway',
-          mcp: 'stdio',
-          caller_binding_ref: 'local-stdio'
+          mcp: 'http',
+          mcp_hostname: '127.0.0.1',
+          mcp_port: 9444,
+          authentication_ref: 'mcp-http'
         }
       : {
           schema_version: 1,
@@ -204,6 +214,9 @@ export function readProtectedJson(path: string): unknown {
   } catch (error) {
     if (error instanceof CliError) {
       throw error
+    }
+    if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new CliError('config_not_found')
     }
     throw new CliError('config_unreadable')
   } finally {

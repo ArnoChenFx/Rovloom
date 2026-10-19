@@ -1,8 +1,6 @@
-// 验证实际Luvus目录按当前ACL/来源/epoch分页，并用真实SDK stdio确认描述接线；不声称原生执行。
-import { test } from 'node:test'
+// 验证实际Luvus目录按当前ACL/来源/epoch分页及即时撤权；不声称原生执行。
 import assert from 'node:assert/strict'
-import { fileURLToPath } from 'node:url'
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { test } from 'node:test'
 import {
   FacadeServiceError,
   StoreGatewayService,
@@ -12,7 +10,6 @@ import {
 import { target } from './store-fixture.js'
 import { catalogFixture, catalogMethods } from './catalog-fixture.js'
 import { contractRef } from '../../src/wire/index.js'
-import { sdkTestSession } from './sdk-test-session.js'
 
 // 只构造合成受信caller；业务args没有principal/权限入口。
 function context(): ServiceContext {
@@ -252,59 +249,5 @@ test(
         }
       }
     }
-  }
-)
-
-test(
-  '真实SDK stdio发现/描述实际catalog；调用与结果读取仍明确缺后端',
-  /* SDK和catalog不是stub，可信来源/身份仍为人工fixture，不能当作五方法族native验收。 */ async (t) => {
-    const session = sdkTestSession(t, {
-      command: process.execPath,
-      args: ['--no-env-file', fileURLToPath(new URL('./catalog-server.ts', import.meta.url))],
-      env: { PATH: process.env.PATH ?? '' },
-      stderr: 'pipe'
-    })
-    await session.run(
-      /* 仅在当前测试存活时执行协议工作流，每个SDK等待都绑定同一清理信号。 */ async (client, _transport, signal) => {
-        const listed = await client.callTool(
-          { name: 'runtime_discover', arguments: { target, expected_binding_revision: 1 } },
-          CallToolResultSchema,
-          { signal, timeout: 5000 }
-        )
-        assert.equal(listed.isError, undefined)
-        const data = (listed.structuredContent as { data: { items: { method: string; contract_ref: string }[] } }).data
-        assert.deepEqual(
-          data.items.map(/* 比较真实安装契约中的授权方法名，不使用自造stub方法。 */ (row) => row.method).sort(),
-          [...catalogMethods].sort()
-        )
-        const described = await client.callTool(
-          { name: 'runtime_describe', arguments: { target, expected_binding_revision: 1, method: 'ping' } },
-          CallToolResultSchema,
-          { signal, timeout: 5000 }
-        )
-        assert.equal(described.isError, undefined)
-        const call = await client.callTool(
-          {
-            name: 'runtime_call',
-            arguments: {
-              target,
-              expected_binding_revision: 1,
-              contract_ref: data.items[0]!.contract_ref,
-              native_request: { method: 'ping', params: {} },
-              deadline: 1_020_000
-            }
-          },
-          CallToolResultSchema,
-          { signal, timeout: 5000 }
-        )
-        assert.deepEqual(call.structuredContent, { gateway_error: { code: 'backend_unavailable' } })
-        const read = await client.callTool(
-          { name: 'runtime_result_read', arguments: { result_id: 'not_issued' } },
-          CallToolResultSchema,
-          { signal, timeout: 5000 }
-        )
-        assert.deepEqual(read.structuredContent, { gateway_error: { code: 'backend_unavailable' } })
-      }
-    )
   }
 )

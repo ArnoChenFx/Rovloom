@@ -16,8 +16,49 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
+
+
+# 超时诊断只保留有界尾部，不作为测试通过或完整执行的证明。
+TIMEOUT_LOG_BYTES = 131_072
+TIMEOUT_TRACE_BYTES = 1_048_576
+
+
+# 脱敏并保存超时阶段的有界日志、已观察用例和执行追踪尾部，始终标记验收不完整。
+def save_timeout_diagnostics(output, label, stdout, stderr, seconds, elapsed, replacements):
+    combined = stdout + stderr
+    for source, replacement in replacements:
+        combined = combined.replace(source, replacement)
+    files, cases, current = [], [], None
+    for line in combined.splitlines():
+        if re.search(r'[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx):\s*$', line):
+            current = line.strip()[:-1]
+        elif re.match(r'^\((?:pass|fail|skip|todo)\) ', line):
+            cases.append(line.encode()[-1024:].decode('utf-8', errors='ignore'))
+            if current and current not in files:
+                files.append(current.encode()[-512:].decode('utf-8', errors='ignore'))
+    header = f'{label}: timed out after {seconds}s; incomplete verification\n'.encode()
+    raw = combined.encode()
+    tail = raw[-(TIMEOUT_LOG_BYTES - len(header)):].decode('utf-8', errors='ignore').encode()
+    (output / f'{label}.log').write_bytes(header + tail)
+    trace = output / f'{label}.execve.log'
+    trace_bytes = 0
+    if trace.exists():
+        traced = trace.read_text()
+        for source, replacement in replacements:
+            traced = traced.replace(source, replacement)
+        trace_raw = traced.encode()
+        trace_bytes = len(trace_raw)
+        trace.write_bytes(trace_raw[-TIMEOUT_TRACE_BYTES:].decode('utf-8', errors='ignore').encode())
+    summary = {'label': label, 'status': 'timed_out', 'complete': False,
+               'timeoutSeconds': seconds, 'elapsedSeconds': round(elapsed, 3),
+               'capturedLogBytes': len(raw), 'logTailTruncated': len(raw) > len(tail),
+               'capturedTraceBytes': trace_bytes, 'traceTailTruncated': trace_bytes > TIMEOUT_TRACE_BYTES,
+               'observedTestFilesTail': files[-32:], 'observedTestCasesTail': cases[-32:]}
+    (output / f'{label}.timeout.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
+    return (header + tail[-12000:]).decode('utf-8', errors='ignore')
 
 
 # 读取文件原始字节并返回 SHA-256 摘要，供证据和元数据比对。
@@ -49,7 +90,7 @@ def validate_foundation(project, report):
     return len(cases)
 
 
-# 核对日志通过数及跳过标记，并为 P0 检查 Python 测试摘要。
+# 核对日志通过数与当前 JUnit 用例一致，并拒绝跳过或待办标记。
 def validate_tests(project, label, log, count=None):
     if label == 'foundation':
         count = validate_foundation(project, project / 'foundation.junit.xml')
@@ -57,8 +98,6 @@ def validate_tests(project, label, log, count=None):
         raise RuntimeError(f'{label}: test count differs')
     if re.search(r'\b[1-9]\d* (?:skip|todo)\b|\bskipped=', log):
         raise RuntimeError(f'{label}: skipped or todo tests')
-    if label == 'p0' and not re.search(r'Ran 7 tests[\s\S]*OK', log):
-        raise RuntimeError('Python P0 harness did not pass 7 tests')
     return count
 
 
@@ -82,7 +121,7 @@ def main():
         root = Path(temporary)
         project = root / 'project'
         project.mkdir()
-        for folder in ('src', 'test', 'scripts', 'fixtures'):
+        for folder in ('src', 'test', 'scripts'):
             for source in (repo / folder).rglob('*'):
                 if source.is_file() and '__pycache__' not in source.parts and not source.name.startswith('.env'):
                     destination = project / source.relative_to(repo)
@@ -110,7 +149,7 @@ def main():
         env = {'PATH': str(tools), 'HOME': str(home), 'SHELL': '/bin/sh',
                'LANG': 'C.UTF-8', 'NO_COLOR': '1', 'CI': '1',
                'BUN_INSTALL_CACHE_DIR': str(root / 'empty-cache'),
-               'LUVUS_P0_TEST_ROOT': str(repo.parent),
+               'LUVUS_TEST_ROOT': str(repo.parent),
                'BLOCKED_EXEC_LOG': str(root / 'blocked.log')}
         # 云环境出口可能依赖平台代理/CA；仅继承这些设置。
         # 拒绝含凭据的代理 URL，不记录任何配置值。
@@ -133,14 +172,25 @@ def main():
         # 在隔离项目追踪单条命令，保存日志并核对禁用程序调用与预期退出码。
         def run(label, arguments, expected=0):
             trace = output / (label + '.execve.log')
+            started = time.monotonic()
+            # 全套回归的聚合预算覆盖增长与追踪开销，不改变产品或单例自身的时限。
+            seconds = 300 if label == 'foundation' else 180
             process = subprocess.Popen([trace_tool, '-f', '-qq', '-s', '256', '-e', 'trace=execve,execveat',
                                         '-o', str(trace), *arguments], cwd=project, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             try:
-                stdout, stderr = process.communicate(timeout=180)
-            except BaseException:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.communicate()
+                stdout, stderr = process.communicate(timeout=seconds)
+            except BaseException as error:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = process.communicate()
+                if isinstance(error, subprocess.TimeoutExpired):
+                    diagnostic = save_timeout_diagnostics(
+                        output, label, stdout, stderr, seconds, time.monotonic() - started,
+                        [(str(root), '/isolated'), (str(bun), '/verified/bun')])
+                    print(diagnostic, file=sys.stderr)
                 raise
             combined = stdout + stderr
             # 只追踪本次自建进程，将临时绝对路径脱敏。
@@ -159,9 +209,11 @@ def main():
                 print(combined[-12000:], file=sys.stderr)
                 raise RuntimeError(f'{label}: exit {process.returncode}, expected {expected}; see {output}')
             records.append({'label': label, 'command': arguments, 'exit': process.returncode,
+                            'timeoutSeconds': seconds,
+                            'elapsedSeconds': round(time.monotonic() - started, 3),
                             'executables': executables, 'logSha256': sha(output / (label + '.log')),
                             'execveSha256': sha(trace)})
-            print(f'{label}: pass', flush=True)
+            print(f'{label}: pass; elapsed={records[-1]["elapsedSeconds"]}s; watchdog={seconds}s', flush=True)
             return combined
 
         before = {name: sha(project / name) for name in ('package.json', 'bun.lock')}
@@ -193,22 +245,20 @@ def main():
         if not all(code in diagnostics for code in ('TS2322', 'TS2532')):
             raise RuntimeError('independent typechecker did not reject expected strict errors')
         negative.unlink()
-        harness = run('verify-harness', ['python3', 'scripts/bun/test_verify.py'])
+        harness = run('verify-harness', ['python3', 'test/toolchain/test_verify.py'])
         harness_summary = re.search(r'Ran (\d+) tests?[^\n]*\n\s*OK\s*$', harness)
         if not harness_summary or int(harness_summary[1]) == 0 or 'skipped=' in harness:
             raise RuntimeError('test discovery regression harness did not pass all tests')
-        counts = {}
-        for label, script, count in [('foundation', 'test', None), ('p0', 'test:p0', 7), ('bun-compatibility', 'test:bun', 5)]:
-            command = ['bun', '--no-env-file', 'run', script]
-            if label == 'foundation':
-                command += ['--reporter=junit', '--reporter-outfile=foundation.junit.xml']
-            log = run(label, command)
-            counts[label] = validate_tests(project, label, log, count)
+        log = run('foundation', ['bun', '--no-env-file', 'run', 'test',
+                                 '--reporter=junit', '--reporter-outfile=foundation.junit.xml'])
+        count = validate_tests(project, 'foundation', log)
+        print(f'foundation: {count} passed cases; ' +
+              next(line for line in log.splitlines() if line.startswith('Ran ')), flush=True)
         junit = (project / 'foundation.junit.xml').read_text().replace(str(root), '/isolated')
         (output / 'foundation.junit.xml').write_text(junit)
-        run('p0-audit', ['bun', '--no-env-file', 'run', 'p0:audit'])
-        run('new-native-audit', ['bun', '--no-env-file', 'run', 'p0:bun-native'])
-        (project / 'dist').mkdir()
+        run('luvus-audit', ['bun', '--no-env-file', 'run', 'audit:luvus'])
+        # 单文件回归可能已生成发行探针；仍放入 stale 标记，核对正式构建清除所有旧输出。
+        (project / 'dist').mkdir(exist_ok=True)
         (project / 'dist' / 'stale.js').write_text('throw new Error("stale")')
         run('build', ['bun', '--no-env-file', 'run', 'build'])
         if (project / 'dist' / 'stale.js').exists():
@@ -222,10 +272,7 @@ def main():
                   'platformNetworkSettingNames': network_keys,
                   'strictFlags': ['strict', 'noUncheckedIndexedAccess'],
                   'checkedFiles': expected_files, 'lifecycleScriptsFoundButNotExecuted': lifecycle,
-                  'tests': {'foundation': counts['foundation'],
-                            'verifyHarness': int(harness_summary[1]),
-                            'p0JavaScript': counts['p0'], 'p0Python': 7,
-                            'bunCompatibility': counts['bun-compatibility']},
+                  'tests': {'foundation': count, 'verifyHarness': int(harness_summary[1])},
                   'records': records, 'temporaryProjectRemoved': True}
     (output / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'All checks passed; evidence: {output}')

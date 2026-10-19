@@ -33,7 +33,7 @@ import {
 /** 建立仅使用仓库证据、合成许可和受控 Bun 子进程的私有 fixture，并返回显式清理入口。 */
 export async function fixture(transport: 'ipc' | 'cli' = 'ipc', method = 'task.add') {
   const root = mkdtempSync(
-    join(process.env.LUVUS_P0_TEST_ROOT ?? fileURLToPath(new URL('../../../../', import.meta.url)), '.luvus-adapter-')
+    join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../../../', import.meta.url)), '.luvus-adapter-')
   )
   const home = join(root, 'home')
   const stateRoot = join(root, 'state')
@@ -58,7 +58,7 @@ export async function fixture(transport: 'ipc' | 'cli' = 'ipc', method = 'task.a
   writeFileSync(binary, script, { mode: 0o700 })
   const binarySha = createHash('sha256').update(script).digest('hex')
   const installedIdentity = { ...identity, binary_sha256: binarySha }
-  const compiled = unwrap(compileBundle(bytes, { identity: installedIdentity }))
+  const compiled = unwrap(await compileBundle(bytes, { identity: installedIdentity }))
   const params =
     method === 'task.add'
       ? { title: 'synthetic' }

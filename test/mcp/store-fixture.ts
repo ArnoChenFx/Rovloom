@@ -8,16 +8,9 @@ import { Store } from '../../src/store.js'
 import type { Principal } from '../../src/router.js'
 import type { ProviderPolicy, V2Target } from '../../src/wire/types.js'
 import { StoreGatewayService, type Administrator, type GatewayIdentitySource } from '../../src/mcp/index.js'
+import { syntheticCredential, target, secondTarget, syntheticSecret } from './fixture-values.js'
 
-export const syntheticCredential = 'SYNTHETIC_DEVICE_TEST_ONLY_NOT_ISSUED'
-export const target: V2Target = { machine_id: 'machine_a', provider_id: 'luvus_a', profile: 'session', session: 'test' }
-export const secondTarget: V2Target = {
-  machine_id: 'machine_b',
-  provider_id: 'luvus_b',
-  profile: 'session',
-  session: 'test'
-}
-export const syntheticSecret = 'SYNTHETIC_SECRET_DO_NOT_PRINT'
+export { syntheticCredential, target, secondTarget, syntheticSecret } from './fixture-values.js'
 
 // 生成明确的完整tuple政策；只有测试装配使用，生产不能导入这个授权工厂。
 export function policy(targets: V2Target[] = [target, secondTarget], revision = 'caller_1'): ProviderPolicy {

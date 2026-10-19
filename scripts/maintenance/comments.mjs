@@ -1,6 +1,7 @@
 // 解析维护代码的语法树，检查中文文件职责和函数说明，并提供注释变更的语义比较接口。
 
-import { lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -62,18 +63,17 @@ export function maintainedFiles(root) {
   return files.sort()
 }
 
-// 将一批源码交给已安装的 TypeScript 原生解析器，返回完整 AST 和语法诊断。
-export async function parseJavaScriptSources(sources) {
-  if (sources.size === 0) {
-    return new Map()
-  }
-  const config = '/__rovloom_comment_check__/tsconfig.json'
-  const files = Object.fromEntries(sources)
-  files[config] = JSON.stringify({
+// 所有解析路径使用同一无依赖项目设置，完整保留语法诊断和原始文件路径。
+function projectConfig(sources) {
+  return JSON.stringify({
     compilerOptions: { allowJs: true, checkJs: false, noLib: true, noResolve: true, types: [], target: 'ESNext' },
     files: [...sources.keys()]
   })
-  const api = new API({ cwd: dirname(config), fs: createVirtualFileSystem(files) })
+}
+
+// 从当前项目取完整 AST；实际读取必须与检查开始时的源码快照一致，变化时明确拒绝。
+async function parseProject(sources, config, fs) {
+  const api = new API({ cwd: dirname(config), ...(fs ? { fs } : {}) })
   try {
     const snapshot = await api.updateSnapshot({ openProjects: [config] })
     const project = snapshot.getProject(config)
@@ -81,16 +81,79 @@ export async function parseJavaScriptSources(sources) {
       throw new Error('TypeScript did not create the comment-check project')
     }
     const result = new Map()
-    for (const path of sources.keys()) {
-      const sourceFile = await project.program.getSourceFile(path)
-      if (!sourceFile) {
-        throw new Error(`TypeScript did not parse ${path}`)
+    const paths = [...sources.keys()]
+    for (let offset = 0; offset < paths.length; offset += 8) {
+      // snapshot建立后仅并发只读请求；窗口限制在途AST数量，异常时先排空再关闭API。
+      const window = paths.slice(offset, offset + 8)
+      const parsed = await Promise.allSettled(
+        window.map(
+          /* 每个文件仍取完整AST和独立语法诊断，不用全项目摘要代替逐文件检查。 */ async (path) => {
+            const [file, syntax] = await Promise.allSettled([
+              project.program.getSourceFile(path),
+              project.program.getSyntacticDiagnostics(path)
+            ])
+            if (file.status === 'rejected') {
+              throw file.reason
+            }
+            const sourceFile = file.value
+            if (!sourceFile) {
+              throw new Error(`TypeScript did not parse ${path}`)
+            }
+            // 原生解析器在真实和虚拟读取中都去掉开头BOM，其余字符必须与检查快照完全一致。
+            const source = sources.get(path)
+            if (sourceFile.text !== (source.startsWith('\ufeff') ? source.slice(1) : source)) {
+              throw new Error(`Source changed while checking ${path}`)
+            }
+            if (syntax.status === 'rejected') {
+              throw syntax.reason
+            }
+            return { sourceFile, diagnostics: syntax.value }
+          }
+        )
+      )
+      // 结果和首个错误均按初始文件顺序提交，不让响应到达顺序改变检查输出。
+      for (let index = 0; index < parsed.length; index++) {
+        const file = parsed[index]
+        if (file.status === 'rejected') {
+          throw file.reason
+        }
+        result.set(window[index], file.value)
       }
-      result.set(path, { sourceFile, diagnostics: await project.program.getSyntacticDiagnostics(path) })
     }
     return result
   } finally {
     await api.close()
+  }
+}
+
+// 将合成或尚未落盘的源码交给同一原生解析器，继续支持独立语法及语义比较。
+export async function parseJavaScriptSources(sources) {
+  if (sources.size === 0) {
+    return new Map()
+  }
+  const config = '/__rovloom_comment_check__/tsconfig.json'
+  const files = { ...Object.fromEntries(sources), [config]: projectConfig(sources) }
+  return parseProject(sources, config, createVirtualFileSystem(files))
+}
+
+// 全仓文件由原生解析器直接读取，避免每次虚拟文件系统回调的跨进程往返；配置始终私有且清理。
+async function parseRepositorySources(sources) {
+  if (sources.size === 0) {
+    return new Map()
+  }
+  const directory = mkdtempSync(join(tmpdir(), 'rovloom-comment-project-'))
+  const config = join(directory, 'tsconfig.json')
+  try {
+    writeFileSync(config, projectConfig(sources))
+    const parsed = await parseProject(sources, config)
+    for (const [path, source] of sources) {
+      if (readFileSync(path, 'utf8') !== source) {
+        throw new Error(`Source changed while checking ${path}`)
+      }
+    }
+    return parsed
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
   }
 }
 
@@ -270,7 +333,7 @@ export async function checkRepository(root = repositoryRoot) {
     }
   }
   const result = { files: 0, functions: 0, errors: [] }
-  for (const { sourceFile, diagnostics } of (await parseJavaScriptSources(sources)).values()) {
+  for (const { sourceFile, diagnostics } of (await parseRepositorySources(sources)).values()) {
     const checked = inspectJavaScript(sourceFile, diagnostics)
     result.files += checked.files
     result.functions += checked.functions

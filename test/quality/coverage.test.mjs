@@ -160,7 +160,7 @@ test(
   /* 证明相同字节从 fixture 移入源码目录后会启用两种检查。 */ () => {
     isolated(
       /* 先确认 fixture 被保留，再移动文件并要求检查拒绝违规源码。 */ (project) => {
-        const fixture = 'fixtures/quality/moved-product.schema.ts'
+        const fixture = 'inputs/quality/moved-product.schema.ts'
         const product = 'src/fixtures/moved-product.schema.ts'
         write(project, fixture, badSource)
         run(project, ['run', 'lint'])
@@ -177,20 +177,20 @@ test(
 test(
   'whole-checkout formatting preserves real fixture, schema, archive and license bytes',
   /* 用真实 fixture 副本验证全目录格式化保持数据和许可证字节不变。 */ () => {
-    const source = join(repo, 'fixtures')
+    const source = join(repo, 'test/fixtures')
     const beforeSource = hashes(source)
     isolated(
       /* 对包含真实数据副本的隔离项目执行全目录格式化并核对摘要。 */ (project) => {
-        cpSync(source, join(project, 'fixtures'), { recursive: true })
+        cpSync(source, join(project, 'test/fixtures'), { recursive: true })
         const example = 'test/wire/v2-examples.json'
         write(project, example, readFileSync(join(repo, example)))
-        const before = hashes(join(project, 'fixtures'))
+        const before = hashes(join(project, 'test/fixtures'))
         assert.deepEqual(before, beforeSource)
         const exampleBefore = readFileSync(join(project, example))
         run(project, ['node_modules/oxfmt/bin/oxfmt', '--config', '.oxfmtrc.json', '--write', '.'])
-        assert.deepEqual(hashes(join(project, 'fixtures')), before)
+        assert.deepEqual(hashes(join(project, 'test/fixtures')), before)
         assert.deepEqual(readFileSync(join(project, example)), exampleBefore)
-        assert(existsSync(join(project, 'fixtures/p0/LICENSE.luvus')))
+        assert(existsSync(join(project, 'test/fixtures/luvus/0.14.3/LICENSE')))
       }
     )
     assert.deepEqual(hashes(source), beforeSource)

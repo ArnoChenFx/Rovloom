@@ -1,7 +1,9 @@
 // 解析固定 CLI 命令并调用显式角色宿主；缺后端明确拒绝，标准输出与诊断通道分离。
 import type { Readable, Writable } from 'node:stream'
-import type { GatewayService, StdioCallerProvider } from '../mcp/types.js'
+import type { GatewayService } from '../mcp/types.js'
+import type { HttpAuthenticationProvider } from '../mcp/http.js'
 import { PRODUCT_VERSION } from '../mcp/version.js'
+import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import {
   CLI_ERROR_CODES,
   CliError,
@@ -18,13 +20,16 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom --version
   rovloom config template gateway|connector
   rovloom config check --config /absolute/protected/config.json
-  rovloom gateway --config /absolute/protected/config.json
-  rovloom connector --config /absolute/protected/config.json
+  rovloom gateway [--config /absolute/protected/config.json]
+  rovloom connector [--config /absolute/protected/config.json]
 
+省略 --config 时分别读取 ~/.config/rovloom/gateway.json 或 connector.json；Windows 同样使用用户 home。
+当前受保护配置读取仅支持 POSIX；Windows 读取返回 config_platform_unsupported。
+显式 --config 优先。配置缺失返回 config_not_found，无法确定 home 返回 config_home_unavailable。
 配置文件及所在目录须由当前 POSIX 用户持有，权限分别为 0600/0700。
 模板只含非秘密引用；不接受 argv secret、URL 凭据、动态模块或任意 shell RPC。
-Gateway stdout 仅用于 MCP。当前独立入口尚未接入生产后端，启动明确返回 backend_unavailable。
-宿主可通过 CliRuntime 注入已验证服务与本机 caller；不开放配对、凭据签发或账号注册命令。
+Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
+宿主须注入已验证服务与 HTTP 认证；缺后端返回 backend_unavailable，不开放配对或凭据签发命令。
 退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
 `
 
@@ -35,7 +40,9 @@ export type RunningConnector = {
 }
 export type GatewayRuntime = {
   service: GatewayService
-  caller: StdioCallerProvider
+  authentication: HttpAuthenticationProvider
+  // 宿主可观察实际MCP地址以发布本机就绪状态；此回调不提供认证或权限。
+  listening?(url: string): void
   // 在前端关闭后释放宿主拥有的资源，保留可能已送达工作的历史证据。
   close(): Promise<void>
 }
@@ -53,7 +60,7 @@ type Command =
   | { action: 'check' | 'gateway' | 'connector'; path: string }
 
 // 解析固定命令形状，未知参数只返回稳定错误，不回显 argv。
-export function parseCommand(args: readonly string[]): Command {
+export function parseCommand(args: readonly string[], environment?: ConfigPathEnvironment): Command {
   if (args.length === 0 || (args.length === 1 && ['--help', '-h', 'help'].includes(args[0]!))) {
     return { action: 'help' }
   }
@@ -74,8 +81,11 @@ export function parseCommand(args: readonly string[]): Command {
   if (args.length === 4 && args[0] === 'config' && args[1] === 'check' && args[2] === '--config') {
     return { action: 'check', path: args[3]! }
   }
-  if (args.length === 3 && (args[0] === 'gateway' || args[0] === 'connector') && args[1] === '--config') {
-    return { action: args[0], path: args[2]! }
+  if (
+    (args[0] === 'gateway' || args[0] === 'connector') &&
+    (args.length === 1 || (args.length === 3 && args[1] === '--config'))
+  ) {
+    return { action: args[0], path: resolveRoleConfigPath(args[0], args[2], environment) }
   }
   throw new CliError('invalid_arguments')
 }
@@ -100,9 +110,14 @@ async function untilStopped(running: RunningConnector, signal: AbortSignal): Pro
 }
 
 // 执行配置和角色分支；缺宿主明确拒绝，所有失败仅输出固定诊断。
-export async function runCli(args: readonly string[], io: CliIo, runtime: CliRuntime = {}): Promise<number> {
+export async function runCli(
+  args: readonly string[],
+  io: CliIo,
+  runtime: CliRuntime = {},
+  environment?: ConfigPathEnvironment
+): Promise<number> {
   try {
-    const command = parseCommand(args)
+    const command = parseCommand(args, environment)
     if (command.action === 'help') {
       io.stderr.write(HELP)
       return 0
@@ -141,17 +156,21 @@ export async function runCli(args: readonly string[], io: CliIo, runtime: CliRun
     }
     const gateway = await runtime.gateway(config)
     try {
-      // 仅在真实Gateway宿主建立后加载stdio；help、版本、配置和缺后端拒绝保持轻量。
-      const { startStdioFacade } = await import('../mcp/stdio.js')
-      const stdio = await startStdioFacade({
+      // 只有宿主建立后才加载HTTP SDK；stdin EOF和客户端断开均不结束Gateway。
+      const { startHttpFacade } = await import('../mcp/http.js')
+      const http = startHttpFacade({
         service: gateway.service,
-        caller: gateway.caller,
-        stdin: io.stdin,
-        stdout: io.stdout,
-        diagnostic: /* 只把受限诊断码写入 stderr，保持 Gateway stdout 专用于协议。 */ (code) =>
-          io.stderr.write(code + '\n')
+        authentication: gateway.authentication,
+        hostname: config.mcp_hostname,
+        port: config.mcp_port,
+        diagnostic: /* 只把受限诊断码写入stderr，不输出凭据、URL或协议正文。 */ (code) => io.stderr.write(code + '\n')
       })
-      await untilStopped(stdio, io.signal)
+      try {
+        gateway.listening?.(http.url)
+        await untilStopped(http, io.signal)
+      } finally {
+        await http.close()
+      }
     } finally {
       await gateway.close()
     }

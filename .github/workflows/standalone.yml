@@ -1,0 +1,111 @@
+# 本机编译和执行单文件设施探针；只有已接入真实入口时才上传 CLI 预览候选，不发布 Release。
+name: Standalone candidates
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - id: matrix
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          matrix = {"include": json.loads(Path("scripts/release/platforms.json").read_text())}
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("matrix=" + json.dumps(matrix) + "\n")
+          PY
+  native:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: ${{ matrix.target }}
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Compile and run isolated packaging probe, including omitted-Worker rejection
+        run: bun --no-env-file test ./test/release/executable.test.mjs
+      - name: Verify actual Windows PE icon and console subsystem
+        if: runner.os == 'Windows'
+        run: python scripts/release/verify-windows-icon.py dist/release/${{ matrix.target }}/probe/packaging-probe.exe
+      - name: Build and smoke the existing product CLI when present
+        id: product
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          if [[ -f src/cli/main.ts && -f src/native-contract/compiler-worker.ts ]]; then
+            bun --no-env-file run release:build
+            extension=''
+            if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
+            bun --no-env-file run release:smoke "$PWD/dist/release/$TARGET/candidate/rovloom$extension"
+            if [[ "$RUNNER_OS" == Windows ]]; then
+              python scripts/release/verify-windows-icon.py "dist/release/$TARGET/candidate/rovloom.exe"
+            fi
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'CLI product wiring pending; only the packaging probe was accepted.'
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload packaging probe evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: packaging-probe-${{ matrix.target }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/release/${{ matrix.target }}/probe/packaging-probe*
+            dist/release/${{ matrix.target }}/probe/manifest.json
+            dist/release/${{ matrix.target }}/probe/rovloom.ico
+      - name: Compile and execute the real schema Worker when present
+        id: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f src/native-contract/compiler-worker.ts ]]; then
+            bun --no-env-file scripts/release/native-smoke.mjs
+            if [[ "$RUNNER_OS" == Windows ]]; then
+              python scripts/release/verify-windows-icon.py dist/release/${{ matrix.target }}/probe/packaging-probe.exe
+            fi
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Schema Worker factory pending; no schema runtime acceptance is claimed.'
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload real schema factory probe when accepted
+        if: steps.native.outputs.present == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: native-contract-probe-${{ matrix.target }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/release/${{ matrix.target }}/probe/packaging-probe*
+            dist/release/${{ matrix.target }}/probe/manifest.json
+      - name: Upload CLI preview candidate
+        if: steps.product.outputs.present == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: cli-preview-candidate-${{ matrix.target }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/release/${{ matrix.target }}/candidate/rovloom*
+            dist/release/${{ matrix.target }}/candidate/manifest.json

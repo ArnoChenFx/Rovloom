@@ -1,5 +1,4 @@
 // 将严格校验的 MCP 工具请求交给受信 caller 与统一业务服务，并限制公开结果和诊断。
-import { userInfo } from 'node:os'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
   CallToolRequestSchema,
@@ -22,14 +21,14 @@ import {
   FacadeServiceError,
   SERVICE_ERROR_CODES,
   type GatewayService,
-  type StdioCallerProvider,
+  type McpContextProvider,
   type ToolName
 } from './types.js'
 
 export type DiagnosticCode = 'mcp_transport_error' | 'mcp_service_error' | 'mcp_shutdown_error'
 export type FacadeOptions = {
   service: GatewayService
-  caller: StdioCallerProvider
+  context: McpContextProvider
   // 接收固定诊断码供宿主写入受控日志，不传递原始参数或异常。
   diagnostic?: (code: DiagnosticCode) => void
 }
@@ -207,25 +206,20 @@ export function createMcpFacade(options: FacadeOptions): Server {
       }
       inflight++
       try {
-        const os = userInfo()
-        if (!Number.isSafeInteger(os.uid) || os.uid < 0 || !Number.isSafeInteger(os.gid) || os.gid < 0) {
-          return failed('unauthenticated')
-        }
-        const identity = Object.freeze({ uid: os.uid, gid: os.gid })
-        const binding = await options.caller.resolve(identity)
+        const binding = await options.context.resolve(extra.signal)
         if (
           !binding ||
-          typeof binding.principal_id !== 'string' ||
-          !/^[a-zA-Z0-9_-]{1,128}$/.test(binding.principal_id)
+          typeof binding.caller.principal_id !== 'string' ||
+          !/^[a-zA-Z0-9_-]{1,128}$/.test(binding.caller.principal_id)
         ) {
           return failed('unauthenticated')
         }
-        if (extra.signal.aborted || !initialized) {
+        if (binding.wait_signal.aborted || extra.signal.aborted || !initialized) {
           return failed('unavailable')
         }
         const context = Object.freeze({
-          caller: Object.freeze({ principal_id: binding.principal_id }),
-          wait_signal: extra.signal
+          caller: Object.freeze({ principal_id: binding.caller.principal_id }),
+          wait_signal: binding.wait_signal
         })
         const reply = await options.service.execute(name, args, context)
         const data = publicReply(name, reply.data as Record<string, unknown>)

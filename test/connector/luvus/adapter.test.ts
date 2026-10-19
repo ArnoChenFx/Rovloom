@@ -614,11 +614,10 @@ test(
       process.execPath,
       [
         '--no-env-file',
-        'build',
-        fileURLToPath(new URL('../../../src/connector/luvus/index.ts', import.meta.url)),
-        '--target=bun',
-        '--format=esm',
-        '--outdir=' + outdir
+        '-e',
+        `const {compilerWorkerPlugin} = await import(${JSON.stringify(new URL('../../../scripts/native-contract/worker-plugin.mjs', import.meta.url).href)});
+        const built = await Bun.build({entrypoints: [${JSON.stringify(fileURLToPath(new URL('../../../src/connector/luvus/index.ts', import.meta.url)))}], target:'bun', format:'esm', outdir:${JSON.stringify(outdir)}, plugins:[await compilerWorkerPlugin()]});
+        if(!built.success) throw new AggregateError(built.logs, 'artifact build failed')`
       ],
       { env, encoding: 'utf8', timeout: 30_000 }
     )

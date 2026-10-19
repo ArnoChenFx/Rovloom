@@ -30,7 +30,7 @@ assert.equal(typeof transport.ChannelRegistry, 'function')
 assert.equal(typeof transport.createDeviceLifecycleWiring, 'function')
 assert.equal(typeof transport.createDeviceLifecycleAdapter, 'function')
 // Herdr 产物复用共享 Wire 错误身份；导入本身不启动或连接原生实例。
-const herdr = await import('../../dist/src/herdr/readonly.js')
+const herdr = await import('../../dist/src/connector/herdr/readonly.js')
 assert.equal(typeof herdr.createHerdrReadonlyAdapter, 'function')
 assert.deepEqual(herdr.HERDR_READONLY_REVIEW.methods, ['ping'])
 assert.throws(
@@ -50,6 +50,9 @@ assert.throws(
 )
 const managementAssets = admin.loadManagementAssets(new URL('../../dist/webui/', import.meta.url).pathname)
 assert(managementAssets.has('/rovloom-mark-orange.png'))
+assert(managementAssets.has('/theme.js'))
+const managementShell = readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8')
+assert(managementShell.indexOf('src="./theme.js"') < managementShell.indexOf('href="./manage.css"'))
 assert(!managementAssets.has('/browser.js.map'))
 assert.deepEqual(webui.parseRoute('#machine=a%2Fb'), { machineId: 'a/b', cursor: null, providerCursor: null })
 await assert.rejects(webui.unavailableRead(), { problem: 'unavailable' })
@@ -76,10 +79,11 @@ const cli = await import('../../dist/src/cli/index.js')
 const localLuvus = await import('../../dist/src/connector/luvus/index.js')
 assert.equal(typeof localLuvus.LuvusRpcAdapter, 'function')
 assert.equal(typeof localLuvus.createLuvusCatalog, 'function')
-assert.equal(typeof mcp.startStdioFacade, 'function')
+assert.equal(typeof mcp.startHttpFacade, 'function')
 assert.equal(typeof cli.runCli, 'function')
 assert.equal(typeof cli.createTransportCliRuntime, 'function')
-assert.equal(typeof cli.createLocalCallerProvider, 'function')
+assert.equal(typeof cli.resolveRoleConfigPath, 'function')
+assert.equal(typeof mcp.createHttpFacade, 'function')
 assert.equal(mcp.MCP_REVISION, '2025-11-25')
 assert.equal(cli.parseConfig(cli.configTemplate('gateway')).role, 'gateway')
 assert.equal(cli.parseConfig(cli.configTemplate('connector')).role, 'connector')
@@ -119,8 +123,16 @@ assert.deepEqual(
     'parseNativeJson'
   ].sort()
 )
-const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
-const compiled = native.compileBundle(bytes, {
+const bytes = readFileSync(new URL('../../test/fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url))
+// 构建产物的普通坏 bundle 不能污染编译服务，随后仍须完成完整有效编译。
+const malformed = await native.compileBundle('{}', {
+  identity: { binary_sha256: 'a'.repeat(64), schema_sha256: contracts.digest('{}'), revision: 'artifact-rejection' }
+})
+assert.deepEqual(malformed, {
+  ok: false,
+  error: { origin: 'contract', code: 'schema_unavailable', stage: 'compile', reason: 'invalid_schema' }
+})
+const compiled = await native.compileBundle(bytes, {
   identity: {
     binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
     schema_sha256: contracts.digest(bytes.toString('utf8')),
@@ -138,7 +150,7 @@ assert(checked.ok)
 assert.deepEqual(checked.value.response, response)
 // 仅用 P0 fixture 测试跨构建入口的私有 handle 身份，不建立网络或真实权限。
 const capabilities = JSON.parse(
-  readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/session-capabilities.json', import.meta.url))
+  readFileSync(new URL('../../test/fixtures/luvus/0.14.3/linux/session-capabilities.json', import.meta.url))
 )
 const origin = {
   provider_kind: 'luvus',

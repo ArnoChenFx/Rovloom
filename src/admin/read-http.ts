@@ -53,7 +53,7 @@ export function managementAssetType(path: string): string | null {
   if (path === '/manage.css') {
     return 'text/css; charset=utf-8'
   }
-  if (path === '/browser.js' || /^\/chunk-[a-zA-Z0-9]+\.js$/u.test(path)) {
+  if (path === '/theme.js' || path === '/browser.js' || /^\/chunk-[a-zA-Z0-9]+\.js$/u.test(path)) {
     return 'text/javascript; charset=utf-8'
   }
   if (path === '/rovloom-mark-orange.png' || path === '/rovloom-logo.png') {

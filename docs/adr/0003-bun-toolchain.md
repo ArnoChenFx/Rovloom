@@ -16,6 +16,6 @@
 
 单一执行工具链减少运行/构建差异，保留既有 SQLite API 和依赖锁可以缩小迁移面。独立类型检查和构建 smoke 分别覆盖转译无法保证的类型正确性及产物行为，不能互相替代。
 
-外部发行来源、binary hash/revision 和不可变测试 provenance 保留在 [工具链来源](../../fixtures/toolchain/bun-1.4.3-provenance.json)；每轮输出与验收状态留在 CI/PR。历史 Node 原生采集不改写成 Bun 采集，两条路径的原始证据独立维护。
+外部发行来源、binary hash/revision 和不可变测试 provenance 保留在 [工具链来源](../../scripts/bun/provenance.json)；每轮输出与验收状态留在 CI/PR。历史 Node 原生采集不改写成 Bun 采集，两条路径的原始证据独立维护。
 
 工具链验证只证明其平台与测试范围，不证明其它 OS、商业 MCP Host、OAuth、多 provider 生产后端或服务部署已完成。系统架构与待交付项分别以 DESIGN、实施计划为准。

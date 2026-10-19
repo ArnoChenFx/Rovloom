@@ -75,17 +75,16 @@ export type ReplyData = {
   runtime_response_discard: { call_id: string; content_status: 'discarded' }
 }
 
-export type LocalOsIdentity = Readonly<{ uid: number; gid: number }>
-// 仅由宿主的受保护本机配置解析。不得从 MCP arguments、_meta 或设备凭据构造身份。
-export interface StdioCallerProvider {
-  // 按当前 OS 身份解析受保护绑定；缺少有效绑定返回 null，不接受请求自报身份。
-  resolve(identity: LocalOsIdentity): CallerIdentity | null | Promise<CallerIdentity | null>
-}
 export type ServiceContext = Readonly<{
   caller: CallerIdentity
   // 只结束前端等待；不能将它连接到原生执行的取消或重试。
   wait_signal: AbortSignal
 }>
+// HTTP认证宿主逐请求建立上下文；arguments、_meta、sessionID及本机UID均不能建立远程身份。
+export interface McpContextProvider {
+  // 组合本请求和SDK取消信号，只结束前端等待；缺少当前认证上下文返回null。
+  resolve(signal: AbortSignal): ServiceContext | null | Promise<ServiceContext | null>
+}
 export type ServiceReply<K extends ToolName> = { data: ReplyData[K]; is_error?: boolean }
 
 // 实现者负责完整 provider Target 的当前双端 ACL、管理权限、确认、读取/保留门禁和持久事务。

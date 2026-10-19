@@ -13,6 +13,7 @@ function files() {
   for (const name of [
     'index.html',
     'browser.js',
+    'theme.js',
     'manage.css',
     'rovloom-mark-orange.png',
     'rovloom-logo.png',
@@ -32,7 +33,7 @@ test(
     const origin = 'http://127.0.0.1:12345'
     try {
       const assets = loadManagementAssets(directory)
-      assert.equal(assets.size, 6)
+      assert.equal(assets.size, 7)
       assert(!assets.has('/browser.js.map'))
       assert(!assets.has('/fixture.js'))
       const handler = createManagementReadHandler({
@@ -71,6 +72,13 @@ test(
   /** 资产目录只能是明确的有界普通构建文件。 */ () => {
     const directory = files()
     try {
+      rmSync(join(directory, 'theme.js'))
+      assert.throws(
+        /** 首屏脚本是必需资源，不能交付回退系统主题的缺包页面。 */
+        () => loadManagementAssets(directory),
+        /management_assets_missing/u
+      )
+      writeFileSync(join(directory, 'theme.js'), 'ISOLATED_ASSET_TEST_ONLY')
       rmSync(join(directory, 'browser.js'))
       assert.throws(
         /* 缺少入口不能交付不完整页面。 */ () => loadManagementAssets(directory),

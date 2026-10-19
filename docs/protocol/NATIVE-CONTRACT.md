@@ -1,6 +1,6 @@
 # Luvus 原生校验与宿主接口
 
-`src/native-contract/index.ts` 提供纯同步、无 I/O 的契约内核，
+`src/native-contract/index.ts` 提供异步安装契约编译，以及同步原生校验和授权内核，
 `src/integration/luvus-wire.ts` 的 `createLuvusWireAdapter(backend, limits?)`
 将其接入 [Wire v2](WIRE-PROTOCOL.md)。准确签名以源码及
 `src/native-contract/types.ts` 为准；安全原则、provider 模型和恢复设计分别见
@@ -13,7 +13,7 @@
 
 ## 契约与内存许可
 
-`compileBundle` 用 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包；
+`await compileBundle(bytes, options, signal?)` 在 Bun Worker 中用 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包，并生成官方 standalone 校验代码；
 不联网解析 $ref，不读路径，不补默认值、不转换类型、不删除原生字段。
 URL 是 bundle 内索引。未知方言、关键字、缺引用、副本冲突及资源超限拒绝。
 `parseNativeJson` 执行有界 JSON 检查；对象入口只供内部无行为 JSON。
@@ -33,9 +33,39 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 此项同样不含 LF；下述在线 request/response 帧预算则包含 LF，两项分别执行。
 
 `CompileOptions.limits` 只能降低这些上界。Wire 的 16 MiB bundle 重组上界不扩大
-原生编译预算。以上为结构/字节预算；同步 `compileBundle` 没有硬 CPU/heap 隔离，
-只能用于已审核本地 bundle。生产自动接纳 schema 仍须先交付 DESIGN 的可终止独立
-编译 worker 和 2 秒/64 MiB 限额；线程选项、定时器或快照计量不能作其验收证明。
+原生编译预算。以上为结构/字节预算，不代表 JS heap 大小或 CPU 隔离。
+
+### 编译 Worker 与生成物接纳
+
+首版只接受宿主已审核的本地安装 schema，不自动信任 Wire 重组对象、远端 URL 或 caller
+提交的 schema。公共工厂只收原字节、安装身份/限额和可选取消信号，不接收代码、路径或
+Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；构建时内嵌 Worker 模块。
+Worker 使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译；
+禁止未知方言/关键字、自定义 format/keyword、在线 resolver 和裁剪约束。
+
+每进程至多一个在途编译、没有等待队列；并发返回 `compiler_busy`。从工厂调用开始的
+2 秒接纳期限覆盖启动、预检、编译、standalone 生成、消息与宿主初始化。失败只返回安全
+错误码和固定 reason，不透传 schema、生成代码、私人路径或异常原文。普通 schema
+拒绝统一投影为 `origin: contract / code: schema_unavailable / stage: compile` 和固定 reason，
+包括缺失字段、非法根/目录形状及离线引用失败；拒绝后 Worker 可复用。宿主仍严格拒绝
+错误命名空间、阶段、缺失/额外字段等私有协议损坏。取消、期限或 Worker/私有协议故障会永久退役当前编译服务，
+请求终止 Worker，并拒绝后续任务及所有迟到回复；恢复需要角色进程重新初始化，
+不会自动补建 Worker。预先取消的调用不启动 Worker。角色宿主须等待工厂成功后才发布
+就绪，初始化取消/关闭通过 signal 传播；空闲 Worker 不保持进程存活。
+
+宿主只消费自己当前 Worker 的当前任务回复。私有协议准确版本为 1，未知版本/字段、
+错误任务身份一律拒绝。产物绑定 binary/schema/revision、固定 Ajv/生成器版本、生成选项
+摘要及源码摘要；摘要只检验一致性，来源由私有任务通道保证。生成源码至多 8 MiB，
+元数据按单 JSON 对象预算检查；必须完整覆盖所有根和事件导出。宿主用私有 CJS
+容器初始化生成函数，`require` 只映射锁定 Ajv 的 `ucs2length` 和 `equal` 两个纯 helper；
+不创建 Ajv 实例、不重编译 schema，也不以 ESM 全局模块缓存保留产物。核对和加载均
+在期限内通过才登记真实 CompiledContract。既有同步 validator、opaque 许可及事务
+接口不变；复制 Worker/JSON 数据不能恢复许可。已接纳契约不依赖编译 Worker 存活。
+
+这是可取消、可拒绝迟到产物的编译边界，不承诺 64 MiB 硬 heap 隔离、Worker 在指定
+时刻物理退出或主线程硬实时响应。主线程仍需解析生成 JavaScript，并同步执行后续
+校验；这些阶段没有独立 CPU/heap 硬隔离。`smol`、终止事件、定时器及字节/节点
+计量都不是硬资源上限的证明；任意不受信 schema 自动编译不在首版范围。
 
 session capability 必须提供正安全整数的 `limits.frame_bytes`、
 `terminal.limits.request_bytes` 与 `terminal.limits.response_bytes`。

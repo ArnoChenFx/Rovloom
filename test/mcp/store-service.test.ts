@@ -409,7 +409,7 @@ test(
 
 test(
   '当前身份失效、伪造管理会话和非法参数只返回固定拒绝',
-  /* 验证直接服务入口也不接受额外身份字段，不依赖stdio预先验证。 */ async () => {
+  /* 验证直接服务入口也不接受额外身份字段，不依赖HTTP facade预先验证。 */ async () => {
     const f = storeFixture()
     try {
       await assert.rejects(

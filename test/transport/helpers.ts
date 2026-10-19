@@ -13,7 +13,14 @@ import type { NativeConnectorOptions } from '../../src/transport/connector.js'
 import type { GatewayOptions } from '../../src/transport/gateway.js'
 import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js'
 import type { CompiledContract } from '../../src/native-contract/index.js'
-import type { ContractSource, ProviderBinding, ProviderPolicy, V2Target } from '../../src/wire/types.js'
+import type {
+  ContractSource,
+  HistoryReference,
+  ProviderBinding,
+  ProviderPolicy,
+  V2Target,
+  VersionOffer
+} from '../../src/wire/types.js'
 import { contractRef } from '../../src/wire/index.js'
 import { auth, compiled, G, identity, json, request, view } from '../native-contract/helpers.js'
 import { source } from '../wire/helpers.js'
@@ -278,7 +285,7 @@ export function fixture(
     return client
   }
   /** 经真实 Router 登记固定目标和契约的新调用，派发仍须另经 Store 锚点。 */
-  function call(target: V2Target) {
+  function call(target: V2Target, history?: HistoryReference) {
     return router.create(
       principal,
       target,
@@ -286,7 +293,8 @@ export function fixture(
       {
         binding_revision: store.provider(target.machine_id, target.provider_id)!.binding_revision,
         contract_ref: contractRef(origin),
-        timeoutMs: 10_000
+        timeoutMs: 10_000,
+        ...(history ? { history } : {})
       }
     )
   }
@@ -350,7 +358,11 @@ export async function until(check: () => boolean, timeout = 4000): Promise<void>
   }
 }
 /** 建立可手工注入帧的 mock 客户端，保存收到的帧与本次 welcome epoch。 */
-export function rawConnect(url: string, credential: DeviceCredential) {
+export function rawConnect(
+  url: string,
+  credential: DeviceCredential,
+  offer: VersionOffer = { major: 2, minor: 0, capabilities: ['rpc'], required: ['rpc'] }
+) {
   const ws = new WebSocket(url)
   let epoch = ''
   const frames: unknown[] = []
@@ -368,7 +380,7 @@ export function rawConnect(url: string, credential: DeviceCredential) {
             recovery_generation: credential.recovery_generation,
             device_credential: credential.credential,
             connector_instance_id: 'mock_instance',
-            offer: { major: 2, minor: 0, capabilities: ['rpc'], required: ['rpc'] }
+            offer
           }
         })
       )

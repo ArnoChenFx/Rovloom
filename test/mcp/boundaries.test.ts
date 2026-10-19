@@ -1,211 +1,322 @@
-// 通过内存字节流和受控服务 stub 验证 SDK 协议、编码、请求 ID 与等待资源的拒绝边界。
+// 使用真实HTTP listener及受控服务stub验证协议、身份、输入和等待边界，不接用户或原生实例。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PassThrough } from 'node:stream'
-import {
-  parseToolArguments,
-  FacadeServiceError,
-  startStdioFacade,
-  toolDefinition,
-  type DiagnosticCode,
-  type GatewayService,
-  type ServiceContext,
-  type ToolName
-} from '../../src/mcp/index.js'
+import { parseToolArguments, toolDefinition } from '../../src/mcp/schema.js'
+import { FacadeServiceError, type ServiceContext, type ToolName } from '../../src/mcp/types.js'
+import { HTTP_BODY_BYTES, createHttpFacade } from '../../src/mcp/http.js'
+import { rawHttp, rpcResponse, syntheticHeaders } from './http-fixture.js'
 
-// 创建内存 stdio 探针，按公共请求 ID 收集真实 SDK 协议帧。
-function rawStdio(service: GatewayService) {
-  const stdin = new PassThrough()
-  const stdout = new PassThrough()
-  const diagnostics: DiagnosticCode[] = []
-  const wire: Record<string, unknown>[] = []
-  const pending = new Map<string | number, (value: Record<string, unknown>) => void>()
-  let buffer = ''
-  stdout.on(
-    'data',
-    /* 按换行拆出输出帧并唤醒对应请求，保留原始帧供边界断言。 */ (chunk) => {
-      buffer += chunk
-      while (buffer.includes('\n')) {
-        const index = buffer.indexOf('\n')
-        const message = JSON.parse(buffer.slice(0, index)) as Record<string, unknown>
-        buffer = buffer.slice(index + 1)
-        wire.push(message)
-        const id = message.id as string | number
-        pending.get(id)?.(message)
-        pending.delete(id)
-      }
+// 测试异步状态通过显式握手推进，不猜测网络或服务已经开始。
+function gate() {
+  let resolve!: () => void
+  const promise = new Promise<void>(
+    /* 保留本例独立通知入口。 */ (done) => {
+      resolve = done
     }
   )
-  const running = startStdioFacade({
-    service,
-    caller: {
-      resolve: /* 为隔离探针提供固定 caller，不模拟生产认证后端。 */ () => ({ principal_id: 'isolated-caller' })
-    },
-    stdin,
-    stdout,
-    diagnostic: /* 记录受限诊断代码，供检验错误聚合和秘密隔离。 */ (code) => diagnostics.push(code)
-  })
-  const request = /* 登记一次响应等待后写入 JSON-RPC 请求，避免输出先于监听。 */ (
-    id: string | number,
-    method: string,
-    params?: unknown
-  ) => {
-    const response = new Promise<Record<string, unknown>>(
-      /* 按公共 ID 保存本次响应通知，兼容数字与字符串关联。 */ (resolve) => pending.set(id, resolve)
-    )
-    stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) }) + '\n')
-    return response
+  return { promise, resolve }
+}
+const unused = {
+  execute: /* 非法请求不能进入服务；若发生即由计数或断言暴露。 */ async () => {
+    throw new Error('unused_test_stub')
   }
-  const initialize = /* 完成真实 SDK 初始化流程，再通知服务可以处理工具请求。 */ async () => {
-    await running
-    await request(0, 'initialize', {
-      protocolVersion: '2025-11-25',
-      capabilities: {},
-      clientInfo: { name: 'isolated-raw-boundary', version: '1' }
-    })
-    stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n')
-  }
-  return { stdin, stdout, running, wire, diagnostics, request, initialize }
 }
 
 test(
-  'SDK framing 拒绝坏输入，stderr 诊断固定且有界，关闭时不反射超长请求 ID',
-  /* 发送坏 JSON 和超长 ID，验证诊断有界且错误不回显载荷。 */ async () => {
-    // 仅测试 facade，任何业务执行都视为错误；不接真实服务。
-    const harness = rawStdio({
-      execute: /* 禁止坏输入测试触发业务服务，暴露错误派发。 */ async () => {
-        throw new Error('unused_stub')
+  'GET已有排队SSE注释且无人pull时，deadline仍释放SDK流并允许同会话重新GET',
+  /* 覆盖空闲响应反压，不能依赖pull异常才清理资源。 */ async () => {
+    const facade = createHttpFacade({
+      origin: 'http://127.0.0.1:1',
+      service: unused,
+      requestTimeoutMs: 30,
+      authentication: {
+        authenticate: /* 合成认证只测试会话资源，不接入真实凭据。 */ () => ({ principal_id: 'isolated' })
       }
     })
-    const running = await harness.running
-    try {
-      harness.stdin.write('{"SYNTHETIC_SECRET_DO_NOT_PRINT":\n')
-      harness.stdin.write('{"SYNTHETIC_SECRET_DO_NOT_PRINT":\n')
-      harness.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n')
-      const beforeInitialize = await harness.request(90, 'tools/list')
-      assert.equal((beforeInitialize.error as Record<string, unknown>).code, -32600)
-      await harness.initialize()
-      await harness.request(1, 'ping')
-      assert.deepEqual(harness.diagnostics, ['mcp_transport_error'])
-      assert(!JSON.stringify(harness.wire).includes('SYNTHETIC_SECRET_DO_NOT_PRINT'))
-      harness.stdin.write(
-        JSON.stringify({ jsonrpc: '2.0', id: 'SYNTHETIC_SECRET_DO_NOT_PRINT'.repeat(10), method: 'ping' }) + '\n'
+    const headers: Record<string, string> = {
+      host: '127.0.0.1:1',
+      accept: 'application/json, text/event-stream',
+      'content-type': 'application/json'
+    }
+    const request = /* 直接走正式Web Request处理器，保持初始响应无人消费。 */ (method: string, body?: unknown) =>
+      facade.handleRequest(
+        new Request('http://127.0.0.1:1/mcp', { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) })
       )
-      await running.closed
-      assert.equal(harness.wire.length, 3)
-      assert.deepEqual(harness.diagnostics, ['mcp_transport_error'])
+    try {
+      const init = await request('POST', {
+        jsonrpc: '2.0',
+        id: 'init',
+        method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'queued-get', version: '1' } }
+      })
+      headers['mcp-session-id'] = init.headers.get('mcp-session-id')!
+      headers['mcp-protocol-version'] = '2025-11-25'
+      await rpcResponse(init)
+      await request('POST', { jsonrpc: '2.0', method: 'notifications/initialized' })
+      const first = await request('GET')
+      assert.equal(first.status, 200)
+      await new Promise(
+        /* 等待该响应真实deadline，初始SSE注释始终留在外层队列。 */ (resolve) => setTimeout(resolve, 60)
+      )
+      const second = await request('GET')
+      assert.equal(second.status, 200)
+      assert.equal(await first.text(), ': connected\n\n')
+      await second.body!.cancel()
     } finally {
-      await running.close()
+      await facade.close()
     }
   }
 )
 
 test(
-  '超过 SDK 输入缓冲上限会关闭，不尝试解释或回显载荷',
-  /* 发送超过缓冲上限的字节，检查 SDK 会关闭而不解释内容。 */ async () => {
-    const harness = rawStdio({
-      execute: /* 禁止超限输入到达服务，避免传输拒绝被当成业务成功。 */ async () => {
-        throw new Error('unused_stub')
+  'HTTP固定路径、Host/Origin及认证逐请求拒绝，sessionID不是身份且不信转发头',
+  /* 验证远程身份只来自受信认证宿主。 */ async () => {
+    let identity = 'alice'
+    let reads = 0
+    const harness = rawHttp(unused, {
+      authentication: {
+        authenticate: /* 只读合成header并记录每次认证；不读取业务参数中的身份。 */ (request) => {
+          reads++
+          return request.headers.get('authorization') === syntheticHeaders.authorization
+            ? { principal_id: identity }
+            : null
+        }
       }
     })
-    const running = await harness.running
-    harness.stdin.write('x'.repeat(1_048_577))
-    await running.closed
-    assert.deepEqual(harness.wire, [])
-    assert.deepEqual(harness.diagnostics, ['mcp_transport_error'])
-    await running.close()
+    try {
+      await harness.initialize()
+      const url = harness.running.url
+      assert.equal((await fetch(url, { headers: { ...harness.headers(), authorization: 'Bearer wrong' } })).status, 401)
+      identity = 'bob'
+      assert.equal((await fetch(url, { headers: harness.headers() })).status, 403)
+      identity = 'alice'
+      for (const headers of [{ host: 'evil.test' }, { origin: 'https://evil.test' }] as Record<string, string>[]) {
+        assert.equal((await fetch(url, { headers: { ...harness.headers(), ...headers } })).status, 403)
+      }
+      assert.equal(
+        (await fetch(url + '?token=SYNTHETIC_SECRET_DO_NOT_PRINT', { headers: harness.headers() })).status,
+        403
+      )
+      assert.equal((await fetch(url.replace('/mcp', '/admin'), { headers: harness.headers() })).status, 403)
+      assert.equal(
+        (await fetch(url, { method: 'DELETE', headers: { ...harness.headers(), 'x-forwarded-user': 'administrator' } }))
+          .status,
+        200
+      )
+      assert(reads >= 5)
+      assert.equal((await fetch(url, { headers: harness.headers() })).status, 404)
+      assert.equal((await fetch(url)).status, 401)
+    } finally {
+      await harness.close()
+    }
   }
 )
 
 test(
-  'stdout 关闭和 stdin 错误会结束桥接，重复关闭保持幂等',
-  /* 分别关闭输出和破坏输入，检查桥接及重复关闭的清理行为。 */ async () => {
-    for (const channel of ['stdout', 'stdin'] as const) {
-      const harness = rawStdio({
-        execute: /* 禁止管道故障测试执行业务动作，隔离关闭和授权行为。 */ async () => {
-          throw new Error('unused_stub')
+  '严格HTTP原始字节边界拒绝坏JSON、重复键、截断UTF8及超体积，不回显秘密或派发',
+  /* 解析前施加体积上限，合法Unicode跨chunk保持原值。 */ async () => {
+    let calls = 0
+    let observed: unknown
+    const harness = rawHttp({
+      execute: /* 只记录合法请求快照，不模拟生产后端成功。 */ async (_name, args) => {
+        calls++
+        observed = args
+        throw new FacadeServiceError('unavailable')
+      }
+    })
+    try {
+      await harness.initialize()
+      for (const body of [
+        Buffer.from('{"SYNTHETIC_SECRET_DO_NOT_PRINT":'),
+        Buffer.from([0xff]),
+        Buffer.from([0xe4]),
+        Buffer.from('{"jsonrpc":"2.0","id":1,"id":2,"method":"ping"}'),
+        Buffer.from('x'.repeat(HTTP_BODY_BYTES + 1))
+      ]) {
+        const response = await fetch(harness.running.url, { method: 'POST', headers: harness.headers(), body })
+        assert([400, 413].includes(response.status))
+        assert(!(await response.text()).includes('SYNTHETIC_SECRET_DO_NOT_PRINT'))
+      }
+      assert.equal(calls, 0)
+      const bytes = Buffer.from(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'unicode',
+          method: 'tools/call',
+          params: { name: 'machines_get', arguments: { name: '前😀后' } }
+        })
+      )
+      const stream = new ReadableStream<Uint8Array>({
+        start: /* 逐字节输入覆盖多字节字符的所有chunk边界。 */ (controller) => {
+          for (const byte of bytes) {
+            controller.enqueue(new Uint8Array([byte]))
+          }
+          controller.close()
         }
       })
-      const running = await harness.running
-      await harness.initialize()
-      if (channel === 'stdout') {
-        harness.stdout.destroy()
-      } else {
-        harness.stdin.emit('error', new Error('SYNTHETIC_SECRET_DO_NOT_PRINT'))
-      }
-      await running.closed
-      await running.close()
-      await running.close()
-      assert(!JSON.stringify(harness.wire).includes('SYNTHETIC_SECRET_DO_NOT_PRINT'))
-      assert(
-        harness.diagnostics.every(
-          /* 只允许固定传输诊断，禁止错误消息混入探针结果。 */ (code) => code === 'mcp_transport_error'
-        )
-      )
+      const response = await fetch(harness.running.url, {
+        method: 'POST',
+        headers: harness.headers(),
+        body: stream,
+        duplex: 'half'
+      } as RequestInit)
+      await response.text()
+      assert.deepEqual(observed, { name: '前😀后' })
+      assert.equal(calls, 1)
+    } finally {
+      await harness.close()
     }
   }
 )
 
 test(
-  '最多 16 个在途请求；断开只结束等待且不额外发起业务取消',
-  /* 阻塞十六个工具请求，再核对额外请求被拒绝且 EOF 终止等待。 */ async () => {
-    let release!: () => void
-    const gate = new Promise<void>(
-      /* 保存 gate 释放通知，供测试在完成断言后清理阻塞请求。 */ (resolve) => {
-        release = resolve
+  '最大会话数、空闲过期和HTTP请求deadline均有界，关闭幂等且不占用持久Gateway生命周期',
+  /* 小预算只由本测试显式配置，不改变产品或既有测试超时。 */ async () => {
+    const harness = rawHttp(unused, { maxSessions: 1, idleMs: 30, requestTimeoutMs: 100 })
+    try {
+      await harness.initialize()
+      const init = {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'capacity', version: '1' } }
       }
-    )
-    let ready!: () => void
-    const started = new Promise<void>(
-      /* 保存全部名额占用通知，使容量断言不依赖任意延迟。 */ (resolve) => {
-        ready = resolve
+      const headers = { ...harness.headers() }
+      delete (headers as Partial<typeof headers>)['mcp-session-id']
+      assert.equal(
+        (await fetch(harness.running.url, { method: 'POST', headers, body: JSON.stringify(init) })).status,
+        429
+      )
+      await new Promise(/* 覆盖两轮真实空闲扫描，随后检验旧会话失效。 */ (resolve) => setTimeout(resolve, 90))
+      assert.equal((await fetch(harness.running.url, { headers: harness.headers() })).status, 404)
+      await harness.running.close()
+      await harness.running.close()
+    } finally {
+      await harness.close()
+    }
+    let activeSignal: AbortSignal | undefined
+    const facade = createHttpFacade({
+      origin: 'http://127.0.0.1:1',
+      service: unused,
+      requestTimeoutMs: 20,
+      authentication: {
+        authenticate: /* 故意不完成的认证stub验证deadline，真实宿主必须观察signal并释放资源。 */ (_request, signal) => {
+          activeSignal = signal
+          return new Promise(/* 保持认证待定，不产生身份。 */ () => {})
+        }
       }
-    )
+    })
+    try {
+      assert.equal(
+        (await facade.handleRequest(new Request('http://127.0.0.1:1/mcp', { headers: { host: '127.0.0.1:1' } })))
+          .status,
+        408
+      )
+      assert.equal(activeSignal?.aborted, true)
+    } finally {
+      await facade.close()
+    }
+  }
+)
+
+test(
+  '合法falsey ID取消只停止对应等待，ID复用没有旧回复；同会话重复在途ID在SDK前拒绝',
+  /* 保留旧协议关联及晚到结果断言，改由独立HTTP POST驱动。 */ async () => {
+    for (const id of [0, '', 7]) {
+      const started = gate()
+      const release = gate()
+      const finished = gate()
+      const contexts: ServiceContext[] = []
+      const harness = rawHttp({
+        execute: /* 记录等待并故意延迟返回，不执行原生动作。 */ async (_name, _args, context) => {
+          contexts.push(context)
+          started.resolve()
+          await release.promise
+          finished.resolve()
+          throw new FacadeServiceError('unavailable')
+        }
+      })
+      try {
+        await harness.initialize()
+        const response = await harness.post({
+          jsonrpc: '2.0',
+          id,
+          method: 'tools/call',
+          params: { name: 'machines_list' }
+        })
+        await started.promise
+        assert.equal((await harness.post({ jsonrpc: '2.0', id, method: 'ping' })).status, 409)
+        assert.equal(contexts.length, 1)
+        await harness.post({
+          jsonrpc: '2.0',
+          method: 'notifications/cancelled',
+          params: { requestId: id, reason: 'SYNTHETIC_SECRET_DO_NOT_PRINT' }
+        })
+        assert.equal(contexts[0]?.wait_signal.aborted, true)
+        assert(!String(contexts[0]?.wait_signal.reason).includes('SYNTHETIC_SECRET_DO_NOT_PRINT'))
+        assert.equal((await response.text()).includes('data:'), false)
+        const ping = await harness.request(id, 'ping')
+        assert.equal(ping.id, id)
+        assert.deepEqual(ping.result, {})
+        release.resolve()
+        await finished.promise
+        assert.equal(contexts.length, 1)
+        assert.equal(harness.wire.length, 2)
+      } finally {
+        release.resolve()
+        await harness.close()
+      }
+    }
+  }
+)
+
+test(
+  '最多16个服务等待；断开单个HTTP响应只终止其等待，DELETE结束本会话而不发业务cancel',
+  /* 保留容量、不可变caller及显式取消分离断言。 */ async () => {
+    const ready = gate()
+    const release = gate()
     const contexts: ServiceContext[] = []
     const operations: ToolName[] = []
-    // 只用于资源/信号测试的阻塞 stub，不代表任何授权或持久化后端。
-    const harness = rawStdio({
-      execute: /* 记录服务调用与信号并占满名额，不提供真实业务结果。 */ async (name, _args, context) => {
+    const harness = rawHttp({
+      execute: /* 受控阻塞stub只记录调用与等待信号，不产生持久写入。 */ async (name, _args, context) => {
         contexts.push(context)
         operations.push(name)
         if (contexts.length === 16) {
-          ready()
+          ready.resolve()
         }
-        await gate
-        throw new Error('released_test_stub')
+        await release.promise
+        throw new FacadeServiceError('unavailable')
       }
     })
-    const running = await harness.running
+    const responses: Response[] = []
     try {
       await harness.initialize()
-      for (let index = 1; index <= 16; index++) {
-        // 关闭的请求不会有 response；此处直接写入，避免留下待完成的测试 promise。
-        harness.stdin.write(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: index,
-            method: 'tools/call',
-            params: { name: 'machines_list', arguments: {} }
-          }) + '\n'
+      for (let id = 1; id <= 16; id++) {
+        responses.push(
+          await harness.post({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'machines_list' } })
         )
       }
-      await started
-      const busy = await harness.request(17, 'tools/call', { name: 'machines_list', arguments: {} })
-      const result = busy.result as Record<string, unknown>
-      assert.deepEqual(result.structuredContent, { gateway_error: { code: 'busy' } })
-      assert.equal(result.isError, true)
-      harness.stdin.end()
-      await running.closed
-      assert(contexts.every(/* 核对每个已交付等待信号都随会话关闭而终止。 */ (context) => context.wait_signal.aborted))
-      assert(Object.isFrozen(contexts[0]?.caller))
+      await ready.promise
+      const busy = await harness.request(17, 'tools/call', { name: 'machines_list' })
+      assert.deepEqual((busy.result as Record<string, unknown>).structuredContent, { gateway_error: { code: 'busy' } })
+      await responses[0]!.body!.cancel()
+      await new Promise(/* 等真实HTTP断开通知到达服务端，不推定native停止。 */ (resolve) => setTimeout(resolve, 20))
+      assert.equal(contexts[0]!.wait_signal.aborted, true)
+      assert(contexts.slice(1).every(/* 其它HTTP请求保持独立。 */ (context) => !context.wait_signal.aborted))
+      assert.equal((await fetch(harness.running.url, { method: 'DELETE', headers: harness.headers() })).status, 200)
+      assert(contexts.every(/* 会话关闭后所有等待均终止。 */ (context) => context.wait_signal.aborted))
+      assert(Object.isFrozen(contexts[0]!.caller))
       assert.deepEqual(operations, Array(16).fill('machines_list'))
+      assert.equal((await fetch(harness.running.url)).status, 401)
     } finally {
-      release()
-      await running.close()
+      release.resolve()
+      for (const response of responses) {
+        await response.body?.cancel().catch(/* 关闭后的流拒绝已观察。 */ () => {})
+      }
+      await harness.close()
     }
   }
 )
-
 test(
   '参数快照拒绝 getter/循环，目录 schema 副本不能改变运行时校验',
   /* 用访问器、循环和可修改 schema 副本验证参数快照边界。 */ () => {
@@ -235,194 +346,5 @@ test(
       /* 同时提交 ID 和名称，确认只读查询选择不能产生歧义。 */ () =>
         parseToolArguments('machines_get', { machine_id: 'machine', name: 'name' })
     )
-  }
-)
-
-test(
-  '合法 falsey ID 能取消等待；同 ID 的后续请求不收到旧等待的晚到回复',
-  /* 对 falsey 和普通 ID 验证取消后复用不会收到旧等待的晚到回复。 */ async () => {
-    for (const id of [0, '', 1]) {
-      let started!: () => void
-      const ready = new Promise<void>(
-        /* 保存服务开始通知，确保取消发生在等待已经建立之后。 */ (resolve) => {
-          started = resolve
-        }
-      )
-      let release!: () => void
-      const gate = new Promise<void>(
-        /* 保存旧服务 gate，供复用请求完成后故意释放旧结果。 */ (resolve) => {
-          release = resolve
-        }
-      )
-      let finished!: () => void
-      const done = new Promise<void>(
-        /* 保存旧服务结束通知，确保晚到输出断言覆盖其返回时刻。 */ (resolve) => {
-          finished = resolve
-        }
-      )
-      const contexts: ServiceContext[] = []
-      const harness = rawStdio({
-        // 仅测试 SDK 等待关联；没有原生取消或业务写入。
-        execute: /* 记录旧等待并故意等到测试放行，检验取消不等于业务取消。 */ async (_name, _args, context) => {
-          contexts.push(context)
-          started()
-          await gate
-          finished()
-          throw new FacadeServiceError('unavailable')
-        }
-      })
-      const running = await harness.running
-      try {
-        await harness.initialize()
-        harness.stdin.write(
-          JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'machines_list' } }) + '\n'
-        )
-        await ready
-        harness.stdin.write(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'notifications/cancelled',
-            params: { requestId: id, reason: 'SYNTHETIC_SECRET_DO_NOT_PRINT' }
-          }) + '\n'
-        )
-        await new Promise<void>(/* 让取消通知的微任务完成后再检查等待信号。 */ (resolve) => setImmediate(resolve))
-        assert.equal(contexts[0]?.wait_signal.aborted, true)
-        assert(!String(contexts[0]?.wait_signal.reason).includes('SYNTHETIC_SECRET_DO_NOT_PRINT'))
-        const ping = await harness.request(id, 'ping')
-        assert.equal(ping.id, id)
-        assert.deepEqual(ping.result, {})
-        release()
-        await done
-        await new Promise<void>(/* 让旧服务返回链完成后再核对输出中没有晚到帧。 */ (resolve) => setImmediate(resolve))
-        assert.equal(harness.wire.length, 2)
-        assert.equal(contexts.length, 1)
-      } finally {
-        release()
-        await running.close()
-      }
-    }
-  }
-)
-
-test(
-  '重复在途 ID 在进入 SDK 前关闭，会终止首个等待并禁止晚到输出',
-  /* 重用在途 ID 触发关闭，确认没有第二次执行且首个等待被终止。 */ async () => {
-    let started!: () => void
-    const ready = new Promise<void>(
-      /* 保存首个调用开始通知，避免重复请求早于待测关联建立。 */ (resolve) => {
-        started = resolve
-      }
-    )
-    let release!: () => void
-    const gate = new Promise<void>(
-      /* 保存首个调用 gate，供关闭后模拟晚到服务返回。 */ (resolve) => {
-        release = resolve
-      }
-    )
-    let finished!: () => void
-    const done = new Promise<void>(
-      /* 保存服务结束通知，让晚到输出检查覆盖完整返回链。 */ (resolve) => {
-        finished = resolve
-      }
-    )
-    const contexts: ServiceContext[] = []
-    const harness = rawStdio({
-      execute: /* 只记录首次请求并等待释放，以检验重复 ID 不再进入服务。 */ async (_name, _args, context) => {
-        contexts.push(context)
-        started()
-        await gate
-        finished()
-        throw new FacadeServiceError('unavailable')
-      }
-    })
-    const running = await harness.running
-    try {
-      await harness.initialize()
-      const request =
-        JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'machines_list' } }) + '\n'
-      harness.stdin.write(request)
-      await ready
-      harness.stdin.write(request)
-      await running.closed
-      assert.equal(contexts.length, 1)
-      assert.equal(contexts[0]?.wait_signal.aborted, true)
-      release()
-      await done
-      await new Promise<void>(
-        /* 排空服务返回微任务，检查关闭后不会再产生业务输出。 */ (resolve) => setImmediate(resolve)
-      )
-      assert.equal(harness.wire.length, 1)
-      assert.deepEqual(harness.diagnostics, ['mcp_transport_error'])
-    } finally {
-      release()
-      await running.close()
-    }
-  }
-)
-
-test(
-  '非法或截断 UTF-8 在 SDK 替换前拒绝，合法跨 chunk 字符保留原值',
-  /* 对非法和截断 UTF-8 做零派发断言，并逐字节验证合法 Unicode。 */ async () => {
-    for (const incomplete of [false, true]) {
-      let calls = 0
-      const harness = rawStdio({
-        execute: /* 记录任何错误派发次数，使非法编码改写后的执行无法被掩盖。 */ async () => {
-          calls++
-          throw new Error('unexpected_stub_call')
-        }
-      })
-      const running = await harness.running
-      await harness.initialize()
-      if (incomplete) {
-        harness.stdin.write(Buffer.from([0xe4]))
-        harness.stdin.end()
-      } else {
-        harness.stdin.write(
-          Buffer.concat([
-            Buffer.from(
-              '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"machines_register","arguments":{"name":"before'
-            ),
-            Buffer.from([0xff]),
-            Buffer.from('after"}}}\n')
-          ])
-        )
-      }
-      await running.closed
-      assert.equal(calls, 0)
-      assert.equal(harness.wire.length, 1)
-      assert.deepEqual(harness.diagnostics, ['mcp_transport_error'])
-      await running.close()
-    }
-    let observed: unknown
-    const harness = rawStdio({
-      execute: /* 保留合法 Unicode 参数快照，供比较跨 chunk 解码后的原值。 */ async (_name, args) => {
-        observed = args
-        throw new FacadeServiceError('unavailable')
-      }
-    })
-    const running = await harness.running
-    try {
-      await harness.initialize()
-      const encoded = Buffer.from(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'unicode',
-          method: 'tools/call',
-          params: { name: 'machines_get', arguments: { name: '前😀后' } }
-        }) + '\n'
-      )
-      // 逐字节输入覆盖每个多字节字符的所有 chunk 边界。
-      for (const byte of encoded) {
-        harness.stdin.write(Buffer.from([byte]))
-      }
-      await harness.request(2, 'ping')
-      await new Promise<void>(
-        /* 等待 SDK 返回链完成，再检查逐字节输入没有额外诊断。 */ (resolve) => setImmediate(resolve)
-      )
-      assert.deepEqual(observed, { name: '前😀后' })
-      assert.deepEqual(harness.diagnostics, [])
-    } finally {
-      await running.close()
-    }
   }
 )

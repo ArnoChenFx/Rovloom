@@ -1,11 +1,12 @@
 // 为真实目录/Store接线建立人工在线状态与合成来源；不建立设备或原生会话，不替代生产证明。
 import { StoreGatewayService, type GatewayCatalogSource } from '../../src/mcp/index.js'
-import { contractRef } from '../../src/wire/index.js'
+import { contractRef, type ContractSource } from '../../src/wire/index.js'
 import { compiled, json, source as nativeSource, G } from '../native-contract/helpers.js'
-import { source as wireSource } from '../wire/helpers.js'
 import { storeFixture, target, syntheticCredential } from './store-fixture.js'
 
-export const catalogMethods = ['ping', 'workspace.list', 'pane.read', 'agent.list', 'task.list']
+import { catalogMethods } from './fixture-values.js'
+
+export { catalogMethods } from './fixture-values.js'
 
 // 固定测试凭据只来自人工seed；真实Store建立当前epoch，但不代表#6独立身份桥或socket认证。
 export function catalogFixture() {
@@ -17,7 +18,22 @@ export function catalogFixture() {
   const capabilities = json('session-capabilities.json')
   capabilities.result.session = target.session
   capabilities.result.server_generation = G
-  const origin = { ...wireSource, runtime_generation: G, classification_revision: 'review1' }
+  // 来源摘要直接取本例真实编译句柄，避免为读取常量重复初始化另一套Wire测试校验器。
+  const origin: ContractSource = {
+    provider_kind: 'luvus',
+    protocol_family: 'uhp',
+    binary_version: '0.14.3',
+    binary_sha256: compiled.identity.binary_sha256,
+    schema_sha256: compiled.identity.schema_sha256,
+    schema_origin: 'installed_cli',
+    schema_command: 'luvus uhp schema',
+    server_version: '0.14.3',
+    native_protocol_version: '1.0',
+    runtime_generation: G,
+    adapter_revision: 'synthetic_adapter_1',
+    classification_revision: 'review1',
+    support_basis: 'live_catalog'
+  }
   const initial = nativeSource()
   let source: GatewayCatalogSource | undefined = {
     local_provider: f.store.provider(target.machine_id, target.provider_id)!,

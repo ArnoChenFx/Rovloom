@@ -2,11 +2,12 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { API } from 'typescript/unstable/async'
 import {
   checkRepository,
   inspectJavaScript,
@@ -427,6 +428,158 @@ test(
         assert.ifError(result.error)
         assert.notEqual(result.status, 0)
         assert.doesNotMatch(result.stdout, /0 files/)
+      }
+    )
+  }
+)
+
+test(
+  'real repository parsing matches virtual parsing for implementations and syntax failures',
+  /* 两条路径保留相同函数计数、缺注释和语法拒绝，实际文件路径不会变成临时配置路径。 */ async () => {
+    await isolated(
+      /* 自有文件覆盖 TS 类型、运行时闭包、JS 模块及坏语法，不依赖真实项目数据。 */ async (root) => {
+        const sources = new Map()
+        write(root, 'src/esm/package.json', JSON.stringify({ type: 'module' }))
+        write(root, 'src/cjs/package.json', JSON.stringify({ type: 'commonjs' }))
+        for (const [name, source] of [
+          [
+            'src/bom.ts',
+            '\ufeff' + `${header}// 返回固定值。\nexport const value = () => 1\n`.replaceAll('\n', '\r\n')
+          ],
+          ['src/esm/entry.js', `${header}// 返回默认导出值。\nexport default function () { return 1 }\n`],
+          ['src/cjs/entry.js', `${header}module.exports = /* 返回 CommonJS 导出值。 */ function () { return 1 }\n`],
+          [
+            'src/typed.ts',
+            `${header}interface Shape { method(): void }\n// 返回类型断言内的运行时闭包。\nexport const value = (/* 返回固定值。 */ () => 1) as () => number\n`
+          ],
+          ['scripts/module.mjs', `${header}export const missing = () => 1\n`],
+          ['test/broken.ts', `${header}export function broken( {\n`]
+        ]) {
+          sources.set(write(root, name, source), source)
+        }
+        const expected = { files: 0, functions: 0, errors: [] }
+        for (const { sourceFile, diagnostics } of (await parseJavaScriptSources(sources)).values()) {
+          const checked = inspectJavaScript(sourceFile, diagnostics)
+          expected.files += checked.files
+          expected.functions += checked.functions
+          for (const error of checked.errors) {
+            expected.errors.push({ ...error, path: relative(root, error.path).split('\\').join('/') })
+          }
+        }
+        assert(expected.errors.some(/* 必须仍拒绝缺少实现说明的函数。 */ (error) => /description/.test(error.message)))
+        assert(
+          expected.errors.some(
+            /* 必须仍保留原生语法错误，不能把坏文件当空 AST。 */ (error) => /syntax TS/.test(error.message)
+          )
+        )
+        assert.deepEqual(await checkRepository(root), expected)
+      }
+    )
+  }
+)
+
+test(
+  'repository checking rejects a changed source and removes its private configuration',
+  /* 只在自有文件上制造读取快照差异；原生解析仍实际运行，失败也必须清理临时配置。 */ async (t) => {
+    await isolated(
+      /* API 的公开调用时点发生在初始读取之后，用于确定性模拟编辑竞争。 */ async (root) => {
+        const path = write(root, 'src/changed.ts', `${header}// 返回初始值。\nexport const value = () => 1\n`)
+        const original = API.prototype.updateSnapshot
+        t.after(
+          /* 上层超时也先恢复公开 API，避免测试故障注入影响下一例。 */ () => {
+            API.prototype.updateSnapshot = original
+          }
+        )
+        let config
+        API.prototype.updateSnapshot = /* 保留真实 API，仅在创建原生快照前改变测试自身的源文件。 */ async function (
+          params
+        ) {
+          config = params.openProjects[0]
+          writeFileSync(path, `${header}// 返回变化后的值。\nexport const value = () => 2\n`)
+          return original.call(this, params)
+        }
+        try {
+          await assert.rejects(checkRepository(root), /Source changed while checking/)
+        } finally {
+          API.prototype.updateSnapshot = original
+        }
+        assert(config)
+        assert.match(config, /rovloom-comment-project-/)
+        assert.equal(existsSync(dirname(config)), false)
+      }
+    )
+  }
+)
+
+test(
+  'repository parser drains in-flight reads before closing and preserves the first AST failure',
+  /* 真实API上只注入固定读取故障，验证并发失败不会提前关闭其它逐文件请求或覆盖原错误。 */ async (t) => {
+    await isolated(
+      /* 两个自有文件进入同一窗口，其中一个AST和诊断都失败，另一文件继续实际读取。 */ async (root) => {
+        const first = write(root, 'src/first.ts', `${header}export const value = 1\n`)
+        write(root, 'src/second.ts', `${header}export const value = 2\n`)
+        const update = API.prototype.updateSnapshot
+        const close = API.prototype.close
+        const astFailure = new Error('synthetic_ast_read_failure')
+        const syntaxFailure = new Error('synthetic_syntax_read_failure')
+        let pending = 0
+        let diagnostics = 0
+        let config
+        const pendingAtClose = []
+        // 异常或超时都恢复公开API，故障注入只属于当前隔离用例。
+        const restore = () => {
+          API.prototype.updateSnapshot = update
+          API.prototype.close = close
+        }
+        t.after(restore)
+        API.prototype.updateSnapshot = /* 完成真实初始化后再包装同一snapshot的只读方法。 */ async function (params) {
+          config = params.openProjects[0]
+          const snapshot = await update.call(this, params)
+          for (const project of snapshot.getProjects()) {
+            const source = project.program.getSourceFile
+            const syntax = project.program.getSyntacticDiagnostics
+            project.program.getSourceFile = /* 固定首文件读取失败，其它AST仍由原生解析器返回。 */ async function (
+              path
+            ) {
+              if (path === first) {
+                throw astFailure
+              }
+              return source.call(this, path)
+            }
+            project.program.getSyntacticDiagnostics =
+              /* 延后一轮事件循环后执行真实诊断，确保失败时存在在途请求。 */
+              async function (path) {
+                pending++
+                diagnostics++
+                try {
+                  await new Promise(
+                    /* 事件循环屏障只控制故障顺序，不依赖任意sleep。 */ (resolve) => setImmediate(resolve)
+                  )
+                  const result = await syntax.call(this, path)
+                  if (path === first) {
+                    throw syntaxFailure
+                  }
+                  return result
+                } finally {
+                  pending--
+                }
+              }
+          }
+          return snapshot
+        }
+        API.prototype.close = /* 在真实关闭之前记录是否仍有未结算的诊断请求。 */ async function () {
+          pendingAtClose.push(pending)
+          return close.call(this)
+        }
+        try {
+          await assert.rejects(checkRepository(root), astFailure)
+        } finally {
+          restore()
+        }
+        assert.equal(diagnostics, 2)
+        assert.deepEqual(pendingAtClose, [0])
+        assert(config)
+        assert.equal(existsSync(dirname(config)), false)
       }
     )
   }

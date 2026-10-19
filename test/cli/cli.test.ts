@@ -185,30 +185,39 @@ test(
 )
 
 test(
-  '注入角色仅使用固定配置；EOF/终止信号关闭资源，失败关闭不报告成功',
+  '注入角色仅使用固定配置；EOF不停止Gateway，终止信号关闭资源，失败关闭不报告成功',
   { timeout: 30_000 },
-  /* 验证注入角色的 EOF、终止信号和失败关闭语义，不启动真实服务。 */ async () => {
+  /* 验证注入角色的持久HTTP、终止信号和失败关闭语义，不启动真实服务。 */ async () => {
     await temporary(
       /* 在临时配置下记录两角色清理次数，检查关闭幂等和错误传播。 */ async (directory) => {
         const path = configFile(directory)
         let closed = 0
-        const result = await capture(['gateway', '--config', path], {
-          gateway: /* 检查 Gateway 收到固定配置，并提供仅供生命周期测试的宿主。 */ async (config: GatewayConfig) => {
-            assert.equal(config.caller_binding_ref, 'local-stdio')
-            return {
-              // 仅测试生命周期的 stub，不提供任何成功的业务动作。
-              service: {
-                execute: /* 禁止本例执行任何业务动作，避免关闭测试伪装后端成功。 */ async () => {
-                  throw new Error('unused_stub')
+        const gatewayStop = new AbortController()
+        const result = await capture(
+          ['gateway', '--config', path],
+          {
+            gateway: /* 检查 Gateway 收到固定配置，并提供仅供生命周期测试的宿主。 */ async (config: GatewayConfig) => {
+              assert.equal(config.authentication_ref, 'mcp-http')
+              return {
+                // 仅测试生命周期的 stub，不提供任何成功的业务动作。
+                service: {
+                  execute: /* 禁止本例执行任何业务动作，避免关闭测试伪装后端成功。 */ async () => {
+                    throw new Error('unused_stub')
+                  }
+                },
+                authentication: { authenticate: /* 拒绝全部HTTP身份，生命周期测试无法获得业务权限。 */ () => null },
+                listening: /* stdin已EOF仍必须持续监听，只有显式宿主终止才结束角色。 */ () => {
+                  assert.equal(closed, 0)
+                  gatewayStop.abort()
+                },
+                close: /* 记录 Gateway 资源释放次数，核对 EOF 清理只发生一次。 */ async () => {
+                  closed++
                 }
-              },
-              caller: { resolve: /* 返回缺失身份绑定，使生命周期测试无法获得业务权限。 */ () => null },
-              close: /* 记录 Gateway 资源释放次数，核对 EOF 清理只发生一次。 */ async () => {
-                closed++
               }
             }
-          }
-        })
+          },
+          gatewayStop
+        )
         assert.deepEqual(result, { code: 0, stdout: '', stderr: '' })
         assert.equal(closed, 1)
         const stop = new AbortController()

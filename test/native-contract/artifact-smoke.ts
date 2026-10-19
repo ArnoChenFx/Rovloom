@@ -19,13 +19,21 @@ assert.deepEqual(Object.keys(api).sort(), [
   'inspectRequestGate',
   'parseNativeJson'
 ])
-const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
+const bytes = readFileSync(new URL('../fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url))
 const identity = {
   binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
   schema_sha256: createHash('sha256').update(bytes).digest('hex'),
   revision: 'artifact-smoke'
 }
-const compiled = api.compileBundle(bytes, { identity })
+// 在同一构建产物的真实 Worker 中先拒绝坏输入，再验证有效契约仍可接纳。
+const malformed = await api.compileBundle('{}', {
+  identity: { ...identity, schema_sha256: createHash('sha256').update('{}').digest('hex') }
+})
+assert.deepEqual(malformed, {
+  ok: false,
+  error: { origin: 'contract', code: 'schema_unavailable', stage: 'compile', reason: 'invalid_schema' }
+})
+const compiled = await api.compileBundle(bytes, { identity })
 assert(compiled.ok, JSON.stringify(compiled))
 assert.equal(compiled.value.documents.length, 29)
 const error = {

@@ -22,6 +22,36 @@ Connector 强制 `rejectUnauthorized: true`，可从受保护配置传入 CA，�
 不阻止其它实例。`status()` 只返回有界状态和 ID，不返回凭据、请求或原生内容。
 宿主须独立保证对端配置来源，不能把设备广告转换成 readiness 中的 trusted 本地配置。
 
+## 可信只读观测
+
+`gateway.observations` 实现 `GatewayTransportObservationSource`，只有无参数的同步
+`snapshot()`，类型见 [observation.ts](../src/transport/observation.ts)。宿主可将它独立注入
+管理快照提供方；本接口不增加管理权限、HTTP listener 或 MCP 接线，不能直接交给浏览器作为授权。
+
+快照包含可信 Store 毫秒时钟的 `observed_at`、当前 `recovery_generation`、本 listener 的
+`transport` 可用性和实际认证 peer 的 `devices`。只核验当前 live socket、身份租期、ChannelRegistry
+绑定和 Store fence；持久化 `online` 不构成本 Gateway 的实时来源。连接只提供有证据的
+`online`，认证只提供 `authenticated`，缺少或失效的来源保持 `unverified`；不推断
+`offline/reconnecting/revoked/auth_failed`。正常关闭后条目消失，消费者须将缺项保留为未知。
+
+`connection_epoch_ref` 是每次实际认证生成的独立随机引用，fresh epoch 必须更换，不能用于
+Store、管理确认或派发 fence，也不暴露原始 epoch。`last_heartbeat_at` 初始为 `null`，仅在
+合法 heartbeat 完成消息去重及序号检查后记录本机接收时间；发送心跳、业务帧、重复帧和读取
+均不刷新它，不接受客户端自报时间。
+
+provider 项包含稳定 ID、当前 `binding_revision` 和 `dispatch_ready`；后者只说明既有 Gateway
+派发门禁，核对当前 canonical binding、双端配置/策略、宿主 readiness 与 Wire 可用性。
+`false` 不表示原生不可达，`true` 也不是原生 runtime、binary/schema 摘要、contract 或支持传输
+的独立证明。这些字段以及 native 组件继续由各自可信来源提供，缺来源不得补 verified。
+所有宿主回调完成后再次统一核对连接和 canonical binding，较晚设备回调使较早设备失效时
+不能留下旧 ready。Store 降级、隔离、代次变化或可信时钟异常使本次读取固定报
+`transport_observation_unavailable`，管理层可映射为 `backend_unavailable`，不得沿用旧成功。
+
+返回值递归冻结且不持有凭据、请求、原生内容或宿主异常原文；不维护历史表、订阅或新 timer，
+按现有连接额度和每连接最多 64 个 provider 有界取样。读取不调用断连/撤销/轮换或原生执行；
+既有 Store 时钟和 fence 校验仍维护持久时间高水位。消费者每次请求重新取样，按管理契约执行
+过期和权限过滤；历史快照副本不能继续作为当前权威，也不能转换为可执行许可。
+
 ## 配对、凭据与管理
 
 `IdentityStore` 是 Linux 专用 hash-only SQLite。`PersistentIdentity` 复用它实施凭据管理；
@@ -204,13 +234,36 @@ Gateway `dispatch(call_id)` 从宿主当前 principal 经 Router 重授权，Sto
 成功才发 accepted 并调用宿主 execute。响应通过原 adapter 和 `commitLuvusResponse` 事务提交，
 提交前不发布 durable responded。accepted 不等于原生完成。
 
+`gateway.cancel(call_id): Call` 只从同一可信宿主取得当前 principal，复用 `Router.cancel`
+逐次复验归属及当前双端 cancel 权限，先提交持久停止，再向原活 socket 的精确
+machine/generation/epoch/call/attempt/native ID 发送既有 Wire cancel。无需额外 read 权限；
+返回值是去掉响应正文的宿主内部调用元数据，须按公共 DTO 投影，不能直接作为工具回复。
+未派发调用为 `not_dispatched`，可能已送达的调用
+仍为 `outcome_unknown`；没有取消 ack，成功写出也不能投影为 `bridge_stopped` 或
+`native_confirmed`。MCP/CLI 宿主只在显式 call_cancel 操作调用此端口，前端 wait_signal
+仅结束等待，不能自动转成执行取消。
+
+取消提交失败不发送。提交后先释放 Gateway 本地等待并消费一次发送机会；重复取消、
+缺原上下文、关闭、旧 epoch 或发送失败均不重发、不排队，也不回滚已提交的状态。
+原 Wire 响应约束仍受既有容量和固定保留期限限制；取消不主动销毁迟到补证能力。
+取消后在途 accepted 不复活状态或误关共享通道；合法同 attempt 响应仍须协商
+`late_evidence`，经原 `commitLuvusResponse` 事务补证，保留取消历史及原 deadline/history/TTL。
+
+Connector 复用原 Wire 的方向、完整 binding、当前双端 cancel 权限及消息去重，再只中止
+同一运行 attempt 的 AbortController。已有 `executeWire` hook 把该 signal 传给实际
+`LuvusRpcAdapter.dispatch`，沿用其本地等待中止路径，不另建取消执行器。取消后的拒绝不关闭
+其它调用或设备；忽略 signal 的工作仍占 Connector 原生并发额度，实际 Promise 结束后才释放。
+
 模块可直接组合既有服务 backend：Gateway 接 call_id 与宿主 current principal；Connector
 execute 接完整原生 JSON、AbortSignal 和独立账本固定的 AttemptBinding，宿主据此选择固定
 provider adapter，不能从原生 JSON 的路径/endpoint 或自报 provider 选择执行来源。本模块没有
-第二套 CLI。schema 的硬 CPU/heap worker 隔离仍未产品化，本通道与身份库不解除该执行门禁，
-不能仅因连接 ready 或 fixture 编译成功而宣称生产 native 执行可用。
+第二套 CLI。首版 Luvus 只编译宿主已审核的本地安装 schema；Bun Worker 完整编译并生成
+standalone，以 2 秒逻辑接纳期限、取消及迟到拒绝控制初始化，宿主同步执行已接纳的生成函数。
+这不提供硬 heap 上限或 Worker 在指定时刻物理退出的保证，详见
+[编译接纳边界](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。连接 ready 或 fixture
+编译成功仍不能替代生产宿主所需的来源、分类与执行授权。
 
-当前业务范围为普通 RPC 及其已协商响应对象。流、请求对象、schema 分发和 Wire cancel 尚未
+当前业务范围为普通 RPC、逐调用观察取消及已协商响应对象。流、请求对象和 schema 分发尚未
 接到原生执行，不得广告为这些能力已可用。
 每次实际执行前检查 deadline；观察取消/关闭通过 AbortSignal 通知宿主，**不代表原生回滚**。
 宿主 execute 必须有界并响应观察关闭，忽略 AbortSignal 的工作仍占并发预算直至完成。

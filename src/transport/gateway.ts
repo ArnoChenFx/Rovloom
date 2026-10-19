@@ -1,15 +1,47 @@
 // 实现 Gateway 设备 listener，连接可信认证、逐 provider ready 与事务派发/响应账本。
 import { randomUUID } from 'node:crypto'
-import type { Store } from '../store.js'
+import type { Call, Store } from '../store.js'
 import type { Router, Principal } from '../router.js'
 import { commitLuvusResponse } from '../integration/persistence.js'
-import { decodeWireFrame, encodeWireFrame, negotiate, fail, LIMITS, validateOffer, WireError } from '../wire/index.js'
+import {
+  boundedJson,
+  decodeWireFrame,
+  encodeWireFrame,
+  negotiate,
+  fail,
+  LIMITS,
+  uint,
+  validateOffer,
+  WireError
+} from '../wire/index.js'
 import type { AttemptBinding, AuthenticatedEnvelope, VersionOffer } from '../wire/types.js'
 import type { IdentityHost } from './identity.js'
 import { ChannelRegistry } from './channel-host.js'
 import type { SocketChannel } from './channel-host.js'
 import { budget, envelope, loopback, OFFER, positive, providerHealth, ready, ReceiveWindow, runtime } from './common.js'
 import type { Adapter, Connection, Listener, ServerSocket, Session } from './common.js'
+import type { GatewayTransportObservationSource, GatewayTransportSnapshot, TransportObserved } from './observation.js'
+
+/** 冻结新建的纯观测副本；调用方不能借快照修改 Gateway 私有连接和后续取样。 */
+function freezeObservation<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) {
+      freezeObservation(child)
+    }
+    Object.freeze(value)
+  }
+  return value
+}
+
+/** 仅包装 Gateway 内部已核对的事实，不向宿主导出 verified 工厂或冒称原生证明。 */
+function observed<T>(at: number, value: T): TransportObserved<T> {
+  return { verification: 'verified', observed_at: at, source: 'gateway_transport', value }
+}
+
+/** 缺少当前可信来源时返回未知，不沿用旧连接或旧 provider 的成功状态。 */
+function unverified(reason_code: 'backend_unavailable' | 'not_recorded' | 'stale'): TransportObserved<never> {
+  return { verification: 'unverified', reason_code }
+}
 
 export type OriginalRead = Readonly<{ binding: AttemptBinding; wire: Adapter }>
 /** 仅供受保护结果服务按当前宿主身份解析实际活 Wire；缺原请求或读取权限时拒绝。 */
@@ -29,6 +61,8 @@ type Peer = {
   ws?: ServerSocket<Peer>
   closed: boolean
   received: ReceiveWindow
+  epochReference?: string
+  lastHeartbeatAt?: number
 }
 export type GatewayOptions = {
   hostname: string
@@ -94,6 +128,38 @@ export function createGateway(options: GatewayOptions) {
   let authWindow = performance.now()
   let authAttempts = 0
   let stopped = false
+  let observationClock = -1
+  let samplingObservation = false
+
+  /** 以 Store 同一可信毫秒时钟记录接收和取样时间；拒绝回拨，不从帧或调用参数接收时间。 */
+  function observationNow(): number {
+    const now = options.store.clock()
+    uint(now)
+    if (now < observationClock) {
+      fail('clock_untrusted')
+    }
+    observationClock = now
+    return now
+  }
+
+  /** 只分类不可用原因，不回显宿主异常或把失效猜成已撤销、认证失败或设备离线。 */
+  function unknownDevice(machine_id: string, error: unknown): GatewayTransportSnapshot['devices'][number] {
+    let backend = false
+    try {
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
+      backend =
+        typeof code === 'string' &&
+        ['storage_degraded', 'storage_closed', 'recovery_quarantined', 'clock_untrusted'].includes(code)
+    } catch {
+      /* 宿主异常的 getter 也不属于可信观测，不执行类型转换或泄漏嵌套异常。 */
+    }
+    return {
+      machine_id,
+      connection: unverified(backend ? 'backend_unavailable' : 'stale'),
+      authentication: unverified(backend ? 'backend_unavailable' : 'stale'),
+      providers: []
+    }
+  }
 
   /** 先移除连接可用性，再按原 epoch 断开账本和释放 adapter/socket；已派发动作保持保守状态。 */
   function close(peer: Peer, disconnectLedger = true): void {
@@ -154,6 +220,197 @@ export function createGateway(options: GatewayOptions) {
     }
     options.identity.assert(peer.connection, peer.lease)
   }
+  /** 只读取 live peer 和当前身份/绑定；未知保持未知，取样不会关闭通道或发起原生工作。 */
+  const observations: GatewayTransportObservationSource = Object.freeze({
+    /** 每次取样独立核验；重入拒绝，不让宿主回调创建无限递归观测。 */
+    snapshot(): GatewayTransportSnapshot {
+      if (samplingObservation) {
+        fail('transport_observation_unavailable')
+      }
+      samplingObservation = true
+      try {
+        let at: number
+        let generation: string
+        try {
+          at = observationNow()
+          const health = options.store.health()
+          if (health.mode !== 'active') {
+            fail('transport_observation_unavailable')
+          }
+          generation = health.generation
+        } catch {
+          fail('transport_observation_unavailable')
+        }
+        const devices: GatewayTransportSnapshot['devices'][number][] = []
+        const samples: {
+          index: number
+          peer: Peer & { connection: Connection; session: Session; lease: string }
+          connection: Connection
+          bindings: Map<string, string>
+        }[] = []
+        if (!stopped) {
+          // 固定候选集合；宿主回调新建连接不能延长本次遍历或变成无认证采样来源。
+          const candidates = [...machines]
+          for (const [machine_id, peer] of candidates) {
+            try {
+              assertPeer(peer)
+              if (
+                machines.get(machine_id) !== peer ||
+                !peer.epochReference ||
+                performance.now() - peer.last >= limits.idle_ms
+              ) {
+                fail('stale_transport_observation')
+              }
+            } catch (error) {
+              devices.push(unknownDevice(machine_id, error))
+              continue
+            }
+            let providers: GatewayTransportSnapshot['devices'][number]['providers'] = []
+            const bindings = new Map<string, string>()
+            try {
+              const readiness = peer.session.readiness()
+              const health = providerHealth(peer.connection, readiness)
+              const wireAvailable = !peer.session.adapter.stats().closed
+              providers = health.map(
+                /** 将当前 Store binding 与宿主双端配置交叉核对，不把旧 revision 的 ready 投影给新绑定。 */
+                (provider, index) => {
+                  const expected = readiness.providers[index]!.expected
+                  let revision = expected.binding_revision
+                  try {
+                    const current = options.store.provider(machine_id, provider.provider_id)
+                    if (!current) {
+                      return {
+                        provider_id: provider.provider_id,
+                        binding_revision: revision,
+                        dispatch_ready: unverified('not_recorded')
+                      }
+                    }
+                    revision = current.binding_revision
+                    bindings.set(provider.provider_id, boundedJson(current))
+                    return {
+                      provider_id: provider.provider_id,
+                      binding_revision: revision,
+                      dispatch_ready:
+                        boundedJson(current) === boundedJson(expected)
+                          ? observed(at, wireAvailable && provider.ready)
+                          : unverified('stale')
+                    }
+                  } catch {
+                    return {
+                      provider_id: provider.provider_id,
+                      binding_revision: revision,
+                      dispatch_ready: unverified('backend_unavailable')
+                    }
+                  }
+                }
+              )
+            } catch {
+              /* 没有可信 provider 集合时不捏造 ready、原生错误或不可达原因。 */
+            }
+            samples.push({ index: devices.length, peer, connection: peer.connection, bindings })
+            devices.push({
+              machine_id,
+              connection: observed(at, {
+                state: 'online' as const,
+                connection_epoch_ref: peer.epochReference!,
+                last_heartbeat_at: peer.lastHeartbeatAt ?? null
+              }),
+              authentication: observed(at, { state: 'authenticated' as const, last_failure: null }),
+              providers
+            })
+          }
+        }
+        // 先完成所有宿主回调；后处理某个 peer 时，回调可能已关闭或变更较早采样的另一 peer。
+        for (const { index, peer } of samples) {
+          try {
+            assertPeer(peer)
+          } catch (error) {
+            devices[index] = unknownDevice(devices[index]!.machine_id, error)
+          }
+        }
+        for (const { index, peer, connection, bindings } of samples) {
+          const device = devices[index]!
+          if (device.connection.verification !== 'verified') {
+            continue
+          }
+          try {
+            const current = peer.channel?.connection()
+            if (
+              peer.closed ||
+              machines.get(device.machine_id) !== peer ||
+              peer.connection !== connection ||
+              !current ||
+              current.machine_id !== connection.machine_id ||
+              current.recovery_generation !== connection.recovery_generation ||
+              current.connection_epoch !== connection.connection_epoch ||
+              performance.now() - peer.last >= limits.idle_ms
+            ) {
+              fail('stale_transport_observation')
+            }
+            // 独立核对 Store fence，不能假设每个身份宿主的 assert 都会代查 Store。
+            options.store.assertConnection(connection)
+          } catch (error) {
+            devices[index] = unknownDevice(device.machine_id, error)
+            continue
+          }
+          let wireAvailable: boolean | undefined
+          try {
+            wireAvailable = !peer.session.adapter.stats().closed
+          } catch {
+            /* 适配器状态未知时不沿用旧派发许可，也不影响独立核验的连接事实。 */
+          }
+          devices[index] = {
+            ...device,
+            providers: device.providers.map(
+              /** 最终阶段不再调用宿主 readiness；较晚回调改变的 canonical binding 必须撤回旧 ready。 */
+              (provider) => {
+                try {
+                  const current = options.store.provider(device.machine_id, provider.provider_id)
+                  if (!current) {
+                    return { ...provider, dispatch_ready: unverified('not_recorded') }
+                  }
+                  if (boundedJson(current) !== bindings.get(provider.provider_id)) {
+                    return {
+                      provider_id: provider.provider_id,
+                      binding_revision: current.binding_revision,
+                      dispatch_ready: unverified('stale')
+                    }
+                  }
+                  return {
+                    ...provider,
+                    dispatch_ready:
+                      provider.dispatch_ready.verification !== 'verified'
+                        ? provider.dispatch_ready
+                        : wireAvailable === undefined
+                          ? unverified('backend_unavailable')
+                          : observed(at, wireAvailable && provider.dispatch_ready.value)
+                  }
+                } catch {
+                  return { ...provider, dispatch_ready: unverified('backend_unavailable') }
+                }
+              }
+            )
+          }
+        }
+        try {
+          const health = options.store.health()
+          if (health.mode !== 'active' || health.generation !== generation) {
+            fail('transport_observation_unavailable')
+          }
+        } catch {
+          fail('transport_observation_unavailable')
+        }
+        return freezeObservation({
+          observed_at: at,
+          recovery_generation: generation,
+          transport: observed(at, stopped ? ('unavailable' as const) : ('available' as const)),
+          devices: stopped ? [] : devices
+        })
+      } finally {
+        samplingObservation = false
+      }
+    }
+  })
   /** 清除过期、清理或旧 fence 的读取引用；在途调用仍保留原 Wire 自身的仅响应补证状态。 */
   function pruneOriginalReads(): void {
     for (const [call, original] of reads) {
@@ -267,6 +524,7 @@ export function createGateway(options: GatewayOptions) {
           fail('duplicate_device_connection')
         }
         peer.connection = connection
+        peer.epochReference = randomUUID()
         peer.lease = authenticated.lease
         if (!peer.channel) {
           fail('connection_binding_mismatch')
@@ -327,6 +585,12 @@ export function createGateway(options: GatewayOptions) {
         }
         peer.sequence++
         peer.last = now
+        try {
+          peer.lastHeartbeatAt = observationNow()
+        } catch {
+          // 接收已完成但无法记录可信时刻时保持未知，观测失败不引入新的业务动作。
+          peer.lastHeartbeatAt = undefined
+        }
         return
       }
       if (decoded.type !== 'accepted' && decoded.type !== 'response') {
@@ -334,7 +598,10 @@ export function createGateway(options: GatewayOptions) {
       }
       const binding = { ...peer.connection, ...decoded.payload.attempt }
       if (decoded.type === 'accepted') {
-        options.store.accepted(binding)
+        // 取消先提交后，原 accepted 仍可能在途；完整绑定已核验，不能借迟到确认复活状态或关闭其它调用。
+        if (options.store.responseAnchor(binding).state !== 'outcome_unknown') {
+          options.store.accepted(binding)
+        }
       } else {
         commitLuvusResponse(options.store, peer.session.adapter, decoded)
         inflight.delete(binding.call_id)
@@ -453,6 +720,7 @@ export function createGateway(options: GatewayOptions) {
 
   return {
     channels,
+    observations,
     url: `${options.tls ? 'wss' : 'ws'}://${options.hostname.includes(':') ? '[' + options.hostname + ']' : options.hostname}:${listener.port}/connector`,
     /** 返回有界连接和 provider 健康状态；失效认证会触发关闭且不输出内容或 secret。 */
     status() {
@@ -540,6 +808,45 @@ export function createGateway(options: GatewayOptions) {
       } catch {
         return undefined
       }
+    },
+    /** 先按当前主体持久取消，再尽力通知原活 attempt；无取消 ack，不宣称桥接或原生已停止。 */
+    cancel(callId: string): Call {
+      const call = options.router.cancel(options.principal(), callId)
+      const original = inflight.get(callId)
+      if (!original || call.state !== 'outcome_unknown') {
+        return call
+      }
+      // 移除本地等待并消费唯一发送机会；重入、写出失败和重复取消均不自动重发。
+      inflight.delete(callId)
+      const peer = machines.get(original.machine_id)
+      try {
+        if (
+          !peer ||
+          call.epoch !== original.connection_epoch ||
+          call.attempt_id !== original.payload.attempt.attempt_id
+        ) {
+          return call
+        }
+        assertPeer(peer)
+        if (
+          peer.connection.machine_id !== original.machine_id ||
+          peer.connection.recovery_generation !== original.recovery_generation ||
+          peer.connection.connection_epoch !== original.connection_epoch
+        ) {
+          return call
+        }
+        options.store.assertConnection(peer.connection)
+        write(
+          peer,
+          envelope(peer.connection, 'cancel', {
+            attempt: structuredClone(original.payload.attempt),
+            reason: 'caller_cancelled'
+          })
+        )
+      } catch {
+        /* 持久取消已提交；缺原上下文、撤权、关闭或发送失败只保留 unknown，不恢复队列或泄漏异常。 */
+      }
+      return call
     },
     /** 从宿主 principal 经 Router 授权并提交 Store binding 后才编码发送；后续失败保持 unknown。 */
     dispatch(callId: string) {

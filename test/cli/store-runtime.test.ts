@@ -12,8 +12,8 @@ test(
     const directory = mkdtempSync(join(tmpdir(), 'rovloom-cli-store-'))
     const config = { ...configTemplate('gateway'), state_dir: directory } as GatewayConfig
     const runtime = createStoreCliRuntime({
-      caller: {
-        resolve: /* 合成绑定只用于本测试，不会由OS用户名自动获得权限。 */ () => ({ principal_id: 'synthetic_cli' })
+      authentication: {
+        authenticate: /* 合成绑定只用于本测试，不会由OS用户名自动获得权限。 */ () => ({ principal_id: 'synthetic_cli' })
       },
       identities: {
         principal: /* 共享身份来源只有空tuple授权，没有管理员能力。 */ () => ({

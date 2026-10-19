@@ -592,13 +592,18 @@ test(
       const second = f.call(a.target)
       f.gateway.dispatch(second.call_id)
       await until(
-        /** 等待通道关闭传播到观察用 AbortSignal。 */
-        () => aborted > 0
+        /** 两端关闭独立传播；AbortSignal 不能代替 Gateway 账本与额度已收敛的事实。 */
+        () =>
+          aborted > 0 &&
+          f.router.get(f.principal, first.call_id).state === 'outcome_unknown' &&
+          f.router.get(f.principal, second.call_id).state === 'outcome_unknown' &&
+          f.gateway.status().inflight === 0
       )
       assert.equal(started, 1)
       assert.equal(f.router.get(f.principal, first.call_id).state, 'outcome_unknown')
       assert.equal(f.router.get(f.principal, second.call_id).state, 'outcome_unknown')
       assert.equal(f.gateway.status().inflight, 0)
+      assert.equal(ca.status().running, 1)
       finish.forEach(
         /** 逐个完成受控原生 Promise，回收测试中仍占用的并发额度。 */
         (fn) => fn()

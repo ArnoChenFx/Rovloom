@@ -5,6 +5,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { PassThrough } from 'node:stream'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import {
   configTemplate,
   createTransportCliRuntime,
@@ -16,6 +18,7 @@ import {
 } from '../../src/cli/index.js'
 import { FacadeServiceError, StoreGatewayService, type ServiceContext } from '../../src/mcp/index.js'
 import { storeFixture, policy } from '../mcp/store-fixture.js'
+import { httpFixture, syntheticHeaders } from '../mcp/http-fixture.js'
 
 // 测试信号使用显式Promise握手，不以sleep推测角色已经启动或关闭。
 function notification() {
@@ -63,7 +66,7 @@ function resources(f: ReturnType<typeof storeFixture>): GatewayTransportResource
     store: f.store,
     identities: f.identities,
     localPolicies: f.localPolicies,
-    caller: { resolve: /* 此合成caller仅用于测试已有Store授权查询。 */ () => ({ principal_id: 'alice' }) },
+    authentication: { authenticate: /* 此合成caller仅用于测试已有Store授权查询。 */ () => ({ principal_id: 'alice' }) },
     transport: {
       hostname: '127.0.0.1',
       port: 0,
@@ -146,8 +149,8 @@ test(
 )
 
 test(
-  'CLI transport宿主打开实际listener，EOF先停网络再释放一次Store资源',
-  /* 运行实际runCli/stdio/Store/transport；不以角色stub替代网络生命周期。 */ async () => {
+  'CLI transport宿主打开实际listener，stdin EOF持续运行，终止时先停网络再释放一次Store资源',
+  /* 运行实际runCli/HTTP/Store/transport；不以角色stub替代网络生命周期。 */ async () => {
     const f = storeFixture()
     let ports: GatewayTransportPorts | undefined
     let closes = 0
@@ -172,6 +175,7 @@ test(
     const stdout = new PassThrough()
     const stderr = new PassThrough()
     const started = notification()
+    const stop = new AbortController()
     const opening = runtime.gateway!
     runtime.gateway = /* 明确等待实际listener创建后再发EOF，避免伪造启动成功。 */ async (value) => {
       const running = await opening(value)
@@ -184,7 +188,7 @@ test(
         stdin,
         stdout,
         stderr,
-        signal: new AbortController().signal
+        signal: stop.signal
       },
       runtime
     )
@@ -196,6 +200,9 @@ test(
       assert.equal(ports!.transport.status().stopped, false)
     } finally {
       stdin.end()
+      await new Promise(/* 等待EOF事件被消费，确认它没有停止Gateway。 */ (resolve) => setImmediate(resolve))
+      assert.equal(ports!.transport.status().stopped, false)
+      stop.abort()
       assert.equal(await running, 0)
       f.close()
     }
@@ -368,6 +375,95 @@ test(
     } finally {
       stop.abort()
       await running
+      await gateway.close()
+      f.close()
+    }
+  }
+)
+
+// 实际HTTP作用域必须跨过service的await，再进入同一个transport-runtime身份作用域。
+test(
+  '两HTTP会话逆序恢复后ports.principal仍属于各自caller，当前身份撤销继续拒绝',
+  /* 复用实际Store/Router/transport；服务仅为检查异步身份的阻塞探针，不执行native。 */ async () => {
+    const f = storeFixture()
+    const started = { alice: notification(), bob: notification() }
+    const resume = { alice: notification(), bob: notification() }
+    const readers: string[] = []
+    let aliceActive = true
+    let ports!: GatewayTransportPorts
+    const runtime = createTransportCliRuntime({
+      gateway: /* 所有设备认证仍拒绝；HTTP认证仅提供合成Alice/Bob用于隔离测试。 */ async () => ({
+        ...resources(f),
+        authentication: {
+          authenticate: /* 每HTTP请求验证固定合成header，不从参数或sessionID选择身份。 */ (request) => {
+            const token = request.headers.get('authorization')
+            return token === syntheticHeaders.authorization
+              ? { principal_id: 'alice' }
+              : token === 'Bearer BOB_TEST_ONLY'
+                ? { principal_id: 'bob' }
+                : null
+          }
+        },
+        identities: {
+          principal: /* ports.principal在await后必须重新读取本例当前身份，而非缓存HTTP初始化结果。 */ (caller) =>
+            ['alice', 'bob'].includes(caller.principal_id) && (caller.principal_id !== 'alice' || aliceActive)
+              ? { id: caller.principal_id, policy: policy() }
+              : null,
+          administrator: /* MCP的合成身份不能取得管理员会话。 */ () => null
+        },
+        service: /* 同一真实transport向探针交付其私有principal接口，不另造Router。 */ (value) => {
+          ports = value
+          return {
+            execute: /* 两会话同时挂起并逆序恢复，之后才读取当前transport caller。 */ async (_name, _args, context) => {
+              const id = context.caller.principal_id as keyof typeof resume
+              started[id].resolve()
+              await resume[id].promise
+              readers.push(ports.principal().id)
+              throw new FacadeServiceError('unavailable')
+            }
+          }
+        }
+      })
+    })
+    const gateway = await runtime.gateway!({ ...configTemplate('gateway'), state_dir: f.directory } as GatewayConfig)
+    const http = httpFixture(gateway.service, { authentication: gateway.authentication })
+    const bob = new Client({ name: 'bob-http-scope-test', version: '1' })
+    const bobTransport = new StreamableHTTPClientTransport(new URL(http.running.url), {
+      requestInit: { headers: { authorization: 'Bearer BOB_TEST_ONLY' } }
+    })
+    try {
+      await Promise.all([
+        http.client.connect(http.transport, { timeout: 5000 }),
+        bob.connect(bobTransport, { timeout: 5000 })
+      ])
+      const aliceReply = http.client.callTool({ name: 'machines_list', arguments: {} }, undefined, { timeout: 5000 })
+      const bobReply = bob.callTool({ name: 'machines_list', arguments: {} }, undefined, { timeout: 5000 })
+      const aliceObserved = aliceReply.then(
+        /* 提前观察成功，避免等待另一个会话时留下未处理拒绝。 */ (reply) => ({ reply }),
+        /* 异常仍作为测试失败证据保留。 */ (error: unknown) => ({ error })
+      )
+      const bobObserved = bobReply.then(
+        /* 独立观察Bob请求，不让Alice的等待拥有它。 */ (reply) => ({ reply }),
+        /* Bob的意外拒绝不能被清理吞掉。 */ (error: unknown) => ({ error })
+      )
+      await Promise.all([started.alice.promise, started.bob.promise])
+      resume.bob.resolve()
+      const second = await bobObserved
+      assert('reply' in second && second.reply.isError)
+      assert.deepEqual(readers, ['bob'])
+      resume.alice.resolve()
+      const first = await aliceObserved
+      assert('reply' in first && first.reply.isError)
+      assert.deepEqual(readers, ['bob', 'alice'])
+      aliceActive = false
+      const revoked = await http.client.callTool({ name: 'machines_list', arguments: {} }, undefined, { timeout: 5000 })
+      assert.deepEqual(revoked.structuredContent, { gateway_error: { code: 'unauthenticated' } })
+      assert.deepEqual(readers, ['bob', 'alice'])
+    } finally {
+      resume.alice.resolve()
+      resume.bob.resolve()
+      await bob.close()
+      await http.close()
       await gateway.close()
       f.close()
     }

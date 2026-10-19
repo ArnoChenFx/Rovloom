@@ -12,7 +12,8 @@ import {
   type OriginalReadResolver
 } from '../transport/index.js'
 import { StoreGatewayService, resolveGatewayPrincipal } from '../mcp/store-service.js'
-import { FacadeServiceError, type CallerIdentity, type GatewayService, type StdioCallerProvider } from '../mcp/types.js'
+import { FacadeServiceError, type CallerIdentity, type GatewayService } from '../mcp/types.js'
+import type { HttpAuthenticationProvider } from '../mcp/http.js'
 import type { GatewayIdentitySource } from '../mcp/management.js'
 import type { GatewayCatalogProvider } from '../mcp/native-catalog.js'
 import type { ConnectorConfig, GatewayConfig } from './config.js'
@@ -34,7 +35,7 @@ export type GatewayTransportResources = {
   store: Store
   identities: GatewayIdentitySource
   localPolicies: LocalPolicies
-  caller: StdioCallerProvider
+  authentication: HttpAuthenticationProvider
   catalog?: GatewayCatalogProvider
   transport: Omit<GatewayOptions, 'store' | 'router' | 'principal'>
   // 可选原生服务工厂复用同一Store/Router/transport；省略时仅开放既有Store查询与清理。
@@ -112,7 +113,7 @@ export function createTransportCliRuntime(host: TransportCliHost): CliRuntime {
             })
           : new StoreGatewayService({ ...owned, router })
         return {
-          caller: owned.caller,
+          authentication: owned.authentication,
           service: {
             execute: /* 关闭开始即拒绝新操作；仅复制facade受信caller，不从业务参数提取身份。 */ (
               name,

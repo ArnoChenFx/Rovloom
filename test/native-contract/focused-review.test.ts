@@ -196,7 +196,7 @@ test(
 
 test(
   '聚焦复核：schema 引用和结构资源预算实际拒绝，无 CPU 隔离虚假声明',
-  /* 通过真实编译与解析反例覆盖文档、节点、引用及深度资源限制。 */ () => {
+  /* 通过真实编译与解析反例覆盖文档、节点、引用及深度资源限制。 */ async () => {
     for (const limits of [
       { bundle_nodes: 32 },
       { documents: 28 },
@@ -204,12 +204,12 @@ test(
       { references: 1 },
       { reference_depth: 1 }
     ]) {
-      rejects(compileBundle(bytes, { identity, limits }), 'schema_unavailable')
+      rejects(await compileBundle(bytes, { identity, limits }), 'schema_unavailable')
     }
     const b = json('schema-bundle.json')
     b.extra_nodes = Array(150001).fill(null)
     const encoded = JSON.stringify(b)
-    const checked = compileBundle(encoded, {
+    const checked = await compileBundle(encoded, {
       identity: { ...identity, schema_sha256: createHash('sha256').update(encoded).digest('hex') }
     })
     rejects(checked, 'schema_unavailable')

@@ -3,10 +3,10 @@ export { runCli, parseCommand, HELP } from './run.js'
 export type { CliRuntime, GatewayRuntime, RunningConnector, CliIo } from './run.js'
 export { parseConfig, readConfig, configTemplate, CliError } from './config.js'
 export type { GatewayConfig, ConnectorConfig, RoleConfig } from './config.js'
+export { resolveRoleConfigPath } from './config-path.js'
+export type { ConfigPathEnvironment } from './config-path.js'
 export { createStoreCliRuntime } from './store-runtime.js'
 export type { StoreCliHost } from './store-runtime.js'
-export { createLocalCallerProvider } from './caller-binding.js'
-export type { LocalCallerBinding, LocalCallerBindings } from './caller-binding.js'
 export { createTransportCliRuntime } from './transport-runtime.js'
 export type {
   TransportCliHost,

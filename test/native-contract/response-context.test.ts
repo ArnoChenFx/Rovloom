@@ -100,7 +100,7 @@ test(
 
 test(
   '仅响应上下文逐项复核完整原生来源、原 ID 和原契约，不从同摘要重建',
-  /* 篡改合成来源绑定、请求 ID 与契约对象，确认封存上下文只认可原句柄和完整匹配的可信来源输入。 */ () => {
+  /* 篡改合成来源绑定、请求 ID 与契约对象，确认封存上下文只认可原句柄和完整匹配的可信来源输入。 */ async () => {
     const original = dispatched()
     const sealed = unwrap(validator.sealResponseContext(original.permit))
     const response = { id: 'response-context', result: { id: 'task-created' } }
@@ -126,7 +126,7 @@ test(
       validator.checkResponseOnly(sealed, response, { ...original.source, source_verified: false }),
       'native_source_untrusted'
     )
-    const other = createNativeValidator(unwrap(compileBundle(bytes, { identity })))
+    const other = createNativeValidator(unwrap(await compileBundle(bytes, { identity })))
     rejects(other.sealResponseContext(original.permit), 'invalid_capability_handle')
     rejects(other.checkResponseOnly(sealed, response, original.source), 'invalid_response_context')
     unwrap(validator.releaseRequestContext(original.permit))

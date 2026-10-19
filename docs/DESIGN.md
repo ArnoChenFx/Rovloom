@@ -37,7 +37,7 @@ MCP、Rovloom Wire 和各原生协议独立版本化；所选 MCP revision 与 S
 
 ```text
 主 Agent / MCP Host
-        │ stdio 或 HTTPS Streamable HTTP
+        │ HTTPS Streamable HTTP
         ▼
 Gateway：MCP / 身份与策略 / provider registry / 账本与结果
         ▲                         ▲
@@ -51,9 +51,9 @@ Connector A                   Connector B
 
 Connector 仅执行管理员固定的 binary、状态根和 session 策略。caller 不能提交 binary 路径、环境、endpoint、状态根或 SSH 目标选择 adapter。设备广告不得创建、重绑或扩大 binding；双方受保护配置不一致即拒绝派发。
 
-### 4.1 两种 Gateway 部署
+### 4.1 持久 Gateway 服务
 
-本地模式由 MCP Host 通过 stdio 启动 Gateway，stdout 仅承载 MCP，日志写 stderr；设备须可达其 WSS 地址。常驻模式由同一程序运行 Gateway，MCP 走 HTTPS Streamable HTTP，适合长期在线设备。两者共用业务核心，同一数据库仅一个 writer；多个 stdio Host 不能各自争用同一状态目录。
+Gateway由同一程序作为持久服务运行，唯一MCP入口为Streamable HTTP；本机默认仅监听回环，远程部署须使用HTTPS及兼容认证宿主。MCP客户端连接、断开或退出只影响其会话/请求等待，不隐式停止Gateway或取消native。stdout不承载MCP协议；同一数据库仅一个writer，CLI或后台服务共用角色入口和配置规则。
 
 ### 4.2 Gateway 内置管理 Web UI
 
@@ -159,7 +159,7 @@ Luvus 安装 schema 与 session/Host 在线能力分别核对；Herdr 安装 sch
 
 strict 必须应用完整根、条件和离线引用闭包，并有方法参数约束；generic/unavailable 不能标完整。Owner 显式选择 raw-contract 且有绑定 principal、完整目标、精确方法、版本/revisions/期限的独立 grant 时，只可放宽明确的参数覆盖缺口。保留所有已有约束、有界 envelope、保留字段、来源、传输、安全分类、权限和结果边界；已知参数不合法不能降格放行。整个 bundle 不可用且没有独立受信最小 request/response 契约时仍拒绝；完全无 bundle 的 raw 路径待另行设计。
 
-schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。schema 编译须在可终止的独立 worker 中受硬资源限制：编译时间预算 2 秒、heap 预算 64 MiB；超限终止并返回不可用，不自动放宽。该预算是设计要求，不由结构检查、JSON 快照计量或同步 Promise 超时代替，也不表示宿主已实现 CPU/heap 隔离。
+schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。首版 Luvus 只编译已审核的本地安装 schema：完整预检、Ajv 编译与官方 standalone 生成在同版本 Bun Worker 内执行，宿主只加载受控生成函数，不重编译 schema。编译接纳期限为 2 秒，覆盖启动、生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
 派发与流输入前核对当前双端 binding、策略、分类、能力、epoch、generation 及 deadline；任一失效拒绝，不能透明降级。缓存按完整来源和上下文失效。发现、安全分类、参数覆盖、传输与支持状态分别呈现，不合成一个“支持”标记。
 
@@ -305,7 +305,7 @@ Wire 单帧、整体对象、分片和 schema 编译的独立限额见各协议/
 
 observer、orchestrator、owner 是目标范围内的授权配置：observer 仅经分类的被动只读；orchestrator 仅明确授予的 agent/task/worktree 编排；owner 在指定范围内可获更广方法授权。三者都受 §8 交集约束，Owner 不默认获得 raw grant、Host admin、凭据管理、providers_manage 或 discard_response。agent prompt/终端可触达目标账号执行权限；session/path allowlist 不是 OS 沙箱，强隔离依赖专用账号/容器等外部边界。
 
-HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用兼容身份服务，不自造 OAuth 产品；MCP session ID 不充当身份。stdio 使用本地 OS 信任及受保护配置，不与设备凭据互用。固定 bearer 开发模式只适用 loopback/明确受限环境，不能据此通过正式公网授权门禁。
+HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用兼容身份服务，不自造 OAuth 产品；MCP session ID 不充当身份。逐HTTP请求映射既有principal，MCP身份、设备凭据与管理会话不互用。固定 bearer 开发模式只适用 loopback/明确受限环境，不能据此通过正式公网授权门禁。
 
 审计记录 caller、完整目标/provider/revision、method/action、契约/分类/策略 revision、call/attempt/epoch/恢复代次、适用原生 generation、时间/状态/大小与受保护摘要。prompt、原参数/输出、私人路径和 secret 默认不入日志/错误。参数摘要、hash 与历史证据也按受限元数据处理，不因不含原文而公开。
 
