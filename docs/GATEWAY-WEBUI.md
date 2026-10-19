@@ -74,6 +74,28 @@ listener 只绑定 `127.0.0.1` 的显式独立端口，不自动启动、不关�
 当前接口测试使用显式合成 service/会话；生产宿主仍须装配真实共享 service 与受信会话适配器。
 Store 服务未提供的 transport/native 观测继续显示 unverified，不从持久 online 生成心跳或 epoch。
 
+## 可信 transport 读投影
+
+[投影模块](../src/mcp/transport-observations.ts)由同一[宿主入口](../src/admin/index.ts)导出，
+供共享管理服务消费现有 `Gateway.observations: GatewayTransportObservationSource`。
+它只转换已经授权的 `DeviceSnapshot`，不枚举设备、不读取身份、不代替共享服务或 HTTP 会话认证。
+生产组合点须由共享服务注入同一 Gateway 的观测来源；未注入时设备连接与认证保持未核实。
+
+每次读取先完成共享管理员及精确资源授权，再调用 `sampleManagementTransport(source)`，
+随后从同一 Store 取得 `mode/server_time/recovery_generation/stale_after_ms` fence，
+用 `createManagementTransportProjection(sample, fence)` 投影本次已授权设备，并只替换 status 的 transport 分量。
+服务返回时间不得早于本次取样，DTO 仍由共享服务生成并经过既有输出校验；不能跨请求缓存投影或扩大分页范围。
+非 active、恢复代次不符、来源失败、缺失、未来或十五秒过期观测均不生成在线/已认证证明。
+每层保留真实 `observed_at`，较新全局取样不续期旧连接/认证；心跳只显示 Gateway 实际收到的时刻。
+pending/revoked 优先保留共享服务已有且新鲜的 Store 认证证明，旧 transport 样本不能恢复设备授权。
+
+该端口只证明当前连接与认证；断开后没有可信 offline/reconnecting/失败原因时继续显示未核实。
+`connection_epoch_ref` 是展示用安全引用，不能作为断开确认或原始 epoch fence。
+`dispatch_ready` 不投影为 provider/native ready，native 分量和 provider 运行观测维持各自真实来源。
+没有一次性确认、持久回执及同一管理员写入门禁时，断开/撤销等页面操作继续不可用。
+真实双 SQLite、持久设备证明与 loopback Connector 的验证位于
+[集成测试](../test/webui/observations.integration.test.ts)；测试管理员与 native 执行来源仍是隔离 fixture，不能据此宣称生产会话或原生能力已验收。
+
 ## 范围与服务边界
 
 Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，页面不展示包兼容标识作为产品名。
