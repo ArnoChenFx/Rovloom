@@ -12,7 +12,7 @@ import {
 } from '../../dist/src/runtime/index.js'
 import { createNativeValidator } from '../../dist/src/native-contract/index.js'
 import { createManagedSmokeCleanup } from './managed-smoke-cleanup.mjs'
-import { verifyStableLuvusSelection } from './luvus-stable-selection.mjs'
+import { readStableProxyReply, verifyStableLuvusSelection } from './luvus-stable-selection.mjs'
 
 /** 只消费明确的官方安装路径和本轮私有临时父目录，不读取产品配置、用户 HOME 或 Agent 设置。 */
 function argumentsForSmoke() {
@@ -93,6 +93,7 @@ try {
     assert.equal(native.ready(), true)
     const id = 'stable-' + ++count
     let bytes
+    let exitCode = 0
     try {
       bytes = execFileSync(config.binary, ['--session', config.target.session, 'uhp', 'proxy'], {
         cwd: config.cwd,
@@ -104,17 +105,17 @@ try {
         maxBuffer: 1048576
       })
     } catch (error) {
-      if (!error.stdout?.length || error.signal) {
+      if (error.status !== 1 || !error.stdout?.length || error.signal) {
         throw new Error('stable_native_proxy_failed')
       }
+      exitCode = error.status
       bytes = error.stdout
     }
-    const response = JSON.parse(bytes.toString('utf8'))
+    const response = readStableProxyReply(bytes, id, exitCode)
     nativeError =
       typeof response.error?.code === 'string' && /^[a-z_]{1,64}$/.test(response.error.code)
         ? response.error.code
         : undefined
-    assert.equal(response.id, id)
     const shape = validator.checkResponseShape(response)
     schemaError = shape.ok ? undefined : shape.error.code
     assert.equal(shape.ok, true)

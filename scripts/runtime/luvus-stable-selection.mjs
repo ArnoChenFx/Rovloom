@@ -1,6 +1,15 @@
 // 消费验收传入的真实原生 RPC，只检查本轮空白实例的稳定对象选择；不启动模型或重放失败请求。
 import assert from 'node:assert/strict'
 
+/** 官方 proxy 的 exit 1 只可携带原生 error；其它非零退出不能借完整 JSON 冒充已完成响应。 */
+export function readStableProxyReply(bytes, id, exitCode) {
+  assert(exitCode === 0 || exitCode === 1, 'stable_native_proxy_failed')
+  const response = JSON.parse(bytes.toString('utf8'))
+  assert.equal(response.id, id)
+  assert(exitCode === 0 || response.error, 'stable_native_proxy_failed')
+  return response
+}
+
 /** 每次变更使用刚发现的稳定 ID 和原 revision；位置移动、跨 workspace 与旧 revision 必须保持原生语义。 */
 export async function verifyStableLuvusSelection(rpc, paths) {
   const checks = []
