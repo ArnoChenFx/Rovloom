@@ -276,22 +276,38 @@ for (const corrupt of [false, true]) {
 
 test(
   'negotiated receipt capability refuses a missing sink before any request can execute',
+  { timeout: 5000 },
   /** 真实 welcome 已成功认证仍不能以旧会话接口静默降级，停止后不重连或执行。 */ async () => {
     const f = fixture({ offer: { major: 2, minor: 0, capabilities: ['rpc', 'admission_receipt'], required: ['rpc'] } })
     const device = f.pair('isolated_missing_receipt_sink')
     let sessions = 0
     let executions = 0
+    let closeObserved = false
+    let connectorClosed!: () => void
+    const closed = new Promise<void>(
+      /** 从真实 Connector 会话关闭 hook 观察本端回收，不假定服务端 close 事件已完成。 */ (resolve) => {
+        connectorClosed = resolve
+      }
+    )
     const client = createConnector({
       url: f.gateway.url,
       developmentLoopback: true,
       credential: /** 使用真实隔离设备凭据完成 welcome。 */ () => device.credential,
       offer: { major: 2, minor: 0, capabilities: ['rpc', 'admission_receipt'], required: ['rpc', 'admission_receipt'] },
       limits: { reconnect_ms: 10_000 },
+      random: /** 固定退避超过本测试的有界清理窗口，避免随机重连引入第二个 epoch。 */ () => 1,
       /** 此负例刻意交付原接口，协商 receipt 的连接必须拒绝。 */
       session(connection) {
         sessions++
+        const original = f.session(connection)
         return {
-          ...f.session(connection),
+          ...original,
+          /** 保留原会话清理并通知本端已关闭，服务端仍由实际 socket close 事件回收。 */
+          close() {
+            original.close()
+            closeObserved = true
+            connectorClosed()
+          },
           executeWire: /** 缺 sink 的会话不能抵达执行。 */ async () => {
             executions++
             throw new Error('unexpected_execution')
@@ -300,11 +316,19 @@ test(
       }
     })
     try {
+      await Promise.race([
+        closed,
+        until(/** 缺本端关闭 hook 必须有界失败，并进入 finally 释放实际 socket。 */ () => closeObserved)
+      ])
+      assert.equal(sessions, 1)
+      assert.equal(client.status().phase, 'disconnected')
       await until(
-        /** 观察真实 welcome 回调被调用后立即断开，不能只验证类型。 */ () =>
-          sessions === 1 && client.status().phase === 'disconnected'
+        /** 本端断开先于 Gateway 收到关闭事件；有界等待两端真实清理完成，不能删除成对回收断言。 */ () =>
+          f.sessions.opened === f.sessions.closed && f.gateway.status().connections === 0
       )
+      assert.equal(sessions, 1)
       assert.equal(executions, 0)
+      assert.equal(f.sessions.opened, 2)
       assert.equal(f.sessions.opened, f.sessions.closed)
     } finally {
       client.stop()
