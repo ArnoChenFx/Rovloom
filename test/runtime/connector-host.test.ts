@@ -551,7 +551,9 @@ async function admissionClose(mode: 'role' | 'disconnect', fault: EpochFault = '
   }
   const gateway = fixture({ offer })
   const paired = gateway.pair('isolated_close_epoch')
-  const root = mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.connector-epoch-'))
+  const root = mkdtempSync(
+    join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.connector-epoch-')
+  )
   const receiptOptions = {
     path: join(root, 'receipts.json'),
     mode: 'create' as const,
