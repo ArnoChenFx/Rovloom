@@ -174,7 +174,7 @@ def main():
             trace = output / (label + '.execve.log')
             started = time.monotonic()
             # 全套回归的聚合预算覆盖增长与追踪开销，不改变产品或单例自身的时限。
-            seconds = 300 if label == 'foundation' else 180
+            seconds = 600 if label == 'foundation' else 180
             process = subprocess.Popen([trace_tool, '-f', '-qq', '-s', '256', '-e', 'trace=execve,execveat',
                                         '-o', str(trace), *arguments], cwd=project, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
