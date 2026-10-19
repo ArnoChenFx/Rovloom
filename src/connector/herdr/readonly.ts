@@ -9,6 +9,7 @@ import {
   contractRef,
   fail,
   fields,
+  LIMITS,
   object,
   parseJson,
   planResponseEvidence,
@@ -318,7 +319,8 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     if (!found) {
       fail('attempt_anchor_unavailable')
     }
-    const attempt = JSON.parse(boundedJson(found, HERDR_READONLY_REVIEW.frame_bytes)) as TrustedAttempt
+    // 账本快照另含 binding/principal，复用内部 Wire 预算；原生 JSON+LF 仍由 codec 独立限为 64 KiB。
+    const attempt = JSON.parse(boundedJson(found, LIMITS.frame_bytes)) as TrustedAttempt
     const ctx = backend.context(attempt.principal_id, 'gateway_to_connector')
     if (!ctx.connection.authenticated || !ctx.connection.active) {
       fail('authentication_required')

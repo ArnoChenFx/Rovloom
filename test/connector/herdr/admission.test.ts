@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createHerdrGatewayResources } from '../../../src/connector/herdr/provider.js'
 import { createProviderGatewayRuntime } from '../../../src/runtime/gateway.js'
-import { contractRef, object } from '../../../src/wire/index.js'
+import { boundedJson, contractRef, object } from '../../../src/wire/index.js'
 import type { JsonObject } from '../../../src/wire/types.js'
 import { fixture as transportFixture, rawConnect, until } from '../../transport/helpers.js'
 import { responseFrame } from '../../storage/helpers.js'
@@ -13,61 +13,184 @@ import { raw, source } from './helpers.js'
 import { privateHerdrTestRoot } from './private-root.js'
 
 test(
+  'native frame boundary is independent of the trusted anchor and oversize rejection preserves history and epoch',
+  /** 合法大文本走完真实派发和回包；超出原生帧一字节的请求在登记前拒绝。 */ async () => {
+    const { root, base, target, runtime, client } = await admissionFixture(['ping', 'pane.send_text'])
+    try {
+      await until(/** 等待真实认证结果，后续所有调用共用该 epoch。 */ () => Boolean(client.epoch))
+      const epoch = client.epoch
+      const good = await runtime.runAuthenticated(
+        { principal_id: base.principal.id },
+        /** 挂起独立 ping，用于观察其它请求是否错误关闭共享连接。 */ () =>
+          runtime.admit({
+            target,
+            native_request: { method: 'ping', params: {} },
+            options: { binding_revision: 1, contract_ref: contractRef(source), deadline: base.now + 10_000 }
+          })
+      )
+      await until(
+        /** ping 必须先抵达对端，才能证明它在后续边界检查期间仍在途。 */ () =>
+          client.frames.some(/** 只统计实际请求，不把 welcome 当作执行。 */ (frame) => object(frame).type === 'request')
+      )
+      const original = base.store.attempt(good.call.call_id, good.call.attempt_id!)!
+      const nativeLimit = 65_536
+      const overhead = Buffer.byteLength(
+        boundedJson({
+          id: original.binding.native_request_id,
+          method: 'pane.send_text',
+          params: { pane_id: 'p', text: '' }
+        }) + '\n'
+      )
+      const maximumText = nativeLimit - overhead
+      const history = base.store.openHistory(base.principal.id, target, 1)
+      const key = { history_epoch: history.history_epoch, client_request_key: 'oversize_text_not_registered' }
+      await assert.rejects(
+        runtime.runAuthenticated(
+          { principal_id: base.principal.id },
+          /** 多出的一字节必须连同真实 native ID 与 LF 计量，不能消耗 history。 */ () =>
+            runtime.admit({
+              target,
+              native_request: { method: 'pane.send_text', params: { pane_id: 'p', text: 'x'.repeat(maximumText + 1) } },
+              options: {
+                binding_revision: 1,
+                contract_ref: contractRef(source),
+                deadline: base.now + 10_000,
+                history: key
+              }
+            })
+        ),
+        /** 保留原生字节门禁的固定错误，不接受派发后失联替代准入拒绝。 */ (error: unknown) =>
+          error instanceof Error && 'code' in error && error.code === 'json_size_limit'
+      )
+      assert.equal(base.store.call(base.principal.id, good.call.call_id).state, 'dispatching')
+      assert.equal(client.ws.readyState, WebSocket.OPEN)
+      assert.equal(client.epoch, epoch)
+      let expectedRequests = 1
+      for (const length of [65_000, maximumText]) {
+        const large = await runtime.runAuthenticated(
+          { principal_id: base.principal.id },
+          /** 第一条合法文本复用刚被拒绝的 key，第二条覆盖完整原生帧上界。 */ () =>
+            runtime.admit({
+              target,
+              native_request: { method: 'pane.send_text', params: { pane_id: 'p', text: 'x'.repeat(length) } },
+              options: {
+                binding_revision: 1,
+                contract_ref: contractRef(source),
+                deadline: base.now + 10_000,
+                ...(length === 65_000 ? { history: key } : {})
+              }
+            })
+        )
+        assert.equal(large.created, true)
+        expectedRequests++
+        await until(
+          /** 同时观察旧缺陷的断连结果，让失败直接暴露而非等到测试超时。 */ () =>
+            client.frames.filter(/** 只累计已发送请求。 */ (frame) => object(frame).type === 'request').length ===
+              expectedRequests ||
+            client.ws.readyState !== WebSocket.OPEN ||
+            base.store.call(base.principal.id, good.call.call_id).state === 'outcome_unknown'
+        )
+        assert.equal(client.ws.readyState, WebSocket.OPEN)
+        assert.equal(base.store.call(base.principal.id, good.call.call_id).state, 'dispatching')
+        const attempt = base.store.attempt(large.call.call_id, large.call.attempt_id!)!
+        const nativeBytes = Buffer.byteLength(
+          boundedJson({ ...attempt.native_request, id: attempt.binding.native_request_id }) + '\n'
+        )
+        assert.equal(nativeBytes, length + overhead)
+        assert(nativeBytes <= nativeLimit)
+        assert(Buffer.byteLength(boundedJson(attempt)) > nativeLimit)
+        assert.equal(attempt.binding.connection_epoch, epoch)
+        client.ws.send(JSON.stringify(responseFrame(attempt.binding, { result: { type: 'ok' } })))
+        await until(
+          /** 合法边界文本必须能完成响应，不能只登记或写出请求后失联。 */ () =>
+            base.store.call(base.principal.id, large.call.call_id).state === 'responded'
+        )
+      }
+      assert.equal(
+        client.frames.filter(/** 超限拒绝没有生成额外 Wire 请求。 */ (frame) => object(frame).type === 'request')
+          .length,
+        3
+      )
+      client.ws.send(
+        JSON.stringify(responseFrame(original.binding, { result: { type: 'pong', version: '0.9.5', protocol: 22 } }))
+      )
+      await until(
+        /** 最初的合法在途调用在同一 epoch 正常结算。 */ () =>
+          base.store.call(base.principal.id, good.call.call_id).state === 'responded'
+      )
+      assert.equal(client.epoch, epoch)
+      base.store.assertConnection(original.binding)
+    } finally {
+      client.ws.close()
+      await runtime.close()
+      base.stop()
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+)
+
+/** 为参数与帧边界回归复用真实 Store、资源工厂和认证通道；对端仅模拟结果。 */
+async function admissionFixture(methods: readonly string[]) {
+  const root = privateHerdrTestRoot('.herdr-admission-')
+  const base = transportFixture()
+  const paired = base.pair('owned_herdr_admission')
+  base.gateway.stop()
+  const target = {
+    machine_id: paired.machine_id,
+    provider_id: 'herdr',
+    profile: 'session' as const,
+    session: 'owned'
+  }
+  const schemaPath = join(root, 'schema.json')
+  writeFileSync(schemaPath, raw, { mode: 0o600 })
+  const resources = await createHerdrGatewayResources({
+    config: {
+      version: 1,
+      target,
+      binding_revision: 1,
+      config_ref: 'owned-herdr-admission',
+      expected_source: source,
+      schema_path: schemaPath,
+      peer_policy_revision: 'local1'
+    }
+  })
+  base.store.defineProvider(resources.providers[0]!.binding)
+  base.principal.policy.grants.push({ target, methods: [...methods], actions: ['dispatch', 'read'] })
+  const provider = resources.providers[0]!
+  const preflightRequests: JsonObject[] = []
+  const offer = { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] }
+  const runtime = await createProviderGatewayRuntime({
+    lifecycle: { store: base.store, identityHost: base.credentials },
+    identities: {
+      principal: /** 仅本测试已配对宿主的合成 caller 有效。 */ (caller) =>
+        caller.principal_id === base.principal.id ? base.principal : null,
+      administrator: /** 本测试没有管理员会话。 */ () => null
+    },
+    localPolicies: /** 固定当前双方权限，故意错误仅来自原生 prompt 参数。 */ () => ({
+      revision: 'local1',
+      grants: base.principal.policy.grants
+    }),
+    providers: [
+      {
+        ...provider,
+        preflightRequest: /** 只观察完整根使用的实际 ID，原工厂验证仍原样执行。 */ (request: JsonObject) => {
+          preflightRequests.push(structuredClone(request))
+          provider.preflightRequest!(request)
+        }
+      }
+    ],
+    session: resources.session,
+    listener: { hostname: '127.0.0.1', port: 0, developmentLoopback: true, offer },
+    release: /** 运行时只释放本轮资源；Store 最后由 fixture 关闭。 */ () => resources.release()
+  })
+  const client = rawConnect(runtime.transport.url, paired.credential, offer)
+  return { root, base, target, preflightRequests, runtime, client }
+}
+
+test(
   'invalid Herdr prompt parameters preserve the same authenticated epoch and another pending call',
   /** 实际 Store、资源工厂、Wire 与 loopback socket 保持生产路径；对端只模拟有界 pong。 */ async () => {
-    const root = privateHerdrTestRoot('.herdr-admission-')
-    const base = transportFixture()
-    const paired = base.pair('owned_herdr_admission')
-    base.gateway.stop()
-    const target = {
-      machine_id: paired.machine_id,
-      provider_id: 'herdr',
-      profile: 'session' as const,
-      session: 'owned'
-    }
-    const schemaPath = join(root, 'schema.json')
-    writeFileSync(schemaPath, raw, { mode: 0o600 })
-    const resources = await createHerdrGatewayResources({
-      config: {
-        version: 1,
-        target,
-        binding_revision: 1,
-        config_ref: 'owned-herdr-admission',
-        expected_source: source,
-        schema_path: schemaPath,
-        peer_policy_revision: 'local1'
-      }
-    })
-    base.store.defineProvider(resources.providers[0]!.binding)
-    base.principal.policy.grants.push({ target, methods: ['ping', 'agent.prompt'], actions: ['dispatch', 'read'] })
-    const provider = resources.providers[0]!
-    const preflightRequests: JsonObject[] = []
-    const offer = { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] }
-    const runtime = await createProviderGatewayRuntime({
-      lifecycle: { store: base.store, identityHost: base.credentials },
-      identities: {
-        principal: /** 仅本测试已配对宿主的合成 caller 有效。 */ (caller) =>
-          caller.principal_id === base.principal.id ? base.principal : null,
-        administrator: /** 本测试没有管理员会话。 */ () => null
-      },
-      localPolicies: /** 固定当前双方权限，故意错误仅来自原生 prompt 参数。 */ () => ({
-        revision: 'local1',
-        grants: base.principal.policy.grants
-      }),
-      providers: [
-        {
-          ...provider,
-          preflightRequest: /** 只观察完整根使用的实际 ID，原工厂验证仍原样执行。 */ (request: JsonObject) => {
-            preflightRequests.push(structuredClone(request))
-            provider.preflightRequest!(request)
-          }
-        }
-      ],
-      session: resources.session,
-      listener: { hostname: '127.0.0.1', port: 0, developmentLoopback: true, offer },
-      release: /** 运行时只释放本轮资源；Store 最后由 fixture 关闭。 */ () => resources.release()
-    })
-    const client = rawConnect(runtime.transport.url, paired.credential, offer)
+    const { root, base, target, preflightRequests, runtime, client } = await admissionFixture(['ping', 'agent.prompt'])
     try {
       await until(/** 等待真实 welcome，不能由测试自行给连接指定 epoch。 */ () => Boolean(client.epoch))
       const epoch = client.epoch
