@@ -9,16 +9,18 @@ import { persistentBackend } from '../../src/integration/persistence.js'
 import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
 import { createConnector, createGateway } from '../../src/transport/index.js'
 import type { Connection, DeviceCredential, Session, SocketChannel } from '../../src/transport/index.js'
-import type { ConnectorOptions } from '../../src/transport/connector.js'
+import type { NativeConnectorOptions } from '../../src/transport/connector.js'
 import type { GatewayOptions } from '../../src/transport/gateway.js'
-import type { NativeBinding } from '../../src/native-contract/index.js'
-import type { ProviderBinding, ProviderPolicy, V2Target } from '../../src/wire/types.js'
+import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js'
+import type { CompiledContract } from '../../src/native-contract/index.js'
+import type { ContractSource, ProviderBinding, ProviderPolicy, V2Target } from '../../src/wire/types.js'
 import { contractRef } from '../../src/wire/index.js'
 import { auth, compiled, G, identity, json, request, view } from '../native-contract/helpers.js'
 import { source } from '../wire/helpers.js'
 import { management } from '../storage/helpers.js'
 
 type FixtureHost = {
+  contract?: { source: ContractSource; compiled: CompiledContract; identity: NativeBinding['contract'] }
   /** 把同一测试账本放入新建私有目录，以验证真实磁盘 Store 生命周期。 */
   store?(now: () => number, options: StoreOptions): Store
   /** 为实际 Gateway socket 组合受信生命周期 backend；Connector 仍独立创建其本机 adapter。 */
@@ -83,8 +85,16 @@ export function fixture(
     /** 向 Router 提供 fixture 的本地策略，用于双端 grant 交集测试。 */
     () => local
   )
-  const origin = { ...source, runtime_generation: G, classification_revision: 'review1' }
-  const reviewed = auth(request(view(), { id: 'unused', method: 'task.add', params: { title: 'synthetic' } }))
+  const origin = host.contract?.source ?? { ...source, runtime_generation: G, classification_revision: 'review1' }
+  const installedIdentity = host.contract?.identity ?? identity
+  const baseline = auth(request(view(), { id: 'unused', method: 'task.add', params: { title: 'synthetic' } }))
+  const reviewed = {
+    ...baseline,
+    classifications: baseline.classifications.map(
+      /** 保留 fixture 的原授权分类，只绑定本次隔离安装的实际二进制与 schema 身份。 */
+      (classification) => ({ ...(classification as SafetyClassification), contract: installedIdentity })
+    )
+  }
   const capabilities = json('session-capabilities.json')
   capabilities.result.session = 'synthetic'
   capabilities.result.server_generation = G
@@ -93,59 +103,61 @@ export function fixture(
   let openedSessions = 0
   let closedSessions = 0
   const encoded: string[] = []
+  /** 为本次实际连接组合真实持久 backend 的服务，供独立 Wire 与原生 RPC adapter 分别持有状态。 */
+  const backendServices = (connection: Connection): Parameters<typeof persistentBackend>[1] => ({
+    /** 将当前已认证的 fixture 连接传入持久 backend，保持 epoch 独立。 */
+    connection: () => connection,
+    /** 按完整 machine/provider 键解析本机 mock binding，避免跨实例混用。 */
+    localProvider: (target) => localBindings.get(target.machine_id + '/' + target.provider_id),
+    /** 只为固定 contract_ref 返回离线 fixture bundle 及其合成来源。 */
+    contract: (ref) =>
+      ref === contractRef(origin)
+        ? {
+            wire: { source: origin, support_status: 'validated' },
+            compiled: host.contract?.compiled ?? compiled,
+            capabilities,
+            capability_revision: 'caps1'
+          }
+        : undefined,
+    /** 从真实 Store attempt 构造该实例的 mock NativeBinding，并受来源开关控制。 */
+    nativeSource: (call, attempt) => {
+      const row = store.attempt(call, attempt)
+      if (!row) {
+        return undefined
+      }
+      const b = row.binding
+      const native: NativeBinding = {
+        kind: 'luvus',
+        provider_id: b.target.provider_id,
+        binding_revision: b.binding_revision,
+        contract_source_ref: b.contract_ref,
+        target: { machine_id: b.machine_id, profile: 'session', session: 'synthetic' },
+        server_generation: G,
+        connection_epoch: b.connection_epoch,
+        recovery_generation: b.recovery_generation,
+        capability_revision: 'caps1',
+        caller_policy_revision: b.registration.caller_policy_revision,
+        local_policy_revision: b.registration.local_policy_revision,
+        classification_revision: 'review1',
+        contract: installedIdentity
+      }
+      return {
+        authenticated: true,
+        source_verified: configs.get(b.machine_id)!.sourceVerified,
+        binding: native
+      }
+    },
+    /** 返回 fixture 当前 caller 与 local 策略，允许测试即时撤权行为。 */
+    policies: () => ({ caller: principal.policy, local }),
+    /** 提供离线测试分类权限，不在生产入口创建默认授权。 */
+    authority: () => reviewed,
+    /** 取得测试当前 reader ID，验证读取与派发身份分别受控。 */
+    currentPrincipal: () => principal.id
+  })
   /** 为每条模拟连接创建真实 Wire/native adapter，并统计打开与关闭的宿主资源。 */
   const session = (connection: Connection, channel?: SocketChannel): Session => {
     openedSessions++
-    const services: Parameters<typeof persistentBackend>[1] = {
-      /** 将当前已认证的 fixture 连接传入持久 backend，保持 epoch 独立。 */
-      connection: () => connection,
-      /** 按完整 machine/provider 键解析本机 mock binding，避免跨实例混用。 */
-      localProvider: (target) => localBindings.get(target.machine_id + '/' + target.provider_id),
-      /** 只为固定 contract_ref 返回离线 fixture bundle 及其合成来源。 */
-      contract: (ref) =>
-        ref === contractRef(origin)
-          ? {
-              wire: { source: origin, support_status: 'validated' },
-              compiled,
-              capabilities,
-              capability_revision: 'caps1'
-            }
-          : undefined,
-      /** 从真实 Store attempt 构造该实例的 mock NativeBinding，并受来源开关控制。 */
-      nativeSource: (call, attempt) => {
-        const row = store.attempt(call, attempt)
-        if (!row) {
-          return undefined
-        }
-        const b = row.binding
-        const native: NativeBinding = {
-          kind: 'luvus',
-          provider_id: b.target.provider_id,
-          binding_revision: b.binding_revision,
-          contract_source_ref: b.contract_ref,
-          target: { machine_id: b.machine_id, profile: 'session', session: 'synthetic' },
-          server_generation: G,
-          connection_epoch: b.connection_epoch,
-          recovery_generation: b.recovery_generation,
-          capability_revision: 'caps1',
-          caller_policy_revision: b.registration.caller_policy_revision,
-          local_policy_revision: b.registration.local_policy_revision,
-          classification_revision: 'review1',
-          contract: identity
-        }
-        return {
-          authenticated: true,
-          source_verified: configs.get(b.machine_id)!.sourceVerified,
-          binding: native
-        }
-      },
-      /** 返回 fixture 当前 caller 与 local 策略，允许测试即时撤权行为。 */
-      policies: () => ({ caller: principal.policy, local }),
-      /** 提供离线测试分类权限，不在生产入口创建默认授权。 */
-      authority: () => reviewed,
-      /** 取得测试当前 reader ID，验证读取与派发身份分别受控。 */
-      currentPrincipal: () => principal.id
-    }
+    const services = backendServices(connection)
     const backend = persistentBackend(store, services)
     const original =
       channel && host.adapter ? host.adapter(connection, channel, services) : createLuvusWireAdapter(backend)
@@ -232,7 +244,7 @@ export function fixture(
     return { machine_id: machine.machine_id, credential, enrollment, target }
   }
   /** 连接到隔离 Gateway 并注入可控 native 宿主；所有授权与 token 都是无生产效力 fixture。 */
-  function connector(credential: () => DeviceCredential, overrides: Partial<ConnectorOptions> = {}) {
+  function connector(credential: () => DeviceCredential, overrides: Partial<NativeConnectorOptions> = {}) {
     const client = createConnector({
       url: gateway.url,
       developmentLoopback: true,
@@ -287,6 +299,7 @@ export function fixture(
     credentials,
     gateway,
     session,
+    backendServices,
     configs,
     localBindings,
     encoded,

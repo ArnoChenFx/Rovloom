@@ -29,6 +29,7 @@ import {
   decodeWireFrame,
   decodeWireObject,
   encodeWireFrame,
+  fragmentObject,
   fail,
   hash,
   id,
@@ -1129,6 +1130,20 @@ export function createLuvusWireAdapter(
     )
   }
 
+  // 复用原请求许可检查保留；当前可读不代表派发时或当前分类允许保存原文。
+  function resultRetention(binding: AttemptBinding, nativeFrame: JsonObject): void {
+    const snapshot = object(copy(nativeFrame, LIMITS.object_bytes))
+    result(binding, snapshot)
+    const state = states.get(key(binding))
+    if (!state) {
+      fail('dispatch_permit_unavailable')
+    }
+    if (state.attempt.transport !== 'rpc') {
+      fail('result_retention_rpc_only')
+    }
+    unwrap(checkResultRetention(permit(state), authorization(state)))
+  }
+
   const api = {
     // 按当前认证上下文解码完整 Wire 帧，并同步成功的流关闭状态。
     decode(input: string | Uint8Array, direction: Direction): WireEnvelope {
@@ -1143,6 +1158,24 @@ export function createLuvusWireAdapter(
       const raw = encodeWireFrame(snapshot, context(direction))
       close(snapshot)
       return raw
+    },
+
+    /** 只在原请求的私有 Wire 上下文中校验并分片响应，不向调用方暴露 context、validator 或许可。 */
+    encodeResponseObject(
+      frame: Extract<AuthenticatedEnvelope, { type: 'response' }>,
+      objectId: string
+    ): readonly string[] {
+      const snapshot = copy(frame, LIMITS.object_bytes)
+      if (snapshot.type !== 'response') {
+        fail('response_frame_required')
+      }
+      const ctx = context('connector_to_gateway')
+      return Object.freeze(
+        fragmentObject(snapshot, 'envelope', objectId, ctx).map(
+          /** 每片仍通过同一认证方向的现行 Wire 编码与单帧限制。 */
+          (chunk) => encodeWireFrame(chunk, ctx)
+        )
+      )
     },
 
     // 对重组后的对象再次执行 Wire 和原生校验，再同步流关闭状态。
@@ -1209,6 +1242,7 @@ export function createLuvusWireAdapter(
       }
     },
     checkResult: result,
+    checkResultRetention: resultRetention,
     // 校验流消息并推进尝试的 Wire 生命周期，错误类型不能留下原生许可。
     advanceStream(frame: AuthenticatedEnvelope, direction: Direction) {
       const snapshot = copy(frame, LIMITS.object_bytes)
@@ -1261,8 +1295,7 @@ export function createLuvusWireAdapter(
       }
       let retain = false
       try {
-        result(attempt.binding, snapshot.payload.native_response)
-        unwrap(checkResultRetention(permit(state), authorization(state)))
+        resultRetention(attempt.binding, snapshot.payload.native_response)
         retain = true
       } catch {
         /* 撤权/过期/禁存仍允许可信最小证据。 */
@@ -1322,9 +1355,11 @@ export function createLuvusWireAdapter(
     }),
     decode: guarded(atomic(api.decode)),
     encode: guarded(atomic(api.encode)),
+    encodeResponseObject: guarded(atomic(api.encodeResponseObject)),
     decodeObject: guarded(atomic(api.decodeObject)),
     acceptChunk: guarded(atomic(api.acceptChunk)),
     checkResult: guarded(atomic(api.checkResult)),
+    checkResultRetention: guarded(atomic(api.checkResultRetention)),
     advanceStream: guarded(atomic(api.advanceStream)),
     observeMessage: guarded(atomic(api.observeMessage)),
     planEvidence: guarded(atomic(api.planEvidence)),

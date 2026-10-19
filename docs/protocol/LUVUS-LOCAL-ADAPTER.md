@@ -71,10 +71,14 @@ Wire request 或账本 rpc 标记判断；即使 backend 同时支持持久流�
 响应提交须通过持有原请求 Wire 状态的 `commitLuvusResponse`，事务成功后才能
 发布 durable responded；本模块的 `RpcResult` 不代替该提交。
 
-现行认证 Connector 通道的 `nativeInput`/`execute` 接口处理已经注入 id/auth 的
-原生 JSON，本模块的 `dispatch` 则接收完整 Wire request 并持有自己的校验状态。
-两者尚未接线，不能直接把 `dispatch` 当作 `execute`，也不能剥掉认证或重新包装
-原生请求来绕过许可。生产接入仍需宿主设计共享原请求状态和唯一派发登记的桥接。
+认证 Connector 可通过逐会话 `ConnectorWireSession.executeWire(raw, signal)` 直接将
+收到的原始已验证 Wire request 交给本模块 `dispatch`。该 hook 与 `nativeInput`/`execute`
+互斥，不能剥掉字段后重包装原生请求，失败也不回退到另一执行路径。每个新 epoch 新建
+本模块及 transport 的独立 Wire adapter，并由会话 close 关闭本模块。
+接缝及响应对象/活读取 port 见 [transport 接线](../TRANSPORT.md#原始-wire-执行接缝)。
+`RpcResult.binding` 必须匹配 transport 的原 attempt；原生 auth 只在本模块注入，
+唯一 durable claim 仍由可信宿主实现。两端分别保留原请求状态，Gateway 通过原 adapter
+调用 `commitLuvusResponse`，不能让本模块的完成返回代替 durable responded。
 
 auth 仅在通过 Wire 校验后注入；原生 ID 来自登记 attempt。加入 id/auth 并加上 LF
 之后才计算本地与在线 general/terminal 上限交集，并复用原生 validator 校验完整请求；
@@ -86,6 +90,10 @@ claim 返回后重验 binary/endpoint，最后一次 await 后在实际 write �
 `checkResult` 重新检查原生响应与当前读许可。
 
 内存 attempt 集合默认 128，满后拒绝、不淘汰、不重试；它不能代替持久 dedup。
+该上限属于同一 adapter 的 seen 防重放记录，普通 RPC 模式不承诺同 epoch 连续成功 130 次。
+每次完成、取消或失败后回收无人执行的私有 Wire 原文，不删除 seen，也不释放 Gateway 的独立
+结果读取上下文。重复请求或取消不能清理另一个仍在途的执行；满额意图在 auth/claim 前拒绝，
+transport 关闭后以 fresh epoch 创建新 adapter，只有宿主明确创建的新意图才可继续。
 重启或新建 adapter 后仍须由宿主 durable claim 阻止重放。`close()`/Wire cancel/
 AbortSignal 只关闭本 adapter 的 socket/桥接进程；不会发送 native rollback、关闭
 terminal 或终止原生 session。派发后超时、取消、断线和未知退出保守为
