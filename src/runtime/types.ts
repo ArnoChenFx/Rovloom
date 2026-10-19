@@ -7,6 +7,8 @@ import type { LocalPolicies, Principal } from '../router.js'
 import type { CallAdmissionOptions, Store } from '../store.js'
 import type {
   ChannelRegistry,
+  SocketChannel,
+  Session,
   DeviceLifecycleWiring,
   GatewayOptions,
   Connection,
@@ -18,22 +20,61 @@ import type {
   LuvusLocalConfig,
   LuvusBoundDelegation,
   LuvusDispatchClaims,
-  LuvusRpcHost
+  LuvusRpcHost,
+  LuvusNativeAuth
 } from '../connector/luvus/index.js'
 import type { AttemptBinding, ProviderBinding, V2Target } from '../wire/types.js'
 
-export type RuntimeProvider = Readonly<{
+export type RuntimeProviderBinding = Readonly<{
   binding: ProviderBinding
   target: V2Target
   // 来自独立受保护设备配置的预期政策修订，不从本机政策复制或设备广告自证。
   peer_policy_revision: string
-  contract: NativeContractRecord
-  // 每次从受保护本机来源复核实例；设备广告或请求 JSON 不能建立该事实。
-  source(binding: AttemptBinding): TrustedNativeContext | undefined
-  authority: NativeWireBackend['authority']
-  // 来源丢失必须返回 false 或抛错，不以设备认证代替原生就绪。
+  // 就绪由各 provider 的受保护实际来源重新核对，不能由设备认证或广告建立。
   ready(): boolean
+  // 旧 Luvus 入口固定为 1MiB；中性入口必须显式提供此预算。
+  max_response_bytes?: number
 }>
+export type RuntimeProvider = RuntimeProviderBinding &
+  Readonly<{
+    contract: NativeContractRecord
+    // 每次从受保护本机来源复核实例；设备广告或请求 JSON 不能建立该事实。
+    source(binding: AttemptBinding): TrustedNativeContext | undefined
+    // 目录直接绑定当前实际连接，不编造完整 attempt；旧有限 custody provider 可省略。
+    catalogSource?(
+      connection: Connection,
+      policies: Readonly<{ caller_policy_revision: string; local_policy_revision: string }>
+    ): TrustedNativeContext
+    authority: NativeWireBackend['authority']
+  }>
+export type RuntimeCatalogProvider = Readonly<{
+  resolve(
+    target: V2Target,
+    principal: Principal
+  ):
+    | Readonly<{
+        record: NativeContractRecord
+        source: TrustedNativeContext
+        local_provider: ProviderBinding
+        expires_at: number
+      }>
+    | undefined
+}>
+export type GatewayProviderServices = Readonly<{
+  store: Store
+  router: import('../router.js').Router
+  localPolicies: LocalPolicies
+  localProvider(target: V2Target): ProviderBinding | undefined
+  policies: NativeWireBackend['policies']
+  currentPrincipal(): string | undefined
+}>
+export type ProviderGatewayRuntimeOptions = Omit<GatewayRuntimeOptions, 'lifecycle' | 'providers'> &
+  Readonly<{
+    lifecycle: Pick<DeviceLifecycleWiring, 'store' | 'identityHost'>
+    providers: readonly (RuntimeProviderBinding & { max_response_bytes: number })[]
+    // 异步安装在宿主准备阶段完成；这里只交付当前认证 epoch 的实际 Wire 会话。
+    session(connection: Connection, channel: SocketChannel, services: GatewayProviderServices): Session
+  }>
 export type GatewayRuntimeOptions = Readonly<{
   lifecycle: DeviceLifecycleWiring
   channels?: ChannelRegistry
@@ -60,26 +101,40 @@ export type TrustedRequestScope = {
 export type ConnectorRuntimeOptions = Readonly<{
   transport: Omit<WireConnectorOptions, 'session'>
   // 每个 epoch 使用独立 backend；来源由可信宿主提供，不重复打开 Gateway writer。
-  session(connection: Connection): Readonly<{
-    backend: NativeWireBackend
-    // 当前宿主只接已验证 IPC；CLI proxy 需要另行交付可信归属，不能借 verifyPeer 放行。
-    config: LuvusLocalConfig & { readonly transport: 'ipc' }
-    // 受控来源可在实际准入后按原 binding 延迟绑定委托，避免为启动会话编造 call/attempt。
-    delegation: LuvusBoundDelegation | ((binding: AttemptBinding) => LuvusBoundDelegation)
-    claims: LuvusDispatchClaims
-    // 可选原截止能力的真实接收端；实际准入后端须使用同一持久记录，不能从请求 JSON 自建。
-    admissions?: AdmissionReceiptSink
-    verifyPeer: NonNullable<LuvusRpcHost['verifyPeer']>
-    // 固定 dedup 截止必须来自受保护准入记录；不得按重连时间重新计算。
-    dedupExpires(binding: Parameters<LuvusRpcHost['claimDispatch']>[0]): number
-    // 独立验证同一 socket 的实测证据后才可读 delegation 或登记 claim。
-    assertEvidence: (
-      binding: Parameters<LuvusRpcHost['claimDispatch']>[0],
-      evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
-    ) => void
-    readiness(): Readiness
-    close(): void
-  }>
+  session(connection: Connection): Readonly<
+    {
+      backend: NativeWireBackend
+      // 当前宿主只接已验证 IPC；CLI proxy 需要另行交付可信归属，不能借 verifyPeer 放行。
+      config: LuvusLocalConfig & { readonly transport: 'ipc' }
+      claims: LuvusDispatchClaims
+      // 可选原截止能力的真实接收端；实际准入后端须使用同一持久记录，不能从请求 JSON 自建。
+      admissions?: AdmissionReceiptSink
+      verifyPeer: NonNullable<LuvusRpcHost['verifyPeer']>
+      // 固定 dedup 截止必须来自受保护准入记录；不得按重连时间重新计算。
+      dedupExpires(binding: Parameters<LuvusRpcHost['claimDispatch']>[0]): number
+      // 独立验证同一 socket 的实测证据后才可读 delegation 或登记 claim。
+      assertEvidence: (
+        binding: Parameters<LuvusRpcHost['claimDispatch']>[0],
+        evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
+      ) => void
+      readiness(): Readiness
+      close(): void
+    } & (
+      | {
+          authentication?: 'delegated'
+          delegation: LuvusBoundDelegation | ((binding: AttemptBinding) => LuvusBoundDelegation)
+          nativeAuth?: never
+        }
+      | {
+          authentication: 'local_owner'
+          delegation?: never
+          nativeAuth(
+            binding: AttemptBinding,
+            evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
+          ): LuvusNativeAuth | Promise<LuvusNativeAuth>
+        }
+    )
+  >
   // 停止重连和全部 epoch 资源之后释放长期 claims/custody；不能清除墓碑或自动撤销原生工作。
   release(): Promise<void>
 }>

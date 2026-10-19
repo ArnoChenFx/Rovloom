@@ -98,7 +98,9 @@ Gateway Store，也不保存请求正文或制造执行许可。缺回执、冲�
 启用此能力的宿主将它列入 required，并把同一持久接收端交给 session 的 `admissions`
 及 `ConnectorAdmissionOptions.receipts`，其 `dedupExpires`交给共享 book 与 claims。
 默认 offer 仍仅 `rpc`。显式 `retention_ms`只证明本机首次固定期限，不代替 Gateway 原值。
-Wire 仍未携带 caller principal，Connector principal 来自受保护单一固定本机路由。
+旧 cutoff-only `admission_receipt` 未携带 caller principal，Connector principal 来自受保护单一固定本机路由。
+协商 `admission_context` 时额外交付原 caller、Store 同式摘要和原锚点，并与该完整 Target 路由核对；
+字段与提交后更新规则见 [Provider 角色](PROVIDER-RUNTIME.md)。
 跨 epoch 共享 book/回执与原持久唯一 claims，断连不清墓碑，不续期或重放工作。
 
 ### 管理会话与 provider 接缝

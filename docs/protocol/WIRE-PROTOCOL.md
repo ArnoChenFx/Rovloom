@@ -15,6 +15,7 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 |---|---|
 | rpc | 普通 request/accepted/response/cancel |
 | admission_receipt | Gateway 原去重截止和请求摘要的认证交付；同时要求 rpc |
+| admission_context | 在原 receipt 内交付完整登记上下文与有序失效；同时要求 admission_receipt 和 rpc |
 | history_scope | 显式登记 history_epoch/client_request_key |
 | late_evidence | unknown 同次 attempt 补证 |
 | objects | 有界 envelope/schema_bundle 分片 |
@@ -165,7 +166,7 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | enroll | Connector → Gateway，预认证 | registration_id, connector_instance_id, enrollment_credential, offer |
 | authenticate | Connector → Gateway，预认证 | machine_id, recovery_generation, connector_instance_id, device_credential, offer |
 | welcome | Gateway → Connector，预认证 | machine_id, recovery_generation, connection_epoch, in_reply_to, selected |
-| admission_receipt | Gateway → Connector | attempt, request_sha256, dedup_expires_at |
+| admission_receipt | Gateway → Connector | attempt, request_sha256, dedup_expires_at；协商 admission_context 后另需 context |
 | request | Gateway → Connector | attempt, expected_binding_revision, native_request, validation |
 | accepted | Connector → Gateway | attempt |
 | response | Connector → Gateway | attempt, native_response |
@@ -206,6 +207,53 @@ Connector 通过同一个原 Wire codec 核对认证连接、方向、协商、p
 缺 receipt、过期、跨 epoch 或摘要不符时关闭当前连接并拒绝派发。
 只有 receipt 而没有 request 时保留有界元数据，不执行任何原生动作；丢失连接、发送或登记失败均沿用原 unknown 语义，
 不补发 receipt/request、不重放旧工作、不把旧记录迁入新 epoch。执行许可仍由原 Wire、双方策略和 provider 自己的原生校验器建立。
+
+`admission_context` 是独立的可选能力，依赖 `admission_receipt` 与 `rpc`；默认广告仍为 `rpc`。
+只协商旧 receipt 时载荷保持原三字段，不能附加 context，也不能把 cutoff-only 记录当成完整 H1 上下文。
+双方协商新能力后，每个原 receipt 帧都必须带：
+
+```typescript
+context: {
+  principal_id: string
+  registered_request_sha256: string
+  anchor: ResponseAnchor
+  sequence: number
+  fenced: boolean
+}
+```
+
+Gateway 在唯一 Store 的派发事务提交后，从同一原 attempt 取得 `principal_id`，并严格用 Store 的
+`registeredRequestDigest(originalRequestPayload, principal_id)` 算法生成 `registered_request_sha256`。
+它与原 `request_sha256` 各自保留，不替换旧协议摘要。`anchor` 来自 `Store.responseAnchor(binding)`，
+包括原完整 binding、method、mode、state、content_status、content_expires_at、dedup_expires_at，以及存在时的原响应 evidence。
+anchor.binding 必须与帧外完整 binding 相同，anchor 的 dedup 截止必须与原顶层截止相同。
+完整 binding 中的原执行 deadline、原内容截止和原 dedup 截止分别固定，后续交付不能延长或缩短它们。
+Connector 接受或打开含 context 的持久记录时，必须已有受保护的完整 Target 路由，且路由 principal 与交付 principal 相同；
+缺路由、跨 profile/session/provider 或仅凭 JSON 自报主体均拒绝。请求到达时还须用原正文与该 principal 重新核对 Store 同式摘要。
+
+首次 context 的 sequence 必须为 1，state 必须为 dispatching，fenced 必须为 false；失效消息不能凭空创建上下文。
+后续更新只沿原认证连接发送同一 receipt 帧，不发送原请求正文。每次更新 sequence 必须精确递增 1；
+同 sequence 只允许整个 source 记录完全相同的幂等重复，旧 sequence、跳号或固定事实变化均拒绝并关闭通道。
+状态只允许 dispatching → connector_accepted/outcome_unknown/responded、connector_accepted → outcome_unknown/responded、
+outcome_unknown → responded，以及原状态不变。内容只允许 available → expired/discarded/unavailable、
+expired → discarded/unavailable、discarded → unavailable，以及原状态不变；不可恢复 available。
+responded 必须带真实首次追加的原 evidence；已有 evidence 不能改写或删除。fenced 只能从 false 变 true。
+失效时不猜造终态或响应证据，仍保留已知的原截止与最小事实。
+
+Gateway 订阅 Store 的 COMMIT 后 invalidation，已提交 discard/content 变化重新读取原锚点；
+provider/device fence 或原来源失效只能永久封锁已有上下文。accepted、响应证据和取消提交后也发送原锚点的有序更新，
+有界维护周期复核其它已提交状态变化及原固定 TTL。回滚事务不产生失效交付。
+更新走同一 socket 的原 codec、方向、完整连接校验与消息去重；认证交付 proof 只提供登记来源证明，不授予执行、读取或响应 permit。
+异步网络通知不构成分布式同步提交；Gateway 仍负责最终响应证据提交与结果读取的当前门禁，不能把远端缓存当作唯一 Store。
+
+Connector 先原子持久更新，再发布最小 invalidation 通知。`AdmissionContextReader.snapshot(binding)` 返回独立复制的
+`{binding,principal_id,request_sha256,registered_request_sha256,anchor,sequence,fenced}`；legacy 记录拒绝该端口。
+本机可信时钟到达原内容截止时持久收紧 available → expired；transport 关闭时必须同步 `closeEpoch(connection)`，
+先持久封锁原 epoch，再释放会话资源。该本机收紧与认证 source sequence 分开保存，不能伪造 Gateway 更新；
+source 的精确重复不能清除本机 TTL 或 epoch fence。正常重开文件也会先持久封锁全部旧 epoch，不能恢复 online 或迁入新连接。
+缺 epoch fence 端口的新能力会话拒绝建立；提交失败使接收端永久降级，但仍清理会话资源。所有 receipt hook 必须同步完成，
+误返回 Promise 时消费晚到拒绝并关闭通道，不能把 Promise 当作已提交成功。
+fenced 快照可供消费者销毁旧上下文，不能继续执行或读取原文；`dedupExpires(binding)` 仍可查询原墓碑截止，不恢复能力。
 
 所有根/payload/target/registration 字段严格列举，未知枚举拒绝。native payload 的完整根/条件/$ref 验证交给可信 kind 的 validator。
 已认证业务帧不能使用未协商 minor 或未知 major；握手 offer 的较高 minor 仅表示协商上界，

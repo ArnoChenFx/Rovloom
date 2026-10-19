@@ -54,6 +54,7 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
   }
   const local: ProviderPolicy = { ...structuredClone(caller), revision: 'local1' }
   let authorized = true
+  let localPolicyRead: (() => void) | undefined
   const contract = {
     wire: { source: native.origin, support_status: 'validated' as const },
     compiled: native.compiled,
@@ -85,8 +86,11 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
       /** 本切片不注入管理会话，普通 caller 无法升级管理员。 */
       administrator: () => null
     },
-    /** 固定本机受保护策略，按完整 tuple 校验。 */
-    localPolicies: () => local,
+    /** 固定本机受保护策略；可选测试回调只用于复现同步撤销，默认没有副作用。 */
+    localPolicies: () => {
+      localPolicyRead?.()
+      return local
+    },
     providers: [
       {
         binding,
@@ -94,6 +98,14 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
         peer_policy_revision: local.revision,
         contract,
         source,
+        /** 目录来源只投影已认证连接及当前双方政策，不编造 attempt 或发行真实原生权限。 */
+        catalogSource(connection, policies) {
+          return {
+            authenticated: true,
+            source_verified: native.state.trusted,
+            binding: { ...nativeBinding(connection), ...policies }
+          }
+        },
         authority: native.host.backend.authority,
         ready: /** 仅代表此自建 listener 的测试健康。 */ () => native.state.active
       }
@@ -210,6 +222,10 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
     target,
     reference,
     caller: { principal_id: 'synthetic' },
+    /** 为目录最终复核设置同步策略回调，测试结束须清除；不能用于产品宿主。 */
+    onLocalPolicyRead(callback?: () => void) {
+      localPolicyRead = callback
+    },
     /** 等待双方实际认证且完成 provider readiness。 */
     async ready() {
       await until(

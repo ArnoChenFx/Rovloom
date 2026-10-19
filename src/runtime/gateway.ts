@@ -2,20 +2,42 @@
 import { Router } from '../router.js'
 import { GatewayError } from '../contracts.js'
 import { createGateway, createDeviceLifecycleAdapter } from '../transport/index.js'
-import { createLuvusResultAccess } from '../connector/luvus/index.js'
+import { createProviderResultAccess } from './results.js'
+import { closeSession, ready } from '../transport/common.js'
+import type { Session, Readiness, Adapter } from '../transport/common.js'
+import { DEFAULT_LIMITS } from '../native-contract/index.js'
 import type { TrustedAttempt } from '../integration/luvus-wire.js'
 import type { Call } from '../store.js'
 import type { ProviderBinding, V2Target } from '../wire/types.js'
-import { boundedJson, contractRef, fail, validateProvider, validateTarget } from '../wire/index.js'
+import { boundedJson, contractRef, fail, LIMITS, uint, validateProvider, validateTarget } from '../wire/index.js'
 import { createTrustedRequestScope } from './request-scope.js'
-import type { GatewayRuntimeOptions, RuntimeCallInput, RuntimeProvider } from './types.js'
+import type {
+  GatewayRuntimeOptions,
+  ProviderGatewayRuntimeOptions,
+  RuntimeCallInput,
+  RuntimeCatalogProvider,
+  RuntimeProvider,
+  RuntimeProviderBinding
+} from './types.js'
 
 /** 在受信宿主显式交付已打开资源后启动常驻 listener；客户端寿命与角色寿命无关。 */
 export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
+  return assembleGateway(options)
+}
+
+/** 由 provider 交付已审 Wire 会话，共用唯一身份、账本、路由和结果读取服务。 */
+export async function createProviderGatewayRuntime(options: ProviderGatewayRuntimeOptions) {
+  return assembleGateway(options)
+}
+
+/** 两种装配入口共用同一常驻生命周期；通用入口不解释 provider 原生协议。 */
+async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayRuntimeOptions) {
+  const hostOptions = 'session' in options ? options : undefined
   const store = options.lifecycle.store
   const scope = createTrustedRequestScope(options.identities)
   const router = new Router(store, localPolicies)
-  const providers = new Map<string, RuntimeProvider>()
+  const providers = new Map<string, RuntimeProviderBinding>()
+  const nativeProviders = new Map<string, RuntimeProvider>()
   const contracts = new Map<string, RuntimeProvider['contract']>()
   let closing: Promise<void> | undefined
   let transport: ReturnType<typeof createGateway> | undefined
@@ -75,7 +97,7 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
   /** 按持久原请求选择独立 native 来源，不能从响应或 caller JSON 建立来源。 */
   function source(callId: string, attemptId: string) {
     const attempt = store.attempt(callId, attemptId)
-    const current = attempt ? providers.get(key(attempt.binding.target))?.source(attempt.binding) : undefined
+    const current = attempt ? nativeProviders.get(key(attempt.binding.target))?.source(attempt.binding) : undefined
     if (closing) {
       throw new GatewayError('runtime_closed')
     }
@@ -124,9 +146,15 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
       if (provider.target.machine_id !== binding.machine_id || provider.target.provider_id !== binding.provider_id) {
         fail('provider_binding_mismatch')
       }
+      const responseBudget = hostOptions ? provider.max_response_bytes : DEFAULT_LIMITS.object_bytes
+      uint(responseBudget)
+      if (!responseBudget || responseBudget > LIMITS.object_bytes) {
+        fail('transport_limit')
+      }
       const name = key(binding)
-      const ref = contractRef(provider.contract.wire.source)
-      const previous = contracts.get(ref)
+      const native = hostOptions ? undefined : (provider as RuntimeProvider)
+      const ref = native ? contractRef(native.contract.wire.source) : undefined
+      const previous = ref ? contracts.get(ref) : undefined
       // 同一引用不证明 live capability 相同；冲突必须拒绝，不能让另一实例的后写覆盖当前来源。
       if (
         providers.has(name) ||
@@ -138,27 +166,31 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
             revision: previous.capability_revision
           }) !==
             boundedJson({
-              wire: provider.contract.wire,
-              identity: provider.contract.compiled.identity,
-              capabilities: provider.contract.capabilities,
-              revision: provider.contract.capability_revision
+              wire: native!.contract.wire,
+              identity: native!.contract.compiled.identity,
+              capabilities: native!.contract.capabilities,
+              revision: native!.contract.capability_revision
             }))
       ) {
         fail('runtime_provider_conflict')
       }
       if (
-        binding.kind !== 'luvus' ||
+        (!hostOptions && binding.kind !== 'luvus') ||
         boundedJson(store.provider(binding.machine_id, binding.provider_id)) !== boundedJson(binding)
       ) {
         fail('provider_binding_mismatch')
       }
       providers.set(name, {
         ...provider,
+        max_response_bytes: responseBudget,
         binding: Object.freeze(binding),
         target: Object.freeze(structuredClone(provider.target))
       })
-      if (!previous) {
-        contracts.set(ref, provider.contract)
+      if (native && ref) {
+        nativeProviders.set(name, native)
+        if (!previous) {
+          contracts.set(ref, native.contract)
+        }
       }
     }
     transport = createGateway({
@@ -171,6 +203,18 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
       retainOriginalRead: true,
       /** 每个实际认证 socket 建立独立 backend/Wire；身份随该 socket fence 失效。 */
       session(connection, channel) {
+        let retaining: string | undefined
+        /** 保留证据只使用本同步栈内的原 caller；其余调用重新取得当前 HTTP 主体。 */
+        function currentPrincipal() {
+          if (retaining) {
+            return retaining
+          }
+          try {
+            return principal().id
+          } catch {
+            return undefined
+          }
+        }
         const services: Omit<Parameters<typeof createDeviceLifecycleAdapter>[2], 'connection'> = {
           localProvider,
           /** 仅查受保护契约注册表中的固定来源。 */
@@ -217,7 +261,7 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
           },
           /** 分类权限从固定 provider 的独立宿主读取，普通请求不能提升 Owner/custody。 */
           authority(attempt, binding) {
-            const provider = providers.get(key(attempt.binding.target))
+            const provider = nativeProviders.get(key(attempt.binding.target))
             if (!provider) {
               fail('provider_binding_unavailable')
             }
@@ -227,43 +271,76 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
             }
             return authority
           },
-          /** 普通结果读取只能使用当前已认证请求的主体。 */
-          currentPrincipal() {
-            try {
-              return principal().id
-            } catch {
-              return undefined
-            }
-          }
+          currentPrincipal
         }
-        const native = createDeviceLifecycleAdapter(options.lifecycle, channel, services)
-        const adapter = {
-          ...native.adapter,
-          /** 原文保留以原持久 caller 的当前权限独立评估，不借用任何 HTTP 客户端的最近身份。 */
-          planEvidence(frame: Parameters<typeof native.adapter.planEvidence>[0]) {
+        let owned: Session | undefined
+        try {
+          owned = hostOptions
+            ? hostOptions.session(connection, channel, {
+                store,
+                router,
+                localProvider,
+                localPolicies,
+                policies: services.policies,
+                currentPrincipal
+              })
+            : {
+                ...createDeviceLifecycleAdapter(
+                  options.lifecycle as GatewayRuntimeOptions['lifecycle'],
+                  channel,
+                  services
+                ),
+                /** Luvus 就绪仍由固定 provider 的真实来源提供。 */
+                readiness: configuredReadiness,
+                /** Wire 由 transport 关闭，此处没有额外独立会话资源。 */
+                close() {}
+              }
+          if (closing) {
+            throw new GatewayError('runtime_closed')
+          }
+          const native: Session = owned
+          const originalWire = native.adapter
+          const releaseSession = native.close
+          if (closing) {
+            throw new GatewayError('runtime_closed')
+          }
+          const adapter = new Proxy({} as Adapter, {
+            /** 保持 provider 方法的真实 this；仅在原证据保留栈中交付原 caller。 */
+            get(_target, property) {
+              if (property === 'planEvidence') {
+                return planEvidence
+              }
+              const value = Reflect.get(originalWire, property, originalWire)
+              return typeof value === 'function' ? value.bind(originalWire) : value
+            }
+          })
+          /** 原文保留以原持久 caller 的当前权限独立评估，不借用最近 HTTP 身份。 */
+          function planEvidence(frame: Parameters<typeof originalWire.planEvidence>[0]) {
             const attempt = store.attempt(frame.payload.attempt.call_id, frame.payload.attempt.attempt_id)
-            if (!attempt) {
-              return native.adapter.planEvidence(frame)
-            }
-            // 保留门禁与交付门禁分开；同步专用主体仅在此账本提交调用栈内生效。
-            retaining = attempt.principal_id
+            const previous = retaining
+            retaining = attempt?.principal_id
             try {
-              return native.adapter.planEvidence(frame)
+              const plan = originalWire.planEvidence(frame)
+              const configured = attempt ? providers.get(key(attempt.binding.target)) : undefined
+              const maxBytes = configured?.max_response_bytes ?? DEFAULT_LIMITS.object_bytes
+              if (plan.evidence.response_bytes > maxBytes) {
+                // 只收窄原 Wire 的保留意图：仍提交真实摘要，超 provider 预算不保存原文。
+                return {
+                  ...plan,
+                  content: {
+                    status: plan.content.status,
+                    expires_at: plan.content.expires_at,
+                    delivery: 'metadata_only' as const
+                  }
+                }
+              }
+              return plan
             } finally {
-              retaining = undefined
+              retaining = previous
             }
           }
-        }
-        let retaining: string | undefined
-        const readPrincipal = services.currentPrincipal
-        // backend 持有 services 的函数值，因此在创建 adapter 前就通过此闭包读取同步保留主体。
-        native.backend.currentPrincipal =
-          /** 仅 planEvidence 的同步保留栈可使用持久归属；其余入口强制请求作用域。 */
-          () => retaining ?? readPrincipal()
-        return {
-          adapter,
-          /** 逐 provider 核对 canonical binding、双端配置和独立 native 健康。 */
-          readiness() {
+          /** 所有 provider 都同时核对当前配置、政策和独立原生来源。 */
+          function configuredReadiness(): Readiness {
             const entries = [...providers.values()].filter(
               /** 此 socket 只能观察和承载所属机器的实例。 */
               (provider) => provider.binding.machine_id === connection.machine_id
@@ -275,34 +352,88 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
               policy_revision: policyRevision,
               peer_policy_revision: peerRevision,
               providers: entries.map(
-                /** 丢失来源或 canonical fence 不匹配时保持该实例不可派发。 */
-                (provider) => {
-                  const nativeReady =
+                /** canonical、双端政策、来源和原生会话须同时保持就绪。 */
+                (provider) => ({
+                  expected:
+                    store.provider(provider.binding.machine_id, provider.binding.provider_id) ?? provider.binding,
+                  local: provider.binding,
+                  native_ready:
+                    provider.ready() === true &&
+                    (!hostOptions || ready(native, connection, provider.binding.provider_id)) &&
+                    !closing &&
                     !!localProvider(provider.target) &&
                     localPolicies(provider.target).revision === policyRevision &&
                     provider.peer_policy_revision === peerRevision &&
-                    provider.ready()
-                  return {
-                    expected:
-                      store.provider(provider.binding.machine_id, provider.binding.provider_id) ?? provider.binding,
-                    local: provider.binding,
-                    native_ready: !closing && nativeReady
-                  }
-                }
+                    !closing
+                })
               )
             }
-          },
-          /** 原 Wire 由 transport 先关闭；这里不终止独立 native 实例。 */
-          close() {}
+          }
+          return {
+            adapter,
+            readiness: configuredReadiness,
+            /** 仅释放当前 epoch 的 provider 会话，不推断原生动作已停止。 */
+            close: releaseSession.bind(native)
+          }
+        } catch (error) {
+          closeSession(owned)
+          throw error
         }
       }
     })
     const active = transport
-    const results = createLuvusResultAccess({
+    const results = createProviderResultAccess({
       store,
       localPolicies,
       principal,
-      resolveOriginalRead: active.resolveOriginalRead
+      resolveOriginalRead: active.resolveOriginalRead,
+      /** 每次读取重新核对当前受保护配置；所有 provider 共用 Store 的内容和 handle 总预算。 */
+      provider(target) {
+        const configured = providers.get(key(target))
+        const binding = localProvider(target)
+        return configured && binding
+          ? {
+              binding,
+              max_response_bytes: configured.max_response_bytes ?? DEFAULT_LIMITS.object_bytes
+            }
+          : undefined
+      }
+    })
+    const catalog: RuntimeCatalogProvider = Object.freeze({
+      /** 目录复用唯一 Store 与当前实际认证 epoch；Owner 无 token 到期，实例/连接寿命逐次复核。 */
+      resolve(target, requesting) {
+        const provider = nativeProviders.get(key(target))
+        const binding = localProvider(target)
+        const connection = active.currentConnection(target.machine_id)
+        if (!provider?.catalogSource || !binding || !connection) {
+          return undefined
+        }
+        if (boundedJson(principal()) !== boundedJson(requesting)) {
+          fail('principal_changed')
+        }
+        const local = localPolicies(target)
+        const native = provider.catalogSource(connection, {
+          caller_policy_revision: requesting.policy.revision,
+          local_policy_revision: local.revision
+        })
+        store.assertConnection(connection)
+        if (
+          boundedJson(principal()) !== boundedJson(requesting) ||
+          boundedJson(localPolicies(target)) !== boundedJson(local) ||
+          boundedJson(active.currentConnection(target.machine_id) ?? null) !== boundedJson(connection) ||
+          boundedJson(localProvider(target) ?? null) !== boundedJson(binding) ||
+          closing
+        ) {
+          fail('runtime_catalog_unavailable')
+        }
+        return Object.freeze({
+          record: provider.contract,
+          source: native,
+          local_provider: binding,
+          // 该字段满足既有目录有限整数格式；它不建立委托寿命，真实 Owner/epoch 失效即拒绝。
+          expires_at: Number.MAX_SAFE_INTEGER
+        })
+      }
     })
     return Object.freeze({
       store,
@@ -311,6 +442,7 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
       principal,
       runAuthenticated: scope.runAuthenticated,
       results,
+      catalog,
       closed,
       close,
       /** 原子准入仅 created=true 才派发；重复 key 不再次发送、不刷新任何期限。 */

@@ -8,6 +8,7 @@ import type { NativeRequest } from './contracts.js'
 import {
   assertBinding,
   boundedJson,
+  LIMITS,
   planHistoryAdmission,
   registeredRequestDigest,
   validateAttempt,
@@ -57,6 +58,12 @@ import { ManagementLedger } from './storage/management.js'
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
 // 生成一次性注册或设备凭据的随机原文，持久化路径只保存其摘要。
 const secret = () => randomBytes(32).toString('base64url')
+
+/** 批观察只交付同一可信时刻的最小锚点；单项失效不包含正文或广播、执行许可。 */
+export type ResponseAnchorObservation = Readonly<{
+  now: number
+  entries: readonly (Readonly<{ available: true; anchor: ResponseAnchor }> | Readonly<{ available: false }>)[]
+}>
 
 export class Store {
   private db!: DatabaseSync
@@ -456,6 +463,10 @@ export class Store {
   }
   // 按设备 ID 查询公开状态，缺失设备返回稳定错误。
   machine(machine_id: string): Machine {
+    return this.storedMachine(machine_id)
+  }
+  /** 私有读取设备行，批观察不经可由宿主覆盖的公开入口。 */
+  private storedMachine(machine_id: string): Machine {
     const row = this.db.prepare('SELECT machine_id,name,status FROM machines WHERE machine_id=?').get(machine_id)
     if (!row) {
       throw new GatewayError('machine_not_found')
@@ -763,15 +774,24 @@ export class Store {
   }
   // 按设备和 provider 双重作用域查询绑定，避免同设备方法同名发生串用。
   provider(machine: string, provider: string): ProviderBinding | undefined {
+    return this.storedProvider(machine, provider)
+  }
+  /** 复用原 provider SQL 与启用投影，私有批观察不调用宿主公开覆写。 */
+  private storedProvider(machine: string, provider: string): ProviderBinding | undefined {
     const row = this.db.prepare('SELECT * FROM providers WHERE machine_id=? AND provider_id=?').get(machine, provider)
     return row ? ({ ...row, enabled: row.enabled === 1 } as ProviderBinding) : undefined
   }
   // 要求调用所属设备未撤销且 provider 仍启用，并保持原 binding revision。
-  private current(row: Pick<Row, 'machine_id' | 'provider_id' | 'binding_revision' | 'provider_kind'>): void {
-    if (this.machine(row.machine_id).status === 'revoked') {
+  private current(
+    row: Pick<Row, 'machine_id' | 'provider_id' | 'binding_revision' | 'provider_kind'>,
+    stored = false
+  ): void {
+    if ((stored ? this.storedMachine(row.machine_id) : this.machine(row.machine_id)).status === 'revoked') {
       throw new GatewayError('call_not_found')
     }
-    const provider = this.provider(row.machine_id, row.provider_id)
+    const provider = stored
+      ? this.storedProvider(row.machine_id, row.provider_id)
+      : this.provider(row.machine_id, row.provider_id)
     if (!provider?.enabled) {
       throw new GatewayError('provider_disabled')
     }
@@ -1237,26 +1257,29 @@ export class Store {
       native_request: JSON.parse(row.request_json)
     }
   }
-  // 核对完整绑定、当前 provider 和在线连接后读取最小响应锚点，保留原 deadline、内容及去重期限。
-  // 内容清理后仍可返回摘要与状态，但不返回请求正文，也不从这些元数据恢复密封响应能力。
-  responseAnchor(binding: AttemptBinding): ResponseAnchor {
+  /** 共用原单项锚点的完整绑定、当前 provider、generation 和在线 epoch 校验，不采样新时间。 */
+  private responseAnchorRow(binding: AttemptBinding, stored = false): Row {
     this.active()
     const row = this.row(binding.call_id)
-    this.current(row)
+    this.current(row, stored)
     if (!row.binding_json) {
       throw new GatewayError('attempt_anchor_unavailable')
     }
     assertBinding(binding, JSON.parse(row.binding_json))
-    if (binding.recovery_generation !== this.generation()) {
+    if (binding.recovery_generation !== (stored ? this.meta().generation : this.generation())) {
       throw new GatewayError('attempt_binding_mismatch')
     }
     const machine = this.db.prepare('SELECT status,epoch FROM machines WHERE machine_id=?').get(row.machine_id)!
     if (machine.status !== 'online' || machine.epoch !== binding.connection_epoch) {
       throw new GatewayError('stale_response')
     }
-    const call = publicCall(row, this.time())
+    return row
+  }
+  /** 仅投影最小锚点与原固定期限，绝不把请求、响应正文或内部行引用交给调用方。 */
+  private responseAnchorAt(row: Row, now: number): ResponseAnchor {
+    const call = publicCall(row, now)
     return {
-      binding: JSON.parse(row.binding_json),
+      binding: JSON.parse(row.binding_json!),
       method: row.method,
       mode: row.mode,
       state: call.state === 'created' ? 'not_dispatched' : call.state,
@@ -1266,6 +1289,90 @@ export class Store {
       ...(row.response_hash
         ? { evidence: { response_hash: row.response_hash, response_bytes: row.response_bytes! } }
         : {})
+    }
+  }
+  // 核对完整绑定、当前 provider 和在线连接后读取最小响应锚点，保留原 deadline、内容及去重期限。
+  // 内容清理后仍可返回摘要与状态，但不返回请求正文，也不从这些元数据恢复密封响应能力。
+  responseAnchor(binding: AttemptBinding): ResponseAnchor {
+    const row = this.responseAnchorRow(binding)
+    return this.responseAnchorAt(row, this.time())
+  }
+  /** 有界纯数据批观察：先持久一次可信时钟，再于私有只读事务读取；不运行宿主闭包、预算或写入通知。 */
+  responseAnchors(bindings: readonly AttemptBinding[]): ResponseAnchorObservation {
+    if (this.transactionTime !== undefined) {
+      throw new GatewayError('transaction_in_progress')
+    }
+    if (!Array.isArray(bindings) || bindings.length > LIMITS.dedup_entries) {
+      throw new GatewayError('invalid_response_anchor_batch')
+    }
+    const snapshot: AttemptBinding[] = []
+    const descriptors = Object.getOwnPropertyDescriptors(bindings)
+    let bytes = 0
+    for (let index = 0; index < bindings.length; index++) {
+      const descriptor = descriptors[String(index)]
+      if (!descriptor || !('value' in descriptor)) {
+        throw new GatewayError('invalid_response_anchor_batch')
+      }
+      const raw = boundedJson(descriptor.value)
+      bytes += Buffer.byteLength(raw)
+      // 每项仍受原 JSON 预算限制；整批只复用受保护进程缓冲上限，不放宽 Wire 单帧或对象限制。
+      if (bytes > LIMITS.buffered_bytes) {
+        throw new GatewayError('invalid_response_anchor_batch')
+      }
+      const binding = JSON.parse(raw) as AttemptBinding
+      assertBinding(binding, binding)
+      snapshot.push(binding)
+    }
+    let begun = false
+    try {
+      this.active()
+      const now = this.time()
+      this.db.exec('BEGIN')
+      begun = true
+      const entries: ResponseAnchorObservation['entries'][number][] = []
+      for (const binding of snapshot) {
+        try {
+          entries.push({ available: true, anchor: this.responseAnchorAt(this.responseAnchorRow(binding, true), now) })
+        } catch (error) {
+          if (
+            error instanceof GatewayError &&
+            [
+              'call_not_found',
+              'machine_not_found',
+              'provider_disabled',
+              'provider_binding_mismatch',
+              'attempt_anchor_unavailable',
+              'attempt_binding_mismatch',
+              'stale_response'
+            ].includes(error.code)
+          ) {
+            entries.push({ available: false })
+          } else {
+            throw error
+          }
+        }
+      }
+      this.db.exec('COMMIT')
+      begun = false
+      return { now, entries }
+    } catch (error) {
+      if (begun) {
+        try {
+          this.db.exec('ROLLBACK')
+        } catch {
+          /* 回滚失败不交付部分观察，整个 Store 继续按降级拒绝。 */
+        }
+      }
+      if (
+        error instanceof GatewayError &&
+        ['storage_closed', 'recovery_quarantined', 'storage_degraded'].includes(error.code)
+      ) {
+        throw error
+      }
+      this.markDegraded()
+      throw new GatewayError(
+        error instanceof GatewayError && error.code === 'clock_untrusted' ? error.code : 'storage_degraded'
+      )
     }
   }
   // 仅在原 attempt 尚未过期且处于派发中时记录连接器接受，不把接受视为执行成功。

@@ -1,4 +1,5 @@
 // 仅把 transport 当前认证连接实际收到的 receipt 交给持久接收端，JSON 不能构造一次性证明。
+import type { ConnectionIdentity } from '../wire/types.js'
 import type { AdmissionReceiptRecord } from '../wire/admission.js'
 import { boundedJson, fail, validateAdmissionReceipt } from '../wire/index.js'
 
@@ -6,6 +7,7 @@ const receiptBrand = Symbol('authenticated-admission-receipt')
 export type AuthenticatedAdmissionReceipt = Readonly<{ [receiptBrand]: true }>
 export type AdmissionReceiptSink = Readonly<{
   accept(proof: AuthenticatedAdmissionReceipt): void
+  closeEpoch?(connection: ConnectionIdentity): void
   assertRequest(request: import('../wire/admission.js').AdmissionRequest): void
 }>
 type Delivery = { record: AdmissionReceiptRecord; current: () => boolean }
