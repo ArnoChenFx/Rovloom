@@ -344,21 +344,52 @@ export function createManagementReadHandler(options: ManagementHttpOptions & { o
 
 /** 只在配置可信会话适配器与共享服务后打开独立 loopback listener；没有默认管理员或 token。 */
 export function startManagementReadListener(options: ManagementHttpOptions & { port: number; hostname?: '127.0.0.1' }) {
+  if (!options) {
+    throw new Error('management_listener_invalid')
+  }
+  let origin = ''
+  // 保留原只读入口的开端口前认证、服务及静态资源检查，真实origin仍只来自绑定结果。
+  const handler = prepare(options, /** 只有实际绑定后才消费来源，不根据请求Host扩大信任。 */ () => origin)
+  try {
+    return startManagementListener({
+      port: options.port,
+      hostname: options.hostname,
+      maxRequestBodySize: 1,
+      handler: /** 只读入口继续使用同一安全handler，不因共用listener打开写操作。 */ (actualOrigin) => {
+        origin = actualOrigin
+        return handler
+      }
+    })
+  } catch (error) {
+    handler.stop()
+    throw error
+  }
+}
+
+export type ManagementListenerHandler = { fetch(request: Request): Promise<Response>; stop(): void }
+export type ManagementListenerOptions = {
+  port: number
+  hostname?: '127.0.0.1'
+  maxRequestBodySize: 1 | 16_384
+  /** 实际绑定后交付规范origin，只有受信组合代码可选择现行读/写handler。 */
+  handler(origin: string): ManagementListenerHandler
+}
+
+/** 读写管理面共用唯一loopback绑定与关闭顺序；正文上限只允许现行只读或窄写契约。 */
+export function startManagementListener(options: ManagementListenerOptions) {
   if (
     !options ||
     !Number.isInteger(options.port) ||
     options.port < 0 ||
     options.port > 65535 ||
-    (options.hostname !== undefined && options.hostname !== '127.0.0.1')
+    (options.hostname !== undefined && options.hostname !== '127.0.0.1') ||
+    ![1, 16_384].includes(options.maxRequestBodySize) ||
+    typeof options.handler !== 'function'
   ) {
     throw new Error('management_listener_invalid')
   }
-  let port = options.port
-  const handler = prepare(
-    options,
-    /** 实际绑定端口由 Bun 返回，支持隔离测试的随机端口，不信任请求地址。 */
-    () => new URL(`http://127.0.0.1:${port}`).origin
-  )
+  let handler: ManagementListenerHandler | undefined
+  let stopped = false
   const bun = (
     globalThis as unknown as {
       Bun: {
@@ -367,7 +398,7 @@ export function startManagementReadListener(options: ManagementHttpOptions & { p
           port: number
           maxRequestBodySize: number
           idleTimeout: number
-          /** 将原生请求交给已配置的只读 handler。 */
+          /** 将原生请求交给已配置的管理handler。 */
           fetch(request: Request): Promise<Response>
           /** 原生 listener 的意外失败仍只返回固定公开错误。 */
           error(error: unknown): Response
@@ -377,20 +408,36 @@ export function startManagementReadListener(options: ManagementHttpOptions & { p
   ).Bun
   const server = bun.serve({
     hostname: '127.0.0.1',
-    port,
-    maxRequestBodySize: 1,
+    port: options.port,
+    maxRequestBodySize: options.maxRequestBodySize,
     idleTimeout: 10,
-    fetch: handler.fetch,
+    fetch: /** 创建handler前若发生重入请求仍拒绝，不使用未验证origin。 */ (request) =>
+      handler ? handler.fetch(request) : Promise.resolve(failure('unavailable', 503)),
     /** 不使用 Bun 默认错误页，防止堆栈或请求信息离开边界。 */
     error: () => failure('unavailable', 503)
   })
-  port = server.port
+  const url = new URL(`http://127.0.0.1:${server.port}`).origin
+  try {
+    handler = options.handler(url)
+    if (typeof handler?.fetch !== 'function' || typeof handler.stop !== 'function') {
+      throw new Error('management_listener_invalid')
+    }
+  } catch (error) {
+    server.stop(true)
+    throw error
+  }
   return {
-    url: new URL(`http://127.0.0.1:${port}`).origin,
-    /** 关闭本 listener 与只读观察，不关闭宿主的共享 Store 或其它 listener。 */
+    url,
+    /** 先停止组合handler，再关闭唯一listener；重复关闭不触发额外清理。 */
     stop(): void {
-      handler.stop()
-      server.stop(true)
+      if (!stopped) {
+        stopped = true
+        try {
+          handler!.stop()
+        } finally {
+          server.stop(true)
+        }
+      }
     }
   }
 }

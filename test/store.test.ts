@@ -1,4 +1,4 @@
-// 验证 v4 设备配对、provider 调用幂等、连接栅栏和磁盘恢复，保留原生错误及失败关闭规则。
+// 验证 v5 设备配对、provider 调用幂等、连接栅栏和磁盘恢复，保留原生错误及失败关闭规则。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'

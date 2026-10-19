@@ -1,4 +1,4 @@
-// 汇总 v4 内容、元数据、审计、备份和磁盘占用，将未完成调用的收尾预约计入配额检查。
+// 汇总 v5 内容、元数据、审计、备份和磁盘占用，将未完成调用的收尾预约计入配额检查。
 import type { DatabaseSync } from 'node:sqlite'
 import { statSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -54,7 +54,16 @@ export function assertBudget(
   if (size(calls.map(metadataValue)) + size(histories) + metadataReserved > limits.call_metadata_bytes) {
     throw new GatewayError('metadata_quota')
   }
-  const security = ['machines', 'enrollments', 'providers', 'management'].reduce(
+  const security = [
+    'machines',
+    'enrollments',
+    'providers',
+    'management',
+    'admin_history',
+    'admin_confirmations',
+    'admin_operations',
+    'admin_pairings'
+  ].reduce(
     /* 统计各安全与管理表的 JSON 编码占用。 */ (n, table) => n + size(db.prepare(`SELECT * FROM ${table}`).all()),
     0
   )

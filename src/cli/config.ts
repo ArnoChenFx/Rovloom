@@ -1,6 +1,6 @@
 // 定义双角色无密钥配置及严格只读加载边界；不解析凭据、不创建状态或连接。
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
-import { dirname, isAbsolute, normalize } from 'node:path'
+import { dirname, posix, win32 } from 'node:path'
 import { userInfo } from 'node:os'
 import { canonical } from '../contracts.js'
 import { parseNativeJson } from '../native-contract/json.js'
@@ -52,7 +52,8 @@ function fail(): never {
 }
 
 // 只接纳规范绝对路径和有界文本；实际目录信任由宿主建立。
-function fixedPath(value: unknown): value is string {
+function fixedPath(value: unknown, platform: NodeJS.Platform = process.platform): value is string {
+  const paths = platform === 'win32' ? win32 : posix
   return (
     typeof value === 'string' &&
     value.length <= 4096 &&
@@ -60,9 +61,9 @@ function fixedPath(value: unknown): value is string {
       /* 识别控制字符，防止路径携带不可见的日志或解析分隔符。 */ (char) =>
         char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127
     ) &&
-    isAbsolute(value) &&
-    normalize(value) === value &&
-    value !== '/'
+    paths.isAbsolute(value) &&
+    paths.normalize(value) === value &&
+    paths.parse(value).root !== value
   )
 }
 
@@ -103,14 +104,19 @@ function gatewayUrl(value: unknown): value is string {
 }
 
 // 创建独立配置快照并检查角色字段、路径和引用，不创建任何状态。
-export function parseConfig(value: unknown): RoleConfig {
+export function parseConfig(value: unknown, platform: NodeJS.Platform = process.platform): RoleConfig {
   let snapshot: Record<string, unknown>
   try {
     snapshot = JSON.parse(canonical(value)) as Record<string, unknown>
   } catch {
     return fail()
   }
-  if (!snapshot || Array.isArray(snapshot) || snapshot.schema_version !== 1 || !fixedPath(snapshot.state_dir)) {
+  if (
+    !snapshot ||
+    Array.isArray(snapshot) ||
+    snapshot.schema_version !== 1 ||
+    !fixedPath(snapshot.state_dir, platform)
+  ) {
     return fail()
   }
   if (snapshot.role === 'gateway') {
@@ -154,13 +160,18 @@ export function parseConfig(value: unknown): RoleConfig {
 }
 
 // 生成经过同一校验器检查的无密钥角色模板。
-export function configTemplate(role: 'gateway' | 'connector'): RoleConfig {
+export function configTemplate(
+  role: 'gateway' | 'connector',
+  platform: NodeJS.Platform = process.platform
+): RoleConfig {
+  const base = platform === 'win32' ? 'C:\\absolute\\protected\\rovloom' : '/absolute/protected/rovloom'
+  const paths = platform === 'win32' ? win32 : posix
   return parseConfig(
     role === 'gateway'
       ? {
           schema_version: 1,
           role,
-          state_dir: '/absolute/protected/rovloom/gateway',
+          state_dir: paths.join(base, 'gateway'),
           mcp: 'http',
           mcp_hostname: '127.0.0.1',
           mcp_port: 9444,
@@ -169,10 +180,11 @@ export function configTemplate(role: 'gateway' | 'connector'): RoleConfig {
       : {
           schema_version: 1,
           role,
-          state_dir: '/absolute/protected/rovloom/connector',
+          state_dir: paths.join(base, 'connector'),
           gateway_url: 'wss://localhost:9443',
           provider_config_refs: []
-        }
+        },
+    platform
   )
 }
 

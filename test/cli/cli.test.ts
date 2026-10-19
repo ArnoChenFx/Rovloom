@@ -280,6 +280,18 @@ test(
             env: { PATH: process.env.PATH ?? '' }
           })
         assert.match(run(['--help']).stderr, /Rovloom/)
+        const serviceHelp = run(['service', '--help'])
+        assert.equal(serviceHelp.status, 0)
+        assert.equal(serviceHelp.stdout, '')
+        assert.match(serviceHelp.stderr, /uninstall never stops it/)
+        const updateHelp = run(['update', '--help'])
+        assert.equal(updateHelp.status, 0)
+        assert.equal(updateHelp.stdout, '')
+        assert.match(updateHelp.stderr, /update --check/)
+        const service = run(['service', 'uninstall', '--role', 'connector'])
+        assert.equal(service.status, 3)
+        assert.equal(service.stdout, '')
+        assert.equal(service.stderr, 'backend_unavailable\n')
         const manifest = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
         assert.equal(run(['--version']).stderr, `Rovloom ${manifest.version}\n`)
         for (const role of ['gateway', 'connector'] as const) {

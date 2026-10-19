@@ -2,10 +2,11 @@
 import { randomUUID } from 'node:crypto'
 import { canonical, digest, GatewayError } from '../contracts.js'
 import { Router, type LocalPolicies, type Principal } from '../router.js'
-import type { Store, Call } from '../store.js'
+import type { Store } from '../store.js'
 import { providerScopeAllowed, validatePolicies } from '../wire/index.js'
 import type { AttemptBinding, ProviderPolicy, V2Target } from '../wire/types.js'
 import { isToolName, parseToolArguments } from './schema.js'
+import { publicCallView } from './call-view.js'
 import { authorizedLuvusCatalog, type GatewayCatalogProvider } from './native-catalog.js'
 import {
   FacadeServiceError,
@@ -31,6 +32,7 @@ import type {
   ManagementOperation,
   ManagementReply,
   ManagementGrant,
+  ManagementPermission,
   PermissionDecision,
   PermissionSnapshot,
   ProviderSnapshot
@@ -44,6 +46,8 @@ export type StoreGatewayOptions = {
   localPolicies: LocalPolicies
   router?: Router
   catalog?: GatewayCatalogProvider
+  // 仅由实际组合器报告已装配的管理写能力；只读提示不得调用确认、签发或provider启用证明。
+  managementCapabilities?(target: { machine_id: string; provider_id?: string }): readonly ManagementPermission[]
 }
 const idPattern = /^[a-zA-Z0-9_-]{1,128}$/
 const persistedStates = new Set(['pending', 'offline', 'online', 'revoked'])
@@ -281,27 +285,6 @@ export class StoreGatewayService implements GatewayService {
     return { items: items.slice(offset, next), next_cursor: token }
   }
 
-  // 构造不含原生正文、principal、request 或内部 epoch 的调用元数据，避免绕过尚缺失的内容门禁。
-  private callView(call: Call): CallView {
-    return {
-      call_id: call.call_id,
-      target: JSON.parse(call.target_json),
-      provider_kind: call.provider_kind,
-      binding_revision: call.binding_revision,
-      contract_ref: null,
-      state: call.state,
-      delivery:
-        call.state === 'created' || call.state === 'not_dispatched'
-          ? 'not_dispatched'
-          : call.state === 'responded'
-            ? 'responded'
-            : 'possibly_dispatched',
-      content_status: call.content_status,
-      content_delivery: 'unavailable',
-      content_expires_at: call.content_expires
-    }
-  }
-
   // 有界短等只轮询原调用，每轮重读当前身份/双方政策；终止等待不调用取消、派发或原生操作。
   private async callGet(args: ToolArguments['runtime_call_get'], context: ServiceContext): Promise<CallView> {
     const until = performance.now() + (args.wait_ms ?? 0)
@@ -309,7 +292,7 @@ export class StoreGatewayService implements GatewayService {
       this.now()
       const call = this.router.get(this.principal(context), args.call_id)
       if (!['created', 'dispatching', 'connector_accepted'].includes(call.state) || performance.now() >= until) {
-        return this.callView(call)
+        return publicCallView(call)
       }
       await new Promise<void>(
         /* 将 AbortSignal 接到当前短等 timer，释放监听器后统一回到门禁，不形成任何执行重试。 */ (resolve) => {
@@ -554,12 +537,18 @@ export class StoreGatewayService implements GatewayService {
     principal: Principal,
     admin: Administrator,
     target: { machine_id: string; provider_id?: string },
-    now: number
+    now: number,
+    context: AdminContext
   ): PermissionSnapshot {
     const actions: ManagementGrant['action'][] = target.provider_id
       ? ['providers_read', 'providers_manage']
       : ['devices_read', 'devices_rename', 'devices_disconnect', 'devices_revoke', 'permissions_read']
     const mode = this.options.store.health().mode
+    const capabilities = new Set(this.options.managementCapabilities?.(target) ?? [])
+    const current = this.administrator(context)
+    if (canonical(current.principal) !== canonical(principal) || canonical(current.admin) !== canonical(admin)) {
+      throw new FacadeServiceError('forbidden')
+    }
     const decisions: PermissionDecision[] = actions.map(
       /* 先判断当前权限，再说明真实后端或全局模式的阻断；不得把按钮状态用于后端授权。 */ (action) => {
         const allowed = this.allowed(
@@ -575,7 +564,9 @@ export class StoreGatewayService implements GatewayService {
             : !['devices_read', 'providers_read', 'permissions_read'].includes(action)
               ? mode === 'storage_degraded'
                 ? 'storage_degraded'
-                : 'backend_unavailable'
+                : capabilities.has(action)
+                  ? 'allowed'
+                  : 'backend_unavailable'
               : 'allowed'
         return { action, allowed: reason === 'allowed', reason_code: reason }
       }
@@ -724,7 +715,8 @@ export class StoreGatewayService implements GatewayService {
           principal,
           admin,
           { machine_id: machine!, ...(provider ? { provider_id: provider } : {}) },
-          now
+          now,
+          context
         )
       }
       return result as ManagementReply[K]

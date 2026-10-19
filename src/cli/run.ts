@@ -2,8 +2,12 @@
 import type { Readable, Writable } from 'node:stream'
 import type { GatewayService } from '../mcp/types.js'
 import type { HttpAuthenticationProvider } from '../mcp/http.js'
+import type { ServiceCommandHost } from '../service/command.js'
+import type { CliUpdateHost } from './update.js'
+import { ServiceError } from '../service/types.js'
 import { PRODUCT_VERSION } from '../mcp/version.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
+import { serviceDiagnostic } from './service-output.js'
 import {
   CLI_ERROR_CODES,
   CliError,
@@ -22,6 +26,9 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom config check --config /absolute/protected/config.json
   rovloom gateway [--config /absolute/protected/config.json]
   rovloom connector [--config /absolute/protected/config.json]
+  rovloom service --help
+  rovloom update --check
+  rovloom update --help
 
 省略 --config 时分别读取 ~/.config/rovloom/gateway.json 或 connector.json；Windows 同样使用用户 home。
 当前受保护配置读取仅支持 POSIX；Windows 读取返回 config_platform_unsupported。
@@ -30,7 +37,9 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
 模板只含非秘密引用；不接受 argv secret、URL 凭据、动态模块或任意 shell RPC。
 Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
 宿主须注入已验证服务与 HTTP 认证；缺后端返回 backend_unavailable，不开放配对或凭据签发命令。
-退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
+service 操作须注入受信监管宿主；默认配置仅由其已验证身份 resolver 提供，不猜测提权前用户。
+update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
+角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
 `
 
 export type RunningConnector = {
@@ -41,13 +50,18 @@ export type RunningConnector = {
 export type GatewayRuntime = {
   service: GatewayService
   authentication: HttpAuthenticationProvider
+  closed?: Promise<void>
   // 宿主可观察实际MCP地址以发布本机就绪状态；此回调不提供认证或权限。
   listening?(url: string): void
   // 在前端关闭后释放宿主拥有的资源，保留可能已送达工作的历史证据。
   close(): Promise<void>
 }
+// 服务宿主提供真实监管器及已验证默认路径；诊断由唯一CLI固定写入stderr。
+export type CliServiceHost = Omit<ServiceCommandHost, 'diagnostic'>
 // 宿主负责单 writer、transport/native 接线、配置来源和资源释放；不从配置加载可执行模块。
 export type CliRuntime = {
+  service?: CliServiceHost
+  update?: CliUpdateHost
   // 建立受信服务及 caller 绑定并交出资源所有权；未提供时角色启动明确拒绝。
   gateway?: (config: GatewayConfig) => Promise<GatewayRuntime>
   // 启动受信出站宿主并返回其生命周期；具体认证和传输不由 CLI 补造。
@@ -117,6 +131,47 @@ export async function runCli(
   environment?: ConfigPathEnvironment
 ): Promise<number> {
   try {
+    if (args[0] === 'update') {
+      const { runUpdateCommand } = await import('./update.js')
+      return await runUpdateCommand(
+        args,
+        /* 更新状态仅进入固定stderr边界。 */ (text) => io.stderr.write(text),
+        runtime.update,
+        io.signal
+      )
+    }
+    if (args[0] === 'service') {
+      const { SERVICE_HELP, handleServiceCommand } = await import('../service/command.js')
+      if (args.length === 2 && args[1] === '--help') {
+        io.stderr.write(SERVICE_HELP)
+        return 0
+      }
+      if (!runtime.service) {
+        throw new CliError('backend_unavailable', 3)
+      }
+      const host = runtime.service
+      const code = await handleServiceCommand(args, {
+        ...host,
+        resolveDefaultConfig: host.resolveDefaultConfig
+          ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role) => {
+              try {
+                return host.resolveDefaultConfig!(role)
+              } catch (error) {
+                if (error instanceof CliError && error.code === 'config_home_unavailable') {
+                  throw new ServiceError('config_path_required')
+                }
+                throw error
+              }
+            }
+          : undefined,
+        diagnostic: /* 重建固定错误或监管状态，畸形code/状态不会泄露到stderr。 */ (text) =>
+          io.stderr.write(serviceDiagnostic(text))
+      })
+      if (code !== undefined) {
+        return code
+      }
+      throw new CliError('invalid_arguments')
+    }
     const command = parseCommand(args, environment)
     if (command.action === 'help') {
       io.stderr.write(HELP)
@@ -167,7 +222,10 @@ export async function runCli(
       })
       try {
         gateway.listening?.(http.url)
-        await untilStopped(http, io.signal)
+        await untilStopped(
+          gateway.closed ? { closed: Promise.race([http.closed, gateway.closed]), close: http.close } : http,
+          io.signal
+        )
       } finally {
         await http.close()
       }

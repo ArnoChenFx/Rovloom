@@ -17,13 +17,16 @@ const result = await Bun.build({
     'src/integration/luvus-wire.ts',
     'src/integration/persistence.ts',
     'src/transport/index.ts',
+    'src/runtime/index.ts',
     'src/connector/herdr/readonly.ts',
     'src/webui/index.ts',
     'src/admin/index.ts',
     'src/connector/luvus/index.ts',
     'src/mcp/index.ts',
     'src/cli/index.ts',
-    'src/cli/main.ts'
+    'src/cli/main.ts',
+    'src/service/index.ts',
+    'src/update/index.ts'
   ],
   outdir: 'dist/src',
   root: 'src',

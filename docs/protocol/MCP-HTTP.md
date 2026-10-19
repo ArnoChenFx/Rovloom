@@ -23,8 +23,17 @@
 - `context.wait_signal` 只停止前端等待。标准MCP取消、HTTP断开或DELETE不调用业务
   `runtime_call_cancel`，不表示native取消、回滚、not_dispatched或可重发；持久unknown锚点保留。
 - `CliRuntime.gateway(config)` 返回 service、authentication、可选 listening(url) 与 close()。
+  可选 closed 用于观察实际角色结束或关闭失败。
   CLI拥有MCP listener；宿主不重复创建入口。Connector仍返回closed/close，具体transport由宿主建立。
-  stdin EOF及客户端退出不停止持久Gateway；只有角色终止信号触发listener及宿主资源清理。
+  stdin EOF及客户端退出不停止持久Gateway；角色终止信号或真实角色closed触发listener及宿主资源清理。
+- `createRuntimeCliRuntime(host)` 消费 `src/runtime/index.ts` 的实际角色工厂。
+  `host.gateway(config)` 交付 `{options: GatewayRuntimeOptions, authentication, catalog?, management?}`；
+  `host.connector(config)` 交付 `ConnectorRuntimeOptions`。工厂复用原Store/Router、原子admit、
+  显式cancel及results.open/read/discard，不复制runtime或凭据/原生来源实现。
+  `RuntimeGatewayService` 将每次MCP请求置于runtime.runAuthenticated的当前caller作用域；
+  call/get只返回同次已授权元数据及可用的真实结果句柄，结果页逐次通过原Wire读取/保留门禁。
+  结果cursor绑定caller、result_id、max_bytes及固定期限；不接受客户端任意字节偏移。
+  close入口同步封锁新MCP请求，再关闭管理listener、设备通道和资源；已经送达native的工作可能继续。
 - `createTransportCliRuntime(host)` 复用已合入的 `createGateway/createConnector`，不实现第二套通道。
   Gateway 宿主交付已打开的 Store、同一身份/政策来源、authentication、验证身份桥及逐 socket session；
   工厂组合一个 Router 和实际 listener，可选 service 工厂收到同一 Store/Router/transport。
@@ -83,15 +92,15 @@ runtime_call/call_cancel/result_read 尚未完成服务装配，返回 backend_u
 实际 LuvusRpcAdapter.dispatch，不能用原生 JSON execute 代替或重新注入 auth。唯一持久 claim、
 事务准入及当前内容读取模块仍须独立组合，不能以 hook 已存在宣称公共调用成功。
 调用准入须在同一 Store 事务使用绝对 deadline，并区分新登记与原 history/key 命中；
-现有 Router.admit 已提供同步 CallAdmission（call/created）与绝对 deadline 端口，MCP runtime 尚未装配；
+现有 Router.admit 已提供同步 CallAdmission（call/created）与绝对 deadline 端口，RuntimeGatewayService委托真实runtime.admit；
 不能从旧 createCall 的相对 timeout 或既有 state 猜测首次登记，created=false 即使仍为 created 也不得派发。
 读取须通过原 Wire adapter 的 checkResult，绑定当前 reader、完整 attempt、原 permit 和普通交付通道；
 只用当前分类、原请求重校验或 responseAnchor 不能恢复原派发时的秘密/保留授权。
 transport 默认在提交后释放执行上下文；显式 retainOriginalRead 的有界保留仍须通过原 resolver，
 不能把仅供晚到元数据核验的 ResponseOnlyContext 当作读取许可。结果页使用 Store.readResult 返回的
 实际句柄 expires（Store 绝对毫秒，now < expires 有效），不能用内容期限代替，或创建新句柄续期。
-机器注册/改名的现有 Store 审计仍使用 local，缺少调用者归属事务；
-撤销还缺当前通道关闭和完整管理回执，三项均拒绝，不调用凭据签发/兑换或伪造管理成功。
+机器注册/改名/撤销需要独立管理桥的session、history、确认与fence；普通MCP caller不具备这些上下文时仍拒绝，
+不能把其参数转换为管理员批准，也不调用凭据签发/兑换或伪造管理成功。
 Store 的受保护设备生命周期桥不替代这些管理端口；deviceLifecycle 只可由可信宿主显式注入，
 facade 不调用 connectVerifiedDevice/resetDeviceEnrollment，也不消费凭据校验证明或解除身份 blocked。
 独立入口仍需受信HTTP认证和真实身份来源，不能自动采用测试工厂。
@@ -113,7 +122,17 @@ revision、现场连接/心跳、native 来源保持 null/unverified；持久 pe
 不会创建、续期或借用业务 history。权限快照只作 5 秒 UI 提示；有管理权限但缺后端时 allowed
 仍为 false，reason_code 为 backend_unavailable，不能据此生成执行许可。
 
-operations_get、确认、配对和所有管理写入目前返回 backend_unavailable。完整后端必须在
+角色组合器配置management时，以同一Store/identities、上述management六读和实际transport.refresh创建
+`StoreManagementWriteService`，再把现行`createManagementHandler`挂到共用`startManagementListener`。
+管理listener仅绑定127.0.0.1，读写handler正文上限16KiB；独立只读入口继续限制1字节。
+宿主交付非秘密port及可选assets；认证可提供独立authenticate/verifyCsrf，或提供
+`session: { sessions, cookie_name }`交由既有`createManagementSessionAdapter`组合。
+session来源的identities必须与runtime完全同一对象；适配器在实际listener Origin下逐请求验证cookie和CSRF，
+不同来源在启动时拒绝并释放已打开角色。不能用MCP身份代替管理员会话，也不创建登录/bootstrap。
+受保护会话源与浏览器确认/回执客户端契约见[MANAGEMENT-SESSION-CLIENT](../MANAGEMENT-SESSION-CLIENT.md)。
+pairingPolicy、providerEnable缺失时对应写操作拒绝；权限提示仅观察已装配能力与当前grant/Store模式，
+不调用确认、签发或provider启用证明，也不构成执行许可。
+确认、回执及管理写服务在
 Store writer 的同一事务保存管理 history/请求摘要、真实确认消费、状态变更和带 actor 的审计回执，
 不能用内存 Map、业务 call、换 key 或查询到相似状态冒充该次操作已提交。request_id 标识待执行
 意图；确认记录和动作回执使用区分种类的幂等命名空间，均绑定原 principal/session/history。
@@ -123,12 +142,12 @@ HTTP 写超时后仅查询原 operations_get；未知结果不自动重放。GET
 
 断开必须由真实 transport 关闭确切 epoch；Store.disconnect 只是持久账本收敛，不是通道关闭。
 provider 启停还须双端配置核对、独立 providers_manage、确认及新 revision，并释放对应资源；
-旧流/句柄/attempt 不复用，原生工作可能继续。Store 当前没有设备管理 revision、管理员
-history/回执与注册/改名 actor 事务端口，需由存储/管理后端补齐；本模块不绕开它们写私有 SQL。
+旧流/句柄/attempt 不复用，原生工作可能继续。设备管理revision、管理员history/确认/回执和actor事务
+复用已合入的Store/管理端口，准确签名与生产session/custody边界见[管理写服务](../MANAGEMENT-WRITES.md)。
 
 管理读请求需拒绝未知字段，设备/provider 标识符最多 128 字节，cursor 最多 1024 字符，
-分页默认 50、最大 200，设备 states 筛选只接纳上述有界枚举。HTTP 适配器还须限制请求体和响应字节并映射固定公共错误；模块没有
-提供独立管理 HTTP listener。恢复隔离只允许独立 recovery_local 管理会话读 status，普通元数据和全部
+分页默认 50、最大 200，设备 states 筛选只接纳上述有界枚举。HTTP 适配器限制请求体和响应字节并映射固定公共错误。
+恢复隔离只允许独立 recovery_local 管理会话读 status，普通元数据和全部
 写入均拒绝；storage_degraded 仅保留满足授权/预算的有界读取及现有独立清理路径。
 
 ## MCP 消息与工具
@@ -168,7 +187,9 @@ facade 不为重试更换任何范围。`runtime_response_discard` 是独立动�
 不会签发或转发 enrollment。设备/provider 公共视图仅输出类型中列出的展示字段。
 
 成功结构为 `structuredContent: {data: ...}`，并提供 JSON 文本副本。
-原生 error 保持在 `data.native_response.error`，服务以 `is_error` 标明工具错误；
+服务若交付已授权内联原生响应，其error保持在 `data.native_response.error`，以 `is_error` 标明工具错误。
+`RuntimeGatewayService`的call/get返回元数据与`result`句柄，元数据响应不标记原生error；
+`runtime_result_read`以base64页交付原始响应字节，原生error.code/message/data均保持原文，不改成网关错误。
 网关拒绝为 `isError: true` 和 `gateway_error: {code}`。未知工具/参数为固定 JSON-RPC 错误，
 不回显请求值、服务异常、私人路径或栈。HTTP承载协议，stdout不承载MCP；stderr仅允许固定诊断代码。
 
@@ -216,16 +237,26 @@ URL 禁止 userinfo/query/fragment/自定义路径，endpoint 路径由受信 tr
 `gateway` 默认读取 `~/.config/rovloom/gateway.json`，`connector` 默认读取
 `~/.config/rovloom/connector.json`；Windows 同样使用用户 home 下的 `.config/rovloom`，不改用 AppData。
 当前受保护配置读取仅支持 POSIX；Windows 只定义上述路径规则，实际读取返回 `config_platform_unsupported`。
+模板按当前平台生成规范绝对占位路径：POSIX 使用 `/absolute/protected/rovloom/{role}`，
+Windows 使用 `C:\absolute\protected\rovloom\{role}`。模板经过同一严格路径校验；生成模板不证明Windows文件读取或角色启动可用。
 显式 `--config` 优先且不依赖 home。`resolveRoleConfigPath` 是 CLI 和服务宿主共用的路径选择接口；
 选择后仍核对配置 role 与子命令，不回退另一角色文件，不自动创建目录、配置或秘密。
 所选文件或目录缺失时返回固定 `config_not_found`；缺省路径无法取得有效 home 时返回
 `config_home_unavailable`。这些诊断不输出实际路径。
 配置不允许未知字段；读取拒绝 symlink、非 regular file、宽松权限和超过 16 KiB 的文件。
 state_dir 在这里仅作绝对规范路径校验，实际目录所有权、单 writer、锁和可信引用解析由宿主负责。
-CLI 不创建数据库、真实凭据或连接。
+配置解析不创建数据库、真实凭据或连接；受信角色工厂只在显式启动时取得资源所有权。
 
 `gateway [--config ...]` / `connector [--config ...]` 在没有相应宿主时退出 3；
 注入宿主后持续监听HTTP；stdin EOF与客户端退出不停止Gateway，SIGINT或SIGTERM关闭本地资源，失败退出1。
+`CliRuntime.service` 可注入 `platform`、真实 `ServiceManager` 及受信 `resolveDefaultConfig(role)`；
+唯一CLI在读取角色配置前委托服务模块，诊断统一写入stderr。`service --help` 独立可用，其余动作
+缺宿主返回 `backend_unavailable`。默认路径只接受宿主已验证身份的共享helper结果；详见 [SERVICE](../SERVICE.md)。
+
+`update --help`离线可用；`update --check`复用固定官方来源和现行更新预算，只读版本、manifest与tag元数据。
+CLI使用构建版本和实际平台，Linux只接受运行时报告的glibc证明；版本状态和固定错误仅写stderr。
+当前预发行版本按规范SemVer比较，目标限官方稳定发行。存在新版本时，`update`返回
+`replacement_unavailable`/5，不下载、不替换或声称升级成功；详见[UPDATE](../UPDATE.md)。
 help、版本、检查结果和错误写 stderr；只有显式 config template 输出非秘密 JSON 到 stdout，
 Gateway运行期stdout不承载MCP或身份材料。退出码为 0 正常、2 参数/配置错误、3 缺后端、1 运行失败。
 

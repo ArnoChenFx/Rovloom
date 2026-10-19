@@ -4,31 +4,19 @@ import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-export const repository = 'ArnoChenFx/Rovloom'
-export const manifestName = 'release-manifest.json'
+import {
+  RELEASE_REPOSITORY,
+  RELEASE_MANIFEST,
+  assetName,
+  versionFromTag,
+  validateReleaseManifest
+} from '../../src/release/contract.ts'
+export { assetName, versionFromTag }
+export const repository = RELEASE_REPOSITORY
+export const manifestName = RELEASE_MANIFEST
 export const checksumsName = 'SHA256SUMS'
 export const platforms = JSON.parse(readFileSync(new URL('./platforms.json', import.meta.url), 'utf8'))
 export const root = resolve(import.meta.dir, '../..')
-
-/** 接受规范 SemVer 稳定版或预发布版，拒绝前导零、构建别名和不可安全比较的数字。 */
-export function versionFromTag(tag) {
-  assert.equal(typeof tag, 'string')
-  assert(tag.length <= 128, 'Release tag is too long')
-  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u.exec(tag)
-  assert(match, 'Expected vMAJOR.MINOR.PATCH[-PRERELEASE], without build metadata')
-  for (const number of match.slice(1, 4)) {
-    assert(Number.isSafeInteger(Number(number)), 'Unsafe SemVer number')
-  }
-  for (const identifier of match[4]?.split('.') ?? []) {
-    if (/^\d+$/u.test(identifier)) {
-      assert(
-        /^(?:0|[1-9]\d*)$/u.test(identifier) && Number.isSafeInteger(Number(identifier)),
-        'Invalid prerelease number'
-      )
-    }
-  }
-  return tag.slice(1)
-}
 
 /** 校验事件必须绑定官方仓库的完整 tag ref 与确切提交 SHA。 */
 export function releaseContext(env = process.env) {
@@ -60,19 +48,6 @@ export function nativePlatform() {
   )
   assert(platform, 'Unsupported native release platform')
   return platform
-}
-
-/** 资产名绑定精确版本和平台，不提供会被覆盖的无版本二进制别名。 */
-export function assetName(version, platform) {
-  assert.equal(versionFromTag(`v${version}`), version)
-  assert(
-    platforms.some(
-      /** 只允许已维护矩阵中的完整平台组合。 */ (item) =>
-        item.os === platform.os && item.arch === platform.arch && item.libc === platform.libc
-    ),
-    'Unknown release platform'
-  )
-  return `rovloom-${version}-${platform.os}-${platform.arch}${platform.os === 'windows' ? '.exe' : ''}`
 }
 
 /** 读取普通文件的完整字节计算公开长度和 SHA-256，拒绝目录、符号链接及空产物。 */
@@ -111,7 +86,10 @@ export function assemble(context, directory) {
     assets.push(asset)
     files.set(name, path)
   }
-  const manifest = { schemaVersion: 1, repository, ...context, bun: '1.4.3', assets }
+  const manifest = validateReleaseManifest(
+    { schemaVersion: 1, repository, ...context, bun: '1.4.3', assets },
+    context.tag
+  )
   const manifestBytes = encode(manifest)
   const sums = assets.map(/** 按矩阵固定顺序输出每个二进制摘要。 */ (asset) => `${asset.sha256}  ${asset.name}`)
   sums.push(`${createHash('sha256').update(manifestBytes).digest('hex')}  ${manifestName}`)
