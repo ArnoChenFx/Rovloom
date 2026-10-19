@@ -2,7 +2,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { boundedJson } from '../../src/wire/index.js'
@@ -80,13 +90,17 @@ function fixture(maximum = 8) {
   })
   const root = openManagedLuvusRoot({ record_path: recordPath, expected_root_id: 'root1', expected_root_revision: 1 })
   let now = 100_000
+  let clockEffect: (() => void) | undefined
   let writer: NativeCustodyApprovalWriter | undefined
   /** writer 只使用本测试的固定受保护目录和独立可控时钟。 */
   function open() {
     writer = openNativeCustodyApprovals(root, {
       directory: approvalDirectory,
       max_entries: maximum,
-      /* 合成时钟只供文件边界回归，不证明真实 native 签发时间。 */ now: () => now
+      /* 合成时钟同时验证调用宿主回调前后的 fence，不证明原生时间。 */ now: () => {
+        clockEffect?.()
+        return now
+      }
     })
     return writer
   }
@@ -109,6 +123,9 @@ function fixture(maximum = 8) {
     intent,
     approvalDirectory,
     open,
+    /** 仅合成受信时钟可安排一次关闭、重入或文件故障。 */ setClockEffect(effect: () => void) {
+      clockEffect = effect
+    },
     /** 仅显式测试操作可改变独立时钟。 */ setNow(value: number) {
       now = value
     },
@@ -116,9 +133,12 @@ function fixture(maximum = 8) {
       return { actor: 'admin1', confirmation_id: 'confirmation1', expires_at: now + 10_000 }
     },
     /** 没有真实 child，测试只清理自己创建的文件树。 */ close() {
-      writer?.close()
-      root.close()
-      rmSync(directory, { recursive: true, force: true })
+      try {
+        writer?.close()
+      } finally {
+        root.close()
+        rmSync(directory, { recursive: true, force: true })
+      }
     }
   }
 }
@@ -308,7 +328,7 @@ test(
           writer.approve(f.intent, { ...f.decision(), expires_at: 160_001 }),
         failure('native_custody_approval_expired')
       )
-      assert.deepEqual(readdirSync(f.approvalDirectory), ['.writer.lock'])
+      assert.deepEqual(readdirSync(f.approvalDirectory).sort(), ['.clock-owner.json', '.clock.json', '.writer.lock'])
     } finally {
       f.close()
     }
@@ -333,6 +353,221 @@ test(
         /* 新引用也不能恢复已过期的原批准。 */ () => writer.read(approval.approval_id),
         failure('native_custody_approval_expired')
       )
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'Luvus custody expired approvals cannot revive after writer reopen and clock rollback',
+  /** 已持久观察到到期后，重开 writer 也必须在产生新批准引用或消费前拒绝回拨时间。 */ () => {
+    const f = fixture()
+    try {
+      const writer = f.open()
+      const approval = writer.approve(f.intent, f.decision())
+      f.setNow(110_000)
+      assert.throws(
+        /* 到期读取必须先固定已观察时间，不能只在内存拒绝。 */ () => writer.read(approval.approval_id),
+        failure('native_custody_approval_expired')
+      )
+      writer.close()
+      f.setNow(109_000)
+      const reopened = f.open()
+      assert.throws(
+        /* 新 writer 不得用回拨时间恢复旧批准并签发消费所需引用。 */ () => reopened.read(approval.approval_id),
+        failure('native_custody_clock_invalid')
+      )
+      assert.throws(
+        /* 已关闭来源的旧 handle 也不能用来绕过新 writer 的拒绝。 */ () =>
+          consumeNativeCustodyApproval(f.root, f.intent, approval),
+        failure('native_custody_approval_unavailable')
+      )
+      assert.equal(existsSync(join(f.approvalDirectory, approval.approval_id + '.approval.json.consumed')), false)
+      reopened.close()
+      assert.equal(existsSync(join(f.approvalDirectory, '.writer.lock')), false)
+      assert.equal(existsSync(join(f.approvalDirectory, '.clock.json')), true)
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'Luvus custody expiry observed through consume persists across reopen and rejects rollback',
+  /** 消费路径在拒绝过期批准前也落盘时间，重开与回拨不能恢复尚未消费的批准。 */ () => {
+    const f = fixture()
+    try {
+      const writer = f.open()
+      const approval = writer.approve(f.intent, f.decision())
+      f.setNow(110_000)
+      assert.throws(
+        /* 失败消费不建墓碑，但仍持久记录真实观察到的到期时间。 */ () =>
+          consumeNativeCustodyApproval(f.root, f.intent, approval),
+        failure('native_custody_approval_mismatch')
+      )
+      writer.close()
+      f.setNow(109_000)
+      const reopened = f.open()
+      assert.throws(
+        /* 消费观察产生的高水位与读取观察具有相同的跨重开约束。 */ () => reopened.read(approval.approval_id),
+        failure('native_custody_clock_invalid')
+      )
+      assert.equal(existsSync(join(f.approvalDirectory, approval.approval_id + '.approval.json.consumed')), false)
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'Luvus custody normal reopen preserves an unexpired approval and consume rejects subsequent rollback',
+  /** 正常重开保留原截止而不是拒绝所有旧批准，消费仍必须服从已持久观察的最高时间。 */ () => {
+    const f = fixture()
+    try {
+      const writer = f.open()
+      const approval = writer.approve(f.intent, f.decision())
+      writer.close()
+      f.setNow(105_000)
+      const reopened = f.open()
+      const restored = reopened.read(approval.approval_id)
+      const result = consumeNativeCustodyApproval(f.root, f.intent, restored)
+      assert.equal(result.approval_id, approval.approval_id)
+      const another = reopened.approve(f.intent, f.decision())
+      f.setNow(104_999)
+      assert.throws(
+        /* 新引用也不能绕过 writer 已落盘的高水位。 */ () => consumeNativeCustodyApproval(f.root, f.intent, another),
+        failure('native_custody_clock_invalid')
+      )
+      assert.equal(existsSync(join(f.approvalDirectory, another.approval_id + '.approval.json.consumed')), false)
+      f.setNow(105_000)
+      assert.throws(
+        /* 时钟恢复也不会重新激活同一失效 writer。 */ () => reopened.read(another.approval_id),
+        failure('native_custody_approval_unavailable')
+      )
+      reopened.close()
+      consumeNativeCustodyApproval(f.root, f.intent, f.open().read(another.approval_id))
+    } finally {
+      f.close()
+    }
+  }
+)
+
+for (const damage of [
+  'corrupt',
+  'replace',
+  'missing',
+  'missing-all',
+  'wrong-root',
+  'missing-anchor',
+  'pending-old-clock',
+  'pending-new-clock'
+] as const) {
+  test(
+    `Luvus custody rejects ${damage} persistent clock metadata without rebuilding it`,
+    /** 坏账本、换 inode、缺账本或 root 绑定不符均拒绝；只清理本轮刚创建的匹配锁。 */ () => {
+      const f = fixture()
+      try {
+        const writer = f.open()
+        const approval = writer.approve(f.intent, f.decision())
+        writer.close()
+        const path = join(f.approvalDirectory, '.clock.json')
+        const anchor = join(f.approvalDirectory, '.clock-owner.json')
+        if (damage === 'corrupt') {
+          writeFileSync(path, '{')
+        } else if (damage === 'replace') {
+          const bytes = readFileSync(path)
+          renameSync(path, path + '.original')
+          writeFileSync(path, bytes, { mode: 0o600 })
+        } else if (damage === 'missing' || damage === 'missing-all') {
+          rmSync(path)
+          if (damage === 'missing-all') {
+            rmSync(anchor)
+          }
+        } else if (damage === 'wrong-root') {
+          const value = JSON.parse(readFileSync(path, 'utf8'))
+          writeFileSync(path, JSON.stringify({ ...value, root_id: 'different-root' }))
+        } else if (damage === 'missing-anchor') {
+          rmSync(anchor)
+        } else {
+          createNativeRecord(join(f.approvalDirectory, '.clock.pending'), {
+            format: 'rovloom-luvus-custody-clock-v1',
+            root_id: f.root.root_id,
+            root_revision: f.root.root_revision,
+            config_digest: f.root.config_digest,
+            observed_at: 110_000,
+            previous_observed_at: 100_000
+          })
+          if (damage === 'pending-new-clock') {
+            const value = JSON.parse(readFileSync(path, 'utf8'))
+            writeFileSync(path, JSON.stringify({ ...value, observed_at: 110_000 }))
+          }
+        }
+        assert.throws(/* 不能把坏/缺 ledger 当成全新批准目录。 */ () => f.open(), failure())
+        assert.equal(existsSync(join(f.approvalDirectory, '.writer.lock')), false)
+        assert.equal(existsSync(path), damage !== 'missing' && damage !== 'missing-all')
+        assert.equal(existsSync(join(f.approvalDirectory, approval.approval_id + '.approval.json.consumed')), false)
+        assert.throws(/* 第二次打开也不能自动修复并恢复批准。 */ () => f.open(), failure())
+      } finally {
+        f.close()
+      }
+    }
+  )
+}
+
+for (const effect of ['close', 'reenter', 'replace-clock'] as const) {
+  test(
+    `Luvus custody fences a clock callback that attempts to ${effect}`,
+    /** 回调不能在前置检查后关闭或改变来源再让外层操作继续创建批准文件。 */ () => {
+      const f = fixture()
+      try {
+        const writer = f.open()
+        const approval = writer.approve(f.intent, f.decision())
+        f.setNow(105_000)
+        f.setClockEffect(
+          /* 模拟受信宿主回调重入或同一进程中的文件竞争，外层必须重新核验。 */ () => {
+            if (effect === 'close') {
+              writer.close()
+            } else if (effect === 'reenter') {
+              assert.throws(
+                /* 内层异常即使被回调捕获，外层也必须看到失效状态。 */ () => writer.read(approval.approval_id),
+                failure('native_custody_clock_invalid')
+              )
+            } else {
+              const path = join(f.approvalDirectory, '.clock.json')
+              const bytes = readFileSync(path)
+              renameSync(path, path + '.original')
+              writeFileSync(path, bytes, { mode: 0o600 })
+            }
+          }
+        )
+        assert.throws(
+          /* 外层操作不能忽略回调期间发生的来源变更。 */ () => consumeNativeCustodyApproval(f.root, f.intent, approval),
+          failure()
+        )
+        assert.equal(existsSync(join(f.approvalDirectory, approval.approval_id + '.approval.json.consumed')), false)
+        writer.close()
+        assert.equal(existsSync(join(f.approvalDirectory, '.writer.lock')), false)
+      } finally {
+        f.close()
+      }
+    }
+  )
+}
+
+test(
+  'Luvus custody public writer rejects relative control paths before creating records',
+  /** 公开入口也必须拒绝非规范路径，不能进入不收敛的父链或创建任何 writer 记录。 */ () => {
+    const f = fixture()
+    try {
+      for (const directory of ['.', 'control/approvals', f.approvalDirectory + '/.']) {
+        assert.throws(
+          /* 真实 opaque root 不能让相对或非规范目录绕过路径边界。 */ () =>
+            openNativeCustodyApprovals(f.root, { directory }),
+          failure('owned_path_untrusted')
+        )
+      }
+      assert.deepEqual(readdirSync(f.approvalDirectory), [])
     } finally {
       f.close()
     }

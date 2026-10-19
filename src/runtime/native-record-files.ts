@@ -4,6 +4,7 @@ import {
   closeSync,
   fstatSync,
   fsyncSync,
+  ftruncateSync,
   lstatSync,
   openSync,
   readSync,
@@ -40,6 +41,21 @@ export function nativeRecordStamp(path: string, maximum = 32_768): string {
       throw new LuvusAdapterError('native_record_untrusted')
     }
     return [parent, info.dev, info.ino, info.uid, info.gid, info.mode, info.nlink, info.size, info.ctimeNs].join(':')
+  } catch (error) {
+    throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('native_record_unavailable')
+  }
+}
+
+/** 固定可更新记录的真实 inode 与保护事实；内容版本另用完整 stamp 核验。 */
+export function nativeRecordIdentity(path: string, maximum = 32_768): string {
+  try {
+    const before = nativeRecordStamp(path, maximum)
+    const info = lstatSync(path, { bigint: true })
+    const identity = [nativeRecordParent(path), info.dev, info.ino, info.uid, info.gid, info.mode, info.nlink].join(':')
+    if (nativeRecordStamp(path, maximum) !== before) {
+      throw new LuvusAdapterError('native_record_changed')
+    }
+    return identity
   } catch (error) {
     throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('native_record_unavailable')
   }
@@ -116,6 +132,42 @@ export function createNativeRecord(path: string, value: unknown, maximum = 32_76
     return nativeRecordStamp(path, maximum)
   } catch (error) {
     throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('native_record_create_failed')
+  } finally {
+    if (fd >= 0) {
+      closeSync(fd)
+    }
+  }
+}
+
+/** 仅原位推进仍匹配的控制记录，落盘和重读确认前不返回；部分失败保留文件并由拥有者拒绝继续。 */
+export function updateNativeRecord(path: string, expected: string, value: unknown, maximum = 32_768): string {
+  const bytes = boundedJson(value, maximum)
+  let fd = -1
+  try {
+    if (nativeRecordStamp(path, maximum) !== expected) {
+      throw new LuvusAdapterError('native_record_changed')
+    }
+    fd = openSync(path, constants.O_RDWR | constants.O_NOFOLLOW)
+    const info = fstatSync(fd, { bigint: true })
+    const named = lstatSync(path, { bigint: true })
+    if (info.dev !== named.dev || info.ino !== named.ino || nativeRecordStamp(path, maximum) !== expected) {
+      throw new LuvusAdapterError('native_record_changed')
+    }
+    writeFileSync(fd, bytes)
+    ftruncateSync(fd, Buffer.byteLength(bytes))
+    fsyncSync(fd)
+    const after = fstatSync(fd, { bigint: true })
+    const current = lstatSync(path, { bigint: true })
+    if (after.dev !== current.dev || after.ino !== current.ino) {
+      throw new LuvusAdapterError('native_record_changed')
+    }
+    const read = readNativeRecord(path, maximum)
+    if (boundedJson(read.value, maximum) !== bytes) {
+      throw new LuvusAdapterError('native_record_changed')
+    }
+    return read.stamp
+  } catch (error) {
+    throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('native_record_update_failed')
   } finally {
     if (fd >= 0) {
       closeSync(fd)

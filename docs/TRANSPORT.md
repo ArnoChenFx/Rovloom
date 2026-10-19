@@ -78,6 +78,11 @@ Linux x64 安装与私有目录，持久记录完整配置、目录身份和独�
 不能代替此授权。所有 epoch 沿用原 issued/expires，custody 关闭只清除内存秘密；process
 关闭才请求停止自有 child，不把忘记秘密声称为原生撤销。
 
+批准 writer 在返回可信时间前同步保存持久高水位，close/reopen 不归零；已观察过期的批准
+不能因时钟回拨恢复。私有 clock 记录与固定 inode 锚绑定同一 root/config，更新的 pending
+标记在完整落盘核验后才移除；缺失、替换、损坏或未完成提交均拒绝，不自动重建或接管。
+正常 close 只移除本轮仍匹配的锁。目录须为规范绝对路径，拒绝 `.`、相对路径和折叠别名。
+
 `createManagedLuvusProvider`只接受真实 opaque custody，复用开发来源同一份三项已审普通
 RPC 分类，使用独立契约修订。它不增加方法、scope、raw、Host、终端或秘密结果权限。
 Herdr 的来源、协议、分类与凭据仍由其 provider 实现分别交付。
@@ -111,6 +116,13 @@ Wire 仍未携带 caller principal，Connector principal 来自受保护单一�
 `createProviderConnectorRuntime`只管理通用认证通道和角色寿命，provider 自行交付已有
 `ConnectorWireSession`的 adapter、执行、readiness 与关闭资源；不选择原生协议或凭据。
 现有 `createConnectorRuntime`保留 Luvus IPC 的专用装配边界，Herdr 不借此伪装 UHP。
+
+通用 Connector 的 `close/closed`使用同一逻辑结果，默认至多等待 release 五秒；受保护配置
+`release_timeout_ms`仅可在 1..5000ms 内收紧。超时返回 `connector_runtime_close_timeout`，
+不取消或重试原 release，不宣称物理资源已释放。`releaseSettled`和 `releaseStatus()`继续
+观察原回调；pending/failed 保留所交付 owner 引用，晚成功只更新独立观察，不改判关闭结果。
+启动失败的 `ConnectorHostStartupError.shutdown`保留同一关闭与所有者观察入口，调用者须
+保留它直到实际释放确认；`owner_held`仅表示本宿主保留引用，不证明内核退出状态。
 
 ### 生产来源边界
 

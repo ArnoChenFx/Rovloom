@@ -1,6 +1,6 @@
 /** 为受控 Luvus 的有限委托持久保存一次批准与消费墓碑；本模块不认证管理员、不向普通调用返回 token。 */
 import { createHash, randomUUID } from 'node:crypto'
-import { readdirSync } from 'node:fs'
+import { lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { boundedJson, fields, id, object } from '../wire/index.js'
@@ -8,7 +8,14 @@ import { LuvusAdapterError } from '../connector/luvus/types.js'
 import { assertManagedControlDirectory, assertManagedRoot, checkedCustodyPolicy } from './native-root.js'
 import type { ManagedLuvusRoot } from './native-root.js'
 import { ownedPathStamp } from './native-process.js'
-import { createNativeRecord, nativeRecordStamp, readNativeRecord, removeNativeRecord } from './native-record-files.js'
+import {
+  createNativeRecord,
+  nativeRecordIdentity,
+  nativeRecordStamp,
+  readNativeRecord,
+  removeNativeRecord,
+  updateNativeRecord
+} from './native-record-files.js'
 
 const approvalBrand = Symbol('luvus-custody-approval')
 export type NativeCustodyIntent = Readonly<{
@@ -114,6 +121,80 @@ function checkedDecision(input: NativeCustodyDecision, now: number): NativeCusto
   return Object.freeze(value as NativeCustodyDecision)
 }
 
+/** 时钟记录绑定同一受保护 root，正常关闭不会删除或把高水位归零。 */
+function clockRecord(root: ManagedLuvusRoot, observedAt: number) {
+  return {
+    format: 'rovloom-luvus-custody-clock-v1',
+    root_id: root.root_id,
+    root_revision: root.root_revision,
+    config_digest: root.config_digest,
+    observed_at: observedAt
+  }
+}
+
+/** 未完成的推进标记永不自动接管，缺失判断也不能跟随 symlink。 */
+function assertNoClockPending(path: string): void {
+  try {
+    lstatSync(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return
+    }
+    throw new LuvusAdapterError('native_custody_clock_invalid')
+  }
+  throw new LuvusAdapterError('native_custody_clock_invalid')
+}
+
+/** 只有全新空白批准目录才能建账；已有记录缺失账本、损坏或替换 inode 时拒绝重建。 */
+function openClock(root: ManagedLuvusRoot, directory: string, path: string, ownerPath: string) {
+  try {
+    assertNoClockPending(join(directory, '.clock.pending'))
+    const entries = readdirSync(directory)
+    if (isDeepStrictEqual(entries, ['.writer.lock'])) {
+      createNativeRecord(path, clockRecord(root, 0), 4096)
+      createNativeRecord(
+        ownerPath,
+        {
+          format: 'rovloom-luvus-custody-clock-owner-v1',
+          root_id: root.root_id,
+          root_revision: root.root_revision,
+          config_digest: root.config_digest,
+          clock_identity: nativeRecordIdentity(path, 4096)
+        },
+        4096
+      )
+    }
+    const owner = readNativeRecord(ownerPath, 4096)
+    const anchor = object(owner.value)
+    fields(anchor, ['format', 'root_id', 'root_revision', 'config_digest', 'clock_identity'])
+    if (
+      anchor.format !== 'rovloom-luvus-custody-clock-owner-v1' ||
+      anchor.root_id !== root.root_id ||
+      anchor.root_revision !== root.root_revision ||
+      anchor.config_digest !== root.config_digest ||
+      anchor.clock_identity !== nativeRecordIdentity(path, 4096)
+    ) {
+      throw new LuvusAdapterError('native_custody_clock_invalid')
+    }
+    const read = readNativeRecord(path, 4096)
+    const value = object(read.value)
+    fields(value, ['format', 'root_id', 'root_revision', 'config_digest', 'observed_at'])
+    if (
+      !Number.isSafeInteger(value.observed_at) ||
+      (value.observed_at as number) < 0 ||
+      !isDeepStrictEqual(value, clockRecord(root, value.observed_at as number)) ||
+      nativeRecordStamp(ownerPath, 4096) !== owner.stamp ||
+      nativeRecordIdentity(path, 4096) !== anchor.clock_identity ||
+      nativeRecordStamp(path, 4096) !== read.stamp
+    ) {
+      throw new LuvusAdapterError('native_custody_clock_invalid')
+    }
+    return { clock: value.observed_at as number, clockStamp: read.stamp, ownerStamp: owner.stamp }
+  } catch (error) {
+    throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('native_custody_clock_invalid')
+  }
+}
+
 /** 打开受保护本机批准 writer；此能力只能交给真实管理员 session 与独立 native-custody policy 的桥。 */
 export function openNativeCustodyApprovals(
   root: ManagedLuvusRoot,
@@ -136,13 +217,12 @@ export function openNativeCustodyApprovals(
     root_revision: root.root_revision,
     config_digest: root.config_digest
   })
-  let closed = false
-  let clock = 0
-  /** 每次写入/读取/消费重验真实根、目录、writer 锁及单调可信时钟。 */
-  function current(): number {
-    if (closed) {
-      throw new LuvusAdapterError('native_custody_approval_unavailable')
-    }
+  const clockPath = join(options.directory, '.clock.json')
+  const clockOwnerPath = join(options.directory, '.clock-owner.json')
+  const clockPendingPath = join(options.directory, '.clock.pending')
+  let state: ReturnType<typeof openClock>
+  try {
+    state = openClock(root, options.directory, clockPath, clockOwnerPath)
     assertManagedRoot(root)
     if (
       ownedPathStamp(options.directory, 'directory') !== directoryStamp ||
@@ -150,13 +230,71 @@ export function openNativeCustodyApprovals(
     ) {
       throw new LuvusAdapterError('native_custody_approval_changed')
     }
-    const now = (options.now ?? Date.now)()
-    if (!Number.isSafeInteger(now) || now < clock || now < 0) {
-      closed = true
+  } catch (error) {
+    // 只清理刚由本次调用创建且仍匹配的锁，残缺 ledger 保留并使下次打开继续拒绝。
+    try {
+      removeNativeRecord(lockPath, lockStamp)
+    } catch {
+      throw new LuvusAdapterError('native_custody_approval_cleanup_failed')
+    }
+    throw error
+  }
+  let closed = false
+  let degraded = false
+  let advancing = false
+  /** 用户时钟回调前后及落盘后重验所有来源 fence，关闭或损坏后不能继续创建批准/墓碑。 */
+  function fence(pendingStamp?: string): void {
+    if (closed || degraded) {
+      throw new LuvusAdapterError('native_custody_approval_unavailable')
+    }
+    assertManagedRoot(root)
+    if (
+      ownedPathStamp(options.directory, 'directory') !== directoryStamp ||
+      nativeRecordStamp(lockPath) !== lockStamp ||
+      nativeRecordStamp(clockOwnerPath, 4096) !== state.ownerStamp ||
+      nativeRecordStamp(clockPath, 4096) !== state.clockStamp
+    ) {
+      throw new LuvusAdapterError('native_custody_approval_changed')
+    }
+    if (pendingStamp === undefined) {
+      assertNoClockPending(clockPendingPath)
+    } else if (nativeRecordStamp(clockPendingPath, 4096) !== pendingStamp) {
+      throw new LuvusAdapterError('native_custody_approval_changed')
+    }
+  }
+  /** 返回时间前先同步持久高水位，回拨或任何提交不确定均锁存失效，显式 close 仍可释放自有锁。 */
+  function current(): number {
+    if (advancing) {
+      degraded = true
       throw new LuvusAdapterError('native_custody_clock_invalid')
     }
-    clock = now
-    return now
+    advancing = true
+    try {
+      fence()
+      const now = (options.now ?? Date.now)()
+      fence()
+      if (!Number.isSafeInteger(now) || now < state.clock || now < 0) {
+        throw new LuvusAdapterError('native_custody_clock_invalid')
+      }
+      if (now > state.clock) {
+        const pendingStamp = createNativeRecord(
+          clockPendingPath,
+          { ...clockRecord(root, now), previous_observed_at: state.clock },
+          4096
+        )
+        state.clockStamp = updateNativeRecord(clockPath, state.clockStamp, clockRecord(root, now), 4096)
+        state.clock = now
+        fence(pendingStamp)
+        removeNativeRecord(clockPendingPath, pendingStamp)
+      }
+      fence()
+      return now
+    } catch (error) {
+      degraded = true
+      throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('native_custody_clock_invalid')
+    } finally {
+      advancing = false
+    }
   }
   /** 从真实保护文件创建 opaque 引用；同形 JSON 或仅相同摘要不能成为批准。 */
   function reference(approvalId: string): NativeCustodyApproval {
@@ -187,7 +325,7 @@ export function openNativeCustodyApprovals(
       const checked = checkedDecision(decision, now)
       const files = readdirSync(options.directory)
       if (
-        files.length >= maximum * 2 + 1 ||
+        files.length >= maximum * 2 + 3 ||
         files.filter(/* 计数不依赖墓碑是否到期，禁止自动清理后重放。 */ (name) => name.endsWith('.approval.json'))
           .length >= maximum
       ) {
@@ -203,7 +341,7 @@ export function openNativeCustodyApprovals(
     },
     /** 仅重新读取同一保护文件引用；消费墓碑永久阻止同一批准被再次用于 token 创建。 */
     read: reference,
-    /** 关闭 writer 只移除自己仍匹配的锁，批准文件和消费墓碑继续持久保留。 */
+    /** 正常或失效 writer 只移除自己仍匹配的锁，高水位、批准和墓碑继续持久保留。 */
     close() {
       if (closed) {
         return
