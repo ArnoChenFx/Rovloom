@@ -341,7 +341,12 @@ export class ManagementLedger {
   }
 
   /** 获取既有意图用于当前精确权限复验；这里只读无秘密摘要，不消费确认。 */
-  intent(write: { history_epoch: string; request_id: string }): ManagementIntent {
+  intent(
+    write: { history_epoch: string; request_id: string; recovery_generation: string },
+    authority: ManagementAuthority
+  ): ManagementIntent {
+    this.host.guard()
+    this.history(write, authority(), this.host.clock(), false)
     const row = this.db
       .prepare('SELECT summary FROM admin_confirmations WHERE history_epoch=? AND request_id=?')
       .get(write.history_epoch, write.request_id)

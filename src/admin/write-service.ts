@@ -419,7 +419,7 @@ export class StoreManagementWriteService implements GatewayManagementService {
           identifier(item)
         }
         const write = value as ManagementArguments['operations_get']
-        const original = ledger.intent(write)
+        const original = ledger.intent(write, this.authority(context))
         this.authorize(admin, original, false)
         result = ledger.receipt(write, this.authority(context, original))
       } else if (name === 'confirmations_create') {
@@ -445,7 +445,7 @@ export class StoreManagementWriteService implements GatewayManagementService {
         fence(value)
         identifier(value.operation_digest)
         const write = value as ManagementArguments['confirmations_confirm']
-        const original = ledger.intent(write)
+        const original = ledger.intent(write, this.authority(context))
         this.authorize(admin, original, false)
         result = ledger.confirm(write, this.authority(context, original))
       } else {

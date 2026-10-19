@@ -58,7 +58,7 @@ test(
       )
       await assert.rejects(
         f.service.execute('operations_get', { ...scope, history_epoch: 'missing_history' }, context()),
-        /confirmation_required/
+        /management_history_unavailable/
       )
     } finally {
       f.close()
