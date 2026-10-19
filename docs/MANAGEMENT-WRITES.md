@@ -26,6 +26,10 @@
   返回 true 的测试回调只证明端口行为，不证明真实 native 来源或生产启用已经验收。
 - 配对秘密签发、交付和独立 IdentityStore 的已签发/失败进度仍由原受保护 custody/本机管理宿主负责。
   此服务不签发 enrollment、设备 credential 或 token，不接收秘密正文；`issuance` 明确为 unverified。
+  受保护宿主可调用 `Store.issuePairingEnrollment(machine, pairingId, policyRef, ttlMs)`，仍须 Store 原独立
+  management 授权提供 pairing_enrollment_issue 的精确批准。它绑定申请、目标、策略、恢复代次及原申请截止，
+  每份申请最多签发一次，签发与 issued 标记原子提交。秘密只返回给受保护 custody，不进入普通服务。
+  已有管理申请的设备拒绝 legacy 无关联签发/兑换；redeem 仅更新同一 pairing_id，旧材料不能完成新申请。
 
 ## 操作顺序
 
@@ -99,6 +103,10 @@ admin_confirmations、admin_operations、admin_pairings。它们全部属于原 
 
 history 在接收截止加 audit_ttl 后清理，相关确认/回执先清理；配对申请按原期限加 audit_ttl 清理。
 过期/缺失 history 一律拒绝，不自动重建旧意图。storage_degraded 与 recovery_quarantined 拒绝管理变更。
+
+writer 内会话到期、权限撤销或当前证明返回拒绝，只转换本服务白名单中的已知管理拒绝为 Store 业务错误，
+回滚且保持健康库 active；确认不消费、回执不产生，后续健康业务仍可继续。未知宿主异常或真实 SQLite 异常
+保持原存储故障降级路径，不将全部异常降格为业务拒绝。相关回归见 test/admin/write-refusals.test.ts。
 
 ## 证据边界
 

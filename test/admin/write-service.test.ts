@@ -160,7 +160,7 @@ test(
 test(
   '确认期限、取消申请、已兑换冲突与秘密不进入普通回执',
   /** enrollment仅在本测试受保护内存直接签发，产品管理服务从不接收或返回它。 */ async () => {
-    const f = setup()
+    const f = setup(undefined, { management })
     try {
       const { receipt } = await register(f, 'owned_cancel')
       const machine = receipt.machine_id
@@ -174,14 +174,18 @@ test(
         f.service.execute('pairings_cancel', { ...expired.write, ...cancel.target }, context()),
         /confirmation_expired/
       )
-      const secret = f.store.issueEnrollment(machine)
+      const secret = f.store.issuePairingEnrollment(machine, receipt.pairing_id, 'fixture_policy')
       const c = await confirmed(f.service, cancel, await revision(f, machine))
       const result = await f.service.execute('pairings_cancel', { ...c.write, ...cancel.target }, context())
       assert.equal((await f.service.execute('pairings_get', cancel.target, context())).status, 'cancelled')
       assert.throws(/** 已取消申请不能兑换此前签发的合成 token。 */ () => f.store.redeem(secret), /invalid_enrollment/)
       assert(!JSON.stringify(result).includes(secret))
       const second = await register(f, 'owned_consumed')
-      const token = f.store.issueEnrollment(second.receipt.machine_id)
+      const token = f.store.issuePairingEnrollment(
+        second.receipt.machine_id,
+        second.receipt.pairing_id,
+        'fixture_policy'
+      )
       const old = await confirmed(
         f.service,
         {

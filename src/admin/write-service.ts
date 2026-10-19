@@ -72,6 +72,19 @@ export class ManagementServiceError extends Error {
     super(code)
   }
 }
+// 仅桥接本服务已知的身份、权限、配置证明拒绝；未知异常仍交给 Store 的故障降级路径。
+const transactionRefusals = new Set(['unauthenticated', 'forbidden', 'backend_unavailable', 'invalid_arguments'])
+/** 受信管理判定进入 writer 时使用 Store 认识的业务错误，避免健康库被权限拒绝误降级。 */
+function storageRefusal<T>(check: () => T): T {
+  try {
+    return check()
+  } catch (error) {
+    if (error instanceof ManagementServiceError && transactionRefusals.has(error.code)) {
+      throw new GatewayError(error.code)
+    }
+    throw error
+  }
+}
 const publicCodes = new Set([
   'unauthenticated',
   'forbidden',
@@ -322,27 +335,30 @@ export class StoreManagementWriteService implements GatewayManagementService {
 
   /** 生成只保留会话摘要的事务授权回调；政策撤权在事务内立即生效。 */
   private authority(context: AdminContext, operation?: ManagementIntent): ManagementAuthority {
-    return /* 不缓存管理员或按钮许可，每次重新解析受信身份后端。 */ (): ManagementActor => {
-      const admin = this.administrator(context)
-      if (operation) {
-        this.authorize(admin, operation, false)
-      }
-      const principal = this.options.identities.principal(context.caller)
-      if (!principal || principal.id !== admin.principal_id) {
-        throw new ManagementServiceError('unauthenticated')
-      }
-      return {
-        actor: admin.principal_id,
-        session_hash: digest(admin.session_ref),
-        policy_digest: digest(
-          canonical({
-            revision: admin.policy_revision,
-            caller_revision: principal.policy.revision,
-            grants: admin.grants
-          })
-        )
-      }
-    }
+    return /* 不缓存管理员或按钮许可，每次重新解析受信身份后端。 */ (): ManagementActor =>
+      storageRefusal(
+        /* 已知管理拒绝必须回滚且保留健康writer。 */ () => {
+          const admin = this.administrator(context)
+          if (operation) {
+            this.authorize(admin, operation, false)
+          }
+          const principal = this.options.identities.principal(context.caller)
+          if (!principal || principal.id !== admin.principal_id) {
+            throw new ManagementServiceError('unauthenticated')
+          }
+          return {
+            actor: admin.principal_id,
+            session_hash: digest(admin.session_ref),
+            policy_digest: digest(
+              canonical({
+                revision: admin.policy_revision,
+                caller_revision: principal.policy.revision,
+                grants: admin.grants
+              })
+            )
+          }
+        }
+      )
   }
 
   /** 只接受已公布的固定操作，写响应不含 enrollment、设备凭据或 native 内容。 */
@@ -517,7 +533,10 @@ export class StoreManagementWriteService implements GatewayManagementService {
           write,
           this.authority(context, operation),
           /* 新意图才要求当前真实宿主证明，原回执读取不重新执行。 */ () =>
-            this.authorize(this.administrator(context), operation)
+            storageRefusal(
+              /* 证明撤销是明确业务拒绝，真实SQLite或未知宿主异常仍不转换。 */ () =>
+                this.authorize(this.administrator(context), operation)
+            )
         )
         // COMMIT 后复验所有当前通道；宿主失败不撤销已提交结果，通道效果继续标未确认。
         try {

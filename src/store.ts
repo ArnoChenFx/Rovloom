@@ -481,15 +481,50 @@ export class Store {
       .run(this.name(name), machine)
     return this.machine(machine)
   }
-  // 仅为待注册设备签发有界期限的一次性注册令牌，数据库只存摘要。
+  // 旧受保护本机注册入口仅供尚未建立管理配对申请的设备使用，不能绕过已有申请策略。
   issueEnrollment(machine: string, ttlMs = 600_000): string {
+    return this.issueEnrollmentFor(machine, ttlMs)
+  }
+  // 精确管理申请的秘密签发只供受保护custody调用；普通管理DTO/MCP/HTTP不暴露此方法。
+  issuePairingEnrollment(machine: string, pairingId: string, policyRef: string, ttlMs = 600_000): string {
+    validateId(pairingId)
+    validateId(policyRef)
+    return this.issueEnrollmentFor(machine, ttlMs, { pairing_id: pairingId, policy_ref: policyRef })
+  }
+  // 同库绑定申请、目标、策略、恢复代次和截止；一份申请最多签发一次，丢响应不能续发。
+  private issueEnrollmentFor(
+    machine: string,
+    ttlMs: number,
+    pairing?: { pairing_id: string; policy_ref: string }
+  ): string {
     return this.transaction(
-      /* 限制注册状态、期限和安全子额后保存令牌摘要及签发审计。 */ (now) => {
+      /* 秘密签发、精确独立确认、申请issued标记与审计同事务提交，失败不交付secret。 */ (now) => {
         if (this.machine(machine).status !== 'pending') {
           throw new GatewayError('invalid_machine_state')
         }
         if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
           throw new GatewayError('invalid_ttl')
+        }
+        let expires = now + ttlMs
+        if (pairing) {
+          const application = this.db
+            .prepare(
+              "SELECT expires,issued FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
+            )
+            .get(pairing.pairing_id, machine, pairing.policy_ref, now)
+          if (!application || application.issued !== 0) {
+            throw new GatewayError('invalid_pairing_issuance')
+          }
+          expires = Math.min(expires, Number(application.expires))
+          this.manage(
+            'pairing_enrollment_issue',
+            machine + '/' + pairing.pairing_id,
+            canonical({ recovery_generation: this.generation(), policy_ref: pairing.policy_ref, expires_at: expires }),
+            now
+          )
+          this.db.prepare('UPDATE admin_pairings SET issued=1 WHERE pairing_id=?').run(pairing.pairing_id)
+        } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(machine)) {
+          throw new GatewayError('protected_pairing_issuance_required')
         }
         if (
           this.db.prepare('SELECT needs_confirmation FROM machines WHERE machine_id=?').get(machine)!
@@ -505,22 +540,59 @@ export class Store {
         this.db.prepare('UPDATE machines SET resource_revision=resource_revision+1 WHERE machine_id=?').run(machine)
         const token = secret()
         this.db
-          .prepare('INSERT INTO enrollments(token_hash,machine_id,expires) VALUES(?,?,?)')
-          .run(digest(token), machine, now + ttlMs)
-        this.audit('enrollment_issued', 'local', now, undefined, { machine_id: machine })
+          .prepare(
+            'INSERT INTO enrollments(token_hash,machine_id,expires,pairing_id,pairing_policy_ref,pairing_generation) VALUES(?,?,?,?,?,?)'
+          )
+          .run(
+            digest(token),
+            machine,
+            expires,
+            pairing?.pairing_id ?? null,
+            pairing?.policy_ref ?? null,
+            pairing ? this.generation() : null
+          )
+        this.audit('enrollment_issued', 'local', now, undefined, {
+          machine_id: machine,
+          pairing_id: pairing?.pairing_id ?? null
+        })
         return token
       }
     )
   }
-  // 原子消费有效注册令牌并轮换设备凭据，防止重复兑换。
+  // 仅消费原申请有效期内且目标、策略、代次均匹配的材料，不能把旧申请兑换补到新申请。
   redeem(token: string): { machine_id: string; credential: string } {
     return this.transaction(
-      /* 查询未过期令牌，消费令牌并保存新凭据摘要及兑换审计。 */ (now) => {
+      /* 精确核验先于凭据生成，消费/设备授权/原申请状态/审计同事务提交。 */ (now) => {
         const row = this.db
-          .prepare(`SELECT e.machine_id FROM enrollments e JOIN machines m USING(machine_id)
-        WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`)
-          .get(digest(token), now) as { machine_id: string } | undefined
+          .prepare(`SELECT e.machine_id,e.expires,e.pairing_id,e.pairing_policy_ref,e.pairing_generation
+          FROM enrollments e JOIN machines m USING(machine_id)
+          WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`)
+          .get(digest(token), now) as
+          | {
+              machine_id: string
+              expires: number
+              pairing_id: string | null
+              pairing_policy_ref: string | null
+              pairing_generation: string | null
+            }
+          | undefined
         if (!row) {
+          throw new GatewayError('invalid_enrollment')
+        }
+        if (row.pairing_id) {
+          const application = this.db
+            .prepare(
+              "SELECT expires FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND issued=1 AND status='pending' AND expires>?"
+            )
+            .get(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
+          if (
+            !application ||
+            row.pairing_generation !== this.generation() ||
+            row.expires > Number(application.expires)
+          ) {
+            throw new GatewayError('invalid_enrollment')
+          }
+        } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(row.machine_id)) {
           throw new GatewayError('invalid_enrollment')
         }
         const credential = secret()
@@ -530,11 +602,18 @@ export class Store {
             "UPDATE machines SET resource_revision=resource_revision+1,credential_hash=?,status='offline' WHERE machine_id=?"
           )
           .run(digest(credential), row.machine_id)
-        this.db
-          .prepare("UPDATE admin_pairings SET status='paired' WHERE machine_id=? AND status='pending' AND expires>?")
-          .run(row.machine_id, now)
-        this.audit('enrollment_consumed', 'local', now, undefined, { machine_id: row.machine_id })
-        return { ...row, credential }
+        if (row.pairing_id) {
+          this.db
+            .prepare(
+              "UPDATE admin_pairings SET status='paired' WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
+            )
+            .run(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
+        }
+        this.audit('enrollment_consumed', 'local', now, undefined, {
+          machine_id: row.machine_id,
+          pairing_id: row.pairing_id
+        })
+        return { machine_id: row.machine_id, credential }
       }
     )
   }

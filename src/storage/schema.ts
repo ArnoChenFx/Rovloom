@@ -13,7 +13,8 @@ CREATE TABLE machines (
 );
 CREATE TABLE enrollments (
   token_hash TEXT PRIMARY KEY, machine_id TEXT NOT NULL REFERENCES machines,
-  expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
+  expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
+  pairing_id TEXT REFERENCES admin_pairings ON DELETE CASCADE, pairing_policy_ref TEXT, pairing_generation TEXT
 );
 CREATE TABLE providers (
   machine_id TEXT NOT NULL REFERENCES machines, provider_id TEXT NOT NULL,
@@ -61,5 +62,5 @@ CREATE TABLE admin_confirmations (confirmation_id TEXT PRIMARY KEY, history_epoc
 CREATE TABLE admin_operations (history_epoch TEXT NOT NULL REFERENCES admin_history, request_id TEXT NOT NULL,
   operation_digest TEXT NOT NULL, receipt TEXT NOT NULL, PRIMARY KEY(history_epoch,request_id));
 CREATE TABLE admin_pairings (pairing_id TEXT PRIMARY KEY, machine_id TEXT NOT NULL REFERENCES machines,
-  policy_ref TEXT NOT NULL, status TEXT NOT NULL, expires INTEGER NOT NULL);
+  policy_ref TEXT NOT NULL, status TEXT NOT NULL, expires INTEGER NOT NULL, issued INTEGER NOT NULL DEFAULT 0);
 `

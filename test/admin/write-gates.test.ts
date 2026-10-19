@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/store.js'
@@ -119,6 +119,7 @@ test(
       const db = new DatabaseSync(path)
       db.exec('CREATE TABLE metadata(version INTEGER); INSERT INTO metadata VALUES(4)')
       db.close()
+      chmodSync(path, 0o600)
       // Store要求文件仅属本用户可读写，测试文件不包含任何真实用户状态。
       const before = readFileSync(path)
       assert.throws(

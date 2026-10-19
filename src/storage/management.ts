@@ -413,7 +413,7 @@ export class ManagementLedger {
             throw new GatewayError('pairing_conflict')
           }
           this.db
-            .prepare('INSERT INTO admin_pairings VALUES(?,?,?,?,?)')
+            .prepare('INSERT INTO admin_pairings(pairing_id,machine_id,policy_ref,status,expires) VALUES(?,?,?,?,?)')
             .run('pairing_' + randomUUID(), target.machine_id, intent.target.policy_ref, 'pending', now + 600_000)
           if ('machine_id' in intent.target) {
             this.db
