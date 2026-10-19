@@ -219,6 +219,8 @@ async function fixture() {
 
 test(
   'remote Gateway starts without Luvus paths, waits for authenticated snapshot, and reads original Wire result',
+  // 集成总预算覆盖真实认证、持久写与原结果读取；不改变产品编译、业务 deadline 或阶段等待上限。
+  { timeout: 45_000 },
   /** 真实认证、目录、dispatch 与结果分页均复用生产 Gateway，合成 peer 明确只作为协议回归。 */ async () => {
     const f = await fixture()
     try {
@@ -299,6 +301,8 @@ test(
 
 test(
   'remote Gateway loses old epoch on rebind and keeps unanswered dispatch unknown without replay',
+  // 两次真实认证与持久状态门禁在 strace 下需要独立测试总预算，不能误用 Bun 默认五秒。
+  { timeout: 45_000 },
   /** 断连后重新认证也不迁移 snapshot 或自动重派原请求；canonical重绑同步阻止目录。 */ async () => {
     const f = await fixture()
     try {
