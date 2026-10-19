@@ -129,10 +129,18 @@ export function registrationFiles(
         retain = error instanceof ServiceError && error.code === 'service_recovery_required'
         throw error
       } finally {
-        await closeLockHandle(fd)
-        const current = await lstat(target)
-        if (!retain && owned.ino === current.ino && owned.dev === current.dev && !current.isSymbolicLink()) {
-          await unlink(target)
+        if (retain) {
+          try {
+            await closeLockHandle(fd)
+          } catch {
+            // 恢复保护必须传到全部外层角色锁；close 失败不能覆盖它，持久锁也不再查询或删除。
+          }
+        } else {
+          await closeLockHandle(fd)
+          const current = await lstat(target)
+          if (owned.ino === current.ino && owned.dev === current.dev && !current.isSymbolicLink()) {
+            await unlink(target)
+          }
         }
       }
     }

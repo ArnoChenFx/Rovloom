@@ -1,7 +1,7 @@
 // 通过受控 runner 与内存注册表检验原生命令计划和所有权边界；不模拟成三平台实机验收。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, open, readFile, rm, symlink, writeFile, type FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNativeServiceBackend } from '../../src/service/native.js'
@@ -10,8 +10,9 @@ import { renderDefinition } from '../../src/service/render.js'
 import { manifest } from '../../src/service/spec.js'
 import { checkedCommand, runSystemCommand, type CommandPlan, type CommandRunner } from '../../src/service/runner.js'
 import { inspectTask, taskCall, TASK_SCRIPT } from '../../src/service/windows.js'
-import { sampleSpec } from './helpers.js'
+import { model, sampleSpec } from './helpers.js'
 import { ServiceManager } from '../../src/service/manager.js'
+import { ServiceError } from '../../src/service/types.js'
 
 // 仅在内存记录注册的独占写和精确删除，不向原生系统路径写入。
 function memoryFiles() {
@@ -328,6 +329,67 @@ test(
       assert.equal(await readFile(join(root, 'keep.db'), 'utf8'), 'user data')
     } finally {
       await rm(root, { force: true, recursive: true })
+    }
+  }
+)
+
+test(
+  'recovery protection survives an inner close error and retains both role locks against service start',
+  /* 真实私有目录和文件锁，close 后注入一次 EIO；不操作系统服务或真实安装。 */ async () => {
+    if (process.platform === 'win32') {
+      return
+    }
+    const directory = await mkdtemp(join(tmpdir(), 'rovloom-recovery-locks-'))
+    const probe = await open(join(directory, 'probe'), 'wx', 0o600)
+    const prototype = Object.getPrototypeOf(probe) as { close: FileHandle['close'] }
+    const originalClose = prototype.close
+    await probe.close()
+    let connectorInode: number | undefined
+    let injected = false
+    const files = registrationFiles(directory)
+    try {
+      // 仅对当前测试 connector 锁的 inode 产生故障；其它句柄继续使用真实 close。
+      prototype.close = /* 只在目标自有 inode 真正 close 后报告注入故障。 */ async function (this: FileHandle) {
+        const stat = await this.stat()
+        await originalClose.call(this)
+        if (!injected && stat.ino === connectorInode) {
+          injected = true
+          throw Object.assign(new Error('fixture close result failure'), { code: 'EIO' })
+        }
+      }
+      await assert.rejects(
+        /* 内层保护不能被 finally 普通异常替换，否则外层会错误地删除 gateway 锁。 */ () =>
+          files.lock(
+            'rovloom-gateway',
+            /* 模拟真实更新的固定双角色锁顺序。 */ async () =>
+              files.lock(
+                'rovloom-connector',
+                /* 已到不可恢复阶段，所有外层锁都须保留。 */ async () => {
+                  connectorInode = (await lstat(join(directory, '.rovloom-connector.lock'))).ino
+                  throw new ServiceError('service_recovery_required')
+                }
+              )
+          ),
+        { code: 'service_recovery_required' }
+      )
+      assert.equal(injected, true)
+      prototype.close = originalClose
+      assert((await lstat(join(directory, '.rovloom-gateway.lock'))).isFile())
+      assert((await lstat(join(directory, '.rovloom-connector.lock'))).isFile())
+      const m = model('linux')
+      m.backend.lock = /* 正常 service 操作必须被同一持久角色锁阻断。 */ (role, operation) =>
+        files.lock(`rovloom-${role}`, operation)
+      const manager = new ServiceManager(m.backend, m.clock)
+      for (const role of ['gateway', 'connector'] as const) {
+        await assert.rejects(
+          /* 不能在更新恢复未完成时单独误启任一角色。 */ () => manager.execute({ action: 'start', role }),
+          { code: 'service_busy' }
+        )
+      }
+      assert(!m.calls.includes('start'))
+    } finally {
+      prototype.close = originalClose
+      await rm(directory, { recursive: true, force: true })
     }
   }
 )
