@@ -1,7 +1,18 @@
-// 定义独立管理认证、共享政策和完整 WebUI 服务契约；不发行身份、确认、凭据或持久操作历史。
+/** MCP/CLI 与 WebUI 共用的管理契约；类型按管理面提供方维护，不实现身份或后台服务。 */
 import type { Principal } from '../router.js'
-import type { CallerIdentity, Page, ProviderView } from './types.js'
 
+export type CallerIdentity = Readonly<{ principal_id: string }>
+export type Page<T> = { items: T[]; next_cursor?: string }
+export type AdminPage = { cursor?: string; limit?: number }
+export type ResourceTarget = { machine_id: string; provider_id?: string }
+export type ProviderView = {
+  machine_id: string
+  provider_id: string
+  kind: 'luvus' | 'herdr'
+  binding_revision: number
+  enabled: boolean
+  readiness: 'unavailable' | 'unverified' | 'ready'
+}
 export type ManagementPermission =
   | 'gateway_read'
   | 'devices_read'
@@ -27,14 +38,14 @@ export type Administrator = {
   grants: readonly ManagementGrant[]
 }
 export interface GatewayIdentitySource {
-  // 从同一身份/政策后端重新解析现有 Router Principal；不存在或失效时返回 null。
+  /** 从同一身份/政策后端重新解析现有 Principal，失效返回 null。 */
   principal(caller: CallerIdentity): Principal | null
-  // 验证独立管理会话及当前管理授权；设备凭据和 MCP 身份不能替代该会话。
+  /** 验证独立管理员会话及当前资源授权，设备/MCP 身份不能替代。 */
   administrator(caller: CallerIdentity, sessionRef: string): Administrator | null
 }
 export type AdminContext = Readonly<{
   caller: CallerIdentity
-  // 仅由独立管理认证中间件注入，不属于 HTTP 请求体；每次都由 identitySource 重新验证。
+  /** 仅由管理认证中间件注入，不属于浏览器请求体。 */
   management_session_ref: string
   wait_signal: AbortSignal
 }>
@@ -52,7 +63,6 @@ export type DeviceSnapshot = {
   name: string
   labels: readonly string[] | null
   persisted_state: 'pending' | 'offline' | 'online' | 'revoked'
-  // Store 当前无独立设备管理 revision；缺少真实来源时必须为 null，不能以时间或 binding revision 代替。
   resource_revision: number | null
   observed_at: number
   connection: Observed<{
@@ -94,13 +104,28 @@ export type ManagementStatus = {
   policy_revision: string
   refresh_after_ms: 5000
   stale_after_ms: 15000
-  // GET 只能返回已存在的范围，不能创建、续期或从业务 history 借用管理员范围。
   history: { history_epoch: string; accept_new_until: number } | null
   components: {
     store: 'available' | 'degraded' | 'quarantined'
     transport: 'available' | 'degraded' | 'unavailable' | 'unverified'
     native: 'available' | 'degraded' | 'unavailable' | 'unverified'
   }
+}
+export type PermissionDecision = {
+  action: ManagementPermission
+  allowed: boolean
+  reason_code: 'allowed' | 'forbidden' | 'backend_unavailable' | 'recovery_quarantined' | 'storage_degraded'
+}
+export type PermissionSnapshot = {
+  target: ResourceTarget
+  principal_id: string
+  policy_revision: string
+  caller_policy_revision: string
+  local_policy_revision: string | null
+  recovery_generation: string
+  observed_at: number
+  expires_at: number
+  decisions: readonly PermissionDecision[]
 }
 export type ManagementAction =
   | 'pairing_create'
@@ -109,27 +134,18 @@ export type ManagementAction =
   | 'device_revoke'
   | 'provider_disable'
   | 'provider_enable'
-export type ResourceTarget = { machine_id: string; provider_id?: string }
 export type ManagementIntent =
   | { action: 'pairing_create'; target: { name: string; policy_ref: string; labels: readonly string[] } }
   | { action: 'pairing_create'; target: { machine_id: string; policy_ref: string } }
   | { action: 'pairing_cancel'; target: { machine_id: string; pairing_id: string } }
-  | {
-      action: 'device_disconnect'
-      target: { machine_id: string }
-      expected_connection_epoch: string
-    }
+  | { action: 'device_disconnect'; target: { machine_id: string }; expected_connection_epoch: string }
   | { action: 'device_revoke'; target: { machine_id: string } }
   | {
       action: 'provider_disable' | 'provider_enable'
       target: { machine_id: string; provider_id: string; kind: 'luvus' | 'herdr' }
       expected_binding_revision: number
     }
-export type IntentFence = {
-  recovery_generation: string
-  expected_revision: number
-  reason: string
-}
+export type IntentFence = { recovery_generation: string; expected_revision: number; reason: string }
 export type ConfirmationDraft = ManagementIntent & IntentFence & { request_id: string; history_epoch: string }
 export type ConfirmationView = {
   confirmation_id: string
@@ -138,11 +154,7 @@ export type ConfirmationView = {
   summary: ManagementIntent & IntentFence
   expires_at: number
 }
-export type ManagementWrite = IntentFence & {
-  request_id: string
-  history_epoch: string
-  confirmation_id: string
-}
+export type ManagementWrite = IntentFence & { request_id: string; history_epoch: string; confirmation_id: string }
 export type OperationReceipt = {
   request_id: string
   history_epoch: string
@@ -163,24 +175,6 @@ export type OperationReceipt = {
     native_work: 'may_continue'
   }
 }
-export type PermissionDecision = {
-  action: ManagementPermission
-  allowed: boolean
-  reason_code: 'allowed' | 'forbidden' | 'backend_unavailable' | 'recovery_quarantined' | 'storage_degraded'
-}
-export type PermissionSnapshot = {
-  target: ResourceTarget
-  principal_id: string
-  policy_revision: string
-  caller_policy_revision: string
-  local_policy_revision: string | null
-  recovery_generation: string
-  observed_at: number
-  expires_at: number
-  // 仅作 UI 提示；每次写入仍须当前认证、授权、确认和事务 fence，不能据此自证授权。
-  decisions: readonly PermissionDecision[]
-}
-export type AdminPage = { cursor?: string; limit?: number }
 export type ManagementArguments = {
   status: Record<string, never>
   devices_list: AdminPage & { states?: readonly DeviceSnapshot['persisted_state'][] }
@@ -232,7 +226,7 @@ export type ManagementReply = {
 }
 export type ManagementOperation = keyof ManagementArguments
 export interface GatewayManagementService {
-  // 经独立管理认证后执行固定操作；只在对应真实后端与原子回执存在时返回成功，不能自动重放写入。
+  /** 每次重新认证授权；失败抛固定公共错误，不自动重放写入。 */
   execute<K extends ManagementOperation>(
     name: K,
     args: ManagementArguments[K],

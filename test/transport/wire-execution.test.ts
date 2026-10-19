@@ -7,6 +7,7 @@ import type { WireConnectorOptions } from '../../src/transport/index.js'
 import { until } from './helpers.js'
 import { wireFixture } from './wire-execution-helpers.js'
 import { connectorTypeChecks } from './wire-execution-types.js'
+import { verifyRpcCapacity } from './wire-capacity-helpers.js'
 
 void connectorTypeChecks
 
@@ -90,6 +91,62 @@ test(
       assert.equal(f.f.gateway.resolveOriginalRead(call.call_id), undefined)
     } finally {
       auth.release()
+      await f.close()
+    }
+  }
+)
+
+test(
+  '真实 RPC attempt 满额拒绝并保留 seen；fresh epoch 只执行显式新意图',
+  { timeout: 15_000 },
+  /** 标准验收收紧至两条；完整默认 128 上限另以同一 harness 运行，不能借旧式 executor 代证。 */
+  async () => {
+    await verifyRpcCapacity(2)
+  }
+)
+
+test(
+  '真实 RPC 完成后宿主等待期间撤销 read，小响应正文不离开 Connector',
+  { timeout: 15_000 },
+  /** 暂停 executeWire 返回，再撤回当前读取许可；单帧和分片发送均须重新核对 read。 */
+  async () => {
+    const f = await wireFixture()
+    const late = gate()
+    f.state.afterDispatch =
+      /** 原生已完成且私有 RPC Wire 可回收，此处仅延迟宿主 hook 的交付。 */
+      () => late.promise
+    try {
+      const device = f.pair('mock_small_response_read_revoked')
+      const client = f.connect(device)
+      await f.ready(client)
+      const epoch = client.status().connection_epoch
+      const call = f.f.call(device.target)
+      f.f.gateway.dispatch(call.call_id)
+      await until(
+        /** 确保已经真实执行并收到原生结果，撤权发生在 adapter 返回与 transport 写出之间。 */
+        () => f.state.nativeCompleted === 1
+      )
+      assert.equal(f.state.receivedResponses, 0)
+      f.f.principal.policy.grants[0]!.actions = ['dispatch', 'cancel']
+      late.release()
+      await until(
+        /** 撤权拒绝发送并关闭旧通道，Gateway 只能保留 unknown 元数据。 */
+        () => f.f.store.call(f.f.principal.id, call.call_id).state === 'outcome_unknown'
+      )
+      assert.equal(f.state.receivedResponses, 0)
+      assert.equal(f.state.receivedChunks, 0)
+      assert.equal(f.f.store.call(f.f.principal.id, call.call_id).response, null)
+      assert.equal(f.f.gateway.resolveOriginalRead(call.call_id), undefined)
+      assert.equal(f.claimCount(), 1)
+      assert.equal(f.native.state.responses, 1)
+      await until(
+        /** fresh epoch 不会因旧结果被撤权而自动重发同一请求。 */
+        () => client.status().phase === 'ready' && client.status().connection_epoch !== epoch
+      )
+      assert.equal(f.claimCount(), 1)
+      assert.equal(f.state.hook, 1)
+    } finally {
+      late.release()
       await f.close()
     }
   }

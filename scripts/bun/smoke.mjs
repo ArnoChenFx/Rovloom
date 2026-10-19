@@ -1,4 +1,4 @@
-// 验证构建后入口、共享许可身份及 SQLite 重开；原生来源和设备均限隔离 fixture。
+/** 验证构建后核心、认证通道与管理页边界及 SQLite 重开；不建立真实设备或管理员身份。 */
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -37,6 +37,26 @@ assert.throws(
   /** 用未受信来源触发产物错误，核对跨入口共享 GatewayError 身份。 */
   () => herdr.createHerdrCodec({}, {}),
   contracts.GatewayError
+)
+const webui = await import('../../dist/src/webui/index.js')
+assert.equal(typeof webui.mountWebUi, 'function')
+assert.deepEqual(webui.parseRoute('#machine=a%2Fb'), { machineId: 'a/b', cursor: null, providerCursor: null })
+await assert.rejects(webui.unavailableRead(), { problem: 'unavailable' })
+const browserEntry = readFileSync(new URL('../../dist/webui/browser.js', import.meta.url), 'utf8')
+assert(!browserEntry.includes('node:'))
+assert(!browserEntry.includes('webUiFixture'))
+assert(readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes('Rovloom 管理'))
+assert(readFileSync(new URL('../../dist/webui/manage.css', import.meta.url), 'utf8').includes(':focus-visible'))
+for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
+  assert.deepEqual(
+    readFileSync(new URL(`../../dist/webui/${asset}`, import.meta.url)),
+    readFileSync(new URL(`../../docs/assets/brand/${asset}`, import.meta.url))
+  )
+}
+assert(
+  readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes(
+    'href="./rovloom-mark-orange.png"'
+  )
 )
 assert.equal(typeof persistence.persistentBackend, 'function')
 assert.equal(typeof persistence.commitLuvusResponse, 'function')

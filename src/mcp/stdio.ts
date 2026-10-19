@@ -1,6 +1,7 @@
 // 在标准 SDK stdio 上约束编码、请求关联、取消和输出边界，只管理前端等待与桥接资源。
 import { Readable, Writable } from 'node:stream'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js'
 import {
   CallToolRequestSchema,
   CancelledNotificationSchema,
@@ -11,6 +12,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { createMcpFacade, type FacadeOptions } from './facade.js'
 import { MAX_MCP_BYTES } from './schema.js'
+import { createStdioOutput } from './stdio-output.js'
 
 const rpcMessages: Record<number, string> = {
   [ErrorCode.ParseError]: 'Parse error',
@@ -27,10 +29,23 @@ class FacadeStdioTransport extends StdioServerTransport {
   private readonly internalIds = new Map<number, string | number>()
   private nextId = 1
   private stopped = false
+  private readonly output: ReturnType<typeof createStdioOutput>
 
   // 在 SDK 输入前安装增量 UTF-8 校验，仍复用标准 stdio framing。
   constructor(stdin: Readable, stdout: Writable) {
     super(stdin, stdout, { maxBufferSize: 1_048_576 })
+    this.output = createStdioOutput(stdout, {
+      pause: /* 真实stdout背压立即停止继续读取协议输入。 */ () => stdin.pause(),
+      resume: /* 只有仍活动的本会话能在输出排空后恢复读取。 */ () => {
+        if (!this.stopped) {
+          stdin.resume()
+        }
+      },
+      failure: /* 输出失败只报告固定诊断并关闭，不回显EPIPE原文或业务内容。 */ () => {
+        this.onerror?.(new Error('stdio_output_failed'))
+        void this.close()
+      }
+    })
     const ondata = this._ondata
     this._ondata = /* 拒绝非法编码和过大 chunk，合法字节原样交给 SDK 缓冲器。 */ (chunk) => {
       if (this.stopped) {
@@ -68,11 +83,15 @@ class FacadeStdioTransport extends StdioServerTransport {
         return
       }
       if ('method' in message && 'id' in message) {
-        if (this.externalIds.has(message.id) || this.externalIds.size >= 1024 || !Number.isSafeInteger(this.nextId)) {
+        if (this.externalIds.has(message.id) || this.internalIds.size >= 1024 || !Number.isSafeInteger(this.nextId)) {
           // 重复在途 ID 会覆盖 SDK 等待关联，必须在进入 SDK 前关闭整个会话。
           this.rejectInput()
           return
         }
+        // 非法参数的固定错误也持有同一关联，排队取消和公共ID复用遵循统一边界。
+        const internalId = this.nextId++
+        this.externalIds.set(message.id, internalId)
+        this.internalIds.set(internalId, message.id)
         const schema =
           message.method === 'tools/call'
             ? CallToolRequestSchema
@@ -82,9 +101,9 @@ class FacadeStdioTransport extends StdioServerTransport {
                 ? InitializeRequestSchema
                 : undefined
         if (schema && !schema.safeParse(message).success) {
-          void this.writeExternal({
+          void this.send({
             jsonrpc: '2.0',
-            id: message.id,
+            id: internalId,
             error: { code: ErrorCode.InvalidParams, message: 'Invalid params' }
           }).catch(
             /* 将错误响应发送失败收敛为固定诊断，不记录原输入。 */ () => this.onerror?.(new Error('response_failed'))
@@ -92,9 +111,6 @@ class FacadeStdioTransport extends StdioServerTransport {
           return
         }
         // SDK 1.32.1 对 falsey requestId 的取消判断有缺口；私有正整数关联保留公共原 ID。
-        const internalId = this.nextId++
-        this.externalIds.set(message.id, internalId)
-        this.internalIds.set(internalId, message.id)
         onmessage?.({ ...message, id: internalId })
         return
       }
@@ -133,16 +149,33 @@ class FacadeStdioTransport extends StdioServerTransport {
         // 已取消或关闭的等待不得泄漏晚到回复，更不能误关联新请求。
         return
       }
-      this.internalIds.delete(message.id as number)
-      this.externalIds.delete(externalId)
-      await this.writeExternal({ ...message, id: externalId })
+      const internalId = message.id as number
+      try {
+        await this.writeExternal(
+          { ...message, id: externalId },
+          /* 排队期间若已取消关联，尚未写出的回复不得串到复用的公共ID。 */ () =>
+            this.internalIds.get(internalId) === externalId,
+          /* 开始写出的帧已不可撤回，客户端收到回复即可复用公共ID；内部关联仍占预算直到写完。 */ () => {
+            if (this.externalIds.get(externalId) === internalId) {
+              this.externalIds.delete(externalId)
+            }
+          }
+        )
+      } finally {
+        if (this.internalIds.get(internalId) === externalId) {
+          this.internalIds.delete(internalId)
+          if (this.externalIds.get(externalId) === internalId) {
+            this.externalIds.delete(externalId)
+          }
+        }
+      }
       return
     }
     await this.writeExternal(message)
   }
 
   // 脱敏 JSON-RPC 错误并检查最终帧字节数；超限关闭，不回显原异常。
-  private async writeExternal(message: JSONRPCMessage): Promise<void> {
+  private async writeExternal(message: JSONRPCMessage, current?: () => boolean, onWrite?: () => void): Promise<void> {
     if (this.stopped) {
       return
     }
@@ -159,7 +192,7 @@ class FacadeStdioTransport extends StdioServerTransport {
       await this.close()
       return
     }
-    await super.send(safe)
+    await this.output.send(serializeMessage(safe), current, onWrite)
   }
 
   // 幂等释放协议关联并检查截断编码；关闭只终止会话等待。
@@ -168,6 +201,7 @@ class FacadeStdioTransport extends StdioServerTransport {
       return
     }
     this.stopped = true
+    this.output.close()
     this.externalIds.clear()
     this.internalIds.clear()
     try {
@@ -204,12 +238,12 @@ export async function startStdioFacade(
     stdin.off('end', onEnd)
     stdin.off('close', onEnd)
     stdin.off('error', onEnd)
-    stdout.off('error', onEnd)
-    stdout.off('close', onEnd)
     resolveClosed()
   }
   const close = /* 复用同一关闭 promise，确保并发关闭不会重复清理资源。 */ (): Promise<void> => {
-    closing ??= server.close().finally(detach)
+    closing ??= Promise.resolve()
+      .then(/* 先登记关闭Promise，输出销毁同步重入时仍共享同一次清理。 */ () => server.close())
+      .finally(detach)
     return closing
   }
   const onEnd = /* 将流结束或故障转换为本地桥接关闭，不发业务取消。 */ () => {
@@ -225,8 +259,6 @@ export async function startStdioFacade(
   stdin.once('end', onEnd)
   stdin.once('close', onEnd)
   stdin.once('error', onEnd)
-  stdout.once('error', onEnd)
-  stdout.once('close', onEnd)
   try {
     await server.connect(transport)
     if (stdin.readableEnded || stdin.destroyed || stdout.destroyed) {

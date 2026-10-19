@@ -1,5 +1,7 @@
 // 定义 MCP 与 CLI 宿主共享的参数、公开 DTO、受信 caller 和服务拒绝契约，不发行身份或权限。
 import type { HistoryReference, JsonObject, ProviderKind, V2Target, ValidationMode } from '../wire/types.js'
+import type { CallerIdentity, Page, ProviderView } from './management.js'
+export type { CallerIdentity, Page, ProviderView } from './management.js'
 
 export type PageArguments = { cursor?: string; limit?: number }
 export type TargetArguments = { target: V2Target; expected_binding_revision: number }
@@ -34,15 +36,6 @@ export type MachineView = {
   status: 'pending' | 'active' | 'revoked'
   link: 'offline' | 'unverified' | 'connected' | 'ready'
 }
-export type ProviderView = {
-  machine_id: string
-  provider_id: string
-  kind: ProviderKind
-  binding_revision: number
-  enabled: boolean
-  readiness: 'unavailable' | 'unverified' | 'ready'
-}
-export type Page<T> = { items: T[]; next_cursor?: string }
 export type CallView = JsonObject & {
   call_id: string
   target: V2Target
@@ -83,7 +76,6 @@ export type ReplyData = {
 }
 
 export type LocalOsIdentity = Readonly<{ uid: number; gid: number }>
-export type CallerIdentity = Readonly<{ principal_id: string }>
 // 仅由宿主的受保护本机配置解析。不得从 MCP arguments、_meta 或设备凭据构造身份。
 export interface StdioCallerProvider {
   // 按当前 OS 身份解析受保护绑定；缺少有效绑定返回 null，不接受请求自报身份。
