@@ -1,3 +1,4 @@
+# 在全新受控 Herdr 实例核对固定二进制与契约，采集原生边界和清理证据，不授予产品执行许可。
 """在获授权的全新临时实例验证固定 Herdr；写入只用于本次合成 pane/事件。
 
 不接入已有会话，不读取用户 HOME，不下载/升级 binary，不签发产品执行许可。
@@ -28,10 +29,12 @@ PIN = json.loads((REPO/'fixtures/p0h/herdr-0.9.5-provenance.json').read_text())
 LIMIT = 1024 * 1024
 
 
+# 把请求或记录编码为以换行结束的紧凑 JSON 原文字节。
 def encoded(value):
     return (json.dumps(value, separators=(',', ':')) + '\n').encode()
 
 
+# 校验原生重命名事件的标签、数据类型和自建 workspace 身份，返回未改写的事件。
 def lifecycle_event(raw, workspace_id):
     event = frame(raw)
     data = event.get('data')
@@ -41,6 +44,7 @@ def lifecycle_event(raw, workspace_id):
     return event
 
 
+# 核对 Linux 本地可执行文件的规范路径、所有权、写权限及大小，再匹配已评审官方摘要。
 def validate_binary(binary, pin):
     require(sys.platform == 'linux', 'native verification currently requires Linux')
     path = Path(binary)
@@ -57,6 +61,7 @@ def validate_binary(binary, pin):
 
 
 class Run:
+    # 拒绝关闭断言的运行，校验二进制 pin 和全新外部输出，建立私有 HOME/XDG 根及最小环境。
     def __init__(self, binary, output):
         if sys.flags.optimize:
             raise Rejected('native verification requires enabled assertions')
@@ -85,11 +90,13 @@ class Run:
         self.report = {'native_run': True, 'production_allowlist': [], 'checks': [], 'source': PIN,
                        'root': str(self.root), 'verifier_sha256': sha(Path(__file__).read_bytes())}
 
+    # 保存原始字节或 JSON 记录，并把输出文件权限收窄为仅当前用户可读写。
     def save(self, name, data):
         path = self.out / name
         path.write_bytes(data if isinstance(data, bytes) else (json.dumps(data, indent=2) + '\n').encode())
         path.chmod(0o600)
 
+    # 运行固定二进制的版本和 schema 导出，保存原文并核对 pin 与离线引用闭包，不授予许可。
     def installed_contract(self):
         records = []
         for label, args in [('version', ['--version']), ('schema', ['api', 'schema', '--json'])]:
@@ -111,6 +118,7 @@ class Run:
         return {'binary_sha256': self.binary_sha256, 'schema_sha256': sha(raw), 'closure': closure,
                 'schema_documents': sorted(schema['schemas']), 'production_permission': False}
 
+    # 调用单项验证回调，保留失败状态及异常回溯，持续写出报告供后续总体验收判定。
     def check(self, name, function):
         started = time.monotonic()
         try:
@@ -124,6 +132,7 @@ class Run:
         self.save('native-results.json', self.report)
         print(name + ': ' + self.report['checks'][-1]['status'], flush=True)
 
+    # 配置仅计数输入的合成终端并关闭更新和 agent 恢复，设置子进程回收后监管启动新会话。
     def start(self):
         config = self.root / 'c/herdr/config.toml'
         config.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -165,6 +174,7 @@ class Run:
         self.report['native_pid'] = self.process.pid
         return {'socket_created': True, 'environment_keys': sorted(self.env), 'inherited_credentials': False}
 
+    # 核对私有 socket 路径与权限，并验证内核对端 UID/GID 和直属原生进程 PID 后登记连接。
     def connect(self):
         assert self.endpoint.is_absolute() and str(self.endpoint).startswith(str(self.root) + '/')
         for parent in [self.endpoint, *self.endpoint.parents]:
@@ -195,6 +205,7 @@ class Run:
         self.sockets.append(channel)
         return channel
 
+    # 逐字节读取至 LF 或 EOF，在给定大小上限内返回原始字节；超时继续向外传播。
     def read_line(self, channel, ceiling=2*LIMIT):
         data = bytearray()
         while not data.endswith(b'\n'):
@@ -205,6 +216,7 @@ class Run:
             assert len(data) <= ceiling, 'native response exceeded capture bound'
         return bytes(data)
 
+    # 仅向本次实例发送限定候选请求或自建 workspace 操作，核对响应关联并确保连接关闭。
     def request(self, method, params, label=None):
         # create/rename 仅生成本次新建 workspace 的合成事件，不是产品允许集。
         assert method in ('ping', 'session.snapshot', 'workspace.create', 'workspace.rename')
@@ -232,6 +244,7 @@ class Run:
         finally:
             channel.close(); self.sockets.remove(channel)
 
+    # 核对实例版本和协议与 pin 一致，确认全新会话无既有工作且重复空快照一致。
     def baseline(self):
         ping = self.request('ping', {}, 'ping')
         assert ping['result']['version'] == PIN['version'] and ping['result']['protocol'] == PIN['protocol']
@@ -243,6 +256,7 @@ class Run:
         return {'version': ping['result']['version'], 'protocol': ping['result']['protocol'],
                 'empty_instance': True, 'repeat_snapshot_equal': True, 'capabilities': ping['result'].get('capabilities')}
 
+    # 探测畸形、重复键及长度边界和缺 LF 输入；超时记失败，超限仅接受错误或断连证据。
     def framing(self):
         results = []
         for label, raw, expect in [
@@ -289,6 +303,7 @@ class Run:
         return {'cases': results, 'native_limit_excludes_trailing_lf': True,
                 'partial_line_waited_for_newline': True, 'server_survived': True}
 
+    # 创建合成 workspace 与 pane，比较被动请求前后快照及 PTY 输入计数，范围限于可观察状态。
     def seed(self):
         response = self.request('workspace.create', {'cwd': str(self.root/'w'), 'label': 'synthetic-p0h', 'focus': False}, 'seed-workspace')
         assert 'result' in response, response
@@ -313,6 +328,7 @@ class Run:
         return {'workspace_id': wid, 'pane_id': self.pane_id, 'no_input_or_agent_calls': True,
                 'before_after_snapshot_equal': True, 'synthetic_pty_input_bytes': input_after}
 
+    # 订阅 workspace 重命名事件，保存请求和原生确认并返回已登记的长连接。
     def subscribe(self, label):
         channel = self.connect()
         request = {'id': label, 'method': 'events.subscribe', 'params': {'subscriptions': [{'type': 'workspace.renamed'}]}}
@@ -322,6 +338,7 @@ class Run:
         assert response == {'id': label, 'result': {'type': 'subscription_started'}}
         return channel
 
+    # 验证订阅确认后收到自建资源事件、另一连接可读快照，以及客户端断开后可重新订阅。
     def lifecycle(self):
         channel = self.subscribe('subscription-lifecycle')
         self.request('workspace.rename', {'workspace_id': self.workspace_id, 'label': 'synthetic-after-subscribe'}, 'rename-one')
@@ -336,6 +353,7 @@ class Run:
         return {'ack_verified': True, 'event_verified': True, 'snapshot_other_connection': True,
                 'snapshot_workspace_count': len(snapshot['workspaces']), 'client_eof_and_resubscribe': True}
 
+    # 积压自建重命名事件，要求真实 events_lost 与 EOF，再验证新订阅和整份快照的串行重建。
     def overflow(self):
         channel = self.subscribe('subscription-overflow')
         started = time.monotonic()
@@ -401,6 +419,7 @@ class Run:
         return {**record, 'resubscribe_and_other_connection_snapshot': True, 'guarantee': 'state_rebuild_only',
                 'dirty_refresh_verified': True, 'whole_snapshot_replacement_verified': True}
 
+    # 记录合成子进程后杀死本次监管的原生进程，核对订阅仅返回 EOF 并回收子进程。
     def process_eof(self):
         channel = self.subscribe('subscription-process-exit')
         tracked = self.fixture_children()
@@ -414,10 +433,12 @@ class Run:
         self.cleanup_children(tracked)
         return {'actual_eof': True, 'no_native_result': True, 'forced_own_process_only': True}
 
+    # 只从本次合成终端写入的 PID 文件提取待回收子进程，不扫描其它进程来源。
     def fixture_children(self):
         path = self.root / 'shell.pid'
         return {int(path.read_text()): 'trusted_synthetic_fixture'} if path.exists() else {}
 
+    # 等待或终止已登记合成子进程，再回收本进程可等待的子进程并记录尚未确认退出的状态。
     def cleanup_children(self, tracked):
         outcomes = []
         for pid in tracked:
@@ -451,6 +472,7 @@ class Run:
         self.report['tracked_children_remaining'] = ['waitable_child_unconfirmed'] if remaining else []
         self.children_cleaned = True
 
+    # 关闭连接并停止监管进程、回收子进程，复制日志后删除临时根并保存清理摘要；复制失败仍报错。
     def finish(self):
         self.flood_trace = None
         for channel in self.sockets:
@@ -487,6 +509,7 @@ class Run:
             raise OSError('runtime evidence copy failed after cleanup')
 
 
+# 按依赖顺序执行八项原生验证，关键前置失败时停止后续阶段，收尾后仅在全部检查与清理通过时成功。
 def execute(binary, output):
     run = Run(binary, output)
     try:
@@ -505,6 +528,7 @@ def execute(binary, output):
     return 0 if passed else 1
 
 
+# 读取固定本地二进制与外部输出参数，执行验证并用异常类型报告预期的入口拒绝。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)

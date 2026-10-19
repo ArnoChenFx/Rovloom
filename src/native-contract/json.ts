@@ -1,3 +1,4 @@
+// 提供受资源预算约束的纯同步 JSON 解析、冻结快照、契约失败及身份比较工具。
 import { createHash } from 'node:crypto'
 import type { Check, Json, JsonObject, Limits, NativeContractFailure } from './types.js'
 
@@ -15,11 +16,13 @@ export const DEFAULT_LIMITS: Limits = Object.freeze({
 })
 
 export class ContractFault extends Error {
+  // 以契约失败码作为错误消息，并保留可安全返回的结构化失败信息。
   constructor(readonly failure: NativeContractFailure) {
     super(failure.code)
   }
 }
 
+// 抛出冻结的契约失败信息，供统一结果包装器捕获。
 export function fail(
   code: string,
   stage = 'validation',
@@ -29,6 +32,7 @@ export function fail(
   throw new ContractFault(Object.freeze({ origin, code, stage, ...(reason ? { reason } : {}) }))
 }
 
+// 同步执行校验并返回 Check；未知异常统一收敛为当前阶段的无效上下文。
 export function attempt<T>(stage: string, fn: () => T): Check<T> {
   try {
     return { ok: true, value: fn() }
@@ -43,6 +47,7 @@ export function attempt<T>(stage: string, fn: () => T): Check<T> {
   }
 }
 
+// 只接受默认上限以内的正安全整数覆盖项，并冻结最终资源预算。
 export function limits(overrides: Partial<Limits> = {}): Limits {
   const result = { ...DEFAULT_LIMITS }
   for (const [key, value] of Object.entries(overrides)) {
@@ -59,10 +64,12 @@ export function limits(overrides: Partial<Limits> = {}): Limits {
   return Object.freeze(result)
 }
 
+// 计算原始契约字节的 SHA-256 十六进制摘要。
 export function hash(bytes: string | Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+// 要求输入为非 null 且非数组的对象，否则抛出指定失败码。
 export function object(value: unknown, code = 'invalid_context'): JsonObject {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     fail(code)
@@ -70,6 +77,7 @@ export function object(value: unknown, code = 'invalid_context'): JsonObject {
   return value as JsonObject
 }
 
+// 要求输入为非空字符串，否则抛出指定失败码。
 export function text(value: unknown, code = 'invalid_context'): string {
   if (typeof value !== 'string' || !value.length) {
     fail(code)
@@ -77,6 +85,7 @@ export function text(value: unknown, code = 'invalid_context'): string {
   return value
 }
 
+// 递归比较数组或对象的自有可枚举字段，忽略对象字段顺序。
 export function equal(a: unknown, b: unknown): boolean {
   if (a === b) {
     return true
@@ -89,11 +98,13 @@ export function equal(a: unknown, b: unknown): boolean {
   return (
     left.length === right.length &&
     left.every(
+      // 逐项核对排序后的字段名，并递归比较对应字段值。
       (key, i) => key === right[i] && equal((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])
     )
   )
 }
 
+// 拒绝字符串中未配对的 UTF-16 代理项。
 function unicode(value: string): void {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i)
@@ -108,10 +119,12 @@ function unicode(value: string): void {
   }
 }
 
+// 在遍历时限制大小、深度与节点数，拒绝行为对象并生成冻结的 JSON 快照。
 export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json {
   const active = new Set<object>()
   let nodes = 0
   let bytes = 0
+  // 累计已编码字节数，一旦超出对象预算立即拒绝。
   const spend = (count: number): void => {
     bytes += count
     if (bytes > budget.object_bytes) {
@@ -119,6 +132,7 @@ export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json 
     }
   }
 
+  // 校验代理项并按 JSON 转义后的 UTF-8 大小扣除字符串预算。
   const stringBytes = (value: string): void => {
     // 逐项计入 JSON 编码预算，不能先 stringify 整个对象再判断，避免超额分配。
     if (value.length + 2 > budget.object_bytes - bytes) {
@@ -145,6 +159,7 @@ export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json 
     }
   }
 
+  // 递归复制当前 JSON 值，计入资源预算并拒绝循环、访问器和非普通原型。
   const visit = (item: unknown, depth: number): Json => {
     if (++nodes > budget.object_nodes || depth > budget.object_depth) {
       fail('object_limit', 'parse')
@@ -180,7 +195,11 @@ export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json 
       fail('object_limit', 'parse')
     }
     const descriptors = Object.getOwnPropertyDescriptors(item)
-    if (Object.values(descriptors).some((d) => !('value' in d))) {
+    if (
+      Object.values(descriptors).some(
+        /* 识别访问器属性，避免复制输入时执行 getter 或 setter。 */ (d) => !('value' in d)
+      )
+    ) {
       fail('invalid_json', 'parse')
     }
     active.add(item)
@@ -222,6 +241,7 @@ export function snapshot(value: unknown, budget: Limits = DEFAULT_LIMITS): Json 
   return visit(value, 0)
 }
 
+// 在字节及结构预算内解析 JSON，保留重复键、精度和 Unicode 拒绝边界。
 export function parse(bytes: Uint8Array | string, budget: Limits): Json {
   let input: string
   if (typeof bytes === 'string') {
@@ -248,12 +268,14 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
   }
   let position = 0
   let nodes = 0
+  // 推进游标以跳过 JSON 允许的空白字符。
   const whitespace = () => {
     while (/[\x20\t\r\n]/.test(input[position] ?? '\u0000')) {
       position++
     }
   }
 
+  // 读取一个字符串字面量，使用原生解码并复核代理项合法性。
   const string = (): string => {
     const start = position++
     while (position < input.length) {
@@ -278,6 +300,7 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
     fail('invalid_json', 'parse')
   }
 
+  // 从当前游标解析一个 JSON 值，限制递归资源并冻结容器。
   const value = (depth: number): Json => {
     if (++nodes > budget.object_nodes || depth > budget.object_depth) {
       fail('object_limit', 'parse')
@@ -375,10 +398,12 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
   return result
 }
 
+// 使用受限预算解析原生 JSON，并将解析失败转换为 Check。
 export function parseNativeJson(bytes: Uint8Array | string, overrides: Partial<Limits> = {}): Check<Json> {
-  return attempt('parse', () => parse(bytes, limits(overrides)))
+  return attempt('parse', /* 合并有效预算后解析输入，交由外层包装解析失败。 */ () => parse(bytes, limits(overrides)))
 }
 
+// 按 JSON Pointer 逐级读取自有字段；非法路径或缺失片段均拒绝编译。
 export function pointer(value: unknown, path: string): unknown {
   if (path === '') {
     return value

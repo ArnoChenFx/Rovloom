@@ -1,3 +1,4 @@
+// 核对可信 provider 与契约来源，并执行完整目标上的双端权限检查。
 import type {
   AttemptBinding,
   AuthenticatedContext,
@@ -10,6 +11,7 @@ import type {
 } from './types.js'
 import { boundedJson, fail, fields, hash, id, object, oneOf, sha, text, uint } from './validation.js'
 
+// 按 host 或 session 形态严格校验完整 provider 目标。
 export function validateTarget(value: unknown): asserts value is V2Target {
   const t = object(value)
   oneOf(t.profile, ['host', 'session'])
@@ -26,6 +28,7 @@ export function validateTarget(value: unknown): asserts value is V2Target {
   }
 }
 
+// 严格校验 provider 实例的类型、配置引用、绑定版本和启用状态。
 export function validateProvider(value: unknown): asserts value is ProviderBinding {
   const b = object(value)
   fields(b, ['machine_id', 'provider_id', 'kind', 'config_ref', 'binding_revision', 'enabled'])
@@ -39,6 +42,7 @@ export function validateProvider(value: unknown): asserts value is ProviderBindi
   }
 }
 
+// 校验契约来源字段及 provider、协议族与提取命令的一致性。
 export function validateContractSource(value: unknown): asserts value is ContractSource {
   const c = object(value)
   fields(c, [
@@ -79,11 +83,13 @@ export function validateContractSource(value: unknown): asserts value is Contrac
   }
 }
 
+// 验证来源后对规范 JSON 求摘要，生成不可变契约引用。
 export function contractRef(source: ContractSource): string {
   validateContractSource(source)
   return hash(boundedJson(source))
 }
 
+// 从可信注册表解析启用的 provider，并核对绑定版本、契约和实际支持状态。
 export function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext): ProviderBinding {
   // 消息中的 kind/revision 只参与核对；实例及契约必须从受信 registry 独立解析。
   const b = ctx.resolveProvider?.(binding.target)
@@ -113,7 +119,7 @@ export function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext):
   if (contractRef(c.source) !== binding.contract_ref || c.source.provider_kind !== b.kind) {
     fail('contract_binding_mismatch')
   }
-  // Herdr 还没有本项目 P0；不能由测试/广告/存在 schema 把 candidate 提升为实际支持。
+  // Herdr 的隔离原生验证不构成生产 adapter 许可；本门禁仍拒绝 Herdr 和仅候选的契约。
   if (b.kind === 'herdr' || c.support_status !== 'validated') {
     fail('provider_support_candidate')
   }
@@ -123,6 +129,7 @@ export function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext):
   return b
 }
 
+// 按可信 provider 类型取得已安装的原生载荷校验器。
 export function validatorFor(binding: AttemptBinding, ctx: AuthenticatedContext): NativePayloadValidator {
   const provider = providerFor(binding, ctx)
   const validator = ctx.validators?.[provider.kind]
@@ -132,6 +139,7 @@ export function validatorFor(binding: AttemptBinding, ctx: AuthenticatedContext)
   return validator
 }
 
+// 校验双端策略及每条完整目标授权，限制条目规模并拒绝重复权限。
 export function validatePolicies(policies: ProviderPolicies): void {
   const pair = object(policies)
   fields(pair, ['caller', 'local'])
@@ -154,12 +162,15 @@ export function validatePolicies(policies: ProviderPolicies): void {
       ) {
         fail('invalid_provider_policy')
       }
-      grant.methods.forEach((m) => text(m, 256))
-      grant.actions.forEach((a) => oneOf(a, ['dispatch', 'read', 'stream_input', 'cancel']))
+      grant.methods.forEach(/* 校验授权条目中的方法名称及字节长度。 */ (m) => text(m, 256))
+      grant.actions.forEach(
+        /* 限制授权动作仅使用协议允许的四种操作。 */ (a) => oneOf(a, ['dispatch', 'read', 'stream_input', 'cancel'])
+      )
     }
   }
 }
 
+// 要求调用方和本地策略各有一条完整匹配的授权；缺策略时返回 false。
 export function providerScopeAllowed(
   binding: AttemptBinding,
   method: string,
@@ -172,13 +183,16 @@ export function providerScopeAllowed(
   validatePolicies(policies)
   const target = boundedJson(binding.target)
   // 每一端都须有一条完整匹配的 grant；不能拼接不同目标或不同 grant 的权限。
-  return [policies.caller, policies.local].every((side) =>
-    side.grants.some(
-      (g) => boundedJson(g.target) === target && g.methods.includes(method) && g.actions.includes(action)
-    )
+  return [policies.caller, policies.local].every(
+    /* 检查这一端是否存在完整覆盖目标、方法和动作的授权。 */ (side) =>
+      side.grants.some(
+        /* 匹配单条授权的完整目标、方法和动作，避免跨条目拼接权限。 */ (g) =>
+          boundedJson(g.target) === target && g.methods.includes(method) && g.actions.includes(action)
+      )
   )
 }
 
+// 校验 provider 当前可用性，并拒绝双端策略未共同允许的操作。
 export function assertProviderAccess(
   binding: AttemptBinding,
   method: string,

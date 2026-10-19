@@ -1,4 +1,4 @@
-// 维护原生校验器的私有句柄登记与最小响应约束，阻止消息伪造可信上下文。
+// 维护原生校验器的内部句柄登记、可撤销许可分组与最小响应约束，阻止同形消息伪造校验能力。
 import type { ValidateFunction } from 'ajv'
 import type {
   CapabilityView,
@@ -87,12 +87,14 @@ export const permits = {
     }
   }
 }
+// 普通 RPC 响应不保存请求或许可关联；只有流 ack 保留后续开流所需的同许可关系。
 export const responses = new WeakMap<
   CheckedResponse,
   { candidate: DispatchCandidate | null; contract: CompiledContract; permit: DispatchPermit | null }
 >()
 export const streams = new WeakMap<CheckedStream, StreamData>()
 
+// 结果匹配所需的最小字段；封存时另行限制身份值的类型和编码大小。
 export type ResponseRules = {
   terminal: boolean
   bind_native_identity: boolean
@@ -108,5 +110,5 @@ export type ResponseContextData = {
   frame_bytes: number | null
   rules: ResponseRules
 }
-// 不保留 candidate、permit、request 或 capabilities 引用。
+// 仅保存编译契约及复制的响应约束，不保留 candidate、permit、request 或 capabilities 引用。
 export const responseContexts = new WeakMap<ResponseOnlyContext, ResponseContextData>()

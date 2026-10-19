@@ -1,3 +1,4 @@
+# 逐个在独立进程中执行版本化 unittest 文件，并记录真实用例状态及来源。
 """Run tracked unittest files in separate processes and record actual outcomes."""
 
 import argparse
@@ -13,17 +14,20 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# 筛选符合 Python 测试命名的文件，排除 fixtures 中作为数据保存的源码。
 def test_files(files):
     return {path for path in files if not path.startswith('fixtures/') and
             (Path(path).match('test_*.py') or Path(path).match('*_test.py'))}
 
 
 class RecordedResult(unittest.TextTestResult):
+    # 初始化用例记录和对象引用，防止 unittest 释放对象后标识被复用。
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cases = {}
         self.test_objects = {}  # Prevent object-id reuse as unittest releases completed cases.
 
+    # 记录用例真实定义文件和最新状态，无法解析来源时记为空值。
     def record(self, test, status):
         self.test_objects[id(test)] = test
         try:
@@ -32,40 +36,49 @@ class RecordedResult(unittest.TextTestResult):
             source = None
         self.cases.setdefault(id(test), {'id': test.id(), 'file': source})['status'] = status
 
+    # 保留 unittest 开始处理并将用例状态记为已开始。
     def startTest(self, test):
         super().startTest(test)
         self.record(test, 'started')
 
+    # 保留 unittest 成功处理并将用例状态记为通过。
     def addSuccess(self, test):
         super().addSuccess(test)
         self.record(test, 'passed')
 
+    # 保留断言失败信息并将用例状态记为失败。
     def addFailure(self, test, error):
         super().addFailure(test, error)
         self.record(test, 'failed')
 
+    # 保留执行异常信息并将用例状态记为错误。
     def addError(self, test, error):
         super().addError(test, error)
         self.record(test, 'error')
 
+    # 保留跳过原因并将用例状态记为跳过。
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
         self.record(test, 'skipped')
 
+    # 记录预期失败，使此类用例无法被当作真实通过。
     def addExpectedFailure(self, test, error):
         super().addExpectedFailure(test, error)
         self.record(test, 'expected_failure')
 
+    # 记录意外成功，使预期失败标记失效也能被门禁发现。
     def addUnexpectedSuccess(self, test):
         super().addUnexpectedSuccess(test)
         self.record(test, 'unexpected_success')
 
+    # 保留子测试结果，并在子测试出错时标记其父用例失败。
     def addSubTest(self, test, subtest, error):
         super().addSubTest(test, subtest, error)
         if error is not None:
             self.record(test, 'failed_subtest')
 
 
+# 按直接运行脚本的导入路径执行单个文件，落盘真实用例结果并返回是否全部通过。
 def worker(root, path, output):
     # Match direct-script imports without sharing module state across files.
     parent = root / Path(path).parent
@@ -78,6 +91,7 @@ def worker(root, path, output):
     return 0 if passed else 1
 
 
+# 顺序启动各测试文件的独立进程，汇总报告并返回整体成功状态。
 def run_files(root, files, output):
     records = {}
     with tempfile.TemporaryDirectory(prefix='rovloom-python-results-') as temporary:
@@ -97,6 +111,7 @@ def run_files(root, files, output):
     return 0 if records and all(item['exit'] == 0 for item in records.values()) else 1
 
 
+# 校验报告必须是检出目录外的新文件，再调度单文件或全部版本化测试。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=ROOT, help=argparse.SUPPRESS)

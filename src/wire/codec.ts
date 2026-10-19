@@ -1,3 +1,4 @@
+// 校验并编解码 Wire v2 握手、认证消息、原生载荷及有界逻辑对象。
 import type {
   AttemptBinding,
   AttemptIdentity,
@@ -43,12 +44,14 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   object_chunk: ['gateway_to_connector', 'connector_to_gateway']
 })
 
+// 校验连接绑定中的机器、恢复代次和连接纪元均为合法标识。
 function connection(v: JsonObject): void {
   for (const k of CONNECTION) {
     id(v[k])
   }
 }
 
+// 严格校验调用身份、目标和登记条件，拒绝缺失字段或非法取值。
 export function validateAttempt(value: unknown): asserts value is AttemptIdentity {
   const a = object(value)
   fields(a, ATTEMPT)
@@ -75,6 +78,7 @@ export function validateAttempt(value: unknown): asserts value is AttemptIdentit
   }
 }
 
+// 从完整连接绑定中提取可随消息传输的调用身份。
 function pickAttempt(a: AttemptBinding): AttemptIdentity {
   return {
     call_id: a.call_id,
@@ -88,19 +92,24 @@ function pickAttempt(a: AttemptBinding): AttemptIdentity {
   }
 }
 
+// 核对连接及调用身份的全部字段，不一致时拒绝关联。
 export function assertBinding(actual: AttemptBinding, expected: AttemptBinding): void {
   connection(object(actual))
   connection(object(expected))
   validateAttempt(pickAttempt(actual))
   validateAttempt(pickAttempt(expected))
   if (
-    CONNECTION.some((k) => actual[k as keyof AttemptBinding] !== expected[k as keyof AttemptBinding]) ||
+    CONNECTION.some(
+      /* 判断任一连接字段是否与独立锚点不符。 */ (k) =>
+        actual[k as keyof AttemptBinding] !== expected[k as keyof AttemptBinding]
+    ) ||
     boundedJson(pickAttempt(actual)) !== boundedJson(pickAttempt(expected))
   ) {
     fail('attempt_binding_mismatch')
   }
 }
 
+// 校验调用目标所属机器，并将调用身份与当前帧的连接身份绑定。
 function bind(frame: JsonObject, attempt: unknown): AttemptBinding {
   validateAttempt(attempt)
   if (attempt.target.machine_id !== frame.machine_id) {
@@ -114,6 +123,7 @@ function bind(frame: JsonObject, attempt: unknown): AttemptBinding {
   }
 }
 
+// 校验网关或传输错误载荷，允许附带关联消息标识。
 function errorPayload(p: JsonObject): void {
   fields(p, ['source', 'code', 'retryable'], ['cause_message_id'])
   oneOf(p.source, ['gateway', 'transport'])
@@ -125,6 +135,7 @@ function errorPayload(p: JsonObject): void {
   }
 }
 
+// 按严格或原始契约模式检查可信分类、参数完整度和当前授权。
 function gate(g: RequestGate, mode: 'strict' | 'raw-contract'): void {
   if (!g || typeof g !== 'object' || g.classification_status !== 'trusted_complete') {
     fail('classification_unavailable')
@@ -165,6 +176,7 @@ function gate(g: RequestGate, mode: 'strict' | 'raw-contract'): void {
 
 type AuthContext = Extract<CodecContext, { phase: 'authenticated' }>
 
+// 执行原生校验回调，仅透传合法错误码并为其他异常返回固定错误码。
 function nativeCall<T>(fn: () => T, fallback: string): T {
   try {
     return fn()
@@ -174,12 +186,14 @@ function nativeCall<T>(fn: () => T, fallback: string): T {
   }
 }
 
+// 执行只应返回 undefined 的原生校验，拒绝异常返回值。
 function nativeVoid(fn: () => void, fallback: string): void {
   if (nativeCall(fn, fallback) !== undefined) {
     fail('invalid_native_validator_result')
   }
 }
 
+// 从可信解析器恢复调用锚点，核对绑定、传输类型及协商能力。
 function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeValidationContext {
   // attempt 必须来自独立 resolver；消息里的字段不能自行建立调用身份。
   const binding = bind(frame, p.attempt)
@@ -216,6 +230,7 @@ function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeVal
   }
 }
 
+// 要求既有原生句柄和独立来源，并将可信来源注入校验上下文。
 function nativeContext(n: NativeValidationContext, ctx: AuthContext): NativeValidationContext {
   if (n.native_handle === undefined || n.native_handle === null) {
     fail('native_handle_unavailable')
@@ -227,6 +242,7 @@ function nativeContext(n: NativeValidationContext, ctx: AuthContext): NativeVali
   return { ...n, trusted_source: source }
 }
 
+// 核对请求与登记锚点、当前双端权限和原生参数门禁。
 function validateRequestPayload(frame: JsonObject, payload: JsonObject, ctx: AuthContext, stream: boolean): void {
   fields(payload, stream ? [...REQUEST, 'stream_id', 'feature'] : REQUEST)
   const nativeRequest = object(payload.native_request)
@@ -268,18 +284,26 @@ function validateRequestPayload(frame: JsonObject, payload: JsonObject, ctx: Aut
   const validator = validatorFor(native.binding, ctx)
   const full = { ...nativeRequest, id: native.binding.native_request_id }
   gate(
-    nativeCall(() => validator.requestGate(full, native), 'native_gate_failed'),
+    nativeCall(
+      /* 读取原生请求的可信分类与授权门禁结果。 */ () => validator.requestGate(full, native),
+      'native_gate_failed'
+    ),
     payload.validation
   )
-  nativeVoid(() => validator.validateRequest(full, native), 'native_request_invalid')
+  nativeVoid(
+    /* 调用原生校验器检查补入可信 ID 后的完整请求。 */ () => validator.validateRequest(full, native),
+    'native_request_invalid'
+  )
 }
 
+// 要求当前连接已协商指定能力，否则拒绝该消息。
 function capability(ctx: AuthContext, name: string): void {
   if (!(ctx.connection.negotiated.capabilities as string[]).includes(name)) {
     fail('unsupported_capability')
   }
 }
 
+// 校验流特性枚举，并要求连接已协商对应能力。
 function streamFeature(p: JsonObject, ctx: AuthContext): void {
   oneOf(p.feature, STREAM)
   capability(ctx, p.feature)
@@ -334,6 +358,7 @@ function decodeHandshake(
   return frame as PreAuthResult
 }
 
+// 校验分片描述、方向、规范 base64 及精确字节长度。
 function validateObjectChunk(p: JsonObject, context: AuthContext): void {
   capability(context, 'objects')
   fields(p, ['object_id', 'kind', 'total_bytes', 'sha256', 'chunk_count', 'index', 'data'])
@@ -405,7 +430,12 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   ) {
     fail('protocol_version_unsupported')
   }
-  if (CONNECTION.some((k) => frame[k] !== context.connection[k as keyof typeof context.connection])) {
+  if (
+    CONNECTION.some(
+      /* 检测帧是否使用了当前认证连接以外的身份字段。 */ (k) =>
+        frame[k] !== context.connection[k as keyof typeof context.connection]
+    )
+  ) {
     fail('connection_binding_mismatch')
   }
 
@@ -446,7 +476,10 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
         fail('attempt_transport_mismatch')
       }
       const validator = validatorFor(n.binding, context)
-      nativeVoid(() => validator.validateResponse(r, n), 'native_response_invalid')
+      nativeVoid(
+        /* 以绑定的原生许可和可信来源校验完整响应。 */ () => validator.validateResponse(r, n),
+        'native_response_invalid'
+      )
       break
     }
     case 'stream_data':
@@ -474,7 +507,7 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
         assertProviderAccess(n.binding, n.method, 'stream_input', context)
       }
       nativeVoid(
-        () =>
+        /* 校验原生流帧，并传入绑定特性和输入或输出方向。 */ () =>
           validator.validateStreamFrame!(r, {
             ...n,
             feature: p.feature as 'events' | 'terminal_observe' | 'terminal_control',
@@ -487,7 +520,10 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
         if (!validator.checkDispatch) {
           fail('dispatch_validator_unavailable')
         }
-        nativeVoid(() => validator.checkDispatch!(r, n), 'native_dispatch_forbidden')
+        nativeVoid(
+          /* 为当前输入帧重新执行原生派发授权门禁。 */ () => validator.checkDispatch!(r, n),
+          'native_dispatch_forbidden'
+        )
       }
       break
     }
@@ -513,12 +549,14 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
 
 type PreAuthResult = Extract<WireEnvelope, { type: 'enroll' | 'authenticate' | 'welcome' | 'error' }>
 
+// 规范化序列化并完整验证帧，返回可发送的 JSON 文本。
 export function encodeWireFrame(frame: WireEnvelope, context: CodecContext): string {
   const raw = boundedJson(frame)
   decodeWireFrame(raw, context)
   return raw
 }
 
+// 在单帧大小上限内解码并校验 Wire 消息。
 export function decodeWireFrame(input: string | Uint8Array, context: CodecContext): WireEnvelope {
   return decode(input, context, LIMITS.frame_bytes)
 }

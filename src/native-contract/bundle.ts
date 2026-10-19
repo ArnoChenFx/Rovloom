@@ -1,3 +1,4 @@
+// 离线校验 Luvus schema bundle 的身份、文档闭包与资源边界，并编译内存校验句柄。
 import { Ajv2020 } from 'ajv/dist/2020.js'
 import type { AnySchema, ValidateFunction } from 'ajv'
 import { attempt, ContractFault, equal, fail, hash, limits, object, parse, pointer, snapshot, text } from './json.js'
@@ -36,13 +37,16 @@ const ANNOTATIONS = new Set([
 const MAPS = new Set(['$defs', 'properties', 'patternProperties', 'dependentSchemas'])
 const ARRAYS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
 const SINGLES = new Set(['if', 'then', 'else', 'not', 'items', 'additionalProperties', 'contains', 'propertyNames'])
+// 将字段名转义为 JSON Pointer 路径片段。
 const escaped = (key: string) => key.replace(/~/g, '~0').replace(/\//g, '~1')
 
 type SchemaEdges = Map<string, Array<{ key: string; weight: number }>>
 
+// 预检文档闭包中的关键字、引用目标与引用预算，再检查图中的环和深度。
 function preflight(documents: Record<string, unknown>, budget: Limits): void {
   const edges: SchemaEdges = new Map()
   let refs = 0
+  // 登记 schema 节点及结构或引用边，遇到不支持的语义立即拒绝。
   const visit = (schema: unknown, uri: string, path: string): string => {
     const key = uri + '#' + path
     const next: Array<{ key: string; weight: number }> = []
@@ -86,7 +90,10 @@ function preflight(documents: Record<string, unknown>, budget: Limits): void {
         if (!Array.isArray(child)) {
           fail('schema_unavailable', 'compile', 'invalid_schema')
         }
-        child.forEach((nested, i) => next.push({ key: visit(nested, uri, `${path}/${keyword}/${i}`), weight: 0 }))
+        child.forEach(
+          /* 遍历组合 schema 数组，将每项登记为零权重结构边。 */ (nested, i) =>
+            next.push({ key: visit(nested, uri, `${path}/${keyword}/${i}`), weight: 0 })
+        )
       } else if (SINGLES.has(keyword)) {
         next.push({ key: visit(child, uri, `${path}/${keyword}`), weight: 0 })
       }
@@ -175,7 +182,9 @@ function checkReferenceDepth(edges: SchemaEdges, maxDepth: number): void {
   }
 }
 
+// 核对 bundle 的重复入口均与文档表一致，并限制为当前 Luvus UHP 协议版本。
 function aliases(bundle: JsonObject, docs: Record<string, unknown>): void {
+  // 要求别名目标存在且内容完全相同，防止别名与实际编译文档分叉。
   const same = (uri: string, value: unknown) => {
     if (!Object.hasOwn(docs, uri) || !equal(value, docs[uri])) {
       fail('schema_unavailable', 'compile', 'alias_mismatch')
@@ -207,147 +216,153 @@ function aliases(bundle: JsonObject, docs: Record<string, unknown>): void {
   }
 }
 
+// 校验契约身份、摘要及文档闭包，编译离线校验器并登记不可伪造的内存句柄。
 export function compileBundle(bytes: Uint8Array | string, options: CompileOptions): Check<CompiledContract> {
-  return attempt('compile', () => {
-    const budget = limits(options.limits)
-    const identity = object(snapshot(options.identity), 'schema_unavailable') as unknown as ContractIdentity
-    if (
-      !identity ||
-      !/^[a-f0-9]{64}$/.test(identity.binary_sha256) ||
-      !/^[a-f0-9]{64}$/.test(identity.schema_sha256) ||
-      typeof identity.revision !== 'string' ||
-      !identity.revision.length ||
-      identity.revision.length > 128
-    ) {
-      fail('schema_unavailable', 'compile', 'invalid_identity')
-    }
-    let bundle: JsonObject
-    try {
-      bundle = object(
-        parse(bytes, {
-          ...budget,
-          object_bytes: budget.bundle_bytes,
-          object_nodes: budget.bundle_nodes
-        }),
-        'schema_unavailable'
-      )
-    } catch (error) {
-      if (error instanceof ContractFault) {
-        fail(
-          'schema_unavailable',
-          'compile',
-          error.failure.code === 'object_limit' ? 'bundle_limit' : error.failure.code
-        )
-      }
-      throw error
-    }
-    if (hash(bytes) !== identity.schema_sha256) {
-      fail('schema_unavailable', 'compile', 'digest_mismatch')
-    }
-    const documents = object(bundle.documents, 'schema_unavailable')
-    const entries = Object.entries(documents)
-    if (!entries.length || entries.length > budget.documents) {
-      fail('schema_unavailable', 'compile', 'document_limit')
-    }
-    const ids = new Set<string>()
-    for (const [uri, value] of entries) {
+  return attempt(
+    'compile',
+    /* 依次完成预算校验、文档预检和 Ajv 编译，成功后登记方法分支覆盖信息。 */ () => {
+      const budget = limits(options.limits)
+      const identity = object(snapshot(options.identity), 'schema_unavailable') as unknown as ContractIdentity
       if (
-        !uri.startsWith(UHP) ||
-        new URL(uri).href !== uri ||
-        new URL(uri).hash ||
-        new URL(uri).search ||
-        Buffer.byteLength(JSON.stringify(value)) > budget.document_bytes
+        !identity ||
+        !/^[a-f0-9]{64}$/.test(identity.binary_sha256) ||
+        !/^[a-f0-9]{64}$/.test(identity.schema_sha256) ||
+        typeof identity.revision !== 'string' ||
+        !identity.revision.length ||
+        identity.revision.length > 128
       ) {
-        fail('schema_unavailable', 'compile', 'invalid_document')
+        fail('schema_unavailable', 'compile', 'invalid_identity')
       }
-      const doc = object(value, 'schema_unavailable')
-      const id = doc.$id ?? uri
-      if (typeof id !== 'string' || ids.has(id)) {
-        fail('schema_unavailable', 'compile', 'duplicate_id')
-      }
-      ids.add(id)
-      if (id !== uri) {
-        fail('schema_unavailable', 'compile', 'duplicate_id')
-      }
-      if (doc.$schema !== DIALECT) {
-        fail('schema_unavailable', 'compile', 'unsupported_dialect')
-      }
-    }
-
-    // 只在已提供的文档闭包内解析引用；预检和别名核对完成后才交给 Ajv。
-    preflight(documents, budget)
-    aliases(bundle, documents)
-    const validators = new Map<string, ValidateFunction>()
-    try {
-      const ajv = new Ajv2020({
-        strict: false,
-        allErrors: false,
-        coerceTypes: false,
-        useDefaults: false,
-        removeAdditional: false,
-        ownProperties: true,
-        inlineRefs: false
-      })
-      for (const [uri, doc] of entries) {
-        ajv.addSchema(doc as AnySchema, uri)
-      }
-      for (const [uri] of entries) {
-        const validate = ajv.getSchema(uri)
-        if (!validate) {
-          fail('schema_unavailable', 'compile', 'invalid_schema')
+      let bundle: JsonObject
+      try {
+        bundle = object(
+          parse(bytes, {
+            ...budget,
+            object_bytes: budget.bundle_bytes,
+            object_nodes: budget.bundle_nodes
+          }),
+          'schema_unavailable'
+        )
+      } catch (error) {
+        if (error instanceof ContractFault) {
+          fail(
+            'schema_unavailable',
+            'compile',
+            error.failure.code === 'object_limit' ? 'bundle_limit' : error.failure.code
+          )
         }
-        validators.set(uri, validate)
-      }
-      const catalog = object(bundle.event_catalog)
-      for (const name of Object.keys(object(catalog.properties))) {
-        validators.set(`event:${name}`, ajv.compile({ $ref: `${text(catalog.$id)}#/properties/${escaped(name)}` }))
-      }
-    } catch (error) {
-      if (error instanceof ContractFault) {
         throw error
       }
-      fail('schema_unavailable', 'compile', 'invalid_schema')
-    }
-    const request = object(bundle.request)
-    const props = object(request.properties)
-    const methodEnum = object(props.method).enum
-    if (
-      !Array.isArray(methodEnum) ||
-      methodEnum.some((m) => typeof m !== 'string') ||
-      new Set(methodEnum).size !== methodEnum.length
-    ) {
-      fail('schema_unavailable', 'compile', 'invalid_method_catalog')
-    }
-
-    // 空分支表示仅有 generic params，不能因方法在 enum 中就声称参数完整校验。
-    const requestMethods = methodEnum as readonly string[]
-    const branches = new Map<string, readonly string[]>()
-    if (!Array.isArray(request.allOf)) {
-      fail('schema_unavailable', 'compile', 'invalid_method_catalog')
-    }
-    for (const method of requestMethods) {
-      const paths: string[] = []
-      request.allOf.forEach((raw, i) => {
-        const condition = object(object(object(raw).if).properties).method
-        const test = object(condition)
-        if (test.const === method || (Array.isArray(test.enum) && test.enum.includes(method))) {
-          paths.push(`#/allOf/${i}`)
+      if (hash(bytes) !== identity.schema_sha256) {
+        fail('schema_unavailable', 'compile', 'digest_mismatch')
+      }
+      const documents = object(bundle.documents, 'schema_unavailable')
+      const entries = Object.entries(documents)
+      if (!entries.length || entries.length > budget.documents) {
+        fail('schema_unavailable', 'compile', 'document_limit')
+      }
+      const ids = new Set<string>()
+      for (const [uri, value] of entries) {
+        if (
+          !uri.startsWith(UHP) ||
+          new URL(uri).href !== uri ||
+          new URL(uri).hash ||
+          new URL(uri).search ||
+          Buffer.byteLength(JSON.stringify(value)) > budget.document_bytes
+        ) {
+          fail('schema_unavailable', 'compile', 'invalid_document')
         }
+        const doc = object(value, 'schema_unavailable')
+        const id = doc.$id ?? uri
+        if (typeof id !== 'string' || ids.has(id)) {
+          fail('schema_unavailable', 'compile', 'duplicate_id')
+        }
+        ids.add(id)
+        if (id !== uri) {
+          fail('schema_unavailable', 'compile', 'duplicate_id')
+        }
+        if (doc.$schema !== DIALECT) {
+          fail('schema_unavailable', 'compile', 'unsupported_dialect')
+        }
+      }
+
+      // 只在已提供的文档闭包内解析引用；预检和别名核对完成后才交给 Ajv。
+      preflight(documents, budget)
+      aliases(bundle, documents)
+      const validators = new Map<string, ValidateFunction>()
+      try {
+        const ajv = new Ajv2020({
+          strict: false,
+          allErrors: false,
+          coerceTypes: false,
+          useDefaults: false,
+          removeAdditional: false,
+          ownProperties: true,
+          inlineRefs: false
+        })
+        for (const [uri, doc] of entries) {
+          ajv.addSchema(doc as AnySchema, uri)
+        }
+        for (const [uri] of entries) {
+          const validate = ajv.getSchema(uri)
+          if (!validate) {
+            fail('schema_unavailable', 'compile', 'invalid_schema')
+          }
+          validators.set(uri, validate)
+        }
+        const catalog = object(bundle.event_catalog)
+        for (const name of Object.keys(object(catalog.properties))) {
+          validators.set(`event:${name}`, ajv.compile({ $ref: `${text(catalog.$id)}#/properties/${escaped(name)}` }))
+        }
+      } catch (error) {
+        if (error instanceof ContractFault) {
+          throw error
+        }
+        fail('schema_unavailable', 'compile', 'invalid_schema')
+      }
+      const request = object(bundle.request)
+      const props = object(request.properties)
+      const methodEnum = object(props.method).enum
+      if (
+        !Array.isArray(methodEnum) ||
+        methodEnum.some(/* 发现方法枚举中不是字符串的条目。 */ (m) => typeof m !== 'string') ||
+        new Set(methodEnum).size !== methodEnum.length
+      ) {
+        fail('schema_unavailable', 'compile', 'invalid_method_catalog')
+      }
+
+      // 空分支表示仅有 generic params，不能因方法在 enum 中就声称参数完整校验。
+      const requestMethods = methodEnum as readonly string[]
+      const branches = new Map<string, readonly string[]>()
+      if (!Array.isArray(request.allOf)) {
+        fail('schema_unavailable', 'compile', 'invalid_method_catalog')
+      }
+      for (const method of requestMethods) {
+        const paths: string[] = []
+        request.allOf.forEach(
+          /* 为当前方法收集命中的条件分支路径，保留没有专用分支的参数缺口。 */ (raw, i) => {
+            const condition = object(object(object(raw).if).properties).method
+            const test = object(condition)
+            if (test.const === method || (Array.isArray(test.enum) && test.enum.includes(method))) {
+              paths.push(`#/allOf/${i}`)
+            }
+          }
+        )
+        branches.set(method, Object.freeze(paths))
+      }
+      const compiled: CompiledContract = Object.freeze({
+        identity: Object.freeze({ ...identity }),
+        documents: Object.freeze(entries.map(/* 提取文档 URI，作为编译句柄的只读文档目录。 */ ([uri]) => uri))
       })
-      branches.set(method, Object.freeze(paths))
+      contracts.set(compiled, {
+        bundle,
+        documents,
+        limits: budget,
+        validators,
+        requestMethods,
+        branches
+      })
+      return compiled
     }
-    const compiled: CompiledContract = Object.freeze({
-      identity: Object.freeze({ ...identity }),
-      documents: Object.freeze(entries.map(([uri]) => uri))
-    })
-    contracts.set(compiled, {
-      bundle,
-      documents,
-      limits: budget,
-      validators,
-      requestMethods,
-      branches
-    })
-    return compiled
-  })
+  )
 }
