@@ -8,9 +8,19 @@ export {
   type ManagementAssets
 } from './read-http.js'
 export { loadManagementAssets } from './assets.js'
+export { StoreManagementWriteService, ManagementServiceError, type ManagementWriteOptions } from './write-service.js'
 export {
   sampleManagementTransport,
   createManagementTransportProjection,
   type ManagementObservationFence,
   type ManagementTransportProjection
 } from '../mcp/transport-observations.js'
+
+export { createManagementHandler, type ManagementWriteHttpOptions } from './write-http.js'
+
+export {
+  createManagementSessionAdapter,
+  type ManagementSessionBinding,
+  type ManagementSessionSource,
+  type ManagementSessionAdapterOptions
+} from './session-adapter.js'

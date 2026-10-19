@@ -6,6 +6,8 @@ import type { ReaderState } from './reader.js'
 import { createLocalizer } from './i18n.js'
 import { createUiPreferences, type UiPreferences } from './preferences.js'
 import { createPreferenceControl } from './preference-control.js'
+import { createDeviceActions } from './device-actions.js'
+import type { ManagementWriteTransport, DeviceManagementIntent } from './write-contract.js'
 
 /** 接入共享管理读取后的页面投影函数；不是授权接口，不能代替每次后端鉴权。 */
 export type PageRead = (route: Readonly<PageRoute>, signal: AbortSignal) => Promise<TimedSnapshot<PageView>>
@@ -28,7 +30,12 @@ export async function unavailableRead(): Promise<never> {
 }
 
 /** 建立页面壳、手动刷新/取消与单路由 reader，返回幂等卸载函数。 */
-export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, clock?: ReadClock): () => void {
+export function mountWebUi(
+  root: HTMLElement,
+  read: PageRead = unavailableRead,
+  clock?: ReadClock,
+  management?: ManagementWriteTransport
+): () => void {
   const header = element('header', '', 'topbar')
   const brand = element('a', '', 'brand')
   brand.href = '#'
@@ -86,6 +93,30 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   let reader: SnapshotReader<PageView>
   let disposed = false
   let i18n = createLocalizer('en')
+  const actions = management
+    ? createDeviceActions({
+        transport: management,
+        /** 持久提交后销毁旧在途读取，再取当前目标；迟到旧快照不能覆盖真实变更。 */
+        committed(machineId) {
+          if (!disposed && route.machineId === machineId) {
+            reader.dispose()
+            start()
+          }
+        },
+        /** 写请求发现会话/权限失效时同样清空读数据，不能让旧页面继续操作。 */
+        authorizationLost(problem) {
+          if (disposed) {
+            return
+          }
+          reader.dispose()
+          actions?.clear()
+          paint({ snapshot: null, pending: false, stale: true, ageMs: 0, problem }, route)
+        }
+      })
+    : undefined
+  if (actions) {
+    footer.before(actions.region)
+  }
 
   /** 稳定工具栏与当前快照重新本地化；不替换 reader、路由、等待信号或时间锚点。 */
   function paint(state: ReaderState<PageView>, current: PageRoute): void {
@@ -103,7 +134,15 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     content.setAttribute('aria-busy', String(state.pending))
     indicator.dataset.state = state.pending ? 'pending' : state.stale ? 'stale' : state.snapshot ? 'current' : 'empty'
     sectionLink.setAttribute('aria-current', current.machineId === null ? 'page' : 'location')
-    renderPage(content, state, current, i18n)
+    if (['unauthenticated', 'forbidden', 'not_found'].includes(state.problem ?? '')) {
+      actions?.clear()
+    }
+    actions?.update(
+      i18n,
+      !!state.snapshot && !state.stale && state.snapshot.value.status.mode === 'active',
+      state.snapshot ? state.snapshot.observedAt + state.ageMs : undefined
+    )
+    renderPage(content, state, current, i18n, !!actions)
   }
 
   /** 偏好仅改变文案与 CSS 主题；标题、语言和无障碍名称随词典同步。 */
@@ -123,7 +162,7 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     refresh.textContent = t('action.refresh')
     cancel.textContent = t('action.cancel')
     skip.textContent = t('app.skip')
-    footer.textContent = t('app.footer')
+    footer.textContent = t(actions ? 'app.managedFooter' : 'app.footer')
     language.update(i18n, state.languageChoice)
     theme.update(i18n, state.themeChoice)
     if (languageChanged && reader) {
@@ -167,8 +206,27 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     reader.cancel()
   }
 
+  /** 只接收实际启用的设备入口和当前读模型目标，不消费浏览器自报身份。 */
+  function deviceAction(event: MouseEvent): void {
+    const button =
+      event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-device-action]') : null
+    if (!actions || !button || button.disabled || !content.contains(button)) {
+      return
+    }
+    const device = reader.state().snapshot?.value.device
+    if (!device || route.machineId !== device.machine_id) {
+      return
+    }
+    const action = button.dataset.deviceAction as DeviceManagementIntent['action']
+    if (!['device_rename', 'device_disconnect', 'device_revoke'].includes(action)) {
+      return
+    }
+    actions.open(action, device.machine_id, device.name, button)
+  }
+
   /** 哈希导航、后退与分页都先清理旧路由资源，再获取新目标。 */
   function navigate(): void {
+    actions?.suspend()
     language.close()
     theme.close()
     if (location.hash === '#management-content') {
@@ -183,6 +241,9 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
 
   /** 后台暂停轮询并取消在途读取，前台立即按原页面范围刷新。 */
   function visibility(): void {
+    if (document.visibilityState === 'hidden') {
+      actions?.suspend()
+    }
     reader.visible(document.visibilityState !== 'hidden')
   }
 
@@ -198,6 +259,7 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
 
   /** 页面离开时销毁在途请求及定时器，后退不会重复任何写入。 */
   function hide(): void {
+    actions?.suspend()
     language.close()
     theme.close()
     reader.dispose()
@@ -211,6 +273,8 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     }
     disposed = true
     reader.dispose()
+    actions?.dispose()
+    content.removeEventListener('click', deviceAction)
     skip.removeEventListener('click', skipContent)
     refresh.removeEventListener('click', refreshPage)
     cancel.removeEventListener('click', cancelRead)
@@ -227,6 +291,7 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   skip.addEventListener('click', skipContent)
   refresh.addEventListener('click', refreshPage)
   cancel.addEventListener('click', cancelRead)
+  content.addEventListener('click', deviceAction)
   window.addEventListener('hashchange', navigate)
   document.addEventListener('visibilitychange', visibility)
   window.addEventListener('pageshow', show)

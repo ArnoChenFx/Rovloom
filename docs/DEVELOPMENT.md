@@ -33,7 +33,7 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、Herdr、webui、admin 与独立 service 十三个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport、Herdr、webui、admin、独立 service 与 update 十四个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
@@ -85,6 +85,19 @@ python3 scripts/webui/check-layout.py --url http://127.0.0.1:PORT --output /tmp/
 它们验证真实 Chromium 上的合成 UI 数据、转义、
 焦点、导航、取消、部分失败及会话失效展示，不验证真实管理后端或安全认证。
 浏览器检查需显式运行，不从工具链通过推导浏览器或跨平台验收。
+
+三项设备操作可独立使用临时 Store、现有会话/CSRF handler 和页面状态机验收：
+
+```sh
+bun --no-env-file scripts/webui/preview.mjs 33231 --actions
+python3 scripts/webui/check-actions.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-actions-new
+python3 scripts/webui/check-bootstrap.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-bootstrap-new
+```
+
+该服务只在显式 `/fixtures/` 让生产 `browser.js` 消费 CLI 同式 meta，拒绝根入口，所有设备和会话均为本次内存 fixture。
+检查包括两语两主题、桌面/320px、实际改名/断开/撤销、一次确认、重复点击、错误恢复、
+取消/导航与迟到、丢响应后原回执核对及原确认截止。bootstrap 检查额外覆盖实际 DOM 消费、
+重复/无效交付、在页过期及永久卸载；不验证真实管理员、宿主秘密交付或用户设备。
 
 ## 隔离验收
 
@@ -340,7 +353,7 @@ SDK 实证 revision 为 `2025-11-25`，Bun 的 `process.version` 只是 Node 兼
 [Wire v2](protocol/WIRE-PROTOCOL.md)。产品设计、保留/恢复规则及 Herdr 门禁以
 [DESIGN](DESIGN.md)、[实施计划](IMPLEMENTATION-PLAN.md)和 ADR 为准。
 
-SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v4 要求全新库并拒绝未发布的旧库。
+SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v5 要求全新库并拒绝未发布的旧库。
 Store/Router 已提供 provider/binding、固定原文期限、持久 history、全局预算、降级与隔离快照；
 本机管理接口与独立可信来源的接线边界见[存储运行指引](STORAGE.md)。测试使用临时 SQLite
 文件、真实 SQLITE_FULL 与异常退出，不触及真实库。WSS/loopback 模块与独立宿主接线见

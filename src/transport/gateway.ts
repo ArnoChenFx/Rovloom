@@ -5,6 +5,9 @@ import type { Router, Principal } from '../router.js'
 import { commitLuvusResponse } from '../integration/persistence.js'
 import {
   boundedJson,
+  admissionRequestDigest,
+  admissionRegisteredRequestDigest,
+  assertBinding,
   decodeWireFrame,
   encodeWireFrame,
   negotiate,
@@ -15,6 +18,8 @@ import {
   WireError
 } from '../wire/index.js'
 import type { AttemptBinding, AuthenticatedEnvelope, VersionOffer } from '../wire/types.js'
+import type { AdmissionReceiptRecord } from '../wire/admission.js'
+import type { LedgerInvalidation } from '../storage/model.js'
 import type { IdentityHost } from './identity.js'
 import { ChannelRegistry } from './channel-host.js'
 import type { SocketChannel } from './channel-host.js'
@@ -125,6 +130,7 @@ export function createGateway(options: GatewayOptions) {
   const machines = new Map<string, Peer>()
   const inflight = new Map<string, AuthenticatedEnvelope & { type: 'request' }>()
   const reads = new Map<string, { binding: AttemptBinding; wire: Adapter; peer: Peer; expires: number }>()
+  const admissions = new Map<string, { peer: Peer; record: AdmissionReceiptRecord; updating: boolean }>()
   let authWindow = performance.now()
   let authAttempts = 0
   let stopped = false
@@ -168,6 +174,11 @@ export function createGateway(options: GatewayOptions) {
     }
     peer.closed = true
     peers.delete(peer)
+    for (const [call, admission] of admissions) {
+      if (admission.peer === peer) {
+        admissions.delete(call)
+      }
+    }
     for (const [call, original] of reads) {
       if (original.peer === peer) {
         reads.delete(call)
@@ -411,43 +422,51 @@ export function createGateway(options: GatewayOptions) {
       }
     }
   })
-  /** 清除过期、清理或旧 fence 的读取引用；在途调用仍保留原 Wire 自身的仅响应补证状态。 */
+  /** 只清理指定调用的失效读取引用；在途调用仍保留原 Wire 自身的仅响应补证状态。 */
+  function pruneOriginalRead(call: string): void {
+    const original = reads.get(call)
+    if (!original) {
+      return
+    }
+    let usable = false
+    try {
+      const anchor = options.store.responseAnchor(original.binding)
+      usable =
+        !original.peer.closed &&
+        !original.wire.stats().closed &&
+        anchor.content_status === 'available' &&
+        options.store.clock() < original.expires
+      if (usable) {
+        try {
+          original.wire.checkResult(original.binding)
+        } catch (error) {
+          // 只回收已失去原状态的引用；当前 caller 或读取 grant 被拒绝不能驱逐所有者上下文。
+          if (
+            error instanceof WireError &&
+            (error.code === 'dispatch_permit_unavailable' || error.code === 'content_unavailable')
+          ) {
+            usable = false
+          }
+        }
+      }
+    } catch {
+      /* 原锚点或存储门禁失效后不能继续提供读取上下文。 */
+    }
+    if (!usable) {
+      reads.delete(call)
+      if (!inflight.has(call)) {
+        try {
+          original.wire.release(original.binding)
+        } catch {
+          /* 原会话可能已经关闭，拒绝引用仍须被移除。 */
+        }
+      }
+    }
+  }
+  /** 仅在统计或读取容量满时扫描全部原上下文，回收内容失效或已显式释放的引用。 */
   function pruneOriginalReads(): void {
-    for (const [call, original] of reads) {
-      let usable = false
-      try {
-        const anchor = options.store.responseAnchor(original.binding)
-        usable =
-          !original.peer.closed &&
-          !original.wire.stats().closed &&
-          anchor.content_status === 'available' &&
-          options.store.clock() < original.expires
-        if (usable) {
-          try {
-            original.wire.checkResult(original.binding)
-          } catch (error) {
-            // 只回收已失去原状态的引用；当前 caller 或读取 grant 被拒绝不能驱逐所有者上下文。
-            if (
-              error instanceof WireError &&
-              (error.code === 'dispatch_permit_unavailable' || error.code === 'content_unavailable')
-            ) {
-              usable = false
-            }
-          }
-        }
-      } catch {
-        /* 原锚点或存储门禁失效后不能继续提供读取上下文。 */
-      }
-      if (!usable) {
-        reads.delete(call)
-        if (!inflight.has(call)) {
-          try {
-            original.wire.release(original.binding)
-          } catch {
-            /* 原会话可能已经关闭，拒绝引用仍须被移除。 */
-          }
-        }
-      }
+    for (const call of reads.keys()) {
+      pruneOriginalRead(call)
     }
   }
   /** 对已认证连接编码并计量整帧，发送背压时关闭通道并拒绝继续写出。 */
@@ -461,6 +480,81 @@ export function createGateway(options: GatewayOptions) {
     ) {
       close(peer)
       fail('transport_backpressure')
+    }
+  }
+  /** 相同原帧承载初次上下文或有序收紧；不附带正文，也不建立另一条入口。 */
+  function writeAdmission(peer: Peer, record: AdmissionReceiptRecord): void {
+    if (!peer.connection) {
+      fail('connection_unavailable')
+    }
+    const {
+      machine_id: _machine,
+      recovery_generation: _generation,
+      connection_epoch: _epoch,
+      ...attempt
+    } = record.binding
+    write(
+      peer,
+      envelope(peer.connection, 'admission_receipt', {
+        attempt,
+        request_sha256: record.request_sha256,
+        dedup_expires_at: record.dedup_expires_at,
+        ...(record.context ? { context: record.context } : {})
+      })
+    )
+  }
+  /** 只读取唯一 Store 的已提交锚点；来源失效只能 fence 原事实，不能猜造新的状态或截止。 */
+  function refreshAdmission(call: string, fenced = false): void {
+    const tracked = admissions.get(call)
+    if (!tracked || tracked.peer.closed || tracked.record.context!.fenced) {
+      return
+    }
+    if (tracked.updating) {
+      close(tracked.peer)
+      return
+    }
+    tracked.updating = true
+    try {
+      const now = options.store.clock()
+      if (now >= tracked.record.dedup_expires_at) {
+        admissions.delete(call)
+        return
+      }
+      const before = tracked.record.context!
+      let anchor = before.anchor
+      if (!fenced) {
+        try {
+          anchor = options.store.responseAnchor(tracked.record.binding)
+        } catch {
+          fenced = true
+        }
+      }
+      if (!fenced && boundedJson(anchor) === boundedJson(before.anchor)) {
+        return
+      }
+      const record: AdmissionReceiptRecord = {
+        ...tracked.record,
+        context: { ...before, anchor, sequence: before.sequence + 1, fenced }
+      }
+      // 先消费本连接唯一发送顺序；写出失败直接关闭，不能在重连中补交。
+      tracked.record = record
+      writeAdmission(tracked.peer, record)
+    } catch {
+      close(tracked.peer)
+    } finally {
+      tracked.updating = false
+    }
+  }
+  /** Store 只在 COMMIT 后发布通知；内容变更读原锚点，身份变更永久封锁已有上下文。 */
+  function invalidateAdmissions(event: LedgerInvalidation): void {
+    for (const [call, tracked] of admissions) {
+      if (
+        event.kind === 'closed' ||
+        (event.machine_id === tracked.record.binding.machine_id &&
+          (event.kind === 'device_fence' || event.call_id === call))
+      ) {
+        refreshAdmission(call, event.kind !== 'content')
+      }
     }
   }
   /** 处理预认证与已认证文本帧；校验来源/方向/去重后才提交 accepted 或持久响应证据。 */
@@ -602,10 +696,12 @@ export function createGateway(options: GatewayOptions) {
         if (options.store.responseAnchor(binding).state !== 'outcome_unknown') {
           options.store.accepted(binding)
         }
+        refreshAdmission(binding.call_id)
       } else {
         commitLuvusResponse(options.store, peer.session.adapter, decoded)
+        refreshAdmission(binding.call_id)
         inflight.delete(binding.call_id)
-        pruneOriginalReads()
+        pruneOriginalRead(binding.call_id)
         if (!reads.has(binding.call_id)) {
           peer.session.adapter.release(binding)
         }
@@ -703,6 +799,53 @@ export function createGateway(options: GatewayOptions) {
             continue
           }
           assertPeer(peer)
+          const candidates = [...admissions]
+            .filter(
+              /** 只观察此 peer 仍需推进的原记录，已广播 fence 的记录沿用原跳过语义。 */
+              ([, tracked]) => tracked.peer === peer && !tracked.record.context!.fenced
+            )
+            .map(
+              /** 固定本批追踪对象与原 record 引用，外部回调改变任一项即不沿用快照。 */
+              ([call, tracked]) => ({
+                call,
+                tracked,
+                record: tracked.record,
+                context: tracked.record.context!,
+                sequence: tracked.record.context!.sequence
+              })
+            )
+          if (candidates.length) {
+            const observed = options.store.responseAnchors(
+              candidates.map(
+                /** 观察原已登记 binding，不从快照构造新执行身份。 */ (candidate) => candidate.record.binding
+              )
+            )
+            let unchangedOnly = true
+            for (let index = 0; index < candidates.length; index++) {
+              const { call, tracked, record, context, sequence } = candidates[index]!
+              const entry = observed.entries[index]
+              if (
+                unchangedOnly &&
+                !peer.closed &&
+                admissions.get(call) === tracked &&
+                tracked.record === record &&
+                record.context === context &&
+                context.sequence === sequence &&
+                !tracked.updating &&
+                entry?.available &&
+                observed.now < record.dedup_expires_at &&
+                boundedJson(entry.anchor) === boundedJson(record.context!.anchor)
+              ) {
+                continue
+              }
+              // 原刷新可能经发送/认证等宿主回调重入 Store；此后整批余项只走新鲜逐项复核。
+              unchangedOnly = false
+              refreshAdmission(call)
+            }
+          }
+          if (peer.closed) {
+            continue
+          }
           if (now - peer.last >= limits.idle_ms) {
             close(peer)
             continue
@@ -717,10 +860,34 @@ export function createGateway(options: GatewayOptions) {
     },
     Math.min(limits.handshake_ms, limits.heartbeat_ms, limits.idle_ms, 100)
   )
+  let unsubscribeAdmissions: (() => void) | undefined
+  try {
+    if (offer.capabilities.includes('admission_context')) {
+      unsubscribeAdmissions = options.store.subscribeInvalidation(invalidateAdmissions)
+    }
+  } catch (error) {
+    clearInterval(timer)
+    listener.stop(true)
+    throw error
+  }
 
   return {
     channels,
     observations,
+    /** 只交付当前实际认证 peer 的连接副本，断连或失效即未知；不从观测引用推测 epoch。 */
+    currentConnection(machine: string): Connection | undefined {
+      const peer = stopped ? undefined : machines.get(machine)
+      if (!peer) {
+        return undefined
+      }
+      try {
+        assertPeer(peer)
+        options.store.assertConnection(peer.connection)
+        return structuredClone(peer.connection)
+      } catch {
+        return undefined
+      }
+    },
     url: `${options.tls ? 'wss' : 'ws'}://${options.hostname.includes(':') ? '[' + options.hostname + ']' : options.hostname}:${listener.port}/connector`,
     /** 返回有界连接和 provider 健康状态；失效认证会触发关闭且不输出内容或 secret。 */
     status() {
@@ -780,7 +947,7 @@ export function createGateway(options: GatewayOptions) {
     /** 受保护宿主按当前 caller 解析仍存活的原请求 Wire，任何缺上下文、失效或读取拒绝均返回 undefined。 */
     resolveOriginalRead(callId: string): OriginalRead | undefined {
       try {
-        pruneOriginalReads()
+        pruneOriginalRead(callId)
         options.router.get(options.principal(), callId)
         let original: (OriginalRead & { peer: Peer }) | undefined = reads.get(callId)
         if (!original) {
@@ -812,6 +979,7 @@ export function createGateway(options: GatewayOptions) {
     /** 先按当前主体持久取消，再尽力通知原活 attempt；无取消 ack，不宣称桥接或原生已停止。 */
     cancel(callId: string): Call {
       const call = options.router.cancel(options.principal(), callId)
+      refreshAdmission(callId)
       const original = inflight.get(callId)
       if (!original || call.state !== 'outcome_unknown') {
         return call
@@ -861,8 +1029,16 @@ export function createGateway(options: GatewayOptions) {
       if (!ready(peer.session, peer.connection, target.provider_id)) {
         fail('provider_not_ready')
       }
-      pruneOriginalReads()
+      if (reads.size >= limits.read_contexts) {
+        pruneOriginalReads()
+      }
       if (inflight.size >= limits.inflight || reads.size >= limits.read_contexts) {
+        fail('transport_concurrency_limit')
+      }
+      if (
+        peer.connection.negotiated.capabilities.includes('admission_context') &&
+        admissions.size >= LIMITS.dedup_entries
+      ) {
         fail('transport_concurrency_limit')
       }
       const binding = options.router.dispatch(principal, callId, peer.connection.connection_epoch)
@@ -880,6 +1056,31 @@ export function createGateway(options: GatewayOptions) {
           validation: row.mode
         })
         inflight.set(callId, frame)
+        if (peer.connection.negotiated.capabilities.includes('admission_receipt')) {
+          const anchor = options.store.responseAnchor(binding)
+          assertBinding(anchor.binding, binding)
+          const input = { binding, native_request: row.native_request, validation: row.mode }
+          const record: AdmissionReceiptRecord = {
+            binding,
+            request_sha256: admissionRequestDigest(input),
+            dedup_expires_at: anchor.dedup_expires_at,
+            ...(peer.connection.negotiated.capabilities.includes('admission_context')
+              ? {
+                  context: {
+                    principal_id: row.principal_id,
+                    registered_request_sha256: admissionRegisteredRequestDigest(input, row.principal_id),
+                    anchor,
+                    sequence: 1,
+                    fenced: false
+                  }
+                }
+              : {})
+          }
+          if (record.context) {
+            admissions.set(callId, { peer, record, updating: false })
+          }
+          writeAdmission(peer, record)
+        }
         write(peer, frame)
         if (options.retainOriginalRead === true) {
           reads.set(callId, {
@@ -902,6 +1103,7 @@ export function createGateway(options: GatewayOptions) {
       }
       stopped = true
       clearInterval(timer)
+      unsubscribeAdmissions?.()
       for (const peer of peers) {
         close(peer)
       }

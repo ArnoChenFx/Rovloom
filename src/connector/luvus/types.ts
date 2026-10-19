@@ -37,10 +37,11 @@ export type NativeTransportEvidence = Readonly<{
   peer?: PeerIdentity
   proxy_pid?: number
 }>
+export type LuvusNativeAuth = string | Readonly<{ kind: 'local_owner' }>
 export interface LuvusRpcHost {
   backend: NativeWireBackend
-  // 返回受限 delegated token；不允许缺 token 时隐式使用 local_owner。
-  nativeAuth(binding: AttemptBinding, evidence: NativeTransportEvidence): Promise<string>
+  // 必须显式交付 token 或当前受控本机 Owner 模式；缺 token 不会触发隐式降级。
+  nativeAuth(binding: AttemptBinding, evidence: NativeTransportEvidence): Promise<LuvusNativeAuth>
   // 宿主必须原子登记唯一派发并重查当前认证、策略、generation 和 deadline。
   // 回调成功不代表原生已经执行，失败后不得自动重试这个 attempt。
   claimDispatch(binding: AttemptBinding, evidence: NativeTransportEvidence): Promise<void>

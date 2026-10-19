@@ -1,4 +1,5 @@
 // 校验并编解码 Wire v2 握手、认证消息、原生载荷及有界逻辑对象。
+import { validateAdmissionReceipt } from './admission.js'
 import type {
   AttemptBinding,
   AttemptIdentity,
@@ -32,6 +33,7 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   authenticate: ['connector_to_gateway'],
   welcome: ['gateway_to_connector'],
   request: ['gateway_to_connector'],
+  admission_receipt: ['gateway_to_connector'],
   accepted: ['connector_to_gateway'],
   response: ['connector_to_gateway'],
   cancel: ['gateway_to_connector'],
@@ -440,6 +442,38 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   }
 
   switch (frame.type) {
+    case 'admission_receipt': {
+      capability(context, 'admission_receipt')
+      fields(p, ['attempt', 'request_sha256', 'dedup_expires_at'], ['context'])
+      const binding = bind(frame, p.attempt)
+      const contextual = context.connection.negotiated.capabilities.includes('admission_context')
+      if (contextual && p.context === undefined) {
+        fail('admission_context_required')
+      }
+      if (!contextual && p.context !== undefined) {
+        fail('unsupported_capability')
+      }
+      const record = {
+        binding,
+        request_sha256: p.request_sha256,
+        dedup_expires_at: p.dedup_expires_at,
+        ...(p.context === undefined ? {} : { context: p.context })
+      }
+      validateAdmissionReceipt(record)
+      // 已提交 fence 必须能封锁已禁用或已删除的 provider；它只收窄能力，不能生成执行许可。
+      if (record.context?.fenced !== true) {
+        providerFor(binding, context)
+      }
+      if (binding.registration.history !== null) {
+        capability(context, 'history_scope')
+      }
+      sha(p.request_sha256)
+      uint(p.dedup_expires_at, true)
+      if (p.dedup_expires_at < binding.registration.deadline) {
+        fail('admission_receipt_deadline_invalid')
+      }
+      break
+    }
     case 'request':
       capability(context, 'rpc')
       validateRequestPayload(frame, p, context, false)

@@ -1,6 +1,6 @@
-// 声明 v4 持久化表、唯一约束及过期索引；不提供对未发布旧版本的自动迁移。
-export const SCHEMA_VERSION = 4
-// 未发布的 v1/v2/v3 不在这里猜测来源或迁移；版本检查必须先于本 schema 的执行。
+// 声明 v5 持久化表、管理事务及过期索引；不提供对未发布旧版本的自动迁移。
+export const SCHEMA_VERSION = 5
+// 未发布的旧库不在这里猜测来源或迁移；版本检查必须先于本 schema 的执行。
 export const SCHEMA = `
 CREATE TABLE metadata (
   singleton INTEGER PRIMARY KEY CHECK(singleton=1), version INTEGER NOT NULL,
@@ -8,11 +8,13 @@ CREATE TABLE metadata (
 );
 CREATE TABLE machines (
   machine_id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL, credential_hash TEXT, epoch TEXT, needs_confirmation INTEGER NOT NULL DEFAULT 0
+  status TEXT NOT NULL, credential_hash TEXT, epoch TEXT, needs_confirmation INTEGER NOT NULL DEFAULT 0,
+  resource_revision INTEGER NOT NULL DEFAULT 1 CHECK(resource_revision>0 AND resource_revision<9007199254740991), labels_json TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE enrollments (
   token_hash TEXT PRIMARY KEY, machine_id TEXT NOT NULL REFERENCES machines,
-  expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
+  expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
+  pairing_id TEXT REFERENCES admin_pairings ON DELETE CASCADE, pairing_policy_ref TEXT, pairing_generation TEXT
 );
 CREATE TABLE providers (
   machine_id TEXT NOT NULL REFERENCES machines, provider_id TEXT NOT NULL,
@@ -52,4 +54,13 @@ CREATE INDEX audit_expiry ON audit(expires);
 CREATE TABLE backups (path TEXT PRIMARY KEY, created INTEGER NOT NULL, expires INTEGER NOT NULL);
 CREATE TABLE management (confirmation_id TEXT PRIMARY KEY, actor TEXT NOT NULL,
   action TEXT NOT NULL, target TEXT NOT NULL, fence TEXT NOT NULL);
+CREATE TABLE admin_history (history_epoch TEXT PRIMARY KEY, actor TEXT NOT NULL, session_hash TEXT NOT NULL,
+  generation TEXT NOT NULL, policy_digest TEXT NOT NULL, accept_until INTEGER NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE admin_confirmations (confirmation_id TEXT PRIMARY KEY, history_epoch TEXT NOT NULL REFERENCES admin_history,
+  request_id TEXT NOT NULL, operation_digest TEXT NOT NULL, summary TEXT NOT NULL, resource_digest TEXT NOT NULL, impact_json TEXT NOT NULL,
+  state TEXT NOT NULL, expires INTEGER NOT NULL, UNIQUE(history_epoch,request_id));
+CREATE TABLE admin_operations (history_epoch TEXT NOT NULL REFERENCES admin_history, request_id TEXT NOT NULL,
+  operation_digest TEXT NOT NULL, receipt TEXT NOT NULL, PRIMARY KEY(history_epoch,request_id));
+CREATE TABLE admin_pairings (pairing_id TEXT PRIMARY KEY, machine_id TEXT NOT NULL REFERENCES machines,
+  policy_ref TEXT NOT NULL, status TEXT NOT NULL, expires INTEGER NOT NULL, issued INTEGER NOT NULL DEFAULT 0);
 `

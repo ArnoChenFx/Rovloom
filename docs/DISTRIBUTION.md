@@ -158,3 +158,7 @@ CI 解析实际 EXE 的 `RT_GROUP_ICON`/`RT_ICON`，逐字节比对原 PNG 并�
 
 选项与嵌入方式以 [Bun 官方 executables 文档](https://bun.sh/docs/bundler/executables)为依据，
 本仓库固定版本的实际 binary/CI 验收优先于文档示例。
+
+## 自更新接缝
+
+[自更新模块](UPDATE.md)提供稳定版本检查、受限下载和唯一 CLI 接缝；缺 service/runtime 原地替换事务时明确返回非零，不修改服务或用户数据。

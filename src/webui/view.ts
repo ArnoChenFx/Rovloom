@@ -281,6 +281,40 @@ function unavailableActions(kind: 'device' | 'provider' | 'list', i18n: Localize
   return section
 }
 
+/** 只按当前可信展示范围启用三个入口；权限提示不代替写服务的每次授权。 */
+function deviceActions(page: PageView, freshness: Freshness, connected: boolean): HTMLElement {
+  const section = unavailableActions('device', freshness.i18n)
+  if (!connected) {
+    return section
+  }
+  section.querySelector('p')!.textContent = freshness.i18n.t('actions.available')
+  const permission = page.permissions
+  const allowed =
+    permission &&
+    page.device &&
+    current(page.device.observed_at, freshness) &&
+    current(permission.observed_at, freshness) &&
+    freshness.now < permission.expires_at
+  const actions = ['device_rename', null, 'device_disconnect', 'device_revoke'] as const
+  const grants = ['devices_rename', '', 'devices_disconnect', 'devices_revoke']
+  const buttons = section.querySelectorAll('button')
+  for (let index = 0; index < actions.length; index++) {
+    const action = actions[index]
+    if (!action) {
+      continue
+    }
+    const button = buttons[index]!
+    button.dataset.deviceAction = action
+    button.disabled =
+      !allowed ||
+      !permission.decisions.some(
+        /** 权限仅作入口提示，服务端逐请求重验。 */ (decision) =>
+          decision.action === grants[index] && decision.allowed && decision.reason_code === 'allowed'
+      )
+  }
+  return section
+}
+
 /** 列表只展示后端返回的授权页，不将页长宣称为设备总数。 */
 function deviceList(page: PageView, freshness: Freshness): PageSection {
   const { i18n } = freshness
@@ -471,7 +505,7 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
 }
 
 /** 详情只使用该 machine_id 的共享快照，未提供的配对/ready/重连信息明确未知。 */
-function deviceDetail(page: PageView, freshness: Freshness): PageSection {
+function deviceDetail(page: PageView, freshness: Freshness, management = false): PageSection {
   const { i18n } = freshness
   const { t } = i18n
   const section = node('section', '', 'device-detail')
@@ -546,16 +580,55 @@ function deviceDetail(page: PageView, freshness: Freshness): PageSection {
       )
     )
   }
-  section.append(providerList(page, device, freshness), unavailableActions('device', i18n))
+  section.append(providerList(page, device, freshness), deviceActions(page, freshness, management))
   return { heading, body: section }
 }
 
-/** 渲染页面主体，并在年龄刷新时保留当前链接的键盘焦点。 */
+/** 同一路由按结构同步安全构造的节点，年龄更新不替换正在点击或聚焦的控件。 */
+function syncChildren(parent: Node, desired: Node): void {
+  const children = Array.from(desired.childNodes)
+  for (let index = 0; index < children.length; index++) {
+    const next = children[index]!
+    const current = parent.childNodes[index]
+    if (!current) {
+      parent.appendChild(next)
+    } else if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
+      if (current.nodeValue !== next.nodeValue) {
+        current.nodeValue = next.nodeValue
+      }
+    } else if (
+      current instanceof Element &&
+      next instanceof Element &&
+      current.tagName === next.tagName &&
+      (current.tagName !== 'A' || current.getAttribute('href') === next.getAttribute('href'))
+    ) {
+      for (const attribute of Array.from(current.attributes)) {
+        if (!next.hasAttribute(attribute.name)) {
+          current.removeAttribute(attribute.name)
+        }
+      }
+      for (const attribute of Array.from(next.attributes)) {
+        if (current.getAttribute(attribute.name) !== attribute.value) {
+          current.setAttribute(attribute.name, attribute.value)
+        }
+      }
+      syncChildren(current, next)
+    } else {
+      parent.replaceChild(next, current)
+    }
+  }
+  while (parent.childNodes.length > children.length) {
+    parent.removeChild(parent.lastChild!)
+  }
+}
+
+/** 渲染页面主体；同一路由保留交互节点，换目标时清除旧节点与焦点关联。 */
 export function renderPage(
   content: HTMLElement,
   state: ReaderState<PageView>,
   route: PageRoute,
-  i18n: Localizer = createLocalizer('zh-CN')
+  i18n: Localizer = createLocalizer('zh-CN'),
+  management = false
 ): void {
   const { t } = i18n
   const focused =
@@ -653,13 +726,22 @@ export function renderPage(
       )
     }
     if (status.mode !== 'recovery_quarantined') {
-      const section = route.machineId === null ? deviceList(page, freshness) : deviceDetail(page, freshness)
+      const section =
+        route.machineId === null
+          ? deviceList(page, freshness)
+          : deviceDetail(page, freshness, management && status.mode === 'active' && !state.stale)
       view.append(section.heading, gateway, section.body)
     } else {
       view.append(node('h1', t('gateway.heading')), gateway)
     }
   }
-  content.replaceChildren(view)
+  const identity = routeHref(route)
+  if (content.dataset.route === identity) {
+    syncChildren(content, view)
+  } else {
+    content.replaceChildren(view)
+    content.dataset.route = identity
+  }
   if (focused !== null) {
     for (const link of content.querySelectorAll('a')) {
       if (link.getAttribute('href') === focused) {

@@ -11,8 +11,9 @@
 该传输须把公共失败映射为 `ReadError`；原始错误/正文不应传给页面。
 
 当前构建同时输出 Bun 展示/宿主模块和 `dist/webui/` 静态资源，默认浏览器入口通过固定同源 GET 读取六项管理资源，
-不自动启动管理 listener、提供登录/退出或加载测试数据。确认、配对、设备/provider 变更与回执后端尚未接入，
-相关操作保持不可用；没有后台一次性确认或持久提交证明时不显示成功。
+不自动启动管理 listener、提供登录/退出或加载测试数据。默认入口消费宿主受保护 HTML 的单次 CSRF meta，
+并通过既有写客户端接入设备改名、断开和撤销的一次确认与回执流程；缺失或无效交付在网络发送前拒绝。
+配对及 provider 页面操作仍不可用；没有后台一次性确认或持久提交证明时不显示成功。
 展示、HTTP 接口测试通过不表示 issue #14、生产会话接线或真实设备链路已完成。
 
 共享读取未提供设备 ready 证明、配对进度、最近连接/重连时间、OS/version、实际监听范围或管理员会话截止时间；
@@ -55,6 +56,28 @@ Gateway 的监听/认证缺口、组件状态和观测时间保持可见，只�
 主模块延迟时也保持正确首屏；该资源是 HTTP 必需白名单，并由共享构建器静态导入、内嵌到单文件内存资源清单。
 
 ## 只读 HTTP 宿主桥
+
+### 页面设备操作接缝
+
+`mountWebUi(root, read, clock?, management?)` 可注入现有 `ManagementWriteTransport`，
+在设备详情启用权限提示允许且当前快照有效的改名、断开和撤销入口。提示只控制入口，
+每一步仍由原写服务验证管理员、CSRF、目标和资源 fence；不从浏览器生成管理员身份。
+改名只接受 Store 现有名称约束，不提供尚未接入的标签修改。配对和 provider 操作继续显示不可用。
+
+页面复用 `createDeviceManagementFlow`：准备只获取后台摘要；明确确认才提交。
+对话框展示目标、名称或精确连接代次、revision、原因、原截止和撤销影响实例。
+重复点击不产生第二次提交；准备失败只能由用户重新准备，丢响应或提交中取消只能查询原回执。
+导航/隐藏会取消旧等待，迟到结果不能操作新页面；未确认关联仅保留于内存，可从页面入口重新打开核对。
+语言/年龄重绘保留输入与稳定控件，确认截止使用现有可信服务时间锚点，不因刷新而延长。
+会话或权限失效清空详情与确认内容。回执仅表达持久提交，物理通道未确认和 native 工作可能继续的含义保持可见。
+
+注入客户端由宿主拥有并显式关闭。生产 `browser.ts` 调用 `createManagementPageCsrf`，
+读取唯一的 `meta[name="rovloom-management-bootstrap"]`：`content` 为43字符 base64url CSRF，
+`data-expires-at` 为实际 Unix 毫秒截止。查询后立即移除全部匹配节点；重复、无效或到期交付返回空，
+有效原值仅保留于内存，不读取 cookie 或创建管理员。永久离开卸载页面并关闭客户端；BFCache 保留原截止。
+真实身份来源、受保护 cookie 和 `no-store` HTML 注入仍由 CLI/宿主提供，没有测试 CSRF 或身份回退。
+`--actions` 预览仅在 `/fixtures/` 用生产 `browser.js` 消费相同 meta，连接独立临时 Store、真实 handler 和合成短期会话；
+根入口拒绝返回该 fixture，不作为生产数据或真实设备验收。
 
 [宿主入口](../src/admin/index.ts)提供 `startManagementReadListener`、可嵌入的
 `createManagementReadHandler` 和固定构建产物加载器 `loadManagementAssets`。
@@ -107,6 +130,15 @@ pending/revoked 优先保留共享服务已有且新鲜的 Store 认证证明，
 没有一次性确认、持久回执及同一管理员写入门禁时，断开/撤销等页面操作继续不可用。
 真实双 SQLite、持久设备证明与 loopback Connector 的验证位于
 [集成测试](../test/webui/observations.integration.test.ts)；测试管理员与 native 执行来源仍是隔离 fixture，不能据此宣称生产会话或原生能力已验收。
+
+## 管理写服务组件
+
+[共享管理写服务](MANAGEMENT-WRITES.md)已提供同 Store 事务、独立管理员授权、后台一次性确认与持久回执，
+支持 pending 注册/配对申请、改名、进度、取消、精确 epoch 断开、持久撤销及 provider 启停的受信端口。
+生产 session/CSRF、秘密交付进度和 provider 重新启用证明仍须运行宿主接线，缺失即拒绝。
+窄 HTTP handler 复用现有读桥，不启动第二 listener；三个设备页面动作消费已公布的固定 actions POST，
+下文目标 REST 路由及其余页面操作仍待接线，
+不因服务模块或合成测试称管理产品已上线。
 
 ## 范围与服务边界
 

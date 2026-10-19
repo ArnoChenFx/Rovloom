@@ -41,7 +41,7 @@
 body { margin: 0; }
 a { color: var(--link); text-underline-offset: 4px; }
 a:hover { color: var(--accent); }
-button, .button-link {
+button, input, .button-link {
   min-height: 40px; max-width: 100%; font: inherit; font-size: 13px; font-weight: 550;
   color: var(--text); background: var(--surface); border: 1px solid var(--control-border);
   border-radius: 5px; padding: 8px 16px; cursor: pointer;
@@ -71,6 +71,21 @@ main:focus { outline: none; }
 .preference-panel button[aria-pressed='true'] { color: var(--accent); background: var(--subtle); }
 .preference-panel button[aria-pressed='true']::after { visibility: visible; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.operation-region { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+.operation-resume { margin-bottom: 24px; }
+.operation-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; overflow: auto; color: var(--text); background: var(--surface); border: 1px solid var(--control-border); border-radius: 6px; }
+.operation-dialog::backdrop { background: rgb(15 18 24 / 50%); }
+.operation-dialog > code { display: block; margin-block: 8px 16px; }
+.operation-form label { display: grid; gap: 8px; }
+.operation-form input { width: 100%; min-width: 0; font-weight: 400; }
+.operation-dialog .facts { grid-template-columns: 1fr; margin-bottom: 24px; }
+.operation-dialog dd { white-space: pre-wrap; }
+.operation-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.operation-confirm { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.operation-confirm:hover:enabled { background: var(--accent-hover); border-color: var(--accent-hover); }
+.operation-status { margin-block: 16px; }
+.operation-dialog[aria-busy='true'] .operation-status { color: var(--muted); }
+.operation-dialog [hidden], .operation-region > [hidden] { display: none; }
 .commandbar { min-height: 64px; justify-content: space-between; gap: 16px; }
 .section-nav { position: relative; align-self: stretch; display: flex; align-items: center; font-weight: 650; text-decoration: none; }
 .section-nav::after { position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--accent); content: ''; }
@@ -188,6 +203,9 @@ footer { padding-block: 24px; border-top: 1px solid var(--border); font-size: 12
   .detail-observation .facts, .provider-facts { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 480px) {
+  .operation-region { padding-inline: 16px; }
+  .operation-dialog { padding: 16px; }
+  .operation-dialog button, .operation-dialog input { min-height: 48px; }
   .topbar, .commandbar { padding-inline: 16px; flex-wrap: wrap; }
   .topbar { gap: 8px; padding-block: 16px; }
   .brand { gap: 8px; }
