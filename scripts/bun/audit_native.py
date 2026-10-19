@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 核对固定归档并用 Bun 离线重放原生证据，输出完整性与清理摘要。
 """用 Bun 重放 issue #15 的独立原生记录；不启动 Luvus。"""
 import argparse
 import hashlib
@@ -10,6 +11,7 @@ import tarfile
 import tempfile
 
 
+# 校验归档哈希和成员边界，在临时目录重放后打印审计摘要。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bun', default=shutil.which('bun'))

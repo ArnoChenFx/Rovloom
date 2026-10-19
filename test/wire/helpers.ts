@@ -1,3 +1,4 @@
+// 加载离线 P0 schema 和记录，提供隔离的 Wire 测试身份、门禁及断言工具。
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { Ajv2020 } from 'ajv/dist/2020.js'
@@ -45,10 +46,12 @@ export const nativeTerminalResponse = ajv.getSchema(bundle.terminal.response.$id
 export const nativeEvent = ajv.getSchema(bundle.event.$id)!
 export const terminalEvent = ajv.getSchema(bundle.terminal.event.$id)!
 const catalog = new Map(
-  Object.keys(bundle.event_catalog.properties).map((name) => [
-    name,
-    ajv.compile({ $ref: `${bundle.event_catalog.$id}#/properties/${name}` })
-  ])
+  Object.keys(bundle.event_catalog.properties).map(
+    /* 按事件名编译离线事件数据 schema，并生成名称到校验器的映射项。 */ (name) => [
+      name,
+      ajv.compile({ $ref: `${bundle.event_catalog.$id}#/properties/${name}` })
+    ]
+  )
 )
 // 这是固定 P0 schema 的测试注入器，不是生产安全分类表或原生模块的替代品。
 export const allowedGate: RequestGate = {
@@ -59,14 +62,18 @@ export const allowedGate: RequestGate = {
   secret_result_authorized: true,
   raw_contract_authorized: false
 }
+// 创建固定 P0 schema 的测试校验器，并注入指定的测试门禁结果。
 export function fixtureValidator(gate: RequestGate = allowedGate): NativePayloadValidator {
   return {
+    // 返回独立的测试门禁副本，避免外部修改原配置。
     requestGate: () => ({ ...gate }),
+    // 使用离线请求根 schema 校验完整原生请求。
     validateRequest(r) {
       if (!nativeRequest(r)) {
         throw new WireError('native_request_invalid')
       }
     },
+    // 核对测试句柄、独立来源与原生 ID，再校验响应 schema。
     validateResponse(r, c) {
       if (c.native_handle !== nativeHandle || c.trusted_source !== trustedSource) {
         throw new WireError('native_handle_mismatch')
@@ -78,7 +85,9 @@ export function fixtureValidator(gate: RequestGate = allowedGate): NativePayload
         throw new WireError('native_response_invalid')
       }
     },
+    // 为本测试夹具提供默认放行的逐输入派发门禁。
     checkDispatch() {},
+    // 按输入、响应或事件类型选择对应的离线流帧 schema。
     validateStreamFrame(r, context) {
       const valid =
         context.direction === 'input'
@@ -104,7 +113,9 @@ export const source: ContractSource = {
   protocol_family: 'uhp',
   binary_version: '0.14.3',
   binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
-  schema_sha256: transcript.find((r) => r.label === 'installed-schema')!.raw_stdout_sha256,
+  schema_sha256: transcript.find(
+    /* 定位安装版 schema 的采集记录以读取固定来源摘要。 */ (r) => r.label === 'installed-schema'
+  )!.raw_stdout_sha256,
   schema_origin: 'installed_cli',
   schema_command: 'luvus uhp schema',
   server_version: '0.14.3',
@@ -147,13 +158,14 @@ export const nativeHandle = Object.freeze({ synthetic_test_handle: true })
 export const trustedSource = Object.freeze({ synthetic_test_source: true })
 const methods = JSON.parse(
   readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')
-).methods.map((r: any) => r.method)
+).methods.map(/* 从覆盖清单中提取可供测试授权的方法名称。 */ (r: any) => r.method)
 export const offer: VersionOffer = {
   major: 2,
   minor: 0,
   capabilities: ['rpc', 'history_scope', 'late_evidence', 'objects', 'events', 'terminal_observe', 'terminal_control'],
   required: ['rpc']
 }
+// 构造含独立 provider、契约、调用锚点和双端权限的认证测试上下文。
 export function context(
   direction: 'gateway_to_connector' | 'connector_to_gateway' = 'gateway_to_connector',
   native = fixtureValidator(),
@@ -180,13 +192,17 @@ export function context(
       negotiated: { major: 2, minor: 0, capabilities: [...offer.capabilities] as any }
     },
     validators: { luvus: native },
+    // 返回固定测试 provider 的独立副本。
     resolveProvider: () => ({ ...provider }),
+    // 返回明确标为已验证的固定测试契约来源。
     resolveContract: () => ({ source: { ...source }, support_status: 'validated' }),
     policies: {
       caller: { revision: 'caller_policy_1', grants: structuredClone(grants) },
       local: { revision: 'local_policy_1', grants: structuredClone(grants) }
     },
+    // 提供独立注入的测试原生来源令牌。
     resolveNativeSource: () => trustedSource,
+    // 返回测试登记锚点及其专属原生句柄和传输配置。
     resolveAttempt: () => ({
       binding: anchor,
       method,
@@ -198,6 +214,7 @@ export function context(
     })
   }
 }
+// 为指定载荷补齐固定版本、消息标识和认证连接字段。
 export function frame<K extends AuthenticatedEnvelope['type']>(
   type: K,
   payload: Extract<AuthenticatedEnvelope, { type: K }>['payload']
@@ -211,6 +228,7 @@ export function frame<K extends AuthenticatedEnvelope['type']>(
     payload
   } as any
 }
+// 移除原生请求 ID，模拟由可信调用登记随后注入 ID 的请求正文。
 export function withoutId(value: Record<string, unknown>): Record<string, unknown> {
   const { id: _id, ...request } = value
   return request
@@ -221,8 +239,16 @@ export const request = frame('request', {
   native_request: { method: 'ping', params: {} },
   validation: 'strict'
 })
-export const ping = JSON.parse(transcript.find((v) => v.label === 'proxy-ping')!.stdout)
+export const ping = JSON.parse(
+  transcript.find(/* 查找真实 P0 ping 记录以构造响应夹具。 */ (v) => v.label === 'proxy-ping')!.stdout
+)
 export const response = frame('response', { attempt, native_response: ping })
+// 执行待拒绝操作，并要求抛出的结构化错误码与预期完全一致。
 export function rejects(action: () => unknown, code: string): void {
-  assert.throws(action, (e: unknown) => e instanceof Error && 'code' in e && e.code === code, code)
+  assert.throws(
+    action,
+    /* 判断异常是否为携带预期错误码的 Error 实例。 */ (e: unknown) =>
+      e instanceof Error && 'code' in e && e.code === code,
+    code
+  )
 }

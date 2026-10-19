@@ -50,7 +50,7 @@ export function nativeBackend(
     negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'late_evidence'] }
   }
   const backend = persistentBackend(store, {
-    // 返回该隔离设备当前的真实 Store 连接绑定。
+    // 提供建档时的合成连接快照，当前 epoch 有效性由 persistentBackend 向 Store 核验。
     connection: () => connection,
     // 从同一隔离 Store 查询连接器配置，供适配器核对完整 provider 绑定。
     localProvider: () => store.provider(device.machine_id, target.provider_id),
@@ -61,7 +61,7 @@ export function nativeBackend(
       capabilities,
       capability_revision: 'caps1'
     }),
-    // 核对已登记的测试 attempt 后独立构造真实原生绑定，未派发 ID 不提供来源。
+    // 仅为本辅助器登记且尝试编号匹配的调用构造原生来源，故障开关控制来源可信性。
     nativeSource: (call, attempt) => {
       const binding = bindings.get(call)
       if (!binding || binding.attempt_id !== attempt) {
@@ -98,7 +98,7 @@ export function nativeBackend(
     target,
     adapter,
     state,
-    // 使用固定测试身份及当前历史 scope 登记调用，允许测试覆盖单次调用选项。
+    // 使用固定测试身份及契约、策略版本登记调用，允许显式覆盖单次调用选项。
     create(extra: Partial<CallOptions> = {}) {
       return store.createCall(
         'synthetic',

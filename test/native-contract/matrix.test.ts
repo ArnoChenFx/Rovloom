@@ -1,3 +1,4 @@
+// 将原生契约验收矩阵转换为真实校验与授权调用，统计已实现阶段并显式列出后续验收范围。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -25,6 +26,7 @@ const matrix: any = JSON.parse(
   readFileSync(new URL('../../fixtures/native-contract/matrix.json', import.meta.url), 'utf8')
 )
 const seeds = new Map<string, any>()
+// 在测试样本中按 JSON Pointer 读取选定节点。
 function pointer(value: any, path: string): any {
   for (const piece of path.split('/').slice(1)) {
     value = value[piece.replace(/~1/g, '/').replace(/~0/g, '~')]
@@ -39,8 +41,11 @@ for (const [name, spec] of Object.entries(matrix.seeds) as [string, any][]) {
     assert(spec.artifact.startsWith('fixtures/p0/linux-luvus-0.14.3/'))
     value = json(spec.artifact.split('/').at(-1))
     if (spec.select) {
-      const chosen = value.filter((row: any) =>
-        Object.entries(spec.select).every(([key, expected]) => row[key] === expected)
+      const chosen = value.filter(
+        /* 从原始记录中筛选所有选择字段均匹配的证据行。 */ (row: any) =>
+          Object.entries(spec.select).every(
+            /* 核对单个选择字段与预期值相同。 */ ([key, expected]) => row[key] === expected
+          )
       )
       assert.equal(chosen.length, 1)
       value = JSON.parse(chosen[0][spec.json_field])
@@ -49,6 +54,7 @@ for (const [name, spec] of Object.entries(matrix.seeds) as [string, any][]) {
   }
   seeds.set(name, value)
 }
+// 复制场景种子并按路径应用替换或删除，生成独立测试样本。
 function specimen(c: any): any {
   let value = clone(seeds.get(c.seed))
   for (const change of c.mutations ?? []) {
@@ -74,6 +80,7 @@ function specimen(c: any): any {
   }
   return value
 }
+// 核对场景的接受结论、错误码及要求的参数覆盖状态。
 function assertCase(c: any, result: any): void {
   assert.equal(result.ok, c.expected.verdict === 'accept', `${c.id}: ${JSON.stringify(result)}`)
   if (!result.ok) {
@@ -90,6 +97,7 @@ function assertCase(c: any, result: any): void {
 }
 const session = view()
 const host = view('host')
+// 按指定模式建立真实许可与绑定 ack，并打开测试流句柄。
 function stream(mode: 'control' | 'observe' | 'general_events' = 'control'): any {
   const method = mode === 'general_events' ? 'events.subscribe' : `terminal.backend.${mode}`
   const checked = request(session, {
@@ -126,6 +134,7 @@ function stream(mode: 'control' | 'observe' | 'general_events' = 'control'): any
 const control = stream()
 const observe = stream('observe')
 const general = stream('general_events')
+// 将 bundle 各别名重新指向当前文档表，使单独变更的约束参与真实编译。
 function syncAliases(b: any): void {
   const docs = b.documents
   for (const key of ['request', 'response', 'event', 'event_catalog']) {
@@ -147,6 +156,7 @@ function syncAliases(b: any): void {
   }
   b.access.descriptor = docs[b.access.descriptor.$id]
 }
+// 构造契约编译场景并阻止网络解析，保留专门的摘要和别名冲突反例。
 function bundleCase(c: any): any {
   const b: any = c.generator ? clone(seeds.get('bundle')) : specimen(c)
   if (c.generator === 'ref_chain_33') {
@@ -168,7 +178,7 @@ function bundleCase(c: any): any {
   }
   const previousFetch = globalThis.fetch
   let requests = 0
-  globalThis.fetch = (() => {
+  globalThis.fetch = /* 记录任何意外网络访问并抛错，确保契约引用仅在本地闭包解析。 */ (() => {
     requests++
     throw Error('禁止网络 resolver')
   }) as typeof fetch
@@ -180,6 +190,7 @@ function bundleCase(c: any): any {
     globalThis.fetch = previousFetch
   }
 }
+// 构造能力发现或来源过时场景，逐项验证各绑定版本的失效效果。
 function capabilityCase(c: any): any {
   const value = specimen(c)
   if (c.id === 'C-stale') {
@@ -216,6 +227,7 @@ function capabilityCase(c: any): any {
   }
   return validator.bindCapabilities(value, trusted)
 }
+// 按场景选择形状校验或绑定请求校验，覆盖响应 ID、类型、模式和身份约束。
 function responseCase(c: any): any {
   const value = specimen(c)
   if (c.id === 'R-id-mismatch') {
@@ -233,6 +245,7 @@ function responseCase(c: any): any {
   }
   return validator.checkResponseShape(value, c.seed.startsWith('terminal_') ? 'terminal' : 'general')
 }
+// 将矩阵事实转为真实候选与授权上下文，执行完整派发门禁。
 function dispatchCase(c: any): any {
   const facts = specimen(c)
   const nativeRequest = clone(facts.request)
@@ -240,7 +253,10 @@ function dispatchCase(c: any): any {
   let from: any = profile === 'host' ? host : session
   if (
     facts.schema_state === 'unavailable' ||
-    !from.methods.some((entry: any) => entry.method === nativeRequest.method)
+    !from.methods.some(
+      /* 判断当前能力是否广告了待测方法，以决定是否构造未来方法能力。 */ (entry: any) =>
+        entry.method === nativeRequest.method
+    )
   ) {
     if (!nativeRequest.method.startsWith('future.')) {
       nativeRequest.method = 'future.synthetic'
@@ -273,8 +289,11 @@ function dispatchCase(c: any): any {
     const caps = json('session-capabilities.json')
     caps.result.session = 'synthetic'
     caps.result.server_generation = G
-    caps.result.methods = caps.result.methods.filter((name: string) => name !== nativeRequest.method)
+    caps.result.methods = caps.result.methods.filter(
+      /* 移除待测方法名，构造未广告方法的反例。 */ (name: string) => name !== nativeRequest.method
+    )
     caps.result.method_contracts = caps.result.method_contracts.filter(
+      // 移除待测方法对应的原生提示，使方法目录保持同步。
       (row: any) => row.method !== nativeRequest.method
     )
     from = unwrap(validator.bindCapabilities(caps, source()))
@@ -345,8 +364,11 @@ function dispatchCase(c: any): any {
   }
   return checkDispatch(candidate, authorization)
 }
+// 遍历所有通用参数方法，分别断言请求接受或派发模式的预期结果。
 function genericCases(c: any): void {
-  for (const descriptor of session.methods.filter((entry) => entry.schema_status === 'generic_params_only')) {
+  for (const descriptor of session.methods.filter(
+    /* 仅选择缺少方法专用参数 schema 的方法描述。 */ (entry) => entry.schema_status === 'generic_params_only'
+  )) {
     const invoke = descriptor.method === 'module.action.invoke'
     const candidate = request(session, {
       id: 'generic-all',
@@ -381,47 +403,62 @@ const implementedStages = new Set([
   'parse'
 ])
 export const implementedMatrixIds: string[] = matrix.cases
-  .filter((c: any) => implementedStages.has(c.stage))
-  .map((c: any) => c.id)
-for (const c of matrix.cases.filter((c: any) => implementedStages.has(c.stage))) {
-  test(`矩阵 ${c.id} ${c.expected.verdict}`, () => {
-    if (c.generator === 'all_generic_methods') {
-      genericCases(c)
-      return
-    }
-    let result: any
-    if (c.stage === 'bundle') {
-      result = bundleCase(c)
-    } else if (c.stage === 'capabilities') {
-      result = capabilityCase(c)
-    } else if (c.stage === 'request') {
-      result = validator.checkRequest(session, specimen(c))
-    } else if (c.stage === 'response') {
-      result = responseCase(c)
-    } else if (c.stage === 'dispatch') {
-      result = dispatchCase(c)
-    } else if (c.stage === 'parse') {
-      result = parseNativeJson(
-        c.generator === 'depth_65' ? '['.repeat(65) + '0' + ']'.repeat(65) : Buffer.from(specimen(c).bytes_hex, 'hex')
-      )
-    } else if (c.stage === 'control') {
-      result = validator.checkControl(c.context?.stream_mode === 'observe' ? observe : control, specimen(c))
-    } else {
-      const input = c.generator === 'utf8_text_over_65536' ? clone(seeds.get('terminal_frame')) : specimen(c)
-      if (c.generator) {
-        input.data.text = '测'.repeat(21846)
-        input.data.bytes = 65535
+  .filter(/* 选择当前纯模块已实现阶段的矩阵场景。 */ (c: any) => implementedStages.has(c.stage))
+  .map(/* 提取已实现矩阵场景的唯一编号。 */ (c: any) => c.id)
+for (const c of matrix.cases.filter(
+  /* 仅为当前纯模块支持的阶段注册实际测试。 */ (c: any) => implementedStages.has(c.stage)
+)) {
+  test(
+    `矩阵 ${c.id} ${c.expected.verdict}`,
+    /* 根据场景阶段调用真实编译、校验或授权入口，并核对统一预期。 */ () => {
+      if (c.generator === 'all_generic_methods') {
+        genericCases(c)
+        return
       }
-      const target = c.seed === 'general_event' || c.context?.stream_family === 'general_events' ? general : control
-      result = validator.checkEvent(target, input, sourceFor(target.binding))
+      let result: any
+      if (c.stage === 'bundle') {
+        result = bundleCase(c)
+      } else if (c.stage === 'capabilities') {
+        result = capabilityCase(c)
+      } else if (c.stage === 'request') {
+        result = validator.checkRequest(session, specimen(c))
+      } else if (c.stage === 'response') {
+        result = responseCase(c)
+      } else if (c.stage === 'dispatch') {
+        result = dispatchCase(c)
+      } else if (c.stage === 'parse') {
+        result = parseNativeJson(
+          c.generator === 'depth_65' ? '['.repeat(65) + '0' + ']'.repeat(65) : Buffer.from(specimen(c).bytes_hex, 'hex')
+        )
+      } else if (c.stage === 'control') {
+        result = validator.checkControl(c.context?.stream_mode === 'observe' ? observe : control, specimen(c))
+      } else {
+        const input = c.generator === 'utf8_text_over_65536' ? clone(seeds.get('terminal_frame')) : specimen(c)
+        if (c.generator) {
+          input.data.text = '测'.repeat(21846)
+          input.data.bytes = 65535
+        }
+        const target = c.seed === 'general_event' || c.context?.stream_family === 'general_events' ? general : control
+        result = validator.checkEvent(target, input, sourceFor(target.binding))
+      }
+      assertCase(c, result)
     }
-    assertCase(c, result)
-  })
+  )
 }
-test('143 矩阵的纯模块与后续持久化/流状态验收分列，无静默 skip', () => {
-  assert.equal(matrix.cases.length, 143)
-  assert.equal(implementedMatrixIds.length, 119)
-  const deferred = matrix.cases.filter((c: any) => !implementedStages.has(c.stage))
-  assert.equal(deferred.length, 24)
-  assert(deferred.every((c: any) => ['late', 'result', 'stream'].includes(c.stage)))
-})
+test(
+  '143 矩阵的纯模块与后续持久化/流状态验收分列，无静默 skip',
+  /* 核对全部矩阵与已实现数量，要求延后场景均明确归属于后续验收阶段。 */ () => {
+    assert.equal(matrix.cases.length, 143)
+    assert.equal(implementedMatrixIds.length, 119)
+    const deferred = matrix.cases.filter(
+      /* 筛出尚未由当前纯模块实现的矩阵场景。 */ (c: any) => !implementedStages.has(c.stage)
+    )
+    assert.equal(deferred.length, 24)
+    assert(
+      deferred.every(
+        /* 确认延后场景仅属于迟到结果、结果持久化或流状态验收。 */ (c: any) =>
+          ['late', 'result', 'stream'].includes(c.stage)
+      )
+    )
+  }
+)

@@ -1,3 +1,4 @@
+// 按持久化调用状态推导剩余收尾义务，为必要审计和终态元数据增长预留配额。
 import { auditRecord } from './audit.js'
 import { LIMITS } from '../wire/index.js'
 import type { Row } from './model.js'
@@ -23,9 +24,13 @@ export const metadataFields = [
   'content_status'
 ] as const
 export type CompletionCall = Omit<Row, 'request_json' | 'response'>
+// 以实际 JSON 编码的 UTF-8 字节数计量审计与元数据。
 const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value))
+// 提取配额计量所需的调用元数据，不包含请求或响应原文。
 export const metadataValue = (row: CompletionCall) =>
-  Object.fromEntries(metadataFields.map((field) => [field, row[field]]))
+  Object.fromEntries(
+    metadataFields.map(/* 按固定清单生成元数据字段与当前值的键值对。 */ (field) => [field, row[field]])
+  )
 
 // reserved 是持久化预约标记；剩余义务从同事务内的状态推导，不新增可丢失的内存计数器。
 export function completionReservation(row: CompletionCall, limits: Retention, generation: string) {
@@ -34,6 +39,7 @@ export function completionReservation(row: CompletionCall, limits: Retention, ge
   }
   const at = Number.MAX_SAFE_INTEGER - limits.audit_ttl
   const eventId = 'event_' + '0'.repeat(36)
+  // 按真实审计编码测量指定后续动作，使用最大安全时间和固定长度事件标识。
   const measure = (action: string, actor: string, state: Row['state'], extra: Record<string, unknown> = {}) =>
     size(auditRecord(eventId, action, actor, at, limits.audit_ttl, generation, { ...row, state }, extra))
   // 最多一次 accepted、一次 unknown、一次原生终态；按最长动作/状态及最大安全时间估计。

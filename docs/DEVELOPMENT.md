@@ -13,6 +13,7 @@
 bun --version
 bun install --frozen-lockfile --ignore-scripts
 bun run toolchain
+bun run comments:check
 bun run typecheck
 bun run test
 bun run test:p0
@@ -29,9 +30,8 @@ bun run smoke
 再执行其原生编译器，保留 `strict` 和 `noUncheckedIndexedAccess`；转译不能
 替代类型检查，也不要直接运行 TypeScript 的 Node shebang。
 
-新增及后续修改的代码文件须在开头用中文注释说明功能与职责。每个函数、方法及有实际逻辑的
-回调都须有紧邻的中文说明；复杂逻辑补充重要边界、返回含义或副作用。注释应具体解释作用，
-不要仅复述名称，也不要记录开发过程。
+代码文件职责、函数实现及全部回调的中文说明按[代码注释约定](#代码注释约定)执行，
+覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
 native-contract、wire、integration、persistence、transport 与 Herdr 十个 Bun ESM 入口、共享 chunk 与外部
@@ -52,6 +52,60 @@ strict 类型检查及故意错误反例、验收器自身回归、递归发现�
 P0 JS/Python 测试、Bun 兼容测试、fixture 审计、clean build 与产物 smoke。
 Node/npm/npx 阻断探针必须返回 99，项目 execve/execveat 追踪不得出现 Node
 回退。GitHub Actions 的 checkout 宿主不属于项目运行时。
+
+## 代码注释约定
+
+`src/`、`test/`、`scripts/` 中维护的 JavaScript/TypeScript 和 Python 文件，
+必须在文件开头写简洁中文职责说明；shebang、Python 编码声明可置于其前。
+每个函数实现都要有就近中文注释，说明实际功能与作用，必要时解释副作用、
+失败边界和返回语义。范围包含方法、构造器、getter/setter、箭头函数、匿名
+函数、嵌套回调、Python `async def` 和 `lambda`。不要用重述名称的空话充数，
+不要混入开发日志；保留已有有效注释。
+
+JS/TS 将说明写在函数、方法或直接初始化函数的变量/属性声明前；调用参数里的
+回调应在该函数节点前写 `/* 中文说明 */`，不能沿用外层函数说明。文件职责和
+首个函数说明使用独立注释块，以空行分隔。Python 使用 `#` 写在 `def` 或首个
+装饰器前；`lambda` 的说明放在最近所在语句前或该 lambda 所在行尾。不要为了
+补注释添加或修改 docstring，因为它会改变运行时的 `__doc__`。已有中文
+docstring 可以作为说明保留。
+
+`bun run comments:check` 复用锁定的 TypeScript 7 AST 与 Python `ast/tokenize`，
+递归检查上述三个目录内的 `.js/.jsx/.mjs/.cjs/.ts/.tsx/.mts/.cts/.py`，并在
+语法错误时失败。无实现体的类型签名、接口方法、重载和抽象方法不计作函数
+实现；声明文件仍检查文件职责。代码字符串里的样例不会被当作嵌套代码解析。
+顶层 `fixtures/`、依赖、生成物及 JSON/锁文件等数据不在范围；三个维护目录内
+的文件不能仅凭 `fixtures`、`vendor` 等目录名豁免。未来如引入真正的第三方
+代码或生成代码，应审查后使用明确路径例外。门禁检查注释位置与中文覆盖，
+注释准确性和信息量仍须人工审查。
+编写时应对照真实控制流，说明该函数的输入处理、输出、拒绝边界或副作用；
+“执行函数”“处理回调”等重述名称的文字不能作为有用说明。自动门禁只判断
+注释位置与是否包含汉字，不验证自然语言正确性。
+
+`test/wire/reliability.test.ts` 暂缓注释维护，仅此精确路径不参加注释覆盖检查；
+主测试执行和语义比较仍包含该文件。恢复其注释维护时同步移除这一例外。
+
+新增代码或合入其他工作分支后，先运行以下门禁，再执行上面的完整验收：
+
+```sh
+bun run comments:check
+bun run test:quality
+python3 scripts/maintenance/run_python_tests.py --output /tmp/rovloom-worker-python-new.json
+```
+
+输出路径须为尚不存在的新文件。覆盖检查不依赖 Git，在隔离验证副本中同样
+运行，并包含未跟踪的维护代码；临时探针和执行报告应放在 checkout 外。
+
+纯注释修改可执行 `bun run comments:equivalence -- --base <commit>`，比较基线
+代码的解析结构与当前代码。它忽略注释和格式位置，但保留运算符、字面量、
+类型语法和自动分号插入造成的结构差异；Python 按编码声明解析源码原字节，
+使用完整 AST 比对，docstring 也不能悄悄变化。该检查不替代类型检查、测试和构建。新增检查工具及其测试
+由正常质量门禁验证，不属于基线代码的纯注释等价比较。
+AST 比较不解释编译器或打包器的特殊指令注释；此类指令仍须保留并单独审查。
+JS/TS 的 JSDoc、triple-slash、`@ts-nocheck`、`@__PURE__` 等注释，以及 Python
+`# type:` 注释，不受该比较保护；JS/TS shebang 和 `"use strict"` 等真实语法
+语句会保留，Python 编码声明通过原字节解码参与解析，docstring 则是实际 AST。
+等价检查也不比较源码行号、栈位置或函数源码反射结果。它只用于指定基线的
+纯注释补丁，不能代替业务变更的测试；新增文件由覆盖与常规质量门禁验证。
 
 主测试数量与标题随当前代码维护，不依赖固定历史 inventory。门禁要求非空且一致的
 JUnit 报告，核对当前完整测试文件集合均有实际执行的 case，并将运行日志的通过数

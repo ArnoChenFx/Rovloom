@@ -1,3 +1,4 @@
+// 定义独立的 Wire v2 消息、调用身份、provider 权限及原生校验接口类型。
 export type JsonObject = Record<string, unknown>
 export type Direction = 'gateway_to_connector' | 'connector_to_gateway'
 export type ProviderKind = 'luvus' | 'herdr'

@@ -1,3 +1,4 @@
+// 导出不含调用原文和有效凭据的 v4 隔离快照，并限制备份大小、同步落盘及清理失败产物。
 import { DatabaseSync } from 'node:sqlite'
 import { closeSync, fsyncSync, openSync, unlinkSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -5,8 +6,10 @@ import { GatewayError } from '../contracts.js'
 import type { Retention } from './config.js'
 import { createPrivate } from './files.js'
 import { SCHEMA, SCHEMA_VERSION } from './schema.js'
+// 为隔离快照生成带指定前缀的新恢复代次标识。
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
 
+// 创建独占私有快照，冻结历史并禁用机器与 provider；超配额或写入失败时删除本次产物。
 export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now: number, limits: Retention): void {
   let created = false
   try {
@@ -48,8 +51,10 @@ export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now:
           }
           const keys = Object.keys(row)
           backup
-            .prepare(`INSERT INTO ${table}(${keys.join(',')}) VALUES(${keys.map(() => '?').join(',')})`)
-            .run(...keys.map((k) => row[k]!))
+            .prepare(
+              `INSERT INTO ${table}(${keys.join(',')}) VALUES(${keys.map(/* 为每列生成一个绑定参数占位符。 */ () => '?').join(',')})`
+            )
+            .run(...keys.map(/* 按列名顺序提取快照行的绑定值。 */ (k) => row[k]!))
         }
       }
       const bytes =

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 在阻断 Node 工具链的环境中采集独立 Luvus 实例，并保存执行追踪证据。
 """仅采集全新 Luvus 实例；阻断 Node/npm/npx 并保存真实采集执行链。"""
 import argparse
 import hashlib
@@ -13,6 +14,7 @@ import sys
 import tempfile
 
 
+# 校验 Bun 并构造隔离工具链，采集或调度采集与重放，保存脱敏验证报告。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
@@ -68,6 +70,7 @@ def main():
         if set(probes.values()) != {99}:
             raise RuntimeError('阻断探针失败')
 
+        # 追踪命令执行，超时清理进程组，脱敏日志并拒绝未核算或被禁用的程序。
         def trace(label, command):
             log = output / (label + '.execve.log')
             process = subprocess.Popen([trace_tool, '-f', '-qq', '-s', '256', '-e', 'trace=execve,execveat',

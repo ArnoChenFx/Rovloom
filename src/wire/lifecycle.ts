@@ -1,3 +1,4 @@
+// 检查流与调用的关联，并推进外层开流、双向序号和关闭状态。
 import type { AttemptBinding, AuthenticatedEnvelope, CodecContext, StreamFeature } from './types.js'
 import { assertBinding, decodeWireObject } from './codec.js'
 import { boundedJson, LIMITS, fail, uint } from './validation.js'

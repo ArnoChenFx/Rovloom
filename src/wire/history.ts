@@ -1,8 +1,9 @@
+// 计算登记请求摘要，并规划历史范围内的可靠去重准入决策。
 import type { HistoryReference, RequestPayload } from './types.js'
 import { validateAttempt } from './codec.js'
 import { boundedJson, fields, object, id, uint, sha, fail, hash, parseJson, text, oneOf } from './validation.js'
 
-// 对已经登记的 v2 意图作摘要；caller 来源及 key 查询仍须由 #5 可信事务提供。
+// 对登记的 v2 意图生成摘要；调用者身份和去重键查询由可信存储事务提供。
 export function registeredRequestDigest(payload: RequestPayload, callerId: string): string {
   id(callerId)
   const p = object(parseJson(boundedJson(payload)))
@@ -56,7 +57,7 @@ export type HistoryDecision =
   | { action: 'return_existing'; call_id: string }
   | { action: 'register_new'; dedup_expires_at: number }
 
-// scope/key 查询及本判断必须由 #5 在同一 writer 事务内使用；不发放范围、不改绑旧重试。
+// 在存储 writer 事务内按范围和去重记录决定复用或新登记；本函数不发放范围或改绑旧重试。
 export function planHistoryAdmission(
   reference: HistoryReference,
   generation: string,

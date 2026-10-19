@@ -24,7 +24,9 @@
     "lint:fix": "bun --no-env-file run lint --fix",
     "format": "bun --no-env-file node_modules/oxfmt/bin/oxfmt --config .oxfmtrc.json --write \"{src,test,scripts}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}\" package.json tsconfig.json .oxlintrc.json .oxfmtrc.json",
     "format:check": "bun --no-env-file node_modules/oxfmt/bin/oxfmt --config .oxfmtrc.json --check \"{src,test,scripts}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}\" package.json tsconfig.json .oxlintrc.json .oxfmtrc.json",
-    "test:quality": "bun --no-env-file test ./test/quality/coverage.test.mjs"
+    "test:quality": "bun --no-env-file test ./test/quality",
+    "comments:check": "bun --no-env-file scripts/maintenance/comments.mjs",
+    "comments:equivalence": "bun --no-env-file scripts/maintenance/comment_equivalence.mjs"
   },
   "dependencies": {
     "ajv": "8.20.0"

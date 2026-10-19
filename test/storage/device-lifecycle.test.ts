@@ -99,14 +99,14 @@ function fixture(retention?: StoreOptions['retention']) {
         confirmation
       }
     },
-    // 只持久化阻断，不签发凭据或清除 blocked；此提交不随随后 Store 失败撤销。
+    // 写入精确阻断 fence 并清除证明；默认自动提交，已有身份库事务时由调用方决定是否提交。
     block(epoch: string | null) {
       state.prepareCalls++
       identity
         .prepare('UPDATE identities SET blocked=1,proof=0,reset_fence=? WHERE machine_id=?')
         .run(boundedJson({ recovery_generation: store.generation(), connection_epoch: epoch }), device.machine_id)
     },
-    // 返回独立身份库的落盘状态供断言，不从 Store 内存状态猜测跨库提交结论。
+    // 从身份库写连接读取当前设备行；显式事务中也能看到该连接尚未提交的测试写入。
     identityRow() {
       return identity.prepare('SELECT * FROM identities WHERE machine_id=?').get(device.machine_id)!
     },

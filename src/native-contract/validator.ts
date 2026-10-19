@@ -1,4 +1,4 @@
-// 按固定原生契约校验能力、请求、响应与流，并管理不可序列化的可信句柄。
+// 根据固定 Luvus 契约及宿主可信来源校验能力、请求、响应与流，并管理内存许可和仅响应上下文。
 import { validateTarget } from '../contracts.js'
 import {
   candidates,
@@ -43,7 +43,7 @@ function data(contract: CompiledContract) {
   return value
 }
 
-// 核验独立认证的原生来源及完整绑定，必要时与预期身份逐项比对。
+// 校验宿主提供的可信来源标志和 Luvus 绑定格式，并按需比较完整预期身份；本函数不执行认证。
 export function verifySource(source: TrustedNativeContext, expected?: NativeBinding): NativeBinding {
   if (!source || source.authenticated !== true || source.source_verified !== true) {
     fail('native_source_untrusted', 'source')
@@ -135,7 +135,7 @@ function method(contract: CompiledContract, view: CapabilityView, name: string):
   return descriptor
 }
 
-// 核对终端能力清单及数值限额，拒绝重复、未知或超限广告。
+// 核对终端能力和特性列表的唯一性、字符串长度及安全整数预算，要求执行帧预算为正。
 function validateTerminalCapabilities(value: JsonObject): void {
   const terminal = object(value.terminal, 'capability_invalid')
   for (const key of ['capabilities', 'features']) {
@@ -170,7 +170,7 @@ function validateTerminalCapabilities(value: JsonObject): void {
   }
 }
 
-// 按终端族及请求方向求有效在线帧预算，结合契约与能力广告取较小值。
+// session 取广告中的通用帧与适用终端方向预算的较小值；host 返回 null，通用对象预算仍另行检查。
 function frameBytes(
   contract: CompiledContract,
   view: CapabilityView,
@@ -309,7 +309,7 @@ const TERMINAL_RESULTS: Record<string, string> = {
   close: 'terminal_backend_action'
 }
 
-// 从已校验候选提取结果类型、流模式及三个原生身份字段，不携带请求正文。
+// 从候选提取结果类型、流模式及可选的三个原生身份字段；封存路径另行限制身份值的类型与大小。
 function responseRules(candidate: DispatchCandidate): ResponseRules {
   const terminal = candidate.kind === 'control' || candidate.method.startsWith('terminal.backend.')
   const expected = !terminal
@@ -338,7 +338,7 @@ function responseRules(candidate: DispatchCandidate): ResponseRules {
     identities
   }
 }
-// 使用原请求固定的结果约束核对成功响应，拒绝方法或原生身份错配。
+// 核对成功结果的类型和模式，并比较响应中出现的适用身份字段与原请求及绑定代次。
 function validateBoundResult(rules: ResponseRules, binding: NativeBinding, result: JsonObject): void {
   if ((rules.terminal || rules.expected_type) && result.type !== rules.expected_type) {
     fail('native_result_mismatch', 'response')
@@ -361,7 +361,7 @@ function validateBoundResult(rules: ResponseRules, binding: NativeBinding, resul
     }
   }
 }
-// 把正常请求候选映射为同一套最小响应约束，保持两条响应路径的校验一致。
+// 将候选提取为统一结果约束，使持有请求与仅响应两条路径复用相同的结果语义检查。
 function validateResponseResult(candidate: DispatchCandidate, result: JsonObject): void {
   validateBoundResult(responseRules(candidate), candidate.binding, result)
 }
@@ -394,7 +394,7 @@ function describeCapability(
   })
 }
 
-// 将已支持的订阅、观察及控制方法映射到固定流模式，拒绝其它方法。
+// 为调用方已确认可开流的方法选择通用事件、终端事件、观察或控制模式。
 function streamModeFor(method: string): CheckedStream['mode'] {
   if (method === 'events.subscribe') {
     return 'general_events'
@@ -441,7 +441,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     responses.set(result, { candidate: streamAck ? candidate : null, contract, permit: streamAck ? permit : null })
     return result
   }
-  // 校验能力、请求外壳及参数，只有显式 raw 模式才返回不完整 schema 候选。
+  // 校验能力、信封、参数和帧预算并保留实际覆盖状态；仅 allowRaw 时允许 unavailable 候选。
   function checkedRequest(
     view: CapabilityView,
     input: unknown,
@@ -534,7 +534,8 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     checkRawRequest(view, input) {
       return attempt(
         'request',
-        /* 显式允许通用参数候选，但仍执行能力身份、帧预算及请求语义检查。 */ () => checkedRequest(view, input, true)
+        /* 允许未收录方法形成 unavailable 候选，仍执行能力、帧预算及请求语义检查。 */ () =>
+          checkedRequest(view, input, true)
       )
     },
     // 只校验指定响应族的结构，不声称其已与请求、许可或原生来源绑定。
@@ -553,7 +554,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     checkResponse(context, input, source) {
       return attempt(
         'response',
-        /* 从真实候选查回能力视图，核对来源和 ID 后验证成功结果与完整帧大小。 */ () => {
+        /* 核对候选能力、完整来源、ID、帧预算和成功结果语义；RPC 响应登记不保留请求关联。 */ () => {
           const candidate = candidateOf(context)
           const stored = candidates.get(candidate)!
           viewData(contract, stored.view)
@@ -579,7 +580,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         }
       )
     },
-    // 仅从真实 RPC 派发许可密封最小响应约束，不能从 JSON 重建。
+    // 从真实非流 RPC 许可封存最小响应约束，身份值或总编码大小超限即失败，不能从 JSON 重建。
     sealResponseContext(permit) {
       return attempt(
         'response_context',
@@ -614,6 +615,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
             frame_bytes: frameBytes(contract, original.view, rules.terminal, 'response'),
             rules: snapshot(rules) as unknown as ResponseRules
           }
+          // 编码计量只纳入契约身份，不重复计算共享 schema；总量超限即拒绝，不裁剪身份约束。
           const bytes = Buffer.byteLength(JSON.stringify({ ...retained, contract: contract.identity }))
           if (bytes > data(contract).limits.object_bytes) {
             fail('response_context_limit')
@@ -628,7 +630,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     checkResponseOnly(context, input, source) {
       return attempt(
         'response_context',
-        /* 要求句柄属于同一编译契约，独立核验来源后按固定帧预算与结果约束检查。 */ () => {
+        /* 要求句柄属于同一编译契约，核对宿主可信来源及完整绑定后检查固定帧预算与结果约束。 */ () => {
           const retained = responseContexts.get(context)
           if (!retained || retained.contract !== contract) {
             fail('invalid_response_context')
@@ -651,7 +653,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         }
       )
     },
-    // 撤销同一 RPC 候选的全部许可及请求登记，让内部关联不再持有原请求正文。
+    // 撤销同一 RPC 候选的全部许可及请求登记；宿主仍须丢弃自己持有的候选与原文引用。
     releaseRequestContext(permit) {
       return attempt(
         'response_context',
@@ -794,11 +796,11 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         }
       )
     },
-    // 在已打开的控制流内校验输入帧及原生身份，生成需另行授权的控制候选。
+    // 在已打开的控制流校验帧、预算和动作支持，生成关联该流且仍需另行授权的控制候选。
     checkControl(stream, input) {
       return attempt(
         'control',
-        /* 限定控制流的输入 ID 与动作，并绑定原终端和会话身份后登记控制候选。 */ () => {
+        /* 核对真实控制流、帧 schema 与双方支持动作，将新候选关联到父能力和流。 */ () => {
           const state = streams.get(stream)
           if (!state) {
             fail('invalid_stream_context', 'control')
@@ -846,11 +848,11 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
   return Object.freeze(api)
 }
 
-// 要求安全整数序号严格递增，拒绝回退、重复及非整数序号。
+// 要求非负安全整数序号恰好递增一，区分重复或回退帧与需要重新同步的跳号。
 export function checkSequence(previous: number, incoming: number): Check<void> {
   return attempt(
     'sequence',
-    /* 比较前后序号的整数范围及大小关系，将异常转换为固定序号错误。 */ () => {
+    /* 核对序号范围与相邻关系，重复或回退时报重复帧，跳号时要求重新同步。 */ () => {
       if (!Number.isSafeInteger(previous) || !Number.isSafeInteger(incoming) || previous < 0 || incoming < 0) {
         fail('invalid_sequence', 'stream')
       }

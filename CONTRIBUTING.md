@@ -8,6 +8,7 @@ Python 3 and Linux strace are also required for the complete verification.
 Run the same gates as [CI](.github/workflows/bun.yml) from the repository root:
 
 ```sh
+bun run comments:check
 python3 scripts/maintenance/run_python_tests.py --output /tmp/rovloom-python-tests-new.json
 python3 scripts/maintenance/check.py
 python3 scripts/native-contract/audit-fixtures.py
@@ -22,6 +23,11 @@ commands. Maintain tests for the current behavior and wire new suites into
 verification; every tracked `*.test.*`, `*_test.*`,
 `*.spec.*` or `*_spec.*` JavaScript/TypeScript file must appear in its run evidence.
 Code examples under `fixtures/` remain data.
+Every maintained code file needs a concise Chinese responsibility comment, and
+every function implementation (including methods, constructors and callbacks)
+needs a nearby Chinese explanation. Preserve useful existing comments and keep
+execution logs out of code. See the syntax boundaries and comment-only AST
+comparison command in [the development guide](docs/DEVELOPMENT.md#代码注释约定).
 Foundation verification requires a nonempty, consistent JUnit report, matching
 pass counts and actual cases from every current test file. Failures, skips, todos
 and disabled tests fail the gate; historical file names, titles and totals are

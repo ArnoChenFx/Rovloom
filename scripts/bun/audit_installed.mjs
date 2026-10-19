@@ -1,3 +1,4 @@
+// 核对已安装依赖与 Bun 锁文件的版本，并区分当前平台无需安装的包。
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
 

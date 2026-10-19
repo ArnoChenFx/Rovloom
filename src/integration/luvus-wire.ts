@@ -182,7 +182,7 @@ function attemptIdentity(binding: AttemptBinding): AttemptIdentity {
   return attempt
 }
 
-// 建立有界的原生校验适配器，分别管理可派发状态与仅响应状态。
+// 建立共享容量上限的执行与仅响应缓存，订阅账本失效通知并启动可关闭的定时回收。
 export function createLuvusWireAdapter(
   backend: NativeWireBackend,
   limits: { attempts: number; control_ids: number; snapshot_bytes?: number; maintenance_interval_ms?: number } = {
@@ -321,8 +321,8 @@ export function createLuvusWireAdapter(
     )
   }
 
-  // codec/native 回调可能先改状态，后续 envelope、序号或去重检查才失败。
-  // 只回滚本次触及的 attempt；此前成功操作及其 permit 仍保留。
+  // 用本次回滚表阻止同步重入；原生校验先成功、外层关联或序号检查后失败时，恢复触及的执行状态。
+  // 入口维护先于回滚快照，操作中收到的账本失效通知在结束后应用，二者不会随本次失败撤销。
   function atomic<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
     return /* 先执行期限回收，再保存本次变更；失败恢复尝试及预算，最后应用已提交的失效通知。 */ (...args) => {
       if (closed) {
@@ -370,7 +370,7 @@ export function createLuvusWireAdapter(
     }
   }
 
-  // 释放 RPC 原许可及候选，并扣除执行缓存和对应快照预算。
+  // 移除执行句柄并返还快照预算；有 RPC 许可时一并撤销原生候选及其全部许可。
   function dropExecution(name: string): void {
     const state = states.get(name)
     if (!state) {
@@ -394,7 +394,8 @@ export function createLuvusWireAdapter(
     retainedBytes -= state.snapshotBytes
     responseStates.delete(name)
   }
-  // 从真实 RPC 许可密封最小响应上下文，再销毁原请求状态；密封或预算失败则全部释放。
+  // 从真实 RPC 许可密封不含请求正文的响应约束，再撤销执行状态并切换缓存。
+  // 缺许可或固定期限、密封返回拒绝、替换快照超额时，丢弃执行状态而不建立仅响应缓存。
   function compact(name: string): void {
     const state = states.get(name)
     if (!state || state.attempt.transport !== 'rpc') {
@@ -464,7 +465,8 @@ export function createLuvusWireAdapter(
     responseStates.set(name, response)
     responseHandles.set(response.handle, response)
   }
-  // 把已提交的回收通知映射到内容压缩或彻底失效，原子校验中收到通知则延后应用。
+  // 内容回收只压缩 RPC；调用或设备失效销毁两类缓存，关闭还会停维护并退订。
+  // 校验中先排队合并通知，关闭立即阻止新入口，实际回收延至回滚表解除后执行。
   function invalidate(event: LedgerInvalidation): void {
     if (undo) {
       if (event.kind === 'closed') {
@@ -527,7 +529,8 @@ export function createLuvusWireAdapter(
       }
     }
   }
-  // 在进入校验事务前按固定期限回收原文与密封上下文，降级时保留可恢复的可信证据路径。
+  // 校验中或关闭后不维护；其余时间按固定期限回收分片、压缩 RPC 原文并销毁到期的仅响应缓存。
+  // 内容查询遇到 storage_degraded 时保留现状，但已知原文期限仍先行生效；其它查询失败丢弃执行状态。
   function maintain(): void {
     if (undo || closed) {
       return
@@ -591,7 +594,7 @@ export function createLuvusWireAdapter(
     }
   }
 
-  // 复制并验证持久化尝试及其连接身份，拒绝请求、principal 或传输模式不一致。
+  // 复制账本尝试，核对当前连接、登记方法与请求正文及传输形态，并要求 principal 非空。
   function record(value: AttemptIdentity): TrustedAttempt {
     validateAttempt(value)
     const found = backend.attempt(value.call_id, value.attempt_id)
@@ -982,7 +985,7 @@ export function createLuvusWireAdapter(
       state.permit ??= checked
     },
 
-    // 分别用执行许可或密封上下文验证响应，二者均要求同一私有来源令牌。
+    // 按私有句柄选择执行许可或密封响应约束，均复核来源令牌；密封校验不会恢复派发或读取能力。
     validateResponse(response, c) {
       const retained =
         c.native_handle && typeof c.native_handle === 'object' ? responseHandles.get(c.native_handle) : undefined
@@ -1051,7 +1054,8 @@ export function createLuvusWireAdapter(
     }
   }
 
-  // RPC 只有原请求；stream 必须给出实际待交付的原生响应/事件，不能隐式借开流许可。
+  // 执行态按当前主体、分类和内容权限检查读取；仅响应态核对绑定与主体后始终拒绝内容读取。
+  // 流读取必须指定原生帧；控制确认使用对应输入许可，事件核对原生流，开流确认沿用原许可。
   function result(binding: AttemptBinding, nativeFrame?: JsonObject): void {
     const response = responseStates.get(key(binding))
     if (response) {
@@ -1269,7 +1273,7 @@ export function createLuvusWireAdapter(
       })
     },
 
-    // 显式释放指定尝试的缓存与预算，密封上下文同时撤销其原生登记。
+    // 释放指定尝试的适配器缓存与预算；仅响应分支同时撤销密封登记，执行分支仅移除缓存关联。
     release(binding: AttemptBinding) {
       const response = responseStates.get(key(binding))
       if (response) {
@@ -1306,7 +1310,7 @@ export function createLuvusWireAdapter(
   }
   return Object.freeze({
     maintain: guarded(maintain),
-    // 关闭适配器并销毁所有执行、密封、分片和去重缓存，取消 Store 订阅。
+    // 标记关闭并停维护、退订及清空缓存；校验中调用时，实体回收延至外层操作结束。
     close: () => invalidate({ kind: 'closed' }),
     // 仅返回上下文数量、快照计量及关闭状态，不暴露请求、响应或身份内容。
     stats: () => ({

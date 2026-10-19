@@ -1,3 +1,4 @@
+# 把预先导出的本地证据复制为私有归档，并离线复核原始字节和来源一致性。
 """归档预先导出的本地只读证据；不运行 binary、联网、发现或连接 socket。"""
 
 import argparse
@@ -10,6 +11,7 @@ import sys
 from contract import audit, read_file, require, ROOT
 
 
+# 审核私有输入后复制到检出目录外的新归档，复核失败时删除输出并保留输入。
 def collect(source, output):
     source, output = Path(source), Path(output)
     require(source.is_absolute() and not source.is_symlink(), 'absolute ordinary input directory required')
@@ -38,6 +40,7 @@ def collect(source, output):
     return result
 
 
+# 解析输入输出路径并执行离线归档，仅用错误类型报告拒绝原因。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', required=True, type=Path)

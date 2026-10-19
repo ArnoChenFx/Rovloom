@@ -1,4 +1,4 @@
-// 验证真实原生校验器接入 Wire 后的授权、流状态、证据、回滚及预算边界。
+// 用真实原生校验器验证 Wire 的授权、流状态、证据、回滚及预算边界；宿主和消息均为合成，不连接原生进程。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
@@ -306,7 +306,7 @@ function fixture(
 const rejects = (run: () => unknown, code: string) =>
   assert.throws(run, /* 核对抛出的固定错误码与预期一致，避免无关异常被误判为通过。 */ (e: any) => e.code === code, code)
 
-// 打开真实控制流并准备开流响应、输入及 acknowledgement，供逐输入许可测试复用。
+// 在真实校验器中建立合成控制流状态，准备开流响应、输入及 acknowledgement 以复用逐输入许可测试。
 function controlFixture(limits?: Parameters<typeof createLuvusWireAdapter>[1]) {
   const f = fixture('terminal.backend.control', false, true, limits)
   // 把原生响应或事件包装为绑定当前控制流的 stream_data 消息。
@@ -769,7 +769,7 @@ test(
     f.decode(f.input('input1'))
     f.decode(f.data(f.inputAck), 'connector_to_gateway')
     assert.doesNotThrow(
-      /* 读取已真实派发的 input1 响应，作为随后未派发及跨尝试 ID 拒绝的对照。 */ () =>
+      /* 检查已获得控制输入许可的 input1 响应，作为未知及跨尝试 ID 被拒的对照。 */ () =>
         f.adapter.checkResult(f.binding, f.inputAck)
     )
     for (const id of ['unknown', 'input2']) {
@@ -1070,7 +1070,7 @@ test(
       payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }
     }
     assert.deepEqual(f.decode(request2), request2)
-    f.backend.nativeSource = /* 故意返回另一个 provider 的真实绑定，验证同名方法和 ID 不能掩盖来源错配。 */ () => ({
+    f.backend.nativeSource = /* 故意返回另一个测试 provider 的绑定，验证同名方法和 ID 不能掩盖来源错配。 */ () => ({
       authenticated: true,
       source_verified: true,
       binding: f.nativeBinding(second)
@@ -1111,7 +1111,7 @@ test(
 
 test(
   '同一 permit 的原生流 ack 才能开流，逐输入重新分类/授权，控制 ack 绑定输入 ID',
-  /* 从真实控制流 acknowledgement 建流后逐输入重新分类授权，再验证输入响应必须绑定原控制 ID。 */ () => {
+  /* 用合成 acknowledgement 建立控制流状态后逐输入重新分类授权，验证输入响应必须绑定原控制 ID。 */ () => {
     const f = fixture('terminal.backend.control', false, true)
     const ack = {
       id: 'native_1',
@@ -1291,7 +1291,7 @@ test(
 
 test(
   '分片重组真实响应仍经过原生许可/完整 schema，传输限额及私有句柄不暴露',
-  /* 将真实响应分片并重组，验证完整 schema、派发许可及传输限额依旧生效且私有句柄不能上网。 */ () => {
+  /* 将合成错误响应分片并重组，验证完整 schema、派发许可及传输限额仍生效，且消息不能注入私有句柄。 */ () => {
     const f = fixture()
     f.decode(f.opening)
     const raw = Buffer.from(boundedJson(f.response))

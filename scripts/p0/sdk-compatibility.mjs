@@ -1,3 +1,4 @@
+// 用独立 stdio 子进程探测固定 MCP SDK 的协商结果，记录报文及依赖版本。
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -8,18 +9,21 @@ import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcont
 import { lockedDependencies } from '../bun/lock.mjs'
 import { toolchain } from '../bun/toolchain.mjs'
 
+// 执行初始化、工具列表和 ping 往返，关闭客户端后返回兼容性证据。
 export async function probeSdk() {
   const runtime = toolchain()
   const wire = []
   class RecordingStdio extends StdioClientTransport {
+    // 包装入站回调以保留报文，再启动父类 stdio 传输。
     async start() {
       const onmessage = this.onmessage
-      this.onmessage = (message, extra) => {
+      this.onmessage = /* 记录服务端消息后继续调用原有接收处理器。 */ (message, extra) => {
         wire.push({ direction: 'server_to_client', message })
         onmessage?.(message, extra)
       }
       return super.start()
     }
+    // 记录客户端发出的消息，并交给父类执行实际发送。
     async send(message) {
       wire.push({ direction: 'client_to_server', message })
       return super.send(message)
@@ -32,9 +36,12 @@ export async function probeSdk() {
     stderr: 'pipe'
   })
   let stderr = ''
-  transport.stderr?.on('data', (bytes) => {
-    stderr += bytes
-  })
+  transport.stderr?.on(
+    'data',
+    /* 累积子进程错误输出，稍后断言兼容探针无额外诊断。 */ (bytes) => {
+      stderr += bytes
+    }
+  )
   const client = new Client({ name: 'p0-sdk-client', version: '1.32.1' })
   try {
     await client.connect(transport, { timeout: 5000 })
@@ -43,10 +50,16 @@ export async function probeSdk() {
   } finally {
     await client.close()
   }
-  const initialize = wire.find((r) => r.message.method === 'initialize').message
-  const result = wire.find((r) => r.message.id === initialize.id && r.message.result).message.result
+  const initialize = wire.find(
+    /* 定位客户端初始化请求以关联协商响应。 */ (r) => r.message.method === 'initialize'
+  ).message
+  const result = wire.find(
+    /* 查找与初始化请求对应且含结果的服务端响应。 */ (r) => r.message.id === initialize.id && r.message.result
+  ).message.result
   assert.equal(result.protocolVersion, '2025-11-25')
-  assert(wire.some((r) => r.message.method === 'notifications/initialized'))
+  assert(
+    wire.some(/* 确认客户端完成初始化后发送了就绪通知。 */ (r) => r.message.method === 'notifications/initialized')
+  )
   assert.equal(stderr, '')
   const dependencies = lockedDependencies()
   for (const name of ['@modelcontextprotocol/sdk', 'ajv', 'ws']) {
@@ -56,7 +69,9 @@ export async function probeSdk() {
   return {
     runtime,
     dependencies: Object.fromEntries(
-      ['@modelcontextprotocol/sdk', 'ajv', 'ws'].map((name) => [name, dependencies[name]])
+      ['@modelcontextprotocol/sdk', 'ajv', 'ws'].map(
+        /* 仅保留本次兼容性报告涉及的锁定依赖。 */ (name) => [name, dependencies[name]]
+      )
     ),
     childRuntime: 'same verified Bun executable with --no-env-file',
     client: '@modelcontextprotocol/sdk Client over child-process stdio',

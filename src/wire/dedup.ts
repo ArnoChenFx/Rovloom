@@ -1,3 +1,4 @@
+// 提供认证连接内固定容量、固定保留期的消息 ID 去重窗口。
 import type { AuthenticatedEnvelope, CodecContext } from './types.js'
 import { decodeWireObject } from './codec.js'
 import { boundedJson, hash, LIMITS, uint, fail } from './validation.js'
@@ -7,6 +8,7 @@ export class MessageWindow {
   readonly #entries = new Map<string, { hash: string; expires: number }>()
   #lastNow = -1
 
+  // 校验去重容量和固定保留期，拒绝超过协议上限的容量。
   constructor(
     readonly capacity: number = LIMITS.dedup_entries,
     readonly ttl_ms: number = 60_000
@@ -18,6 +20,7 @@ export class MessageWindow {
     }
   }
 
+  // 清理过期项后登记消息摘要；重复返回 duplicate，冲突或满窗则拒绝。
   observe(frame: AuthenticatedEnvelope, context: CodecContext, now: number): 'new' | 'duplicate' {
     uint(now)
     if (now < this.#lastNow || !Number.isSafeInteger(now + this.ttl_ms)) {
@@ -56,6 +59,7 @@ export class MessageWindow {
     return 'new'
   }
 
+  // 返回当前窗口中的登记数，包含尚未由 observe 清理的过期项。
   get size(): number {
     return this.#entries.size
   }

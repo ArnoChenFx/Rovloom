@@ -299,10 +299,8 @@ def execute(binary, output):
     output.mkdir(mode=0o700)
     success, control_passed, cases = True, False, []
     for label, action in [('blocked-write-control', blocked_write_control),
-                          # 将本次独立实例限定为精确 512 条保留窗实验。
-                          ('retained-512', lambda run: retained_boundary(run, 512)),
-                          # 将本次独立实例限定为精确 513 条溢出实验。
-                          ('lost-513', lambda run: retained_boundary(run, 513)),
+                          ('retained-512', lambda run: retained_boundary(run, 512)),  # 将本次独立实例限定为精确 512 条保留窗实验。
+                          ('lost-513', lambda run: retained_boundary(run, 513)),  # 将本次独立实例限定为精确 513 条溢出实验。
                           ('concurrent-snapshot', concurrent_snapshot), ('title-snapshot', title_snapshot)]:
         run = Run(binary, output/label)
         run.report['readonly_verifier_sha256'] = sha(Path(__file__).read_bytes())

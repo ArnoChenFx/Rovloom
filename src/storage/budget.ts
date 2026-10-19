@@ -1,3 +1,4 @@
+// 汇总 v4 内容、元数据、审计、备份和磁盘占用，将未完成调用的收尾预约计入配额检查。
 import type { DatabaseSync } from 'node:sqlite'
 import { statSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -6,7 +7,9 @@ import type { Retention } from './config.js'
 import { managedBytes } from './files.js'
 import { completionReservation, metadataFields, metadataValue } from './completion.js'
 import type { CompletionCall } from './completion.js'
+// 返回标准 JSON 编码后的 UTF-8 字节数，用于同口径的元数据配额计量。
 const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v))
+// 检查当前占用与待收尾预约；准入时额外保留应急空间，任一分类超限即拒绝。
 export function assertBudget(
   db: DatabaseSync,
   path: string,
@@ -15,6 +18,7 @@ export function assertBudget(
   admission: boolean,
   extraBackupBytes = 0
 ): void {
+  // 执行返回单行 n 字段的聚合查询，并将 SQLite 结果转换为数值。
   const sum = (sql: string) => Number(db.prepare(sql).get()!.n)
   const content = sum(
     'SELECT COALESCE(SUM(COALESCE(length(CAST(request_json AS BLOB)),0)+COALESCE(length(CAST(response AS BLOB)),0)),0) n FROM calls'
@@ -31,13 +35,18 @@ export function assertBudget(
     )
     .all() as CompletionCall[]
   const generation = String(db.prepare('SELECT generation FROM metadata').get()!.generation)
-  const completion = calls.map((row) => completionReservation(row, limits, generation))
-  const auditReserved = completion.reduce((total, row) => total + row.audit, 0)
-  const metadataReserved = completion.reduce((total, row) => total + row.metadata, 0)
+  const completion = calls.map(
+    /* 从当前调用状态推导仍需履行的审计和元数据预约。 */ (row) => completionReservation(row, limits, generation)
+  )
+  const auditReserved = completion.reduce(/* 累计所有调用尚需的收尾审计字节。 */ (total, row) => total + row.audit, 0)
+  const metadataReserved = completion.reduce(
+    /* 累计所有调用终态可能新增的元数据字节。 */ (total, row) => total + row.metadata,
+    0
+  )
   const audit = db
     .prepare('SELECT * FROM audit')
     .all()
-    .reduce((n, row) => n + size(row), 0)
+    .reduce(/* 累加已持久化审计记录的完整 JSON 字节数。 */ (n, row) => n + size(row), 0)
   if (audit + auditReserved > limits.audit_bytes) {
     throw new GatewayError('audit_quota')
   }
@@ -46,7 +55,7 @@ export function assertBudget(
     throw new GatewayError('metadata_quota')
   }
   const security = ['machines', 'enrollments', 'providers', 'management'].reduce(
-    (n, table) => n + size(db.prepare(`SELECT * FROM ${table}`).all()),
+    /* 统计各安全与管理表的 JSON 编码占用。 */ (n, table) => n + size(db.prepare(`SELECT * FROM ${table}`).all()),
     0
   )
   if (security > limits.security_metadata_bytes) {

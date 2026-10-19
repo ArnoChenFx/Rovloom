@@ -1,3 +1,4 @@
+// 暴露 Wire v2 编解码入口；业务帧要求认证上下文，握手使用认证前上下文，不提供旧 v1 执行入口。
 import { decodeWireFrame, encodeWireFrame } from './wire/codec.js'
 import { WIRE_MAJOR, WIRE_MINOR } from './wire/negotiation.js'
 import { LIMITS, fail } from './wire/validation.js'
@@ -16,6 +17,7 @@ export function decodeFrame(input: string | Uint8Array, context: CodecContext | 
   }
   return decodeWireFrame(input, context)
 }
+// 要求调用方提供编解码上下文，再按 Wire v2 限制校验并序列化帧。
 export function encodeFrame(frame: Envelope, context?: CodecContext): string {
   if (!context) {
     fail('authenticated_context_required')
