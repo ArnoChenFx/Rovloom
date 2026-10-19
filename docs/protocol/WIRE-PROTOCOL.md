@@ -14,6 +14,7 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 | 可选 feature | 用途 |
 |---|---|
 | rpc | 普通 request/accepted/response/cancel |
+| admission_receipt | Gateway 原去重截止和请求摘要的认证交付；同时要求 rpc |
 | history_scope | 显式登记 history_epoch/client_request_key |
 | late_evidence | unknown 同次 attempt 补证 |
 | objects | 有界 envelope/schema_bundle 分片 |
@@ -164,6 +165,7 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | enroll | Connector → Gateway，预认证 | registration_id, connector_instance_id, enrollment_credential, offer |
 | authenticate | Connector → Gateway，预认证 | machine_id, recovery_generation, connector_instance_id, device_credential, offer |
 | welcome | Gateway → Connector，预认证 | machine_id, recovery_generation, connection_epoch, in_reply_to, selected |
+| admission_receipt | Gateway → Connector | attempt, request_sha256, dedup_expires_at |
 | request | Gateway → Connector | attempt, expected_binding_revision, native_request, validation |
 | accepted | Connector → Gateway | attempt |
 | response | Connector → Gateway | attempt, native_response |
@@ -175,6 +177,35 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | stream_close | 双向 | attempt, stream_id, reason |
 | error | 双向，预认证或已认证 | source, code, retryable, cause_message_id? |
 | object_chunk | 双向，schema_bundle 仅 Connector → Gateway | object_id, kind, total_bytes, sha256, chunk_count, index, data |
+
+## 可选原截止交付
+
+`admission_receipt` 是 Wire 2.0 中双方显式协商的可选能力，依赖 `rpc`。默认广告仍只有原能力；
+旧宿主未启用时保持既有接口。需要独立原截止交付的 Connector 必须把该能力列为 required，并交付持久接收端；
+缺 capability、接收端或实际交付时拒绝执行，不能回退到本机 `now + TTL`。
+
+Gateway 只有在原 Router/Store 派发事务成功返回之后，才从 `Store.responseAnchor(binding)` 读取原
+`dedup_expires_at`。在同一已认证 WSS 上先发送 `admission_receipt`，然后发送原 `request`；
+receipt 的连接外壳和 `attempt` 合在一起组成完整 `AttemptBinding`，不能省略 provider、epoch、恢复代次或 policy revision。
+原生 JSON 不增加任何字段，`registration` 也不接受 caller 自报 TTL。
+
+`request_sha256 = SHA256(boundedJson({binding, native_request, validation}))`。
+这里的 binding 是完整 AttemptBinding，native_request 保留原无 id/auth 的正文，validation 使用原请求模式；
+规范 JSON 对所有嵌套对象排序，不把空白或属性顺序当成不同意图。`dedup_expires_at` 是正安全整数毫秒，
+至少覆盖 binding.registration.deadline。receipt 只传递已登记事实，不产生原生 permit、caller 主体、确认或 Owner 权限。
+
+Connector 通过同一个原 Wire codec 核对认证连接、方向、协商、provider/contract 和完整 attempt，并经过原消息去重之后，
+才把一次性进程内 opaque 交付证明交给持久接收端。同形 JSON、复制的证明、已消费或旧 socket 的证明均不能登记。
+持久记录只含完整绑定、请求摘要和原截止；独占 writer 采用私有目录、固定 ledger identity、资源预算、
+持久时钟高水位以及 fsync 后原子替换和独立读回确认。正常关闭保留记录；缺文件、坏 schema、
+已有 writer/崩溃锁、未完成暂存、路径/文件替换、时钟回拨或提交失败均拒绝，不自动恢复或重建。
+这些检查不承诺检测整机与全部持久文件一起回滚。
+
+相同 call/attempt 的精确重复交付幂等，不刷新原截止；绑定、请求摘要或截止任一变化均冲突。
+准入候选建立前和 accepted/native 执行前都必须把原请求与该持久记录比较。
+缺 receipt、过期、跨 epoch 或摘要不符时关闭当前连接并拒绝派发。
+只有 receipt 而没有 request 时保留有界元数据，不执行任何原生动作；丢失连接、发送或登记失败均沿用原 unknown 语义，
+不补发 receipt/request、不重放旧工作、不把旧记录迁入新 epoch。执行许可仍由原 Wire、双方策略和 provider 自己的原生校验器建立。
 
 所有根/payload/target/registration 字段严格列举，未知枚举拒绝。native payload 的完整根/条件/$ref 验证交给可信 kind 的 validator。
 已认证业务帧不能使用未协商 minor 或未知 major；握手 offer 的较高 minor 仅表示协商上界，
