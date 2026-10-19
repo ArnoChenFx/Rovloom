@@ -7,6 +7,7 @@ import { isAbsolute, join, normalize } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createManagedSmokeCleanup } from './managed-smoke-cleanup.mjs'
 import { prepareIsolatedOpenCode } from './opencode-smoke-setup.mjs'
+import { verifyStableLuvusSelection } from './luvus-stable-selection.mjs'
 import {
   openGatewayState,
   initializeManagedLuvusRoot,
@@ -25,12 +26,16 @@ function argumentsForSmoke() {
     options: {
       binary: { type: 'string' },
       'opencode-binary': { type: 'string' },
+      'stable-selection': { type: 'boolean' },
       'temporary-parent': { type: 'string' },
       'acknowledge-nonproduction': { type: 'boolean' }
     }
   })
   if (!values['acknowledge-nonproduction']) {
     throw new Error('nonproduction_acknowledgement_required')
+  }
+  if (values['stable-selection'] && values['opencode-binary']) {
+    throw new Error('stable_selection_cannot_start_agent')
   }
   for (const path of [
     values.binary,
@@ -44,10 +49,72 @@ function argumentsForSmoke() {
   return values
 }
 const paths = argumentsForSmoke()
-const root = mkdtempSync(join(paths['temporary-parent'], '.rovloom-luvus-operations-'))
+// 验收本身也使用短私有 root 名，避免官方长路径别名落到受保护 state_root 之外；不放宽原检查。
+const root = mkdtempSync(join(paths['temporary-parent'], '.rvop-'))
 const cleanup = createManagedSmokeCleanup(root)
 const checks = []
 const timings = []
+const observedCalls = new Map()
+const observedClaims = new WeakSet()
+const observedSockets = new WeakSet()
+/** 仅记录本轮实际 call/attempt；不输出身份，也不把 socket 写出等同于原生执行。 */
+function observe(callId, event, attemptId) {
+  assert.equal(typeof callId, 'string')
+  let row = observedCalls.get(callId)
+  if (!row) {
+    row = { created: 0, confirmed_claims: 0, native_write_calls: 0, original_result_frames: 0 }
+    observedCalls.set(callId, row)
+  }
+  if (attemptId !== undefined) {
+    assert.equal(typeof attemptId, 'string')
+    if (row.attempt_id !== undefined) {
+      assert.equal(row.attempt_id, attemptId)
+    }
+    row.attempt_id = attemptId
+  }
+  row[event]++
+}
+/** 只观察本轮工厂资源，保留 claims 私有品牌、原 backend、实际 socket 和全部认证检查。 */
+function observeSession(resource) {
+  if (!observedClaims.has(resource.claims)) {
+    observedClaims.add(resource.claims)
+    const originalClaim = resource.claims.claim
+    resource.claims.claim = /** 原 claim 成功返回已包含 COMMIT 后独立读回确认；失败不计数。 */ function (...args) {
+      const result = Reflect.apply(originalClaim, this, args)
+      observe(args[0].call_id, 'confirmed_claims', args[0].attempt_id)
+      return result
+    }
+  }
+  const originalVerify = resource.verifyPeer
+  resource.verifyPeer = /** 同一 socket 的原内核 peer 核验成功后才安装本轮观察器。 */ async function (...args) {
+    const result = await Reflect.apply(originalVerify, this, args)
+    const [socket, , binding] = args
+    if (!observedSockets.has(socket)) {
+      observedSockets.add(socket)
+      const originalWrite = socket.write
+      socket.write = /** 原 write 正常返回才计一次；保留接收者、参数、返回值及背压语义。 */ function (...writeArgs) {
+        const written = Reflect.apply(originalWrite, this, writeArgs)
+        observe(binding.call_id, 'native_write_calls', binding.attempt_id)
+        return written
+      }
+    }
+    return result
+  }
+  return resource
+}
+/** 固定空白拓扑必须实际逐 call、逐 attempt 各一次；不能从 helper 预期调用数推算证据。 */
+function stableObservations() {
+  assert.equal(observedCalls.size, 58)
+  const counts = { created: 0, confirmed_claims: 0, native_write_calls: 0, original_result_frames: 0 }
+  for (const row of observedCalls.values()) {
+    assert.equal(typeof row.attempt_id, 'string')
+    for (const event of Object.keys(counts)) {
+      assert.equal(row[event], 1)
+      counts[event] += row[event]
+    }
+  }
+  return { ...counts, per_call_attempt_once: true }
+}
 let state
 let nativeRoot
 let gatewayResources
@@ -58,8 +125,17 @@ let stage = 'initialize'
 let report
 let lastNativeError
 let agentInputOutput
+let stableSelection
 try {
-  for (const name of ['gateway', 'home', 'state', 'project', 'control', 'connector']) {
+  for (const name of [
+    'gateway',
+    'home',
+    'state',
+    'project',
+    'control',
+    'connector',
+    ...(paths['stable-selection'] ? ['project-a', 'project-c'] : [])
+  ]) {
     mkdirSync(join(root, name), { mode: 0o700 })
   }
   for (const name of ['config', 'data', 'cache', 'runtime']) {
@@ -203,6 +279,10 @@ try {
   const reference = contractRef(provider.contract.wire.source)
   connector = await createConnectorRuntime({
     ...connectorResources,
+    session: /** 真实认证 epoch 仍由原工厂构建；稳定选择模式只附加本轮资源观察。 */ (connection) => {
+      const resource = connectorResources.session(connection)
+      return paths['stable-selection'] ? observeSession(resource) : resource
+    },
     transport: { url: gateway.transport.url, ca: cert, credential: /* 只使用本轮配对凭据。 */ () => credential, offer }
   })
   /** 只等待观察结果，不刷新任何业务 deadline。 */
@@ -234,6 +314,7 @@ try {
   /** 每次原参数经唯一 Router/Wire/native/result 门禁，保留原生 result/error 不改写。 */
   async function rpc(method, params) {
     const started = performance.now()
+    lastNativeError = undefined
     stage = method + ':admit'
     const admitted = await gateway.runAuthenticated(
       { principal_id: caller.id },
@@ -249,6 +330,10 @@ try {
           }
         })
     )
+    assert.equal(admitted.created, true)
+    if (paths['stable-selection']) {
+      observe(admitted.call.call_id, 'created')
+    }
     stage = method + ':response'
     await until(
       /* 等待唯一 Store 原生响应提交，未知不自动重放。 */ () => {
@@ -279,6 +364,9 @@ try {
       offset = page.next_cursor
     }
     const frame = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (paths['stable-selection']) {
+      observe(admitted.call.call_id, 'original_result_frames')
+    }
     stage = method + ':native_result'
     timings.push({ method, elapsed_ms: Math.round(performance.now() - started) })
     lastNativeError =
@@ -384,6 +472,17 @@ try {
     )
   )
   checks.push('same_session_and_terminal_identity')
+  if (paths['stable-selection']) {
+    stage = 'stable_selection'
+    stableSelection = await verifyStableLuvusSelection(rpc, {
+      project: config.cwd,
+      projectA: join(root, 'project-a'),
+      projectC: join(root, 'project-c')
+    })
+    assert.equal(stableSelection.native_rpc, 47)
+    assert.equal(stableSelection.checks.length, 27)
+    assert.equal(timings.length, 58)
+  }
   await connector.close()
   assert.equal(gateway.transport.status().stopped, false)
   checks.push('gateway_survives_connector_exit')
@@ -402,6 +501,15 @@ try {
     passed: true,
     checks,
     timings,
+    ...(stableSelection
+      ? {
+          stable_selection: stableSelection,
+          native_rpc: timings.length,
+          dispatch_observations: stableObservations(),
+          model_requests: 0,
+          tokens_issued: 0
+        }
+      : {}),
     agent_count: agents.result.agents.length,
     agent_state_source: 'native_response',
     conversation: agentInputOutput ? 'not_verified_native_input_output_only' : 'not_exercised_no_real_agent_configured',
@@ -414,7 +522,12 @@ try {
   console.error(
     JSON.stringify({
       stage,
-      code: typeof error?.code === 'string' ? error.code : 'luvus_operations_failed',
+      code:
+        typeof error?.code === 'string'
+          ? error.code
+          : ['operations_wait_timeout', 'operations_outcome_unknown'].includes(error?.message)
+            ? error.message
+            : 'luvus_operations_failed',
       native_error_code: lastNativeError,
       timings
     })
@@ -441,6 +554,9 @@ try {
     }
   }
   const result = cleanup.finish()
+  if (report) {
+    report.cleanup = result
+  }
   if (result.cleanup_pending) {
     console.error(JSON.stringify({ stage: 'cleanup', ...result }))
     process.exitCode = 1
