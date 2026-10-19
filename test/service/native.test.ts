@@ -50,7 +50,7 @@ test(
           code: present ? 0 : 4,
           stdout: present
             ? `LoadState=loaded\nActiveState=${running ? 'active' : 'inactive'}\nSubState=${running ? 'running' : 'dead'}\nFragmentPath=/etc/systemd/system/rovloom-connector.service\nDropInPaths=\nExecMainStatus=0\nUnitFileState=${enabled ? 'enabled' : 'disabled'}\n`
-            : 'LoadState=not-found\nFragmentPath=\nDropInPaths=\n',
+            : 'LoadState=not-found\nActiveState=inactive\nSubState=dead\nMainPID=0\nFragmentPath=\nDropInPaths=\n',
           stderr: ''
         }
       }
@@ -246,7 +246,7 @@ test(
       return {
         code: 0,
         stdout: JSON.stringify(
-          data.op === 'read' ? { marker: manifest(spec) } : { state: 4, enabled: true, exitCode: 0 }
+          data.op === 'read' ? { marker: manifest(spec) } : { state: 4, instances: 1, enabled: true, exitCode: 0 }
         ),
         stderr: ''
       }
@@ -363,5 +363,191 @@ test(
         }),
       { code: 'system_command_failed' }
     )
+  }
+)
+
+test(
+  'systemd not-found only means absent with proven inactive state and no main PID',
+  /* 加载态缺失不能覆盖仍运行或尚未启动完成的实例状态。 */ async () => {
+    const memory = memoryFiles()
+    let active = 'inactive'
+    let sub = 'dead'
+    let pid = '0'
+    const commands: CommandPlan[] = []
+    const native = createNativeServiceBackend({
+      platform: 'linux',
+      files: memory.files,
+      verifyRuntime: /* 受控宿主未运行服务。 */ async () => {},
+      runner: /* 注入相互正交的 systemd 加载态与运行态。 */ async (plan) => {
+        commands.push(plan)
+        return {
+          code: 4,
+          stdout: `LoadState=not-found\nActiveState=${active}\nSubState=${sub}\nMainPID=${pid}\nFragmentPath=\nDropInPaths=\n`,
+          stderr: ''
+        }
+      }
+    })
+    assert.equal(await native.inspect('connector'), undefined)
+    for (const value of ['active', 'activating', 'deactivating', 'failed', 'unknown', '']) {
+      active = value
+      await assert.rejects(/* 没有可信声明时不能按名字盲停或把活实例当不存在。 */ () => native.inspect('connector'), {
+        code: 'service_conflict'
+      })
+    }
+    active = 'inactive'
+    pid = '123'
+    await assert.rejects(/* 运行 PID 仍存在时不允许报告不存在。 */ () => native.inspect('connector'), {
+      code: 'service_conflict'
+    })
+    pid = '0'
+    sub = 'running'
+    await assert.rejects(/* 子状态也必须正向证明已静止。 */ () => native.inspect('connector'), {
+      code: 'service_conflict'
+    })
+    memory.data.set('rovloom-connector.service', renderDefinition(sampleSpec()))
+    active = 'active'
+    await assert.rejects(/* 即使磁盘声明存在，未知加载来源的活实例也不能接管。 */ () => native.inspect('connector'), {
+      code: 'service_conflict'
+    })
+    assert(commands.every(/* 全程只能查询，不产生停止或清理计划。 */ (p) => p.args.includes('show')))
+  }
+)
+
+test(
+  'macOS recognizes boolean and named disabled values from official output, rejecting unknown values',
+  /* 复现 Apple 论坛和 NIST Sequoia 官方示例的输出形状，未进行 macOS 实装。 */ async () => {
+    const memory = memoryFiles()
+    memory.data.set('io.rovloom.connector.plist', renderDefinition(sampleSpec('darwin')))
+    const fixture = await readFile(new URL('../fixtures/service/launchctl-disabled.txt', import.meta.url), 'utf8')
+    let value = 'disabled'
+    const native = createNativeServiceBackend({
+      platform: 'darwin',
+      files: memory.files,
+      verifyRuntime: /* 受控宿主。 */ async () => {},
+      runner: /* 保留官方 print-disabled 输出结构，仅替换为项目固定标签。 */ async (p) => ({
+        code: 0,
+        stdout:
+          p.args[0] === 'list'
+            ? 'PID\tStatus\tLabel\n'
+            : fixture.replace('com.xpc.example.agent', 'io.rovloom.connector').replace('=> disabled', `=> ${value}`),
+        stderr: ''
+      })
+    })
+    for (const [literal, enabled] of [
+      ['true', false],
+      ['disabled', false],
+      ['false', true],
+      ['enabled', true]
+    ] as const) {
+      value = literal
+      assert.equal((await native.inspect('connector'))?.enabled, enabled)
+    }
+    for (const literal of ['unknown', 'TRUE', 'yes', '0', 'false extra']) {
+      value = literal
+      await assert.rejects(/* 仅兼容已知四值，不宽松接受其它字符串。 */ () => native.inspect('connector'), {
+        code: 'system_command_failed'
+      })
+    }
+  }
+)
+
+test(
+  'macOS disabled loaded jobs remain controllable; cleanup never bootouts even after natural exit',
+  /* 退出但仍 loaded 的 job 不能被卸载隐式 bootout，显式 stop 后才可清理。 */ async () => {
+    const memory = memoryFiles()
+    const spec = sampleSpec('darwin')
+    memory.data.set('io.rovloom.connector.plist', renderDefinition(spec))
+    let loaded = true
+    let running = true
+    let enabled = true
+    const ops: string[] = []
+    const native = createNativeServiceBackend({
+      platform: 'darwin',
+      files: memory.files,
+      verifyRuntime: /* 不启动真实角色。 */ async () => {},
+      runner: /* 模拟 loaded 标记独立于 PID 与自启状态。 */ async (p) => {
+        const op = p.args[0]!
+        ops.push(op)
+        if (op === 'list') {
+          return {
+            code: 0,
+            stdout: 'PID\tStatus\tLabel\n' + (loaded ? `${running ? '123' : '-'}\t0\tio.rovloom.connector\n` : ''),
+            stderr: ''
+          }
+        }
+        if (op === 'print') {
+          return {
+            code: 0,
+            stdout: 'system/io.rovloom.connector = {\n path = /Library/LaunchDaemons/io.rovloom.connector.plist\n}\n',
+            stderr: ''
+          }
+        }
+        if (op === 'print-disabled') {
+          return {
+            code: 0,
+            stdout: `disabled services = {\n "io.rovloom.connector" => ${enabled ? 'enabled' : 'disabled'}\n}\n`,
+            stderr: ''
+          }
+        }
+        if (op === 'disable') {
+          enabled = false
+        }
+        if (op === 'bootout') {
+          loaded = false
+          running = false
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }
+    })
+    await native.enable(spec, false)
+    assert.equal(await native.remove(spec), false)
+    assert(!ops.includes('bootout'))
+    assert.equal((await native.inspect('connector'))?.state, 'running')
+    running = false
+    assert.equal(await native.remove(spec), false)
+    assert(!ops.includes('bootout'))
+    assert(memory.data.has('io.rovloom.connector.plist'))
+    await native.stop(spec)
+    assert.equal(await native.remove(spec), true)
+    assert.equal(ops.filter(/* 只有显式停止调用产生一次 bootout。 */ (x) => x === 'bootout').length, 1)
+  }
+)
+
+test(
+  'Windows state allowlist rejects UNKNOWN and future numbers even with zero last result',
+  /* 不把未知状态默认为已停止或允许清理。 */ async () => {
+    const spec = sampleSpec('win32')
+    let state = 3
+    let instances = 0
+    let enabled = false
+    const runner: CommandRunner = /* 不执行 COM，仅返回精确的注册查询字段。 */ async (p) => ({
+      code: 0,
+      stdout: JSON.stringify(
+        JSON.parse(p.input!).op === 'read' ? { marker: manifest(spec) } : { state, instances, enabled, exitCode: 0 }
+      ),
+      stderr: ''
+    })
+    for (const invalid of [0, 5, -1]) {
+      state = invalid
+      await assert.rejects(/* 未知状态必须阻止控制层误报停止。 */ () => inspectTask(runner, 'connector'), {
+        code: 'system_command_failed'
+      })
+    }
+    for (const quiet of [1, 3]) {
+      state = quiet
+      assert.equal((await inspectTask(runner, 'connector'))?.state, 'stopped')
+    }
+    instances = 1
+    assert.equal((await inspectTask(runner, 'connector'))?.state, 'running')
+    assert.equal((await inspectTask(runner, 'connector'))?.enabled, false)
+    enabled = true
+    assert.equal((await inspectTask(runner, 'connector'))?.enabled, true)
+    assert(TASK_SCRIPT.includes('$t.State -notin @(1,2,3,4)'))
+    assert(TASK_SCRIPT.includes('$t.State -notin @(1,3)'))
+    assert(TASK_SCRIPT.includes('$t.GetInstances(0).Count -ne 0'))
+    assert(TASK_SCRIPT.includes('$boot.Enabled = [bool]$p.enabled'))
+    assert(!TASK_SCRIPT.includes('$t.Enabled ='))
+    assert(TASK_SCRIPT.includes('$expected.Principal.LogonType = 5'))
+    assert(TASK_SCRIPT.includes('RegisterTaskDefinition($p.name, $definition, 52'))
   }
 )

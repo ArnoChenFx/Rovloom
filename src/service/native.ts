@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { registrationFiles, type RegistrationFiles } from './files.js'
 import { renderDefinition } from './render.js'
 import { checkedCommand, runSystemCommand, type CommandRunner } from './runner.js'
-import { verifyPosixInstallation } from './security.js'
+import { macosPermissionPaths, verifyMacosAcl, verifyPosixInstallation } from './security.js'
 import { manifest, OWNER, parseManifest, serviceName, servicePlatform } from './spec.js'
 import { inspectTask, taskCall, verifyWindowsControlDirectory } from './windows.js'
 import {
@@ -21,6 +21,8 @@ export type NativeServiceOptions = {
   verifyRuntime(spec: ServiceSpec): Promise<void>
   // Windows 必须验证 executable/祖先不可被普通账户替换，以及 LocalService 对指定配置/状态目录的最小 ACL。
   verifyWindowsInstallation?: (spec: ServiceSpec) => Promise<void>
+  // 显式宿主若允许扩展 ACL，必须核验传入全部路径的有效权限；缺省保守拒绝任何扩展 ACL。
+  verifyMacosPermissions?: (paths: readonly string[]) => Promise<void>
   runner?: CommandRunner
   files?: RegistrationFiles
 }
@@ -75,7 +77,16 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
       : platform === 'darwin'
         ? '/Library/LaunchDaemons'
         : 'C:\\ProgramData\\Rovloom\\ServiceControl'
-  const files = options.files ?? registrationFiles(root, platform === 'win32')
+  // macOS 的 BSD mode 不足以证明权限，所有相关路径和祖先必须检查扩展 ACL。
+  async function macPermissions(paths: readonly string[]): Promise<void> {
+    if (options.verifyMacosPermissions) {
+      await options.verifyMacosPermissions(macosPermissionPaths(paths))
+    } else {
+      await verifyMacosAcl(paths, run)
+    }
+  }
+  const files =
+    options.files ?? registrationFiles(root, platform === 'win32', platform === 'darwin' ? macPermissions : undefined)
   // 将项目角色映射为唯一注册文件名。
   function filename(role: ServiceRole): string {
     return serviceName(role, platform) + (platform === 'linux' ? '.service' : '.plist')
@@ -133,10 +144,10 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
     const name = serviceName(role, platform)
     for (const line of value.stdout.split('\n')) {
       if (line.includes(`"${name}"`)) {
-        if (line.trim() === `"${name}" => true`) {
+        if ([`"${name}" => true`, `"${name}" => disabled`].includes(line.trim())) {
           return false
         }
-        if (line.trim() !== `"${name}" => false`) {
+        if (![`"${name}" => false`, `"${name}" => enabled`].includes(line.trim())) {
           throw new ServiceError('system_command_failed')
         }
       }
@@ -174,6 +185,9 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
         await options.verifyWindowsInstallation(spec)
       } else {
         await verifyPosixInstallation(spec, run)
+        if (platform === 'darwin') {
+          await macPermissions([spec.executable, spec.config, spec.directory])
+        }
       }
     },
     // 同时验证磁盘声明与实际系统来源；未知覆盖、同名异物均作为冲突。
@@ -198,7 +212,7 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
           '--no-ask-password',
           'show',
           '--no-pager',
-          '--property=LoadState,ActiveState,SubState,FragmentPath,DropInPaths,ExecMainStatus,UnitFileState',
+          '--property=LoadState,ActiveState,SubState,FragmentPath,DropInPaths,ExecMainStatus,MainPID,UnitFileState',
           '--',
           filename(role)
         ],
@@ -211,6 +225,9 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
         !data.get('DropInPaths') &&
         [0, 4].includes(result.code)
       ) {
+        if (data.get('ActiveState') !== 'inactive' || data.get('SubState') !== 'dead' || data.get('MainPID') !== '0') {
+          throw new ServiceError('service_conflict')
+        }
         return spec ? { spec, state: 'stopped', enabled: false } : undefined
       }
       if (result.code !== 0) {
@@ -297,22 +314,30 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
         await systemctl(['stop', '--', filename(spec.role)])
       }
     },
-    // 卸载仅删除核验过的注册，保留配置、数据库、日志及用户目录。
+    // 仅清理已撤销自启且不再承载运行实例的注册；不能为清理而停止或 bootout。
     async remove(spec) {
       const current = await owned(spec)
+      if (current.enabled) {
+        throw new ServiceError('service_conflict')
+      }
       if (!['stopped', 'failed'].includes(current.state)) {
-        throw new ServiceError('service_busy')
+        return false
       }
       if (platform === 'win32') {
-        await taskCall(run, 'remove', spec.role, spec)
+        const removed = await taskCall(run, 'remove', spec.role, spec)
+        if (removed.absent !== true && removed.retained !== true) {
+          throw new ServiceError('system_command_failed')
+        }
+        return removed.absent === true
       } else {
         if (platform === 'darwin' && (await launchInfo(spec.role)).loaded) {
-          await launchctl(['bootout', `system/${serviceName(spec.role, platform)}`])
+          return false
         }
         await files.remove(filename(spec.role), renderDefinition(spec))
         if (platform === 'linux') {
           await systemctl(['daemon-reload'])
         }
+        return true
       }
     }
   }

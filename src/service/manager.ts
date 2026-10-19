@@ -62,7 +62,7 @@ export class ServiceManager {
     throw new ServiceError(running ? 'service_start_failed' : 'service_timeout')
   }
 
-  // 安装只启用开机启动；卸载先禁用并停止，停止失败则保留注册及全部业务数据。
+  // 安装和卸载只控制未来开机启动；运行中撤销自启保留控制记录，只有显式 stop/restart 能停止实例。
   async execute(request: ServiceRequest): Promise<ServiceResult> {
     if (!isRole(request.role) || !['install', 'uninstall', 'start', 'restart', 'stop'].includes(request.action)) {
       throw new ServiceError('invalid_arguments')
@@ -73,6 +73,7 @@ export class ServiceManager {
       /* 在角色锁内完成整个状态转换。 */ async () => {
         let current = await this.backend.inspect(request.role)
         let changed = false
+        let stopRequested = false
         if (request.action === 'install') {
           if (!request.spec) {
             throw new ServiceError('invalid_arguments')
@@ -104,25 +105,51 @@ export class ServiceManager {
         } else {
           const spec = current.spec
           if (request.action === 'uninstall') {
-            await this.backend.enable(spec, false)
-            changed = true
-          }
-          if (request.action !== 'start' && !['stopped', 'failed'].includes(current.state)) {
-            await this.backend.stop(spec)
-            current = await this.settle(spec, false)
-            changed = true
-          }
-          if (request.action === 'uninstall') {
-            await this.observe(spec)
-            await this.backend.remove(spec)
-            current = undefined
-          } else if (request.action === 'start' || request.action === 'restart') {
-            if (current.state !== 'running') {
-              await this.backend.preflight(spec)
-              await this.backend.start(spec)
+            if (current.enabled) {
+              await this.backend.enable(spec, false)
               changed = true
             }
-            current = await this.settle(spec, true)
+            current = await this.observe(spec)
+            if (current.enabled) {
+              throw new ServiceError('system_command_failed')
+            }
+            // 运行中只撤销自启，不等待退出，也不调用停止或释放仍被监管器使用的记录。
+            if (['stopped', 'failed'].includes(current.state)) {
+              if (await this.backend.remove(spec)) {
+                current = undefined
+                changed = true
+              } else {
+                current = await this.observe(spec)
+              }
+            }
+          } else {
+            if (
+              request.action !== 'start' &&
+              (!['stopped', 'failed'].includes(current.state) ||
+                (request.action === 'stop' && !current.enabled && this.backend.platform === 'darwin'))
+            ) {
+              // macOS 的显式 stop 也释放已退出但仍 loaded 的 job；卸载分支永远不走这里。
+              stopRequested = true
+              await this.backend.stop(spec)
+              current = await this.settle(spec, false)
+              changed = true
+            }
+            if (request.action === 'start' || request.action === 'restart') {
+              if (current.state !== 'running') {
+                await this.backend.preflight(spec)
+                await this.backend.start(spec)
+                changed = true
+              }
+              current = await this.settle(spec, true)
+            } else if (!current.enabled) {
+              // 用户已明确停止且自启已撤销时，才尝试回收不再承载实例的控制记录。
+              if (await this.backend.remove(spec)) {
+                current = undefined
+                changed = true
+              } else {
+                current = await this.observe(spec)
+              }
+            }
           }
         }
         return {
@@ -131,8 +158,13 @@ export class ServiceManager {
           changed,
           state: current?.state ?? 'absent',
           bootEnabled: current?.enabled ?? false,
+          controlRetained: current !== undefined,
           readiness: 'not_checked',
-          stopMode: this.backend.platform === 'win32' ? 'task_termination' : 'signal_then_kill'
+          stopMode: stopRequested
+            ? this.backend.platform === 'win32'
+              ? 'task_termination'
+              : 'signal_then_kill'
+            : 'not_requested'
         }
       }
     )

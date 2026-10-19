@@ -2,7 +2,7 @@
 export { ServiceManager } from './manager.js'
 export type { ServiceClock } from './manager.js'
 export { handleServiceCommand, parseServiceCommand, SERVICE_HELP } from './command.js'
-export type { ServiceCommandHost } from './command.js'
+export type { ServiceCommandHost, ServiceConfigPathResolver } from './command.js'
 export { createNativeServiceBackend } from './native.js'
 export type { NativeServiceOptions } from './native.js'
 export { ServiceError } from './types.js'

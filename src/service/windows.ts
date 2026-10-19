@@ -34,29 +34,38 @@ try {
   if ($null -eq $t) { throw 'service_conflict' }
   $expected = $s.NewTask(0)
   $expected.XmlText = $p.xml
+  $expected.Principal.LogonType = 5
   [xml]$a = $t.Xml
   [xml]$b = $expected.XmlText
   foreach ($doc in @($a,$b)) {
     $ns = [Xml.XmlNamespaceManager]::new($doc.NameTable)
     $ns.AddNamespace('t', 'http://schemas.microsoft.com/windows/2004/02/mit/task')
     foreach ($node in @($doc.SelectNodes('/t:Task/t:RegistrationInfo/t:URI | /t:Task/t:RegistrationInfo/t:Date', $ns))) { $null = $node.ParentNode.RemoveChild($node) }
-    $enabled = $doc.SelectSingleNode('/t:Task/t:Settings/t:Enabled', $ns)
+    $enabled = $doc.SelectSingleNode('/t:Task/t:Triggers/t:BootTrigger/t:Enabled', $ns)
     if ($null -ne $enabled) { $enabled.InnerText = 'true' }
   }
   if ($a.OuterXml -cne $b.OuterXml -or $t.Definition.RegistrationInfo.Description -cne $p.marker) { throw 'service_conflict' }
+  if ([int]$t.State -notin @(1,2,3,4)) { throw 'system_command_failed' }
   switch ($p.op) {
     'inspect' { }
-    'enable' { $t.Enabled = [bool]$p.enabled }
+    'enable' {
+      $definition = $t.Definition
+      $boot = $definition.Triggers.Item(1)
+      $boot.Enabled = [bool]$p.enabled
+      $security = $t.GetSecurityDescriptor(7)
+      $t = $folder.RegisterTaskDefinition($p.name, $definition, 52, 'S-1-5-19', $null, 5, $security)
+    }
     'start' { $null = $t.Run($null) }
     'stop' { $t.Stop(0) }
     'remove' {
-      if ($t.State -eq 4 -or $t.State -eq 2) { throw 'service_busy' }
+      if ([int]$t.State -notin @(1,3) -or $t.GetInstances(0).Count -ne 0) { @{retained=$true} | ConvertTo-Json -Compress; exit 0 }
+      if ($t.Definition.Triggers.Item(1).Enabled) { throw 'service_conflict' }
       $folder.DeleteTask($p.name, 0)
       @{absent=$true} | ConvertTo-Json -Compress; exit 0
     }
     default { throw 'invalid_arguments' }
   }
-  @{state=[int]$t.State; enabled=[bool]$t.Enabled; exitCode=[long]$t.LastTaskResult} | ConvertTo-Json -Compress
+  @{state=[int]$t.State; instances=[int]$t.GetInstances(0).Count; enabled=[bool]$t.Definition.Triggers.Item(1).Enabled; exitCode=[long]$t.LastTaskResult} | ConvertTo-Json -Compress
 } catch {
   $code = 'system_command_failed'
   if ($_.Exception.Message -in @('permission_denied','service_conflict','service_busy','invalid_arguments')) { $code = $_.Exception.Message }
@@ -117,19 +126,26 @@ export async function inspectTask(run: CommandRunner, role: ServiceRole): Promis
   }
   const spec = parseManifest(found.marker, role, 'win32')
   const actual = await taskCall(run, 'inspect', role, spec)
-  if (typeof actual.state !== 'number' || typeof actual.enabled !== 'boolean' || typeof actual.exitCode !== 'number') {
+  if (
+    !Number.isInteger(actual.state) ||
+    ![1, 2, 3, 4].includes(actual.state as number) ||
+    typeof actual.enabled !== 'boolean' ||
+    !Number.isSafeInteger(actual.exitCode) ||
+    !Number.isSafeInteger(actual.instances) ||
+    (actual.instances as number) < 0
+  ) {
     throw new ServiceError('system_command_failed')
   }
   // TASK_STATE_RUNNING=4、QUEUED=2；已退出且结果非零的实例明确报告失败。
   const state =
-    actual.state === 4
+    actual.state === 4 || (actual.instances as number) > 0
       ? 'running'
       : actual.state === 2
         ? 'starting'
         : actual.exitCode === 0 || actual.exitCode === 0x41303 || actual.exitCode === 0x41306
           ? 'stopped'
           : 'failed'
-  return { spec, state, enabled: actual.enabled, exitCode: actual.exitCode }
+  return { spec, state, enabled: actual.enabled, exitCode: actual.exitCode as number }
 }
 
 // 校验预先准备的 Windows 控制目录仅由管理员/SYSTEM 管理；不创建目录或修改 ACL。

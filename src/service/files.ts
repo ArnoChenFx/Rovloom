@@ -19,7 +19,11 @@ export type RegistrationFiles = {
 }
 
 // 固定根目录由宿主选择，所有相对文件名须由模块内部固定身份生成。
-export function registrationFiles(directory: string, windows = false): RegistrationFiles {
+export function registrationFiles(
+  directory: string,
+  windows = false,
+  verifyPermissions?: (paths: readonly string[]) => Promise<void>
+): RegistrationFiles {
   // 拒绝目录穿越，内部文件名不允许成为其它路径。
   function path(name: string): string {
     if (!/^[a-z0-9._-]+$/u.test(name)) {
@@ -33,6 +37,7 @@ export function registrationFiles(directory: string, windows = false): Registrat
       if (!windows) {
         await protectedPath(directory, 0, false)
       }
+      await verifyPermissions?.([directory])
     },
     // lstat 后以 O_NOFOLLOW 打开，且核对 inode，阻断检查与打开之间的替换。
     async read(name) {
@@ -54,6 +59,7 @@ export function registrationFiles(directory: string, windows = false): Registrat
       ) {
         throw new ServiceError('service_conflict')
       }
+      await verifyPermissions?.([target])
       const fd = await open(target, windows ? 'r' : constants.O_RDONLY | constants.O_NOFOLLOW)
       try {
         const actual = await fd.stat()

@@ -77,6 +77,7 @@ export function model(platform: ServicePlatform = 'linux') {
     remove: /* 仅删除模拟注册，不存在业务文件删除端口。 */ async () => {
       call('remove')
       current = undefined
+      return true
     }
   }
   const clock: ServiceClock = {

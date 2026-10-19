@@ -19,8 +19,9 @@ for (const platform of ['linux', 'darwin', 'win32'] as ServicePlatform[]) {
         changed: true,
         state: 'stopped',
         bootEnabled: true,
+        controlRetained: true,
         readiness: 'not_checked',
-        stopMode: platform === 'win32' ? 'task_termination' : 'signal_then_kill'
+        stopMode: 'not_requested'
       })
       assert(!m.calls.includes('start'))
       assert.equal((await manager.execute(install)).changed, false)
@@ -32,11 +33,17 @@ for (const platform of ['linux', 'darwin', 'win32'] as ServicePlatform[]) {
       assert.equal(starts, 1)
       await manager.execute({ action: 'restart', role: spec.role })
       assert(m.calls.lastIndexOf('stop') < m.calls.lastIndexOf('start'))
-      assert.equal((await manager.execute({ action: 'uninstall', role: spec.role })).state, 'absent')
-      assert(m.calls.lastIndexOf('disable') < m.calls.lastIndexOf('stop'))
-      assert(m.calls.lastIndexOf('stop') < m.calls.lastIndexOf('remove'))
+      const beforeUninstall = m.calls.length
+      const removed = await manager.execute({ action: 'uninstall', role: spec.role })
+      assert.equal(removed.state, 'running')
+      assert.equal(removed.bootEnabled, false)
+      assert.equal(removed.controlRetained, true)
+      assert.equal(removed.stopMode, 'not_requested')
+      assert(!m.calls.slice(beforeUninstall).includes('stop'))
+      assert(!m.calls.slice(beforeUninstall).includes('remove'))
       assert.equal((await manager.execute({ action: 'uninstall', role: spec.role })).changed, false)
       assert.equal((await manager.execute({ action: 'stop', role: spec.role })).state, 'absent')
+      assert.equal((await manager.execute({ action: 'uninstall', role: spec.role })).changed, false)
       await assert.rejects(/* 未安装角色不能隐式安装。 */ () => manager.execute({ action: 'start', role: spec.role }), {
         code: 'service_not_installed'
       })
@@ -77,18 +84,20 @@ test(
 )
 
 test(
-  'failed stop disables boot and keeps registration; restart never starts a second instance',
-  /* 模拟停止超时，保留可检查的注册且不继续删除或重启。 */ async () => {
+  'uninstall never calls a failing stop; explicit stop/restart still preserve the instance on timeout',
+  /* 撤销自启独立于停止能力；显式停止失败时仍保留受保护控制记录。 */ async () => {
     const m = model()
     const spec = sampleSpec()
     m.set({ spec, enabled: true, state: 'running' })
     m.stuck.add('stop')
     const manager = new ServiceManager(m.backend, m.clock)
+    assert.equal((await manager.execute({ action: 'uninstall', role: 'connector' })).state, 'running')
+    assert.equal(m.get()?.enabled, false)
+    assert(!m.calls.includes('stop') && !m.calls.includes('remove'))
     await assert.rejects(
-      /* 无法停止时不能删除注册。 */ () => manager.execute({ action: 'uninstall', role: 'connector' }),
+      /* 只有显式停止命令会等待停止并报告超时。 */ () => manager.execute({ action: 'stop', role: 'connector' }),
       { code: 'service_timeout' }
     )
-    assert.equal(m.get()?.enabled, false)
     assert.equal(m.get()?.state, 'running')
     assert(!m.calls.includes('remove'))
     await assert.rejects(
@@ -178,5 +187,71 @@ test(
       { code: 'invalid_arguments' }
     )
     assert(!m.calls.includes('create'))
+  }
+)
+
+for (const platform of ['linux', 'darwin', 'win32'] as ServicePlatform[]) {
+  test(
+    `${platform}: reinstall restores boot without stopping; cleanup after exit keeps foreign protection`,
+    /* 检查撤销自启后的重新安装、自然退出清理与身份保护。 */ async () => {
+      const m = model(platform)
+      const spec = sampleSpec(platform)
+      const manager = new ServiceManager(m.backend, m.clock)
+      m.set({ spec, enabled: true, state: 'running' })
+      await manager.execute({ action: 'uninstall', role: spec.role })
+      m.calls.length = 0
+      const again = await manager.execute({ action: 'install', role: spec.role, spec })
+      assert.equal(again.state, 'running')
+      assert.equal(again.bootEnabled, true)
+      assert(!m.calls.includes('stop') && !m.calls.includes('start') && !m.calls.includes('create'))
+      await manager.execute({ action: 'uninstall', role: spec.role })
+      m.get()!.state = 'stopped'
+      const cleaned = await manager.execute({ action: 'uninstall', role: spec.role })
+      assert.equal(cleaned.state, 'absent')
+      assert.equal(cleaned.controlRetained, false)
+      assert(!m.calls.includes('stop'))
+      m.set({ spec, enabled: false, state: 'stopped' })
+      m.backend.remove = /* 模拟清理前发现同名异物，不允许删除它。 */ async () => {
+        throw new ServiceError('service_conflict')
+      }
+      await assert.rejects(
+        /* 外部替换后的记录必须保留供人工检查。 */ () => manager.execute({ action: 'uninstall', role: spec.role }),
+        { code: 'service_conflict' }
+      )
+      assert(m.get())
+    }
+  )
+  test(
+    `${platform}: starting and stopping instances keep control records when boot is revoked`,
+    /* 尚在状态转换中的实例也不能被卸载路径中断或遗弃。 */ async () => {
+      for (const state of ['starting', 'stopping'] as const) {
+        const m = model(platform)
+        const spec = sampleSpec(platform)
+        m.set({ spec, enabled: true, state })
+        const result = await new ServiceManager(m.backend, m.clock).execute({ action: 'uninstall', role: spec.role })
+        assert.equal(result.state, state)
+        assert.equal(result.bootEnabled, false)
+        assert.equal(result.controlRetained, true)
+        assert(!m.calls.includes('stop') && !m.calls.includes('remove'))
+      }
+    }
+  )
+}
+
+test(
+  'cleanup races retain current ownership and reobserve state instead of reporting absent',
+  /* 已静止实例在清理前重新运行时只保留控制记录，不停止它或误报删除。 */ async () => {
+    const m = model()
+    const spec = sampleSpec()
+    m.set({ spec, enabled: false, state: 'stopped' })
+    m.backend.remove = /* 模拟原生监管器在安全检查时发现实例已经运行。 */ async () => {
+      m.set({ spec, enabled: false, state: 'running' })
+      return false
+    }
+    const result = await new ServiceManager(m.backend, m.clock).execute({ action: 'uninstall', role: 'connector' })
+    assert.equal(result.state, 'running')
+    assert.equal(result.controlRetained, true)
+    assert.equal(result.stopMode, 'not_requested')
+    assert(!m.calls.includes('stop'))
   }
 )
