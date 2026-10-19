@@ -10,7 +10,7 @@ export function readStableProxyReply(bytes, id, exitCode) {
   return response
 }
 
-/** 每次变更使用刚发现的稳定 ID 和原 revision；位置移动、跨 workspace 与旧 revision 必须保持原生语义。 */
+/** 稳定 ID 选择不附加可选全局 CAS；旧 revision 另作一次明确负例，不更新并重发失败变更。 */
 export async function verifyStableLuvusSelection(rpc, paths) {
   const checks = []
   let nativeRpc = 0
@@ -39,66 +39,73 @@ export async function verifyStableLuvusSelection(rpc, paths) {
   checks.push('workspace_discovered_with_stable_id')
   const workspaceIndex = a.workspace
   const staleWorkspaceRevision = listed.revision
-  await result('workspace.close', { workspace_id: before.workspace_id, if_revision: listed.revision })
+  await result('workspace.close', { workspace_id: before.workspace_id })
   let current = await result('workspace.get', { workspace_id: a.workspace_id })
   assert.notEqual(current.workspace, workspaceIndex)
+  assert(current.revision > staleWorkspaceRevision)
   checks.push('workspace_position_moves_but_id_remains')
-  assert.equal(
-    (
-      await frame('workspace.rename', {
-        workspace_id: a.workspace_id,
-        name: 'stale',
-        if_revision: staleWorkspaceRevision
-      })
-    ).error?.code,
-    'revision_conflict'
-  )
+  const workspaceConflict = await frame('workspace.rename', {
+    workspace_id: a.workspace_id,
+    name: 'stale',
+    if_revision: staleWorkspaceRevision
+  })
+  assert.equal(workspaceConflict.error?.code, 'revision_conflict')
+  assert.equal(workspaceConflict.error.expected, staleWorkspaceRevision)
+  assert(workspaceConflict.error.actual >= current.revision)
   checks.push('workspace_stale_revision_is_native_conflict')
-  await result('workspace.rename', { workspace_id: a.workspace_id, name: 'stable A', if_revision: current.revision })
+  const afterWorkspaceConflict = await result('workspace.get', { workspace_id: a.workspace_id })
+  assert.equal(afterWorkspaceConflict.workspace_id, a.workspace_id)
+  assert.equal(afterWorkspaceConflict.name, current.name)
+  checks.push('workspace_stale_revision_does_not_mutate_selected_id')
+  await result('workspace.rename', { workspace_id: a.workspace_id, name: 'stable A' })
   current = await result('workspace.get', { workspace_id: a.workspace_id })
   assert.equal(current.name, 'stable A')
   checks.push('workspace_rename_keeps_selected_id')
-  await result('workspace.focus', { workspace_id: a.workspace_id, if_revision: current.revision })
+  await result('workspace.focus', { workspace_id: a.workspace_id })
   const tabs = await result('tab.list')
   const preceding = tabs.tabs[0]
   assert(preceding)
-  await result('tab.new', { if_revision: tabs.revision })
+  await result('tab.new')
   let selected = await result('tab.get')
+  assert.equal(selected.workspace_id, a.workspace_id)
   const tabA = selected.tab_id
   const tabIndex = selected.tab
-  await result('tab.new', { if_revision: selected.revision })
+  await result('tab.new')
   let tabB = await result('tab.get')
+  assert.equal(tabB.workspace_id, a.workspace_id)
   const tabBId = tabB.tab_id
   const staleTabRevision = tabB.revision
-  await result('tab.close', { tab_id: preceding.tab_id, if_revision: tabB.revision })
+  await result('tab.close', { tab_id: preceding.tab_id })
   selected = await result('tab.get', { workspace_id: a.workspace_id, tab_id: tabA })
   assert.notEqual(selected.tab, tabIndex)
+  assert(selected.revision > staleTabRevision)
   checks.push('tab_position_moves_but_id_remains')
-  assert.equal(
-    (await frame('tab.rename', { tab_id: tabA, name: 'stale', if_revision: staleTabRevision })).error?.code,
-    'revision_conflict'
-  )
+  const tabConflict = await frame('tab.rename', { tab_id: tabA, name: 'stale', if_revision: staleTabRevision })
+  assert.equal(tabConflict.error?.code, 'revision_conflict')
+  assert.equal(tabConflict.error.expected, staleTabRevision)
+  assert(tabConflict.error.actual >= selected.revision)
   checks.push('tab_stale_revision_is_native_conflict')
-  await result('tab.rename', { tab_id: tabA, name: 'stable tab A', if_revision: selected.revision })
+  const afterTabConflict = await result('tab.get', { workspace_id: a.workspace_id, tab_id: tabA })
+  assert.equal(afterTabConflict.tab_id, tabA)
+  assert.equal(afterTabConflict.name, selected.name)
+  checks.push('tab_stale_revision_does_not_mutate_selected_id')
+  await result('tab.rename', { tab_id: tabA, name: 'stable tab A' })
   selected = await result('tab.get', { workspace_id: a.workspace_id, tab_id: tabA })
   assert.equal(selected.name, 'stable tab A')
   checks.push('tab_rename_keeps_selected_id')
-  await result('workspace.open', { path: paths.projectC, focus: true, if_revision: selected.revision })
+  await result('workspace.open', { path: paths.projectC, focus: true })
   const c = await result('workspace.get')
   const cTab = await result('tab.get')
   selected = await result('tab.get', { workspace_id: a.workspace_id, tab_id: tabA })
   assert.equal(selected.tab_id, tabA)
   assert.equal(selected.workspace_id, a.workspace_id)
   checks.push('tab_get_selects_other_workspace_by_id')
-  assert.equal(
-    (await frame('tab.rename', { tab_id: tabA, name: 'wrong workspace', if_revision: selected.revision })).error?.code,
-    'not_found'
-  )
+  assert.equal((await frame('tab.rename', { tab_id: tabA, name: 'wrong workspace' })).error?.code, 'not_found')
   checks.push('foreign_tab_rename_is_native_not_found')
   const cCurrent = await result('tab.get', { workspace_id: c.workspace_id, tab_id: cTab.tab_id })
   assert.equal(cCurrent.name, cTab.name)
   checks.push('foreign_tab_rename_preserves_current_tab')
-  assert.equal((await frame('tab.close', { tab_id: tabA, if_revision: cCurrent.revision })).error?.code, 'not_found')
+  assert.equal((await frame('tab.close', { tab_id: tabA })).error?.code, 'not_found')
   checks.push('foreign_tab_close_is_native_not_found')
   const stillCurrent = await result('tab.get')
   assert.equal(stillCurrent.workspace_id, c.workspace_id)
@@ -111,15 +118,17 @@ export async function verifyStableLuvusSelection(rpc, paths) {
   checks.push('foreign_tab_writes_do_not_change_selected_other_tab')
   const snapshot = await result('session.snapshot')
   listed = await result('workspace.list')
-  assert.equal(snapshot.event_sequence, listed.revision)
+  const observedSequence = { snapshot: snapshot.event_sequence, list: listed.revision }
+  assert(listed.revision >= snapshot.event_sequence)
   assert.equal(snapshot.workspaces.length, listed.workspaces.length)
-  checks.push('snapshot_and_list_share_native_revision')
+  checks.push('snapshot_and_list_have_monotonic_session_sequence')
   for (let i = 0; i < snapshot.workspaces.length; i++) {
     const workspace = snapshot.workspaces[i]
     assert.equal(workspace.index, i + 1)
     assert.equal(typeof workspace.index, 'number')
     assert.equal(listed.workspaces[i].workspace, String(i))
     assert.equal(typeof listed.workspaces[i].workspace, 'string')
+    assert.equal(listed.workspaces[i].cwd, workspace.cwd)
     checks.push('snapshot_workspace_number_1_based_vs_list_string_0_based')
     for (let j = 0; j < workspace.tabs.length; j++) {
       assert.equal(workspace.tabs[j].index, j + 1)
@@ -148,24 +157,23 @@ export async function verifyStableLuvusSelection(rpc, paths) {
   checks.push('snapshot_terminal_tab_uses_stable_id')
   await result('workspace.rename', {
     workspace_id: pane.workspace_id,
-    name: 'snapshot selected A',
-    if_revision: stableTab.revision
+    name: 'snapshot selected A'
   })
   current = await result('workspace.get', { workspace_id: a.workspace_id })
   assert.equal(current.name, 'snapshot selected A')
   checks.push('snapshot_selected_workspace_rename_keeps_id')
-  await result('workspace.focus', { workspace_id: a.workspace_id, if_revision: current.revision })
+  await result('workspace.focus', { workspace_id: a.workspace_id })
   selected = await result('tab.get', { workspace_id: a.workspace_id, tab_id: tabA })
-  await result('tab.close', { tab_id: tabA, if_revision: selected.revision })
+  await result('tab.close', { tab_id: tabA })
   assert.equal((await frame('tab.get', { workspace_id: a.workspace_id, tab_id: tabA })).error?.code, 'not_found')
   checks.push('only_selected_tab_was_closed')
   tabB = await result('tab.get', { workspace_id: a.workspace_id, tab_id: tabBId })
   assert.equal(tabB.tab_id, tabBId)
   checks.push('other_tab_still_exists')
   current = await result('workspace.get', { workspace_id: c.workspace_id })
-  await result('workspace.focus', { workspace_id: c.workspace_id, if_revision: current.revision })
+  await result('workspace.focus', { workspace_id: c.workspace_id })
   current = await result('workspace.get', { workspace_id: a.workspace_id })
-  await result('workspace.close', { workspace_id: a.workspace_id, if_revision: current.revision })
+  await result('workspace.close', { workspace_id: a.workspace_id })
   listed = await result('workspace.list')
   assert.equal(
     listed.workspaces.some(/** 已关闭的确切 ID 不能再出现。 */ (row) => row.workspace_id === a.workspace_id),
@@ -176,5 +184,15 @@ export async function verifyStableLuvusSelection(rpc, paths) {
     true
   )
   checks.push('only_selected_workspace_was_closed')
-  return Object.freeze({ checks, native_rpc: nativeRpc, model_requests: 0, tokens_issued: 0 })
+  return Object.freeze({
+    checks,
+    native_rpc: nativeRpc,
+    observed_sequence: observedSequence,
+    stale_cas: [
+      { object: 'workspace_A', expected: workspaceConflict.error.expected, actual: workspaceConflict.error.actual },
+      { object: 'tab_A', expected: tabConflict.error.expected, actual: tabConflict.error.actual }
+    ],
+    model_requests: 0,
+    tokens_issued: 0
+  })
 }

@@ -92,7 +92,7 @@ Luvus 没有 `window.*` RPC；窗口选择沿原生 workspace → tab → pane �
 | 需求 | 普通 RPC | 原生字段 |
 |---|---|---|
 | 发现与选择 | `session.snapshot`、`workspace.list/get`、`tab.list/get`、`pane.list/get/current` | 优先保存 `workspace_id/tab_id/terminal_id`；snapshot 的 `index` 与其它接口的位置字段坐标不同，见下表；pane.list/get 使用 `pane`，snapshot 使用 `pane_id` |
-| 窗口管理 | `workspace.new/open/focus/rename/close`、`tab.new/focus/rename/close`、`pane.split/focus/rename/close` | workspace/tab 变更使用已发现的稳定 ID 与本次观察的 `revision`；完整 Target 保持不变，不按标题或最近对象重选 |
+| 窗口管理 | `workspace.new/open/focus/rename/close`、`tab.new/focus/rename/close`、`pane.split/focus/rename/close` | 变更使用已发现的稳定 ID；可选 `if_revision` 对整个 session 做 CAS。完整 Target 保持不变，不按标题或最近对象重选 |
 | 状态及输出 | `pane.status/read`、`agent.list/get/explain/read/sessions/wait` | 原样使用 `status/authority/state_source/session`；terminal_id 从 agent.list 取得，未知 session 保留 null |
 | Agent 操作 | `agent.start/prompt/send/keys/resume` | start 的 pane/anchor 互斥；prompt/send/keys 可绑定 terminal_id；resume 仅用于显式选择已有 session |
 
@@ -117,15 +117,22 @@ workspace 的 get/focus/rename/close 接收互斥的 `workspace_id` 或 `workspa
 `tab_id/tab`，不接受 workspace 选择器；当前 workspace 不含该 tab ID 时保留原生
 `not_found`，不得隐式切换后重放。`tab.list/new` 不接受 workspace 选择器。
 
-窗口/tab mutation 可带原生 `if_revision`（非负安全整数），值取刚才原生结果的
-`revision`；读取不接收该字段。并发变更导致 `revision_conflict` 时重新展示状态，
-不能自动更新 revision 并重发。以下是已发现 ID 的请求形状，示例值须替换为原生
+窗口/tab mutation 可带原生 `if_revision`（非负安全整数），读取不接收该字段。
+它比较整个 session 的 EventBus sequence，不是某个 workspace/tab 的对象版本；
+具体方法执行前，全局序号不等即返回 `revision_conflict`。
+[可选全局 CAS 分发](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch.rs#L101-L140)
+和[事件序号](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/ipc/api.rs#L1059-L1082)
+表明每个发布事件都会推进序号，成功 mutation 本身却不一定发布事件。PTY ready、
+输出或状态等后台事件也可能推进它；紧前 get 的 revision 不保证下一请求仍匹配。
+明确按稳定 ID 变更对象时可省略此可选条件；要求“全局观察后未发生事件”时才传入
+观察值。显式 CAS 失败须把原冲突展示给用户并重新读取状态，不得去掉条件、自动
+换 revision 或重发原变更。以下示例分别展示稳定 ID 选择和可选 CAS，示例值须替换为原生
 返回值；跨 workspace 的 tab 写入须先由用户明确选择 workspace，再重新读取状态：
 
 ```json
 [
   {"method":"workspace.get","params":{"workspace_id":"observed_workspace_id"}},
-  {"method":"workspace.rename","params":{"workspace_id":"observed_workspace_id","name":"project","if_revision":42}},
+  {"method":"workspace.rename","params":{"workspace_id":"observed_workspace_id","name":"project"}},
   {"method":"tab.get","params":{"workspace_id":"observed_workspace_id","tab_id":"observed_tab_id"}},
   {"method":"tab.rename","params":{"tab_id":"observed_tab_id","name":"agent","if_revision":43}}
 ]
@@ -192,3 +199,10 @@ Gateway、设备认证、claims 或 Wire 结果句柄，不替代上面的真实
 现有受控 child 清理流程释放资源，退出未确认时保留本轮 root。每个 proxy 调用固定
 10 秒、1 MiB 限额，并校验原 ID 与受控安装 schema；不重试。只打印安全检查名和
 计数，配置、凭据、数据库及原生正文不作为验收材料上传。
+
+稳定 ID 复核的正例和跨 workspace `not_found` 检查不附加可选全局 CAS，仍逐项核对
+原稳定 ID、名称、当前 workspace 与其它对象。CAS 另作明确过期负例：在一次发事件的
+close 前保存旧序号，close 后读取并断言新序号更大，再只发送一次旧值变更，要求原生
+`revision_conflict` 且目标 ID/名称未变。snapshot 与后续 list 不要求全局序号相等；
+按单份 snapshot 的坐标类型、同一路径和 terminal pane 发现的稳定 ID 比较拓扑。
+这不改变真实 caller 传入 `if_revision` 的行为，也不更新并重发失败操作。
