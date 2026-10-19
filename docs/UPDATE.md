@@ -1,7 +1,7 @@
 # 自更新模块与接线边界
 
-`src/update/index.ts` 是可组合模块，没有第二个 CLI、角色服务、定时更新器或安装器。
-`handleUpdateCommand(args, host)` 供 #8 的唯一 CLI 调用：返回数字为该命令退出码，
+`src/update/index.ts` 提供版本检查、受限下载和隔离暂存模块。
+`handleUpdateCommand(args, host)` 供唯一 CLI 调用：返回数字为该命令退出码，
 `undefined` 表示交还原 parser。宿主传入原 CLI 的版本常量、运行平台、libc 证明、`fetch` 和 stderr writer。Linux 必须明确传入 `libc: glibc`；可由受信 Bun `process.report.getReport().header.glibcVersionRuntime` 证明，缺失或 musl 拒绝，不能读环境变量猜测。
 检查不读取安装路径、配置、数据库或 service 注册，不调用文件系统或执行器。
 默认配置仍由原 CLI 维护为已验证 home 下的 `.config/rovloom/{gateway|connector}.json`。
@@ -18,19 +18,20 @@
 | `update --help` | 离线显示该接缝的用法和阻断边界 |
 | URL、路径、force、脚本、其它参数 | `invalid_arguments` / 2，不请求网络 |
 
-main 尚未合入唯一 CLI 及后台宿主；此表是模块行为，不能写成已可运行的产品命令。
-本轮没有实现原地替换，也没有向命令接缝注入不安全的“下载即成功”回调。
+此表描述模块接缝；产品命令仍需要唯一 CLI 与后台宿主装配。
+原地替换尚未实现，下载或暂存成功不能作为升级完成的结果。
 缺少下文 service/runtime 事务前，`update` 的可用新版本路径始终返回非零。
 
 退出码：0 完成检查或明确无更新；1 未分类宿主错误；2 参数/当前版本/平台错误；
 3 网络/超时/元数据/大小/摘要错误；4 暂存权限/命名空间/锁/文件失败或 `staging_io_pending`；5 缺安全替换宿主。
 原始响应、底层异常、签名 URL、用户路径和 argv 不进入公开错误信息。
 
-## 发布契约协调
+## 发行资产契约
 
-本模块已核对并保留已合入 main `b0d12b747cf815984bcb209ae08ccea537f4f1d5` 的[发布任务 PR63](https://github.com/ArnoChenFx/Rovloom/pull/63) 的 `scripts/release/metadata.mjs`、`platforms.json` 与封装测试。以下字段与该发布契约一致；六平台 runner 与工具链已由父任务独立审查，但当前仍只有 probe，不能当作已发布或全平台产品验收。
-共享纯校验位于 `src/release/contract.ts`：`versionFromTag`、`assetName`、`validateReleaseManifest`。更新端与本 PR 中的发布 metadata 均使用：发布端导入版本/命名，并在 assemble 后调用清单校验，原重复规则已移除；原发布工作流和其它脚本保持 main 内容。不能让运行时导入会读磁盘平台文件的 metadata.mjs。
-本轮所有 Release 响应和载荷来自注入 fetch 的合成样例，没有为测试创建 tag 或 Release。
+发行元数据由 `scripts/release/metadata.mjs` 按 `scripts/release/platforms.json` 的平台表生成。
+发布器与更新端共用 `src/release/contract.ts` 中的 `versionFromTag`、`assetName` 和 `validateReleaseManifest`；
+发布器在聚合资产后校验清单。运行时使用无 I/O 的共享校验模块，不导入会读取磁盘平台表的发行构建模块。
+平台表和打包探针不表示资产已发布或产品已完成各平台验收；更新端只接纳官方 Release 明确列出的资产。
 
 - 唯一仓库：`ArnoChenFx/Rovloom`；固定 manifest 资产 `release-manifest.json`。
 - 稳定 tag：`v<SemVer>`，manifest `version` 不含 `v`，必须逐字满足 `tag === 'v' + version`；默认更新拒绝预发行。版本禁止 `+build`、数字前导零及不安全整数；发布器可使用同一语法发布预发行。
@@ -55,7 +56,7 @@ API 禁止跳转，资产只允许一次 HTTPS 跳往精确的 `release-assets.g
 不解压、不调用 shell、不执行下载内容。JSON 使用既有受预算解析器拒绝重复键（含转义后相同键）、损坏 UTF-8、BOM、不安全整数、超过 32 层或 50000 节点的结构。
 
 **未签名的 checksum 只能证明清单与载荷的传输完整性，不能认证发布者，不能抵御仓库或发布凭据被攻陷。**
-`SHA256SUMS` 由发布任务覆盖六个 binary 与 manifest；更新端使用同一 manifest 内的摘要，不把另一份未签名 checksum 当作独立信任根。
+`SHA256SUMS` 由发行构建器覆盖六个 binary 与 manifest；更新端使用同一 manifest 内的摘要，不把另一份未签名 checksum 当作独立信任根。
 本模块没有签名/信任根实现，不得把 HTTPS 或 manifest 摘要称为该级别的认证。
 
 ## 独立下载与暂存
@@ -75,20 +76,19 @@ sink 签名为 `(chunk, signal) => Promise<void>`，取消会传播到该 signal
   文件不可执行；inspect 仅在完整验证后取得临时候选路径及取消 signal，完成后候选会清理。
 - 成功、网络失败、摘要失败、文件失败和 inspect 失败都会尝试关闭及精确清理自建文件/目录/锁，
   不递归删除其它内容。清理失败也非零，可能保留私有残余文件供人工检查；不能称为清理成功。
-- 原生 I/O 与观察者每次逻辑等待也至多 60 秒（测试可收紧），并跟踪真实 Promise 的静止状态。
+- 原生 I/O 与观察者每次逻辑等待也至多 60 秒（可通过 timeoutMs 收紧），并跟踪真实 Promise 的静止状态。
   pending write、fsync、open 或 cleanup 超时返回 `staging_io_pending` / 4；已取得或迟到取得的锁、私有目录和候选均隔离保留，不继续删除或允许下一实例复用。
   只有全部旧 I/O/consumer 真正静止后才按句柄、候选、子目录、锁的顺序尝试后台清理；迟到结果只更新原事务的所有权记录，不能二次删除新实例的锁。
   永久 pending 时后台清理与锁释放没有有限完成保证；进程崩溃后也不自动清旧锁。这是有界逻辑返回与隔离保证，不是 OS I/O 强退保证，不得凭超时/PID/锁年龄手动假定已静止。
-- macOS/Windows 缺有效 ACL 证明接口，原生暂存明确拒绝。流式内存 sink 和计划测试可模型验证 Windows 元组，
-  不表示 Windows 写盘或替换可用。
+- macOS/Windows 缺有效 ACL 证明接口，原生暂存明确拒绝；这些平台的内存下载与计划处理不等于写盘或替换能力。
 
-文件系统可注入以测试短写/权限/清理故障。暂存锁只控制该暂存事务；
+文件系统通过注入端口提供，适配器必须保留短写、权限及清理失败语义。暂存锁只控制该暂存事务；
 本模块没有安装路径定位、chmod/chown/ACL 修改、sudo、可执行文件 rename 或服务操作。
 
-## 原地替换所缺的 service/runtime 接口
+## 更新事务与 service/runtime 接口
 
-PR61 当前是按角色的控制后端，不具备以下完整事务。必须由原 service/runtime 所有者提供，
-不能复制系统后端、把 `uninstall` 当更新前置步骤，或声称已有接线：
+现有 service 后端按角色控制生命周期，跨角色更新事务尚未接入。
+原地替换需要以下事务保证，不能用 `uninstall` 代替停止会话或重建系统服务后端：
 
 1. **全局更新租约与已注册角色快照**：按可信安装身份取得安装级锁，同时与 gateway/connector 的注册操作互斥；
    核对每个角色的可执行路径、配置、账户、状态、bootEnabled 与 controlRetained。
@@ -103,13 +103,13 @@ PR61 当前是按角色的控制后端，不具备以下完整事务。必须由
 4. **Windows 受控退出后替换宿主**：使用随产品审查的固定 helper/原生实现及可验证进程身份，
    等待当前 exe 句柄释放后执行受限文件事务，保留旧版、有效 ACL 和可恢复状态；
    新版验证失败恢复旧版及原服务。不能执行下载脚本、临时任意 PowerShell、按进程名/任意 PID 杀进程。
-   父 CLI 何时返回成功、helper 如何报告失败/中断，必须有持久且可核验的交付协议。
+   主 CLI 进程何时返回成功、helper 如何报告失败/中断，必须有持久且可核验的交付协议。
 
 在这些端口和实机验收完成前，不能添加一个不检查上述事实的 `apply()` 回调来放行产品 `update`。
 
-### 最小端口建议与后续实施
+### 最小事务接口
 
-以下是由父协调交给原 service/runtime 所有者的接线建议，**尚未实现**；本检查切片不等于用户的完整 `update` 已完成。
+下表定义更新事务需要的 service/runtime 端口及其职责。这些端口尚未实现，检查、下载和暂存模块不代表完整原地更新能力。
 
 | 所有者 | 最小端口 | 必须提供的事实 |
 | --- | --- | --- |
@@ -120,20 +120,17 @@ PR61 当前是按角色的控制后端，不具备以下完整事务。必须由
 | runtime | `inspectInstallation(execPath) -> verifiedInstallation` | 真实文件身份、OS/arch/libc、路径/所有权/有效 ACL/符号链接策略及受保护状态根；不从不可信配置自报 |
 | runtime | `verifyCandidate(path, expectedIdentity, signal) -> verifiedBinary` | 固定维护的产品版本/平台/启动探针，不能接受远端命令、脚本或 URL；逻辑取消和真实静止分别证明 |
 
-按以下顺序继续落地，每段分别审查和验收，不以永久 stub 结束：
+### 平台替换约束
 
-1. 审合本检查/下载/暂存切片，并在唯一 CLI 接入该窄 hook；原地更新继续明确拒绝。
-2. 在上述租约上实现 POSIX 文件事务：可信目标路径与 ACL/符号链接策略、同盘私有候选、可恢复旧版、原子替换、目录持久化与失败回滚；保留旧版直到候选和原角色恢复就绪均通过。加入每阶段故障/崩溃恢复、双角色及并发注册测试，再分别进行 Linux 与 macOS 实装验证。
-3. 实现随同产品构建并审查的 Windows 受控 helper：经受保护事务 ID、IPC/句柄与已验证父进程身份交付，不接受任意 PID；退出后按固定文件事务替换，持久报告成功/回滚/未恢复状态。完成 exe 占用、ACL、断电/中断、失败恢复和原服务状态的 Windows 实装验收后才开放该平台 `update` 成功路径。
+POSIX 替换器必须在上述租约下验证目标路径、有效 ACL 和符号链接策略，使用同文件系统私有候选，保留可恢复旧版，完成原子替换、目录持久化和失败回滚。
+候选验证与原角色恢复就绪均通过后，才允许清理旧版。每个阶段都必须能处理失败、进程中断与并发注册；Linux 与 macOS 分别需要实机验收。
 
-## 验证范围 / Verification boundary
+Windows helper 必须随产品构建并受固定入口控制，通过受保护事务 ID、IPC/句柄与已验证主进程身份交付，不接受任意 PID。
+它须在运行 exe 句柄释放后执行受限文件事务，并持久报告成功、回滚或未恢复状态。
+exe 占用、有效 ACL、中断/断电恢复及原服务状态恢复均属于该平台的验收条件，不能用下载脚本或任意 PowerShell 代替。
 
-本地 Linux 实际执行的是合成数据的纯逻辑/网络模型，以及自有临时目录的权限、锁、写入、短写和失败清理。
-没有下载或运行官方发行 binary，没有原地替换、系统服务停止、真实注册变更、sudo 或 ACL 修改。
-六平台元组与 CDN 是注入模型；它们不构成 macOS、Windows 或 Linux 服务实装验收。
-没有验证 Windows exe 占用/替换、macOS 签名/ACL、Unix 可执行所有权保留与原子回滚、服务重启后就绪。
+## 能力边界
 
-English: this change delivers a read-only version check, a bounded official-source downloader, isolated Linux staging,
-and a narrow hook for the existing CLI. In-place replacement is unavailable and fails with exit 5 when a newer
-release exists. It does not update an actual installation or alter boot registration, services, configuration,
-databases, or user data. Checksums provide integrity only. Cross-OS models are not native installation acceptance.
+原地替换、服务状态恢复与 Windows helper 尚未实现；存在新版本时，命令接缝返回 `replacement_unavailable` / 5。
+该模块不修改安装 binary、服务注册、配置、数据库或用户数据，不自动提权或修改 ACL。
+纯逻辑、注入模型及打包/Worker 探针不能证明真实平台的替换、回滚、所有权保留或服务恢复就绪。
