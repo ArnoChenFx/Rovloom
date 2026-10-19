@@ -3,6 +3,31 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { handleUpdateCommand, type UpdateCommandHost } from '../../src/update/command.js'
 import { fixture } from './fixtures.js'
+import { createWindowsUpdater } from '../../src/update/windows/transaction.js'
+import { updatePlatform } from '../../src/update/contract.js'
+
+test(
+  'Windows check ignores even a concrete updater bound to a nonexistent installation',
+  /* 检查不得打开安装路径、启动 helper 或接触服务。 */ async () => {
+    const f = fixture(updatePlatform('win32', 'x64'))
+    const output: string[] = []
+    assert.equal(
+      await handleUpdateCommand(['update', '--check'], {
+        ...f.network,
+        currentVersion: '1.0.0',
+        platform: 'win32',
+        arch: 'x64',
+        windowsUpdater: createWindowsUpdater({ executable: 'C:\\not-read-by-check\\rovloom.exe' }),
+        write: /* 只捕获公开版本输出。 */ (message) => {
+          output.push(message)
+        }
+      }),
+      0
+    )
+    assert.equal(f.requests.length, 3)
+    assert.equal(output.join(''), 'current=1.0.0 target=1.2.0 status=available\n')
+  }
+)
 
 // 注入现有 CLI 应提供的版本、平台与诊断通道，不加载真实配置或安装路径。
 function host(currentVersion = '1.0.0') {

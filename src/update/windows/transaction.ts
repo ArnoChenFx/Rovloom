@@ -97,10 +97,14 @@ class InputFrames {
   #queue: Buffer[] = []
   #total = 0
   #frames = 0
+  #invalid = false
   #ended = false
   #pending: { resolve(value: Buffer): void; reject(error: unknown): void } | undefined
   // 只订阅本 helper 的 stdin，不打开外部 IPC 名称或套接字。
-  constructor(private readonly input: Readable) {
+  constructor(
+    private readonly input: Readable,
+    private readonly invalid: () => void
+  ) {
     input.on('data', this.data)
     input.on('end', this.end)
     input.on('error', this.end)
@@ -109,6 +113,8 @@ class InputFrames {
   private data = (bytes: Buffer) => {
     this.#total += bytes.length
     if (this.#total > 49152) {
+      this.#invalid = true
+      this.invalid()
       this.end()
       this.input.destroy()
       return
@@ -119,6 +125,8 @@ class InputFrames {
       this.#queue.push(this.#buffer.subarray(0, at))
       this.#buffer = this.#buffer.subarray(at + 1)
       if (this.#frames > 2) {
+        this.#invalid = true
+        this.invalid()
         this.end()
         this.input.destroy()
         return
@@ -138,7 +146,7 @@ class InputFrames {
   }
   // 每次只存在一个有界等待；取消后关闭本输入，不留下会偷取后续帧的后台读取。
   async next(signal: AbortSignal): Promise<Buffer> {
-    if (signal.aborted) {
+    if (signal.aborted || this.#invalid) {
       throw new UpdateError('update_io_pending')
     }
     const value = this.#queue.shift()
@@ -365,8 +373,8 @@ export async function handleWindowsUpdateHelperCommand(
   if (args.length !== 1 || process.platform !== 'win32' || !['x64', 'arm64'].includes(process.arch)) {
     return 2
   }
-  const input = new InputFrames(host.input)
   const controller = new AbortController()
+  const input = new InputFrames(host.input, /* 非法额外帧只取消向前推进，不解除活事务租约。 */ () => controller.abort())
   const deadline = performance.now() + 180000
   // 未静止的 Promise 不能因事件循环暂空而使 helper 以默认零退出并丢失锁所有权。
   const ownership = setInterval(/* 只维持本 helper 生命周期，不查询或控制任何其它进程。 */ () => {}, 1000)
@@ -385,6 +393,7 @@ export async function handleWindowsUpdateHelperCommand(
   let ready = false
   let retainLock = false
   let locked = false
+  let verifiedOutcome = false
   let exitCode = 4
   let versions: { current: string; target: string } | undefined
   let receipt:
@@ -603,6 +612,7 @@ export async function handleWindowsUpdateHelperCommand(
           live()
           journal('committed')
           receipt!('updated')
+          verifiedOutcome = true
           return 0
         } catch (error) {
           if (!armed) {
@@ -647,6 +657,7 @@ export async function handleWindowsUpdateHelperCommand(
             await restore(plan.currentVersion, new AbortController().signal)
             journal('rolled_back')
             receipt!('rolled_back', 'verification_failed')
+            verifiedOutcome = true
             return 6
           } catch {
             retainLock = true
@@ -670,11 +681,15 @@ export async function handleWindowsUpdateHelperCommand(
     }
     if (receipt && !retainLock) {
       try {
-        receipt(
-          'aborted',
-          normalized.code === 'update_io_pending' ? 'parent_timeout' : 'verification_failed',
-          updateExitCode(normalized)
-        )
+        if (verifiedOutcome) {
+          receipt('cleanup_required', 'receipt_failed', 4)
+        } else {
+          receipt(
+            'aborted',
+            normalized.code === 'update_io_pending' ? 'parent_timeout' : 'verification_failed',
+            updateExitCode(normalized)
+          )
+        }
       } catch {
         /* 回执写失败仍非零，不覆盖恢复保护。 */
       }

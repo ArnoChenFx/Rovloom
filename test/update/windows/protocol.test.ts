@@ -92,7 +92,13 @@ test(
   'only committed Windows helper receipts are successful and all other states stay distinguishable',
   /* 下载、准备、已替换未验证都不能退出零；回滚完成与需恢复分别有固定非零码。 */ async () => {
     const sealed = sealWindowsJob(await plan(), parent, original, resources)
-    const base = { schemaVersion: 1, transactionId: sealed.job.transactionId, jobSha256: sealed.digest, sequence: 1 }
+    const base = {
+      schemaVersion: 1,
+      transactionId: sealed.job.transactionId,
+      jobSha256: sealed.digest,
+      sequence: 1,
+      exitCode: null
+    }
     const states = [
       'awaiting_parent',
       'prepared',
@@ -130,10 +136,16 @@ test(
               : 4
       assert.equal(windowsReceiptExit(receipt), expected)
     }
+    for (const exitCode of [1, 2, 3, 4, 5]) {
+      const aborted = parseWindowsReceipt(
+        Buffer.from(JSON.stringify({ ...base, state: 'aborted', code: 'verification_failed', exitCode }))
+      )
+      assert.equal(windowsReceiptExit(aborted), exitCode)
+    }
     for (const value of [
-      { ...base, state: 'updated', code: 'verification_failed' },
-      { ...base, state: 'rolled_back', code: null },
-      { ...base, state: 'updated', code: null, error: 'raw native output' },
+      { ...base, state: 'updated', code: 'verification_failed', exitCode: 0 },
+      { ...base, state: 'rolled_back', code: null, exitCode: 6 },
+      { ...base, state: 'updated', code: null, exitCode: 0, error: 'raw native output' },
       { ...base, state: 'recovery_required', code: 'unreviewed_error' }
     ]) {
       assert.throws(

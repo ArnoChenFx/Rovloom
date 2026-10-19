@@ -21,7 +21,7 @@ export type UpdateCommandHost = UpdateNetwork & {
 
 export const UPDATE_HELP =
   'rovloom update --check | rovloom update\n' +
-  '检查只读版本元数据；POSIX 原地更新需要受信安装/服务事务，Windows helper 未配置时明确拒绝。\n'
+  '检查只读版本元数据；POSIX 原地更新需要受信安装/服务事务，Windows 交接后以待完成码 4 退出，最终结果见 helper 回执；缺宿主明确拒绝。\n'
 
 // 数字为本命令退出码，undefined 把其它参数原样交还现有 CLI；不支持 URL/路径/脚本参数。
 export async function handleUpdateCommand(
