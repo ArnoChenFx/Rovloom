@@ -146,7 +146,7 @@ Windows 生产 helper 尚未接通，命令仍返回 5。`src/update/windows/` �
 - 候选先复制原文件，owner/group/DACL 的严格摘要、原大小和原 SHA256 必须完全相同，再写入自有候选的默认数据流；不能忽略继承标志或新增显式 ACE。文件原语不采用会合并 ACE 的 `ReplaceFileW`，不修复或放宽既有 ACL。
 - 固定的 preserve/install/reject/restore 移动仅使用同盘 `MoveFileExW`，拒绝覆盖、跨卷复制及重启延迟；每步前由调用方持久写入回执。两个移动之间目标路径暂时不存在，这不具有 POSIX 单次 rename 的原子可见性，也不宣称能恢复断电后的任意状态。
 
-Windows x64/arm64 原生临时样例覆盖严格 owner/group/DACL 比较、候选与旧版文件 ID、保留旧版、安装和回滚后的真实版本进程、短回执写入/刷新/读取，以及硬链接、ADS、重复候选和备份覆盖拒绝。它不覆盖任意安装 ACL、SACL、真实运行 exe 占用、进程崩溃/断电或 Task Scheduler 服务恢复；Linux 上的纯模型不算这些原生验收。
+Windows x64/arm64 原生临时样例覆盖严格 owner/group/DACL 比较、候选与旧版文件 ID、保留旧版、安装和回滚后的真实版本进程、有界回执写入/刷新/读取，以及硬链接、ADS、重复候选和备份覆盖拒绝。它不覆盖任意安装 ACL、SACL、真实运行 exe 占用、进程崩溃/断电或 Task Scheduler 服务恢复；Linux 上的纯模型不算这些原生验收。
 
 生产接通仍缺：固定安装锁及两个既有角色锁的跨进程所有权交接、封存目录身份的重开核验、随产品构建的固定 helper 入口与 stdin 握手、父进程实际退出后才执行替换的状态机、未知/中断阶段的身份核对与持久恢复入口，以及复用既有 Windows 服务后端的停止、原 boot/运行意图恢复和真实业务就绪证明。`ServiceManager.withBinaryUpdate` 当前明确拒绝 Windows；不能以空角色列表、注入成功回调或下载脚本绕过这些缺口。
 

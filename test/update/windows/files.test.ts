@@ -68,143 +68,145 @@ test(
   }
 )
 
-test(
-  'native Windows fixture preserves owner/DACL, keeps the old PE, writes receipts and rolls back',
-  { skip: process.platform !== 'win32', timeout: 45_000 },
-  /* 真实 Win32/NTFS 文件与版本进程验收；尚不表示完整父退出/服务交接状态机已交付。 */ async () => {
-    const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'rovloom-windows-files-')))
-    let lease: WindowsPathLease | undefined
-    const executable = join(root, 'rovloom.exe')
-    try {
-      for (const [version, name] of [
-        ['0.1.0-dev', 'old.exe'],
-        ['0.1.1', 'next.exe']
-      ]) {
-        const result = await Bun.build({
-          entrypoints: [fileURLToPath(new URL('../posix/probe.ts', import.meta.url))],
-          target: 'bun',
-          env: 'disable',
-          define: { UPDATE_PROBE_VERSION: JSON.stringify(version) },
-          compile: {
-            outfile: join(root, name!),
-            autoloadDotenv: false,
-            autoloadBunfig: false,
-            autoloadTsconfig: false,
-            autoloadPackageJson: false
-          }
-        })
-        assert.equal(result.success, true)
-      }
-      await fs.copyFile(join(root, 'old.exe'), executable)
-      const arch = process.arch as 'x64' | 'arm64'
-      const original = readWindowsExecutable(executable, arch)
-      const originalSecurity = readWindowsExecutableSecurity(executable)
-      const alias = join(root, 'alias.exe')
-      await fs.link(executable, alias)
-      assert.throws(/* 额外硬链接不能被默默替换。 */ () => readWindowsExecutable(executable, arch), {
-        code: 'unsafe_installation'
-      })
-      await fs.unlink(alias)
-      await fs.writeFile(executable + ':fixture-ads', 'isolated fixture data')
-      assert.throws(/* 未支持的 ADS 不被复制或清空。 */ () => readWindowsExecutable(executable, arch), {
-        code: 'unsafe_installation'
-      })
-      await fs.unlink(executable + ':fixture-ads')
-      lease = WindowsPathLease.acquire(executable)
-      const transactionId = randomBytes(16).toString('hex')
-      const directory = lease.createDirectory(transactionId)
-      const clone = cloneWindowsCandidate(lease, transactionId, arch, original)
-      assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'candidate.exe')), originalSecurity)
-      assert.notEqual(clone.fileId, original.fileId)
-      assert.throws(
-        /* 自有候选也不得被第二次复制覆盖。 */ () => cloneWindowsCandidate(lease!, transactionId, arch, original)
-      )
-      const candidate = await fs.open(join(directory, 'candidate.exe'), 'r+')
+if (process.platform === 'win32') {
+  test(
+    'native Windows fixture preserves owner/DACL, keeps the old PE, writes receipts and rolls back',
+    { timeout: 45_000 },
+    /* 真实 Win32/NTFS 文件与版本进程验收；尚不表示完整父退出/服务交接状态机已交付。 */ async () => {
+      const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'rovloom-windows-files-')))
+      let lease: WindowsPathLease | undefined
+      const executable = join(root, 'rovloom.exe')
       try {
-        const bytes = await fs.readFile(join(root, 'next.exe'))
-        await candidate.writeFile(bytes)
-        await candidate.truncate(bytes.length)
-        await candidate.sync()
+        for (const [version, name] of [
+          ['0.1.0-dev', 'old.exe'],
+          ['0.1.1', 'next.exe']
+        ]) {
+          const result = await Bun.build({
+            entrypoints: [fileURLToPath(new URL('../posix/probe.ts', import.meta.url))],
+            target: 'bun',
+            env: 'disable',
+            define: { UPDATE_PROBE_VERSION: JSON.stringify(version) },
+            compile: {
+              outfile: join(root, name!),
+              autoloadDotenv: false,
+              autoloadBunfig: false,
+              autoloadTsconfig: false,
+              autoloadPackageJson: false
+            }
+          })
+          assert.equal(result.success, true)
+        }
+        await fs.copyFile(join(root, 'old.exe'), executable)
+        const arch = process.arch as 'x64' | 'arm64'
+        const original = readWindowsExecutable(executable, arch)
+        const originalSecurity = readWindowsExecutableSecurity(executable)
+        const alias = join(root, 'alias.exe')
+        await fs.link(executable, alias)
+        assert.throws(/* 额外硬链接不能被默默替换。 */ () => readWindowsExecutable(executable, arch), {
+          code: 'unsafe_installation'
+        })
+        await fs.unlink(alias)
+        await fs.writeFile(executable + ':fixture-ads', 'isolated fixture data')
+        assert.throws(/* 未支持的 ADS 不被复制或清空。 */ () => readWindowsExecutable(executable, arch), {
+          code: 'unsafe_installation'
+        })
+        await fs.unlink(executable + ':fixture-ads')
+        lease = WindowsPathLease.acquire(executable)
+        const transactionId = randomBytes(16).toString('hex')
+        const directory = lease.createDirectory(transactionId)
+        const clone = cloneWindowsCandidate(lease, transactionId, arch, original)
+        assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'candidate.exe')), originalSecurity)
+        assert.notEqual(clone.fileId, original.fileId)
+        assert.throws(
+          /* 自有候选也不得被第二次复制覆盖。 */ () => cloneWindowsCandidate(lease!, transactionId, arch, original)
+        )
+        const candidate = await fs.open(join(directory, 'candidate.exe'), 'r+')
+        try {
+          const bytes = await fs.readFile(join(root, 'next.exe'))
+          await candidate.writeFile(bytes)
+          await candidate.truncate(bytes.length)
+          await candidate.sync()
+        } finally {
+          await candidate.close()
+        }
+        const next = readWindowsExecutable(join(directory, 'candidate.exe'), arch)
+        assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'candidate.exe')), originalSecurity)
+        const receipt = {
+          schemaVersion: 1,
+          transactionId,
+          jobSha256: 'a'.repeat(64),
+          sequence: 1,
+          state: 'prepared',
+          code: null
+        }
+        writeWindowsReceipt(lease, transactionId, 1, Buffer.from(JSON.stringify(receipt)))
+        await fs.copyFile(executable, join(directory, 'previous.exe'))
+        assert.throws(
+          /* 即使备份路径属于此样例，移动也不得覆盖既有文件。 */ () =>
+            moveWindowsExecutable(lease!, transactionId, 'preserve')
+        )
+        assert.deepEqual(readWindowsExecutable(executable, arch), original)
+        await fs.unlink(join(directory, 'previous.exe'))
+        // 逐步回执先落盘；此处只验收移动原语，不假装拥有完整跨进程恢复入口。
+        moveWindowsExecutable(lease, transactionId, 'preserve')
+        assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'previous.exe')), originalSecurity)
+        await assert.rejects(fs.stat(executable), { code: 'ENOENT' })
+        writeWindowsReceipt(
+          lease,
+          transactionId,
+          2,
+          Buffer.from(JSON.stringify({ ...receipt, sequence: 2, state: 'replacing' }))
+        )
+        moveWindowsExecutable(lease, transactionId, 'install')
+        const installed = readWindowsExecutable(executable, arch)
+        assert.equal(installed.fileId, next.fileId)
+        assert.equal(installed.sha256, next.sha256)
+        assert.deepEqual(readWindowsExecutableSecurity(executable), originalSecurity)
+        assert.equal(installed.security, original.security)
+        assert.equal(readWindowsExecutable(join(directory, 'previous.exe'), arch).fileId, original.fileId)
+        assert.deepEqual(await runSystemCommand({ executable, args: ['--version'], timeout: 10000 }), {
+          code: 0,
+          stdout: '',
+          stderr: 'Rovloom 0.1.1\n'
+        })
+        writeWindowsReceipt(
+          lease,
+          transactionId,
+          3,
+          Buffer.from(JSON.stringify({ ...receipt, sequence: 3, state: 'updated' }))
+        )
+        assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 0)
+        writeWindowsReceipt(
+          lease,
+          transactionId,
+          4,
+          Buffer.from(JSON.stringify({ ...receipt, sequence: 4, state: 'rolling_back' }))
+        )
+        moveWindowsExecutable(lease, transactionId, 'reject')
+        await assert.rejects(fs.stat(executable), { code: 'ENOENT' })
+        moveWindowsExecutable(lease, transactionId, 'restore')
+        const restored = readWindowsExecutable(executable, arch)
+        assert.equal(restored.fileId, original.fileId)
+        assert.equal(restored.sha256, original.sha256)
+        assert.equal(restored.security, original.security)
+        assert.deepEqual(readWindowsExecutableSecurity(executable), originalSecurity)
+        assert.equal(readWindowsExecutable(join(directory, 'rejected.exe'), arch).fileId, next.fileId)
+        assert.deepEqual(await runSystemCommand({ executable, args: ['--version'], timeout: 10000 }), {
+          code: 0,
+          stdout: '',
+          stderr: 'Rovloom 0.1.0-dev\n'
+        })
+        writeWindowsReceipt(
+          lease,
+          transactionId,
+          5,
+          Buffer.from(JSON.stringify({ ...receipt, sequence: 5, state: 'rolled_back', code: 'verification_failed' }))
+        )
+        assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 6)
       } finally {
-        await candidate.close()
+        lease?.close()
+        await fs.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
       }
-      const next = readWindowsExecutable(join(directory, 'candidate.exe'), arch)
-      assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'candidate.exe')), originalSecurity)
-      const receipt = {
-        schemaVersion: 1,
-        transactionId,
-        jobSha256: 'a'.repeat(64),
-        sequence: 1,
-        state: 'prepared',
-        code: null
-      }
-      writeWindowsReceipt(lease, transactionId, 1, Buffer.from(JSON.stringify(receipt)))
-      await fs.copyFile(executable, join(directory, 'previous.exe'))
-      assert.throws(
-        /* 即使备份路径属于此样例，移动也不得覆盖既有文件。 */ () =>
-          moveWindowsExecutable(lease!, transactionId, 'preserve')
-      )
-      assert.deepEqual(readWindowsExecutable(executable, arch), original)
-      await fs.unlink(join(directory, 'previous.exe'))
-      // 逐步回执先落盘；此处只验收移动原语，不假装拥有完整跨进程恢复入口。
-      moveWindowsExecutable(lease, transactionId, 'preserve')
-      assert.deepEqual(readWindowsExecutableSecurity(join(directory, 'previous.exe')), originalSecurity)
-      await assert.rejects(fs.stat(executable), { code: 'ENOENT' })
-      writeWindowsReceipt(
-        lease,
-        transactionId,
-        2,
-        Buffer.from(JSON.stringify({ ...receipt, sequence: 2, state: 'replacing' }))
-      )
-      moveWindowsExecutable(lease, transactionId, 'install')
-      const installed = readWindowsExecutable(executable, arch)
-      assert.equal(installed.fileId, next.fileId)
-      assert.equal(installed.sha256, next.sha256)
-      assert.deepEqual(readWindowsExecutableSecurity(executable), originalSecurity)
-      assert.equal(installed.security, original.security)
-      assert.equal(readWindowsExecutable(join(directory, 'previous.exe'), arch).fileId, original.fileId)
-      assert.deepEqual(await runSystemCommand({ executable, args: ['--version'], timeout: 10000 }), {
-        code: 0,
-        stdout: '',
-        stderr: 'Rovloom 0.1.1\n'
-      })
-      writeWindowsReceipt(
-        lease,
-        transactionId,
-        3,
-        Buffer.from(JSON.stringify({ ...receipt, sequence: 3, state: 'updated' }))
-      )
-      assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 0)
-      writeWindowsReceipt(
-        lease,
-        transactionId,
-        4,
-        Buffer.from(JSON.stringify({ ...receipt, sequence: 4, state: 'rolling_back' }))
-      )
-      moveWindowsExecutable(lease, transactionId, 'reject')
-      await assert.rejects(fs.stat(executable), { code: 'ENOENT' })
-      moveWindowsExecutable(lease, transactionId, 'restore')
-      const restored = readWindowsExecutable(executable, arch)
-      assert.equal(restored.fileId, original.fileId)
-      assert.equal(restored.sha256, original.sha256)
-      assert.equal(restored.security, original.security)
-      assert.deepEqual(readWindowsExecutableSecurity(executable), originalSecurity)
-      assert.equal(readWindowsExecutable(join(directory, 'rejected.exe'), arch).fileId, next.fileId)
-      assert.deepEqual(await runSystemCommand({ executable, args: ['--version'], timeout: 10000 }), {
-        code: 0,
-        stdout: '',
-        stderr: 'Rovloom 0.1.0-dev\n'
-      })
-      writeWindowsReceipt(
-        lease,
-        transactionId,
-        5,
-        Buffer.from(JSON.stringify({ ...receipt, sequence: 5, state: 'rolled_back', code: 'verification_failed' }))
-      )
-      assert.equal(windowsReceiptExit(parseWindowsReceipt(await fs.readFile(join(directory, 'receipt.json')))), 6)
-    } finally {
-      lease?.close()
-      await fs.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
     }
-  }
-)
+  )
+}

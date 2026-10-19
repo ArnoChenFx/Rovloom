@@ -105,40 +105,35 @@ test(
   }
 )
 
-test(
-  'native Windows kernel captures its own stamp and waits on its direct parent without termination rights',
-  { skip: process.platform !== 'win32' },
-  /* Windows CI 只查询测试进程与其直接父对象；不操作真实安装、服务或任意 PID。 */ async () => {
-    if (process.platform !== 'win32') {
-      return
+if (process.platform === 'win32') {
+  test(
+    'native Windows kernel captures its own stamp and waits on its direct parent without termination rights',
+    /* Windows CI 只查询测试进程与其直接父对象；不操作真实安装、服务或任意 PID。 */ async () => {
+      const self = nativeWindowsParent.self()
+      assert.match(self.image, /^[A-Za-z]:\\.+\.exe$/iu)
+      assert.match(self.born, /^[1-9]\d+$/u)
+      const found = nativeWindowsParent.parent()
+      nativeWindowsParent.close(found.handle)
+      const bound = WindowsBoundParent.bind({ image: found.image, born: found.born })
+      try {
+        assert.throws(/* 执行测试的父宿主尚活，不接受 IPC/轮询时限冒充退出。 */ () => bound.assertExited(), {
+          code: 'update_busy'
+        })
+        await assert.rejects(/* 小期限只停止等待，不发出任何终止请求。 */ () => bound.waitForExit(undefined, 2), {
+          code: 'update_io_pending'
+        })
+      } finally {
+        bound.close()
+      }
     }
-    const self = nativeWindowsParent.self()
-    assert.match(self.image, /^[A-Za-z]:\\.+\.exe$/iu)
-    assert.match(self.born, /^[1-9]\d+$/u)
-    const found = nativeWindowsParent.parent()
-    nativeWindowsParent.close(found.handle)
-    const bound = WindowsBoundParent.bind({ image: found.image, born: found.born })
-    try {
-      assert.throws(/* 执行测试的父宿主尚活，不接受 IPC/轮询时限冒充退出。 */ () => bound.assertExited(), {
-        code: 'update_busy'
-      })
-      await assert.rejects(/* 小期限只停止等待，不发出任何终止请求。 */ () => bound.waitForExit(undefined, 2), {
-        code: 'update_io_pending'
-      })
-    } finally {
-      bound.close()
-    }
-  }
-)
-
-test(
-  'native Windows parent loading is unavailable on other operating systems',
-  { skip: process.platform === 'win32' },
-  /* 不以 Linux ffi/模型冒充 Win32 原生验证。 */ () => {
-    if (process.platform !== 'win32') {
+  )
+} else {
+  test(
+    'native Windows parent loading is unavailable on other operating systems',
+    /* 不以 Linux ffi/模型冒充 Win32 原生验证。 */ () => {
       assert.throws(/* 非 Windows 在加载 DLL 前失败关闭。 */ () => nativeWindowsParent.self(), {
         code: 'replacement_unavailable'
       })
     }
-  }
-)
+  )
+}
