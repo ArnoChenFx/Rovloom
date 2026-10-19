@@ -66,6 +66,8 @@ assert.equal(typeof webui.mountWebUi, 'function')
 assert.equal(typeof webui.createManagementHttpRead, 'function')
 const admin = await import('../../dist/src/admin/index.js')
 assert.equal(typeof admin.startManagementReadListener, 'function')
+assert.equal(typeof admin.StoreManagementWriteService, 'function')
+assert.equal(typeof admin.createManagementHandler, 'function')
 assert.throws(
   /** 产物没有默认身份，缺少可信会话适配器时不能开端口。 */
   () => admin.startManagementReadListener({ service: { /** 未配置认证时此服务不应被调用。 */ execute() {} }, port: 0 }),
@@ -372,6 +374,16 @@ try {
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }
+const update = await import('../../dist/src/update/index.js')
+assert.equal(typeof update.handleUpdateCommand, 'function')
+const service = await import('../../dist/src/service/index.js')
+assert.equal(typeof service.createNativeServiceBackend, 'function')
+assert.equal(service.parseServiceCommand(['gateway', '--config', '/untouched'], 'linux'), undefined)
+assert.deepEqual(service.parseServiceCommand(['service', 'stop', '--role', 'connector'], 'linux'), {
+  action: 'stop',
+  role: 'connector'
+})
+
 console.log(
-  'Built ESM foundation/native/wire/integration/Herdr runtime, 29 UHP documents, Herdr original roots, v2 boundaries and SQLite reopen: pass'
+  'Built ESM foundation/native/wire/integration/Herdr runtime, 29 UHP documents, Herdr original roots, v2 boundaries, SQLite reopen and service/update/admin seams: pass'
 )

@@ -22,7 +22,9 @@ const result = await Bun.build({
     'src/connector/herdr/installation.ts',
     'src/connector/herdr/runtime.ts',
     'src/webui/index.ts',
-    'src/admin/index.ts'
+    'src/admin/index.ts',
+    'src/service/index.ts',
+    'src/update/index.ts'
   ],
   outdir: 'dist/src',
   root: 'src',

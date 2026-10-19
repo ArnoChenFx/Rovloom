@@ -173,6 +173,9 @@ export function herdrEnvironment(config: HerdrLocalConfig): NodeJS.ProcessEnv {
 
 /** 通过不跟随链接的同一 fd 求 hash，前后 stat 与路径身份均保持不变才接受安装。 */
 export function verifyHerdrInstallation(config: HerdrLocalConfig): string {
+  if (process.platform !== 'linux' || process.arch !== 'x64') {
+    throw new HerdrLocalError('herdr_local_platform_unsupported')
+  }
   try {
     const before = inspectHerdrPath(config.binary, 'binary')
     const fd = openSync(config.binary, constants.O_RDONLY | constants.O_NOFOLLOW)

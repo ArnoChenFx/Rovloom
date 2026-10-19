@@ -91,6 +91,7 @@ runtime access will be available in a later preview.
 - [Implementation roadmap](docs/IMPLEMENTATION-PLAN.md)
 - [Management UI design](docs/GATEWAY-WEBUI.md)
 - [Development and validation](docs/DEVELOPMENT.md)
+- [Boot service module and integration limits](docs/SERVICE.md)
 
 ## License
 
