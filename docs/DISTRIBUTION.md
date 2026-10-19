@@ -5,6 +5,9 @@ Rovloom 使用固定 **Bun 1.4.3** 的 `bun build --compile` 分发单文件可�
 不会生成替代 CLI 或装配第二套 Gateway/Connector。
 该入口未合入时，`bun run release:build` 明确失败；设施探针通过不能证明产品可用。
 
+独立的[自更新模块](UPDATE.md)提供稳定版本检查、受限下载及唯一 CLI 接缝；
+原地替换仍等待 service/runtime 事务接入，不能将下载或暂存通过称为升级完成。
+
 ## 构建与验收
 
 在仓库根目录冻结安装依赖后执行：
