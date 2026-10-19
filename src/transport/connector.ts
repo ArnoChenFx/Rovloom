@@ -128,13 +128,28 @@ export function createConnector(options: ConnectorOptions) {
     for (const { controller } of running.values()) {
       controller.abort()
     }
-    try {
-      closeSession(session)
-    } catch {
-      /* 关闭错误不进入日志。 */
-    }
+    const previous = session
+    const identity = connection
+    // 先撤下活动引用，避免宿主关闭回调重入时再次消费同一 epoch。
     session = undefined
     connection = undefined
+    try {
+      if (previous && identity && 'admissions' in previous && previous.admissions?.closeEpoch) {
+        const fenced = previous.admissions.closeEpoch(identity)
+        if (fenced !== undefined) {
+          void Promise.resolve(fenced).catch(/** 违规异步 fence 不能冒充已提交，同时消费晚到拒绝。 */ () => {})
+          fail('synchronous_admission_receipt_required')
+        }
+      }
+    } catch {
+      /* 持久 fence 失败由接收端永久降级；仍释放旧会话，绝不转移执行。 */
+    } finally {
+      try {
+        closeSession(previous)
+      } catch {
+        /* 关闭错误不进入日志。 */
+      }
+    }
     seen.clear()
     received = new ReceiveWindow()
   }
@@ -408,6 +423,12 @@ export function createConnector(options: ConnectorOptions) {
             ) {
               fail('admission_receipt_sink_required')
             }
+            if (
+              connection.negotiated.capabilities.includes('admission_context') &&
+              (!('admissions' in session) || typeof session.admissions?.closeEpoch !== 'function')
+            ) {
+              fail('admission_context_sink_required')
+            }
             if (stopped || ws !== current || !connection || !session) {
               fail('connection_unavailable')
             }
@@ -455,7 +476,8 @@ export function createConnector(options: ConnectorOptions) {
                   ...frame.payload.attempt
                 },
                 request_sha256: frame.payload.request_sha256,
-                dedup_expires_at: frame.payload.dedup_expires_at
+                dedup_expires_at: frame.payload.dedup_expires_at,
+                ...(frame.payload.context ? { context: frame.payload.context } : {})
               },
               /** 证明不能迁入新 socket、epoch 或已停止角色。 */ () =>
                 !stopped && ws === current && current.readyState === 1 && connection === active && session === owner

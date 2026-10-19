@@ -1,10 +1,15 @@
 // 验证中性 Connector 角色的共享关闭、真实 welcome 重入和 provider 资源回收，不冒充任何原生协议。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { GatewayError } from '../../src/contracts.js'
 import { ConnectorHostStartupError, createProviderConnectorRuntime } from '../../src/runtime/connector-host.js'
 import type { ConnectorHostOptions } from '../../src/runtime/connector-host.js'
 import type { Connection, ConnectorWireSession } from '../../src/transport/index.js'
+import { ConnectorAdmissionReceipts } from '../../src/transport/index.js'
+import type { ConnectionIdentity, VersionOffer } from '../../src/wire/types.js'
 import { decodeWireFrame, encodeWireFrame } from '../../src/wire/index.js'
 import { fixture, until } from '../transport/helpers.js'
 
@@ -533,3 +538,192 @@ test(
     assert.equal(releases, 1)
   }
 )
+
+type EpochFault = 'none' | 'throws' | 'async' | 'getter'
+
+/** 由真实认证通道接收 H1 receipt；关闭后重开同一持久文件核对 epoch fence，不伪造接收证明。 */
+async function admissionClose(mode: 'role' | 'disconnect', fault: EpochFault = 'none'): Promise<void> {
+  const offer: VersionOffer = {
+    major: 2,
+    minor: 0,
+    capabilities: ['rpc', 'admission_receipt', 'admission_context'],
+    required: ['rpc', 'admission_receipt', 'admission_context']
+  }
+  const gateway = fixture({ offer })
+  const paired = gateway.pair('isolated_close_epoch')
+  const root = mkdtempSync(
+    join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.connector-epoch-')
+  )
+  const receiptOptions = {
+    path: join(root, 'receipts.json'),
+    mode: 'create' as const,
+    ledger_id: 'isolated_connector_epoch',
+    limits: { entries: 16, bytes: 262_144 },
+    routes: [{ target: paired.target, principal_id: 'synthetic' }],
+    now: /** 与真实 transport 使用同一测试可信时间，不续期原 receipt。 */ () => gateway.now
+  }
+  const receipts = new ConnectorAdmissionReceipts(receiptOptions)
+  const order: string[] = []
+  let runtime: Awaited<ReturnType<typeof createProviderConnectorRuntime>> | undefined
+  let reopened: ConnectorAdmissionReceipts | undefined
+  let executeCalls = 0
+  let epochCalls = 0
+  let sessionCloses = 0
+  let releases = 0
+  let failFence = false
+  let sessionConnection: Connection | undefined
+  let admittedBinding: ReturnType<typeof gateway.gateway.dispatch> | undefined
+  let fencedBeforeRelease: boolean | undefined
+  try {
+    runtime = await createProviderConnectorRuntime({
+      transport: {
+        url: gateway.gateway.url,
+        developmentLoopback: true,
+        offer,
+        credential: /** 使用本 fixture 实际一次性配对后的设备凭据。 */ () => paired.credential,
+        now: /** 原 Store、receipt 与通道共享可信时间。 */ () => gateway.now,
+        limits: { heartbeat_ms: 30, idle_ms: 1500, handshake_ms: 1000, reconnect_ms: 10_000 }
+      },
+      /** 真实 welcome 后组合已有原 Wire 和持久 receipt，不替换其校验或准入实现。 */
+      session(connection) {
+        sessionConnection = connection
+        const original = gateway.session(connection)
+        const sink: NonNullable<ConnectorWireSession['admissions']> = {
+          /** 私有 proof 只能来自 transport 的真实接收路径。 */ accept(proof) {
+            receipts.accept(proof)
+          },
+          /** 固定完整请求必须通过实际持久接收端再进入原 Wire。 */ assertRequest(request) {
+            receipts.assertRequest(request)
+          },
+          /** 在真实关闭路径注入安全失败，getter 异常也不能被 transport 静默忽略。 */
+          get closeEpoch() {
+            if (failFence && fault === 'getter') {
+              throw new Error(privateFailure)
+            }
+            return /** 原真实连接只 fence 一次，显式 role.close 重入不能再次调用。 */ (
+              identity: ConnectionIdentity
+            ) => {
+              epochCalls++
+              order.push('epoch')
+              assert.equal(identity.machine_id, connection.machine_id)
+              assert.equal(identity.connection_epoch, connection.connection_epoch)
+              assert.equal(identity.recovery_generation, connection.recovery_generation)
+              if (mode === 'role') {
+                assert.equal(runtime!.close(), runtime!.closed)
+              }
+              if (failFence && fault === 'throws') {
+                throw new Error(privateFailure)
+              }
+              if (failFence && fault === 'async') {
+                return Promise.reject(new Error(privateFailure))
+              }
+              receipts.closeEpoch(identity)
+            }
+          }
+        }
+        return {
+          ...original,
+          admissions: sink,
+          /** 只观察真实请求已通过 receipt 与原 Wire，不执行任何原生工作；关闭中止这次等待。 */
+          async executeWire(_raw, signal) {
+            executeCalls++
+            await new Promise<never>(
+              /** 退出只取消观察，不创造响应或第二次派发。 */ (_resolve, reject) => {
+                signal.addEventListener(
+                  'abort',
+                  /** 只返回安全 fixture 失败以结束当前等待。 */ () => reject(new Error('isolated_wait_aborted')),
+                  { once: true }
+                )
+              }
+            )
+            throw new Error('unreachable_fixture_execution')
+          },
+          /** receipt fence 必须先于 adapter/provider 关闭及长期 owner 释放。 */
+          close() {
+            sessionCloses++
+            order.push('session')
+            original.close()
+          }
+        }
+      },
+      /** 逻辑 fence 失败仍回收实际 owner；原 release 状态与 closed 失败分别可观察。 */
+      async release() {
+        releases++
+        order.push('release')
+        assert.equal(sessionCloses, 1)
+        assert(admittedBinding)
+        fencedBeforeRelease = receipts.snapshot(admittedBinding).fenced
+        receipts.close()
+      }
+    })
+    const active = runtime
+    await until(/** 必须完成真实认证和 H1 capability 检查。 */ () => active.transport.status().phase === 'ready')
+    const call = gateway.call(paired.target)
+    const binding = gateway.gateway.dispatch(call.call_id)
+    admittedBinding = binding
+    await until(
+      /** receipt 已由实际 Wire proof 持久提交，请求才可以进入本机执行观察。 */ () => {
+        try {
+          return executeCalls === 1 && !receipts.snapshot(binding).fenced
+        } catch {
+          return false
+        }
+      }
+    )
+    const expires = receipts.dedupExpires(binding)
+    assert.equal(sessionConnection?.connection_epoch, binding.connection_epoch)
+    failFence = true
+    if (mode === 'disconnect') {
+      gateway.gateway.disconnect(paired.machine_id)
+      await until(/** 原 socket 断开确实先回收会话，不等待下一次角色关闭。 */ () => sessionCloses === 1)
+    }
+    const closing = active.close()
+    assert.equal(closing, active.closed)
+    assert.equal(active.close(), closing)
+    if (fault === 'none') {
+      await bounded(closing)
+    } else {
+      await assert.rejects(bounded(closing), failure('connector_runtime_close_failed'))
+    }
+    assert.equal(active.transport.status().phase, 'stopped')
+    assert.equal(epochCalls, fault === 'getter' ? 0 : 1)
+    assert.equal(sessionCloses, 1)
+    assert.equal(releases, 1)
+    assert.deepEqual(order, fault === 'getter' ? ['session', 'release'] : ['epoch', 'session', 'release'])
+    assert.equal(fencedBeforeRelease, fault === 'none')
+    assert.equal(await active.releaseSettled, 'released')
+    reopened = new ConnectorAdmissionReceipts({ ...receiptOptions, mode: 'open' })
+    assert.equal(reopened.dedupExpires(binding), expires)
+    assert.equal(reopened.snapshot(binding).fenced, true)
+    if (fault === 'none') {
+      assert.throws(
+        /** 原 epoch 的完整上下文不能在重开后复活读取能力。 */ () => reopened!.responseAnchor(binding),
+        /admission_context_fenced/
+      )
+    }
+  } finally {
+    try {
+      await runtime?.close().catch(/** 已断言的安全关闭错误不阻止 fixture 独占资源释放。 */ () => {})
+    } finally {
+      reopened?.close()
+      receipts.close()
+      gateway.stop()
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+}
+
+for (const mode of ['role', 'disconnect'] as const) {
+  test(
+    'provider Connector persists the real admission epoch fence on ' + mode + ' close',
+    /** 原 receipt 经真实通道到达，显式角色关闭和普通断连均不能遗留可读旧 epoch。 */ async () => admissionClose(mode)
+  )
+}
+
+for (const fault of ['throws', 'async', 'getter'] as const) {
+  test(
+    'provider Connector reports admission epoch ' + fault + ' cleanup failure through shared closed',
+    /** transport 内部捕获不得掩盖失败，晚到异步拒绝被消费且 owner 继续有界释放。 */ async () =>
+      admissionClose('role', fault)
+  )
+}

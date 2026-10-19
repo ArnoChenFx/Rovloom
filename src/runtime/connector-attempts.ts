@@ -104,9 +104,15 @@ export class ConnectorAttemptBook {
     return entry
   }
 
-  /** 先预留不可改写的私有期限，仅验证回调成功后提交；调用方不能构造或延长 entry。 */
-  admit<T>(attempt: TrustedAttempt, verify: () => T): T {
+  /** 先预留固定期限，原 Wire 与可选原截止/最终 fence 都成功后才提交，不能构造或延长 entry。 */
+  admit<T>(attempt: TrustedAttempt, verify: () => T, originalExpiry?: number, assertCommit?: () => void): T {
     const entry = this.#prepare(attempt)
+    if (originalExpiry !== undefined) {
+      uint(originalExpiry, true)
+      if (entry.expires !== originalExpiry) {
+        fail('attempt_request_mismatch')
+      }
+    }
     const result = verify()
     // 相对本机 TTL 沿用首次预留；独立原截止仍须重读并完全一致，不能在 verify 中漂移。
     const current = this.#prepare(attempt, this.#options.retention_ms === undefined ? undefined : entry.expires)
@@ -116,6 +122,11 @@ export class ConnectorAttemptBook {
       boundedJson(current.binding) !== boundedJson(entry.binding)
     ) {
       fail('attempt_request_mismatch')
+    }
+    const committed = assertCommit?.()
+    if (committed !== undefined) {
+      void Promise.resolve(committed).catch(/** 不接受异步最终 fence，也消费其晚到拒绝。 */ () => {})
+      fail('synchronous_connector_admission_required')
     }
     const name = attempt.binding.call_id + ':' + attempt.binding.attempt_id
     if (!this.#entries.has(name)) {
@@ -338,7 +349,7 @@ export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptio
 }
 
 /** 仅给本模块建立的准入后端包装真实 adapter.decode；其它独立可信后端保持原接口。 */
-export function connectorAdmissionAdapter(backend: NativeWireBackend, adapter: Adapter): Adapter {
+export function connectorAdmissionAdapter<T extends Adapter>(backend: NativeWireBackend, adapter: T): T {
   const admission = admissions.get(backend)
   if (!admission) {
     return adapter
@@ -363,3 +374,6 @@ export function connectorAdmissionAdapter(backend: NativeWireBackend, adapter: A
     }
   })
 }
+
+export { createConnectorAdmissionLedger } from './connector-admission-ledger.js'
+export type { ConnectorAdmissionLedger, ConnectorAdmissionLedgerOptions } from './connector-admission-ledger.js'
