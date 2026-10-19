@@ -1,4 +1,5 @@
 // 在自有临时原生 binary/子进程上验证实际替换与回滚；系统服务状态只使用明确的受控模型。
+// 原生编译、摘要与多次子进程/权限核验独立限时 45 秒，不沿用 Bun 普通单元测试的 5 秒默认值。
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs/promises'
@@ -11,6 +12,7 @@ import { cleanupBinaries, newVersion, oldVersion, setup } from './helpers.js'
 
 test(
   'a failed exclusive candidate open never deletes an unowned file',
+  { timeout: 45_000 },
   /* 失败的 O_EXCL 不能成为清理所有权证明。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -48,6 +50,7 @@ test(
 
 test(
   'a backup link applied before an error is identified and safely unwound',
+  { timeout: 45_000 },
   /* 不遗留使下次安装误判的额外硬链接。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -81,6 +84,7 @@ test(
 
 test(
   'an externally replaced target is never overwritten and its original backup is retained',
+  { timeout: 45_000 },
   /* 不把同名的新 inode 盲目回滚成旧版本。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -123,7 +127,7 @@ test(
 
 // 后台事务只有真正清理安装锁和角色锁后，调用方才能复用此测试根。
 async function settled(root: string): Promise<void> {
-  const deadline = performance.now() + 5000
+  const deadline = performance.now() + 20_000
   while ((await fs.readdir(root)).some(/* 只检查更新事务自己的命名空间。 */ (name) => name.startsWith('.rovloom-'))) {
     if (performance.now() > deadline) {
       assert.fail('fixture update did not quiesce')
@@ -134,6 +138,7 @@ async function settled(root: string): Promise<void> {
 
 test(
   'installation and both role locks remain held through a cancelled, late atomic rename and rollback',
+  { timeout: 45_000 },
   /* 真实迟到 rename 不能污染下一实例。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -208,6 +213,7 @@ test(
 
 test(
   'failed rollback preserves old binary, durable recovery record and both role locks',
+  { timeout: 45_000 },
   /* 不接受恢复失败后退出零或盲目启动新版本。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -266,6 +272,7 @@ test(
 
 test(
   'unsafe symlink, hardlink, writable ancestor and special-mode installations fail before service mutation',
+  { timeout: 45_000 },
   /* 路径安全策略在任何替换前失败关闭。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -304,6 +311,7 @@ test(
 
 test(
   'extended permission metadata or missing role health proof cannot be bypassed',
+  { timeout: 45_000 },
   /* 未支持的 ACL 和业务就绪证据不能降格为 mode/running。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -346,6 +354,7 @@ after(
 
 test(
   'native POSIX update replaces atomically, preserves metadata/data and restores original role states',
+  { timeout: 45_000 },
   /* 真实文件和自有进程闭环，非 OS service 实装。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -381,6 +390,7 @@ test(
 
 test(
   'a target replaced during new-version readiness cannot commit or delete its old backup',
+  { timeout: 45_000 },
   /* 同版本异 inode 不能通过 --version 冒充本事务候选。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -428,6 +438,7 @@ test(
 
 test(
   'new-version health failure atomically restores old binary and both running roles including disabled boot',
+  { timeout: 45_000 },
   /* 不以 enable/install 重建原服务。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -456,6 +467,7 @@ test(
 for (const applied of [false, true]) {
   test(
     `forward rename failure (applied=${applied}) restores the original binary and service`,
+    { timeout: 45_000 },
     /* 不猜测失败 syscall 是否已产生副作用。 */ async () => {
       if (process.platform === 'win32') {
         return
@@ -495,6 +507,7 @@ for (const applied of [false, true]) {
 
 test(
   'partial stop failure compensates already stopped roles without changing the binary',
+  { timeout: 45_000 },
   /* 第一角色停后第二角色失败仍须恢复原意图。 */ async () => {
     if (process.platform === 'win32') {
       return
@@ -521,6 +534,7 @@ test(
 
 test(
   'the existing CLI hook performs configured POSIX update while --check remains read only',
+  { timeout: 45_000 },
   /* 同一入口实际调用受控状态机，不注入裸 apply。 */ async () => {
     if (process.platform === 'win32') {
       return
