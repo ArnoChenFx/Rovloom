@@ -11,6 +11,7 @@ import type {
   GatewayOptions,
   Connection,
   Readiness,
+  AdmissionReceiptSink,
   WireConnectorOptions
 } from '../transport/index.js'
 import type {
@@ -66,6 +67,8 @@ export type ConnectorRuntimeOptions = Readonly<{
     // 受控来源可在实际准入后按原 binding 延迟绑定委托，避免为启动会话编造 call/attempt。
     delegation: LuvusBoundDelegation | ((binding: AttemptBinding) => LuvusBoundDelegation)
     claims: LuvusDispatchClaims
+    // 可选原截止能力的真实接收端；实际准入后端须使用同一持久记录，不能从请求 JSON 自建。
+    admissions?: AdmissionReceiptSink
     verifyPeer: NonNullable<LuvusRpcHost['verifyPeer']>
     // 固定 dedup 截止必须来自受保护准入记录；不得按重连时间重新计算。
     dedupExpires(binding: Parameters<LuvusRpcHost['claimDispatch']>[0]): number

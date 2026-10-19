@@ -14,9 +14,10 @@ import { LuvusBoundDelegation, LuvusDispatchClaims, readLinuxLuvusPeer } from '.
 import { contractRef, assertBinding, fail } from '../../src/wire/index.js'
 import type { AttemptBinding, ProviderPolicy } from '../../src/wire/types.js'
 import type { NativeBinding, TrustedNativeContext } from '../../src/native-contract/index.js'
+import type { GatewayRuntimeOptions } from '../../src/runtime/types.js'
 
 /** Gateway 和 Connector 独立请求锚点仅经真实认证通道关联；native 来源仍为标明的测试 fixture。 */
-export async function runtimeFixture() {
+export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['limits'] = {}) {
   const native = await localFixture()
   const stateDirectory = join(native.root, 'gateway')
   mkdirSync(stateDirectory, { mode: 0o700 })
@@ -103,7 +104,7 @@ export async function runtimeFixture() {
       developmentLoopback: true,
       offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] },
       // 组合双持久身份库时使用产品默认心跳，避免追踪测试制造每秒十次持久校验/心跳写入。
-      limits: { heartbeat_ms: 5000, idle_ms: 20_000 }
+      limits: { heartbeat_ms: 5000, idle_ms: 20_000, ...limits }
     },
     /** 角色显式关闭后释放唯一双库。 */
     async release() {
@@ -230,6 +231,14 @@ export async function runtimeFixture() {
     /** 切换当前测试主体有效性，结果读取必须即时重新核验。 */
     authorize(value: boolean) {
       authorized = value
+    },
+    /** 独立撤销当前 caller 的读取权限，派发权限与身份仍保持有效。 */
+    allowRead(value: boolean) {
+      const grant = caller.grants[0]!
+      grant.actions = grant.actions.filter(/** 不重复追加或保留已撤销 read。 */ (action) => action !== 'read')
+      if (value) {
+        grant.actions.push('read')
+      }
     },
     /** 有界等待真实 Gateway 账本回应；回调不授予读取原文权限。 */
     async responded(call: string) {
