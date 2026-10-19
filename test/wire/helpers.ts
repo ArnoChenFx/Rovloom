@@ -21,10 +21,10 @@ import { contractRef } from '../../src/wire/provider.js'
 import { WireError } from '../../src/wire/validation.js'
 
 export const bundle = JSON.parse(
-  readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url), 'utf8')
+  readFileSync(new URL('../fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url), 'utf8')
 )
 export const transcript: Record<string, any>[] = JSON.parse(
-  readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/transcript.json', import.meta.url), 'utf8')
+  readFileSync(new URL('../fixtures/luvus/0.14.3/linux/transcript.json', import.meta.url), 'utf8')
 )
 export const ajv = new Ajv2020({
   strict: false,
@@ -157,7 +157,7 @@ export const binding: AttemptBinding = { ...identity, ...attempt }
 export const nativeHandle = Object.freeze({ synthetic_test_handle: true })
 export const trustedSource = Object.freeze({ synthetic_test_source: true })
 const methods = JSON.parse(
-  readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')
+  readFileSync(new URL('../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')
 ).methods.map(/* 从覆盖清单中提取可供测试授权的方法名称。 */ (r: any) => r.method)
 export const offer: VersionOffer = {
   major: 2,

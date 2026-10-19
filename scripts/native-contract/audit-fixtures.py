@@ -13,9 +13,9 @@ from urllib.parse import unquote, urldefrag, urljoin
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "fixtures/p0/linux-luvus-0.14.3"
-MAPPINGS = ROOT / "fixtures/native-contract"
-MATRIX = ROOT / "fixtures/native-contract/matrix.json"
+FIXTURE = ROOT / "test/fixtures/luvus/0.14.3/linux"
+MAPPINGS = ROOT / "test/fixtures/native-contract"
+MATRIX = ROOT / "test/fixtures/native-contract/matrix.json"
 BASE = "9c4a7fe34fc3efa461d96a502860e61b05817c44"
 SCHEMA_SHA = "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6"
 STREAMS = {"events.subscribe", "terminal.backend.events.subscribe",
@@ -116,7 +116,7 @@ def render_map(rows):
 def audit_sources():
     manifest = read_json(FIXTURE / "manifest.json")
     for name, info in manifest["files"].items():
-        path = fixture_file(f"fixtures/p0/linux-luvus-0.14.3/{name}")
+        path = fixture_file(f"test/fixtures/luvus/0.14.3/linux/{name}")
         check(digest(path) == info["sha256"] and path.stat().st_size == info["bytes"],
               f"P0 原文改变: {name}")
     check(digest(FIXTURE / "schema-bundle.json") == SCHEMA_SHA, "原生 schema digest 不符")
@@ -151,7 +151,7 @@ def audit_sources():
         check(doc.get("$id", uri) == uri, f"安装版 id/key 不符: {uri}")
         visit(doc, uri)
     rows = method_rows(bundle, session, host)
-    ledger = {item["method"]: item for item in read_json(ROOT / "fixtures/native-contract/coverage.json")["methods"]}
+    ledger = {item["method"]: item for item in read_json(ROOT / "test/fixtures/native-contract/coverage.json")["methods"]}
     check(len(ledger) == len(rows), "P0 ledger 方法数不符")
     for row in rows:
         entry = ledger[row["method"]]
