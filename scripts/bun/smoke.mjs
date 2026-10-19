@@ -29,7 +29,7 @@ assert.equal(typeof transport.ChannelRegistry, 'function')
 assert.equal(typeof transport.createDeviceLifecycleWiring, 'function')
 assert.equal(typeof transport.createDeviceLifecycleAdapter, 'function')
 // Herdr 产物复用共享 Wire 错误身份；导入本身不启动或连接原生实例。
-const herdr = await import('../../dist/src/herdr/readonly.js')
+const herdr = await import('../../dist/src/connector/herdr/readonly.js')
 assert.equal(typeof herdr.createHerdrReadonlyAdapter, 'function')
 assert.deepEqual(herdr.HERDR_READONLY_REVIEW.methods, ['ping'])
 assert.throws(
@@ -39,6 +39,17 @@ assert.throws(
 )
 const webui = await import('../../dist/src/webui/index.js')
 assert.equal(typeof webui.mountWebUi, 'function')
+assert.equal(typeof webui.createManagementHttpRead, 'function')
+const admin = await import('../../dist/src/admin/index.js')
+assert.equal(typeof admin.startManagementReadListener, 'function')
+assert.throws(
+  /** 产物没有默认身份，缺少可信会话适配器时不能开端口。 */
+  () => admin.startManagementReadListener({ service: { /** 未配置认证时此服务不应被调用。 */ execute() {} }, port: 0 }),
+  /management_authentication_required/u
+)
+const managementAssets = admin.loadManagementAssets(new URL('../../dist/webui/', import.meta.url).pathname)
+assert(managementAssets.has('/rovloom-mark-orange.png'))
+assert(!managementAssets.has('/browser.js.map'))
 assert.deepEqual(webui.parseRoute('#machine=a%2Fb'), { machineId: 'a/b', cursor: null, providerCursor: null })
 await assert.rejects(webui.unavailableRead(), { problem: 'unavailable' })
 const browserEntry = readFileSync(new URL('../../dist/webui/browser.js', import.meta.url), 'utf8')
@@ -84,7 +95,7 @@ assert.deepEqual(
     'parseNativeJson'
   ].sort()
 )
-const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
+const bytes = readFileSync(new URL('../../test/fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url))
 // 构建产物的普通坏 bundle 不能污染编译服务，随后仍须完成完整有效编译。
 const malformed = await native.compileBundle('{}', {
   identity: { binary_sha256: 'a'.repeat(64), schema_sha256: contracts.digest('{}'), revision: 'artifact-rejection' }
@@ -111,7 +122,7 @@ assert(checked.ok)
 assert.deepEqual(checked.value.response, response)
 // 仅用 P0 fixture 测试跨构建入口的私有 handle 身份，不建立网络或真实权限。
 const capabilities = JSON.parse(
-  readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/session-capabilities.json', import.meta.url))
+  readFileSync(new URL('../../test/fixtures/luvus/0.14.3/linux/session-capabilities.json', import.meta.url))
 )
 const origin = {
   provider_kind: 'luvus',

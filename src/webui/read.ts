@@ -47,7 +47,7 @@ function deviceFence(device: DeviceSnapshot): string {
 
 /** Provider/权限部分失败只允许固定可公开分类，401 等全局失败必须清空整页。 */
 function partialProblem(error: unknown): 'forbidden' | 'unavailable' {
-  if (error instanceof ReadError && error.problem === 'forbidden') {
+  if (error instanceof ReadError && (error.problem === 'forbidden' || error.problem === 'not_found')) {
     return 'forbidden'
   }
   if (!(error instanceof ReadError) || error.problem === 'unavailable') {

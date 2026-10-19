@@ -566,7 +566,7 @@ test(
       'classification_unavailable'
     )
     const coverage = JSON.parse(
-      readFileSync(new URL('../../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')
+      readFileSync(new URL('../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')
     )
     const generic = coverage.methods.filter(
       /* 筛选仅有通用参数形态的原生方法覆盖记录。 */ (r: any) => r.schema.parameter_detail === 'generic_params_only'

@@ -19,7 +19,7 @@ assert.deepEqual(Object.keys(api).sort(), [
   'inspectRequestGate',
   'parseNativeJson'
 ])
-const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
+const bytes = readFileSync(new URL('../fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url))
 const identity = {
   binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
   schema_sha256: createHash('sha256').update(bytes).digest('hex'),

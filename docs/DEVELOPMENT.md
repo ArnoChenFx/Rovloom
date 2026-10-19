@@ -3,7 +3,7 @@
 工具链固定为 **Bun 1.4.3**，由 `.bun-version`、`package.json` 和
 [CI](../.github/workflows/bun.yml)共同约束。选择依据见
 [ADR 0003](adr/0003-bun-toolchain.md)，官方 release、binary hash 与 revision 见
-[来源数据](../fixtures/toolchain/bun-1.4.3-provenance.json)。
+[来源数据](../scripts/bun/provenance.json)。
 
 ## 日常命令
 
@@ -16,10 +16,9 @@ bun run toolchain
 bun run comments:check
 bun run typecheck
 bun run test
-bun run test:p0
-bun run test:bun
-bun run p0:audit
-bun run p0:bun-native
+bun run test:protocol
+bun run test:toolchain
+bun run audit:luvus
 python3 scripts/native-contract/audit-fixtures.py
 bun run build
 bun run smoke
@@ -34,7 +33,7 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、Herdr 与 webui 十一个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport、Herdr、webui 与 admin 十二个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
@@ -42,7 +41,8 @@ smoke 从产物验证原生离线编译、request/error/result 边界、v2 往�
 SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
 
 管理页另以 browser target 输出 `dist/webui/` 的 ESM、HTML/CSS 与外部 source maps，
-不依赖 Node、远端字体或 UI 框架。默认入口只显示管理读取不可用，不能将它当作已接线的管理服务。
+不依赖 Node、远端字体或 UI 框架。默认入口以固定同源 GET 读取管理 API；未配置宿主 listener/服务时显示不可用，不加载测试数据。
+`dist/src/admin/index.js` 只提供宿主组合模块，不自动启动；可信会话与共享 service 的注入边界见 [管理页设计](GATEWAY-WEBUI.md#只读-http-宿主桥)。
 顶栏与 favicon 复用[独立橙色 R](assets/brand/rovloom-mark-orange.png)；[横版全名图](assets/brand/rovloom-logo.png)仍保留在静态产物中。构建和隔离验证保持两张原 PNG 的字节、背景及纵横比。
 
 ## 管理页面的隔离验证
@@ -54,7 +54,7 @@ SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
 bun --no-env-file scripts/webui/preview.mjs
 ```
 
-日志给出本次端口。`/` 使用构建后的默认不可用入口；`/fixtures/` 显式使用隔离测试数据，
+日志给出本次端口。`/` 使用构建后的入口，由于预览不提供 API，明确显示读取不可用；`/fixtures/` 显式使用隔离测试数据，
 不包含管理 API、真实管理员授权或 Connector。它是测试工具，不能用来部署管理面。
 验证完以 Ctrl-C 关闭。
 
@@ -103,7 +103,7 @@ docstring 可以作为说明保留。
 递归检查上述三个目录内的 `.js/.jsx/.mjs/.cjs/.ts/.tsx/.mts/.cts/.py`，并在
 语法错误时失败。无实现体的类型签名、接口方法、重载和抽象方法不计作函数
 实现；声明文件仍检查文件职责。代码字符串里的样例不会被当作嵌套代码解析。
-顶层 `fixtures/`、依赖、生成物及 JSON/锁文件等数据不在范围；三个维护目录内
+固定输入中的 JSON/锁文件、依赖和生成物不属于代码检查范围；三个维护目录内
 的文件不能仅凭 `fixtures`、`vendor` 等目录名豁免。未来如引入真正的第三方
 代码或生成代码，应审查后使用明确路径例外。门禁检查注释位置与中文覆盖，
 注释准确性和信息量仍须人工审查。
@@ -140,65 +140,75 @@ JUnit 报告，核对当前完整测试文件集合均有实际执行的 case，
 所有主测试、脚本测试与 Python 测试文件的执行证据。执行输出和验收结果放 CI/PR，
 不向仓库提交逐轮报告。
 
+完整 Bun 套件的外层 watchdog 为 300 秒，其它验证命令仍为 180 秒；产品编译预算、
+业务期限和各用例时限独立保留。验证器打印套件实际耗时、用例摘要与 watchdog。
+命令超时后仍非零退出，在既有 `--output` 目录留下标记 `complete: false` 的阶段诊断、
+最近观察到的测试，以及脱敏的日志/追踪尾部（分别最多 128 KiB / 1 MiB）。这些不完整
+记录不能替代完整 JUnit、成功构建或执行覆盖证明，也不纳入 Git。
+
 ## 固定输入与维护用途
 
 | 数据 | 用途 |
 |---|---|
-| [Luvus 0.14.3 原始采集](../fixtures/p0/linux-luvus-0.14.3/manifest.json) | 安装 schema 原文字节、实时能力、RPC/Host/终端记录、endpoint 与清理断言；测试和审计直接读取 |
-| [原生来源](../fixtures/native-contract/luvus-0.14.3-provenance.json) | 官方 release/binary hash、固定源码 commit 及 29 个 schema 文档对应关系 |
-| [覆盖账本](../fixtures/native-contract/coverage.json) | P0/Wire 测试与审计重算逐方法基线；历史 not_implemented/not_enabled 不代表当前许可 |
-| [方法映射](../fixtures/native-contract/native-method-map.tsv)、[终端映射](../fixtures/native-contract/terminal-capability-map.tsv) | 审计方法/profile/transport/参数证据及 24 个 capability、2 个 feature；不作为安全分类或生产 allowlist |
-| [矩阵](../fixtures/native-contract/matrix.json) | 原生测试物化 seed、变更、生成器及正反断言；文件内历史提案状态不充当运行结果 |
-| [Node SDK 样本](../fixtures/mcp/sdk-1.32.1-node-stdio.json)、[Bun SDK 样本](../fixtures/mcp/sdk-1.32.1-bun-stdio.json) | SDK 1.32.1 的独立 stdio initialize/initialized/tools/list/ping wire；分别保留真实运行来源 |
+| [Luvus 0.14.3 原始采集](../test/fixtures/luvus/0.14.3/linux/manifest.json) | 安装 schema 原文字节、实时能力、RPC/Host/终端记录、endpoint 与清理断言；测试和审计直接读取 |
+| [原生来源](../test/fixtures/luvus/0.14.3/provenance.json) | 官方 release/binary hash、固定源码 commit 及 29 个 schema 文档对应关系 |
+| [覆盖账本](../test/fixtures/native-contract/coverage.json) | Luvus/Wire 测试与审计重算逐方法基线；历史 not_implemented/not_enabled 不代表当前许可 |
+| [方法映射](../test/fixtures/native-contract/native-method-map.tsv)、[终端映射](../test/fixtures/native-contract/terminal-capability-map.tsv) | 审计方法/profile/transport/参数证据及 24 个 capability、2 个 feature；不作为安全分类或生产 allowlist |
+| [矩阵](../test/fixtures/native-contract/matrix.json) | 原生测试物化 seed、变更、生成器及正反断言；文件内历史提案状态不充当运行结果 |
+| [无效 pane](../test/fixtures/luvus/0.14.3/invalid-pane.json)、[失效路由](../test/fixtures/luvus/0.14.3/stale-pane.json) | 从独立原生采集中逐字摘取的 request/response；含 binary/schema hash、原归档 hash、Git blob 与记录位置；前者明确来自未完成采集 |
+
+所有 Bun 回归统一位于 `test/` 并由 `bun run test` 执行。`test:protocol` 和
+`test:toolchain` 仅供聚焦运行；完整 verifier 只运行一次统一套件，用 JUnit 核对当前
+文件集合、实际用例数、零失败和零跳过。Python 工具测试也按功能放在 `test/`，由
+`scripts/maintenance/run_python_tests.py` 在逐文件独立进程中发现并执行。
 
 `scripts/native-contract/audit-fixtures.py` 校验 manifest/hash、离线引用、映射和
-矩阵可物化性；它不执行 validator/授权/流/存储验收。`p0:audit` 另核对必需文件、
-schema 闭包、请求/响应关联、退出码、endpoint/peer 身份与清理状态，不启动原生
-实例、不联网。`test:p0` 包含真实 SDK stdio 子进程及 Python endpoint 负例；
-合成 socket 不构成原生运行证据。
+矩阵可物化性；它不执行 validator/授权/流/存储验收。`audit:luvus` 另核对必需文件、
+schema 闭包、请求/响应关联、退出码、endpoint/peer 身份与清理状态。它们均不启动
+原生实例、不联网。真实 SDK stdio 子进程协商位于 `test/mcp/`，每次检查当前锁定依赖；
+SDK 运行报告打印到 stdout，不写回仓库快照。
 
-以下归档均含可复现原生输入，须保留原字节；其中失败场景是验收负例：
+### 维护目录与生成规则
 
-```text
-c96e145ad04b7ffd42a5d96624db81a68599ca769b5a10d8e15857e900e3fb23  fixtures/p0/review-native-evidence.tar.gz
-71c38aa6ce308cb71fe02746a8380034e2869b75d82c8c288edefd3b4935cc41  fixtures/bun/native-evidence.tar.gz
-d3096fedbd0e632e52c747277e181002afdeccd910ebc3b7f77dfcd25b9fc798  fixtures/bun/review-native-evidence.tar.gz
-```
+- `src/connector/{luvus,herdr}` 放原生 adapter；`native-contract`、`wire`、`transport`、
+  `storage`、`integration`、`mcp`、`webui` 按实际职责维护。根 Store/Router/协议入口继续
+  作为现行公共入口，避免仅为整齐改变全部调用方。
+- `scripts/{luvus,herdr}` 放固定版本原生输入的采集、审计和验证工具；`scripts/bun` 放
+  工具链 pin、冻结安装检查、build、smoke 与隔离 verifier；`scripts/maintenance` 放仓库门禁。
+- `test/fixtures/{luvus,herdr}` 按版本保存协议原文、来源与许可证，`native-contract` 保存
+  当前映射和矩阵。捕获中的历史 session/路径标记保留原文，不作为维护目录命名。
 
-归档仅安全解包已审查的相对路径、普通文件和清单，不执行其内容。P0 补充包的
-`v2` 含无效 pane ID，应被完整审计拒绝；`v3` 是通过集，含 stale_route 拒绝。
-两个 Bun 包分别保留独立原生采集，其中 review 包来自阻断 Node 的采集。
-`p0:bun-native` 固定 hash 后离线重放 Bun 主包；其它成功目录可交相同审计器：
-
-```sh
-bun -e 'import {inspectFixtures} from "./scripts/p0/audit-fixtures.mjs"; console.log(inspectFixtures(process.argv[1]))' /absolute/path/to/extracted/successful-capture
-```
+`coverage.json` 由 `bun scripts/luvus/audit-fixtures.mjs --write` 从固定原文生成；
+方法 TSV 由 `python3 scripts/native-contract/audit-fixtures.py --write-map` 生成。
+更新输入时显式生成并审查差异；日常 CI 只重算比对，不修改版本化输入。
+`dist/`、Python 缓存、工具执行日志及逐轮验收报告不提交。所有采集和验证输出使用
+checkout 外的全新私有路径；SDK/工具链运行元数据也只进入 CI/PR 或临时目录。
 
 重新采集先按 provenance 核验官方 binary，指定全新输出，不覆盖已提交 fixture：
 
 ```sh
-python3 scripts/p0/collect_native.py --binary /absolute/path/to/luvus --output /tmp/rovloom-native-new
-python3 scripts/bun/collect_native_no_node.py --binary /absolute/path/to/luvus --bun /absolute/path/to/bun --output /tmp/rovloom-bun-native-new
+python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/rovloom-native-new
 ```
 
 采集器在 `/workspace` 创建自己的 0700 状态根、named session 和合成终端输入，
 不继承用户 HOME/session；这不是 OS 文件沙箱。流、server、临时根在 finally
-清理，SIGKILL/机器崩溃仍需外部回收。升级先评审契约/分类，再重新采集、审计；
-日常 CI 不使用 `--write`。SDK 脚本 `--write` 只更新 Bun 样本，保留 Node 历史。
+清理，SIGKILL/机器崩溃仍需外部回收。升级先评审契约/分类，再重新采集、审计。
+主采集完整回放与两组补充原生交换持续维护协议断言，无 Node 约束由当前 verifier 的
+阻断探针和 strace 执行追踪验证；不以历史压缩采集包的重复回放代替当前检查。
 
-## Herdr P0-H 离线输入
+## Herdr 离线输入
 
-[方法门禁](../fixtures/p0h/method-policy.json)的生产允许集为空；`ping {}` 和
+[方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)的生产允许集为空；`ping {}` 和
 `session.snapshot {}` 仅是固定官方来源中的研究候选，任意其它参数、读取变体、
 订阅和写入均不获产品许可。离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
 
 ```sh
-python3 scripts/p0h/test_contract.py
-python3 scripts/p0h/audit.py fixtures/p0h/synthetic
+python3 test/herdr/test_contract.py
+python3 scripts/herdr/audit.py test/fixtures/herdr/synthetic
 ```
 
-[合成 fixture](../fixtures/p0h/synthetic/capture.json)只验证离线工具，版本、binary
+[合成 fixture](../test/fixtures/herdr/synthetic/capture.json)只验证离线工具，版本、binary
 摘要、schema 和协议样本均非安装版实测证据。审计核对原始文件 hash、记录中的
 实例/契约、CLI argv/退出码、单行 JSON、原生 result/error 关联和缺回复的
 `outcome_unknown`；schema 仅检查已提供文档的方言与引用闭包，不编译或验证
@@ -211,7 +221,7 @@ stderr 和协议帧原字节，填写文件清单与记录中的 binding。真�
 复制并再次审计，输出须全新且位于 checkout 与输入之外：
 
 ```sh
-python3 scripts/p0h/collect.py --input /absolute/private/herdr-export --output /tmp/rovloom-herdr-evidence-new
+python3 scripts/herdr/collect.py --input /absolute/private/herdr-export --output /tmp/rovloom-herdr-evidence-new
 ```
 
 可用 `observations: [{"role": "endpoint_peer", "file": "endpoint.json"}]` 引用额外
@@ -231,14 +241,14 @@ python3 scripts/p0h/collect.py --input /absolute/private/herdr-export --output /
 
 ### 专用原生验证
 
-安装来源固定在[Herdr provenance](../fixtures/p0h/herdr-0.9.5-provenance.json)：官方
+安装来源固定在[Herdr provenance](../test/fixtures/herdr/0.9.5/provenance.json)：官方
 release/asset、源码 commit、Linux binary 与安装 schema 的 SHA-256、协议与方言。
 升级需先重新核对官方当前 release、下载 hash 和安装契约；验证器不自动下载或升级。
 
 获得专用临时实例的运行授权后，可使用匹配 pin 的普通本地 binary：
 
 ```sh
-python3 scripts/p0h/verify_native.py --binary /absolute/verified/herdr --output /tmp/rovloom-herdr-native-new
+python3 scripts/herdr/verify_native.py --binary /absolute/verified/herdr --output /tmp/rovloom-herdr-native-new
 ```
 
 命令只在全新私有 HOME/XDG 根启动一个新 named session，以直接监管的进程 PID
@@ -257,7 +267,7 @@ python3 scripts/p0h/verify_native.py --binary /absolute/verified/herdr --output 
 保留窗边界和并发刷新使用独立实验，每个场景各建全新实例：
 
 ```sh
-python3 scripts/p0h/verify_readonly.py --binary /absolute/verified/herdr --output /tmp/rovloom-herdr-readonly-new
+python3 scripts/herdr/verify_readonly.py --binary /absolute/verified/herdr --output /tmp/rovloom-herdr-readonly-new
 ```
 
 实验先用独立对照实际观察大事件写超时后的截断帧和 EOF，再观察一条尚未写完的大
@@ -272,15 +282,15 @@ python3 scripts/p0h/verify_readonly.py --binary /absolute/verified/herdr --outpu
 
 ### 只读 adapter 接缝
 
-[原生组件](../src/herdr/readonly.ts)复用 Wire 的 `AttemptBinding`、`ContractRecord`、
+[原生组件](../src/connector/herdr/readonly.ts)复用 Wire 的 `AttemptBinding`、`ContractRecord`、
 双端策略与 Store attempt，不创建第二套设备/provider 身份。协议回放限
 `ping {}` 和 `session.snapshot {}` 的 RPC，保留原生 result/error；adapter 执行候选
 进一步限 `ping {}`，snapshot 仍因副作用覆盖不足而拒绝。流、raw、Host、其它参数、
 终端和写入均拒绝。共享 provider 的 Herdr candidate 硬门禁仍保持关闭。
 
-[安装 schema 原文](../fixtures/p0h/herdr-0.9.5.schema.json)的 hash 对应固定 provenance，
-[脱敏原生回放](../fixtures/p0h/readonly-native.json)仅替换路径和请求 ID；上游许可见
-[LICENSE.herdr](../fixtures/p0h/LICENSE.herdr)。测试从完整 request/success/error 根编译，
+[安装 schema 原文](../test/fixtures/herdr/0.9.5/schema.json)的 hash 对应固定 provenance，
+[脱敏原生回放](../test/fixtures/herdr/0.9.5/readonly.json)仅替换路径和请求 ID；上游许可见
+[LICENSE.herdr](../test/fixtures/herdr/0.9.5/LICENSE)。测试从完整 request/success/error 根编译，
 不把 method envelope 检查冒充完整 schema 校验。
 
 宿主须实现源码中的 `HerdrReadonlyBackend`：从现有 Store 取原 attempt/内容状态，

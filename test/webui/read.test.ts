@@ -76,7 +76,7 @@ test(
 )
 
 // Provider 403/503 可部分失败，401 等会话错误必须整页向上传递。
-for (const problem of ['forbidden', 'unavailable', 'unauthenticated'] as const) {
+for (const problem of ['forbidden', 'not_found', 'unavailable', 'unauthenticated'] as const) {
   test(
     `provider ${problem} 不伪装设备离线或授权成功`,
     /* 验证 `provider ${problem} 不伪装设备离线或授权成功` 的读取与展示边界。 */ async () => {
@@ -94,7 +94,7 @@ for (const problem of ['forbidden', 'unavailable', 'unauthenticated'] as const) 
       } else {
         const result = await read(detailRoute, new AbortController().signal)
         assert.equal(result.value.device?.persisted_state, 'online')
-        assert.equal(result.value.providersProblem, problem)
+        assert.equal(result.value.providersProblem, problem === 'not_found' ? 'forbidden' : problem)
         assert.deepEqual(result.value.providers.items, [])
       }
     }
@@ -296,5 +296,30 @@ test(
         { problem: 'invalid_response', message: 'invalid_response' }
       )
     }
+  }
+)
+
+test(
+  '设备可读但权限提示404时保持详情，设备复核404仍清空整页',
+  /** permissions_read 缺失不能撤回已有 devices_read；设备授权再次核对。 */ async () => {
+    let deviceReads = 0
+    let revoked = false
+    const read = createManagementPageRead(
+      /** 权限提示不可见与设备授权失效分别来自独立共享读取。 */
+      async (name, args) => {
+        if (name === 'permissions_get') {
+          throw new ReadError('not_found')
+        }
+        if (name === 'devices_get' && ++deviceReads % 2 === 0 && revoked) {
+          throw new ReadError('not_found')
+        }
+        return fixtureReply(name, args)
+      }
+    )
+    const page = await read(detailRoute, new AbortController().signal)
+    assert.equal(page.value.device?.machine_id, 'fixture-a')
+    assert.equal(page.value.permissions, null)
+    revoked = true
+    await assert.rejects(read(detailRoute, new AbortController().signal), { problem: 'not_found' })
   }
 )

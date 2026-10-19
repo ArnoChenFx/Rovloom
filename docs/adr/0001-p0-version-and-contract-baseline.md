@@ -1,6 +1,6 @@
 # ADR 0001：安装契约与独立协议版本
 
-状态：采纳。系统要求以 [DESIGN](../DESIGN.md)为准；本 ADR 记录契约选择理由，固定原生输入及其来源维护在 [P0 指引](../DEVELOPMENT.md#固定输入与维护用途)，当前工具链选择见 [ADR 0003](0003-bun-toolchain.md)。
+状态：采纳。系统要求以 [DESIGN](../DESIGN.md)为准；本 ADR 记录契约选择理由，固定原生输入及其来源维护在 [固定输入指引](../DEVELOPMENT.md#固定输入与维护用途)，当前工具链选择见 [ADR 0003](0003-bun-toolchain.md)。
 
 ## 决策
 
@@ -18,11 +18,11 @@ MCP、Rovloom Wire、Luvus UHP 和 Herdr JSON 分别版本化。MCP 采用 SDK �
 
 固定 Luvus 版本的证据揭示了参数覆盖缺口、原生语义拒绝、endpoint 身份与终端 ack 边界，因此方法总数不能作为“全功能”或参数验证的替代指标。精确方法覆盖、版本/hash 和原始记录只维护在测试输入/来源说明，避免 ADR 与 fixture 漂移。
 
-MCP SDK stdio 兼容探针只能证明记录中的客户端和 revision，不证明商业 Host、HTTP/OAuth、其它 revision 或产品 Gateway 已接线。历史 Node 采集与 Bun 回放分别保留 provenance，不能互相改写成通过证据。当前依赖精确版本以 package/lock 为准，类型包不代表执行运行时。
+MCP SDK stdio 兼容探针只能证明记录中的客户端和 revision，不证明商业 Host、HTTP/OAuth、其它 revision 或产品 Gateway 已接线。当前 CI 使用锁定 Bun 执行真实 SDK 协商，历史运行报告不作为持续验收输入。当前依赖精确版本以 package/lock 为准，类型包不代表执行运行时。
 
 ## 证据入口
 
-- [P0 来源](../../fixtures/native-contract/luvus-0.14.3-provenance.json)与 [SDK 实际协商](../../fixtures/mcp/sdk-1.32.1-node-stdio.json)：不可变外部契约/测试 provenance。
+- [原生来源](../../test/fixtures/luvus/0.14.3/provenance.json)与 [SDK 实际协商回归](../../test/mcp/sdk-compatibility.test.mjs)：分别维护不可变契约来源与当前依赖的实际兼容验证。
 - MCP `2025-11-25`：[生命周期](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)、[传输](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[授权](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)。
 - [固定 Luvus endpoint 规则](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/protocol/uhp/v1/terminal/endpoint-validation.md)：平台验证输入，不是所有平台已通过的证明。
 

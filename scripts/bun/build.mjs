@@ -16,8 +16,9 @@ const result = await Bun.build({
     'src/integration/luvus-wire.ts',
     'src/integration/persistence.ts',
     'src/transport/index.ts',
-    'src/herdr/readonly.ts',
-    'src/webui/index.ts'
+    'src/connector/herdr/readonly.ts',
+    'src/webui/index.ts',
+    'src/admin/index.ts'
   ],
   outdir: 'dist/src',
   root: 'src',
@@ -51,5 +52,5 @@ for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
   copyFileSync(`docs/assets/brand/${asset}`, `dist/webui/${asset}`)
 }
 console.log(
-  `Built ${result.outputs.length} Bun ESM files/maps and ${browser.outputs.length} browser files/maps; management read adapter remains unconfigured`
+  `Built ${result.outputs.length} Bun ESM files/maps and ${browser.outputs.length} browser files/maps; management listener requires host service and trusted session adapter`
 )

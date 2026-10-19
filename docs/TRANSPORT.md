@@ -22,6 +22,36 @@ Connector 强制 `rejectUnauthorized: true`，可从受保护配置传入 CA，�
 不阻止其它实例。`status()` 只返回有界状态和 ID，不返回凭据、请求或原生内容。
 宿主须独立保证对端配置来源，不能把设备广告转换成 readiness 中的 trusted 本地配置。
 
+## 可信只读观测
+
+`gateway.observations` 实现 `GatewayTransportObservationSource`，只有无参数的同步
+`snapshot()`，类型见 [observation.ts](../src/transport/observation.ts)。宿主可将它独立注入
+管理快照提供方；本接口不增加管理权限、HTTP listener 或 MCP 接线，不能直接交给浏览器作为授权。
+
+快照包含可信 Store 毫秒时钟的 `observed_at`、当前 `recovery_generation`、本 listener 的
+`transport` 可用性和实际认证 peer 的 `devices`。只核验当前 live socket、身份租期、ChannelRegistry
+绑定和 Store fence；持久化 `online` 不构成本 Gateway 的实时来源。连接只提供有证据的
+`online`，认证只提供 `authenticated`，缺少或失效的来源保持 `unverified`；不推断
+`offline/reconnecting/revoked/auth_failed`。正常关闭后条目消失，消费者须将缺项保留为未知。
+
+`connection_epoch_ref` 是每次实际认证生成的独立随机引用，fresh epoch 必须更换，不能用于
+Store、管理确认或派发 fence，也不暴露原始 epoch。`last_heartbeat_at` 初始为 `null`，仅在
+合法 heartbeat 完成消息去重及序号检查后记录本机接收时间；发送心跳、业务帧、重复帧和读取
+均不刷新它，不接受客户端自报时间。
+
+provider 项包含稳定 ID、当前 `binding_revision` 和 `dispatch_ready`；后者只说明既有 Gateway
+派发门禁，核对当前 canonical binding、双端配置/策略、宿主 readiness 与 Wire 可用性。
+`false` 不表示原生不可达，`true` 也不是原生 runtime、binary/schema 摘要、contract 或支持传输
+的独立证明。这些字段以及 native 组件继续由各自可信来源提供，缺来源不得补 verified。
+所有宿主回调完成后再次统一核对连接和 canonical binding，较晚设备回调使较早设备失效时
+不能留下旧 ready。Store 降级、隔离、代次变化或可信时钟异常使本次读取固定报
+`transport_observation_unavailable`，管理层可映射为 `backend_unavailable`，不得沿用旧成功。
+
+返回值递归冻结且不持有凭据、请求、原生内容或宿主异常原文；不维护历史表、订阅或新 timer，
+按现有连接额度和每连接最多 64 个 provider 有界取样。读取不调用断连/撤销/轮换或原生执行；
+既有 Store 时钟和 fence 校验仍维护持久时间高水位。消费者每次请求重新取样，按管理契约执行
+过期和权限过滤；历史快照副本不能继续作为当前权威，也不能转换为可执行许可。
+
 ## 配对、凭据与管理
 
 `IdentityStore` 是 Linux 专用 hash-only SQLite。`PersistentIdentity` 复用它实施凭据管理；

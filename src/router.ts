@@ -4,7 +4,7 @@ import type { NativeRequest } from './contracts.js'
 import { boundedJson, providerScopeAllowed, validateTarget } from './wire/index.js'
 import type { ProviderAction, ProviderPolicy, V2Target } from './wire/types.js'
 import { Store } from './store.js'
-import type { CallOptions } from './store.js'
+import type { Call, CallOptions, CallAdmissionOptions, CallAdmission } from './store.js'
 
 // 身份与策略来自认证宿主，不能由 runtime_call 的 JSON 参数构造。
 export type Principal = {
@@ -20,7 +20,13 @@ export class Router {
     private readonly localPolicies: LocalPolicies
   ) {}
   // 要求有效主体，并按完整 provider 目标及操作类型同时核对调用方和宿主当前策略。
-  private check(principal: Principal, target: V2Target, method: string, action: ProviderAction): void {
+  private check(
+    principal: Principal,
+    target: V2Target,
+    method: string,
+    action: ProviderAction,
+    local?: ProviderPolicy
+  ): void {
     if (!principal.id.trim()) {
       throw new GatewayError('unauthenticated')
     }
@@ -29,31 +35,92 @@ export class Router {
     if (
       !providerScopeAllowed(binding, method, action, {
         caller: principal.policy,
-        local: this.localPolicies(target)
+        local: local ?? this.localPolicies(target)
       })
     ) {
       throw new GatewayError('forbidden')
     }
   }
-  // 快照并校验目标与请求，授权后将双方策略版本一并登记为新的持久调用意图。
+  // 在宿主策略解析前快照完整登记输入，事务内再以同一份当前本地策略核对授权和版本。
+  private registration<T extends Omit<CallOptions, 'caller_policy_revision' | 'local_policy_revision'>>(
+    principal: Principal,
+    target: V2Target,
+    request: NativeRequest,
+    options: T
+  ) {
+    const snapshot = JSON.parse(
+      canonical({
+        target,
+        request,
+        principal: { id: principal.id, policy: principal.policy },
+        options: {
+          binding_revision: options.binding_revision,
+          contract_ref: options.contract_ref,
+          ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+          ...(options.validation === undefined ? {} : { validation: options.validation }),
+          ...(options.history === undefined ? {} : { history: options.history }),
+          ...('deadline' in options ? { deadline: options.deadline } : {})
+        }
+      })
+    ) as { target: V2Target; request: NativeRequest; principal: Principal; options: T }
+    validateTarget(snapshot.target)
+    validateRequest(snapshot.request)
+    // 策略解析器只获得独立目标副本，不能改变已快照的登记意图。
+    const expectedLocal = JSON.parse(canonical(this.localPolicies({ ...snapshot.target }))) as ProviderPolicy
+    const registered = {
+      ...snapshot.options,
+      caller_policy_revision: snapshot.principal.policy.revision,
+      local_policy_revision: expectedLocal.revision
+    }
+    const authorize = /* writer 已持锁后重取策略；同次检查只使用一个本地策略快照。 */ () => {
+      const local = JSON.parse(canonical(this.localPolicies({ ...snapshot.target }))) as ProviderPolicy
+      const caller = JSON.parse(canonical({ id: principal.id, policy: principal.policy })) as Principal
+      if (
+        caller.id !== snapshot.principal.id ||
+        caller.policy.revision !== registered.caller_policy_revision ||
+        local.revision !== registered.local_policy_revision
+      ) {
+        throw new GatewayError('policy_revision_changed')
+      }
+      this.check(caller, snapshot.target, snapshot.request.method, 'dispatch', local)
+    }
+    return { ...snapshot, options: registered, authorize }
+  }
+  // 登记与取消只返回状态元数据；原文须另经当前 read 授权读取，不能借重复 key 或终态取消旁路。
+  private metadata(call: Call): Call {
+    return { ...call, response: null }
+  }
+  // 为内部调用保留相对 timeout 和原有 Call 返回值，授权复验与登记共用 writer 事务。
   create(
     principal: Principal,
     target: V2Target,
     request: NativeRequest,
     options: Omit<CallOptions, 'caller_policy_revision' | 'local_policy_revision'>
   ) {
-    const snapshot = JSON.parse(canonical({ target, request })) as {
-      target: V2Target
-      request: NativeRequest
+    const intent = this.registration(principal, target, request, options)
+    return this.metadata(
+      this.store.createCall(intent.principal.id, intent.target, intent.request, intent.options, intent.authorize)
+    )
+  }
+  // 将绝对 deadline 原样登记；created 只表示首次意图提交，宿主仍须单独取得派发锚点。
+  admit(
+    principal: Principal,
+    target: V2Target,
+    request: NativeRequest,
+    options: Omit<CallAdmissionOptions, 'caller_policy_revision' | 'local_policy_revision'>
+  ): CallAdmission {
+    if (!Number.isSafeInteger(options.deadline) || options.deadline <= 0 || options.timeoutMs !== undefined) {
+      throw new GatewayError('invalid_deadline')
     }
-    validateTarget(snapshot.target)
-    validateRequest(snapshot.request)
-    this.check(principal, snapshot.target, snapshot.request.method, 'dispatch')
-    return this.store.createCall(principal.id, snapshot.target, snapshot.request, {
-      ...options,
-      caller_policy_revision: principal.policy.revision,
-      local_policy_revision: this.localPolicies(snapshot.target).revision
-    })
+    const intent = this.registration(principal, target, request, options)
+    const admitted = this.store.admitCall(
+      intent.principal.id,
+      intent.target,
+      intent.request,
+      intent.options,
+      intent.authorize
+    )
+    return { ...admitted, call: this.metadata(admitted.call) }
   }
   // 读取主体所属调用，并按其已登记目标重新核对指定操作的当前双方策略。
   private authorized(principal: Principal, callId: string, action: ProviderAction) {
@@ -98,7 +165,7 @@ export class Router {
   // 重新核对取消权限后持久停止调用，返回未派发或结果未知等实际状态。
   cancel(principal: Principal, callId: string) {
     this.authorized(principal, callId, 'cancel')
-    return this.store.stop(principal.id, callId)
+    return this.metadata(this.store.stop(principal.id, callId))
   }
   // 在限定时长内轮询调用，每轮重新授权；终态或单调等待期限到达时返回当前视图。
   async wait(principal: Principal, callId: string, waitMs = 1000) {

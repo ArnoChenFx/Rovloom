@@ -22,7 +22,16 @@ clean build and artifact smoke. See [package.json](package.json) for individual
 commands. Maintain tests for the current behavior and wire new suites into
 verification; every tracked `*.test.*`, `*_test.*`,
 `*.spec.*` or `*_spec.*` JavaScript/TypeScript file must appear in its run evidence.
-Code examples under `fixtures/` remain data.
+Versioned protocol inputs live under `test/fixtures/`; keep their source/version proof
+and original bytes. Runtime reports and collector output belong outside the checkout.
+As part of each change, review added files and directories for a lasting responsibility:
+group product modules, tools and tests by capability, and keep fixed protocol inputs
+under their provider/version. Reuse existing entry points and checks. A new feature
+directory is welcome when it has a distinct purpose; development phases and issue
+numbers do not define permanent ownership. Remove one-off migration wrappers,
+command logs and duplicate historical snapshots once their useful assertions have
+maintained regression coverage. Document generators for retained derived inputs,
+and keep native bytes, provenance and licenses needed by current regressions.
 Every maintained code file needs a concise Chinese responsibility comment, and
 every function implementation (including methods, constructors and callbacks)
 needs a nearby Chinese explanation. Preserve useful existing comments and keep

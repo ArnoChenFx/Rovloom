@@ -2,5 +2,7 @@
 export { LuvusRpcAdapter } from './adapter.js'
 export type { RpcResult } from './adapter.js'
 export { createLuvusCatalog } from './catalog.js'
+export { createLuvusResultAccess } from './results.js'
+export type { LuvusResultAccessOptions, LuvusResultMetadata, LuvusResultPage, LuvusOriginalRead } from './results.js'
 export { LuvusAdapterError } from './types.js'
 export type * from './types.js'

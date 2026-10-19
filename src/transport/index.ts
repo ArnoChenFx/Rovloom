@@ -1,6 +1,7 @@
 // 集中导出可组合的 transport、持久身份与专用交付接口，不提供默认授权或第二套 CLI。
 export { createGateway } from './gateway.js'
 export type { GatewayOptions, OriginalRead, OriginalReadResolver } from './gateway.js'
+export type { TransportObserved, GatewayTransportSnapshot, GatewayTransportObservationSource } from './observation.js'
 export { createConnector } from './connector.js'
 export type {
   ConnectorOptions,

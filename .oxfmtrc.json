@@ -13,7 +13,9 @@
     ".state/**",
     "coverage/**",
     "docs/**",
-    "fixtures/**",
+    "test/fixtures/**/*.json",
+    "test/fixtures/**/*.jsonl",
+    "test/fixtures/**/*.tsv",
     "test/wire/v2-examples.json",
     "bun.lock",
     "/LICENSE"
