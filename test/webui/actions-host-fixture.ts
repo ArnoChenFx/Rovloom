@@ -5,7 +5,12 @@ import { StoreManagementWriteService } from '../../src/admin/write-service.js'
 import { createManagementHandler } from '../../src/admin/write-http.js'
 import { createManagementSessionAdapter } from '../../src/admin/session-adapter.js'
 import { fixtureReply, fixtureDevice } from './fixtures.js'
-import type { GatewayManagementService, DeviceSnapshot } from '../../src/mcp/management.js'
+import type {
+  GatewayManagementService,
+  DeviceSnapshot,
+  ManagementArguments,
+  OperationReceipt
+} from '../../src/mcp/management.js'
 
 const actionFixtureCsrf = 'd'.repeat(43)
 const cookie = 'SYNTHETIC_PAGE_COOKIE_' + 'c'.repeat(40)
@@ -45,6 +50,13 @@ export function createActionsHostFixture(origin: string) {
   let offset = 0
   let mode = 'normal'
   const calls: string[] = []
+  const requests: (ManagementArguments['operations_get'] & { operation: string })[] = []
+  const receipts: (Pick<
+    OperationReceipt,
+    'request_id' | 'history_epoch' | 'recovery_generation' | 'evidence' | 'operation_state' | 'observed_at'
+  > & { operation: string })[] = []
+  const correlated = new Set(['devices_rename', 'devices_disconnect', 'devices_revoke', 'operations_get'])
+  let confirmationExpiresAt: number | undefined
   let release: (() => void) | undefined
   /** 合成后端使用同一单调推进的时钟，过期只由明确测试命令提前推进。 */
   function sync(): void {
@@ -140,6 +152,15 @@ export function createActionsHostFixture(origin: string) {
       sync()
       const operation = new URL(request.url).pathname.split('/').at(-1)!
       calls.push(operation)
+      if (request.method === 'POST' && correlated.has(operation)) {
+        const args = (await request.clone().json()) as ManagementArguments['operations_get']
+        requests.push({
+          operation,
+          request_id: args.request_id,
+          history_epoch: args.history_epoch,
+          recovery_generation: args.recovery_generation
+        })
+      }
       if (mode === 'prepare_error' && operation === 'confirmations_create') {
         return new Response('{"error":"backend_unavailable"}', {
           status: 503,
@@ -157,6 +178,21 @@ export function createActionsHostFixture(origin: string) {
         )
       }
       const response = await handler.fetch(request)
+      if (response.status === 200 && operation === 'confirmations_create') {
+        confirmationExpiresAt = ((await response.clone().json()) as { expires_at: number }).expires_at
+      }
+      if (response.status === 200 && correlated.has(operation)) {
+        const receipt = (await response.clone().json()) as OperationReceipt
+        receipts.push({
+          operation,
+          request_id: receipt.request_id,
+          history_epoch: receipt.history_epoch,
+          recovery_generation: receipt.recovery_generation,
+          evidence: receipt.evidence,
+          operation_state: receipt.operation_state,
+          observed_at: receipt.observed_at
+        })
+      }
       if (mode === 'hold_read' && request.method === 'GET' && /\/devices\/[^/]+$/.test(new URL(request.url).pathname)) {
         mode = 'normal'
         await new Promise<void>(
@@ -165,9 +201,12 @@ export function createActionsHostFixture(origin: string) {
           }
         )
       }
-      if (mode === 'hold_reply' && operation.startsWith('devices_')) {
+      if (
+        (mode === 'hold_reply' && operation.startsWith('devices_')) ||
+        (mode === 'hold_lookup' && operation === 'operations_get')
+      ) {
         await new Promise<void>(
-          /** 提交后暂缓回执，用于取消/导航后的原回执核对。 */ (resolve) => {
+          /** 提交或查询后暂缓实际回执，验证截止与取消不会丢失原关联。 */ (resolve) => {
             release = resolve
           }
         )
@@ -205,6 +244,10 @@ export function createActionsHostFixture(origin: string) {
           }
         ),
         calls,
+        requests,
+        receipts,
+        confirmation_expires_at: confirmationExpiresAt,
+        now: time,
         held: !!release,
         mode
       })

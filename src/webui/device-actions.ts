@@ -91,6 +91,14 @@ export function createDeviceActions(options: {
   let notified = false
   let returnFocus: HTMLElement | undefined
 
+  /** 只允许已知未提交的终态或尚未提交且过期的确认重新准备，绝不丢弃在途/未知关联。 */
+  function canPrepareAgain(state: Readonly<DeviceManagementState>): boolean {
+    return (
+      ['failed', 'cancelled', 'not_committed'].includes(state.phase) ||
+      (state.phase === 'awaiting_confirmation' && serverNow !== undefined && serverNow >= state.review.expires_at)
+    )
+  }
+
   /** 已验证的数据仍按字段构造定义列表，不能把确认摘要当 HTML。 */
   function fact(key: MessageKey, value: string): void {
     const row = node('div', 'fact')
@@ -113,7 +121,8 @@ export function createDeviceActions(options: {
     dialog.setAttribute('aria-busy', String(pending))
     const uncertain = ['unconfirmed', 'checking'].includes(phase)
     const review = 'review' in state ? state.review : undefined
-    const expired = !!review && serverNow !== undefined && serverNow >= review.expires_at
+    const retryable = canPrepareAgain(state)
+    const expired = state.phase === 'awaiting_confirmation' && retryable
     dialog.dataset.phase = phase
     heading.textContent = intent ? i18n.t(actionKeys[intent.action]) : i18n.t('manage.heading')
     target.textContent = intent?.machine_id ?? ''
@@ -134,8 +143,8 @@ export function createDeviceActions(options: {
     confirm.disabled = !live || expired
     check.hidden = phase !== 'unconfirmed'
     check.disabled = !live
-    retry.hidden = !['failed', 'cancelled', 'not_committed'].includes(phase) && !expired
-    retry.disabled = !live
+    retry.hidden = !retryable
+    retry.disabled = !live || !retryable
     cancel.hidden = !pending && phase !== 'awaiting_confirmation'
     close.hidden = pending
     details.replaceChildren()
@@ -238,11 +247,8 @@ export function createDeviceActions(options: {
 
   /** 新准备只来自明确用户动作；未确认流程禁止分配新 request_id 或改目标。 */
   function start(): void {
-    if (
-      !live ||
-      !intent ||
-      ['preparing', 'confirming', 'submitting', 'checking', 'unconfirmed'].includes(flow?.state().phase ?? '')
-    ) {
+    const state = flow?.state() ?? { phase: 'idle' }
+    if (!live || !intent || (state.phase !== 'idle' && !canPrepareAgain(state))) {
       return
     }
     flow?.dispose()
@@ -277,9 +283,9 @@ export function createDeviceActions(options: {
     }
   }
 
-  /** 准备失败可显式重新准备；改名先回输入态，保留原输入内容。 */
+  /** 事件处理独立复验同一白名单；改名回输入前也不能销毁在途或未确认 flow。 */
   function retryAction(): void {
-    if (!live || !intent || retry.hidden) {
+    if (!live || !intent || !flow || !canPrepareAgain(flow.state())) {
       return
     }
     if (intent.action === 'device_rename') {

@@ -92,12 +92,15 @@ python3 scripts/webui/check-layout.py --url http://127.0.0.1:PORT --output /tmp/
 bun --no-env-file scripts/webui/preview.mjs 33231 --actions
 python3 scripts/webui/check-actions.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-actions-new
 python3 scripts/webui/check-bootstrap.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-bootstrap-new
+python3 scripts/webui/check-retry-deadline.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-retry-deadline-new
 ```
 
 该服务只在显式 `/fixtures/` 让生产 `browser.js` 消费 CLI 同式 meta，拒绝根入口，所有设备和会话均为本次内存 fixture。
 检查包括两语两主题、桌面/320px、实际改名/断开/撤销、一次确认、重复点击、错误恢复、
 取消/导航与迟到、丢响应后原回执核对及原确认截止。bootstrap 检查额外覆盖实际 DOM 消费、
 重复/无效交付、在页过期及永久卸载；不验证真实管理员、宿主秘密交付或用户设备。
+跨截止检查在真实临时 Store 提交后延迟回执，验证提交中、未确认及查询中的重试事件均保留原关联，
+直接交付或查询原回执只对应一次设备提交；覆盖英文桌面与中文深色320px。
 
 ## 隔离验收
 
