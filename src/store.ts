@@ -1,4 +1,4 @@
-// 实现 SQLite 调用账本的原子派发、受保护设备生命周期、内容保留、预算及恢复治理。
+// 持久化 SQLite 调用账本与设备生命周期，按固定期限治理内容、预算，并在提交后通知宿主回收上下文。
 import { DatabaseSync } from 'node:sqlite'
 import { closeSync, existsSync, openSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -29,8 +29,24 @@ import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, privateFile, privatePath } from './storage/files.js'
 
 export { DEFAULT_RETENTION }
-export type { Call, CallOptions, ManagementRequest, DeviceLifecycleRequest, StoreOptions } from './storage/model.js'
-import type { Call, CallOptions, Machine, Metadata, Row, StoreOptions, LedgerInvalidation } from './storage/model.js'
+export type {
+  Call,
+  CallOptions,
+  ManagementRequest,
+  DeviceLifecycleRequest,
+  StoreOptions,
+  ResultPage
+} from './storage/model.js'
+import type {
+  Call,
+  CallOptions,
+  Machine,
+  Metadata,
+  Row,
+  StoreOptions,
+  LedgerInvalidation,
+  ResultPage
+} from './storage/model.js'
 import { publicCall } from './storage/model.js'
 // 为本地账本实体生成带类别前缀的随机标识，避免顺序 ID 产生关联。
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
@@ -59,7 +75,7 @@ export class Store {
       this.invalidationListeners.delete(listener)
     }
   }
-  // 在成功提交后逐项通知宿主回收，监听器异常不改变已持久化的事务结论。
+  // 在成功提交后逐项通知宿主回收，监听器的同步异常不改变已持久化的事务结论。
   private publishInvalidations(events: LedgerInvalidation[]): void {
     for (const event of events) {
       for (const listener of this.invalidationListeners) {
@@ -84,6 +100,7 @@ export class Store {
   private maintenance?: ReturnType<typeof setInterval>
   readonly limits: Retention
   // 打开独占的私有 SQLite 账本，检查规范 schema、完整性与恢复状态并启动期限清理。
+  // 重开时使原连接离线，未派发调用收敛为未派发、在途调用收敛为结果未知，不自动重放。
   constructor(
     private readonly path: string,
     private readonly now = Date.now,
@@ -150,11 +167,11 @@ export class Store {
         throw error
       }
       this.maintenance = setInterval(
-        /* 周期推进 deadline 与分层 TTL 清理；异常已由 health 锁存，不输出业务原文。 */ () => {
+        /* 周期推进 deadline 与分层 TTL 清理；降级由具体错误路径处理，后台不输出业务原文。 */ () => {
           try {
             this.expire()
           } catch {
-            /* health 已保存降级事实，后台不打印内容或原始异常。 */
+            /* 本轮维护失败后等待下次调度，不在后台打印内容或原始异常。 */
           }
         },
         interval
@@ -215,7 +232,7 @@ export class Store {
   clock(): number {
     return this.time()
   }
-  // 固定事务时钟并检测相对内存及持久化高水位的回退，失败时进入降级。
+  // 固定事务时钟；检测到时间回退或时钟持久化失败时降级，无效时间值直接拒绝。
   private time(): number {
     if (this.transactionTime !== undefined) {
       return this.transactionTime
@@ -246,7 +263,7 @@ export class Store {
       throw new GatewayError('storage_degraded')
     }
   }
-  // 锁存内存和持久化降级标记，写入失败时仍保留独立降级哨兵。
+  // 立即锁存内存降级，尽力写入持久化模式和文件哨兵；磁盘失败也不能重新准入副作用。
   private markDegraded(): void {
     this.degraded = true
     try {
@@ -487,7 +504,8 @@ export class Store {
       }
     )
   }
-  // 仅为独立身份库已验证的已配对离线设备建立 epoch；普通调用不能自行声明 verified。
+  // 核对当前恢复代次及已配对离线状态，再消费独立身份库的校验证明；仅成功提交才返回新 epoch。
+  // 证明消费与 Store 提交不跨库原子化，后续失败不会归还证明；新 epoch 也不代表 provider 已就绪。
   connectVerifiedDevice(machineId: string, recoveryGeneration: string): string {
     return this.transaction(
       // 在同一 writer 事务核对代次、离线配对状态和一次性宿主证明，预算与审计提交后才返回 epoch。
@@ -524,7 +542,8 @@ export class Store {
       }
     )
   }
-  // 同 ID 重配先要求独立管理确认与旧 epoch fence；prepare 只能持久化阻断外部身份，不能激活新身份。
+  // 同 ID 重配须确认当前 generation/epoch，清除本库旧身份并在提交后使该设备全部上下文失效。
+  // prepare 只可同步持久化外部身份 blocked 且返回 undefined；该阻断不会随 Store 回滚解除。
   resetDeviceEnrollment(
     machineId: string,
     recoveryGeneration: string,
@@ -532,7 +551,7 @@ export class Store {
     prepare: () => void
   ): void {
     this.transaction(
-      // 先暂存本库变更并预检预算，再恰好一次执行同步阻断；之后失败只回滚 Store，不解除外部 blocked。
+      // 确认与预算先通过才执行一次 prepare，再由独立宿主复核阻断已持久化；任何后续失败只回滚本库。
       (now) => {
         validateId(machineId)
         if (recoveryGeneration !== this.generation()) {
@@ -649,10 +668,10 @@ export class Store {
       this.audit(reason, 'system', now, this.row(row.call_id))
     }
   }
-  // 只断开指定 epoch，停止相关未完成调用并发布绑定失效通知。
+  // 只断开指定 epoch，将相关未完成调用收敛为未派发或结果未知，提交后发布绑定失效通知。
   disconnect(machine: string, epoch: string): void {
     this.transaction(
-      /* 仅更新匹配 epoch 的在线设备，终止该连接调用并排队发布 fence。 */ (now) => {
+      /* 仅更新匹配 epoch 的设备，收敛该连接调用状态并排队发布 fence，旧 epoch 不影响新连接。 */ (now) => {
         const changed = this.db
           .prepare("UPDATE machines SET status='offline',epoch=NULL WHERE machine_id=? AND epoch=?")
           .run(machine, epoch)
@@ -664,7 +683,7 @@ export class Store {
       false
     )
   }
-  // 通过受保护确认撤销设备，终止调用并清除凭据、注册令牌及内容。
+  // 通过受保护确认撤销设备，收敛调用状态并清除凭据、注册令牌及内容，不承诺撤销远端副作用。
   revoke(machine: string): void {
     this.transaction(
       /* 消费撤销确认，停止设备调用并删除所有可用凭据及内容。 */ (now) => {
@@ -896,7 +915,8 @@ export class Store {
       }
     )
   }
-  // 核对当前连接、期限及宿主提供的策略 revision，在发送前固定完整 attempt 锚点与完成预留。
+  // 核对当前连接、期限及可选的宿主策略 revision，提交完整 attempt 锚点与完成预留后才允许发送。
+  // 返回绑定只证明账本派发锚点已持久化，真实原生执行许可仍由适配器独立校验。
   dispatch(
     principal: string,
     callId: string,
@@ -951,7 +971,8 @@ export class Store {
     }
     return binding
   }
-  // 仅返回尚可使用的 RPC 或流原请求记录，过期、删除或失效绑定不能重建派发上下文。
+  // 从仍有原文且未过期的账本行投影 RPC 请求记录；缺少原文返回 undefined，失效绑定或连接拒绝。
+  // 该记录不含密封响应句柄，不能从持久化摘要恢复已回收的原生上下文。
   attempt(callId: string, attemptId: string): TrustedAttempt | undefined {
     this.active()
     const now = this.time()
@@ -976,7 +997,8 @@ export class Store {
       native_request: JSON.parse(row.request_json)
     }
   }
-  // 按完整绑定查询最小持久化响应锚点，固定原 deadline、内容期限和去重期限。
+  // 核对完整绑定、当前 provider 和在线连接后读取最小响应锚点，保留原 deadline、内容及去重期限。
+  // 内容清理后仍可返回摘要与状态，但不返回请求正文，也不从这些元数据恢复密封响应能力。
   responseAnchor(binding: AttemptBinding): ResponseAnchor {
     this.active()
     const row = this.row(binding.call_id)
@@ -1020,7 +1042,8 @@ export class Store {
       false
     )
   }
-  // planner 必须是宿主闭包，调用真实 adapter.planEvidence；不接收可序列化 EvidencePlan 作为证明。
+  // 在同一 writer 事务内调用宿主闭包中的真实 adapter.planEvidence，再原子提交响应证据与审计。
+  // 持久化锚点不能替代适配器仍有效的原生上下文，不接收序列化 EvidencePlan 作为校验证明。
   commitEvidence(binding: AttemptBinding, planner: () => ResponseEvidencePlan): Call {
     const outcome = this.transaction(
       /* 先落实截止期限，再执行真实证据规划；可信冲突仅追加有界脱敏审计。 */ (now) => {
@@ -1059,7 +1082,8 @@ export class Store {
     }
     return outcome
   }
-  // 检查宿主证据计划和摘要一致性，按内容预算写入响应或最小证据并释放完成预留。
+  // 核对证据绑定、固定期限和原文摘要；重复证据幂等，冲突拒绝，新证据完成后释放完成预留。
+  // 内容已过期、删除或预算不足时只持久化摘要与结果状态，不复活原文或延长保留期限。
   private applyEvidence(
     binding: AttemptBinding,
     anchor: ResponseAnchor,
@@ -1144,7 +1168,8 @@ export class Store {
       false
     )
   }
-  // 按分层期限清除内容、结果句柄、历史与审计，并在提交后通知宿主释放相应上下文。
+  // 按分层期限清除内容、结果句柄、历史与审计，提交后发布内容压缩或 fence 回收通知。
+  // 原生仅响应上下文由宿主从存活许可封存；SQLite 只保留摘要锚点，不能在重启后重建该能力。
   expire(): void {
     this.transaction(
       /* 删除各层过期对象并排队发布内容或 fence 通知，回滚时不通知宿主。 */ (now) => {
@@ -1245,7 +1270,8 @@ export class Store {
       }
     )
   }
-  // 原子删除调用的请求、响应与结果句柄，提交后通知宿主移除可执行上下文。
+  // 原子删除调用的请求、响应与结果句柄，提交后通知宿主释放执行上下文或封存仅响应上下文。
+  // 账本保留既有状态和摘要供后续证据核对，不保存封存句柄，也不恢复内容读取权。
   discardResponse(principal: string, callId: string): void {
     this.transaction(
       /* 删除结果句柄并清空请求响应正文，排队发布不可回滚的提交后回收通知。 */ (now) => {
@@ -1275,8 +1301,8 @@ export class Store {
     }
     return call
   }
-  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标和原内容摘要。
-  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536) {
+  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标、原内容摘要及实际句柄截止时间，不创建或续期句柄。
+  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): ResultPage {
     const call = this.resultCall(principal, resultId)
     if (
       !Number.isSafeInteger(cursor) ||
@@ -1287,9 +1313,12 @@ export class Store {
     ) {
       throw new GatewayError('invalid_result_cursor')
     }
-    const row = this.db.prepare('SELECT bytes,hash FROM results WHERE result_id=?').get(resultId) as {
-      bytes: number
-      hash: string
+    const row = this.db
+      .prepare('SELECT bytes,hash,expires FROM results WHERE result_id=? AND expires>?')
+      .get(resultId, this.time()) as { bytes: number; hash: string; expires: number } | undefined
+    // 授权读取与此处查询之间可能已提交清理；按实际句柄是否仍存在及未到期拒绝，不以原内容期限替代。
+    if (!row) {
+      throw new GatewayError('result_not_found')
     }
     if (cursor > row.bytes) {
       throw new GatewayError('invalid_result_cursor')

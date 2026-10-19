@@ -7,6 +7,10 @@
 [ADR 0002](../adr/0002-safety-retention-recovery-late-evidence.md)、
 [ADR 0004](../adr/0004-multi-runtime-provider.md)。模块接入不代表可部署服务。
 
+`src/connector/luvus/index.ts` 提供固定配置的本地普通 RPC 传输，复用上述 Wire
+校验器；资源归属、完整 frame 预算、取消语义及所需宿主证明见
+[Luvus 本地 adapter](LUVUS-LOCAL-ADAPTER.md)。缺少可信宿主接线时拒绝派发。
+
 ## 契约与内存许可
 
 `compileBundle` 用 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包；

@@ -111,32 +111,98 @@ export function parseRoute(hash: string): PageRoute {
   }
 }
 
-/** 分开显示持久状态、可信连接和认证；持久撤销不能被旧认证覆盖。 */
-function deviceBadges(device: DeviceSnapshot): HTMLElement {
+/** 各层观测共享服务时间和单调经过时间，但分别保留自己的观测时点。 */
+interface Freshness {
+  now: number
+  staleAfter: number
+  pageStale: boolean
+}
+
+/** 新 status 只更新当前时间，不续期旧设备、认证或原生观测。 */
+function current(observedAt: number, freshness: Freshness): boolean {
+  return !freshness.pageStale && freshness.now - observedAt < freshness.staleAfter
+}
+
+/** 同时显示每层原始时间、年龄和过期标记；未知没有可补造的时间。 */
+function observationTime(observedAt: number | null, freshness: Freshness): string {
+  if (observedAt === null) {
+    return '未核实'
+  }
+  return `${timestamp(observedAt)} · ${age(observedAt, freshness.now)}${current(observedAt, freshness) ? '' : ' · 已过期'}`
+}
+
+/** Provider 的绿色就绪提示还要求当前设备、连接与认证观测均有效。 */
+function currentDeviceLink(device: DeviceSnapshot, freshness: Freshness): boolean {
+  return (
+    device.persisted_state === 'online' &&
+    current(device.observed_at, freshness) &&
+    device.connection.verification === 'verified' &&
+    current(device.connection.observed_at, freshness) &&
+    device.connection.value.state === 'online' &&
+    device.authentication.verification === 'verified' &&
+    current(device.authentication.observed_at, freshness) &&
+    device.authentication.value.state === 'authenticated'
+  )
+}
+
+/** 分开显示持久状态、连接与认证；过期的已验证来源仅可作为历史，不呈绿色在线。 */
+function deviceBadges(device: DeviceSnapshot, freshness: Freshness): HTMLElement {
   const result = node('div', '', 'badges')
+  const deviceCurrent = current(device.observed_at, freshness)
+  if (!deviceCurrent) {
+    result.append(badge('设备观测已过期', 'warning'))
+  }
   if (device.persisted_state === 'revoked') {
-    result.append(badge('身份已撤销', 'danger'), badge('旧连接与认证记录不能恢复授权'))
+    result.append(
+      badge(deviceCurrent ? '身份已撤销' : '上次持久登记：身份已撤销（已过期）', deviceCurrent ? 'danger' : 'warning'),
+      badge('旧连接与认证记录不能恢复授权')
+    )
     return result
   }
   if (device.persisted_state === 'pending') {
-    result.append(badge('待配对'))
+    result.append(
+      badge(deviceCurrent ? '待配对' : '上次登记：待配对', 'warning'),
+      badge('连接与认证状态未核实（待配对）', 'warning')
+    )
+    return result
   }
-  result.append(
-    device.connection.verification === 'verified'
-      ? badge(
-          connectionNames[device.connection.value.state],
-          device.connection.value.state === 'online' ? 'good' : 'neutral'
-        )
-      : badge(`连接未核实 · ${device.connection.reason_code}`, 'warning')
-  )
-  result.append(
-    device.authentication.verification === 'verified'
-      ? badge(
-          authenticationNames[device.authentication.value.state],
-          ['failed', 'expired', 'revoked'].includes(device.authentication.value.state) ? 'danger' : 'neutral'
-        )
-      : badge(`认证未核实 · ${device.authentication.reason_code}`, 'warning')
-  )
+  const connection = device.connection
+  const authenticationCurrent =
+    device.authentication.verification === 'verified' &&
+    current(device.authentication.observed_at, freshness) &&
+    device.authentication.value.state === 'authenticated'
+  if (connection.verification === 'verified') {
+    const ownCurrent = current(connection.observed_at, freshness)
+    result.append(
+      deviceCurrent && ownCurrent
+        ? connection.value.state === 'online' && !authenticationCurrent
+          ? badge('连接观测：在线（当前认证未核实）', 'warning')
+          : badge(connectionNames[connection.value.state], connection.value.state === 'online' ? 'good' : 'neutral')
+        : badge(
+            `${ownCurrent ? '连接状态未核实（设备观测已过期）' : '连接观测已过期'} · 上次：${connectionNames[connection.value.state]}`,
+            'warning'
+          )
+    )
+  } else {
+    result.append(badge(`连接未核实 · ${connection.reason_code}`, 'warning'))
+  }
+  const authentication = device.authentication
+  if (authentication.verification === 'verified') {
+    const ownCurrent = current(authentication.observed_at, freshness)
+    result.append(
+      deviceCurrent && ownCurrent
+        ? badge(
+            authenticationNames[authentication.value.state],
+            ['failed', 'expired', 'revoked'].includes(authentication.value.state) ? 'danger' : 'neutral'
+          )
+        : badge(
+            `${ownCurrent ? '认证状态未核实（设备观测已过期）' : '认证观测已过期'} · 上次：${authenticationNames[authentication.value.state]}`,
+            'warning'
+          )
+    )
+  } else {
+    result.append(badge(`认证未核实 · ${authentication.reason_code}`, 'warning'))
+  }
   result.append(badge('设备 ready 尚无独立观测'))
   return result
 }
@@ -174,7 +240,7 @@ function unavailableActions(kind: 'device' | 'provider' | 'list'): HTMLElement {
 }
 
 /** 列表只展示后端返回的授权页，不将页长宣称为设备总数。 */
-function deviceList(page: PageView, state: ReaderState<PageView>, serverNow: number): HTMLElement {
+function deviceList(page: PageView, freshness: Freshness): HTMLElement {
   const section = node('section')
   section.append(
     node('h1', '设备'),
@@ -189,7 +255,7 @@ function deviceList(page: PageView, state: ReaderState<PageView>, serverNow: num
     const row = node('li', '', 'device-card')
     const link = node('a', device.name, 'device-name')
     link.href = routeHref({ machineId: device.machine_id, cursor: null, providerCursor: null })
-    row.append(link, node('code', device.machine_id), deviceBadges(device))
+    row.append(link, node('code', device.machine_id), deviceBadges(device, freshness))
     row.append(
       node(
         'p',
@@ -198,8 +264,22 @@ function deviceList(page: PageView, state: ReaderState<PageView>, serverNow: num
       )
     )
     const heartbeat = device.connection.verification === 'verified' ? device.connection.value.last_heartbeat_at : null
-    row.append(node('p', `最近心跳：${age(heartbeat, serverNow)} · Gateway 接收 ${timestamp(heartbeat)}`, 'muted'))
-    row.append(node('p', `${state.stale ? '过期观测' : '状态观测'}：${timestamp(device.observed_at)}`, 'muted'))
+    row.append(node('p', `最近心跳：${age(heartbeat, freshness.now)} · Gateway 接收 ${timestamp(heartbeat)}`, 'muted'))
+    row.append(node('p', `设备状态观测：${observationTime(device.observed_at, freshness)}`, 'muted'))
+    row.append(
+      node(
+        'p',
+        `连接观测：${observationTime(device.connection.verification === 'verified' ? device.connection.observed_at : null, freshness)}`,
+        'muted'
+      )
+    )
+    row.append(
+      node(
+        'p',
+        `认证观测：${observationTime(device.authentication.verification === 'verified' ? device.authentication.observed_at : null, freshness)}`,
+        'muted'
+      )
+    )
     list.append(row)
   }
   section.append(list)
@@ -212,7 +292,7 @@ function deviceList(page: PageView, state: ReaderState<PageView>, serverNow: num
 }
 
 /** 已配置 provider 的启停、readiness 与原生观测分别来自共享 DTO。 */
-function providerList(page: PageView, machineId: string): HTMLElement {
+function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshness): HTMLElement {
   const section = node('section')
   section.append(
     node('h2', 'Runtime providers'),
@@ -236,33 +316,67 @@ function providerList(page: PageView, machineId: string): HTMLElement {
   for (const provider of page.providers.items) {
     const row = node('article', '', 'provider-card')
     row.append(node('h3', `${provider.kind === 'luvus' ? 'Luvus' : 'Herdr'} · ${provider.provider_id}`))
-    row.append(badge(provider.enabled ? '已启用' : '已禁用'))
+    const registryCurrent = current(provider.observed_at, freshness)
+    const runtime = provider.runtime.verification === 'verified' ? provider.runtime : null
+    const runtimeCurrent = runtime !== null && current(runtime.observed_at, freshness)
+    const ready =
+      registryCurrent &&
+      provider.enabled &&
+      provider.readiness === 'ready' &&
+      runtimeCurrent &&
+      runtime.value.state === 'ready' &&
+      currentDeviceLink(device, freshness)
     row.append(
       badge(
-        `管理 readiness：${provider.readiness}`,
-        provider.readiness === 'ready' && provider.enabled ? 'good' : 'warning'
+        registryCurrent
+          ? provider.enabled
+            ? '已启用'
+            : '已禁用'
+          : `启停观测已过期 · 上次：${provider.enabled ? '已启用' : '已禁用'}`,
+        registryCurrent ? 'neutral' : 'warning'
       )
     )
     row.append(
-      provider.runtime.verification === 'verified'
-        ? badge(runtimeNames[provider.runtime.value.state])
-        : badge(`运行状态未核实 · ${provider.runtime.reason_code}`, 'warning')
+      badge(
+        provider.readiness === 'ready' && !ready
+          ? '当前就绪未核实 · 上次管理 readiness：ready'
+          : `${registryCurrent ? '管理 readiness' : 'readiness 观测已过期 · 上次'}：${provider.readiness}`,
+        ready ? 'good' : 'warning'
+      )
     )
-    const runtime = provider.runtime.verification === 'verified' ? provider.runtime : null
+    row.append(
+      runtime
+        ? badge(
+            runtimeCurrent
+              ? runtimeNames[runtime.value.state]
+              : `运行观测已过期 · 上次：${runtimeNames[runtime.value.state]}`,
+            runtimeCurrent ? 'neutral' : 'warning'
+          )
+        : badge(
+            `运行状态未核实 · ${provider.runtime.verification === 'unverified' ? provider.runtime.reason_code : 'not_recorded'}`,
+            'warning'
+          )
+    )
     row.append(
       facts([
         ['Binding revision', String(provider.binding_revision)],
         ['Config 安全引用', provider.config_ref ?? '未核实'],
-        ['契约引用', runtime?.value.contract_ref ?? '未核实，不授予执行许可'],
+        [
+          runtimeCurrent ? '契约引用' : '历史契约引用（当前未核实）',
+          runtime?.value.contract_ref ?? '未核实，不授予执行许可'
+        ],
         [
           'Binary / schema 摘要',
           runtime ? `${runtime.value.binary_sha256 ?? '未核实'} / ${runtime.value.schema_sha256 ?? '未核实'}` : '未核实'
         ],
         ['分类 revision', runtime?.value.classification_revision ?? '未核实'],
-        ['已核实传输', runtime?.value.supported_transports.join(' · ') || '未核实'],
+        [
+          runtimeCurrent ? '已核实传输' : '历史传输（当前未核实）',
+          runtime?.value.supported_transports.join(' · ') || '未核实'
+        ],
         ['观测来源', runtime?.source ?? '未核实'],
-        ['状态观测', timestamp(provider.observed_at)],
-        ['原生观测', timestamp(runtime?.observed_at ?? null)]
+        ['Provider 状态观测', observationTime(provider.observed_at, freshness)],
+        ['原生观测', observationTime(runtime?.observed_at ?? null, freshness)]
       ])
     )
     section.append(row)
@@ -270,14 +384,14 @@ function providerList(page: PageView, machineId: string): HTMLElement {
   section.append(unavailableActions('provider'))
   if (page.providers.next_cursor !== undefined) {
     const next = node('a', '下一页 providers', 'button-link')
-    next.href = routeHref({ machineId, cursor: null, providerCursor: page.providers.next_cursor })
+    next.href = routeHref({ machineId: device.machine_id, cursor: null, providerCursor: page.providers.next_cursor })
     section.append(next)
   }
   return section
 }
 
 /** 详情只使用该 machine_id 的共享快照，未提供的配对/ready/重连信息明确未知。 */
-function deviceDetail(page: PageView, serverNow: number): HTMLElement {
+function deviceDetail(page: PageView, freshness: Freshness): HTMLElement {
   const section = node('section')
   const back = node('a', '← 设备列表', 'back-link')
   back.href = '#'
@@ -289,7 +403,7 @@ function deviceDetail(page: PageView, serverNow: number): HTMLElement {
   }
   const connection = device.connection.verification === 'verified' ? device.connection : null
   const authentication = device.authentication.verification === 'verified' ? device.authentication : null
-  section.append(node('h1', device.name), node('code', device.machine_id), deviceBadges(device))
+  section.append(node('h1', device.name), node('code', device.machine_id), deviceBadges(device, freshness))
   section.append(
     facts([
       ['持久登记状态（非实时依据）', device.persisted_state],
@@ -298,9 +412,11 @@ function deviceDetail(page: PageView, serverNow: number): HTMLElement {
       ['Connection epoch 安全引用', connection?.value.connection_epoch_ref ?? '未核实 / 无当前连接'],
       [
         '最近心跳（Gateway 接收）',
-        `${timestamp(connection?.value.last_heartbeat_at ?? null)} · ${age(connection?.value.last_heartbeat_at ?? null, serverNow)}`
+        `${timestamp(connection?.value.last_heartbeat_at ?? null)} · ${age(connection?.value.last_heartbeat_at ?? null, freshness.now)}`
       ],
-      ['状态观测时间', timestamp(device.observed_at)],
+      ['设备状态观测时间', observationTime(device.observed_at, freshness)],
+      ['连接观测时间', observationTime(connection?.observed_at ?? null, freshness)],
+      ['认证观测时间', observationTime(authentication?.observed_at ?? null, freshness)],
       ['连接观测来源', connection?.source ?? '未核实'],
       ['认证观测来源', authentication?.source ?? '未核实'],
       [
@@ -319,7 +435,7 @@ function deviceDetail(page: PageView, serverNow: number): HTMLElement {
     )
   )
   if (page.permissions) {
-    const expired = serverNow >= page.permissions.expires_at
+    const expired = !current(page.permissions.observed_at, freshness) || freshness.now >= page.permissions.expires_at
     section.append(
       node(
         'p',
@@ -330,7 +446,7 @@ function deviceDetail(page: PageView, serverNow: number): HTMLElement {
       )
     )
   }
-  section.append(unavailableActions('device'), providerList(page, device.machine_id))
+  section.append(unavailableActions('device'), providerList(page, device, freshness))
   return section
 }
 
@@ -353,17 +469,23 @@ export function renderPage(content: HTMLElement, state: ReaderState<PageView>, r
     const snapshot = state.snapshot
     const page = snapshot.value
     const status = page.status
-    const serverNow = snapshot.observedAt + state.ageMs
+    const freshness: Freshness = {
+      now: snapshot.observedAt + state.ageMs,
+      staleAfter: status.stale_after_ms,
+      pageStale: state.stale
+    }
     const gateway = node('section', '', 'gateway')
     gateway.append(node('h2', 'Gateway 状态'))
     gateway.append(
       badge(
         status.mode === 'active'
-          ? '正常模式'
+          ? state.stale
+            ? '上次正常模式（快照已过期）'
+            : '正常模式'
           : status.mode === 'recovery_quarantined'
             ? '恢复隔离 · 仅诊断'
             : '存储降级 · 只读',
-        status.mode === 'active' ? 'good' : 'warning'
+        status.mode === 'active' && !state.stale ? 'good' : 'warning'
       )
     )
     gateway.append(badge(state.stale ? '快照已过期' : '快照有效', state.stale ? 'warning' : 'neutral'))
@@ -398,7 +520,7 @@ export function renderPage(content: HTMLElement, state: ReaderState<PageView>, r
     }
     view.append(gateway)
     if (status.mode !== 'recovery_quarantined') {
-      view.append(route.machineId === null ? deviceList(page, state, serverNow) : deviceDetail(page, serverNow))
+      view.append(route.machineId === null ? deviceList(page, freshness) : deviceDetail(page, freshness))
     }
   }
   content.replaceChildren(view)

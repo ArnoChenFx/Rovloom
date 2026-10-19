@@ -18,7 +18,7 @@ const shell = readFileSync(root + 'dist/webui/index.html', 'utf8')
 const headers = {
   'cache-control': 'no-store',
   'content-security-policy':
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer'
 }
@@ -45,6 +45,9 @@ const server = Bun.serve({
     } else if (url.pathname === '/manage.css' || url.pathname === '/fixtures/manage.css') {
       body = readFileSync(root + 'dist/webui/manage.css')
       type = 'text/css; charset=utf-8'
+    } else if (url.pathname === '/rovloom-logo.png' || url.pathname === '/fixtures/rovloom-logo.png') {
+      body = readFileSync(root + 'dist/webui/rovloom-logo.png')
+      type = 'image/png'
     } else if (/^\/(?:browser|chunk-[a-zA-Z0-9]+)\.js$/.test(url.pathname)) {
       body = readFileSync(root + 'dist/webui' + url.pathname)
       type = 'text/javascript; charset=utf-8'

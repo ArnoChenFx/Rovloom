@@ -1,3 +1,4 @@
+# 限定 Herdr 离线证据的解析、文件边界、引用闭包和状态重建模型，不授予原生派发许可。
 """Herdr P0-H 离线证据边界；不连接、启动或授权任何原生实例。"""
 
 from copy import deepcopy
@@ -24,16 +25,20 @@ class Rejected(ValueError):
     pass
 
 
+# 条件不成立时抛出统一拒绝异常，供各离线边界检查使用。
 def require(condition, reason):
     if not condition:
         raise Rejected(reason)
 
 
+# 返回原始字节的 SHA-256 摘要，绑定归档清单与文件内容。
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+# 严格解析 UTF-8 JSON，拒绝重复键、非有限数、无效字符和过大结构。
 def decode(data):
+    # 构造 JSON 对象时拒绝重复键和键中的 Unicode 代理字符。
     def pairs(items):
         value = {}
         for key, item in items:
@@ -42,6 +47,7 @@ def decode(data):
             value[key] = item
         return value
 
+    # 作为 JSON 数值常量回调，拒绝 NaN 和 Infinity 等非有限值。
     def invalid(_value):
         raise Rejected('non-finite JSON number')
 
@@ -67,6 +73,7 @@ def decode(data):
     return value
 
 
+# 在固定目录描述符下读取受限普通文件，拒绝越界、链接和过大文件。
 def read_file(root, name):
     require(isinstance(name, str) and name and '\\' not in name, 'unsafe artifact path')
     path = PurePosixPath(name)
@@ -95,6 +102,7 @@ def read_file(root, name):
     return data
 
 
+# 仅分类未获派发许可的原因；候选方法仍需完整原生安全评审，所有分类均禁止派发。
 def method_classification(method, params):
     if method in ('ping', 'session.snapshot') and type(params) is dict and not params:
         reason = 'candidate_without_complete_native_safety_review'
@@ -107,6 +115,7 @@ def method_classification(method, params):
     return {'dispatch_allowed': False, 'reason': reason}
 
 
+# 校验字节上限和唯一完整 JSON 行，返回解析后的原生对象帧。
 def frame(data):
     require(isinstance(data, bytes) and len(data) <= MAX_LINE, 'frame size limit')
     require(data.endswith(b'\n') and data.count(b'\n') == 1, 'one complete JSON line required')
@@ -115,6 +124,7 @@ def frame(data):
     return value
 
 
+# 离线校验候选请求与响应关联并保留原生字段，无响应时标记结果未知。
 def exchange(request_bytes, response_bytes):
     request = frame(request_bytes)
     require(set(request) == {'id', 'method', 'params'}, 'unexpected request envelope')
@@ -148,6 +158,7 @@ def exchange(request_bytes, response_bytes):
     return {'request': request, 'response': response, 'outcome': 'native_error' if 'error' in response else 'response'}
 
 
+# 只核对指定方言 schema 的离线引用闭包，不执行参数验证或远程加载。
 def schema_closure(documents, root_name):
     require(root_name in documents and 0 < len(documents) <= MAX_FILES, 'schema root or count')
     decoded = {name: decode(data) for name, data in documents.items()}
@@ -193,6 +204,7 @@ def schema_closure(documents, root_name):
     return {'dialect': DIALECT, 'documents': len(documents), 'parameter_validation': 'not_performed'}
 
 
+# 核对归档清单、原始字节及实例绑定，返回明确未获原生认证的离线检查摘要。
 def audit(root):
     root = Path(root)
     require(not root.is_symlink() and root.is_dir(), 'invalid evidence root')
@@ -283,6 +295,7 @@ def audit(root):
 class StateRebuild:
     """离线状态模型；ticket 只是本次读取身份，不是原生序号或 incarnation。"""
 
+    # 初始化无订阅、无缓存且需刷新的离线状态，记录连接身份与缺口标记。
     def __init__(self):
         self.connection = None
         self.acknowledged = False
@@ -292,6 +305,7 @@ class StateRebuild:
         self.gap_seen = False
         self.connections_seen = set()
 
+    # 登记有界且未用过的订阅连接，废弃旧读取并标记状态需要刷新。
     def subscribe(self, connection):
         require(isinstance(connection, str) and connection, 'invalid subscription connection')
         require(connection not in self.connections_seen and len(self.connections_seen) < 32,
@@ -302,15 +316,18 @@ class StateRebuild:
         self.inflight = None
         self.dirty = True
 
+    # 仅接受当前订阅的一次确认，允许后续快照读取。
     def acknowledge(self, connection):
         require(self.connection is not None and connection == self.connection and not self.acknowledged,
                 'unexpected subscription acknowledgement')
         self.acknowledged = True
 
+    # 仅接受已确认订阅的事件，并标记当前缓存需要刷新。
     def invalidate(self, connection):
         require(connection == self.connection and self.acknowledged, 'event outside acknowledged subscription')
         self.dirty = True
 
+    # 订阅出现缺口时清除连接与在途读取，要求重新订阅并保留缺口标记。
     def gap(self, connection):
         require(self.connection is not None and connection == self.connection, 'gap from another subscription')
         self.connection = None
@@ -319,6 +336,7 @@ class StateRebuild:
         self.dirty = True
         self.gap_seen = True
 
+    # 确认订阅就绪且读取使用另一连接后，串行创建本次快照票据。
     def begin_snapshot(self, connection):
         require(self.acknowledged and connection != self.connection and isinstance(connection, str) and connection,
                 'snapshot needs acknowledged subscription and another connection')
@@ -327,6 +345,7 @@ class StateRebuild:
         self.dirty = False
         return self.inflight
 
+    # 仅接纳当前票据，深拷贝替换缓存并返回是否需再次刷新及保证范围。
     def finish_snapshot(self, ticket, snapshot):
         require(ticket is not None and ticket is self.inflight, 'stale snapshot response')
         self.cache = deepcopy(snapshot)

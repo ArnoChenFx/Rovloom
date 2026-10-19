@@ -1,3 +1,4 @@
+# 离线审计固定原生 fixture、方法映射和测试矩阵草案，不执行验证器或启动原生实例。
 """审计原生契约 fixture、映射与矩阵；不执行 validator，不启动原生实例，不代表 Bun 门禁。"""
 
 import argparse
@@ -24,20 +25,24 @@ COLUMNS = ["method", "profile", "transport", "params_evidence", "request_branche
            "boundary_hint", "trusted_safety", "runtime_enabled"]
 
 
+# 条件不满足时抛出资料完整性错误，确保优化模式也不会跳过检查。
 def check(condition, message):
     # 优化模式也必须执行资料完整性检查。
     if not condition:
         raise ValueError(message)
 
 
+# 以 UTF-8 读取并解析指定 JSON 资料。
 def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+# 返回文件原始字节的 SHA-256 摘要，供固定证据完整性比对。
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# 按 JSON Pointer 路径遍历对象或数组，返回选中的资料片段。
 def pointer(value, path):
     check(path == "" or path.startswith("/"), f"非法 JSON Pointer: {path}")
     for token in path.split("/")[1:]:
@@ -46,6 +51,7 @@ def pointer(value, path):
     return value
 
 
+# 仅返回版本化原生 fixture 内存在的非符号链接文件，拒绝目录外路径。
 def fixture_file(relative):
     # 只读版本化原生 fixture，不接受目录外的文件或 URL。
     path = ROOT / relative
@@ -56,6 +62,7 @@ def fixture_file(relative):
     return path
 
 
+# 合并 schema 与实时能力资料，生成包含路由、参数证据和未启用标记的方法映射。
 def method_rows(bundle, session, host):
     methods = bundle["request"]["properties"]["method"]["enum"]
     check(len(methods) == len(set(methods)) == 223, "原文方法枚举改变")
@@ -96,6 +103,7 @@ def method_rows(bundle, session, host):
     return rows
 
 
+# 将方法映射按固定列顺序渲染为 TSV 文本。
 def render_map(rows):
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=COLUMNS, delimiter="\t", lineterminator="\n")
@@ -104,6 +112,7 @@ def render_map(rows):
     return output.getvalue()
 
 
+# 核对原文哈希、引用闭包与覆盖账本一致性，返回方法映射和引用出现次数。
 def audit_sources():
     manifest = read_json(FIXTURE / "manifest.json")
     for name, info in manifest["files"].items():
@@ -122,6 +131,7 @@ def audit_sources():
         check(doc == docs[uri], f"terminal 别名不符: {uri}")
     references = 0
 
+    # 递归检查 schema 引用均能在安装版文档集合内解析，并累计引用次数。
     def visit(value, base):
         nonlocal references
         if isinstance(value, dict):
@@ -159,6 +169,7 @@ def audit_sources():
     return rows, references
 
 
+# 从内嵌值或精确选中的 fixture 片段构造独立种子副本。
 def materialize_seed(spec):
     if "value" in spec:
         return copy.deepcopy(spec["value"])
@@ -171,6 +182,7 @@ def materialize_seed(spec):
     return copy.deepcopy(pointer(source, spec.get("pointer", "")))
 
 
+# 按草案执行根替换或子路径设置、删除，并返回变更后的输入。
 def mutate(value, change):
     path = change["path"]
     if path == "":
@@ -189,6 +201,7 @@ def mutate(value, change):
     return value
 
 
+# 检查草案阶段、正反例和边界生成器齐全且输入可序列化，返回数量摘要。
 def audit_matrix():
     matrix = read_json(MATRIX)
     check(matrix["status"] == "proposal_not_executed" and matrix["base_commit"] == BASE,
@@ -231,6 +244,7 @@ def audit_matrix():
     return len(seeds), len(cases), dict(sorted(Counter(case["stage"] for case in cases).items()))
 
 
+# 核对终端映射完整对应原生能力，并确认运行时未启用且高级能力仍延后。
 def audit_terminal_map():
     bundle = read_json(FIXTURE / "schema-bundle.json")
     terminal = read_json(FIXTURE / "session-capabilities.json")["result"]["terminal"]
@@ -253,6 +267,7 @@ def audit_terminal_map():
     return len(rows)
 
 
+# 执行资料审计，按参数重建方法映射，并输出仅限设计材料检查的摘要。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write-map", action="store_true", help="仅重建原生方法映射 TSV")

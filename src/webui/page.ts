@@ -26,8 +26,15 @@ export async function unavailableRead(): Promise<never> {
 /** 建立页面壳、手动刷新/取消与单路由 reader，返回幂等卸载函数。 */
 export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, clock?: ReadClock): () => void {
   const header = element('header', '', 'topbar')
-  const brand = element('a', 'Rovloom', 'brand')
+  const brand = element('a', '', 'brand')
   brand.href = '#'
+  brand.setAttribute('aria-label', 'Rovloom，返回设备列表')
+  const logo = element('img', '', 'brand-logo')
+  logo.src = './rovloom-logo.png'
+  logo.alt = 'Rovloom'
+  logo.width = 2172
+  logo.height = 724
+  brand.append(logo)
   const title = element('span', '设备与连接管理', 'muted')
   const toolbar = element('div', '', 'toolbar')
   const refresh = element('button', '刷新')

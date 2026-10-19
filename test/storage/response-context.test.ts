@@ -50,18 +50,17 @@ function fixture(options: StoreOptions = {}, limits?: Parameters<typeof nativeBa
   }
 }
 
-// 在真实测试连接显式协商 objects，并按现行 Wire 字节限额生成可逐片接收的大响应。
+// 为合成连接声明 objects 能力，并按真实 Wire 字节限额生成可逐片接收的大响应。
 function responseChunks(f: ReturnType<typeof fixture>, binding: AttemptBinding, objectId: string, bytes = 150_000) {
   if (!f.native.backend.connection().negotiated.capabilities.includes('objects')) {
     const connection = f.native.backend.connection
-    f.native.backend.connection =
-      /* 保留原 Store 连接 fence 检查，只为该隔离测试连接增添双方已协商的对象能力。 */ () => {
-        const current = connection()
-        return {
-          ...current,
-          negotiated: { ...current.negotiated, capabilities: [...current.negotiated.capabilities, 'objects'] }
-        }
+    f.native.backend.connection = /* 保留原 Store 连接 fence 检查，在该测试的合成协商结果中追加对象能力。 */ () => {
+      const current = connection()
+      return {
+        ...current,
+        negotiated: { ...current.negotiated, capabilities: [...current.negotiated.capabilities, 'objects'] }
       }
+    }
   }
   const raw = Buffer.from(JSON.stringify(responseFrame(binding, { result: { text: 'x'.repeat(bytes) } })))
   const count = Math.ceil(raw.length / LIMITS.chunk_bytes)
@@ -474,13 +473,11 @@ test(
       assert.equal(result.response, null)
       assert.equal(result.content_status, 'expired')
       assert.throws(
-        /* 检查所选响应或事件的当前读取权限，要求以 content_unavailable 拒绝。 */ () =>
-          f.native.adapter.checkResult(binding),
+        /* 原文 TTL 已过，密封响应句柄不能重新取得内容读取许可。 */ () => f.native.adapter.checkResult(binding),
         /content_unavailable/
       )
       assert.throws(
-        /* 为该调用创建结果读取句柄，要求以 result_not_ready 拒绝。 */ () =>
-          f.store.saveResult('synthetic', call.call_id),
+        /* 只含元数据的迟到证据不能生成可读取原文的结果句柄。 */ () => f.store.saveResult('synthetic', call.call_id),
         /result_not_ready/
       )
       const audit = JSON.stringify(f.inspect.prepare('SELECT * FROM audit').all())
@@ -506,7 +503,7 @@ test(
       assert.equal(f.native.adapter.stats().responses, 1)
       const wrong = responseFrame(binding, { id: 'wrong-id', result: { id: 'done' } })
       assert.throws(
-        /* 在 SQLite 事务中提交该响应证据，要求以 native_id_mismatch 拒绝。 */ () =>
+        /* 原生请求编号错配的响应必须被拒绝，不能使密封上下文恢复为可执行状态。 */ () =>
           commitLuvusResponse(f.store, f.native.adapter, wrong),
         /native_id_mismatch/
       )
@@ -539,7 +536,7 @@ test(
       assert.equal(f.native.respond(binding).response, null)
       assert.equal(f.store.call('synthetic', call.call_id).content_status, 'discarded')
       assert.throws(
-        /* 再次申请持久化派发锚点，要求以 dispatch_rejected 拒绝。 */ () =>
+        /* 内容已删除的原调用不能重新登记派发，避免迟到响应触发重放。 */ () =>
           f.store.dispatch('synthetic', call.call_id, f.native.device.epoch),
         /dispatch_rejected/
       )
@@ -635,7 +632,7 @@ test(
       assert.equal(f.native.adapter.stats().responses, 1)
       const other = f.native.create()
       assert.throws(
-        /* 再次申请持久化派发锚点，要求以 adapter_limit 拒绝。 */ () => f.native.dispatch(other.call_id),
+        /* 密封响应仍占满尝试子额，新调用不能继续编码或增加模拟发送次数。 */ () => f.native.dispatch(other.call_id),
         /adapter_limit/
       )
       assert.equal(f.native.state.sends, 1)
@@ -646,7 +643,7 @@ test(
       f.native.adapter.close()
       assert.equal(f.native.adapter.stats().closed, true)
       assert.throws(
-        /* 按当前消息方向执行完整解码校验，要求以 adapter_closed 拒绝。 */ () =>
+        /* 已关闭的适配器必须在解析消息前拒绝，不能重建旧响应许可。 */ () =>
           f.native.adapter.decode('{}', 'connector_to_gateway'),
         /adapter_closed/
       )
@@ -705,7 +702,7 @@ test(
       f.store.discardResponse('synthetic', call.call_id)
       const frame = responseFrame(binding, { result: { id: 'done' } })
       assert.throws(
-        /* 在 SQLite 事务中提交该响应证据，要求以 attempt_anchor_unavailable 拒绝。 */ () =>
+        /* 冷适配器没有原活响应句柄，不能只凭持久化锚点接纳迟到响应。 */ () =>
           commitLuvusResponse(f.store, cold, frame),
         /attempt_anchor_unavailable/
       )

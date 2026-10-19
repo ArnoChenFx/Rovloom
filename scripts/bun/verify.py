@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 在临时项目中验证固定 Bun 工具链、测试和构建，并记录阻断 Node 后的执行证据。
 """在临时项目中完成 Linux 验证并阻断 Node/npm/npx。
 
 仅复制项目代码、fixture 和指定工具链文件，不复制用户 env、npm 配置、
@@ -19,10 +20,12 @@ from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 
+# 读取文件原始字节并返回 SHA-256 摘要，供证据和元数据比对。
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# 校验 JUnit 用例成功且完整覆盖当前测试文件，返回实际用例数。
 def validate_foundation(project, report):
     # 使用运行器报告，支持嵌套、参数化和不同引号的新增测试，不从源码猜测试标题。
     root = ET.parse(report).getroot()
@@ -46,6 +49,7 @@ def validate_foundation(project, report):
     return len(cases)
 
 
+# 核对日志通过数及跳过标记，并为 P0 检查 Python 测试摘要。
 def validate_tests(project, label, log, count=None):
     if label == 'foundation':
         count = validate_foundation(project, project / 'foundation.junit.xml')
@@ -58,6 +62,7 @@ def validate_tests(project, label, log, count=None):
     return count
 
 
+# 复制项目到隔离环境，执行工具链和构建测试并将脱敏证据写入新目录。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bun', default=shutil.which('bun'))
@@ -86,6 +91,10 @@ def main():
         for name in ('package.json', 'bun.lock', 'bunfig.toml', '.bun-version', 'tsconfig.json',
                      '.gitignore', '.oxlintrc.json', '.oxfmtrc.json'):
             shutil.copyfile(repo / name, project / name)
+        # WebUI 构建复用唯一品牌源，仅复制明确的静态 PNG，不引入其它文档或运行日志。
+        brand = Path('docs/assets/brand/rovloom-logo.png')
+        (project / brand).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(repo / brand, project / brand)
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'bun').symlink_to(bun)
@@ -120,6 +129,7 @@ def main():
             raise RuntimeError('blocking probe did not run all shims')
         (root / 'blocked.log').unlink()
 
+        # 在隔离项目追踪单条命令，保存日志并核对禁用程序调用与预期退出码。
         def run(label, arguments, expected=0):
             trace = output / (label + '.execve.log')
             process = subprocess.Popen([trace_tool, '-f', '-qq', '-s', '256', '-e', 'trace=execve,execveat',

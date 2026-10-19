@@ -1,3 +1,4 @@
+# 使用固定 Bun 在 Linux 执行注释、质量、资料审计和隔离验收门禁。
 name: Bun verification
 on: [push, pull_request, workflow_dispatch]
 permissions:
@@ -35,6 +36,7 @@ jobs:
         run: |
           bun --no-env-file run lint
           bun --no-env-file run format:check
+          bun --no-env-file run comments:check
       - name: Prepare strace in runner temp when absent
         shell: bash
         run: |

@@ -1,3 +1,4 @@
+// 独立导入 Bun 构建的 ESM 产物，验证公开导出、完整契约编译及原生错误数据保真。
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'

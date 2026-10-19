@@ -19,6 +19,15 @@ type FixtureMode =
   | 'unverified'
   | 'heartbeat'
   | 'reconnecting'
+  | 'pending'
+  | 'stale_device'
+  | 'stale_connection'
+  | 'stale_auth'
+  | 'stale_provider'
+  | 'stale_runtime'
+  | 'stale_children'
+  | 'stale_permissions'
+  | 'near_stale'
 
 declare global {
   interface Window {
@@ -51,7 +60,10 @@ window.webUiFixture = fixture
 
 /** 根据显式测试模式读取 fixture；所有异常均为合成状态。 */
 /** 复用与生产宿主相同的只读组合逻辑，替换的仅为共享 DTO 数据来源。 */
-const baseRead = createManagementPageRead(async (name, args) => fixtureReply(name, args))
+const baseRead = createManagementPageRead(
+  /** 固定返回隔离 DTO，不连接真实管理端。 */
+  async (name, args) => fixtureReply(name, args)
+)
 
 /** 调整隔离测试情景，不实现或绕过后台管理员授权。 */
 const read: PageRead = async (route, signal) => {
@@ -116,6 +128,11 @@ const read: PageRead = async (route, signal) => {
       device.authentication = { verification: 'unverified', reason_code: 'not_recorded' }
     }
   }
+  if (fixture.mode === 'pending') {
+    for (const device of [...result.value.devices.items, ...(result.value.device ? [result.value.device] : [])]) {
+      device.persisted_state = 'pending'
+    }
+  }
   if (fixture.mode === 'heartbeat' && result.value.device) {
     result.value.device.connection = {
       verification: 'verified',
@@ -136,6 +153,32 @@ const read: PageRead = async (route, signal) => {
   if (fixture.mode === 'reconnecting' && result.value.device?.connection.verification === 'verified') {
     result.value.device.connection.value.state = 'reconnecting'
     result.value.device.authentication = { verification: 'unverified', reason_code: 'not_recorded' }
+  }
+  if (fixture.mode.startsWith('stale_') || fixture.mode === 'near_stale') {
+    const observedAt = result.serverTime - (fixture.mode === 'near_stale' ? 14_500 : 60_000)
+    const all = fixture.mode === 'stale_children' || fixture.mode === 'near_stale'
+    for (const device of [...result.value.devices.items, ...(result.value.device ? [result.value.device] : [])]) {
+      if (all || fixture.mode === 'stale_device') {
+        device.observed_at = observedAt
+      }
+      if ((all || fixture.mode === 'stale_connection') && device.connection.verification === 'verified') {
+        device.connection.observed_at = observedAt
+      }
+      if ((all || fixture.mode === 'stale_auth') && device.authentication.verification === 'verified') {
+        device.authentication.observed_at = observedAt
+      }
+    }
+    for (const provider of result.value.providers.items) {
+      if (all || fixture.mode === 'stale_provider') {
+        provider.observed_at = observedAt
+      }
+      if ((all || fixture.mode === 'stale_runtime') && provider.runtime.verification === 'verified') {
+        provider.runtime.observed_at = observedAt
+      }
+    }
+  }
+  if (fixture.mode === 'stale_permissions' && result.value.permissions) {
+    result.value.permissions.observed_at = result.serverTime - 60_000
   }
   return result
 }

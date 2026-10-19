@@ -1,3 +1,4 @@
+// 读取 Bun 锁文件并提取依赖版本与完整性，供兼容性审计复用。
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
@@ -5,10 +6,12 @@ import { readFileSync } from 'node:fs'
 export function lockedDependencies() {
   const lock = Bun.JSON5.parse(readFileSync(new URL('../../bun.lock', import.meta.url), 'utf8'))
   return Object.fromEntries(
-    Object.entries(lock.packages).map(([name, entry]) => {
-      assert.equal(typeof entry[0], 'string')
-      assert.equal(typeof entry[3], 'string')
-      return [name, { version: entry[0].slice(entry[0].lastIndexOf('@') + 1), integrity: entry[3] }]
-    })
+    Object.entries(lock.packages).map(
+      /* 校验锁条目并提取包名、版本及完整性。 */ ([name, entry]) => {
+        assert.equal(typeof entry[0], 'string')
+        assert.equal(typeof entry[3], 'string')
+        return [name, { version: entry[0].slice(entry[0].lastIndexOf('@') + 1), integrity: entry[3] }]
+      }
+    )
   )
 }

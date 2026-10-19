@@ -1,4 +1,4 @@
-// 用真实原生契约校验器验证仅响应句柄的最小保留、身份绑定及不可执行边界。
+// 用真实编译句柄及合成可信来源验证 RPC 仅响应上下文的最小保留、身份绑定和权限边界。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -26,7 +26,7 @@ import {
   view
 } from './helpers.js'
 
-// 经过真实能力、请求和派发授权生成 RPC 许可，供密封与释放测试使用。
+// 使用真实能力、请求和授权句柄配合合成来源生成 RPC 许可，供封存与释放测试使用。
 function dispatched(
   method = 'task.add',
   params: Record<string, unknown> = { title: 'synthetic', prompt: 'synthetic-request-secret' }
@@ -39,8 +39,7 @@ function dispatched(
 
 test(
   '持有已校验 RPC 响应不会反向保留原请求，释放后仅响应密封句柄仍可校验',
-  // 保留响应对象并检查真实私有登记，确保释放不依赖该对象恰好已被 GC。
-  () => {
+  /* 保留响应对象并检查真实私有登记，确保释放不依赖该对象恰好已被 GC。 */ () => {
     const original = dispatched()
     const checked = unwrap(
       validator.checkResponse(original.permit, { id: 'response-context', result: { id: 'synthetic' } }, original.source)
@@ -57,8 +56,7 @@ test(
 
 test(
   '同一 RPC 候选的其它真实许可随释放一起撤销，不继续强引原文或保留读取权限',
-  // 对一个候选签发两份许可，只释放第一份后核对第二份已无内部正文、响应和读取能力。
-  () => {
+  /* 对一个候选签发两份许可，只释放第一份后核对第二份已无内部正文、响应和读取能力。 */ () => {
     const original = dispatched()
     const second = unwrap(checkDispatch(original.candidate, original.authorization))
     unwrap(validator.releaseRequestContext(original.permit))
@@ -102,7 +100,7 @@ test(
 
 test(
   '仅响应上下文逐项复核完整原生来源、原 ID 和原契约，不从同摘要重建',
-  /* 逐一篡改原生绑定、请求 ID 与契约对象，确认密封上下文只认可原句柄及独立真实来源。 */ () => {
+  /* 篡改合成来源绑定、请求 ID 与契约对象，确认封存上下文只认可原句柄和完整匹配的可信来源输入。 */ () => {
     const original = dispatched()
     const sealed = unwrap(validator.sealResponseContext(original.permit))
     const response = { id: 'response-context', result: { id: 'task-created' } }
@@ -138,7 +136,7 @@ test(
 
 test(
   'seal 固定在线帧预算含 LF，原 capabilities 释放后仍检查精确字节边界',
-  /* 在含多字节字符的响应上设置含 LF 的精确帧边界，释放能力视图后仍拒绝越界字节。 */ () => {
+  /* 封存含多字节响应的精确帧预算，释放请求登记后篡改原始广告仍不影响含 LF 的字节检查。 */ () => {
     const response = { id: 'frame-context', result: { text: '汉😀'.repeat(80) } }
     const frameBytes = Buffer.byteLength(JSON.stringify(response)) + 1
     for (const maxBytes of [frameBytes, frameBytes - 1]) {
@@ -163,41 +161,42 @@ test(
   }
 )
 
-test('终端 RPC 最小 matcher 保留原生 ID 约束与 method-result，不能 seal 流或控制许可', (
-  /* 用终端快照 RPC 核验结果类型和 generation，并证明流许可及控制许可不能密封成 RPC 上下文。 */
-) => {
-  const original = dispatched('terminal.backend.snapshot', {})
-  const sealed = unwrap(validator.sealResponseContext(original.permit))
-  unwrap(validator.releaseRequestContext(original.permit))
-  const response = {
-    id: 'response-context',
-    result: {
-      type: 'terminal_backend_snapshot',
-      server_generation: G,
-      event_sequence: 0,
-      terminals: [],
-      truncated: false
+test(
+  '终端 RPC 最小 matcher 保留原生 ID 约束与 method-result，不能 seal 流或控制许可',
+  /* 用终端快照核对结果类型和代次，并验证 control 开流许可不能封存或经 RPC 路径释放。 */ () => {
+    const original = dispatched('terminal.backend.snapshot', {})
+    const sealed = unwrap(validator.sealResponseContext(original.permit))
+    unwrap(validator.releaseRequestContext(original.permit))
+    const response = {
+      id: 'response-context',
+      result: {
+        type: 'terminal_backend_snapshot',
+        server_generation: G,
+        event_sequence: 0,
+        terminals: [],
+        truncated: false
+      }
     }
+    unwrap(validator.checkResponseOnly(sealed, response, original.source))
+    rejects(
+      validator.checkResponseOnly(
+        sealed,
+        { ...response, result: { ...response.result, server_generation: '2'.repeat(32) } },
+        original.source
+      ),
+      'native_identity_mismatch'
+    )
+    rejects(
+      validator.checkResponseOnly(
+        sealed,
+        { ...response, result: { type: 'terminal_backend_validation', state: 'alive' } },
+        original.source
+      ),
+      'native_result_mismatch'
+    )
+    unwrap(validator.releaseResponseContext(sealed))
+    const stream = dispatched('terminal.backend.control', { server_generation: G, terminal_id: T, pane_id: '3' })
+    rejects(validator.sealResponseContext(stream.permit), 'response_context_unavailable')
+    rejects(validator.releaseRequestContext(stream.permit), 'response_context_unavailable')
   }
-  unwrap(validator.checkResponseOnly(sealed, response, original.source))
-  rejects(
-    validator.checkResponseOnly(
-      sealed,
-      { ...response, result: { ...response.result, server_generation: '2'.repeat(32) } },
-      original.source
-    ),
-    'native_identity_mismatch'
-  )
-  rejects(
-    validator.checkResponseOnly(
-      sealed,
-      { ...response, result: { type: 'terminal_backend_validation', state: 'alive' } },
-      original.source
-    ),
-    'native_result_mismatch'
-  )
-  unwrap(validator.releaseResponseContext(sealed))
-  const stream = dispatched('terminal.backend.control', { server_generation: G, terminal_id: T, pane_id: '3' })
-  rejects(validator.sealResponseContext(stream.permit), 'response_context_unavailable')
-  rejects(validator.releaseRequestContext(stream.permit), 'response_context_unavailable')
-})
+)

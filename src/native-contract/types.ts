@@ -1,4 +1,4 @@
-// 定义原生契约校验、能力、派发许可及仅响应上下文的类型边界。
+// 定义当前 Luvus 原生契约、宿主可信来源、校验证明、派发许可及仅响应上下文的类型边界。
 import type { Policy, Target } from '../contracts.js'
 
 export type Json = null | boolean | number | string | readonly Json[] | JsonObject
@@ -175,7 +175,8 @@ export type DispatchPermit = Readonly<{
   classification_revision: string
   raw_grant_id?: string
 }>
-// 只能由真实 permit seal；独立 WeakMap 校验，不能用于派发、开流或读取原文。
+// 只能由真实非流 RPC permit 封存；独立 WeakMap 校验，不能用于派发、开流或读取原文。
+// retained_bytes 是封存元数据按契约身份编码后的 JSON 字节数，不代表共享编译状态或堆内存大小。
 export type ResponseOnlyContext = Readonly<{ kind: 'response_context'; retained_bytes: number }>
 export type NativeRequestGate = Readonly<{
   classification_status: 'trusted_complete' | 'missing' | 'unknown' | 'invalid' | 'untrusted'
@@ -212,11 +213,11 @@ export interface NativeValidator {
     response: unknown,
     source: TrustedNativeContext
   ): Check<CheckedResponse>
-  // 仅从真实 RPC 派发许可密封最小响应约束，不能从 JSON 重建。
+  // 从真实非流 RPC 许可封存最小响应约束，身份值或总编码大小超限即失败，不能从 JSON 重建。
   sealResponseContext(permit: DispatchPermit): Check<ResponseOnlyContext>
   // 用密封元数据校验迟到响应并仅返回校验结论，不产生读取或派发能力。
   checkResponseOnly(context: ResponseOnlyContext, response: unknown, source: TrustedNativeContext): Check<void>
-  // 撤销同一 RPC 候选的全部许可及请求登记，让内部关联不再持有原请求正文。
+  // 撤销同一 RPC 候选的全部许可及请求登记；宿主仍须丢弃自己持有的候选与原文引用。
   releaseRequestContext(permit: DispatchPermit): Check<void>
   // 删除密封响应句柄的私有登记，使其不能继续验证迟到响应。
   releaseResponseContext(context: ResponseOnlyContext): Check<void>
@@ -224,6 +225,6 @@ export interface NativeValidator {
   openStream(permit: DispatchPermit, acknowledgement: CheckedResponse): Check<CheckedStream>
   // 核验流句柄、原生来源、事件 schema 及身份，阻止跨流或跨目标事件混入。
   checkEvent(stream: CheckedStream, event: unknown, source: TrustedNativeContext): Check<CheckedEvent>
-  // 在已打开的控制流内校验输入帧及原生身份，生成需另行授权的控制候选。
+  // 在已打开的控制流校验帧、预算和动作支持，生成关联该流且仍需另行授权的控制候选。
   checkControl(stream: CheckedStream, frame: unknown): Check<CheckedControl>
 }

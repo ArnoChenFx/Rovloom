@@ -1,4 +1,4 @@
-// 定义持久化账本、受保护宿主接口、回收通知及公开调用投影，避免暴露内部请求与证据字段。
+// 定义账本行、独立设备身份校验接口及提交后回收通知，并投影不含内部请求与证据字段的公开调用。
 import type { CallState } from '../contracts.js'
 import type { ResponseAnchor } from '../wire/evidence.js'
 import type { HistoryReference, ValidationMode } from '../wire/types.js'
@@ -7,6 +7,7 @@ import type { Retention } from './config.js'
 export type Machine = { machine_id: string; name: string; status: string }
 export type Metadata = { generation: string; mode: string; clock: number }
 export type ManagementRequest = { action: string; target: string; fence: string }
+// 内容通知允许宿主压缩执行上下文，身份 fence 和关闭通知则销毁对应能力；通知本身不序列化原生句柄。
 export type LedgerInvalidation =
   | { kind: 'content' | 'fence'; machine_id: string; call_id: string }
   | { kind: 'device_fence'; machine_id: string }
@@ -27,7 +28,8 @@ export type StoreOptions = {
   maintenanceIntervalMs?: number
   // 只由受保护宿主注入，须核实独立权限、真实确认及准确 fence；普通工具参数不能传入。
   management?: (request: ManagementRequest) => { actor: string; confirmation_id: string }
-  // 受保护宿主同步消费独立凭据校验证明，或复核身份库已按本次 fence 持久化 blocked；缺省拒绝。
+  // 受保护宿主同步消费独立凭据校验证明，或复核身份库已按本次 fence 持久化 blocked；须显式返回 true。
+  // 缺省拒绝，证明消费和外部 blocked 均不随随后 Store 事务失败撤销。
   deviceLifecycle?: (request: DeviceLifecycleRequest) => boolean
   // 仅供隔离故障测试在固定写入阶段中断事务；生产宿主不从外部参数注入。
   fault?: (point: 'before_commit' | 'after_anchor' | 'evidence_commit') => void
@@ -60,6 +62,18 @@ export type Call = {
   dedup_expires: number
   content_status: ResponseAnchor['content_status']
 }
+// 单次结果页携带原句柄的绝对毫秒截止时间；它不延长句柄，也不保证后续删除或撤权后仍可读取。
+export type ResultPage = {
+  result_id: string
+  encoding: 'base64'
+  data: string
+  next_cursor: number
+  eof: boolean
+  bytes: number
+  hash: string
+  expires: number
+}
+// 内部行追加原文、绑定和摘要等账本字段；适配器密封的仅响应能力不进入持久化行。
 export type Row = Call & {
   identity_json: string
   binding_json: string | null
@@ -73,7 +87,8 @@ export type Row = Call & {
   reserved: number
   mode: ValidationMode
 }
-// 只投影公开调用字段，并按当前内容期限隐藏响应，不把内部请求或证据摘要暴露给读取方。
+// 构造公开调用的新对象，仅在内容仍可用且未到期时返回响应，隐藏内部请求、绑定和证据摘要。
+// 到期状态仅反映在返回投影，不清理数据库或刷新既有期限，也不赋予原生执行或响应校验能力。
 export const publicCall = (r: Row, now: number): Call => {
   const {
     call_id,

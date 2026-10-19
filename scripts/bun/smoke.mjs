@@ -46,6 +46,13 @@ assert(!browserEntry.includes('node:'))
 assert(!browserEntry.includes('webUiFixture'))
 assert(readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes('Rovloom 管理'))
 assert(readFileSync(new URL('../../dist/webui/manage.css', import.meta.url), 'utf8').includes(':focus-visible'))
+assert.deepEqual(
+  readFileSync(new URL('../../dist/webui/rovloom-logo.png', import.meta.url)),
+  readFileSync(new URL('../../docs/assets/brand/rovloom-logo.png', import.meta.url))
+)
+assert(
+  readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes('href="./rovloom-logo.png"')
+)
 assert.equal(typeof persistence.persistentBackend, 'function')
 assert.equal(typeof persistence.commitLuvusResponse, 'function')
 assert.deepEqual(

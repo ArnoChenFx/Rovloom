@@ -1,3 +1,4 @@
+// 验证 v4 结果句柄的授权和字节分页，以及未发布旧数据库被无损拒绝。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
@@ -8,61 +9,91 @@ import { Store } from '../src/store.js'
 import { Router } from '../src/router.js'
 import { connected, management, options, policy, respond } from './storage/helpers.js'
 
-test('results enforce ownership, policy, quota, TTL and byte-perfect pagination', () => {
-  let now = 100
-  const s = new Store(':memory:', () => now, { management })
-  try {
-    const d = connected(s)
-    let local = policy(d.target, true)
-    const router = new Router(s, () => local)
-    const p = { id: 'alice', policy: policy(d.target) }
-    const c = router.create(p, d.target, { method: 'pane.read' }, options())
-    assert.throws(() => router.saveResult(p, c.call_id), /result_not_ready/)
-    const binding = router.dispatch(p, c.call_id, d.epoch)
-    respond(s, binding, { result: { text: '你好'.repeat(100) } }, now)
-    assert.throws(() => s.saveResult(p.id, c.call_id, 100, 1), /result_quota/)
-    const meta = s.saveResult(p.id, c.call_id, 100)
-    const chunks: Buffer[] = []
-    let cursor = 0
-    while (true) {
-      const page = router.readResult(p, meta.result_id, cursor, 7)
-      chunks.push(Buffer.from(page.data, 'base64'))
-      cursor = page.next_cursor
-      if (page.eof) {
-        break
+test(
+  'results enforce ownership, policy, quota, TTL and byte-perfect pagination',
+  /* 在真实 provider 调用上验证结果授权、配额、原始 TTL 与跨 UTF-8 字节分页。 */ () => {
+    let now = 100
+    const s = new Store(':memory:', /* 注入可推进时钟，精确触发结果句柄到期。 */ () => now, { management })
+    try {
+      const d = connected(s)
+      let local = policy(d.target, true)
+      const router = new Router(s, /* 每次读取当前本地授权，验证已有句柄不能绕过策略撤销。 */ () => local)
+      const p = { id: 'alice', policy: policy(d.target) }
+      const c = router.create(p, d.target, { method: 'pane.read' }, options())
+      assert.throws(
+        /* 对尚未收到响应的调用申请句柄，要求拒绝。 */ () => router.saveResult(p, c.call_id),
+        /result_not_ready/
+      )
+      const binding = router.dispatch(p, c.call_id, d.epoch)
+      respond(s, binding, { result: { text: '你好'.repeat(100) } }, now)
+      assert.throws(
+        /* 用不足以容纳响应的配额保存句柄，要求拒绝。 */ () => s.saveResult(p.id, c.call_id, 100, 1),
+        /result_quota/
+      )
+      const meta = s.saveResult(p.id, c.call_id, 100)
+      const chunks: Buffer[] = []
+      let cursor = 0
+      while (true) {
+        const page = router.readResult(p, meta.result_id, cursor, 7)
+        chunks.push(Buffer.from(page.data, 'base64'))
+        cursor = page.next_cursor
+        if (page.eof) {
+          break
+        }
+      }
+      assert.equal(JSON.parse(Buffer.concat(chunks).toString()).result.text, '你好'.repeat(100))
+      assert.throws(
+        /* 使用其他主体读取句柄，要求隐藏所属调用。 */ () => router.readResult({ ...p, id: 'bob' }, meta.result_id),
+        /call_not_found/
+      )
+      assert.throws(
+        /* 传入负字节游标，要求分页边界校验拒绝。 */ () => router.readResult(p, meta.result_id, -1),
+        /invalid_result_cursor/
+      )
+      local = { ...local, grants: [] }
+      assert.throws(
+        /* 撤销本地授权后读取已有结果，要求重新授权失败。 */ () => router.readResult(p, meta.result_id),
+        /forbidden/
+      )
+      local = policy(d.target, true)
+      now = 200
+      assert.throws(
+        /* 推进到句柄到期时刻后读取，要求句柄不存在。 */ () => router.readResult(p, meta.result_id),
+        /result_not_found/
+      )
+      const next = router.saveResult(p, c.call_id)
+      s.revoke(d.machine_id)
+      assert.throws(
+        /* 撤销设备后读取新句柄，要求相关结果不可见。 */ () => router.readResult(p, next.result_id),
+        /result_not_found/
+      )
+    } finally {
+      s.close()
+    }
+  }
+)
+test(
+  'unreleased v1 v2 v3 schemas are rejected without migration or source mutation',
+  /* 逐一打开未发布的 v1/v2/v3 数据库，验证拒绝迁移且原文件字节不变。 */ () => {
+    for (const version of [1, 2, 3]) {
+      const dir = mkdtempSync(join(tmpdir(), 'rovloom-legacy-'))
+      const path = join(dir, 'db')
+      try {
+        const db = new DatabaseSync(path)
+        db.exec(
+          `CREATE TABLE metadata(version INTEGER); INSERT INTO metadata VALUES(${version}); CREATE TABLE calls(response TEXT); INSERT INTO calls VALUES('synthetic-secret')`
+        )
+        db.close()
+        chmodSync(path, 0o600)
+        const before = readFileSync(path)
+        assert.throws(
+          /* 尝试打开不受支持的旧 schema，要求在写入或迁移前拒绝。 */ () => new Store(path),
+          /unsupported_database_version/
+        )
+        assert.deepEqual(readFileSync(path), before)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
       }
     }
-    assert.equal(JSON.parse(Buffer.concat(chunks).toString()).result.text, '你好'.repeat(100))
-    assert.throws(() => router.readResult({ ...p, id: 'bob' }, meta.result_id), /call_not_found/)
-    assert.throws(() => router.readResult(p, meta.result_id, -1), /invalid_result_cursor/)
-    local = { ...local, grants: [] }
-    assert.throws(() => router.readResult(p, meta.result_id), /forbidden/)
-    local = policy(d.target, true)
-    now = 200
-    assert.throws(() => router.readResult(p, meta.result_id), /result_not_found/)
-    const next = router.saveResult(p, c.call_id)
-    s.revoke(d.machine_id)
-    assert.throws(() => router.readResult(p, next.result_id), /result_not_found/)
-  } finally {
-    s.close()
   }
-})
-test('unreleased v1 v2 v3 schemas are rejected without migration or source mutation', () => {
-  for (const version of [1, 2, 3]) {
-    const dir = mkdtempSync(join(tmpdir(), 'rovloom-legacy-'))
-    const path = join(dir, 'db')
-    try {
-      const db = new DatabaseSync(path)
-      db.exec(
-        `CREATE TABLE metadata(version INTEGER); INSERT INTO metadata VALUES(${version}); CREATE TABLE calls(response TEXT); INSERT INTO calls VALUES('synthetic-secret')`
-      )
-      db.close()
-      chmodSync(path, 0o600)
-      const before = readFileSync(path)
-      assert.throws(() => new Store(path), /unsupported_database_version/)
-      assert.deepEqual(readFileSync(path), before)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  }
-})
+)

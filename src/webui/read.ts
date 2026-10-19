@@ -58,8 +58,7 @@ function partialProblem(error: unknown): 'forbidden' | 'unavailable' {
 
 /** 将共享 DTO 组合成一致页面；每次 execute 的认证/资源授权仍由既有服务重新执行。 */
 export function createManagementPageRead(transport: ManagementReadTransport): PageRead {
-  /** 串行有界读取，不缓存授权、不续 history scope，也不调用任何写操作。 */
-  return async (route, signal) => {
+  return /* 串行有界读取，不缓存授权、不续 history scope，也不调用任何写操作。 */ async (route, signal) => {
     /** 取消后不得继续调用下一项管理读取。 */
     async function execute<K extends ManagementReadOperation>(
       name: K,
@@ -123,6 +122,11 @@ export function createManagementPageRead(transport: ManagementReadTransport): Pa
     }
     page.status = after
     // 共享状态没有管理员会话期限；权限 TTL/history 截止均不能被冒充为登录期限。
-    return { value: page, serverTime: after.server_time, observedAt: before.observed_at, sessionExpiresAt: null }
+    return {
+      value: page,
+      serverTime: after.server_time,
+      observedAt: Math.min(before.observed_at, after.observed_at),
+      sessionExpiresAt: null
+    }
   }
 }

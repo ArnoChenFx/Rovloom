@@ -12,7 +12,7 @@ type Services = Omit<
 export function persistentBackend(store: Store, services: Services): NativeWireBackend {
   return {
     ...services,
-    // 把宿主回收订阅直接接到 Store 的提交后通知，保留取消订阅能力。
+    // 转接 Store 的提交后失效和关闭通知，返回取消订阅入口。
     subscribeInvalidation: (listener) => store.subscribeInvalidation(listener),
     // 使用 Store 的可信时钟，保证适配器和持久化事务采用同一期限基准。
     now: () => store.clock(),
@@ -32,7 +32,8 @@ export function persistentBackend(store: Store, services: Services): NativeWireB
     contentStatus: (binding) => store.responseAnchor(binding).content_status
   }
 }
-// 同一 writer 事务重新取原锚点并调用真实 adapter；提交前不得对外发布 responded。
+// 由 Store 在 BEGIN IMMEDIATE 写事务内重新取得锚点并调用真实适配器，统一固定接收时钟。
+// 提交成功后才返回结果；可信冲突先提交审计再抛错误，写入失败不得对外发布 responded。
 export function commitLuvusResponse(
   store: Store,
   adapter: ReturnType<typeof createLuvusWireAdapter>,

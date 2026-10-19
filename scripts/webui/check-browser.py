@@ -40,18 +40,40 @@ def main():
         assert page.locator('.device-card').count() == 0
         assert page.title() == 'Rovloom 管理'
         assert page.evaluate('typeof window.webUiFixture') == 'undefined'
+        logo = page.get_by_role('img', name='Rovloom', exact=True)
+        logo.wait_for()
+        assert logo.evaluate('(el) => el.complete && el.naturalWidth === 2172 && el.naturalHeight === 724')
+        logo_response = page.request.get(base + '/rovloom-logo.png')
+        assert logo_response.ok
+        assert logo_response.headers['content-type'] == 'image/png'
+        assert logo_response.body() == (repo / 'docs/assets/brand/rovloom-logo.png').read_bytes()
+        assert page.locator('link[rel="icon"]').get_attribute('href') == './rovloom-logo.png'
         checks.append('生产入口不可用且无 fixture 数据或身份回退')
+        checks.append('生产与 fixture 页面复用项目原始 logo，图片与页面图标资源可加载')
 
         page.goto(base + '/fixtures/')
         page.locator('.device-card').first.wait_for()
         assert page.locator('.device-card').count() == 2
-        assert page.locator('img').count() == 0
+        assert page.locator('.device-card img').count() == 0
+        assert page.get_by_role('img', name='Rovloom', exact=True).evaluate('(el) => el.complete && el.naturalWidth === 2172')
         assert '<img src=x' in page.locator('.device-name').first.inner_text()
         page.locator('.device-name').first.focus()
         page.wait_for_timeout(1200)
         assert page.locator('.device-name').first.evaluate('(el) => el === document.activeElement')
         page.screenshot(path=str(output / 'desktop.png'), full_page=True)
         checks.append('双机器隔离展示、XSS 转义及轮询年龄更新保留键盘焦点')
+
+        page.evaluate("window.webUiFixture.mode='stale_children'")
+        page.get_by_role('button', name='刷新', exact=True).click()
+        page.get_by_text('设备观测已过期', exact=True).first.wait_for()
+        assert page.get_by_text('快照有效', exact=True).count() == 1
+        assert page.locator('.device-card .good').count() == 0
+        assert '连接观测已过期' in page.locator('.device-card').first.inner_text()
+        assert '认证观测已过期' in page.locator('.device-card').first.inner_text()
+        page.evaluate("window.webUiFixture.mode='normal'")
+        page.get_by_role('button', name='刷新', exact=True).click()
+        page.locator('.device-card .good').first.wait_for()
+        checks.append('新鲜 status 不续期旧设备/连接/认证观测，列表无绿色在线')
 
         page.locator('.device-name').first.click()
         page.get_by_role('heading', name='Runtime providers').wait_for()
@@ -66,6 +88,49 @@ def main():
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         page.screenshot(path=str(output / 'narrow-detail.png'), full_page=True)
         checks.append('详情认证、未提供字段说明、三条独立 provider 行与不可用变更；390px 无横向溢出')
+
+        for mode, text in [('stale_device', '设备观测已过期'), ('stale_connection', '连接观测已过期'),
+                           ('stale_auth', '认证观测已过期'), ('stale_provider', '启停观测已过期'),
+                           ('stale_runtime', '运行观测已过期'), ('stale_children', '运行观测已过期')]:
+            page.evaluate('(mode) => { window.webUiFixture.mode=mode }', mode)
+            page.get_by_role('button', name='刷新', exact=True).click()
+            page.get_by_text(text, exact=False).first.wait_for()
+            assert page.get_by_text('快照有效', exact=True).count() == 1
+            assert page.locator('.provider-card .good').count() == 0
+            if mode in ('stale_device', 'stale_connection', 'stale_auth', 'stale_children'):
+                assert page.locator('main .badges .good').count() == 0
+            if mode in ('stale_provider', 'stale_runtime'):
+                assert page.locator('main .badges .good').first.inner_text() == '在线'
+        page.screenshot(path=str(output / 'stale-detail.png'), full_page=True)
+        checks.append('详情和 provider 分别检查五层观测时间；旧运行观测不显示绿色 ready，不误改新鲜设备连接')
+
+        page.evaluate("window.webUiFixture.mode='near_stale'")
+        page.get_by_role('button', name='刷新', exact=True).click()
+        page.get_by_text('管理 readiness：ready', exact=True).wait_for()
+        page.get_by_text('运行观测已过期', exact=False).first.wait_for()
+        assert page.get_by_text('快照有效', exact=True).count() == 1
+        assert page.locator('.provider-card .good, main .badges .good').count() == 0
+        checks.append('子观测按单调经过时间独立跨过十五秒过期边界')
+
+        page.evaluate("window.webUiFixture.mode='pending'")
+        page.get_by_role('button', name='刷新', exact=True).click()
+        page.get_by_text('连接与认证状态未核实（待配对）', exact=True).wait_for()
+        assert page.locator('main .badges .good, .provider-card .good').count() == 0
+        assert '已认证' not in page.locator('main .badges').first.inner_text()
+        page.locator('.brand').click()
+        page.locator('.device-card').first.wait_for()
+        assert page.locator('.device-card .good').count() == 0
+        assert page.get_by_text('连接与认证状态未核实（待配对）', exact=True).count() == 2
+        page.locator('.device-name').first.click()
+        page.get_by_role('heading', name='Runtime providers').wait_for()
+        checks.append('待配对覆盖连接/认证旧记录，列表与详情无绿色在线/ready或已认证徽标')
+
+        page.evaluate("window.webUiFixture.mode='stale_permissions'")
+        page.get_by_role('button', name='刷新', exact=True).click()
+        page.get_by_text('权限提示已过期，等待刷新；它不授予后端权限。', exact=True).wait_for()
+        assert page.get_by_text('快照有效', exact=True).count() == 1
+        assert page.get_by_text('管理 readiness：ready', exact=True).count() == 1
+        checks.append('权限自身观测过期即失效，未到 TTL 也不能被 status 续期')
 
         for mode, text in [('unverified', '连接未核实'), ('heartbeat', 'heartbeat_timeout'), ('reconnecting', '重新握手中')]:
             page.evaluate('(mode) => { window.webUiFixture.mode=mode }', mode)

@@ -295,7 +295,7 @@ test(
 for (const event of ['discard', 'ttl'] as const) {
   test(
     `设备 A 的 ${event} 内容回收不清理设备 B 的活动分片`,
-    // 用同一个 Store 的真实广播复现旧实现的跨设备干扰，而不是模拟通知对象。
+    // 用同一 Store 的真实回收广播核对设备作用域，确保其它设备的分片仍能组装完成。
     () => {
       const f = fixture()
       try {

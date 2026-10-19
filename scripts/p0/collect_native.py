@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 在全新私有环境采集固定 Luvus 实例的原生过程与传输证据，并负责关闭和清理。
 """在全新私有目录采集固定版本 Luvus 的原生证据；不连接已有实例。"""
 
 import argparse
@@ -18,11 +19,13 @@ import tempfile
 import time
 
 
+# 计算原始字节的 SHA-256 摘要，供二进制和证据完整性记录。
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
 class Capture:
+    # 核对官方二进制摘要，创建私有采集目录与最小子进程环境并初始化记录状态。
     def __init__(self, binary, output):
         self.binary = Path(binary).resolve(strict=True)
         if digest(self.binary.read_bytes()) != "895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9":
@@ -54,18 +57,22 @@ class Capture:
         self.completed = False
         self.collection_failure = None
 
+    # 仅替换本次临时根目录和二进制绝对路径，保留其他证据文本。
     def safe_text(self, value):
         return value.replace(str(self.root), "/fixture/issue3").replace(str(self.binary), "/fixture/bin/luvus")
 
+    # 将对象序列化为 JSON，经路径脱敏后写入证据目录。
     def save(self, name, value):
         text = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
         (self.output / name).write_text(self.safe_text(text))
 
+    # 登记断言真假，并在失败时立即中止当前采集步骤。
     def check(self, label, condition):
         self.checks.append({"assertion": label, "passed": bool(condition)})
         if not condition:
             raise AssertionError(label)
 
+    # 运行隔离原生命令，超时终止或强杀子进程，并记录输入输出与原始字节摘要。
     def run(self, label, arguments, request=None, timeout=10, raw_input=None):
         wire = raw_input if raw_input is not None else (
             json.dumps(request, separators=(",", ":")) + "\n" if request is not None else "")
@@ -91,16 +98,19 @@ class Capture:
         self.records.append(record)
         return record
 
+    # 通过原生 stdio 代理发出单次请求，返回解析后的响应对象。
     def proxy(self, label, method, params=None, **kwargs):
         record = self.run(label, ["uhp", "proxy"],
                           {"id": label, "method": method, "params": params or {}}, **kwargs)
         return json.loads(record["stdout"])
 
+    # 调用会话列表 CLI，确认成功退出后解析发现结果。
     def discover(self, label):
         result = self.run(label, ["session", "list", "--json"])
         self.check(label + ": exit 0", result["exit_code"] == 0)
         return json.loads(result["stdout"])
 
+    # 核对新建 Unix socket 的路径、所有权和权限，并防止连接前身份被替换。
     def validate_endpoint(self):
         address = Path(self.endpoint["address"])
         self.check("endpoint transport is unix_socket", self.endpoint["transport"] == "unix_socket")
@@ -125,6 +135,7 @@ class Capture:
         self.records.append({"kind": "endpoint_validation", "components": details, "identity": identity})
         return str(address)
 
+    # 复核端点后建立已登记的连接，并发送流握手或普通 RPC 请求。
     def stream(self, label, method, params=None):
         address = self.validate_endpoint()
         stream = Wire(self, label, address)
@@ -132,12 +143,14 @@ class Capture:
         stream.send({"id": label, "method": method, "params": params or {}})
         return stream
 
+    # 在单独连接上发送请求、读取一次响应后关闭连接并返回响应。
     def rpc(self, label, method, params=None):
         stream = self.stream(label, method, params)
         response = stream.receive()
         stream.close()
         return response
 
+    # 采集 schema、能力和请求边界证据，启动本次服务器并继续验证原生流行为。
     def collect(self):
         version = self.run("binary-version", ["--version"])
         self.check("binary version is 0.14.3", version["stdout"] == "luvus 0.14.3\n")
@@ -195,6 +208,7 @@ class Capture:
         self.check("native error retains id and nonzero exit", error["exit_code"] == 1 and json.loads(error["stdout"])["id"] == "proxy-unknown-method" and "error" in json.loads(error["stdout"]))
         self.collect_streams()
 
+    # 用自建终端验证订阅顺序、观察、控制租约、输入和关闭行为，并记录断言。
     def collect_streams(self):
         events = self.stream("events-primary", "events.subscribe")
         events_ack = events.receive()
@@ -211,8 +225,8 @@ class Capture:
         self.check("own terminal created without focus or restore", created["dispatch"] == "executed" and created["restore"] is False)
         identity = {key: created[key] for key in ("server_generation", "terminal_id", "pane_id")}
         self.save("terminal-identity.json", identity)
-        created_event = events.until(lambda x: x.get("event") == "terminal.created" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])
-        other_event = other.until(lambda x: x.get("event") == "terminal.created" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])
+        created_event = events.until(lambda x: x.get("event") == "terminal.created" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])  # 谓词仅接纳本次终端的创建事件，确定主订阅的序列围栏。
+        other_event = other.until(lambda x: x.get("event") == "terminal.created" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])  # 谓词从独立订阅筛选同一终端创建事件，供双订阅一致性比对。
         snapshot = self.rpc("snapshot-after-create", "session.snapshot")["result"]
         self.check("subscribe snapshot sequence fence", initial["event_sequence"] < created_event["sequence"] <= snapshot["event_sequence"])
         self.check("two subscribers receive same native sequence", created_event == other_event)
@@ -222,7 +236,7 @@ class Capture:
         observed = self.stream("terminal-observe", "terminal.backend.observe", dict(identity, mode="visible", lines=24, ansi=False))
         observe_ack = observed.receive()
         self.check("observe acknowledged", "result" in observe_ack)
-        observed.until(lambda x: x.get("event") == "terminal.frame")
+        observed.until(lambda x: x.get("event") == "terminal.frame")  # 谓词等待观察流的首个终端帧，确认握手后能收到画面。
         stale = self.rpc("control-stale-generation", "terminal.backend.control", dict(identity, server_generation="0" * 32))
         self.check("stale generation control is refused", "error" in stale)
         wrong = self.rpc("control-wrong-terminal", "terminal.backend.control", dict(identity, terminal_id="0" * 32))
@@ -233,16 +247,16 @@ class Capture:
         control = self.stream("terminal-control", "terminal.backend.control", dict(identity, mode="visible", lines=24, ansi=False))
         control_ack = control.receive()
         self.check("control acknowledged", "result" in control_ack)
-        control.until(lambda x: x.get("event") == "terminal.frame")
+        control.until(lambda x: x.get("event") == "terminal.frame")  # 谓词等待控制流的首个终端帧，确认控制握手成功。
         second = self.rpc("control-lease-conflict", "terminal.backend.control", identity)
         self.check("second control lease refused", "error" in second)
         control.send({"id": "input-1", "action": "submit_text", "params": {"text": "p0-input-abc123"}})
-        ack = control.until(lambda x: x.get("id") == "input-1")
+        ack = control.until(lambda x: x.get("id") == "input-1")  # 谓词按请求标识匹配输入确认，排除交错的终端事件。
         self.check("input ack is correlated and queued", ack["result"]["dispatch"] == "queued")
-        frame = observed.until(lambda x: x.get("event") == "terminal.frame" and "CONSUMED:321cba-tupni-0p" in json.dumps(x))
+        frame = observed.until(lambda x: x.get("event") == "terminal.frame" and "CONSUMED:321cba-tupni-0p" in json.dumps(x))  # 谓词等待含子进程反转输出的画面，证明测试输入确被消费。
         self.check("child transformed input observed independently", "CONSUMED:321cba-tupni-0p" in json.dumps(frame))
         control.send({"id": "input-invalid", "action": "not_a_native_action", "params": {}})
-        invalid = control.until(lambda x: x.get("id") == "input-invalid")
+        invalid = control.until(lambda x: x.get("id") == "input-invalid")  # 谓词按请求标识筛选非法控制动作的原生拒绝响应。
         self.check("unknown control action refused", "error" in invalid)
         control.close()
         # 仅为验证异步租约释放而重试 control 握手；这需要控制权限，不重发输入。
@@ -265,21 +279,23 @@ class Capture:
         self.check("bridge cancellation did not close terminal", self.rpc("validate-after-deadline", "terminal.backend.validate", identity)["result"]["state"] == "alive")
         closed = self.rpc("terminal-close", "terminal.backend.close", identity)
         self.check("explicit terminal close executed", closed["result"]["dispatch"] == "executed")
-        close_event = events.until(lambda x: x.get("event") == "terminal.closed" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])
+        close_event = events.until(lambda x: x.get("event") == "terminal.closed" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])  # 谓词筛选本次终端的关闭事件，验证其发生在快照围栏之后。
         self.check("close event follows snapshot fence", close_event["sequence"] > snapshot["event_sequence"])
         replay = self.stream("events-replay", "events.subscribe", {"after_sequence": snapshot["event_sequence"]})
         self.check("replay subscription acknowledged", "result" in replay.receive())
-        replayed_close = replay.until(lambda x: x.get("event") == "terminal.closed" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])
+        replayed_close = replay.until(lambda x: x.get("event") == "terminal.closed" and x.get("data", {}).get("terminal_id") == identity["terminal_id"])  # 谓词筛选重放中的同一终端关闭事件，供原生序列回放比对。
         self.check("after_sequence replays same native event", replayed_close == close_event)
         self.check("closed terminal is gone", self.rpc("validate-after-terminal-close", "terminal.backend.validate", identity)["result"]["state"] == "gone")
         stale_input = self.rpc("input-after-close", "terminal.backend.type_literal", dict(identity, text="must-not-send"))
         self.check("closed terminal rejects input", "error" in stale_input)
-        self.check("observed terminal stream terminates after close", observed.until(lambda x: x.get("event") == "terminal.closed") is not None)
+        self.check("observed terminal stream terminates after close", observed.until(lambda x: x.get("event") == "terminal.closed") is not None)  # 谓词等待观察流的终端关闭事件，之后再核对 EOF。
         self.check("observe EOF after terminal close", observed.receive() is None)
 
+    # 关闭已登记资源，停止自建服务器并清理私有目录，保存证据及清理失败详情。
     def finish(self):
         cleanup_errors = []
 
+        # 累计清理阶段的异常类型与消息，使后续清理仍能继续。
         def failed(stage, error):
             cleanup_errors.append({"stage": stage, "error": type(error).__name__, "message": str(error)})
 
@@ -348,6 +364,7 @@ class Capture:
 
 
 class Wire:
+    # 连接 Unix socket 并验证 Linux 对端身份与本次服务器一致，失败时关闭连接。
     def __init__(self, capture, label, address):
         self.capture, self.label, self.buffer = capture, label, b""
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -361,11 +378,13 @@ class Wire:
             raise
         capture.records.append({"kind": "peer_credentials", "channel": label, "pid": pid, "uid": uid, "gid": gid})
 
+    # 把对象编码为单行 JSON 发送，并保存对应传输原文记录。
     def send(self, value):
         wire = json.dumps(value, separators=(",", ":")) + "\n"
         self.capture.records.append({"kind": "send", "channel": self.label, "wire": wire})
         self.socket.sendall(wire.encode())
 
+    # 在超时和缓冲区限制内读取一帧 JSON 并记录原文，遇到 EOF 返回空值。
     def receive(self, timeout=5):
         deadline = time.monotonic() + timeout
         while b"\n" not in self.buffer:
@@ -383,6 +402,7 @@ class Wire:
         self.capture.records.append({"kind": "receive", "channel": self.label, "wire": wire.decode() + "\n"})
         return json.loads(wire)
 
+    # 持续读取并跳过不匹配帧，返回首个满足谓词的帧或报告超时、EOF。
     def until(self, predicate, timeout=5):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -393,12 +413,14 @@ class Wire:
                 return value
         raise TimeoutError(self.label)
 
+    # 关闭尚未关闭的 socket，并登记客户端断开记录。
     def close(self):
         if self.socket.fileno() >= 0:
             self.socket.close()
             self.capture.records.append({"kind": "client_close", "channel": self.label})
 
 
+# 读取采集参数，运行独立采集并确保成功或异常后都执行收尾清理。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True)

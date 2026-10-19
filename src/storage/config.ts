@@ -1,3 +1,4 @@
+// 定义 v4 存储保留期和分类预算，并校验覆盖配置的整数、期限及总量约束。
 import { GatewayError } from '../contracts.js'
 
 const MiB = 1_048_576
@@ -22,17 +23,18 @@ export const DEFAULT_RETENTION = Object.freeze({
   attempt_reserve_bytes: 16_384
 })
 export type Retention = { [K in keyof typeof DEFAULT_RETENTION]: number }
+// 合并默认配置并检查期限和配额相互约束，返回冻结的有效配置。
 export function retention(overrides: Partial<Retention> = {}): Retention {
   const c = { ...DEFAULT_RETENTION, ...overrides }
   if (
-    Object.values(c).some((v) => !Number.isSafeInteger(v) || v <= 0) ||
+    Object.values(c).some(/* 检测不是正安全整数的保留期或容量配置。 */ (v) => !Number.isSafeInteger(v) || v <= 0) ||
     c.call_metadata_ttl < c.dedup_ttl ||
     c.history_epoch_max_age > c.dedup_ttl ||
     c.handle_payload_bytes > c.content_bytes ||
     c.storage_reserve_bytes >= c.storage_total_bytes ||
     c.attempt_reserve_bytes > c.storage_reserve_bytes ||
     ['content_bytes', 'call_metadata_bytes', 'audit_bytes', 'security_metadata_bytes', 'backup_bytes'].some(
-      (k) => c[k as keyof Retention] > c.storage_total_bytes
+      /* 检测任一独立分类预算是否超过存储总量。 */ (k) => c[k as keyof Retention] > c.storage_total_bytes
     )
   ) {
     throw new GatewayError('invalid_storage_limits')

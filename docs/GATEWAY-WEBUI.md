@@ -20,7 +20,9 @@
 权限提示的 `expires_at` 与 history 截止时间均不作为登录期限。宿主如有可信管理会话截止信息，
 可通过内部 `TimedSnapshot.sessionExpiresAt` 传递；未提供时依靠每次重新认证的读取，收到 401 即清空并停轮询。
 
-读取前后核对全局模式、恢复代次、管理策略/history fence 及详情的设备 revision/epoch；变化拒绝混合快照。
+读取前后核对全局模式、恢复代次、管理策略/history fence 及详情的设备 revision/epoch；变化拒绝混合快照，并取前后 status 较早的观测时间计算页面年龄。
+设备、连接、认证、provider 登记与原生运行观测还分别按自己的 `observed_at` 和服务时间/单调经过时间计算十五秒过期；新 status 不续期旧子观测。过期状态只作历史展示，不显示绿色在线/ready；当前认证未核实不显示绿色在线，provider 运行观测或所依赖设备认证/链路未核实也不显示绿色 ready。
+待配对登记不显示旧连接的在线或已认证徽标；新鲜原生运行观测仍可独立展示，但不能据此显示 provider 绿色 ready。
 展示边界最多 200 行、512 KiB，并拒绝未知字段和越目标数据；该限制仅是 UI 本地防护，不替代 HTTP 解析/大小/速率门禁。
 恢复隔离仅读取并展示最小 status；provider 的 403/暂不可用单独显示，401 使整页失效。
 隔离 fixture 与真实 Chromium 的复现入口见[开发指引](DEVELOPMENT.md#管理页面的隔离验证)。

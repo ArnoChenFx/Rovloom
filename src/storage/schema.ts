@@ -1,3 +1,4 @@
+// 声明 v4 持久化表、唯一约束及过期索引；不提供对未发布旧版本的自动迁移。
 export const SCHEMA_VERSION = 4
 // 未发布的 v1/v2/v3 不在这里猜测来源或迁移；版本检查必须先于本 schema 的执行。
 export const SCHEMA = `

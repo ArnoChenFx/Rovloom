@@ -44,6 +44,8 @@ if (!browser.success) {
 for (const asset of ['index.html', 'manage.css']) {
   copyFileSync(`src/webui/${asset}`, `dist/webui/${asset}`)
 }
+// 品牌原图只有一个受管来源；产物复制原始字节，不裁剪、重绘或依赖文档站点。
+copyFileSync('docs/assets/brand/rovloom-logo.png', 'dist/webui/rovloom-logo.png')
 console.log(
   `Built ${result.outputs.length} Bun ESM files/maps and ${browser.outputs.length} browser files/maps; management read adapter remains unconfigured`
 )

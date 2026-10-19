@@ -1,3 +1,4 @@
+// 根据独立调用锚点和当前内容权限规划响应证据及原文保留意图。
 import type {
   AttemptBinding,
   AuthenticatedEnvelope,
@@ -46,7 +47,7 @@ export type ResponseContentPolicy = {
   retain_content_authorized: boolean
 }
 
-// 返回待提交意图；可靠持久化、历史保留、当前读取授权和最终发布由 #5 负责。
+// 返回响应证据的待提交计划；存储层负责事务持久化与保留，宿主、Router 和 adapter 负责当前读取授权及最终发布。
 export function planResponseEvidence(
   frame: Extract<AuthenticatedEnvelope, { type: 'response' }>,
   context: CodecContext,

@@ -1,3 +1,4 @@
+// 对照迁移前锁文件核验依赖版本与完整性，并输出保留和移除清单。
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'

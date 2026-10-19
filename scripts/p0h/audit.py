@@ -1,3 +1,4 @@
+# 提供 Herdr 证据离线审计入口，仅输出检查摘要或不含敏感载荷的错误类型。
 """离线检查 Herdr P0-H 归档；通过只表示回放完整，不表示原生实测通过。"""
 
 import argparse
@@ -8,6 +9,7 @@ import sys
 from contract import audit
 
 
+# 审计指定归档并打印摘要，遇到预期错误时仅输出异常类型并返回失败码。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('input', type=Path)

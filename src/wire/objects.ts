@@ -1,3 +1,4 @@
+// 将有界逻辑对象分片，并以连接隔离、容量限制和墓碑规则重组。
 import type { AuthenticatedEnvelope, CodecContext, JsonObject } from './types.js'
 import { decodeWireFrame, decodeWireObject, encodeWireFrame } from './codec.js'
 import { boundedJson, hash, LIMITS, parseJson, object, id, uint, fail } from './validation.js'
@@ -8,6 +9,7 @@ type Completed = { kind: 'envelope'; envelope: AuthenticatedEnvelope } | { kind:
 
 type Transfer = { descriptor: string; expires: number; parts: Buffer[]; total: number }
 
+// 验证有界逻辑对象，并生成含固定摘要和长度描述的顺序分片。
 export function fragmentObject(
   value: unknown,
   kind: 'envelope' | 'schema_bundle',
@@ -27,28 +29,31 @@ export function fragmentObject(
   const data = Buffer.from(raw)
   const count = Math.ceil(data.length / LIMITS.chunk_bytes)
   const digest = hash(data)
-  return Array.from({ length: count }, (_, index) => {
-    const frame: Chunk = {
-      protocol_major: context.connection.negotiated.major,
-      protocol_minor: context.connection.negotiated.minor,
-      type: 'object_chunk',
-      message_id: `chunk_${hash(objectId)}_${index}`,
-      machine_id: context.connection.machine_id,
-      recovery_generation: context.connection.recovery_generation,
-      connection_epoch: context.connection.connection_epoch,
-      payload: {
-        object_id: objectId,
-        kind,
-        total_bytes: data.length,
-        sha256: digest,
-        chunk_count: count,
-        index,
-        data: data.subarray(index * LIMITS.chunk_bytes, (index + 1) * LIMITS.chunk_bytes).toString('base64')
+  return Array.from(
+    { length: count },
+    /* 按索引生成并验证一个包含对应 base64 数据段的分片帧。 */ (_, index) => {
+      const frame: Chunk = {
+        protocol_major: context.connection.negotiated.major,
+        protocol_minor: context.connection.negotiated.minor,
+        type: 'object_chunk',
+        message_id: `chunk_${hash(objectId)}_${index}`,
+        machine_id: context.connection.machine_id,
+        recovery_generation: context.connection.recovery_generation,
+        connection_epoch: context.connection.connection_epoch,
+        payload: {
+          object_id: objectId,
+          kind,
+          total_bytes: data.length,
+          sha256: digest,
+          chunk_count: count,
+          index,
+          data: data.subarray(index * LIMITS.chunk_bytes, (index + 1) * LIMITS.chunk_bytes).toString('base64')
+        }
       }
+      encodeWireFrame(frame, context)
+      return frame
     }
-    encodeWireFrame(frame, context)
-    return frame
-  })
+  )
 }
 
 // 只允许顺序分片；固定首片截止时间，不因重复/进度续期。实例限于一个认证连接/方向。
@@ -59,6 +64,7 @@ export class ObjectAssembler {
   #lastNow = -1
   #bytes = 0
 
+  // 校验并接收顺序分片，维护容量和墓碑；完成后验证摘要并返回重组对象。
   push(frame: Chunk, context: CodecContext, now: number): Completed | undefined {
     uint(now)
     if (now < this.#lastNow || !Number.isSafeInteger(now + LIMITS.transfer_timeout_ms)) {
@@ -161,16 +167,19 @@ export class ObjectAssembler {
     return transfer
   }
 
+  // 移除传输并归还预约字节，再留下禁止立即重用标识的定期墓碑。
   #close(key: string, transfer: Transfer, now: number): void {
     this.#active.delete(key)
     this.#bytes -= transfer.total
     this.#closed.set(key, now + LIMITS.transfer_timeout_ms)
   }
 
+  // 返回所有活动传输已预约的总字节数。
   get bufferedBytes(): number {
     return this.#bytes
   }
 
+  // 返回尚未完成或关闭的活动传输数量。
   get activeTransfers(): number {
     return this.#active.size
   }

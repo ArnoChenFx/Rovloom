@@ -1,3 +1,4 @@
+# 检查版本化文档链接、工具链约束、临时记录和实际测试执行覆盖。
 """Check maintained documentation, transient paths and executed test discovery."""
 
 import argparse
@@ -38,11 +39,13 @@ TRANSIENT_FILES = {
 }
 
 
+# 读取 Git 跟踪文件集合，排除工作区中未纳入版本控制的文件。
 def tracked_files(root):
     result = subprocess.run(['git', 'ls-files', '-z'], cwd=root, check=True, capture_output=True)
     return set(result.stdout.decode('utf-8').rstrip('\0').split('\0')) - {''}
 
 
+# 按限定路径规则报告被版本化的临时执行记录，保留长期证据材料。
 def transient_paths(files):
     found = []
     for path in sorted(files):
@@ -53,6 +56,7 @@ def transient_paths(files):
     return found
 
 
+# 按 GitHub 标题规则生成锚点，保留 Unicode 字母、数字和组合标记。
 def heading_slug(text):
     # GitHub heading convention: lower case, remove punctuation/symbols, retain
     # Unicode letters/numbers/marks, underscores and hyphens; spaces become '-'.
@@ -61,6 +65,7 @@ def heading_slug(text):
 
 
 class Document(HTMLParser):
+    # 解析渲染后的 HTML，收集链接与锚点并为重复标题分配唯一锚点。
     def __init__(self, rendered):
         super().__init__(convert_charrefs=True)
         self.links, self.anchors, self.headings = [], set(), []
@@ -76,6 +81,7 @@ class Document(HTMLParser):
             used.add(slug)
             self.anchors.add(slug)
 
+    # 收集链接和显式锚点，并开始累计标题文字及图片替代文本。
     def handle_starttag(self, tag, attributes):
         attrs = dict(attributes)
         for key in ('href', 'src'):
@@ -89,19 +95,23 @@ class Document(HTMLParser):
         if self.heading is not None and tag == 'img':
             self.heading += attrs.get('alt', '')
 
+    # 让自闭合标签使用相同的链接、锚点与标题处理规则。
     def handle_startendtag(self, tag, attributes):
         self.handle_starttag(tag, attributes)
 
+    # 将 HTML 文本节点追加到当前尚未结束的标题。
     def handle_data(self, data):
         if self.heading is not None:
             self.heading += data
 
+    # 在标题结束时保存完整文字并清空当前标题状态。
     def handle_endtag(self, tag):
         if re.fullmatch('h[1-6]', tag) and self.heading is not None:
             self.headings.append(self.heading)
             self.heading = None
 
 
+# 用 Bun 批量渲染版本化 Markdown，再返回按路径索引的文档解析结果。
 def documents(root, files):
     names = sorted(path for path in files if path.lower().endswith('.md'))
     sources = [(root / path).read_text(encoding='utf-8') for path in names]
@@ -110,6 +120,7 @@ def documents(root, files):
     return dict(zip(names, map(Document, json.loads(rendered.stdout)), strict=True))
 
 
+# 离线核对本地链接目标和 Markdown 锚点，返回错误列表。
 def document_links(files, docs):
     directories = {str(parent) for path in files for parent in PurePosixPath(path).parents}
     errors = []
@@ -127,6 +138,7 @@ def document_links(files, docs):
     return errors
 
 
+# 提取指定语言的完整围栏代码块，支持反引号和波浪线围栏。
 def code_blocks(text, languages):
     blocks, active, lines = [], None, []
     for line in text.splitlines():
@@ -143,6 +155,7 @@ def code_blocks(text, languages):
     return blocks
 
 
+# 静态识别直接或经常用包装器执行的其他运行时，忽略仅查询命令的形式。
 def other_runtime_commands(command):
     # Recognize direct commands and common explicit wrappers. This is static
     # inspection, not shell evaluation or a complete shell language parser.
@@ -185,6 +198,7 @@ def other_runtime_commands(command):
     return False
 
 
+# 检查精确依赖版本、Bun 固定版本及双语 README 命令和图示的一致性。
 def toolchain_and_readmes(root):
     errors = []
     package = json.loads((root / 'package.json').read_text())
@@ -224,6 +238,7 @@ def toolchain_and_readmes(root):
     return errors
 
 
+# 从 JUnit 和 Bun 日志汇总实际成功执行的文件，拒绝空或不成功的测试段。
 def executed_test_files(evidence):
     root = ET.parse(evidence / 'foundation.junit.xml').getroot()
     cases = list(root.iter('testcase'))
@@ -249,6 +264,7 @@ def executed_test_files(evidence):
     return files
 
 
+# 比较版本化测试源码与执行文件集合，报告漏跑或来源未跟踪的文件。
 def test_discovery(files, evidence):
     # Any new suite location must be wired into CI; fixture source examples are data.
     expected = {path for path in files if TEST_FILE.search(path) and not path.startswith('fixtures/')}
@@ -257,6 +273,7 @@ def test_discovery(files, evidence):
             [f'{path}: reported test file is not tracked source' for path in sorted(actual - expected)])
 
 
+# 核对 Python 报告覆盖、退出码及用例来源，拒绝跳过、失败和空文件。
 def python_test_discovery(files, report_path):
     report = json.loads(report_path.read_text())
     if report.get('format') != 1 or not isinstance(report.get('files'), dict):
@@ -272,6 +289,7 @@ def python_test_discovery(files, report_path):
     return errors
 
 
+# 运行维护检查，按需追加执行覆盖检查，并用退出码和错误清单报告结果。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence', type=Path, help='completed scripts/bun/verify.py output; also check discovery')

@@ -1,3 +1,4 @@
+// 校验 Wire 版本广告，协商已知能力交集及能力依赖。
 import { fields, object, uint, fail, id } from './validation.js'
 import type { Capability, Negotiated, VersionOffer } from './types.js'
 
@@ -14,6 +15,7 @@ const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   terminal_control: 0
 })
 
+// 校验版本广告，要求能力列表无重复且必需能力均已广告。
 export function validateOffer(value: unknown): asserts value is VersionOffer {
   const v = object(value)
   fields(v, ['major', 'minor', 'capabilities', 'required'])
@@ -25,11 +27,16 @@ export function validateOffer(value: unknown): asserts value is VersionOffer {
     }
     list.forEach(id)
   }
-  if ((v.required as string[]).some((c) => !(v.capabilities as string[]).includes(c))) {
+  if (
+    (v.required as string[]).some(
+      /* 查找未包含在广告能力列表中的必需能力。 */ (c) => !(v.capabilities as string[]).includes(c)
+    )
+  ) {
     fail('invalid_capabilities')
   }
 }
 
+// 选取双方支持的版本与已知能力交集，拒绝无法满足的必需能力。
 export function negotiate(local: VersionOffer, remote: VersionOffer): Negotiated {
   validateOffer(local)
   validateOffer(remote)
@@ -39,9 +46,16 @@ export function negotiate(local: VersionOffer, remote: VersionOffer): Negotiated
   // 只启用本实现认识且双方都广告的能力；未知可选项不进入协商结果。
   const minor = Math.min(local.minor, remote.minor, WIRE_MINOR)
   const capabilities = (Object.keys(CAPABILITIES) as Capability[])
-    .filter((c) => CAPABILITIES[c] <= minor && local.capabilities.includes(c) && remote.capabilities.includes(c))
+    .filter(
+      /* 保留当前次版本支持且双方均已广告的能力。 */ (c) =>
+        CAPABILITIES[c] <= minor && local.capabilities.includes(c) && remote.capabilities.includes(c)
+    )
     .sort()
-  if ([...local.required, ...remote.required].some((c) => !capabilities.includes(c as Capability))) {
+  if (
+    [...local.required, ...remote.required].some(
+      /* 检测任一必需能力是否未进入协商交集。 */ (c) => !capabilities.includes(c as Capability)
+    )
+  ) {
     fail('required_capability_unsupported')
   }
   const result = { major: WIRE_MAJOR, minor, capabilities }
@@ -49,6 +63,7 @@ export function negotiate(local: VersionOffer, remote: VersionOffer): Negotiated
   return result
 }
 
+// 校验选定版本、已知能力和依赖；提供广告时再核对其允许范围。
 export function validateNegotiated(value: unknown, offer?: VersionOffer): asserts value is Negotiated {
   const v = object(value)
   fields(v, ['major', 'minor', 'capabilities'])
@@ -61,12 +76,15 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
     !Array.isArray(v.capabilities) ||
     v.capabilities.length > 64 ||
     new Set(v.capabilities).size !== v.capabilities.length ||
-    v.capabilities.some((c) => typeof c !== 'string')
+    v.capabilities.some(/* 检测能力列表中不为字符串的元素。 */ (c) => typeof c !== 'string')
   ) {
     fail('invalid_capabilities')
   }
   if (
-    v.capabilities.some((c) => !Object.hasOwn(CAPABILITIES, c) || CAPABILITIES[c as Capability] > (v.minor as number))
+    v.capabilities.some(
+      /* 检测未知能力或当前次版本尚不支持的能力。 */ (c) =>
+        !Object.hasOwn(CAPABILITIES, c) || CAPABILITIES[c as Capability] > (v.minor as number)
+    )
   ) {
     fail('unsupported_capability')
   }
@@ -75,8 +93,10 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
     if (
       offer.major !== v.major ||
       (v.minor as number) > offer.minor ||
-      v.capabilities.some((c) => !offer.capabilities.includes(c)) ||
-      offer.required.some((c) => !(v.capabilities as string[]).includes(c))
+      v.capabilities.some(/* 检测选定结果中未由原广告提供的能力。 */ (c) => !offer.capabilities.includes(c)) ||
+      offer.required.some(
+        /* 检测原广告中的必需能力是否被协商结果遗漏。 */ (c) => !(v.capabilities as string[]).includes(c)
+      )
     ) {
       fail('invalid_negotiation')
     }
