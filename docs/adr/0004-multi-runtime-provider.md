@@ -1,6 +1,6 @@
 # ADR 0004：多 runtime provider 与 Herdr 适配边界
 
-状态：采纳多 provider 架构与有限 Herdr 目标。系统语义唯一维护在 [DESIGN](../DESIGN.md)，精确类型/编码见 [Wire 协议](../protocol/WIRE-PROTOCOL.md)，实现差距和 P0-H/接线验收见 [实施计划](../IMPLEMENTATION-PLAN.md)。本 ADR 保存选择理由与外部研究依据，不另设公共字段字典或迁移算法。
+状态：采纳多 provider 架构与分阶段完整 Herdr 接入。系统语义唯一维护在 [DESIGN](../DESIGN.md)，精确类型/编码见 [Wire 协议](../protocol/WIRE-PROTOCOL.md)，实现差距和 P0-H/接线验收见 [实施计划](../IMPLEMENTATION-PLAN.md)。本 ADR 保存选择理由与外部研究依据，不另设公共字段字典或迁移算法。
 
 ## 一设备身份、一连接，多个可信 runtime bindings
 
@@ -36,6 +36,23 @@ provider、契约来源及完整关联是执行安全必需字段，不能藏在
 | 事件缺口须重建，snapshot 与事件无共同序号边界 | 只承诺当前状态重建，明确 gap，不能缓存载荷重放覆盖快照或伪造丢失历史 |
 | recent 等读取路径可能滚动或送输入 | 被动只读必须按 method+params+实现逐项核实，不能凭 read 名或 schema 授 observer |
 | prompt wait 观察状态，不能单凭状态归属本次提交 | 不宣称 turn-correlated 完成；写入/终端需单独研究与设计 |
+
+H1 选择先实现 Linux 固定 Herdr 0.9.5 binary/schema、协议 22 的精确 `ping {}` 垂直路径。
+实际安装的原始 schema 经固定异步 Bun Worker 编译完整根，并以受控 standalone 产物和
+本进程来源品牌接入同步校验；不把 Herdr 转成 UHP。编译单在途、有整体接纳期限和失败退役，
+不承诺硬 heap 或物理退出时限。其余 101 个原生方法当前拒绝，后续按各自分类与能力切片接入。
+
+本机来源选择显式受监管启动、安装文件前后 hash/身份检查与同一 Unix socket 的
+`SO_PEERCRED` PID/UID/GID 核对，不依赖 `/proc`，也不宣称它等价于内核 exec 映像摘要。
+安装/open 不自动接管已有会话。H1 已实现现有 Store/Wire/持久发送 claim 到
+`ConnectorWireSession` 的 runtime 接口，保持完整 Target、当前双端授权和原账本期限；
+正式 readiness、认证 epoch 和角色生命周期由 #8 宿主组合，不增加第二 CLI/Gateway/auth。
+独立脚本已在自有 Linux 空白实例完成安装/schema Worker/内核 peer、32 次 ping 与
+32 条 claim/32 次证据提交、三组方法参数拒绝、当前策略撤权、同 binary 字节的新 inode
+撤销来源五组真实验收，并清理所属 child/临时根。身份仍为隔离 fixture，链路为既有认证
+loopback；合成 IO/取消和 schema 打包测试不扩大原生范围。完整 CLI/MCP、跨平台 native、
+非受监管实例、exec 映像摘要与其余 101 方法均未据此声明可用。policy/matrix 保存的
+唯一 ping 条件记录不是授权来源，离线审计继续无执行许可。
 
 完整接入 Herdr 受支持原生能力是产品目标，P0-H 先取得发现、状态、核实被动只读与事件失效后状态重建的证据。之后普通调用、输入/prompt、生命周期、订阅和终端控制按各自原生语义接入同一工具面，不把只读阶段当作永久能力上限。P0-H 是必要原生证据门禁，之后还需 adapter、可信 backend、授权/持久化、MCP 及多 provider 集成验收；通过不表示架构上线。未验证能力暂时拒绝，缺少的原生保证明确标出，不为工具面一致降低已有安全约束。
 

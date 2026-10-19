@@ -38,6 +38,8 @@ class MethodInventory(unittest.TestCase):
         self.assertEqual(result['native_methods_executed'], 0)
         self.assertFalse(result['source_bytes_verified'])
         self.assertEqual(result['production_allowlist'], [])
+        self.assertFalse(result['authorizes_dispatch'])
+        self.assertEqual(result['reviewed_runtime_methods'], ['ping'])
         self.assertFalse(result['guarantees_promoted'])
 
     def test_missing_duplicate_or_new_schema_method_cannot_hide_in_counts(self):
@@ -75,13 +77,18 @@ class MethodInventory(unittest.TestCase):
         with self.assertRaisesRegex(Rejected, 'duplicate schema method'):
             methods(schema)
 
-    def test_codec_support_and_passive_review_do_not_promote_production(self):
-        """快照编解码不等于被动评审，ping 的本地评审也不自动授予派发。"""
+    def test_conditional_h1_support_does_not_authorize_or_broaden_methods(self):
+        """只有 ping 标记条件实现；离线矩阵不能自授执行或扩大其它方法。"""
         self.assertTrue(self.row('ping')['adapter_support']['local_passive_review'])
+        self.assertTrue(self.row('ping')['adapter_support']['production_dispatch'])
+        self.assertEqual(self.row('ping')['adapter_support']['status'], 'conditional_h1_runtime')
+        self.assertEqual(self.row('ping')['adapter_support']['runtime_policy_ref'],
+                         'method-policy.json#/production_allowlist/0')
+        self.assertEqual(sum(row['adapter_support']['production_dispatch'] for row in self.matrix['methods']), 1)
         self.assertTrue(self.row('session.snapshot')['adapter_support']['codec'])
         self.assertFalse(self.row('session.snapshot')['adapter_support']['local_passive_review'])
         for name, field in [('session.snapshot', 'local_passive_review'), ('events.subscribe', 'codec'),
-                            ('ping', 'production_dispatch')]:
+                            ('session.snapshot', 'production_dispatch')]:
             with self.subTest(method=name, field=field):
                 changed = deepcopy(self.matrix)
                 row = next(row for row in changed['methods'] if row['method'] == name)
@@ -89,7 +96,15 @@ class MethodInventory(unittest.TestCase):
                 with self.assertRaisesRegex(Rejected, 'support or permission'):
                     self.checked(matrix=changed)
         self.matrix['production_allowlist'] = [{'method': 'ping', 'params': {}}]
+        with self.assertRaisesRegex(Rejected, 'production scope'):
+            self.checked()
+        self.setUp()
+        self.matrix['authorizes_dispatch'] = True
         with self.assertRaisesRegex(Rejected, 'production permission'):
+            self.checked()
+        self.setUp()
+        self.row('ping')['adapter_support']['runtime_policy_ref'] = 'untrusted.json'
+        with self.assertRaisesRegex(Rejected, 'support or permission'):
             self.checked()
 
     def test_stream_and_endpoint_transports_cannot_be_flattened(self):

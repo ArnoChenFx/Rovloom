@@ -102,16 +102,67 @@ def read_file(root, name):
     return data
 
 
-# 仅分类未获派发许可的原因；候选方法仍需完整原生安全评审，所有分类均禁止派发。
+# 返回固定 H1 代码支持的精确条件记录；此数据不创建安装来源、认证或派发许可。
+def reviewed_production_allowlist():
+    return [{
+        'method': 'ping', 'params': {}, 'platform': 'linux-x86_64',
+        'profile': 'session', 'validation': 'strict', 'transport': 'single_request_rpc',
+        'source': {
+            'provider_kind': 'herdr', 'protocol_family': 'herdr-json',
+            'binary_version': '0.9.5',
+            'binary_sha256': '14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d',
+            'schema_sha256': '9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b',
+            'schema_origin': 'installed_cli', 'schema_command': 'herdr api schema --json',
+            'server_version': '0.9.5', 'native_protocol_version': '22', 'runtime_generation': None,
+            'adapter_revision': 'herdr-ping-2', 'classification_revision': 'herdr-0.9.5-ping-2',
+            'support_basis': 'schema_and_version',
+        },
+        'instance_source': 'protected_launch_and_same_supervised_child_kernel_peer',
+        'native_process_image_hash': 'not_measured',
+        'required_runtime_checks': [
+            'installed_cli_raw_schema_compiled_by_fixed_worker',
+            'protected_installation_and_endpoint_owner_permissions',
+            'same_supervised_child_socket_so_peercred',
+            'complete_target_provider_config_and_binding_revision',
+            'current_authenticated_epoch_and_caller_local_grants',
+            'original_store_attempt_deadline_and_response_anchor',
+            'current_native_source_and_installation_identity',
+            'durable_unique_dispatch_claim_before_write',
+        ],
+    }]
+
+
+# 核对静态记录只描述唯一 H1 实现；即使 fixture 自报 true 也不能让离线工具签发许可。
+def audit_method_policy(policy):
+    require(type(policy) is dict and type(policy.get('format')) is int and policy.get('format') == 1 and policy.get('runtime') == 'herdr',
+            'invalid reviewed method policy')
+    require(policy.get('authorizes_dispatch') is False, 'offline policy cannot authorize dispatch')
+    require(policy.get('production_allowlist') == reviewed_production_allowlist(),
+            'reviewed production scope mismatch')
+    candidates = policy.get('offline_replay_candidates')
+    require(type(candidates) is list and len(candidates) == 2 and
+            [(row.get('method'), row.get('params')) for row in candidates if type(row) is dict] ==
+            [('ping', {}), ('session.snapshot', {})] and
+            all(row.get('dispatch_allowed') is False for row in candidates),
+            'offline replay cannot authorize dispatch')
+    require(policy.get('guarantees') == {
+        'event_recovery': 'unavailable', 'terminal_fence': 'unavailable',
+        'cancel': 'unavailable', 'prompt_completion': 'unavailable',
+    }, 'unsupported guarantee promotion')
+
+
+# 离线回放始终没有执行权限，固定 H1 产品实现也不能由这次分类调用获得许可。
 def method_classification(method, params):
-    if method in ('ping', 'session.snapshot') and type(params) is dict and not params:
-        reason = 'candidate_without_complete_native_safety_review'
+    if method == 'ping' and type(params) is dict and not params:
+        reason = 'offline_audit_has_no_execution_authority'
+    elif method == 'session.snapshot' and type(params) is dict and not params:
+        reason = 'snapshot_side_effects_unverified'
     elif method in ('pane.read', 'agent.read'):
         reason = 'read_side_effects_unverified'
     elif method in ('events.subscribe', 'events.wait'):
         reason = 'subscription_side_effects_unverified'
     else:
-        reason = 'outside_reviewed_readonly_scope'
+        reason = 'outside_reviewed_runtime_slice'
     return {'dispatch_allowed': False, 'reason': reason}
 
 
@@ -282,10 +333,11 @@ def audit(root):
         outcomes.append(result['outcome'])
     require(referenced == set(content), 'unreferenced raw artifact')
     policy = decode(POLICY.read_bytes())
-    require(policy['production_allowlist'] == [], 'Herdr native gate is not satisfied')
+    audit_method_policy(policy)
     return {'offline_audit': 'passed', 'evidence_kind': manifest['evidence_kind'],
             'manifest_sha256': sha(raw_manifest),
-            'native_verified': False, 'production_allowlist': [], 'schema': closure,
+            'native_verified': False, 'authorizes_dispatch': False, 'production_allowlist': [],
+            'reviewed_runtime_methods': ['ping'], 'schema': closure,
             'outcomes': outcomes, 'bytes': total,
             'observations_recorded_only': len(observations),
             'unverified': ['official_binary_origin', 'installed_binary_execution', 'endpoint_and_peer',

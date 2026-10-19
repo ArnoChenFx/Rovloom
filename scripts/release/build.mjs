@@ -93,7 +93,12 @@ export async function buildStandalone({
     embedded.push(relative(root, resolve(webui, path === '/' ? 'index.html' : path.slice(1))))
   }
   const plugins = [managementPlugin(webui, resources)]
-  if (workers.includes('src/native-contract/compiler-worker.ts')) {
+  if (
+    workers.some(
+      /* 两种固定编译 Worker 都复用同一受控内嵌插件。 */ (worker) =>
+        ['src/native-contract/compiler-worker.ts', 'src/connector/herdr/compiler-herdr-worker.ts'].includes(worker)
+    )
+  ) {
     // 复用 schema 工厂自己的受控 Blob 定位插件，不另写 Worker 定位或代码生成逻辑。
     const { compilerWorkerPlugin } = await import('../native-contract/worker-plugin.mjs')
     plugins.push(await compilerWorkerPlugin())

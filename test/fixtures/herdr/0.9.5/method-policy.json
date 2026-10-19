@@ -1,7 +1,43 @@
 {
   "format": 1,
   "runtime": "herdr",
-  "production_allowlist": [],
+  "production_allowlist": [
+    {
+      "method": "ping",
+      "params": {},
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-ping-2",
+        "classification_revision": "herdr-0.9.5-ping-2",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ]
+    }
+  ],
   "research_ref": {
     "repository": "herdrdev/herdr",
     "release": "v0.9.5",
@@ -63,7 +99,7 @@
         "*"
       ],
       "params": "all other methods or params",
-      "reason": "outside reviewed readonly scope"
+      "reason": "outside the exact H1 ping runtime slice; later native capabilities require their own review and implementation"
     }
   ],
   "required_native_evidence": [
@@ -83,11 +119,12 @@
     "prompt_completion": "unavailable"
   },
   "product_blockers": [
-    "Herdr full original schema roots require bounded asynchronous compilation and controlled standalone artifact acceptance",
-    "trusted production local socket discovery, owner and peer verification backend is not implemented",
-    "Store admission and Wire provider gates remain closed until the precise method slice and host are delivered together",
-    "shared authenticated transport and runtime facade integration has not been accepted",
+    "protected production role host, readiness, identity, global budgets and CLI/MCP integration remain separate from the H1 runtime module",
+    "native platforms or binaries beyond fixed Linux x86_64 Herdr 0.9.5 require independent acceptance",
+    "the remaining 101 methods require independent method and parameter classification and native adapter slices",
     "snapshot and each subscription filter require independent parameter-level effect classification"
   ],
-  "capability_goal": "all supported and authorized Herdr native methods through the shared runtime tools, delivered in separately verified slices; P0-H readonly is the first evidence stage"
+  "capability_goal": "all supported and authorized Herdr native methods through the shared runtime tools, delivered in separately verified slices; P0-H readonly is the first evidence stage",
+  "authorizes_dispatch": false,
+  "scope": "reviewed conditional H1 implementation; runtime checks independently establish authority; offline tools never grant dispatch"
 }

@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Call, Store } from '../store.js'
 import type { Router, Principal } from '../router.js'
-import { commitLuvusResponse } from '../integration/persistence.js'
+import { commitNativeResponse } from '../integration/persistence.js'
 import {
   boundedJson,
   decodeWireFrame,
@@ -603,7 +603,7 @@ export function createGateway(options: GatewayOptions) {
           options.store.accepted(binding)
         }
       } else {
-        commitLuvusResponse(options.store, peer.session.adapter, decoded)
+        commitNativeResponse(options.store, peer.session.adapter, decoded)
         inflight.delete(binding.call_id)
         pruneOriginalReads()
         if (!reads.has(binding.call_id)) {

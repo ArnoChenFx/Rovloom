@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 import re
 import sys
 
-from contract import decode, require
+from contract import audit_method_policy, decode, require, reviewed_production_allowlist
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -103,6 +103,17 @@ UNAVAILABLE = [
     'generic_cancel', 'terminal_atomic_identity_fence', 'run_correlated_prompt_completion',
     'event_snapshot_common_sequence', 'client_cursor_replay', 'uhp_compatibility',
 ]
+
+
+# 返回当前代码支持状态及固定条件引用，不把静态方法清单当作实际执行授权。
+def adapter_support(name):
+    codec = name in ('ping', 'session.snapshot')
+    return {
+        'codec': codec, 'local_passive_review': name == 'ping',
+        'production_dispatch': name == 'ping',
+        'status': 'conditional_h1_runtime' if name == 'ping' else 'codec_only_candidate' if codec else 'not_implemented',
+        **({'runtime_policy_ref': 'method-policy.json#/production_allowlist/0'} if name == 'ping' else {}),
+    }
 
 
 def read_json(path):
@@ -250,7 +261,6 @@ def build(tree, schema, provenance):
             refs['retained_history'] = source_ref(tree, 'src/api/subscriptions.rs', 'fn subscription_events_after(', anchors, sources)
         if name == 'agent.prompt':
             refs['wait_dispatch'] = source_ref(tree, 'src/api/wait.rs', 'fn prompt_agent(', anchors, sources)
-        codec = name in ('ping', 'session.snapshot')
         rows.append({
             'method': name,
             'request_schema': 'schema.json#/schemas/request/oneOf/' + str(index),
@@ -261,9 +271,7 @@ def build(tree, schema, provenance):
             'risk_category': group,
             'risk_boundaries': RISKS[group],
             'review_scope': 'exact_empty_object' if name == 'ping' else 'requires_independent_method_and_params_review',
-            'adapter_support': {'codec': codec, 'local_passive_review': name == 'ping',
-                                'production_dispatch': False,
-                                'status': 'codec_only_candidate' if codec else 'not_implemented'},
+            'adapter_support': adapter_support(name),
             'unavailable_bridge_guarantees': UNAVAILABLE,
             'next_slice': SLICE_OVERRIDES.get(name, SLICE_FOR_GROUP[group]),
         })
@@ -272,8 +280,9 @@ def build(tree, schema, provenance):
         'protocol': provenance['protocol'], 'source_repository': 'herdrdev/herdr',
         'source_commit': COMMIT, 'source_base_url': 'https://github.com/herdrdev/herdr/blob/' + COMMIT + '/',
         'schema_file': 'schema.json', 'schema_sha256': provenance['schema_sha256'],
-        'method_count': len(rows), 'production_allowlist': [],
-        'scope': 'static capability and risk inventory; not native execution evidence or execution authorization',
+        'method_count': len(rows), 'production_allowlist': reviewed_production_allowlist(),
+        'authorizes_dispatch': False,
+        'scope': 'static capability, risk and conditional H1 implementation inventory; no execution authorization; runtime must independently verify every referenced condition',
         'sources_sha256': dict(sorted(sources.items())), 'source_anchors': dict(sorted(anchors.items())),
         'source_validation': 'audit --source-tree checks file bytes and exact line anchors; default audit is offline schema coverage only',
         'guarantee_scope': 'unavailable in the current bridge; native local identity checks, content revisions and method-specific acknowledgements are not interchangeable with these guarantees',
@@ -292,7 +301,8 @@ def audit(matrix, schema, provenance, tree=None):
             'https://github.com/herdrdev/herdr/blob/' + COMMIT + '/', 'source repository mismatch')
     require(matrix['version'] == provenance['version'] and matrix['protocol'] == provenance['protocol'], 'native version mismatch')
     require(matrix['schema_sha256'] == provenance['schema_sha256'], 'schema hash mismatch')
-    require(matrix['production_allowlist'] == [], 'inventory cannot grant production permission')
+    require(matrix.get('authorizes_dispatch') is False, 'inventory cannot grant production permission')
+    require(matrix['production_allowlist'] == reviewed_production_allowlist(), 'reviewed production scope mismatch')
     expected, grouped = methods(schema), categories()
     rows = matrix['methods']
     require(matrix['method_count'] == len(rows) == len(expected), 'method count mismatch')
@@ -307,10 +317,7 @@ def audit(matrix, schema, provenance, tree=None):
         require(row['risk_category'] == group and row['risk_boundaries'] == RISKS[group], 'risk classification mismatch')
         require(row['next_slice'] == SLICE_OVERRIDES.get(name, SLICE_FOR_GROUP[group]), 'implementation slice mismatch')
         require(row['review_scope'] == ('exact_empty_object' if name == 'ping' else 'requires_independent_method_and_params_review'), 'review scope broadened')
-        require(row['adapter_support'] == {'codec': name in ('ping', 'session.snapshot'),
-                'local_passive_review': name == 'ping', 'production_dispatch': False,
-                'status': 'codec_only_candidate' if name in ('ping', 'session.snapshot') else 'not_implemented'},
-                'inventory adapter support or permission broadened')
+        require(row['adapter_support'] == adapter_support(name), 'inventory adapter support or permission broadened')
         require(row['unavailable_bridge_guarantees'] == UNAVAILABLE, 'unsupported guarantee promotion')
         require({'declaration', 'transport_dispatch', 'implementation'} <= set(row['source_refs']), 'missing source dispatch evidence')
         for key in row['source_refs'].values():
@@ -335,7 +342,8 @@ def audit(matrix, schema, provenance, tree=None):
         require(matrix == build(tree, schema, provenance), 'matrix differs from fixed source traversal')
     return {'method_count': len(rows), 'categories': dict(sorted(Counter(row['risk_category'] for row in rows).items())),
             'source_bytes_verified': tree is not None, 'native_methods_executed': 0,
-            'production_allowlist': [], 'guarantees_promoted': False}
+            'production_allowlist': [], 'authorizes_dispatch': False,
+            'reviewed_runtime_methods': ['ping'], 'guarantees_promoted': False}
 
 
 def main():
@@ -345,6 +353,7 @@ def main():
     parser.add_argument('--write', action='store_true', help='只重写固定 method-coverage.json；需要 --source-tree')
     args = parser.parse_args()
     try:
+        audit_method_policy(read_json(FIXTURES / 'method-policy.json'))
         provenance = read_json(FIXTURES / 'provenance.json')
         raw = (FIXTURES / 'schema.json').read_bytes()
         require(digest(raw) == provenance['schema_sha256'], 'installed fixture schema hash mismatch')

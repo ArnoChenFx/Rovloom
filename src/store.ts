@@ -8,6 +8,7 @@ import type { NativeRequest } from './contracts.js'
 import {
   assertBinding,
   boundedJson,
+  contractRef,
   planHistoryAdmission,
   registeredRequestDigest,
   validateAttempt,
@@ -27,6 +28,7 @@ import { auditRecord } from './storage/audit.js'
 import { completionReservation } from './storage/completion.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, privateFile, privatePath } from './storage/files.js'
+import { fixedHerdrSource } from './connector/herdr/review.js'
 
 export { DEFAULT_RETENTION }
 export type {
@@ -861,7 +863,13 @@ export class Store {
         if (!provider || !provider.enabled || provider.binding_revision !== options.binding_revision) {
           throw new GatewayError('provider_binding_mismatch')
         }
-        if (provider.kind === 'herdr') {
+        if (
+          provider.kind === 'herdr' &&
+          (target.profile !== 'session' ||
+            (options.validation ?? 'strict') !== 'strict' ||
+            options.contract_ref !== contractRef(fixedHerdrSource()) ||
+            canonical(request) !== '{"method":"ping","params":{}}')
+        ) {
           throw new GatewayError('provider_support_candidate')
         }
         const identity: AttemptIdentity = {

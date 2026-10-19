@@ -193,6 +193,17 @@ observe 永不可写；图片/上传等高级 action 只有在契约、分类、
 
 完整原生方法覆盖以固定安装 schema 和官方分派源码为依据，方法枚举不等于已授权或已接入。当前阶段及后续可独立交付的能力切片见[实施计划](IMPLEMENTATION-PLAN.md#36-herdr-原生验证与完整接入)；各切片复用现有 provider、完整 Target、双端授权、Store 和 runtime 工具，不另建 Gateway、CLI 或认证模型。
 
+H1 仅接纳固定 Linux x86_64 Herdr 0.9.5/protocol 22 的 session、strict `ping {}`。
+实际安装先通过受保护路径和二进制摘要核对，再运行固定版本/schema 命令，将原始完整根交给有界异步 Worker；
+按显式状态根与 session 推导 socket，核对私有权限及同一连接的 `SO_PEERCRED`，绑定宿主显式监管的原 ChildProcess。
+来源能力不可序列化；进程退出、binary/socket 替换或配置修订变化使原能力失效。
+该边界证明受保护路径启动与同一子进程 peer，不声称测量内核 exec 映像摘要，也不使用 `/proc` 或跨 session 探测。
+
+`createHerdrRuntime` 提供现有 `ConnectorWireSession` 的 adapter/executeWire/close 接口。
+原始 Wire request 在真实写入前重查当前双端策略、完整 Target、固定来源与 deadline，复用现有持久发送 claim 和 Store 证据事务。
+原生 Pong 的 capabilities 原样保留，仍只有 `schema_and_version` 依据，不能据此签发其它方法或桥接保证。
+正式运行宿主、CLI/MCP 接线和跨平台 native 验收由对应任务独立交付；编译资源上限不表示硬 heap 或 Worker 物理退出时限。
+
 被动读精确 allowlist、写入/终端原子身份保证、prompt 完成归属与取消语义尚无充分证据的部分属于待设计决策，默认拒绝；不能用 Luvus 证据或外层 revision 补造保证。
 
 ## 10. Gateway ↔ Connector Wire

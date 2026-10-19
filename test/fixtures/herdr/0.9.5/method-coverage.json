@@ -9,8 +9,45 @@
   "schema_file": "schema.json",
   "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
   "method_count": 102,
-  "production_allowlist": [],
-  "scope": "static capability and risk inventory; not native execution evidence or execution authorization",
+  "production_allowlist": [
+    {
+      "method": "ping",
+      "params": {},
+      "platform": "linux-x86_64",
+      "profile": "session",
+      "validation": "strict",
+      "transport": "single_request_rpc",
+      "source": {
+        "provider_kind": "herdr",
+        "protocol_family": "herdr-json",
+        "binary_version": "0.9.5",
+        "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+        "schema_origin": "installed_cli",
+        "schema_command": "herdr api schema --json",
+        "server_version": "0.9.5",
+        "native_protocol_version": "22",
+        "runtime_generation": null,
+        "adapter_revision": "herdr-ping-2",
+        "classification_revision": "herdr-0.9.5-ping-2",
+        "support_basis": "schema_and_version"
+      },
+      "instance_source": "protected_launch_and_same_supervised_child_kernel_peer",
+      "native_process_image_hash": "not_measured",
+      "required_runtime_checks": [
+        "installed_cli_raw_schema_compiled_by_fixed_worker",
+        "protected_installation_and_endpoint_owner_permissions",
+        "same_supervised_child_socket_so_peercred",
+        "complete_target_provider_config_and_binding_revision",
+        "current_authenticated_epoch_and_caller_local_grants",
+        "original_store_attempt_deadline_and_response_anchor",
+        "current_native_source_and_installation_identity",
+        "durable_unique_dispatch_claim_before_write"
+      ]
+    }
+  ],
+  "authorizes_dispatch": false,
+  "scope": "static capability, risk and conditional H1 implementation inventory; no execution authorization; runtime must independently verify every referenced condition",
   "sources_sha256": {
     "src/api/schema.rs": "0e3015fd11e089b97586dfb786c31e7c232659c25ce35201b3ad50e1773e8e09",
     "src/api/server.rs": "3555e07db3dc9d6a1a08a198b3d9276ff2f1f8fb0d4c32d7d2c78a8c5310b3a6",
@@ -370,8 +407,9 @@
       "adapter_support": {
         "codec": true,
         "local_passive_review": true,
-        "production_dispatch": false,
-        "status": "codec_only_candidate"
+        "production_dispatch": true,
+        "status": "conditional_h1_runtime",
+        "runtime_policy_ref": "method-policy.json#/production_allowlist/0"
       },
       "unavailable_bridge_guarantees": [
         "generic_cancel",

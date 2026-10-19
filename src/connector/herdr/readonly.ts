@@ -1,4 +1,4 @@
-/** Herdr 首切片的原生编解码与 Wire 接缝；共享 candidate 门禁仍负责阻止生产派发。 */
+/** Herdr 首切片的原生编解码与 Wire 接缝；固定 ping 之外的能力继续逐项取得原生证据。 */
 import type { NativeWireBackend, TrustedAttempt } from '../../integration/luvus-wire.js'
 import type { LedgerInvalidation } from '../../storage/model.js'
 import type { ResponseAnchor } from '../../wire/evidence.js'
@@ -31,24 +31,10 @@ import type {
   ResolvedAttempt
 } from '../../wire/types.js'
 
-/** 固定版本的评审范围；这是待接线切片，不能替代 registry 的 validated 或本地授权。 */
-export const HERDR_READONLY_REVIEW = Object.freeze({
-  version: '0.9.5',
-  protocol: 22,
-  binary_sha256: '14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d',
-  schema_sha256: '9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b',
-  adapter_revision: 'herdr-readonly-1',
-  classification_revision: 'herdr-0.9.5-readonly-1',
-  methods: Object.freeze(['ping']),
-  protocol_methods: Object.freeze(['ping', 'session.snapshot']),
-  frame_bytes: 65_536,
-  guarantees: Object.freeze({
-    event_recovery: 'unavailable',
-    terminal_fence: 'unavailable',
-    cancel: 'unavailable',
-    prompt_completion: 'unavailable'
-  })
-})
+export { HERDR_READONLY_REVIEW } from './review.js'
+import { HERDR_READONLY_REVIEW } from './review.js'
+import { isReviewedHerdrSource } from './review.js'
+import { isCompiledHerdrSchemas } from './compiler-api.js'
 
 /** 宿主从安装 schema 完整根编译的校验器；编译须先满足独立 worker 的资源门禁。 */
 export interface HerdrSchemas {
@@ -87,19 +73,8 @@ export interface HerdrReadonlyBackend extends Pick<
 /** 校验固定外部来源与分类 revision；未知版本、原生 generation 或 catalog 声明均拒绝。 */
 function reviewedSource(source: ContractSource, schemas: HerdrSchemas): void {
   validateContractSource(source)
-  const review = HERDR_READONLY_REVIEW
   if (
-    source.provider_kind !== 'herdr' ||
-    source.protocol_family !== 'herdr-json' ||
-    source.binary_version !== review.version ||
-    source.server_version !== review.version ||
-    source.native_protocol_version !== String(review.protocol) ||
-    source.binary_sha256 !== review.binary_sha256 ||
-    source.schema_sha256 !== review.schema_sha256 ||
-    source.adapter_revision !== review.adapter_revision ||
-    source.classification_revision !== review.classification_revision ||
-    source.runtime_generation !== null ||
-    source.support_basis !== 'schema_and_version' ||
+    !isReviewedHerdrSource(source) ||
     schemas.binary_sha256 !== source.binary_sha256 ||
     schemas.schema_sha256 !== source.schema_sha256 ||
     schemas.dialect !== 'https://json-schema.org/draft/2020-12/schema'
@@ -193,7 +168,7 @@ type State = {
   dedupExpires: number
 }
 
-/** 生产接缝继续调用共享 provider gate；当前 main 的 Herdr candidate 硬拒绝不会被绕过。 */
+/** 生产接缝逐次调用共享 provider gate，仅接纳固定已评审来源和真实完整根编译品牌。 */
 export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
   const handles = new Map<object, State>()
   const states = new Map<string, State>()
@@ -395,9 +370,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     if (state.responseOnly && (access === 'dispatch' || access === 'read')) {
       fail('content_unavailable')
     }
-    if (access !== 'resolve') {
-      providerFor(attempt.binding, ctx)
-    }
+    providerFor(attempt.binding, ctx)
     if (access === 'dispatch' || access === 'read') {
       if (backend.currentPrincipal() !== attempt.principal_id) {
         fail('attempt_binding_mismatch')
@@ -435,6 +408,9 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       fail('native_source_untrusted')
     }
     reviewedSource(contract.wire.source, contract.schemas)
+    if (contract.wire.support_status !== 'validated' || !isCompiledHerdrSchemas(contract.schemas)) {
+      fail('herdr_schema_uncompiled')
+    }
     if (closed || handles.get(state.handle) !== state) {
       fail('native_handle_unavailable')
     }
@@ -534,6 +510,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         return context
       }
       const attempt = anchor(identity)
+      providerFor(attempt.binding, backend.context(attempt.principal_id, 'gateway_to_connector'))
       const key = boundedJson(attempt.binding)
       if (handles.size >= 128) {
         fail('adapter_limit')
@@ -551,6 +528,9 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         fail('native_source_untrusted')
       }
       reviewedSource(contract.wire.source, contract.schemas)
+      if (contract.wire.support_status !== 'validated' || !isCompiledHerdrSchemas(contract.schemas)) {
+        fail('herdr_schema_uncompiled')
+      }
       const retention = backend.responseAnchor(attempt.binding)
       if (!retention) {
         fail('attempt_anchor_unavailable')
@@ -592,6 +572,29 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       handles.set(handle, state)
       states.set(key, state)
       return resolved(state)
+    },
+    /** Wire 复用原认证连接；逐 attempt 解析后再注入原调用者当前策略，不从帧导入授权。 */
+    wireContext(direction: Direction): AuthenticatedContext {
+      maintain()
+      const ctx: AuthenticatedContext = {
+        ...backend.context(backend.currentPrincipal() ?? '', direction),
+        direction,
+        validators: { herdr: validator },
+        /** 每次以原账本身份解析上下文，并读取该 principal 当前双端策略。 */
+        resolveAttempt(identity) {
+          const found = api.resolve(identity)
+          const state = stateFor(found)
+          ctx.policies = backend.context(state.attempt.principal_id, direction).policies
+          return found
+        },
+        /** 仅返回已登记句柄对应的私有来源令牌，不使用响应字段。 */
+        resolveNativeSource(binding) {
+          const found = api.resolve(identityOf(binding))
+          assertBinding(binding, found.binding)
+          return api.trustedSource(found)
+        }
+      }
+      return ctx
     },
     /** 仅给可信 Wire 证据 resolver；无需当前读者，但来源对象不能序列化或扩大交付权。 */
     trustedSource(context: NativeValidationContext): object {
@@ -639,14 +642,28 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         drop(state)
       }
     },
+    /** 仅以原完整 binding 释放缓存；清理不依赖仍有效的调用者授权或可恢复请求原文。 */
+    releaseBinding(binding: AttemptBinding): void {
+      const state = [...states.values()].find(
+        /** 只匹配原 call/attempt；匹配后仍核对其余完整绑定，防止跨连接释放。 */ (entry) =>
+          entry.attempt.binding.call_id === binding.call_id && entry.attempt.binding.attempt_id === binding.attempt_id
+      )
+      if (state) {
+        assertBinding(binding, state.attempt.binding)
+        drop(state)
+      }
+    },
     /** 关闭原生桥接缓存与通知，不停止 Herdr 实例或模拟原生取消。 */
     close(): void {
       invalidate({ kind: 'closed' })
     },
     /** 仅暴露计数供资源验收，不输出请求、来源 token 或原生响应。 */
     stats() {
-      maintain()
+      if (!closed) {
+        maintain()
+      }
       return {
+        closed,
         executions: [...states.values()].filter(/** 只计尚未压缩的执行上下文。 */ (state) => !state.responseOnly)
           .length,
         responses: [...states.values()].filter(/** 只计最小仅响应上下文。 */ (state) => state.responseOnly).length,

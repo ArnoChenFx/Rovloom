@@ -1,5 +1,6 @@
-/** 固定官方 schema 与脱敏原生值回放；合成授权不能开放共享 Herdr 门禁。 */
+/** 固定官方 schema 与脱敏原生值回放；授权与原生 socket 来源仍由各测试单独声明。 */
 import { readFileSync } from 'node:fs'
+import { compileHerdrSchemas } from '../../../src/connector/herdr/compiler-api.js'
 import { Ajv2020 } from 'ajv/dist/2020.js'
 import { HERDR_READONLY_REVIEW as review } from '../../../src/connector/herdr/readonly.js'
 import type { HerdrReadonlyBackend, HerdrSchemas } from '../../../src/connector/herdr/readonly.js'
@@ -64,6 +65,9 @@ export const schemas: HerdrSchemas = Object.freeze({
   response: /** 验证完整成功或错误根，不把方法 envelope 当作完整 schema。 */ (value: JsonObject) =>
     successRoot(value) || errorRoot(value)
 })
+
+/** 组件测试通过真实异步 Worker 取得不可复制品牌；离线 codec 仍使用上面的直接完整根。 */
+export const compiledSchemas = await compileHerdrSchemas(raw)
 
 /** 克隆脱敏原生值，避免一个反例污染后续 fixture。 */
 export function fixture(index = 0) {
@@ -149,7 +153,7 @@ export function backendFixture() {
       }
     },
     context: /** 复用本测试当前认证上下文，让反例显式改变其连接或策略。 */ () => context,
-    contract: /** 返回同一固定契约及完整根校验器，检查对象来源一致性。 */ () => ({ wire, schemas }),
+    contract: /** 返回同一固定契约及完整根校验器，检查对象来源一致性。 */ () => ({ wire, schemas: compiledSchemas }),
     nativeSource: /** 返回原 binding 与私有合成 token，供替换来源反例使用。 */ () => ({ binding, token })
   }
   const listeners = new Set<(event: LedgerInvalidation) => void>()

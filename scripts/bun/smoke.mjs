@@ -34,6 +34,28 @@ assert.equal(typeof herdr.createHerdrReadonlyAdapter, 'function')
 assert.equal(typeof herdr.persistentHerdrBackend, 'function')
 assert.equal(typeof herdr.commitHerdrResponse, 'function')
 assert.deepEqual(herdr.HERDR_READONLY_REVIEW.methods, ['ping'])
+const herdrCompiler = await import('../../dist/src/connector/herdr/compiler-api.js')
+const herdrInstallation = await import('../../dist/src/connector/herdr/installation.js')
+const herdrRuntime = await import('../../dist/src/connector/herdr/runtime.js')
+assert.equal(typeof herdrCompiler.compileHerdrSchemas, 'function')
+assert.equal(typeof herdrCompiler.isCompiledHerdrSchemas, 'function')
+assert.equal(typeof herdrInstallation.HerdrInstallation, 'function')
+assert.equal(typeof herdrRuntime.createHerdrRuntime, 'function')
+// 官方 schema 在产物内通过固定 Worker 编译；这些离线值不构造真实安装或原生身份。
+await assert.rejects(herdrCompiler.compileHerdrSchemas('{}'), /herdr_schema_schema_digest_mismatch/u)
+const herdrSchemas = await herdrCompiler.compileHerdrSchemas(
+  readFileSync(new URL('../../test/fixtures/herdr/0.9.5/schema.json', import.meta.url))
+)
+assert(herdrCompiler.isCompiledHerdrSchemas(herdrSchemas))
+assert(!herdrCompiler.isCompiledHerdrSchemas({ ...herdrSchemas }))
+for (const exchange of JSON.parse(
+  readFileSync(new URL('../../test/fixtures/herdr/0.9.5/readonly.json', import.meta.url), 'utf8')
+)) {
+  assert.equal(herdrSchemas.request(exchange.request), true)
+  assert.equal(herdrSchemas.response(exchange.response), true)
+}
+assert.equal(herdrSchemas.request({ id: 'built', method: 'future.method', params: {} }), false)
+assert.equal(herdrSchemas.response({ id: 'built', result: {} }), false)
 assert.throws(
   /** 用未受信来源触发产物错误，核对跨入口共享 GatewayError 身份。 */
   () => herdr.createHerdrCodec({}, {}),
@@ -351,5 +373,5 @@ try {
   rmSync(dir, { recursive: true, force: true })
 }
 console.log(
-  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries and SQLite reopen: pass'
+  'Built ESM foundation/native/wire/integration/Herdr runtime, 29 UHP documents, Herdr original roots, v2 boundaries and SQLite reopen: pass'
 )

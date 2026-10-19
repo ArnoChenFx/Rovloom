@@ -13,7 +13,7 @@
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
 | 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector、消费共享管理 DTO 的 WebUI 展示/快照生命周期模块 | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 的受保护 HTTP/认证接线和部署发行 |
-| Herdr | 固定官方 binary/schema 来源、全方法源码覆盖矩阵、完整根回放、专用边界/并发/ping 对照、只读编解码及 Store 锚点/回收/关闭接缝 | 精确生产 allowlist、Herdr 完整根的有界异步编译、可信 socket backend、Store/Wire 门禁与宿主接线；后续逐项接入全部原生能力 |
+| Herdr | 固定官方来源与全方法矩阵；H1 schema Worker、受监管 Unix peer、精确 ping 的 Store/Wire/runtime 及自有 Linux 实例五组验收 | #8 正式宿主、身份/部署与 CLI/MCP 联合验收；其余 101 方法按切片接入，跨平台 native 另验 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -112,29 +112,39 @@ claim、公共发现/结果分页或真实 stdio/MCP 联合验收；各层继续
 
 ### 3.6 Herdr 原生验证与完整接入
 
-离线输入、方法门禁与归档命令见[开发指引](DEVELOPMENT.md#herdr-离线输入)。
-生产允许集保持为空；合成回放通过不减少以下原生证据要求，归档审计也不建立
-可信 endpoint、安装来源或执行许可。
+离线输入、安装/编译约束和独立验收命令见[开发指引](DEVELOPMENT.md#h1-ping-runtime-与宿主接缝)。
+H1 policy/matrix 仅记录固定来源和实时检查条件下的 `ping {}` 实现；归档审计仍返回
+`native_verified: false`、空执行允许集和 `authorizes_dispatch: false`。独立脚本已在
+自有 Linux 空白实例验收真实安装→Store/Wire→原生 ping，不能从该结果外推其它切片。
 
 完整原生能力接入统一 runtime 工具面是目标；P0-H 只读证据不定义永久上限。
-[全方法矩阵](../test/fixtures/herdr/0.9.5/method-coverage.json)逐项区分原生存在、schema
-覆盖、分派来源与当前 adapter 支持；矩阵和 schema 枚举不授予执行权限。
+[全方法矩阵](../test/fixtures/herdr/0.9.5/method-coverage.json)逐项保存原生存在、schema
+覆盖、分派来源和 H1 条件实现；schema 枚举和矩阵记录均不授予执行权限。
 
-已有原生组件回放固定版本的 `ping {}` / `session.snapshot {}` RPC，执行候选仅限
-`ping {}`，复用现有 provider/Store/Wire 身份和门禁。[Store 接缝](../src/connector/herdr/persistence.ts)
-转接当前连接、双端 provider 配置、response anchor、提交后回收/关闭通知和证据事务。
-已许可 ping 回收后只保留固定响应元数据，按原 dedup 期限销毁，不恢复请求或派发权。
-成功压缩/迟到校验仍使用合成宿主及隔离 reviewed-provider 前提；真实 Store 建档和
-Wire provider gate 均拒绝 Herdr，真实测试只证明这些拒绝和配置/关闭治理，不能称
-TTL 后生产证据链路已接通。它也不能直接替代 transport 当前的完整 adapter。
-`ping` 只满足健康核对；snapshot 的公共前置标题同步及活动 UI/agent/通知覆盖仍需
-分类评审。当前不得把候选接口或安装 schema 回放称为默认状态接入已完成。
+当前 H1 限 Linux 固定 Herdr 0.9.5 binary/schema、协议 22、session Target 和 strict
+`ping {}` 普通 RPC；其余 101 个方法及其它参数保持拒绝。实际 CLI schema 原字节经
+固定 Bun Worker 编译完整 request/success/error 根，受控 standalone 产物按任务、来源
+和摘要接纳；同步校验不转写 UHP。单在途、取消/超时退役及有界输入/生成物已实现，
+首版仍无硬 heap、硬 CPU 或物理退出时限保证。
+
+本机 backend 由受保护宿主显式启动并监管固定进程，安装路径前后核对 hash，实际 Unix
+socket 的 `SO_PEERCRED` 核对 PID/UID/GID、路径归属与权限；不读 `/proc`，不把这些
+检查宣称为内核 exec 映像摘要证明。`HerdrInstallation.open` 不自动启动或接管已有会话。
+[Store 接缝](../src/connector/herdr/persistence.ts)和[运行时接口](../src/connector/herdr/runtime.ts)
+复用原 registry、完整 Target、双端授权、attempt、permit、持久发送 claim、内容保留及
+证据事务，挂入现有 `ConnectorWireSession` hook。取消/关闭只停止桥接等待，发送后失败
+保持 unknown 且不重放。正式 readiness/epoch/宿主生命周期、公共 CLI/MCP 仍与 #8 接口隔离；
+H1 本环境五组真实验收分别覆盖安装/schema Worker/内核 peer；32 次 ping、32 条 durable
+claim 与 32 次证据提交；三组方法/参数拒绝且零新 claim；当前策略撤权；同 binary
+字节的新 inode 使来源失效。所属 child 与临时根均已清理。真实链路仍使用隔离 fixture
+身份和既有认证 loopback，正式宿主、CLI/MCP、跨平台 native 与其余 101 方法仍未验收。
+合成 IO/关闭/取消和 standalone 测试只证明各自范围，不补作真实 Herdr 对应场景。
 
 - P0-H 固定官方 binary 来源/hash、安装 schema/方言/闭包、实际 ping/protocol、endpoint 归属/peer、framing/大小及断线行为，使用自建隔离实例。
 - 按 method+params+版本核实被动读，断言焦点、viewport、输入、agent 状态/通知均无未声明副作用；recent 等未经证明不进 allowlist。
 - 验证订阅确认、events_lost/EOF、另一连接 snapshot 与脏刷新，明确 gap/state_rebuild_only，不重放载荷覆盖快照或伪造序号。
-- 在评审过的精确范围上实现独立 adapter，再接入同一 registry/policy/账本/MCP；Wire 的 Herdr candidate 拒绝须经相应代码交付和验收后才可改变。原生实证不是系统就绪证明。
-- 后续健康/RPC 接线切片：Herdr 原始完整 schema 根的 Bun Worker standalone 编译、安装来源及 socket/peer backend、双端 registry 与 Store/Wire 精确方法门禁、同一宿主的最小垂直验收。现有 Luvus Worker 形态可复用，但不能把 Herdr 转成 UHP bundle，也不宣称硬 heap 或物理退出时限。
+- H1 五组真实验收已完成；后续扩展真实重复/取消/断线和多 provider 场景，不能用已有 mock/合成端口测试代替。正式宿主/MCP 组合仍另验，原生实证不是系统就绪证明。
+- 后续宿主切片：将 H1 runtime 接入 #8 的受保护配置、readiness、认证 epoch 与资源预算，验证同机多 provider、同 kind 多实例和真实 Connector 通道；不另建 Gateway/CLI/auth 或模型凭据体系。
 - 后续普通调用/生命周期切片：按矩阵逐方法分类，保持 session/server 管理各自权限、真实确认和丢回复的 unknown；不把 server.* 伪装为 Luvus Host。
 - 后续输入/prompt 切片：按 agent.start、agent.prompt、pane/agent 输入的真实语义接入调用账本；先用自有合成进程验证。等待状态、原生写成功与本次工作完成分别暴露，不能从状态或回显补造 turn 归属、取消或幂等保证。
 - 后续事件/终端切片：每个 filter 和控制动作独立审查副作用、背压、EOF 和关闭；事件仅保证 state_rebuild_only。核实各操作原生支持形态，不能虚构统一 lease/fence/replay/input ack。

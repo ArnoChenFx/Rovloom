@@ -5,7 +5,22 @@ import type { AuthenticatedContext, AuthenticatedEnvelope, ProviderBinding, Vers
 import type { createLuvusWireAdapter } from '../integration/luvus-wire.js'
 
 export type Connection = AuthenticatedContext['connection']
-export type Adapter = ReturnType<typeof createLuvusWireAdapter>
+export type Adapter = Pick<
+  ReturnType<typeof createLuvusWireAdapter>,
+  | 'encode'
+  | 'decode'
+  | 'checkResult'
+  | 'checkResultRetention'
+  | 'encodeResponseObject'
+  | 'acceptChunk'
+  | 'observeMessage'
+  | 'planEvidence'
+  | 'release'
+  | 'close'
+> & {
+  /** 公开本桥接执行/仅响应上下文与关闭状态；这些计数不代表原生任务或协议保证。 */
+  stats(): { closed: boolean; executions: number; responses: number }
+}
 export type Readiness = {
   policy_revision: string
   peer_policy_revision: string

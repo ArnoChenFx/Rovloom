@@ -1,74 +1,22 @@
-/** 只在临时派生模块放行合成 reviewed provider，检查硬门禁之后的组件接缝。 */
+/** 使用真实 provider gate、品牌 schema 与 Store 检查精确 ping 的正反向接缝。 */
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import { after, test } from 'node:test'
-import { providerFor } from '../../../src/wire/index.js'
+import { test } from 'node:test'
+import { boundedJson, providerFor } from '../../../src/wire/index.js'
 import { createHerdrReadonlyAdapter } from '../../../src/connector/herdr/readonly.js'
 import { persistentHerdrBackend, commitHerdrResponse } from '../../../src/connector/herdr/persistence.js'
 import { Store } from '../../../src/store.js'
+import { createHerdrWireAdapter } from '../../../src/connector/herdr/wire.js'
+import type { Adapter } from '../../../src/transport/common.js'
 import { connected, management, responseFrame } from '../../storage/helpers.js'
 import { backendFixture, fixture } from './helpers.js'
-
-const root = mkdtempSync(join(tmpdir(), 'rovloom-herdr-seams-'))
-const originalUrl = new URL('../../../src/connector/herdr/readonly.ts', import.meta.url)
-const original = readFileSync(originalUrl, 'utf8')
-let derived = original
-for (const [relative, absolute] of [
-  ['../../integration/luvus-wire.js', new URL('../../../src/integration/luvus-wire.ts', import.meta.url).href],
-  ['../../wire/index.js', new URL('../../../src/wire/index.ts', import.meta.url).href],
-  ['../../wire/types.js', new URL('../../../src/wire/types.ts', import.meta.url).href],
-  ['./persistence.js', new URL('../../../src/connector/herdr/persistence.ts', import.meta.url).href]
-]) {
-  assert(derived.includes(relative!))
-  derived = derived.replaceAll(relative!, absolute!)
-}
-assert(derived.includes('  assertProviderAccess,\n') && derived.includes('  providerFor,\n'))
-derived = derived
-  .replace('  assertProviderAccess,\n', '')
-  .replace('  providerFor,\n', '  providerFor as originalProviderFor,\n  providerScopeAllowed,\n')
-
-// 保留共享 provider 校验；仅将合成 validated Herdr 的 candidate 拒绝作为测试前提放行。
-// 不改仓库文件、共享模块缓存或生产允许集，也不把此测试当实际 Wire 接通证明。
-derived += `
-/** 独立测试假定 reviewed provider 已接线，其余共享错误必须保持原样。 */
-function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext) {
-  try { return originalProviderFor(binding, ctx) }
-  catch (error) {
-    if (!(error instanceof Error) || !('code' in error) || error.code !== 'provider_support_candidate') throw error
-    const record = ctx.resolveContract?.(binding.contract_ref)
-    if (binding.provider_kind !== 'herdr' || record?.support_status !== 'validated' ||
-        record.source.classification_revision !== HERDR_READONLY_REVIEW.classification_revision) throw error
-    return ctx.resolveProvider!(binding.target)!
-  }
-}
-/** 原样采用完整 Target 的双端 grant 求交；不默认授予派发或读取。 */
-function assertProviderAccess(binding: AttemptBinding, method: string, action: 'dispatch' | 'read', ctx: AuthenticatedContext) {
-  providerFor(binding, ctx)
-  if (!providerScopeAllowed(binding, method, action, ctx.policies)) fail('provider_scope_forbidden')
-}
-`
-const modulePath = join(root, 'readonly.ts')
-writeFileSync(modulePath, derived, { mode: 0o600 })
-const isolated = (await import(
-  pathToFileURL(modulePath).href
-)) as typeof import('../../../src/connector/herdr/readonly.js')
-after(
-  /** 测试结束核对原文件未变，并删除本轮派生模块目录。 */ () => {
-    try {
-      assert.equal(readFileSync(fileURLToPath(originalUrl), 'utf8'), original)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  }
-)
 
 /** 为每个反例准备合成完整来源与私有 permit；没有原生 socket 或 Store 写入。 */
 function prepared() {
   const state = backendFixture()
-  const adapter = isolated.createHerdrReadonlyAdapter(state.backend)
+  const adapter = createHerdrReadonlyAdapter(state.backend)
   const context = adapter.resolve(state.identity)
   const request = { ...state.record.native_request, id: state.binding.native_request_id }
   adapter.encodeRequest(request, context)
@@ -77,18 +25,14 @@ function prepared() {
 }
 
 test(
-  'isolated ordinary gate passes the shared result-boundary contract while real Herdr stays closed',
-  /** 核对隔离普通结果边界，同时直接检查真实 provider gate 继续关闭。 */ () => {
+  'reviewed ordinary gate passes the shared provider and result-boundary contract',
+  /** 核对普通结果边界和真实固定来源 provider gate，不导入派生源码。 */ () => {
     const state = prepared()
     const gate = state.adapter.validator.requestGate(state.request, state.context)
     assert.equal(gate.authorized, true)
     assert.equal(gate.secret_result_authorized, true)
     assert.equal(gate.raw_contract_authorized, false)
-    assert.throws(
-      /** 对相同合成 binding 调用真实 gate，确认没有共享模块污染。 */ () =>
-        providerFor(state.binding, state.backend.context('principal1', 'gateway_to_connector')),
-      /provider_support_candidate/
-    )
+    assert.equal(providerFor(state.binding, state.backend.context('principal1', 'gateway_to_connector')).kind, 'herdr')
   }
 )
 
@@ -200,8 +144,8 @@ for (const key of ['connection_epoch', 'recovery_generation'] as const) {
 
 for (const change of ['disabled', 'revision'] as const) {
   test(
-    `provider ${change} still blocks evidence under the isolated reviewed-provider premise`,
-    /** 模拟 provider 禁用或 revision 改变，验证隔离测试仍保留共享身份门禁。 */ () => {
+    `provider ${change} still blocks evidence under the reviewed-provider gate`,
+    /** 模拟 provider 禁用或 revision 改变，验证真实固定来源测试仍保留共享身份门禁。 */ () => {
       const state = prepared()
       const wire = state.backend.context('principal1', 'connector_to_gateway')
       const resolver = wire.resolveProvider!
@@ -250,7 +194,7 @@ test(
   'unprepared or released state cannot accept even a schema-valid native response',
   /** 覆盖未准备、已释放及重新解析状态，确保合法 schema 不会补造 permit。 */ () => {
     const state = backendFixture()
-    const adapter = isolated.createHerdrReadonlyAdapter(state.backend)
+    const adapter = createHerdrReadonlyAdapter(state.backend)
     const first = adapter.resolve(state.identity)
     const token = adapter.trustedSource(first)
     assert.throws(
@@ -295,77 +239,200 @@ for (const status of ['expired', 'discarded', 'unavailable'] as const) {
   )
 }
 
-test(
-  'real Store admission stays closed and persistent backend checks local configuration and shutdown',
-  /** 真实 Store 拒绝 Herdr 建档；仅检验已授权配置核对与关闭通知，不伪造成功派发链路。 */ () => {
-    const directory = mkdtempSync(join(tmpdir(), 'rovloom-herdr-store-'))
-    const store = new Store(join(directory, 'db'), /** 固定真实账本的测试时钟。 */ () => 100, { management })
-    const device = connected(store)
-    const state = backendFixture()
-    const provider = {
-      machine_id: device.machine_id,
-      provider_id: 'herdr',
-      kind: 'herdr' as const,
-      config_ref: 'owned-synthetic-herdr',
-      binding_revision: 1,
-      enabled: true
-    }
-    store.defineProvider(provider)
-    const target = { ...device.target, provider_id: provider.provider_id }
-    state.context.connection = {
-      ...state.context.connection,
-      machine_id: device.machine_id,
-      connection_epoch: device.epoch,
-      recovery_generation: store.generation()
-    }
-    const local = { ...provider }
-    const backend = persistentHerdrBackend(store, {
-      ...state.backend,
-      localProvider: /** 受保护本机配置由独立对象表达，不从响应或设备广告生成。 */ () => local
-    })
-    const adapter = createHerdrReadonlyAdapter(backend)
-    try {
-      assert.deepEqual(backend.context('principal1', 'gateway_to_connector').resolveProvider!(target), provider)
-      local.config_ref = 'different-protected-instance'
-      assert.throws(
-        /** 同 kind 不同实例也必须拒绝。 */ () =>
-          backend.context('principal1', 'gateway_to_connector').resolveProvider!(target),
-        /provider_binding_mismatch/
-      )
-      local.config_ref = provider.config_ref
-      assert.throws(
-        /** 真实 Store 不因 adapter 存在而自动开放建档。 */ () =>
-          store.createCall('principal1', target, state.record.native_request, {
-            binding_revision: 1,
-            contract_ref: state.binding.contract_ref,
-            caller_policy_revision: 'caller1',
-            local_policy_revision: 'local1'
-          }),
-        /provider_support_candidate/
-      )
-      assert.throws(
-        /** 缺行仍保留 Store 的固定错误，不补造空调用。 */ () =>
-          backend.attempt(state.binding.call_id, state.binding.attempt_id),
-        /call_not_found/
-      )
-      assert.throws(
-        /** 没有真实 attempt 不能从响应补造许可。 */ () => adapter.resolve(state.identity),
-        /call_not_found/
-      )
-      const frame = responseFrame(state.binding, { result: (fixture().response as any).result })
-      assert.throws(/** 真实提交同样缺锚点，不会写成功结果。 */ () => commitHerdrResponse(store, adapter, frame))
-      store.close()
-      assert.throws(
-        /** Store 关闭已经同步撤销 adapter 及监听。 */ () => adapter.resolve(state.identity),
-        /native_adapter_closed/
-      )
-    } finally {
+/** 用自有临时 SQLite、真实品牌编译器和固定来源构造准入/派发链；原生响应来自脱敏 fixture。 */
+function stored(prepare = true) {
+  const directory = mkdtempSync(join(tmpdir(), 'rovloom-herdr-store-'))
+  let now = 100
+  const store = new Store(join(directory, 'db'), /** 只由测试推进可信时钟。 */ () => now, {
+    management,
+    retention: { content_ttl: 50 }
+  })
+  const device = connected(store)
+  const state = backendFixture()
+  const provider = {
+    machine_id: device.machine_id,
+    provider_id: 'herdr',
+    kind: 'herdr' as const,
+    config_ref: 'owned-synthetic-herdr',
+    binding_revision: 1,
+    enabled: true
+  }
+  store.defineProvider(provider)
+  const target = {
+    machine_id: device.machine_id,
+    provider_id: provider.provider_id,
+    profile: 'session' as const,
+    session: 'synthetic'
+  }
+  const options = {
+    binding_revision: 1,
+    contract_ref: state.binding.contract_ref,
+    caller_policy_revision: 'caller1',
+    local_policy_revision: 'local1',
+    timeoutMs: 20
+  }
+  const call = store.createCall('principal1', target, state.record.native_request, options)
+  const binding = store.dispatch('principal1', call.call_id, device.epoch)
+  const { machine_id: _machine, connection_epoch: _epoch, recovery_generation: _generation, ...identity } = binding
+  state.context.connection = {
+    ...state.context.connection,
+    machine_id: device.machine_id,
+    connection_epoch: device.epoch,
+    recovery_generation: store.generation(),
+    negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'late_evidence'] }
+  }
+  for (const side of [state.context.policies!.caller, state.context.policies!.local]) {
+    side.grants[0]!.target = target
+  }
+  const local = { ...provider }
+  const token = Object.freeze({ owned_synthetic_socket: true })
+  const backend = persistentHerdrBackend(store, {
+    ...state.backend,
+    localProvider: /** 本机配置独立于 Store 持有，可测试相同 kind 的错误实例。 */ () => local,
+    nativeSource: /** 来源只绑定本轮 Store 派发事实，不从响应建立。 */ (value) =>
+      boundedJson(value) === boundedJson(binding) ? { binding, token } : undefined
+  })
+  const adapter = createHerdrReadonlyAdapter(backend)
+  const context = adapter.resolve(identity)
+  const request = { method: 'ping', params: {}, id: binding.native_request_id }
+  if (prepare) {
+    adapter.encodeRequest(request, context)
+  }
+  const frame = responseFrame(binding, { result: fixture().response.result })
+  return {
+    ...state,
+    store,
+    target,
+    options,
+    local,
+    provider,
+    backend,
+    binding,
+    identity,
+    adapter,
+    context,
+    request,
+    frame,
+    advance: /** 时间推进不触发其它设备、会话或模型调用。 */ (value: number) => {
+      now = value
+    },
+    close: /** 关闭真实 Store/adapter 并删除本轮自有数据库。 */ () => {
       adapter.close()
       store.close()
       rmSync(directory, { recursive: true, force: true })
     }
   }
+}
+
+test(
+  'real Store admits exact reviewed ping and persistent backend checks local configuration and shutdown',
+  /** 真实 Store 正向建档并提交真实 codec 验过的 fixture；本测试不声称运行原生 binary。 */ () => {
+    const state = stored()
+    try {
+      assert.deepEqual(
+        state.backend.context('principal1', 'gateway_to_connector').resolveProvider!(state.target),
+        state.provider
+      )
+      state.local.config_ref = 'different-protected-instance'
+      assert.throws(
+        /** 同 kind 不同本机配置不得混用。 */ () => state.adapter.encodeRequest(state.request, state.context),
+        /provider_binding_mismatch/
+      )
+      state.local.config_ref = state.provider.config_ref
+      const bytes = Buffer.from(JSON.stringify(state.frame.payload.native_response) + '\n')
+      assert.deepEqual(state.adapter.decodeResponse(bytes, state.context), state.frame.payload.native_response)
+      const result = commitHerdrResponse(state.store, state.adapter, state.frame)
+      assert.equal(result.state, 'responded')
+      assert.deepEqual(JSON.parse(result.response!), state.frame.payload.native_response)
+      state.store.close()
+      assert.throws(
+        /** Store 关闭同步撤销 adapter 及监听。 */ () => state.adapter.resolve(state.identity),
+        /native_adapter_closed/
+      )
+    } finally {
+      state.close()
+    }
+  }
 )
+
+for (const cleanup of ['ttl', 'discard', 'late'] as const) {
+  test(
+    `real Store ${cleanup} accepts original ping evidence without reviving forbidden content`,
+    /** 原生 permit 经真实 Store 回收/迟到事务仍只提交合法证据，不恢复原请求或内容期限。 */ () => {
+      const state = stored()
+      try {
+        const anchor = state.store.responseAnchor(state.binding)
+        if (cleanup === 'discard') {
+          state.store.discardResponse('principal1', state.binding.call_id)
+        } else {
+          state.advance(cleanup === 'ttl' ? 150 : 120)
+          state.store.expire()
+        }
+        const result = commitHerdrResponse(state.store, state.adapter, state.frame)
+        assert.equal(state.store.responseAnchor(state.binding).content_expires_at, anchor.content_expires_at)
+        assert.equal(state.store.responseAnchor(state.binding).dedup_expires_at, anchor.dedup_expires_at)
+        if (cleanup === 'late') {
+          assert.equal(result.state, 'responded')
+          assert.equal(
+            state.store
+              .auditRecords()
+              .some(/** 固定审计记录迟到证据，不代表重复派发。 */ (entry) => entry.action === 'late_evidence'),
+            true
+          )
+          assert.deepEqual(JSON.parse(result.response!), state.frame.payload.native_response)
+        } else {
+          assert.equal(result.response, null)
+          assert.equal(state.backend.attempt(state.binding.call_id, state.binding.attempt_id), undefined)
+          assert.equal(state.adapter.stats().executions, 0)
+          assert.equal(state.adapter.stats().responses, 1)
+          assert.throws(
+            /** 回收后的原 permit 不能恢复当前内容交付。 */ () => state.adapter.checkResult(state.context),
+            /content_unavailable/
+          )
+        }
+      } finally {
+        state.close()
+      }
+    }
+  )
+}
+
+for (const invalid of [
+  { request: { method: 'session.snapshot', params: {} } },
+  { request: { method: 'ping', params: { recent: true } } },
+  { request: { method: 'ping' } },
+  { request: { method: 'ping', params: {}, extra: true } },
+  { validation: 'raw-contract' as const },
+  { contract_ref: 'b'.repeat(64) },
+  { host: true }
+]) {
+  test(
+    `real Herdr Store admission refuses unreviewed intent ${JSON.stringify(invalid)}`,
+    /** 建档严格匹配 session、契约、模式和完整 ping 空参对象，未知值不能成为派发锚点。 */ () => {
+      const state = stored()
+      try {
+        assert.throws(
+          /** 每个反例都走真实 Store writer，不修改数据库或生产源码。 */ () =>
+            state.store.createCall(
+              'principal1',
+              'host' in invalid
+                ? { machine_id: state.target.machine_id, provider_id: state.target.provider_id, profile: 'host' }
+                : state.target,
+              'request' in invalid ? invalid.request! : { method: 'ping', params: {} },
+              {
+                ...state.options,
+                ...('validation' in invalid ? { validation: invalid.validation } : {}),
+                ...('contract_ref' in invalid ? { contract_ref: invalid.contract_ref } : {})
+              }
+            ),
+          /provider_support_candidate/
+        )
+      } finally {
+        state.close()
+      }
+    }
+  )
+}
 
 for (const cleanup of ['ttl', 'discard'] as const) {
   test(
@@ -485,6 +552,96 @@ test(
       } finally {
         adapter.close()
       }
+    }
+  }
+)
+
+test(
+  'Herdr Wire shares its native permit with the real Store and transport Adapter interface',
+  /** 普通 Wire 请求、原生 fixture 响应和真实 Store 提交共用一个 core，不依赖源码派生或第二账本。 */ () => {
+    const state = stored(false)
+    const wire: Adapter = createHerdrWireAdapter(state.backend, state.adapter)
+    try {
+      const request = {
+        ...state.frame,
+        type: 'request' as const,
+        message_id: 'wire-request',
+        payload: {
+          attempt: state.identity,
+          expected_binding_revision: 1,
+          native_request: { method: 'ping', params: {} },
+          validation: 'strict' as const
+        }
+      }
+      const raw = wire.encode(request, 'gateway_to_connector')
+      assert.deepEqual(wire.decode(raw, 'gateway_to_connector'), request)
+      assert.equal(wire.observeMessage(request, 'gateway_to_connector'), 'new')
+      assert.equal(wire.observeMessage(request, 'gateway_to_connector'), 'duplicate')
+      assert.throws(
+        /** 相同 message ID 对应不同摘要不能变成第二个调用。 */ () =>
+          wire.observeMessage(
+            { ...request, payload: { ...request.payload, expected_binding_revision: 2 } },
+            'gateway_to_connector'
+          )
+      )
+      const encoded = wire.encode(state.frame, 'connector_to_gateway')
+      assert.deepEqual(wire.decode(encoded, 'connector_to_gateway'), state.frame)
+      wire.checkResult(state.binding, state.frame.payload.native_response)
+      wire.checkResultRetention(state.binding, state.frame.payload.native_response)
+      const result = state.store.commitEvidence(
+        state.binding,
+        /** 现有事务内重新规划响应证据。 */ () => wire.planEvidence(state.frame)
+      )
+      assert.equal(result.state, 'responded')
+      wire.release(state.binding)
+      assert.equal(state.adapter.stats().executions, 0)
+      assert.throws(
+        /** 释放后合法旧响应也不能复用旧 permit。 */ () => wire.decode(encoded, 'connector_to_gateway'),
+        /dispatch_permit_unavailable/
+      )
+    } finally {
+      wire.close()
+      assert.equal(wire.stats().closed, true)
+      state.close()
+    }
+  }
+)
+
+test(
+  'Herdr bridge cancellation authorizes only the Wire wait and rejects native stream or object paths',
+  /** cancel 只是现有 Wire 的等待治理；本切片无原生 cancel、流或对象实现。 */ () => {
+    const state = stored()
+    const wire = createHerdrWireAdapter(state.backend, state.adapter)
+    try {
+      const cancel = {
+        ...state.frame,
+        type: 'cancel' as const,
+        payload: { attempt: state.identity, reason: 'caller_cancelled' as const }
+      }
+      assert.throws(
+        /** 缺 cancel grant 不能停止其它调用者的桥接等待。 */ () => wire.encode(cancel, 'gateway_to_connector'),
+        /provider_scope_forbidden/
+      )
+      for (const side of [
+        state.backend.context('principal1', 'gateway_to_connector').policies!.caller,
+        state.backend.context('principal1', 'gateway_to_connector').policies!.local
+      ]) {
+        side.grants[0]!.actions.push('cancel')
+      }
+      assert.equal(JSON.parse(wire.encode(cancel, 'gateway_to_connector')).type, 'cancel')
+      assert.equal(state.adapter.stats().executions, 1)
+      assert.throws(
+        /** 不建立原生 stream 或 terminal fence。 */ () => wire.advanceStream(),
+        /herdr_transport_unsupported/
+      )
+      assert.throws(/** 大响应不能暗中走 objects。 */ () => wire.encodeResponseObject(), /herdr_transport_unsupported/)
+      assert.throws(/** 分片不能分配隐藏的组装器。 */ () => wire.acceptChunk(), /herdr_transport_unsupported/)
+      wire.release(state.binding)
+      assert.equal(state.adapter.stats().executions, 0)
+      assert.equal(state.store.call('principal1', state.binding.call_id).state, 'dispatching')
+    } finally {
+      wire.close()
+      state.close()
     }
   }
 )

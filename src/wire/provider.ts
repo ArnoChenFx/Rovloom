@@ -10,6 +10,7 @@ import type {
   V2Target
 } from './types.js'
 import { boundedJson, fail, fields, hash, id, object, oneOf, sha, text, uint } from './validation.js'
+import { isReviewedHerdrSource } from '../connector/herdr/review.js'
 
 // 按 host 或 session 形态严格校验完整 provider 目标。
 export function validateTarget(value: unknown): asserts value is V2Target {
@@ -119,11 +120,11 @@ export function providerFor(binding: AttemptBinding, ctx: AuthenticatedContext):
   if (contractRef(c.source) !== binding.contract_ref || c.source.provider_kind !== b.kind) {
     fail('contract_binding_mismatch')
   }
-  // Herdr 的隔离原生验证不构成生产 adapter 许可；本门禁仍拒绝 Herdr 和仅候选的契约。
-  if (b.kind === 'herdr' || c.support_status !== 'validated') {
+  // candidate 永不派发；Herdr 只接纳固定评审来源，方法/参数和真实来源仍由其 adapter 检查。
+  if (c.support_status !== 'validated' || (b.kind === 'herdr' && !isReviewedHerdrSource(c.source))) {
     fail('provider_support_candidate')
   }
-  if (c.source.classification_revision === null || c.source.support_basis !== 'live_catalog') {
+  if (c.source.classification_revision === null || (b.kind === 'luvus' && c.source.support_basis !== 'live_catalog')) {
     fail('contract_unavailable')
   }
   return b

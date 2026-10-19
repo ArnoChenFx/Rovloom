@@ -4,7 +4,7 @@ import { Router } from '../../router.js'
 import type { LocalPolicies, Principal } from '../../router.js'
 import type { ResultPage, Store } from '../../store.js'
 import type { Call } from '../../storage/model.js'
-import type { createLuvusWireAdapter } from '../../integration/luvus-wire.js'
+import type { Adapter } from '../../transport/common.js'
 import { DEFAULT_LIMITS, parseNativeJson } from '../../native-contract/index.js'
 import { assertBinding, boundedJson, id } from '../../wire/index.js'
 import type { AttemptBinding, JsonObject } from '../../wire/types.js'
@@ -13,10 +13,8 @@ export type LuvusResultMetadata = Readonly<Pick<ResultPage, 'result_id' | 'bytes
 export type LuvusResultPage = Readonly<ResultPage>
 export type LuvusOriginalRead = Readonly<{
   binding: AttemptBinding
-  wire: ReturnType<typeof createLuvusWireAdapter> & {
-    /** 只能由持有原 permit 的真实 Wire 校验原派发及当前分类的保留许可，缺失时禁止创建句柄。 */
-    checkResultRetention?(binding: AttemptBinding, nativeFrame: JsonObject): void
-  }
+  /** 只消费原 Wire 的当前读取与保留门禁；旧宿主缺保留入口时仍由运行时明确拒绝创建句柄。 */
+  wire: Pick<Adapter, 'checkResult'> & Partial<Pick<Adapter, 'checkResultRetention'>>
 }>
 export type LuvusResultAccessOptions = Readonly<{
   store: Store

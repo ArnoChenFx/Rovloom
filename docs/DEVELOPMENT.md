@@ -33,11 +33,12 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、Herdr、webui 与 admin 十二个 Bun ESM 入口、共享 chunk 与外部
-source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
-原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
-原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
-smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
+native-contract、wire、integration、persistence、transport、Herdr readonly/compiler/installation/runtime、
+webui 与 admin 十五个 Bun ESM 入口、共享 chunk 与外部 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
+Luvus 与 Herdr 的固定编译 Worker 由同一 Bun 构建入口分别打包并内嵌，含锁定 Ajv；不增加第二运行时、
+原生归档。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
+smoke 从产物验证 Luvus 离线编译、Herdr 原始完整根及来源品牌、request/error/result 边界、
+v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
 
 产品分发使用独立的 [Bun 单文件构建与验收](DISTRIBUTION.md)，输出到 `dist/release/`。
@@ -208,10 +209,11 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 
 ## Herdr 离线输入
 
-[方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)的生产允许集为空；精确 `ping {}`
-已有固定源码的被动分类与专用 headless 对照，`session.snapshot {}` 仍因应用前置
-副作用保持未验证。任意其它参数、读取变体、
-订阅和写入均不获产品许可。离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
+[方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)记录固定 H1 来源、平台与实时检查
+条件下的唯一 `ping {}` 实现范围；该文件和离线工具均不签发运行时许可。精确 ping
+已有固定源码分类、专用 headless 对照，以及下述自有实例的 H1 真实贯通验收。
+`session.snapshot {}` 因应用前置副作用保持未验证；其它参数、读取变体、订阅和写入
+不在 H1 许可范围。离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
 
 ```sh
@@ -295,46 +297,77 @@ pane.updated 观察窗。窗口无事件不等于所有 UI/agent/通知都已实
 副作用，不把健康响应解释为 session 状态或通用 live catalog。
 原生日志与失败轮次继续只留在临时输出和 PR/CI。
 
-### 只读 adapter 接缝
+### H1 ping runtime 与宿主接缝
 
-[原生组件](../src/connector/herdr/readonly.ts)复用 Wire 的 `AttemptBinding`、`ContractRecord`、
-双端策略与 Store attempt，不创建第二套设备/provider 身份。协议回放限
-`ping {}` 和 `session.snapshot {}` 的 RPC，保留原生 result/error；adapter 执行候选
-进一步限 `ping {}`，snapshot 仍因副作用覆盖不足而拒绝。流、raw、Host、其它参数、
-终端和写入均拒绝。共享 provider 的 Herdr candidate 硬门禁仍保持关闭。
+H1 的安装、完整 schema 编译、Unix socket backend 和 Store/Wire/runtime 接口已实现，
+独立脚本已在本环境自有空白实例完成五组真实验收。范围仅为 Linux、固定官方
+Herdr 0.9.5 binary/schema、协议 22 和 session Target 的 strict `ping {}` 普通 RPC。
+完整 schema 包含 102 个方法不表示它们均可执行：其余 101 个方法、其它 ping 参数、raw、
+流、对象传输和 Host 入口均拒绝。固定来源见[provenance](../test/fixtures/herdr/0.9.5/provenance.json)
+与[逐项评审](../src/connector/herdr/review.ts)。
 
-[安装 schema 原文](../test/fixtures/herdr/0.9.5/schema.json)的 hash 对应固定 provenance，
-[脱敏原生回放](../test/fixtures/herdr/0.9.5/readonly.json)仅替换路径和请求 ID；上游许可见
-[LICENSE.herdr](../test/fixtures/herdr/0.9.5/LICENSE)。测试从完整 request/success/error 根编译，
-不把 method envelope 检查冒充完整 schema 校验。
+[安装模块](../src/connector/herdr/installation.ts)只运行固定 binary 的 `--version` 与
+`api schema --json`，从实际 CLI stdout 原字节核对 schema 摘要，不从 fixture、registry
+或 caller 提交的校验函数建立安装来源。[编译入口](../src/connector/herdr/compiler-api.ts)
+通过固定 Bun Worker 编译原始 `#/schemas/...` 引用下的完整 request、success_response
+和 error_response 根，不转写为 UHP。输入上限 512 KiB、生成代码上限 8 MiB、整体接纳
+期限 2 秒，单在途且不排队；编译故障、取消、超时或协议错误后服务退役且不自动补建。
+宿主只接纳同任务、固定版本/来源/摘要的受控 standalone 产物，品牌不可经复制恢复，
+后续根校验仍同步执行。这些是计量和接纳边界，不是硬 heap、硬 CPU 或物理退出时限保证。
 
-宿主须实现源码中的 `HerdrReadonlyBackend`：从现有 Store 取原 attempt/内容状态，
-重新解析当前连接、registry、双端完整 Target grants；独立核对安装契约和本机
-endpoint/peer 后持有不可序列化来源 token。实例或连接改变时替换 token，旧句柄失效。
-同一完整 binding 的重复解析复用私有句柄和原 permit；换 epoch/恢复代次不得复用。
-原生响应证据验证不依赖当前内容读者、read grant 或原策略 revision 仍生效；它始终
-核对原锚点/permit、当前有效连接/provider 与独立来源。读取撤权、过期或 discard
-只能进入 Store 的最小证据分流，原文保存和交付仍须另查当前权限及原期限。
-Herdr 完整 schema 根仍需有界异步编译与受控生成物接纳；测试中的直接编译不能满足
-这个生产门禁。不能给现有 Luvus 编译器输入伪造 UHP bundle，也不能沿用已撤回的
-硬 heap/物理退出时限承诺。
+[本机来源](../src/connector/herdr/local.ts)要求受保护宿主显式调用 `launchHerdrProcess`
+启动固定 binary、配置和 named session；`HerdrInstallation.open` 不自动启动、枚举或
+接管已有进程。启动前后核对安装文件 hash/身份，只签发模块私有的受监管进程绑定。
+配置使用独立 HOME/XDG 根和最小环境，不继承 SSH 或模型凭据。socket 路径、父目录、
+归属与权限逐项核对，连接后通过既有 Linux `SO_PEERCRED` helper 取得同一实际 socket
+的 PID/UID/GID，并与原 ChildProcess 生命周期绑定。不读取 `/proc`，也不宣称安装路径
+的 hash 与 peer PID 共同证明了内核 exec 映像摘要；该初版仍依赖受保护宿主和安装目录。
 
-[Store 接缝](../src/connector/herdr/persistence.ts)提供 `persistentHerdrBackend` 和
-`commitHerdrResponse`，复用原账本事务、当前连接/配置、`responseAnchor` 与
-`subscribeInvalidation`。内容回收后仅已许可 ping 能保留最小响应元数据；固定期限、
-provider/设备 fence、来源替换及 Store 关闭分别限制或销毁句柄。响应校验不需要
-恢复请求，最小上下文永远不能派发或交付内容。关闭只回收桥接资源。
+[运行时接口](../src/connector/herdr/runtime.ts)提供 `createHerdrRuntime`，其 adapter 和
+`executeWire` 复用同一 core permit，挂入既有 `ConnectorWireSession` 原始 Wire hook。
+来源 token 绑定完整 Target、provider/config 修订和契约；当前连接、双方完整 grants、
+Store 原 attempt/deadline、endpoint/peer 与安装身份均在写入前复核。内存消息窗和已见
+attempt 与既有持久发送 claim 共同阻止重复执行，claim 提交失败不写 native；重连、取消、
+超时或 `outcome_unknown` 都不重放原请求。它不创建第二 Gateway、CLI、设备认证或模型
+凭据体系；readiness、epoch 与正式宿主生命周期的组合仍归 #8 宿主接线。
 
-真实 Store 在 Herdr 建档阶段仍拒绝；共享 Wire provider gate 也关闭。测试明确区分
-真实 Store 的拒绝/配置/关闭通知与隔离 reviewed-provider 前提下的合成正向压缩、
-请求已不可恢复的迟到校验。事务入口的成功路径仍须在 backend、编译及精确生产
-门禁一并交付后验收，不把合成上下文当作真实 Store metadata-only 已接通。
-原生 socket backend、当前 transport 的完整 adapter 接口和真实宿主仍待实现。
+[Store 接缝](../src/connector/herdr/persistence.ts)复用 registry、双端本机配置、原
+`responseAnchor`、提交后失效通知与证据事务。Store/Wire 的代码门禁仅对完整固定来源
+和精确 `ping {}` 建立准入条件，仍逐次检查当前授权。内容回收后仅已许可 ping 保留
+原 dedup 期限内的最小响应元数据；撤权、过期或 discard 不恢复请求、原文或派发权。
+关闭和 AbortSignal 仅清理所属 socket/桥接等待，不发送 native cancel，也不停止 Herdr
+server；可能写出后的失败保守标记 `outcome_unknown`。server 归显式启动它的宿主回收。
 
-`ping` 足以核对存活和版本，不能提供当前 session 状态。`session.snapshot` 经过公共
-请求前置的待处理终端标题同步，可能更新标题缓存并发布 pane 元数据事件；它不是
-冻结状态读取。只测静态 pane、合成输出和并发重命名，不证明活动 UI、真实 agent
-或通知路径无副作用，不能据此默认给 observer 开放。生产允许集继续为空。
+独立验收入口只创建自己拥有的空白临时实例，结果与临时库留在 checkout 外：
+
+```sh
+bun --no-env-file scripts/herdr/verify-runtime.ts --binary /absolute/verified/herdr --report /tmp/rovloom-herdr-h1-new.json
+```
+
+真实验收覆盖五组：
+
+1. 实际安装 binary、raw CLI schema、异步 Worker 与受监管进程的内核 socket peer。
+2. 既有 Router/Gateway/Connector/Wire/Store 经认证 loopback 完成 32 次原生 ping、
+   32 条持久发送 claim 和 32 次 Store 响应证据提交。
+3. `ping` 额外参数、`session.snapshot {}`、`pane.read {}` 三组在生产 Store 拒绝，
+   未增加任何发送 claim；这不表示其余所有方法均逐项亲跑。
+4. 当前策略撤权阻断后续派发。
+5. 同一 binary 字节换成新 inode 后来源失效，readiness 的
+   `herdr_installation_changed` 属预期负向结果；所属 child 退出、私有临时根清理均完成。
+
+这些运行使用真实 Herdr 和真实 Store/claims，但身份与双端策略来自隔离 fixture，
+认证链路为既有 loopback。受监管启动实际返回 `detached_server_daemon: false`，原生
+pong 的 capability 值完整保留，不为匹配历史 fixture 改写。取消、部分帧、EOF、资源
+上限等边界另有合成端口或自有 Unix listener 测试；这些测试以及 schema standalone
+探针都不等于相同场景已在真实 Herdr 上执行。H1 不代表 #8 正式宿主、完整 CLI/MCP、
+跨平台 native、非受监管实例或其余 101 个方法已验收。静态 policy/matrix 只记录条件
+实现，实际准入仍独立核对安装、完整 Target、当前授权和原账本。
+
+`ping` 只核对存活、版本及有限 capabilities，不能提供当前 session 状态。
+`session.snapshot` 经过公共请求前置的待处理终端标题同步，可能更新标题缓存并发布
+pane 元数据事件；静态 pane、合成输出和并发重命名不足以证明活动 UI、真实 agent 或
+通知路径无副作用，不能据此默认给 observer 开放。event recovery、terminal fence、
+native cancel 与 prompt completion 仍不可用。
 
 ### 全方法覆盖与后续接入
 
@@ -366,4 +399,4 @@ Store/Router 已提供 provider/binding、固定原文期限、持久 history、
 文件、真实 SQLITE_FULL 与异常退出，不触及真实库。WSS/loopback 模块与独立宿主接线见
 [通道接线](TRANSPORT.md)，测试证书另需 Linux `/usr/bin/openssl`。生产持久身份服务、跨平台存储和重启后的原生
 响应上下文恢复仍待接线；unknown 不重放，取消不代表回滚，逻辑删除不保证物理擦除。
-Herdr 未通过独立 P0-H，仍不可执行。
+Herdr H1 的代码实现不替代独立真实验收与正式宿主接线；当前不得宣称完整 Herdr 或跨平台 native 已可用。

@@ -194,31 +194,30 @@ test(
 )
 
 test(
-  'shared Herdr candidate gate blocks even synthetic validated registry and complete codec',
-  /** 用完整合成 registry 验证真实共享 Herdr gate 仍拒绝派发和来源凭据。 */ () => {
-    const fixture = backendFixture()
+  'shared provider gate permits only validated fixed provenance and branded production schemas',
+  /** 真实 gate 接纳固定已评审来源，但离线完整根副本不能伪装成生产 Worker 编译结果。 */ () => {
+    const state = backendFixture()
+    assert.equal(providerFor(state.binding, state.context).kind, 'herdr')
+    state.wire.support_status = 'candidate' as any
     assert.throws(
-      /** 直接调用真实 provider gate，防止测试替身掩盖生产关闭状态。 */ () =>
-        providerFor(fixture.binding, fixture.context),
+      /** candidate 即使摘要相同也不能变为执行许可。 */ () => providerFor(state.binding, state.context),
       /provider_support_candidate/
     )
-    const adapter = createHerdrReadonlyAdapter(fixture.backend)
-    const resolved = adapter.resolve(fixture.identity)
-    assert.throws(
-      /** 尝试通过 adapter 编码 ping，检查共享 candidate 硬拒绝。 */ () =>
-        adapter.encodeRequest({ ...fixture.record.native_request, id: fixture.binding.native_request_id }, resolved),
-      /provider_support_candidate/
-    )
-    assert.throws(
-      /** 尝试获取私有证据来源，检查关闭门禁不能被只解析句柄绕过。 */ () => adapter.trustedSource(resolved),
-      /provider_support_candidate/
-    )
-    adapter.release(resolved)
-    assert.throws(
-      /** 释放句柄后再次编码，检查旧 handle 不能复活。 */ () =>
-        adapter.encodeRequest({ ...fixture.record.native_request, id: fixture.binding.native_request_id }, resolved),
-      /native_handle_unavailable/
-    )
+    state.wire.support_status = 'validated'
+    const contract = state.backend.contract(state.binding.contract_ref)!
+    state.backend.contract = /** 完整校验器方法的复制品没有真实编译来源品牌。 */ () => ({
+      wire: contract.wire,
+      schemas: { ...contract.schemas }
+    })
+    const adapter = createHerdrReadonlyAdapter(state.backend)
+    try {
+      assert.throws(
+        /** 生产 resolve 在创建句柄前拒绝未持有品牌的 schema。 */ () => adapter.resolve(state.identity),
+        /herdr_schema_uncompiled/
+      )
+    } finally {
+      adapter.close()
+    }
   }
 )
 
