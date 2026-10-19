@@ -100,15 +100,16 @@ Luvus 没有 `window.*` RPC；窗口选择沿原生 workspace → tab → pane �
 
 | 原生返回 | 坐标与类型 | 后续选择 |
 |---|---|---|
-| `session.snapshot.workspaces[].index`、其 `tabs[].index` | 都是**一基 number**；workspace/tab 行不含稳定 ID | pane 的 `pane_id` 是 string，可原样作为 `pane.get` 的 `pane`；从结果取得 `workspace_id/tab_id` |
+| `session.snapshot.workspaces[].index`、其 `tabs[].index` | 都是**一基 number**；workspace/tab 行不含稳定 ID | `kind:"terminal"` 的 `pane_id` 是 string，可作为 `pane.get` 的 `pane`，从结果取得 `workspace_id/tab_id`；view 的占位 ID 不走此路径 |
 | `workspace.list/get` 的 `workspace`；`pane.list/get`、Agent 行中出现的 `workspace` | **零基十进制 string**；`display_position` 另为显示顺序，不是对象 ID | 使用同一行的 `workspace_id`；不要把 snapshot 的一基 `index` 原样传给 `workspace` |
 | `tab.list/get`、`pane.list/get` 的 `tab` | **一基十进制 string**；tab.list 只列当前 workspace | 使用 `tab_id`；tab.get 同时返回 `workspace_id` |
 
 同一原生状态下，snapshot 的 workspace index 减一才对应 workspace.list 的位置，
 tab index 则同为一基；这只是坐标关系，不能跨变更后用旧位置写入。
 参数 guard 保留显式 number 或十进制 string 位置兼容，原样转发，不替调用者自动
-换算、focus 或重试。主 Agent 应从 `pane.get` 或最新 list/get 获取稳定 ID；没有
-pane 的 snapshot 行应重新发现 workspace，不用标题或旧位置猜测同一对象。
+换算、focus 或重试。主 Agent 应从 terminal `pane.get` 或最新 list/get 获取稳定 ID；
+`kind:"view"` 或没有可解析 terminal pane 的 snapshot 行应重新通过 workspace
+list/get 发现，不用占位 ID、标题或旧位置猜测同一对象。
 
 workspace 的 get/focus/rename/close 接收互斥的 `workspace_id` 或 `workspace`。
 `tab.get` 接收两组独立互斥选择器：`workspace_id/workspace` 与 `tab_id/tab`，可读取
