@@ -55,6 +55,13 @@ export type UpdateErrorCode =
   | 'staging_failed'
   | 'staging_io_pending'
   | 'replacement_unavailable'
+  | 'unsafe_installation'
+  | 'target_changed'
+  | 'candidate_unusable'
+  | 'update_rolled_back'
+  | 'update_recovery_required'
+  | 'update_io_pending'
+  | 'update_cleanup_failed'
 
 export class UpdateError extends Error {
   // 只暴露固定错误码，不回显远端响应、URL 签名、用户路径或底层异常。
@@ -68,6 +75,15 @@ export class UpdateError extends Error {
 export function updateExitCode(error: unknown): number {
   if (!(error instanceof UpdateError)) {
     return 1
+  }
+  if (error.code === 'update_rolled_back') {
+    return 6
+  }
+  if (error.code === 'update_recovery_required') {
+    return 7
+  }
+  if (['unsafe_installation', 'target_changed', 'update_io_pending', 'update_cleanup_failed'].includes(error.code)) {
+    return 4
   }
   if (['invalid_arguments', 'invalid_current_version', 'unsupported_platform'].includes(error.code)) {
     return 2

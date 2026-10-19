@@ -208,3 +208,10 @@ restart 可能直接终止任务，不能称为优雅关闭或原生工作的回
 - [Microsoft: trigger enablement](https://learn.microsoft.com/en-us/windows/win32/taskschd/trigger-enabled)
 - [Microsoft: task schema](https://learn.microsoft.com/en-us/windows/win32/taskschd/task-scheduler-schema)
 - [Microsoft: RegisteredTask.Stop](https://learn.microsoft.com/en-us/windows/win32/taskschd/registeredtask-stop)
+
+## 安装更新会话
+
+`ServiceManager.withBinaryUpdate(executable, operation)` 复用两个既有角色锁，在快照、静止、文件事务和恢复期间与所有正常服务命令互斥。它只处理指向该已验证安装的登记，不重建或清除注册。
+会话提供 `quiesce`、`assertQuiescent` 和 `restore`；原本运行的角色需要独立业务就绪探针，监管 running 不能代替应用就绪。macOS 已加载但停止的 job 缺等价恢复保证时，在变更前拒绝。
+`service_recovery_required` 表示操作需要持久恢复保护：关闭已静止的自有锁句柄并保留锁文件，而不是自动删锁。安装更新的文件边界、回滚、恢复记录和未支持平台见 [自更新模块](UPDATE.md)。
+install/uninstall 的 boot-only 语义不受更新会话改变。
