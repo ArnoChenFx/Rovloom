@@ -27,8 +27,6 @@ export const STREAM_METHODS = new Set([
   'terminal.backend.control'
 ])
 export type ContractData = {
-  bundle: JsonObject
-  documents: Record<string, unknown>
   limits: Limits
   validators: Map<string, ValidateFunction>
   requestMethods: readonly string[]

@@ -8,7 +8,7 @@
 |---|---|---|
 | 原生证据 | 固定 Luvus Linux 契约、RPC/Host/事件/终端输入及离线回放 | 各目标版本/平台、实际客户端、HTTP/OAuth、Herdr 独立证据 |
 | 工具链 | Bun、独立严格类型检查、冻结依赖、模块 build/smoke、隔离验证入口 | 各发行平台验证、服务可执行入口与发行配置 |
-| Native validator | 离线 bundle 编译、完整根/引用/条件校验、多轴分类/权限、raw 范围 grant、opaque permit、响应/事件/控制校验 | 可终止的 schema 编译 CPU/heap 隔离、受信生产分类与来源提供方 |
+| Native validator | Bun Worker 完整离线编译与 standalone 生成、期限/取消/迟到拒绝、同步完整根/引用/条件校验、多轴分类/权限、raw 范围 grant、opaque permit、响应/事件/控制校验 | 受信生产分类与安装来源提供方；任意外部 schema 自动接纳及硬 CPU/heap 隔离不在首版范围 |
 | Wire 2 | 严格 codec/协商、显式 provider/context、内存去重、对象重组、流状态、历史准入/晚到证据计划 | 真认证/WSS、持久化事务、实际发送/重复抑制/资源释放的宿主接线 |
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
@@ -51,7 +51,7 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 
 - 将业务 registry、Store、Router、策略、摘要及句柄统一到 DESIGN 的 provider/binding/contract 模型；保留 Wire/native 显式接缝，避免给旧类型加 optional provider 默认值。
 - 为集成 backend 提供独立当前认证、登记 attempt、双端配置、契约/分类、endpoint 来源、policy、真实确认、custody、可信时间及 durable response anchor。缺任一必要来源拒绝，不从消息构造 true。
-- schema 编译移入可终止的独立 worker，落实 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)的硬时间/heap 预算，超限必须终止并拒绝。CPU/heap 隔离仍待实现；同步检查、快照冻结、结构限额或 Promise 超时均不能替代硬隔离。需同时处理同步 NativeValidator/adapter 与进程内 opaque handle 的边界，不能把跨进程复制对象恢复成许可。只接纳已审核 bundle，不开放任意外部 schema 自动编译。
+- Luvus `compileBundle` 通过 Bun Worker 完成完整编译与官方 standalone 生成；2 秒接纳期限、取消、单在途准入和任务代次拒绝迟到产物。宿主核对固定版本、来源身份、生成选项、摘要、完整导出及 helper 白名单后只加载生成函数，登记本进程 opaque handle；同步 NativeValidator/Wire/事务接口保持不变。只接纳已审核本地安装 bundle，不开放外部 schema 或任意生成代码加载；首版无硬 heap 或物理退出时限保证，边界以 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)为准。角色宿主仍须在就绪前等待工厂，并将关闭/取消信号传入初始化；不能把跨 Worker 复制对象恢复成许可。
 - 确认完全无 bundle 的 raw 路径之前维持拒绝；已有 generic 参数 raw 保留现有约束及实际 validation 标记，不借此降低分类/来源标准。
 
 交付：统一数据模型、可信来源工厂、隔离编译宿主及自动化正反例。Wire 编码与 native 签名只在各自规范维护。

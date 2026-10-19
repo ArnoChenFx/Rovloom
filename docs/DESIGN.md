@@ -159,7 +159,7 @@ Luvus 安装 schema 与 session/Host 在线能力分别核对；Herdr 安装 sch
 
 strict 必须应用完整根、条件和离线引用闭包，并有方法参数约束；generic/unavailable 不能标完整。Owner 显式选择 raw-contract 且有绑定 principal、完整目标、精确方法、版本/revisions/期限的独立 grant 时，只可放宽明确的参数覆盖缺口。保留所有已有约束、有界 envelope、保留字段、来源、传输、安全分类、权限和结果边界；已知参数不合法不能降格放行。整个 bundle 不可用且没有独立受信最小 request/response 契约时仍拒绝；完全无 bundle 的 raw 路径待另行设计。
 
-schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。schema 编译须在可终止的独立 worker 中受硬资源限制：编译时间预算 2 秒、heap 预算 64 MiB；超限终止并返回不可用，不自动放宽。该预算是设计要求，不由结构检查、JSON 快照计量或同步 Promise 超时代替，也不表示宿主已实现 CPU/heap 隔离。
+schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。首版 Luvus 只编译已审核的本地安装 schema：完整预检、Ajv 编译与官方 standalone 生成在同版本 Bun Worker 内执行，宿主只加载受控生成函数，不重编译 schema。编译接纳期限为 2 秒，覆盖启动、生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
 派发与流输入前核对当前双端 binding、策略、分类、能力、epoch、generation 及 deadline；任一失效拒绝，不能透明降级。缓存按完整来源和上下文失效。发现、安全分类、参数覆盖、传输与支持状态分别呈现，不合成一个“支持”标记。
 

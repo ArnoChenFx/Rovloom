@@ -242,17 +242,29 @@ export class LuvusRpcAdapter {
       if (output.exit_code !== 0) {
         throw new LuvusAdapterError('native_schema_exit')
       }
-      const compiled = compileBundle(output.stdout, {
-        identity: {
-          binary_sha256: this.#config.binary_sha256,
-          schema_sha256: createHash('sha256').update(output.stdout).digest('hex'),
-          revision
-        }
-      })
+      const compiled = await compileBundle(
+        output.stdout,
+        {
+          identity: {
+            binary_sha256: this.#config.binary_sha256,
+            schema_sha256: createHash('sha256').update(output.stdout).digest('hex'),
+            revision
+          }
+        },
+        scope.signal
+      )
       if (!compiled.ok) {
         throw new LuvusAdapterError(compiled.error.code)
       }
       aborted(scope.signal)
+      if (this.#closed) {
+        throw new LuvusAdapterError('adapter_closed')
+      }
+      await verifyInstallation(this.#config)
+      aborted(scope.signal)
+      if (this.#closed) {
+        throw new LuvusAdapterError('adapter_closed')
+      }
       return Object.freeze({ bytes: output.stdout, compiled: compiled.value })
     } catch (error) {
       throw this.#safe(error)

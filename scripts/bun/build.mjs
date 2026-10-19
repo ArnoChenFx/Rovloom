@@ -1,6 +1,7 @@
 /** 构建 Bun 模块与内置管理页静态资源，清除旧输出；不启动 Gateway/Connector 或注入测试数据。 */
 import { rmSync } from 'node:fs'
 import { toolchain } from './toolchain.mjs'
+import { compilerWorkerPlugin } from '../native-contract/worker-plugin.mjs'
 import { buildWebui } from './webui.mjs'
 
 toolchain()
@@ -26,7 +27,8 @@ const result = await Bun.build({
   format: 'esm',
   packages: 'external',
   splitting: true,
-  sourcemap: 'external'
+  sourcemap: 'external',
+  plugins: [await compilerWorkerPlugin()]
 })
 if (!result.success) {
   throw new AggregateError(result.logs, 'Bun build failed')

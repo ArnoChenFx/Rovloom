@@ -157,7 +157,7 @@ function syncAliases(b: any): void {
   b.access.descriptor = docs[b.access.descriptor.$id]
 }
 // 构造契约编译场景并阻止网络解析，保留专门的摘要和别名冲突反例。
-function bundleCase(c: any): any {
+async function bundleCase(c: any): Promise<any> {
   const b: any = c.generator ? clone(seeds.get('bundle')) : specimen(c)
   if (c.generator === 'ref_chain_33') {
     const defs = b.documents['https://luvus.dev/protocol/uhp/v1/request.schema.json'].$defs
@@ -183,7 +183,7 @@ function bundleCase(c: any): any {
     throw Error('禁止网络 resolver')
   }) as typeof fetch
   try {
-    const checked = compileBundle(serialized, { identity: expected })
+    const checked = await compileBundle(serialized, { identity: expected })
     assert.equal(requests, 0)
     return checked
   } finally {
@@ -410,14 +410,14 @@ for (const c of matrix.cases.filter(
 )) {
   test(
     `矩阵 ${c.id} ${c.expected.verdict}`,
-    /* 根据场景阶段调用真实编译、校验或授权入口，并核对统一预期。 */ () => {
+    /* 根据场景阶段调用真实编译、校验或授权入口，并核对统一预期。 */ async () => {
       if (c.generator === 'all_generic_methods') {
         genericCases(c)
         return
       }
       let result: any
       if (c.stage === 'bundle') {
-        result = bundleCase(c)
+        result = await bundleCase(c)
       } else if (c.stage === 'capabilities') {
         result = capabilityCase(c)
       } else if (c.stage === 'request') {

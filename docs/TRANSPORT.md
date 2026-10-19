@@ -257,8 +257,11 @@ Connector 复用原 Wire 的方向、完整 binding、当前双端 cancel 权限
 模块可直接组合既有服务 backend：Gateway 接 call_id 与宿主 current principal；Connector
 execute 接完整原生 JSON、AbortSignal 和独立账本固定的 AttemptBinding，宿主据此选择固定
 provider adapter，不能从原生 JSON 的路径/endpoint 或自报 provider 选择执行来源。本模块没有
-第二套 CLI。schema 的硬 CPU/heap worker 隔离仍未产品化，本通道与身份库不解除该执行门禁，
-不能仅因连接 ready 或 fixture 编译成功而宣称生产 native 执行可用。
+第二套 CLI。首版 Luvus 只编译宿主已审核的本地安装 schema；Bun Worker 完整编译并生成
+standalone，以 2 秒逻辑接纳期限、取消及迟到拒绝控制初始化，宿主同步执行已接纳的生成函数。
+这不提供硬 heap 上限或 Worker 在指定时刻物理退出的保证，详见
+[编译接纳边界](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。连接 ready 或 fixture
+编译成功仍不能替代生产宿主所需的来源、分类与执行授权。
 
 当前业务范围为普通 RPC、逐调用观察取消及已协商响应对象。流、请求对象和 schema 分发尚未
 接到原生执行，不得广告为这些能力已可用。
