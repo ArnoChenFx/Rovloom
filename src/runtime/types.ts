@@ -61,7 +61,8 @@ export type ConnectorRuntimeOptions = Readonly<{
   // 每个 epoch 使用独立 backend；来源由可信宿主提供，不重复打开 Gateway writer。
   session(connection: Connection): Readonly<{
     backend: NativeWireBackend
-    config: LuvusLocalConfig
+    // 当前宿主只接已验证 IPC；CLI proxy 需要另行交付可信归属，不能借 verifyPeer 放行。
+    config: LuvusLocalConfig & { readonly transport: 'ipc' }
     // 受控来源可在实际准入后按原 binding 延迟绑定委托，避免为启动会话编造 call/attempt。
     delegation: LuvusBoundDelegation | ((binding: AttemptBinding) => LuvusBoundDelegation)
     claims: LuvusDispatchClaims

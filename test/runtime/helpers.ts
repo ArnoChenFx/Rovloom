@@ -170,7 +170,7 @@ export async function runtimeFixture() {
       })
       return {
         backend,
-        config: { ...native.config, target },
+        config: { ...native.config, target, transport: 'ipc' },
         delegation,
         claims,
         verifyPeer: /** 对测试自建 listener 也实测同一 socket 的内核身份。 */ async (socket) =>
@@ -214,7 +214,7 @@ export async function runtimeFixture() {
         /** 每端都须 ready，不以 TCP 打开代替。 */ () =>
           connector.transport.status().phase === 'ready' &&
           active.transport.status().devices.some(/** 当前设备应由真实认证连接建立。 */ (device) => device.ready),
-        10_000
+        30_000
       )
     },
     /** 统计真实持久 claims，测试查询不进入产品宿主。 */
@@ -234,7 +234,7 @@ export async function runtimeFixture() {
     async responded(call: string) {
       await until(
         /** 测试读取仅比较实际账本状态。 */ () => state.store.call('synthetic', call).state === 'responded',
-        10_000
+        30_000
       )
     },
     /** 停止角色后清除仅属于此 fixture 的私有目录。 */

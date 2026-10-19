@@ -14,7 +14,9 @@ const options: DevelopmentLuvusOptions = { acknowledge_nonproduction: true, toke
 
 /** 创建仅含不可执行标记脚本和空白隔离目录的测试夹具，绝不准备原生凭据。 */
 function fixture() {
-  const root = mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.runtime-native-'))
+  const root = mkdtempSync(
+    join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.runtime-native-')
+  )
   const home = join(root, 'home')
   const cwd = join(root, 'project')
   const state = join(root, 'state')

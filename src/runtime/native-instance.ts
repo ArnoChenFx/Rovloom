@@ -47,7 +47,7 @@ export type LuvusIssuanceMetadata = Readonly<{
 }>
 export interface OwnedLuvusInstance {
   readonly [owned]: true
-  readonly config: LuvusLocalConfig
+  readonly config: LuvusLocalConfig & { readonly transport: 'ipc' }
   readonly contract: NativeContractRecord
   readonly issuance: LuvusIssuanceMetadata
   source(binding: AttemptBinding): TrustedNativeContext
@@ -64,7 +64,10 @@ function hash(value: string | Uint8Array): string {
 }
 
 /** 固定本地开发 opt-in、官方版本与最小 scope；不接受生产/CLI 隐式降级。 */
-function developmentConfig(config: LuvusLocalConfig, options: DevelopmentLuvusOptions): LuvusLocalConfig {
+function developmentConfig(
+  config: LuvusLocalConfig,
+  options: DevelopmentLuvusOptions
+): LuvusLocalConfig & { readonly transport: 'ipc' } {
   if (
     options?.acknowledge_nonproduction !== true ||
     !Number.isSafeInteger(options.token_ttl_s) ||
@@ -99,7 +102,7 @@ function developmentConfig(config: LuvusLocalConfig, options: DevelopmentLuvusOp
   if (new Set(roots).size !== roots.length) {
     throw new LuvusAdapterError('development_roots_overlap')
   }
-  return fixed
+  return fixed as LuvusLocalConfig & { readonly transport: 'ipc' }
 }
 
 /** 在任何 CLI/server 启动前拒绝已有配置、凭据或工作内容，不读取这些文件的正文。 */
@@ -179,7 +182,7 @@ function resultObject(value: Record<string, unknown>): Record<string, unknown> {
 /** 持有真实 child、peer 证据和已签发的内存 token；同形 JSON 不能构造此对象。 */
 class DevelopmentInstance implements OwnedLuvusInstance {
   readonly [owned] = true as const
-  readonly config: LuvusLocalConfig
+  readonly config: LuvusLocalConfig & { readonly transport: 'ipc' }
   readonly contract: NativeContractRecord
   readonly issuance: LuvusIssuanceMetadata
   readonly #process: OwnedNativeProcess
@@ -194,7 +197,7 @@ class DevelopmentInstance implements OwnedLuvusInstance {
 
   /** 仅工厂可交付经过真实 bootstrap 的实例和不可续期签发元数据。 */
   constructor(
-    config: LuvusLocalConfig,
+    config: LuvusLocalConfig & { readonly transport: 'ipc' },
     child: OwnedNativeProcess,
     endpoint: EndpointIdentity,
     markers: readonly [string, string][],

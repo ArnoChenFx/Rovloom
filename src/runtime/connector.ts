@@ -103,6 +103,9 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
     }
 
     try {
+      if (resource.config.transport !== 'ipc') {
+        fail('connector_runtime_transport_unsupported')
+      }
       if (backends.has(resource.backend)) {
         fail('connector_backend_reused')
       }

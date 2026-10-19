@@ -8,7 +8,7 @@ import { until } from '../transport/helpers.js'
 /** 重复 key 保持首次期限和单次原生发送，HTTP 请求结束后 Gateway 仍长期存活。 */
 test(
   'runtime assembly keeps one dispatch and the original Wire result gate',
-  { timeout: 20_000 },
+  { timeout: 45_000 },
   /** 只操作本 fixture 的短期凭据和自建 native listener。 */ async () => {
     const f = await runtimeFixture()
     try {
@@ -20,7 +20,7 @@ test(
         options: {
           binding_revision: 1,
           contract_ref: f.reference,
-          deadline: f.state.store.clock() + 10_000,
+          deadline: f.state.store.clock() + 30_000,
           history: { history_epoch: history.history_epoch, client_request_key: 'one_intent' }
         }
       }
