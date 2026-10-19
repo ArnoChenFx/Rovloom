@@ -369,14 +369,19 @@ test(
         assert.equal(first.call_id, again.call_id)
         assert.equal(again.executions, 1)
         const stop = new AbortController()
-        const pending = client.callTool(
-          { name: 'runtime_call', arguments: { ...call('stub.slow'), wait_ms: 1000 } },
-          undefined,
-          { signal: stop.signal }
-        )
+        const pending = client
+          .callTool({ name: 'runtime_call', arguments: { ...call('stub.slow'), wait_ms: 1000 } }, undefined, {
+            signal: stop.signal
+          })
+          .then(
+            /* 立即观察意外成功，不能把尚未挂处理器的Promise留在等待窗口中。 */ () => ({ rejected: false }),
+            /* 清理信号也可能在下方短等期间触发；立即收敛拒绝，后续仍断言请求确实被拒绝。 */ () => ({
+              rejected: true
+            })
+          )
         await new Promise(/* 给慢调用建立等待的时间，再发送标准客户端取消。 */ (resolve) => setTimeout(resolve, 40))
         stop.abort()
-        await assert.rejects(pending)
+        assert.equal((await pending).rejected, true)
         await new Promise(
           /* 等待受控执行计时器完成，证明前端取消未误杀该测试工作。 */ (resolve) => setTimeout(resolve, 150)
         )
