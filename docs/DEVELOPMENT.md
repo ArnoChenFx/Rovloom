@@ -33,7 +33,7 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、Herdr、webui、admin 与独立 service 十三个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport、Herdr、webui、admin、独立 service 与 update 十四个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
