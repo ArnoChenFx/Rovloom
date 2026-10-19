@@ -799,8 +799,47 @@ export function createGateway(options: GatewayOptions) {
             continue
           }
           assertPeer(peer)
-          for (const [call, tracked] of admissions) {
-            if (tracked.peer === peer) {
+          const candidates = [...admissions]
+            .filter(
+              /** 只观察此 peer 仍需推进的原记录，已广播 fence 的记录沿用原跳过语义。 */
+              ([, tracked]) => tracked.peer === peer && !tracked.record.context!.fenced
+            )
+            .map(
+              /** 固定本批追踪对象与原 record 引用，外部回调改变任一项即不沿用快照。 */
+              ([call, tracked]) => ({
+                call,
+                tracked,
+                record: tracked.record,
+                context: tracked.record.context!,
+                sequence: tracked.record.context!.sequence
+              })
+            )
+          if (candidates.length) {
+            const observed = options.store.responseAnchors(
+              candidates.map(
+                /** 观察原已登记 binding，不从快照构造新执行身份。 */ (candidate) => candidate.record.binding
+              )
+            )
+            let unchangedOnly = true
+            for (let index = 0; index < candidates.length; index++) {
+              const { call, tracked, record, context, sequence } = candidates[index]!
+              const entry = observed.entries[index]
+              if (
+                unchangedOnly &&
+                !peer.closed &&
+                admissions.get(call) === tracked &&
+                tracked.record === record &&
+                record.context === context &&
+                context.sequence === sequence &&
+                !tracked.updating &&
+                entry?.available &&
+                observed.now < record.dedup_expires_at &&
+                boundedJson(entry.anchor) === boundedJson(record.context!.anchor)
+              ) {
+                continue
+              }
+              // 原刷新可能经发送/认证等宿主回调重入 Store；此后整批余项只走新鲜逐项复核。
+              unchangedOnly = false
               refreshAdmission(call)
             }
           }
