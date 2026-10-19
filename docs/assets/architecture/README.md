@@ -7,11 +7,11 @@ fence together; keep node IDs, roles and edges consistent across languages.
 
 源文件与双语 README 中的 Mermaid 代码块同步维护；两种语言的节点 ID、职责与连线须一致。
 
-The layout has three tiers: clients at the top, one Gateway in the middle,
+The layout has three tiers: AI Agent / AI Bot and CLI at the top, one Gateway in the middle,
 and separate devices below. Each device has one identity and one outbound
 Connector, with multiple provider adapters bound to local Luvus or Herdr instances.
 
-图分三层：上方客户端、中间一个 Gateway、下方多台设备。每设备一套身份、一个主动出站
+图分三层：上方 AI Agent / AI Bot 与 CLI、中间一个 Gateway、下方多台设备。每设备一套身份、一个主动出站
 Connector；多个 Provider Adapter 分别绑定本地 Luvus 或 Herdr 实例。
 
 - Dashed arrows show **outbound connection initiation**, from Connector to Gateway.

@@ -6,11 +6,9 @@
 
 # Rovloom
 
-[MIT 许可证](LICENSE)
-
-让 MCP Agent 通过统一入口访问多台设备上的本地 Luvus 与 Herdr runtime。
+让 AI Agent / AI Bot 通过 MCP 统一入口访问多台设备上的本地 Luvus 与 Herdr runtime。
 Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构，
-让 runtime 留在各自机器上，客户端通过同一入口访问。
+让 runtime 留在各自机器上，AI Agent / AI Bot 通过同一入口访问。
 
 **当前可用范围：** Linux 源码构建预览，尚未提供可部署的 Gateway/Connector 服务或远程 runtime 执行。
 
@@ -25,15 +23,16 @@ Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构�
 
 ## 架构
 
-上层是客户端，中层是 Gateway；下层每台设备运行一个 Connector 与本地 Provider Adapter。
+上层是 AI Agent / AI Bot 与 CLI，中层是 Gateway；下层每台设备运行一个 Connector 与本地 Provider Adapter。
 同一个 Connector 可以管理多个 runtime 实例。
 
 <!-- Keep this fence identical to docs/assets/architecture/target.zh.mmd. -->
+
 ```mermaid
 flowchart TB
-  subgraph CLIENTS["客户端 / CLI / MCP"]
+  subgraph ACCESS["接入层"]
     direction LR
-    MCP["MCP 客户端 / Agent"]
+    AI["AI Agent / AI Bot"]
     CLI["CLI"]
   end
 
@@ -61,7 +60,7 @@ flowchart TB
     PB <--> HB
   end
 
-  MCP <-->|"MCP 请求 / 结果"| GW
+  AI <-->|"MCP 请求 / 结果"| GW
   CLI <-->|"命令 / 结果"| GW
   GW <-->|"请求 ↓ · 结果 / 事件 ↑"| CA
   GW <-->|"请求 ↓ · 结果 / 事件 ↑"| CB
@@ -89,3 +88,7 @@ bun run build
 - [实施路线](docs/IMPLEMENTATION-PLAN.md)
 - [管理 UI 设计](docs/GATEWAY-WEBUI.md)
 - [开发与验证](docs/DEVELOPMENT.md)
+
+## 许可证
+
+[MIT 许可证](LICENSE)
