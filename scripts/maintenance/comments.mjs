@@ -30,6 +30,16 @@ const wrapperKinds = new Set([
 ])
 const chinese = /\p{Script=Han}/u
 
+// 保守覆盖 Python glob 的点文件与 Windows 大小写匹配，是否检查仍由原 Python 发现器决定。
+function mayBePythonSource(path) {
+  return path.toLowerCase().endsWith('.py')
+}
+
+// 虚拟文件系统、项目清单和原生诊断统一使用 TypeScript 的正斜杠路径键。
+function parserPath(path) {
+  return path.replaceAll('\\', '/')
+}
+
 // 只遍历维护根目录中的源码；不依赖 Git，也不跟随可能越出根目录的符号链接。
 export function maintainedFiles(root) {
   if (!statSync(root).isDirectory()) {
@@ -42,7 +52,7 @@ export function maintainedFiles(root) {
       const path = join(directory, entry.name)
       if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '__pycache__') {
         walk(path)
-      } else if (entry.isFile() && (javascriptExtensions.has(extname(path)) || extname(path) === '.py')) {
+      } else if (entry.isFile() && (javascriptExtensions.has(extname(path)) || mayBePythonSource(path))) {
         files.push(path)
       }
     }
@@ -68,10 +78,19 @@ export async function parseJavaScriptSources(sources) {
     return new Map()
   }
   const config = '/__rovloom_comment_check__/tsconfig.json'
-  const files = Object.fromEntries(sources)
+  const files = {}
+  const originalPaths = new Map()
+  for (const [path, source] of sources) {
+    const normalized = parserPath(path)
+    if (originalPaths.has(normalized)) {
+      throw new Error(`Duplicate normalized comment-check path: ${normalized}`)
+    }
+    files[normalized] = source
+    originalPaths.set(normalized, path)
+  }
   files[config] = JSON.stringify({
     compilerOptions: { allowJs: true, checkJs: false, noLib: true, noResolve: true, types: [], target: 'ESNext' },
-    files: [...sources.keys()]
+    files: [...originalPaths.keys()]
   })
   const api = new API({ cwd: dirname(config), fs: createVirtualFileSystem(files) })
   try {
@@ -80,15 +99,32 @@ export async function parseJavaScriptSources(sources) {
     if (!project) {
       throw new Error('TypeScript did not create the comment-check project')
     }
-    const result = new Map()
-    for (const path of sources.keys()) {
-      const sourceFile = await project.program.getSourceFile(path)
-      if (!sourceFile) {
-        throw new Error(`TypeScript did not parse ${path}`)
+    // 整个项目只取一次语法诊断，避免每个文件重复往返原生解析进程；所有诊断仍逐文件保留。
+    const diagnostics = new Map()
+    for (const diagnostic of await project.program.getSyntacticDiagnostics()) {
+      const path = parserPath(diagnostic.fileName)
+      if (!originalPaths.has(path)) {
+        throw new Error('TypeScript returned a syntactic diagnostic outside the comment-check project')
       }
-      result.set(path, { sourceFile, diagnostics: await project.program.getSyntacticDiagnostics(path) })
+      let entries = diagnostics.get(path)
+      if (!entries) {
+        entries = []
+        diagnostics.set(path, entries)
+      }
+      entries.push(diagnostic)
     }
-    return result
+    const entries = await Promise.all(
+      [...originalPaths].map(
+        /* 并发读取同一快照的独立 AST，返回键保持原输入路径，不重复启动解析器。 */ async ([path, original]) => {
+          const sourceFile = await project.program.getSourceFile(path)
+          if (!sourceFile) {
+            throw new Error(`TypeScript did not parse ${path}`)
+          }
+          return [original, { sourceFile, diagnostics: diagnostics.get(path) ?? [] }]
+        }
+      )
+    )
+    return new Map(entries)
   } finally {
     await api.close()
   }
@@ -264,7 +300,8 @@ export function semanticTree(sourceFile) {
 export async function checkRepository(root = repositoryRoot) {
   root = resolve(root)
   const sources = new Map()
-  for (const path of maintainedFiles(root)) {
+  const paths = maintainedFiles(root)
+  for (const path of paths) {
     if (javascriptExtensions.has(extname(path))) {
       sources.set(path, readFileSync(path, 'utf8'))
     }
@@ -276,21 +313,24 @@ export async function checkRepository(root = repositoryRoot) {
     result.functions += checked.functions
     result.errors.push(...checked.errors)
   }
-  const python = spawnSync(
-    'python3',
-    [fileURLToPath(new URL('./check_comments.py', import.meta.url)), root, '--json'],
-    {
-      encoding: 'utf8',
-      timeout: 30_000
+  // 同次完整发现没有 Python 文件时，无需为零个输入再启动检查器；有文件时保留原完整扫描与时限。
+  if (paths.some(mayBePythonSource)) {
+    const python = spawnSync(
+      'python3',
+      [fileURLToPath(new URL('./check_comments.py', import.meta.url)), root, '--json'],
+      {
+        encoding: 'utf8',
+        timeout: 30_000
+      }
+    )
+    if (python.error || ![0, 1].includes(python.status)) {
+      throw new Error(`Python comment checker failed: ${python.error?.message ?? python.stderr}`)
     }
-  )
-  if (python.error || ![0, 1].includes(python.status)) {
-    throw new Error(`Python comment checker failed: ${python.error?.message ?? python.stderr}`)
+    const checked = JSON.parse(python.stdout)
+    result.files += checked.files
+    result.functions += checked.functions
+    result.errors.push(...checked.errors)
   }
-  const checked = JSON.parse(python.stdout)
-  result.files += checked.files
-  result.functions += checked.functions
-  result.errors.push(...checked.errors)
   for (const error of result.errors) {
     error.path = relative(root, error.path).split('\\').join('/')
   }
