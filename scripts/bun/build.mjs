@@ -18,6 +18,7 @@ const result = await Bun.build({
     'src/integration/persistence.ts',
     'src/transport/index.ts',
     'src/runtime/index.ts',
+    'src/connector/luvus/index.ts',
     'src/connector/herdr/readonly.ts',
     'src/webui/index.ts',
     'src/admin/index.ts',
