@@ -80,15 +80,31 @@ export async function parseJavaScriptSources(sources) {
     if (!project) {
       throw new Error('TypeScript did not create the comment-check project')
     }
-    const result = new Map()
-    for (const path of sources.keys()) {
-      const sourceFile = await project.program.getSourceFile(path)
-      if (!sourceFile) {
-        throw new Error(`TypeScript did not parse ${path}`)
+    // 整个项目只取一次语法诊断，避免每个文件重复往返原生解析进程；所有诊断仍逐文件保留。
+    const diagnostics = new Map()
+    for (const diagnostic of await project.program.getSyntacticDiagnostics()) {
+      if (!sources.has(diagnostic.fileName)) {
+        throw new Error('TypeScript returned a syntactic diagnostic outside the comment-check project')
       }
-      result.set(path, { sourceFile, diagnostics: await project.program.getSyntacticDiagnostics(path) })
+      let entries = diagnostics.get(diagnostic.fileName)
+      if (!entries) {
+        entries = []
+        diagnostics.set(diagnostic.fileName, entries)
+      }
+      entries.push(diagnostic)
     }
-    return result
+    const entries = await Promise.all(
+      [...sources.keys()].map(
+        /* 并发读取同一快照的独立 AST，结果顺序仍按输入文件固定，不重复启动解析器。 */ async (path) => {
+          const sourceFile = await project.program.getSourceFile(path)
+          if (!sourceFile) {
+            throw new Error(`TypeScript did not parse ${path}`)
+          }
+          return [path, { sourceFile, diagnostics: diagnostics.get(path) ?? [] }]
+        }
+      )
+    )
+    return new Map(entries)
   } finally {
     await api.close()
   }
@@ -264,7 +280,8 @@ export function semanticTree(sourceFile) {
 export async function checkRepository(root = repositoryRoot) {
   root = resolve(root)
   const sources = new Map()
-  for (const path of maintainedFiles(root)) {
+  const paths = maintainedFiles(root)
+  for (const path of paths) {
     if (javascriptExtensions.has(extname(path))) {
       sources.set(path, readFileSync(path, 'utf8'))
     }
@@ -276,21 +293,26 @@ export async function checkRepository(root = repositoryRoot) {
     result.functions += checked.functions
     result.errors.push(...checked.errors)
   }
-  const python = spawnSync(
-    'python3',
-    [fileURLToPath(new URL('./check_comments.py', import.meta.url)), root, '--json'],
-    {
-      encoding: 'utf8',
-      timeout: 30_000
+  // 同次完整发现没有 Python 文件时，无需为零个输入再启动检查器；有文件时保留原完整扫描与时限。
+  if (
+    paths.some(/* Python 检查只能由实际维护文件决定，目录名或 Git 状态不能豁免。 */ (path) => extname(path) === '.py')
+  ) {
+    const python = spawnSync(
+      'python3',
+      [fileURLToPath(new URL('./check_comments.py', import.meta.url)), root, '--json'],
+      {
+        encoding: 'utf8',
+        timeout: 30_000
+      }
+    )
+    if (python.error || ![0, 1].includes(python.status)) {
+      throw new Error(`Python comment checker failed: ${python.error?.message ?? python.stderr}`)
     }
-  )
-  if (python.error || ![0, 1].includes(python.status)) {
-    throw new Error(`Python comment checker failed: ${python.error?.message ?? python.stderr}`)
+    const checked = JSON.parse(python.stdout)
+    result.files += checked.files
+    result.functions += checked.functions
+    result.errors.push(...checked.errors)
   }
-  const checked = JSON.parse(python.stdout)
-  result.files += checked.files
-  result.functions += checked.functions
-  result.errors.push(...checked.errors)
   for (const error of result.errors) {
     error.path = relative(root, error.path).split('\\').join('/')
   }

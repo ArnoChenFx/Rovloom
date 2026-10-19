@@ -182,6 +182,31 @@ test(
 )
 
 test(
+  'batched syntax diagnostics stay attached to every affected source file',
+  /* 多文件批量取诊断仍逐个保留错误，正确文件不能借用或掩盖相邻错误。 */ async () => {
+    const sources = new Map([
+      ['/__comment_regression__/valid.ts', header + 'export const value = 1\n'],
+      ['/__comment_regression__/first.ts', header + 'const = invalid\n'],
+      ['/__comment_regression__/second.ts', header + 'function broken( {\n']
+    ])
+    const parsed = await parseJavaScriptSources(sources)
+    assert.equal(parsed.size, 3)
+    for (const [path, { sourceFile, diagnostics }] of parsed) {
+      const checked = inspectJavaScript(sourceFile, diagnostics)
+      if (path.endsWith('/valid.ts')) {
+        assert.deepEqual(checked.errors, [])
+      } else {
+        assert(diagnostics.length > 0)
+        assert(
+          checked.errors.some(/* 每个损坏输入均独立触发原语法门禁。 */ (error) => error.message.startsWith('syntax TS'))
+        )
+        assert(checked.errors.every(/* 诊断来源不得错配到其它文件。 */ (error) => error.path === path))
+      }
+    }
+  }
+)
+
+test(
   'the module responsibility block is not a first-function description',
   /* 文件职责与函数职责分别检查。 */ async () => {
     const result = await inspect('// 维护模块职责。\nfunction first() {}\n')
