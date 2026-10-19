@@ -1,4 +1,4 @@
-// 复用宿主验收传入的真实原 Wire RPC，只检查本轮空白实例的稳定对象选择；不启动模型或重放失败请求。
+// 消费验收传入的真实原生 RPC，只检查本轮空白实例的稳定对象选择；不启动模型或重放失败请求。
 import assert from 'node:assert/strict'
 
 /** 每次变更使用刚发现的稳定 ID 和原 revision；位置移动、跨 workspace 与旧 revision 必须保持原生语义。 */

@@ -167,27 +167,28 @@ Wire 执行一次 `agent.start`、读取状态、提交一次 prompt、读取真
 终端身份。报告里的 `queued` 只表示原生输入准入，`model_reply_verified:false`
 明确表示尚未证明模型回复；该模式也不把终端回显算作两轮上下文。
 
-稳定 ID 的独立复核也使用同一版本化维护入口。完成上述 build 后执行：
+稳定 ID 的独立原生复核使用版本化维护入口。完成上述 build 后执行：
 
 ```sh
-bun --no-env-file scripts/runtime/verify-luvus-operations.mjs \
+bun --no-env-file scripts/runtime/verify-luvus-stable-selection.mjs \
   --binary /absolute/protected/luvus \
   --temporary-parent /absolute/protected/parent \
-  --acknowledge-nonproduction \
-  --stable-selection
+  --acknowledge-nonproduction
 ```
 
 该模式在本轮新建空白 root 中运行窗口/pane/Agent 发现及缺失 Agent 原生错误检查，
-再经同一认证 WSS、唯一 Store/Router 和原 Wire 读门禁复跑稳定选择：前项关闭后的
+再用固定官方 `uhp proxy` 逐项复跑稳定选择：前项关闭后的
 workspace/tab ID、原生旧 revision 冲突、跨 workspace tab 写入的 not_found、其它对象
 不变，以及 terminal snapshot pane 解析稳定 ID。代码位于
 [luvus-stable-selection.mjs](../scripts/runtime/luvus-stable-selection.mjs)，不依赖作者的
 `/tmp` 文件或固定机器路径。成功报告的 `stable_selection` 包含逐项检查和实际 RPC
-计数；窗口数量会影响坐标检查数量。`model_requests:0`、`tokens_issued:0` 仅描述该
-稳定选择模式，它拒绝与 `--opencode-binary` 同用，不启动 Agent、不提交 prompt，
+计数；窗口数量会影响坐标检查数量。该入口报告明确为 `native_only`，不建立
+Gateway、设备认证、claims 或 Wire 结果句柄，不替代上面的真实 WSS 验收。
+`model_requests:0`、`tokens_issued:0` 仅描述该入口；它不接受 OpenCode 选项，不启动 Agent、不提交 prompt，
 不连接模型端点，不将空 Agent 列表或状态发现算作真实模型两轮验收。
 
 仅接受明确的固定官方 0.14.3 binary 和受保护临时父目录，使用自己的临时 HOME，
 不读取产品配置或用户会话。每项失败直接结束，不重放或更新原 revision；退出后按
-现有受控 child 清理流程释放资源，退出未确认时保留本轮 root。只打印安全检查名和
-耗时，配置、凭据、数据库及原生正文不作为验收材料上传。
+现有受控 child 清理流程释放资源，退出未确认时保留本轮 root。每个 proxy 调用固定
+10 秒、1 MiB 限额，并校验原 ID 与受控安装 schema；不重试。只打印安全检查名和
+计数，配置、凭据、数据库及原生正文不作为验收材料上传。
