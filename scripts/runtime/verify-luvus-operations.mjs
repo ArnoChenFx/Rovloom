@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createManagedSmokeCleanup } from './managed-smoke-cleanup.mjs'
+import { prepareIsolatedOpenCode } from './opencode-smoke-setup.mjs'
 import {
   openGatewayState,
   initializeManagedLuvusRoot,
@@ -23,6 +24,7 @@ function argumentsForSmoke() {
   const { values } = parseArgs({
     options: {
       binary: { type: 'string' },
+      'opencode-binary': { type: 'string' },
       'temporary-parent': { type: 'string' },
       'acknowledge-nonproduction': { type: 'boolean' }
     }
@@ -30,7 +32,11 @@ function argumentsForSmoke() {
   if (!values['acknowledge-nonproduction']) {
     throw new Error('nonproduction_acknowledgement_required')
   }
-  for (const path of [values.binary, values['temporary-parent']]) {
+  for (const path of [
+    values.binary,
+    values['temporary-parent'],
+    ...(values['opencode-binary'] ? [values['opencode-binary']] : [])
+  ]) {
     if (!path || !isAbsolute(path) || normalize(path) !== path) {
       throw new Error('canonical_absolute_path_required')
     }
@@ -51,6 +57,7 @@ let connector
 let stage = 'initialize'
 let report
 let lastNativeError
+let agentInputOutput
 try {
   for (const name of ['gateway', 'home', 'state', 'project', 'control', 'connector']) {
     mkdirSync(join(root, name), { mode: 0o700 })
@@ -103,6 +110,14 @@ try {
     config,
     custody_policy: { scopes: ['read'], methods: ['automation.list'], max_token_ttl_s: 120 }
   })
+  if (paths['opencode-binary']) {
+    stage = 'prepare_isolated_opencode'
+    await prepareIsolatedOpenCode({
+      binary: paths['opencode-binary'],
+      home: config.home,
+      state_root: config.state_root
+    })
+  }
   const caller = {
     id: 'isolated_operations_caller',
     policy: {
@@ -298,12 +313,65 @@ try {
   const rename = await rpc('pane.rename', { pane, name: 'isolated-native-selection' })
   assert(!rename.error)
   checks.push('native_pane_management')
+  if (paths['opencode-binary']) {
+    const start = await rpc('agent.start', {
+      name: 'lab-opencode',
+      kind: 'opencode',
+      pane,
+      args: ['--model', 'opencode/big-pickle', '--agent', 'build'],
+      timeout_s: 5
+    })
+    assert(!start.error)
+    checks.push('real_opencode_start_once')
+  }
   const agents = await rpc('agent.list', {})
   assert(!agents.error && Array.isArray(agents.result.agents))
   checks.push('native_agent_discovery')
   const sessions = await rpc('agent.sessions', {})
   assert(!sessions.error)
   checks.push('native_agent_session_discovery')
+  if (paths['opencode-binary']) {
+    const selectedAgent = agents.result.agents.find(
+      /* 只选择本次显式启动的同一 pane/名称，不从最近 Agent 推测。 */ (row) =>
+        row.name === 'lab-opencode' && String(row.pane) === pane
+    )
+    assert(selectedAgent && selectedAgent.agent === 'opencode' && typeof selectedAgent.terminal_id === 'string')
+    const selectedStatus = await rpc('agent.get', { target: 'lab-opencode' })
+    assert(!selectedStatus.error)
+    checks.push('real_agent_selected_native_status')
+    const prompt = await rpc('agent.prompt', {
+      target: 'lab-opencode',
+      terminal_id: selectedAgent.terminal_id,
+      text: 'Return exactly ROVLOOM_NATIVE_INPUT_PROBE. Do not run commands or access files.',
+      strict: false
+    })
+    assert(!prompt.error && prompt.result.submitted === true)
+    checks.push('real_agent_prompt_queued_once')
+    const output = await rpc('agent.read', { target: 'lab-opencode', lines: 40, source: 'recent' })
+    assert(!output.error && typeof output.result.text === 'string')
+    assert.equal(output.result.terminal_id, selectedAgent.terminal_id)
+    checks.push('real_agent_native_output_read')
+    const after = await rpc('agent.list', {})
+    const same = after.result.agents.find(
+      /* 输入后仍要求原 pane、名称和终端身份；null session 保留未知。 */ (row) =>
+        row.name === selectedAgent.name &&
+        row.pane === selectedAgent.pane &&
+        row.terminal_id === selectedAgent.terminal_id
+    )
+    assert(same)
+    if (selectedAgent.session !== null && selectedAgent.session !== undefined) {
+      assert.equal(same.session, selectedAgent.session)
+    }
+    checks.push('real_agent_input_output_keeps_identity')
+    agentInputOutput = {
+      queued: true,
+      output_bytes: Buffer.byteLength(output.result.text),
+      session_known: typeof same.session === 'string',
+      native_state: same.status,
+      native_state_source: same.state_source,
+      model_reply_verified: false
+    }
+  }
   const missing = await rpc('agent.get', { target: 'never-created-isolated-agent' })
   assert(missing.error)
   checks.push('missing_agent_is_native_error')
@@ -336,7 +404,8 @@ try {
     timings,
     agent_count: agents.result.agents.length,
     agent_state_source: 'native_response',
-    conversation: 'not_exercised_no_real_agent_configured',
+    conversation: agentInputOutput ? 'not_verified_native_input_output_only' : 'not_exercised_no_real_agent_configured',
+    agent_input_output: agentInputOutput,
     user_sessions_used: false,
     paid_fallback: false
   }

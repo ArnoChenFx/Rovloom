@@ -115,3 +115,10 @@ bun --no-env-file scripts/runtime/verify-luvus-operations.mjs \
 Agent，因此不代表同 session 真实模型两轮验收。当前工厂是明确的同机 Gateway
 attach + Connector managed 组合；跨机 Gateway 的独立 native 来源不能由本机
 `/proc` 或设备广告补造。
+
+同一维护脚本可额外传 `--opencode-binary /absolute/protected/opencode`，固定核对官方
+OpenCode 1.19.3 的安装摘要。它只在本轮临时 HOME 写入免费 Big Pickle 白名单和
+固定 Agent 模型，保留保存环境原代理及证书变量，不读取用户账户；随后经同一原
+Wire 执行一次 `agent.start`、读取状态、提交一次 prompt、读取真实输出并核对原
+终端身份。报告里的 `queued` 只表示原生输入准入，`model_reply_verified:false`
+明确表示尚未证明模型回复；该模式也不把终端回显算作两轮上下文。
