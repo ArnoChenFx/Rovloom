@@ -8,7 +8,7 @@ const output = await buildStandalone({
   workers: ['src/native-contract/compiler-worker.ts'],
   probe: 'native-contract'
 })
-const [result] = smokeStandalone(output.binary, [{ args: [], code: 0, stderr: /^$/u }])
+const [result] = await smokeStandalone(output.binary, [{ args: [], code: 0, stderr: /^$/u }])
 assert.deepEqual(JSON.parse(result.stdout), {
   scope: 'native-contract-probe',
   documents: 29,

@@ -202,7 +202,13 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
           throw new ServiceError('service_conflict')
         }
         return spec
-          ? { spec, state: info.state, enabled: await launchEnabled(role), exitCode: info.exitCode }
+          ? {
+              spec,
+              state: info.state,
+              enabled: await launchEnabled(role),
+              exitCode: info.exitCode,
+              loaded: info.loaded
+            }
           : undefined
       }
       const result = await run({
