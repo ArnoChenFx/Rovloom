@@ -233,7 +233,18 @@ export async function runtimeFixture() {
     /** 有界等待真实 Gateway 账本回应；回调不授予读取原文权限。 */
     async responded(call: string) {
       await until(
-        /** 测试读取仅比较实际账本状态。 */ () => state.store.call('synthetic', call).state === 'responded',
+        /** 未知终态立即给出仅含 fixture 状态计数的诊断，不输出请求、响应或凭据。 */ () => {
+          const current = state.store.call('synthetic', call)
+          if (current.state === 'outcome_unknown') {
+            throw new Error(
+              'fixture_outcome_unknown_native_' +
+                native.state.responses +
+                '_connector_' +
+                connector.transport.status().phase
+            )
+          }
+          return current.state === 'responded'
+        },
         30_000
       )
     },

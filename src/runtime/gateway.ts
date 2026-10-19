@@ -51,7 +51,11 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
     if (closing) {
       throw new GatewayError('runtime_closed')
     }
-    const configured = providers.get(key(target))?.binding
+    const entry = providers.get(key(target))
+    if (!entry || boundedJson(target) !== boundedJson(entry.target)) {
+      return undefined
+    }
+    const configured = entry.binding
     const current = store.provider(target.machine_id, target.provider_id)
     return configured && current && boundedJson(configured) === boundedJson(current)
       ? structuredClone(configured)
@@ -311,6 +315,9 @@ export async function createGatewayRuntime(options: GatewayRuntimeOptions) {
       close,
       /** 原子准入仅 created=true 才派发；重复 key 不再次发送、不刷新任何期限。 */
       admit(input: RuntimeCallInput) {
+        if (!localProvider(input.target)) {
+          fail('provider_binding_mismatch')
+        }
         const admitted = router.admit(principal(), input.target, input.native_request, input.options)
         if (admitted.created) {
           active.dispatch(admitted.call.call_id)

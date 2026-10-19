@@ -13,6 +13,20 @@ test(
     const f = await runtimeFixture()
     try {
       await f.ready()
+      await assert.rejects(
+        f.gateway.runAuthenticated(
+          f.caller,
+          /** 配置只固定一个完整 session Target，不能用同 provider 改选另一会话。 */ () =>
+            f.gateway.admit({
+              target: { ...f.target, session: 'unconfigured_session' },
+              native_request: { method: 'task.add', params: { title: 'synthetic' } },
+              options: { binding_revision: 1, contract_ref: f.reference, deadline: f.state.store.clock() + 30_000 }
+            })
+        ),
+        /provider_binding_mismatch/
+      )
+      assert.equal(f.native.state.responses, 0)
+      assert.equal(f.claims(), 0)
       const history = f.state.store.openHistory('synthetic', f.target, 1)
       const input = {
         target: f.target,
