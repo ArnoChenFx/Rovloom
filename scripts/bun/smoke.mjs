@@ -1,9 +1,8 @@
-// 验证构建后入口、共享许可身份及 SQLite 重开；原生来源和设备均限隔离 fixture。
+/** 验证构建后核心、认证通道与管理页边界及 SQLite 重开；不建立真实设备或管理员身份。 */
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { toolchain } from './toolchain.mjs'
 
 toolchain()
@@ -38,6 +37,26 @@ assert.throws(
   () => herdr.createHerdrCodec({}, {}),
   contracts.GatewayError
 )
+const webui = await import('../../dist/src/webui/index.js')
+assert.equal(typeof webui.mountWebUi, 'function')
+assert.deepEqual(webui.parseRoute('#machine=a%2Fb'), { machineId: 'a/b', cursor: null, providerCursor: null })
+await assert.rejects(webui.unavailableRead(), { problem: 'unavailable' })
+const browserEntry = readFileSync(new URL('../../dist/webui/browser.js', import.meta.url), 'utf8')
+assert(!browserEntry.includes('node:'))
+assert(!browserEntry.includes('webUiFixture'))
+assert(readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes('Rovloom 管理'))
+assert(readFileSync(new URL('../../dist/webui/manage.css', import.meta.url), 'utf8').includes(':focus-visible'))
+for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
+  assert.deepEqual(
+    readFileSync(new URL(`../../dist/webui/${asset}`, import.meta.url)),
+    readFileSync(new URL(`../../docs/assets/brand/${asset}`, import.meta.url))
+  )
+}
+assert(
+  readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes(
+    'href="./rovloom-mark-orange.png"'
+  )
+)
 assert.equal(typeof persistence.persistentBackend, 'function')
 assert.equal(typeof persistence.commitLuvusResponse, 'function')
 assert.deepEqual(
@@ -60,33 +79,26 @@ assert.deepEqual(
     'checkResultBoundary',
     'checkSequence',
     'compileBundle',
-    'compileBundleIsolated',
-    'releaseCompiledContract',
     'createNativeValidator',
     'inspectRequestGate',
     'parseNativeJson'
   ].sort()
 )
 const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
-const compiled = native.compileBundleIsolated(
-  bytes,
-  {
-    identity: {
-      binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
-      schema_sha256: contracts.digest(bytes.toString('utf8')),
-      revision: 'artifact-smoke'
-    }
-  },
-  { assets_directory: fileURLToPath(new URL('../../dist/native-contract/', import.meta.url)) }
-)
+const compiled = await native.compileBundle(bytes, {
+  identity: {
+    binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
+    schema_sha256: contracts.digest(bytes.toString('utf8')),
+    revision: 'artifact-smoke'
+  }
+})
 assert(compiled.ok)
 assert.equal(compiled.value.documents.length, 29)
 const response = {
   id: 'artifact',
   error: { code: 'synthetic', message: 'synthetic', data: { preserved: true } }
 }
-const nativeValidator = native.createNativeValidator(compiled.value)
-const checked = nativeValidator.checkResponseShape(response)
+const checked = native.createNativeValidator(compiled.value).checkResponseShape(response)
 assert(checked.ok)
 assert.deepEqual(checked.value.response, response)
 // 仅用 P0 fixture 测试跨构建入口的私有 handle 身份，不建立网络或真实权限。
@@ -317,8 +329,3 @@ try {
 console.log(
   'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries and SQLite reopen: pass'
 )
-
-// 构建入口持有真实隔离句柄，释放后不得继续给出结构校验结论。
-assert(native.releaseCompiledContract(compiled.value).ok)
-const released = nativeValidator.checkResponseShape(response)
-assert.equal(released.ok, false)

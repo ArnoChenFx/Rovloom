@@ -114,9 +114,93 @@ Connector 从受保护启动回调读凭据，`saveCredential` / `loadCredential
 
 ## 派发、响应与关闭
 
+### 原始 Wire 执行接缝
+
+处理完整 Wire request 的本机 adapter 使用 `WireConnectorOptions`，其 `session(connection)`
+返回 `ConnectorWireSession`。公开类型为：
+
+```ts
+type WireExecutionResult = Readonly<{ binding: AttemptBinding; native_response: JsonObject }>
+type ConnectorWireSession = Session & {
+  /** 接收当前 socket 已验证的原始 Wire 文本，不剥字段、重编码或在 transport 注入原生 auth。 */
+  executeWire(rawWireRequest: string, signal: AbortSignal): Promise<WireExecutionResult>
+}
+```
+
+Hook 仅在原 Wire adapter 解码/原生许可检查、消息与 attempt 去重、ready、deadline 和额度
+通过后调用，传入收到的原字符串，保留外层空白和 message_id。它与 `nativeInput`/`execute`
+在类型和运行时互斥，失败、空返回或错误 binding 均关闭该 socket，不回退或自动重试。
+`native_bytes` 只用于原生 JSON 注入模式；Wire 模式的 id/auth/LF 完整原生帧预算归实际
+原生 adapter 的受保护配置。transport 自身仍核对完整 Wire 单帧、对象和在途额度。
+
+对 Luvus 的宿主接线如下；配置、services、readiness 和 host 均须来自独立受保护来源：
+
+```ts
+/** 每个认证 epoch 新建自己的两个 Wire 状态，不能借用最近上线设备或旧连接的 adapter。 */
+session(connection) {
+  const backend = persistentBackend(store, trustedServices(connection))
+  const rpc = new LuvusRpcAdapter(fixedConfig(connection), { ...trustedRpcHost(connection), backend })
+  try {
+    const adapter = createLuvusWireAdapter(backend)
+    return {
+      adapter,
+      /** 直接交完整原帧；LuvusRpcAdapter 负责唯一一次原生 auth 与宿主 durable claim。 */
+      executeWire: (raw, signal) => rpc.dispatch(raw, signal),
+      /** 独立读取当前双端配置与本机健康。 */
+      readiness: () => trustedReadiness(connection),
+      /** transport 已先关闭自己的 Wire；此处销毁本机 RPC adapter 的 IO、私有 Wire 和订阅。 */
+      close: () => rpc.close()
+    }
+  } catch (error) {
+    rpc.close()
+    throw error
+  }
+}
+```
+
+这不是另一个导出工厂。`claimDispatch` 必须独立持久、原子、唯一地登记原 attempt 并复验
+权限/epoch/generation/deadline；再次 `Store.dispatch` 或收到 accepted 均不能代替 claim。
+本机 `RpcResult` 保留原生响应，Connector 复验完整返回 binding，再用自己持有原请求的
+Wire 编码；Gateway 只用其原请求 Wire 调用 `commitLuvusResponse`，提交后才发布 responded。
+
+### 响应对象与原始读取
+
+超过 transport 单帧限制的响应要求双方 offer 显式协商 `objects`，否则拒绝；默认 offer
+仍只含 `rpc`。现行 Wire adapter 提供 `encodeResponseObject(responseFrame, objectId)`，
+返回有界只读字符串分片列表。它在原私有上下文中完整验证响应，复用 `fragmentObject`，
+不暴露 CodecContext、validator 或 permit。不能用冷 adapter、持久 JSON 或 binding 重建许可。
+
+Connector 预检每片预算，使用同一 socket 发送；每片前复核当前读取许可和原 epoch，背压
+只在当前有界在途响应内等待，最多一个固定对象传输期限，不建立重连队列。Gateway 的外层
+接收窗先去重，再以原 adapter `acceptChunk` 顺序重组；完整 hash/长度/原生验证通过后才
+观察内层响应并执行原提交事务。分片本身不进入内层 `observeMessage`。部分传输、坏 hash、
+撤权、关闭、COMMIT 失败均不能报告 responded；旧 epoch 的分片和迟到 hook 不转交给新连接。
+小响应也在同步写出前用原 Wire 复验响应及当前 read；宿主 hook 的等待不能延长旧读取授权。
+
+受保护宿主通过 `gateway.resolveOriginalRead(callId)` 取得
+`{ binding, wire } | undefined`：binding 是副本，wire 是仍持有该原请求的实际 Gateway
+adapter。每次解析都核对宿主当前 caller、原归属、读取 grant、来源、设备与 binding fence；
+每页实际读取前仍须调用 `wire.checkResult(binding)`，不能把已取得引用当作后续永久授权。
+结果层创建持久句柄之前必须调用 `wire.checkResultRetention(binding, nativeFrame): void`：
+它核对同一活原请求及精确响应，复用原 permit，要求派发时和当前分类都允许保留，且仍须当前
+读取授权及秘密通道。单纯 `checkResult` 可读不能代替该保留门禁；禁存内容不因当前分类放宽复活。
+本保留 port 仅支持普通 RPC，流及控制 ack 一律拒绝，不能借开流 permit 为控制输入创建持久句柄。
+该 port 不提供公开工具、内容分页、磁盘结果或新的 validator/permit 工厂，结果层继续复用
+Store 的 `saveResult/readResult` 和当前读取门禁。
+
+Gateway 默认在完成后释放原请求上下文；尚在途的实际 Wire 可直接解析。需要完成后的分页读取
+时，受保护宿主须显式设置 `retainOriginalRead: true`，按预算有界保留完成调用的原状态。
+`read_contexts` 默认 128，可显式收紧或配置至 Wire 去重容量上限；满额在新派发事务之前拒绝，
+不提前驱逐有效上下文。关闭、
+旧 epoch、原请求已释放、discard、TTL 或当前读取拒绝时 resolver 返回 undefined。
+宿主显式 `wire.release(binding)` 后，后续派发会回收该读取额度；当前 caller 或 grant 被拒绝
+只影响本次读取，不驱逐仍有效的所有者上下文。
+内容清理不会由读取恢复原文；在途调用的原 Wire 仍按既有规则保留最小仅响应补证状态。
+这个接缝不代表 MCP facade、生产 peer/auth/claim、普通大结果分页或真实多机已验收。
+
 Gateway `dispatch(call_id)` 从宿主当前 principal 经 Router 重授权，Store 事务返回 binding 后
 才编码和发送。Connector 以独立宿主账本与原生来源校验 request，不从消息构造 attempt。
-原生 auth 由宿主 `nativeInput` 注入；它只能添加 auth，完整注入后 JSON 再按原生帧预算计量，
+原生 JSON 执行模式的 auth 由宿主 `nativeInput` 注入；它只能添加 auth，完整注入后 JSON 再按原生帧预算计量，
 成功才发 accepted 并调用宿主 execute。响应通过原 adapter 和 `commitLuvusResponse` 事务提交，
 提交前不发布 durable responded。accepted 不等于原生完成。
 
@@ -126,7 +210,8 @@ provider adapter，不能从原生 JSON 的路径/endpoint 或自报 provider �
 第二套 CLI。schema 的硬 CPU/heap worker 隔离仍未产品化，本通道与身份库不解除该执行门禁，
 不能仅因连接 ready 或 fixture 编译成功而宣称生产 native 执行可用。
 
-当前业务范围为普通 RPC。流、对象分片、cancel 尚不接到原生执行；不得广告为可用能力。
+当前业务范围为普通 RPC 及其已协商响应对象。流、请求对象、schema 分发和 Wire cancel 尚未
+接到原生执行，不得广告为这些能力已可用。
 每次实际执行前检查 deadline；观察取消/关闭通过 AbortSignal 通知宿主，**不代表原生回滚**。
 宿主 execute 必须有界并响应观察关闭，忽略 AbortSignal 的工作仍占并发预算直至完成。
 provider 不可用时停止其响应交付/观察，设备撤销或断线关闭全部 session 资源。
@@ -143,18 +228,28 @@ provider 不可用时停止其响应交付/观察，设备撤销或断线关闭�
 默认 Gateway 同时 64 条连接、8 条未认证连接、每分钟 120 次认证、每秒每连接 256 条消息、
 128 条全局在途请求；Connector 同时 8 个原生执行。每帧与完整原生 JSON 默认上限 1 MiB。
 握手 5 秒、心跳 5 秒、无有效心跳 20 秒关闭；有界单个维护 timer 覆盖失效与清理。
-发送不建立应用排队，背压或超限直接关闭，已经提交派发锚点的调用保持 unknown。
-接收窗口满拒绝、不提前淘汰；同一 attempt 不执行两次，已完成原生状态及时释放。
+发送不建立重连队列；单帧背压或超限直接关闭，响应对象只在固定传输期限内等待 socket 空间。
+已经提交派发锚点的失败调用保持 unknown。接收窗口满拒绝、不提前淘汰；同一 attempt 不执行
+两次。Connector 释放完成的 transport 执行上下文，Gateway 按上节有界保留原请求读取上下文。
 一个 Connector epoch 最多记录 4096 个已接收 attempt，达到上限后关闭并经退避重连。
 所有重连都不迁入旧工作。宿主 stop 必须停止 timer、listener、session 和观察资源。
 
 `bun run test` 自动发现 test/transport；它使用两个本地模拟 Connector、临时 SQLite/凭据目录、
-一日自签 mock TLS 证书和合成 native adapter。TLS 负例在独立 loopback listener 验证未知 CA
+一日自签 mock TLS 证书和合成原生来源。Wire 接缝另组合实际 LuvusRpcAdapter、临时唯一
+claim 库和自建 Unix listener，验证原始帧、原生错误、分片、读取失效与提交故障。TLS 负例在独立 loopback listener 验证未知 CA
 及错误 hostname；证书生成只调用 Linux `/usr/bin/openssl`，不导入系统信任。
+RPC 的 seen 上限独立于 transport；标准回归收紧至 2 验证满额及 fresh epoch，新意图不可自动重放。
+默认 128 的扩展回归使用同一真实 adapter/IPC harness，执行 128 次成功、第 129 次拒绝及第 130 个新意图：
+
+```sh
+bun --no-env-file -e 'import { verifyRpcCapacity } from "./test/transport/wire-capacity-helpers.ts"; await verifyRpcCapacity(128)'
+```
+
 日志负例用 stdin 交付随机 mock secret，并扫描子进程 stdout/stderr、普通审计和业务帧。
 基础生命周期单测保留明确 mock 扩展的失败窗口；真实组合测试另使用实际 Store 两个桥方法、
 磁盘双库和双 Connector，覆盖 WSS、精确重配/同 ID、新凭据/撤销、主库失败后公开恢复、
 旧 backend 封锁、重启、epoch 不重放及 adapter 关闭后释放监听容量。未用第二张模拟身份表替代
-IdentityStore，也未向共享 Store/Wire 文件加入 transport 专用逻辑。
+IdentityStore；Store/Wire 核心协议没有增加 transport 表或私有 SQL，响应对象只增加原 Wire
+adapter 的受控封装入口。
 完整工具链门禁见 [开发指引](DEVELOPMENT.md)。这些证据不构成实际远端多机、生产身份服务、
 跨平台凭据存储、MCP facade 或发布验收。

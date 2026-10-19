@@ -3,8 +3,7 @@
 Use the Bun version in [.bun-version](.bun-version). Keep the package/runtime
 pins consistent and direct dependency versions exact; commit `bun.lock` with
 dependency changes. Project JavaScript and TypeScript commands run through Bun.
-Python 3.12+, Linux x64/glibc, strace, GCC/binutils and glibc development files
-are also required for complete verification and the hard-budget schema worker.
+Python 3 and Linux strace are also required for the complete verification.
 
 Run the same gates as [CI](.github/workflows/bun.yml) from the repository root:
 

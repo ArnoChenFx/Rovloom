@@ -1,6 +1,5 @@
 // 维护原生校验器的内部句柄登记、可撤销许可分组与最小响应约束，阻止同形消息伪造校验能力。
 import type { ValidateFunction } from 'ajv'
-import { fail } from './json.js'
 import type {
   CapabilityView,
   CheckedControl,
@@ -30,8 +29,8 @@ export const STREAM_METHODS = new Set([
 export type ContractData = {
   limits: Limits
   validators: Map<string, ValidateFunction>
+  requestMethods: readonly string[]
   branches: Map<string, readonly string[]>
-  active?: () => boolean
 }
 export type ViewData = {
   contract: CompiledContract
@@ -52,17 +51,6 @@ export type PermitData = {
 export type StreamData = { permit: DispatchPermit; identity: JsonObject | null }
 // WeakMap 防止从 JSON 伪造 handle；来源仍按各 handle 的 contract/binding 核对。
 export const contracts = new WeakMap<CompiledContract, ContractData>()
-
-// 所有许可和响应入口都检查同一存活条件；编译进程失效后不能借旧句柄继续授权。
-export function assertContractActive(contract: CompiledContract): void {
-  const data = contracts.get(contract)
-  if (!data) {
-    fail('invalid_contract_handle')
-  }
-  if (data.active && !data.active()) {
-    fail('schema_unavailable', 'isolation', 'compiler_unavailable')
-  }
-}
 export const views = new WeakMap<CapabilityView, ViewData>()
 export const candidates = new WeakMap<CheckedRequest | RawRequestCandidate | CheckedControl, CandidateData>()
 type PermitGroup = { entries: WeakMap<DispatchPermit, PermitData> | undefined }

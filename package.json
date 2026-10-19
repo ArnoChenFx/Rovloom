@@ -13,7 +13,7 @@
     "toolchain": "bun --no-env-file scripts/bun/toolchain.mjs",
     "build": "bun --no-env-file scripts/bun/build.mjs",
     "typecheck": "bun --no-env-file node_modules/typescript/bin/tsc --noEmit",
-    "test": "bun --no-env-file scripts/native-contract/run-tests.mjs",
+    "test": "bun --no-env-file test ./test",
     "test:p0": "bun --no-env-file test ./scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py",
     "p0:audit": "bun --no-env-file scripts/p0/audit-fixtures.mjs",
     "p0:bun-native": "python3 scripts/bun/audit_native.py",
@@ -26,21 +26,14 @@
     "format:check": "bun --no-env-file node_modules/oxfmt/bin/oxfmt --config .oxfmtrc.json --check \"{src,test,scripts}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}\" package.json tsconfig.json .oxlintrc.json .oxfmtrc.json",
     "test:quality": "bun --no-env-file test ./test/quality",
     "comments:check": "bun --no-env-file scripts/maintenance/comments.mjs",
-    "comments:equivalence": "bun --no-env-file scripts/maintenance/comment_equivalence.mjs",
-    "schema:build": "bun --no-env-file scripts/native-contract/build-worker.mjs",
-    "test:isolated": "bun --no-env-file scripts/native-contract/run-tests.mjs --isolated"
+    "comments:equivalence": "bun --no-env-file scripts/maintenance/comment_equivalence.mjs"
   },
   "dependencies": {
-    "@exodus/bytes": "1.16.0",
-    "@noble/hashes": "2.4.0",
-    "ajv": "8.20.0",
-    "whatwg-url": "17.3.0"
+    "ajv": "8.20.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "@types/bun": "1.4.3",
     "@types/node": "26.6.5",
-    "@types/whatwg-url": "13.0.0",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",
     "typescript": "7.0.2",

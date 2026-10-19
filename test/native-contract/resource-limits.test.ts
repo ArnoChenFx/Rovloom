@@ -20,12 +20,12 @@ const frameBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value)) 
 
 test(
   '原生字节入口与字符串入口一致拒绝 BOM，bundle 不产生编译 handle',
-  /* 验证字节和字符串入口均拒绝 BOM，且编译不会产生契约句柄。 */ () => {
+  /* 验证字节和字符串入口均拒绝 BOM，且编译不会产生契约句柄。 */ async () => {
     for (const value of [Buffer.from('\uFEFF{}'), '\uFEFF{}']) {
       rejects(parseNativeJson(value), 'invalid_json')
     }
     // 不重算摘要来掩盖 BOM；解析必须先拒绝，不能默默剥除再接受其它契约。
-    const result = compileBundle(Buffer.concat([Buffer.from('\uFEFF'), bytes]), { identity })
+    const result = await compileBundle(Buffer.concat([Buffer.from('\uFEFF'), bytes]), { identity })
     rejects(result, 'schema_unavailable')
     if (!result.ok) {
       assert.equal(result.error.reason, 'invalid_json')
@@ -225,7 +225,7 @@ test(
 
 test(
   '执行必需的在线字节预算缺失或为零时不产生 capability handle',
-  /* 逐项删除或清零执行帧必需预算，确认能力绑定立即拒绝。 */ () => {
+  /* 逐项删除或清零执行帧必需预算，确认能力绑定立即拒绝。 */ async () => {
     for (const path of [
       ['limits', 'frame_bytes'],
       ['terminal', 'limits', 'request_bytes'],
@@ -267,7 +267,7 @@ function compileSynthetic(schema: Record<string, unknown>) {
 
 test(
   '结构嵌套叠加长引用链仍返回 schema 不可用，不耗尽 JS 调用栈',
-  /* 构造深结构叠加长引用链，确认按引用预算拒绝且不会耗尽调用栈。 */ () => {
+  /* 构造深结构叠加长引用链，确认按引用预算拒绝且不会耗尽调用栈。 */ async () => {
     const defs: Record<string, unknown> = {}
     for (let i = 0; i < 900; i++) {
       let schema: Record<string, unknown> = i === 899 ? { type: 'string' } : { $ref: `#/$defs/r${i + 1}` }
@@ -276,7 +276,7 @@ test(
       }
       defs[`r${i}`] = schema
     }
-    const result = compileSynthetic({ $defs: defs, $ref: '#/$defs/r0' })
+    const result = await compileSynthetic({ $defs: defs, $ref: '#/$defs/r0' })
     rejects(result, 'schema_unavailable')
     if (!result.ok) {
       assert.equal(result.error.reason, 'reference_limit')
@@ -286,7 +286,7 @@ test(
 
 test(
   '引用闭包共享叶子不会误报环，最大 32 条引用可编译且第 33 条拒绝',
-  /* 验证共享叶子不被误判为环，并精确覆盖 32 与 33 条引用的分界。 */ () => {
+  /* 验证共享叶子不被误判为环，并精确覆盖 32 与 33 条引用的分界。 */ async () => {
     const defs: Record<string, unknown> = {}
     for (let i = 0; i < 32; i++) {
       defs[`r${i}`] = i === 31 ? { type: 'string' } : { items: { $ref: `#/$defs/r${i + 1}` } }
@@ -295,10 +295,10 @@ test(
       $defs: defs,
       properties: { left: { $ref: '#/$defs/r0' }, right: { $ref: '#/$defs/r0' } }
     }
-    unwrap(compileSynthetic(schema))
+    unwrap(await compileSynthetic(schema))
     defs.r31 = { $ref: '#/$defs/leaf' }
     defs.leaf = { type: 'string' }
-    const result = compileSynthetic(schema)
+    const result = await compileSynthetic(schema)
     rejects(result, 'schema_unavailable')
     if (!result.ok) {
       assert.equal(result.error.reason, 'reference_limit')
@@ -308,13 +308,13 @@ test(
 
 test(
   '缺失文档/fragment 与引用环均离线拒绝，不抓取远端或本地路径',
-  /* 用禁止联网的替身覆盖缺失文档、片段和引用环，确认编译始终离线。 */ () => {
+  /* 用禁止联网的替身覆盖缺失文档、片段和引用环，确认编译始终离线。 */ async () => {
     const fetch = globalThis.fetch
     let requests = 0
     globalThis.fetch = /* 记录任何意外网络解析并立即抛错，使测试能检测在线抓取。 */ (() => {
       requests++
       throw new Error('禁止网络 resolver')
-    }) as unknown as typeof fetch
+    }) as typeof fetch
     try {
       for (const [ref, reason] of [
         ['https://untrusted.invalid/schema.json', 'missing_document'],
@@ -322,7 +322,7 @@ test(
         ['#/$defs/missing', 'missing_fragment'],
         ['#', 'reference_cycle']
       ]) {
-        const result = compileSynthetic({ $ref: ref })
+        const result = await compileSynthetic({ $ref: ref })
         rejects(result, 'schema_unavailable')
         if (!result.ok) {
           assert.equal(result.error.reason, reason)

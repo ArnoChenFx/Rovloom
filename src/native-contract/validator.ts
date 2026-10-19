@@ -3,7 +3,6 @@ import { validateTarget } from '../contracts.js'
 import {
   candidates,
   contracts,
-  assertContractActive,
   permits,
   responses,
   responseContexts,
@@ -37,7 +36,6 @@ import type {
 
 // 拒绝未登记的契约对象，并取得已编译的校验器和固定限额。
 function data(contract: CompiledContract) {
-  assertContractActive(contract)
   const value = contracts.get(contract)
   if (!value) {
     fail('invalid_contract_handle')
@@ -121,7 +119,6 @@ function copy(contract: CompiledContract, value: unknown): JsonObject {
 
 // 只接受当前契约创建的能力句柄，拒绝同形对象或另一契约的视图。
 function viewData(contract: CompiledContract, view: CapabilityView) {
-  assertContractActive(contract)
   const stored = views.get(view)
   if (!stored || stored.contract !== contract) {
     fail('invalid_capability_handle')
@@ -453,7 +450,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     viewData(contract, view)
     const request = copy(contract, input)
     const name = text(request.method, 'native_request_invalid')
-    const known = data(contract).branches.has(name)
+    const known = data(contract).requestMethods.includes(name)
     if (known || !allowRaw) {
       validate(contract, `${UHP}request.schema.json`, request, 'native_request_invalid')
     } else {
@@ -670,10 +667,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           if (!original) {
             fail('invalid_request_handle')
           }
-          // 清理在编译进程失效后仍须可用，但只能操作原同一契约的句柄。
-          if (views.get(original.view)?.contract !== contract) {
-            fail('invalid_capability_handle')
-          }
+          viewData(contract, original.view)
           if (candidate.kind === 'control' || STREAM_METHODS.has(candidate.method) || original.stream) {
             fail('response_context_unavailable')
           }
@@ -700,7 +694,6 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
       return attempt(
         'stream',
         /* 复核响应的私有许可关联及固定开流结果，生成不可伪造的流句柄。 */ () => {
-          assertContractActive(contract)
           const state = permits.get(permit)
           const received = responses.get(acknowledgement)
           // ack 必须由同一 permit 的响应校验产生；同形响应对象不能替代内存句柄。

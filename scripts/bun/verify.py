@@ -51,8 +51,8 @@ def validate_foundation(project, report):
 
 # 核对日志通过数及跳过标记，并为 P0 检查 Python 测试摘要。
 def validate_tests(project, label, log, count=None):
-    if label in ('foundation', 'isolated-contract'):
-        count = validate_foundation(project, project / (label + '.junit.xml'))
+    if label == 'foundation':
+        count = validate_foundation(project, project / 'foundation.junit.xml')
     if not re.search(rf'^\s*{count} pass\s*$', log, re.MULTILINE) or not re.search(r'^\s*0 fail\s*$', log, re.MULTILINE):
         raise RuntimeError(f'{label}: test count differs')
     if re.search(r'\b[1-9]\d* (?:skip|todo)\b|\bskipped=', log):
@@ -91,17 +91,16 @@ def main():
         for name in ('package.json', 'bun.lock', 'bunfig.toml', '.bun-version', 'tsconfig.json',
                      '.gitignore', '.oxlintrc.json', '.oxfmtrc.json'):
             shutil.copyfile(repo / name, project / name)
+        # WebUI 只复制明确的应用标与横版全名图，保留原背景和字节，不引入其它文档或日志。
+        for name in ('rovloom-mark-orange.png', 'rovloom-logo.png'):
+            brand = Path('docs/assets/brand') / name
+            (project / brand).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(repo / brand, project / brand)
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'bun').symlink_to(bun)
         (tools / 'python3').symlink_to(Path(shutil.which('python3')).resolve())
         (tools / 'sh').symlink_to('/bin/sh')
-        # 只开放离线原生构建所需的编译器、汇编器和链接器；其内部程序仍由 trace 核验。
-        for name in ('gcc', 'as', 'ld'):
-            located = shutil.which(name)
-            if not located:
-                raise RuntimeError(f'{name} is required for the fixed QuickJS build')
-            (tools / name).symlink_to(Path(located).resolve())
         for name in ('node', 'npm', 'npx'):
             shim = tools / name
             shim.write_text(f'#!/bin/sh\nprintf "{name}\\n" >> "$BLOCKED_EXEC_LOG"\nexit 99\n')
@@ -138,8 +137,8 @@ def main():
                                         '-o', str(trace), *arguments], cwd=project, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             try:
-                # 两套完整回放包含离线 C 构建与逐次进程隔离；不改变单次原生编译/校验的 2 秒上限。
-                stdout, stderr = process.communicate(timeout=300 if label in ('foundation', 'isolated-contract') else 180)
+                # 完整回归含逐次 Worker 编译及 strace 开销；不改变单次编译的 2 秒接纳期限。
+                stdout, stderr = process.communicate(timeout=300 if label == 'foundation' else 180)
             except BaseException:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.communicate()
@@ -200,24 +199,19 @@ def main():
         if not harness_summary or int(harness_summary[1]) == 0 or 'skipped=' in harness:
             raise RuntimeError('test discovery regression harness did not pass all tests')
         counts = {}
-        for label, script, count in [('foundation', 'test', None), ('isolated-contract', 'test:isolated', None),
-                                    ('p0', 'test:p0', 7), ('bun-compatibility', 'test:bun', 5)]:
+        for label, script, count in [('foundation', 'test', None), ('p0', 'test:p0', 7), ('bun-compatibility', 'test:bun', 5)]:
             command = ['bun', '--no-env-file', 'run', script]
-            if label in ('foundation', 'isolated-contract'):
-                command += ['--reporter=junit', '--reporter-outfile=' + label + '.junit.xml']
+            if label == 'foundation':
+                command += ['--reporter=junit', '--reporter-outfile=foundation.junit.xml']
             log = run(label, command)
             counts[label] = validate_tests(project, label, log, count)
-        for label in ('foundation', 'isolated-contract'):
-            junit = (project / (label + '.junit.xml')).read_text().replace(str(root), '/isolated')
-            (output / (label + '.junit.xml')).write_text(junit)
-        worker_hash = sha(project / 'dist/native-contract/schema-worker')
+        junit = (project / 'foundation.junit.xml').read_text().replace(str(root), '/isolated')
+        (output / 'foundation.junit.xml').write_text(junit)
         run('p0-audit', ['bun', '--no-env-file', 'run', 'p0:audit'])
         run('new-native-audit', ['bun', '--no-env-file', 'run', 'p0:bun-native'])
-        (project / 'dist').mkdir(exist_ok=True)
+        (project / 'dist').mkdir()
         (project / 'dist' / 'stale.js').write_text('throw new Error("stale")')
         run('build', ['bun', '--no-env-file', 'run', 'build'])
-        if sha(project / 'dist/native-contract/schema-worker') != worker_hash:
-            raise RuntimeError('same-toolchain native worker rebuild is not reproducible')
         if (project / 'dist' / 'stale.js').exists():
             raise RuntimeError('build retained stale output')
         run('artifact-smoke', ['bun', '--no-env-file', 'run', 'smoke'])
@@ -229,9 +223,7 @@ def main():
                   'platformNetworkSettingNames': network_keys,
                   'strictFlags': ['strict', 'noUncheckedIndexedAccess'],
                   'checkedFiles': expected_files, 'lifecycleScriptsFoundButNotExecuted': lifecycle,
-                  'nativeWorkerSha256': worker_hash, 'nativeWorkerReproducibleRebuild': True,
                   'tests': {'foundation': counts['foundation'],
-                            'isolatedContract': counts['isolated-contract'],
                             'verifyHarness': int(harness_summary[1]),
                             'p0JavaScript': counts['p0'], 'p0Python': 7,
                             'bunCompatibility': counts['bun-compatibility']},

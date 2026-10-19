@@ -15,11 +15,9 @@ assert.deepEqual(Object.keys(api).sort(), [
   'checkResultBoundary',
   'checkSequence',
   'compileBundle',
-  'compileBundleIsolated',
   'createNativeValidator',
   'inspectRequestGate',
-  'parseNativeJson',
-  'releaseCompiledContract'
+  'parseNativeJson'
 ])
 const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
 const identity = {
@@ -27,7 +25,7 @@ const identity = {
   schema_sha256: createHash('sha256').update(bytes).digest('hex'),
   revision: 'artifact-smoke'
 }
-const compiled = api.compileBundle(bytes, { identity })
+const compiled = await api.compileBundle(bytes, { identity })
 assert(compiled.ok, JSON.stringify(compiled))
 assert.equal(compiled.value.documents.length, 29)
 const error = {

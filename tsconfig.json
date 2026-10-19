@@ -7,7 +7,7 @@
     "noUncheckedIndexedAccess": true,
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["node", "bun"]
+    "types": ["node"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

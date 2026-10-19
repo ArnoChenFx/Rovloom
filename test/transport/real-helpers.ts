@@ -17,7 +17,7 @@ import {
 } from '../../src/transport/index.js'
 import type { Connection, DeviceLifecycleVerifier, IdentityHost, SocketChannel } from '../../src/transport/index.js'
 import type { IdentityIntent } from '../../src/transport/identity-store.js'
-import type { ConnectorOptions } from '../../src/transport/connector.js'
+import type { NativeConnectorOptions } from '../../src/transport/connector.js'
 import { boundedJson, fail } from '../../src/wire/index.js'
 import { fixture, until } from './helpers.js'
 import { management } from '../storage/helpers.js'
@@ -204,7 +204,7 @@ export function realFixture(options: { tls?: boolean } = {}) {
       return device
     },
     /** 使用当前设备启动配置创建真实 loopback Connector，不运行任何真实原生进程。 */
-    connector(device: ReturnType<typeof f.pair>, options: Partial<ConnectorOptions> = {}) {
+    connector(device: ReturnType<typeof f.pair>, options: Partial<NativeConnectorOptions> = {}) {
       return f.connector(
         /** 凭据来自本 fixture 受保护启动闭包，不取自业务输入或设备名称。 */
         () => device.credential,

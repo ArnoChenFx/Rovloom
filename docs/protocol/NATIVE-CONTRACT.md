@@ -1,6 +1,6 @@
 # Luvus 原生校验与宿主接口
 
-`src/native-contract/index.ts` 提供同步校验接口及本地硬预算编译工厂，
+`src/native-contract/index.ts` 提供异步安装契约编译，以及同步原生校验和授权内核，
 `src/integration/luvus-wire.ts` 的 `createLuvusWireAdapter(backend, limits?)`
 将其接入 [Wire v2](WIRE-PROTOCOL.md)。准确签名以源码及
 `src/native-contract/types.ts` 为准；安全原则、provider 模型和恢复设计分别见
@@ -13,7 +13,7 @@
 
 ## 契约与内存许可
 
-`compileBundleIsolated` 在硬预算进程内用同一 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包；
+`await compileBundle(bytes, options, signal?)` 在 Bun Worker 中用 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包，并生成官方 standalone 校验代码；
 不联网解析 $ref，不读路径，不补默认值、不转换类型、不删除原生字段。
 URL 是 bundle 内索引。未知方言、关键字、缺引用、副本冲突及资源超限拒绝。
 `parseNativeJson` 执行有界 JSON 检查；对象入口只供内部无行为 JSON。
@@ -33,11 +33,37 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 此项同样不含 LF；下述在线 request/response 帧预算则包含 LF，两项分别执行。
 
 `CompileOptions.limits` 只能降低这些上界。Wire 的 16 MiB bundle 重组上界不扩大
-原生编译预算。Linux x64/glibc 的 `compileBundleIsolated` 使用独立原生进程、
-内核 2 秒实时时限、64 MiB 地址空间及 JS 分配上限；同步 `compileBundle` 仅供
-已审核离线测试。生产宿主须提供受保护构建路径并在退役时释放原句柄，失败不回退。
-每个上下文另有短命校验子进程，资源范围、数据寿命、依赖与完整验收要求见
-[隔离执行边界](SCHEMA-ISOLATION.md)。该工厂不自动接纳未认证或未审核的外部 schema。
+原生编译预算。以上为结构/字节预算，不代表 JS heap 大小或 CPU 隔离。
+
+### 编译 Worker 与生成物接纳
+
+首版只接受宿主已审核的本地安装 schema，不自动信任 Wire 重组对象、远端 URL 或 caller
+提交的 schema。公共工厂只收原字节、安装身份/限额和可选取消信号，不接收代码、路径或
+Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；构建时内嵌 Worker 模块。
+Worker 使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译；
+禁止未知方言/关键字、自定义 format/keyword、在线 resolver 和裁剪约束。
+
+每进程至多一个在途编译、没有等待队列；并发返回 `compiler_busy`。从工厂调用开始的
+2 秒接纳期限覆盖启动、预检、编译、standalone 生成、消息与宿主初始化。失败只返回安全
+错误码和固定 reason，不透传 schema、生成代码、私人路径或异常原文。普通 schema
+拒绝后 Worker 可复用；取消、期限或 Worker/私有协议故障会永久退役当前编译服务，
+请求终止 Worker，并拒绝后续任务及所有迟到回复；恢复需要角色进程重新初始化，
+不会自动补建 Worker。预先取消的调用不启动 Worker。角色宿主须等待工厂成功后才发布
+就绪，初始化取消/关闭通过 signal 传播；空闲 Worker 不保持进程存活。
+
+宿主只消费自己当前 Worker 的当前任务回复。私有协议准确版本为 1，未知版本/字段、
+错误任务身份一律拒绝。产物绑定 binary/schema/revision、固定 Ajv/生成器版本、生成选项
+摘要及源码摘要；摘要只检验一致性，来源由私有任务通道保证。生成源码至多 8 MiB，
+元数据按单 JSON 对象预算检查；必须完整覆盖所有根和事件导出。宿主用私有 CJS
+容器初始化生成函数，`require` 只映射锁定 Ajv 的 `ucs2length` 和 `equal` 两个纯 helper；
+不创建 Ajv 实例、不重编译 schema，也不以 ESM 全局模块缓存保留产物。核对和加载均
+在期限内通过才登记真实 CompiledContract。既有同步 validator、opaque 许可及事务
+接口不变；复制 Worker/JSON 数据不能恢复许可。已接纳契约不依赖编译 Worker 存活。
+
+这是可取消、可拒绝迟到产物的编译边界，不承诺 64 MiB 硬 heap 隔离、Worker 在指定
+时刻物理退出或主线程硬实时响应。主线程仍需解析生成 JavaScript，并同步执行后续
+校验；这些阶段没有独立 CPU/heap 硬隔离。`smol`、终止事件、定时器及字节/节点
+计量都不是硬资源上限的证明；任意不受信 schema 自动编译不在首版范围。
 
 session capability 必须提供正安全整数的 `limits.frame_bytes`、
 `terminal.limits.request_bytes` 与 `terminal.limits.response_bytes`。
@@ -136,5 +162,17 @@ handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离�
 进度和重复片不续期，adapter 空闲维护也释放到期组装引用。内容或身份 fence 发生时，
 未完成对象尚不能可信关联到具体调用，adapter 保守释放该连接所有活动分片，保留有界 ID
 墓碑拒绝续传与短期重建；可能中止其它调用的在途分片，不据此自动重派原动作。
+
+`encodeResponseObject(responseFrame, objectId)` 只封装原 adapter 私有上下文中的响应编码，
+复用 `fragmentObject` 并返回只读的有界 Wire 文本分片；没有公开 context 或新的许可工厂。
+必须仍持有原请求状态、当前读取许可和协商的 objects，不能由 JSON、冷 adapter 或 binding
+重建。接收端复用 `acceptChunk`，只在完整内层响应验证后调用原 `commitLuvusResponse`。
+发送、背压与受保护的活读取解析见 [transport 接线](../TRANSPORT.md#响应对象与原始读取)。
+
+结果层创建句柄前使用原 adapter 的 `checkResultRetention(binding, nativeFrame): void`。
+它先核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发时及当前分类的保留许可；
+`retention:none` 即使可读也拒绝保存，当前放宽不能复活派发时禁存内容。无原上下文时拒绝，
+不从账本或响应 JSON 创建 permit；证据计划与该 port 共用这一检查。
+该保留 port 仅支持普通 RPC；流及控制 ack 报 `result_retention_rpc_only`，不借开流许可保留控制结果。
 
 宿主能力的交付范围与后续门禁见 [实施计划](../IMPLEMENTATION-PLAN.md)。

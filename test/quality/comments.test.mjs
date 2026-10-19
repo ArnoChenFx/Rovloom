@@ -335,21 +335,39 @@ test(
 )
 
 test(
-  'only the exact deferred test path is excluded from comment coverage',
-  /* 验证暂缓路径不扩展为同名或同目录豁免，检查过程也不修改保留文件。 */ async () => {
+  'the reliability test path receives normal comment and syntax coverage',
+  /* 验证可靠性测试与相邻路径同样接受注释和语法检查，补齐说明后才消除对应错误。 */ async () => {
     await isolated(
-      /* 构造暂缓文件和相邻维护代码，检查只跳过指定路径。 */ async (root) => {
-        const source = 'deliberately invalid syntax !\n'
-        const deferred = write(root, 'test/wire/reliability.test.ts', source)
-        for (const name of ['test/wire/reliability-other.test.ts', 'test/other/reliability.test.ts']) {
-          write(root, name, 'export const value = () => 1\n')
+      /* 依次检查缺失说明、语法损坏和正确说明，确认目标文件不会被路径豁免。 */ async (root) => {
+        const name = 'test/wire/reliability.test.ts'
+        const source = 'export const value = () => 1\n'
+        const target = write(root, name, source)
+        for (const path of ['test/wire/reliability-other.test.ts', 'test/other/reliability.test.ts']) {
+          write(root, path, source)
         }
         const result = await checkRepository(root)
-        assert.equal(result.files, 2)
-        assert.equal(result.functions, 2)
-        assert.equal(result.errors.length, 4)
-        assert.equal(maintainedFiles(root).includes(deferred), false)
-        assert.equal(readFileSync(deferred, 'utf8'), source)
+        assert.equal(result.files, 3)
+        assert.equal(result.functions, 3)
+        assert.equal(result.errors.length, 6)
+        assert.equal(maintainedFiles(root).includes(target), true)
+        assert(result.errors.some(/* 确认目标路径实际报告缺失说明。 */ (error) => error.path === name))
+        assert.equal(readFileSync(target, 'utf8'), source)
+
+        write(root, name, 'const = invalid\n')
+        const invalid = await checkRepository(root)
+        assert(
+          invalid.errors.some(
+            /* 确认目标文件的语法错误也会触发门禁。 */ (error) => error.path === name && /syntax/.test(error.message)
+          )
+        )
+
+        const fixed = header + '// 返回固定测试值。\n' + source
+        write(root, name, fixed)
+        const described = await checkRepository(root)
+        assert.equal(described.files, 3)
+        assert.equal(described.errors.length, 4)
+        assert(described.errors.every(/* 补齐目标说明后只保留相邻文件的错误。 */ (error) => error.path !== name))
+        assert.equal(readFileSync(target, 'utf8'), fixed)
       }
     )
   }
