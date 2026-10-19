@@ -340,6 +340,14 @@ try {
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }
+const service = await import('../../dist/src/service/index.js')
+assert.equal(typeof service.createNativeServiceBackend, 'function')
+assert.equal(service.parseServiceCommand(['gateway', '--config', '/untouched'], 'linux'), undefined)
+assert.deepEqual(service.parseServiceCommand(['service', 'stop', '--role', 'connector'], 'linux'), {
+  action: 'stop',
+  role: 'connector'
+})
+
 console.log(
-  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries and SQLite reopen: pass'
+  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries SQLite reopen and service seam: pass'
 )

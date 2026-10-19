@@ -4,6 +4,7 @@
 
 | 需要了解 | 唯一维护职责/入口 |
 |---|---|
+| 开机注册、服务启停、账户/路径权限与 CLI 接缝 | [SERVICE](SERVICE.md) |
 | 系统目标、角色、Target/provider、授权、结果、去重、恢复和默认预算 | [DESIGN](DESIGN.md) |
 | 尚需交付的能力、依赖和联合验收 | [IMPLEMENTATION-PLAN](IMPLEMENTATION-PLAN.md) |
 | 管理页、管理员确认、状态展示和管理 API | [GATEWAY-WEBUI](GATEWAY-WEBUI.md) |

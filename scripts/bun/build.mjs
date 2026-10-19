@@ -18,7 +18,8 @@ const result = await Bun.build({
     'src/transport/index.ts',
     'src/connector/herdr/readonly.ts',
     'src/webui/index.ts',
-    'src/admin/index.ts'
+    'src/admin/index.ts',
+    'src/service/index.ts'
   ],
   outdir: 'dist/src',
   root: 'src',
