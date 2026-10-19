@@ -1,10 +1,23 @@
-// 将固定编译 Worker 内嵌进 Bun 模块产物，避免拆分 chunk 的相对路径指向源码或外部入口。
+// 将两种固定编译 Worker 内嵌进 Bun 产物，避免打包后定位器引用源码或外部入口。
 import { fileURLToPath } from 'node:url'
 
-// 同一源码入口先独立打包；只替换受维护的定位模块，不接受运行时 caller 提供的代码或路径。
-export async function compilerWorkerPlugin() {
+const entries = [
+  {
+    path: '../../src/native-contract/compiler-worker.ts',
+    filter: /[/\\]native-contract[/\\]compiler-location\.ts$/,
+    factory: 'createCompilerWorker'
+  },
+  {
+    path: '../../src/connector/herdr/compiler-herdr-worker.ts',
+    filter: /[/\\]connector[/\\]herdr[/\\]compiler-location\.ts$/,
+    factory: 'createHerdrCompilerWorker'
+  }
+]
+
+// 对同源的固定 Worker 独立打包；生成物入口不接受运行时 caller 的代码、路径或选项。
+async function embeddedWorker(entry) {
   const built = await Bun.build({
-    entrypoints: [fileURLToPath(new URL('../../src/native-contract/compiler-worker.ts', import.meta.url))],
+    entrypoints: [fileURLToPath(new URL(entry.path, import.meta.url))],
     target: 'bun',
     format: 'esm',
     packages: 'bundle',
@@ -15,9 +28,9 @@ export async function compilerWorkerPlugin() {
     throw new AggregateError(built.logs, 'Schema Worker build failed')
   }
   const workerSource = await built.outputs[0].text()
-  const contents = `
+  return `
     // 内嵌代码来自本次构建的固定 Worker 入口；Blob URL 只由本 Worker 生命周期持有。
-    export function createCompilerWorker() {
+    export function ${entry.factory}() {
       const url = URL.createObjectURL(new Blob([${JSON.stringify(workerSource)}], {type: 'text/javascript'}))
       try {
         const worker = new Worker(url, {smol: true})
@@ -29,14 +42,21 @@ export async function compilerWorkerPlugin() {
       } catch (error) { URL.revokeObjectURL(url); throw error }
     }
   `
+}
+
+// 保留原 Luvus 构建插件接口，并仅对两个受维护的固定定位模块提供同源内嵌代码。
+export async function compilerWorkerPlugin() {
+  const contents = await Promise.all(entries.map(/* 分别生成两个固定入口的 Worker 代码。 */ embeddedWorker))
   return {
     name: 'rovloom-schema-worker',
-    // 插件只匹配这个固定模块，保留其余模块原有构建行为。
+    // 其余模块保持原构建行为；两个工厂保留各自协议和原始 schema 语义。
     setup(build) {
-      build.onLoad(
-        { filter: /[/\\]native-contract[/\\]compiler-location\.ts$/ },
-        /* 将源定位器替换为本次同源构建的内嵌定位器。 */ () => ({ contents, loader: 'js' })
-      )
+      for (const [index, entry] of entries.entries()) {
+        build.onLoad(
+          { filter: entry.filter },
+          /* 将当前固定定位器替换为本次构建的对应 Worker。 */ () => ({ contents: contents[index], loader: 'js' })
+        )
+      }
     }
   }
 }

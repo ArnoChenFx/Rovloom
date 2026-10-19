@@ -1,0 +1,251 @@
+{
+  "provenance": {
+    "version": "0.9.5",
+    "protocol": 22,
+    "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b",
+    "official_source": "https://github.com/herdrdev/herdr/tree/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+    "capture": "Recorded request params and Store-verified native response from owned real MCP stdio management calls; sanitized native ID is applied to both sides.",
+    "sanitization": [
+      "Consistent workspace/tab/pane/terminal/native ID substitution",
+      "Owned cwd and shell host substitution",
+      "Synthetic random terminal marker substitution"
+    ],
+    "scope": "Management and explicit terminal input/output only; no model request, Agent reply, event stream or common replay sequence."
+  },
+  "exchanges": [
+    {
+      "request": {
+        "id": "owned-native-1",
+        "method": "workspace.create",
+        "params": {
+          "label": "owned-workflow",
+          "focus": false,
+          "env": {}
+        }
+      },
+      "response": {
+        "id": "owned-native-1",
+        "result": {
+          "root_pane": {
+            "agent_status": "unknown",
+            "cwd": "/owned/work",
+            "focused": true,
+            "foreground_cwd": "/owned/work",
+            "pane_id": "owned-pane-1",
+            "revision": 0,
+            "scroll": {
+              "max_offset_from_bottom": 0,
+              "offset_from_bottom": 0,
+              "viewport_rows": 40
+            },
+            "tab_id": "owned-tab-1",
+            "terminal_id": "owned-terminal-1",
+            "workspace_id": "owned-workspace-1"
+          },
+          "tab": {
+            "agent_status": "unknown",
+            "focused": true,
+            "label": "1",
+            "number": 1,
+            "pane_count": 1,
+            "tab_id": "owned-tab-1",
+            "workspace_id": "owned-workspace-1"
+          },
+          "type": "workspace_created",
+          "workspace": {
+            "active_tab_id": "owned-tab-1",
+            "agent_status": "unknown",
+            "focused": true,
+            "label": "owned-workflow",
+            "number": 1,
+            "pane_count": 1,
+            "tab_count": 1,
+            "workspace_id": "owned-workspace-1"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-2",
+        "method": "tab.create",
+        "params": {
+          "workspace_id": "owned-workspace-1",
+          "label": "owned-tab",
+          "focus": false
+        }
+      },
+      "response": {
+        "id": "owned-native-2",
+        "result": {
+          "root_pane": {
+            "agent_status": "unknown",
+            "cwd": "/owned/work",
+            "focused": false,
+            "foreground_cwd": "/owned/work",
+            "pane_id": "owned-pane-2",
+            "revision": 0,
+            "scroll": {
+              "max_offset_from_bottom": 0,
+              "offset_from_bottom": 0,
+              "viewport_rows": 40
+            },
+            "tab_id": "owned-tab-2",
+            "terminal_id": "owned-terminal-2",
+            "workspace_id": "owned-workspace-1"
+          },
+          "tab": {
+            "agent_status": "unknown",
+            "focused": false,
+            "label": "owned-tab",
+            "number": 2,
+            "pane_count": 1,
+            "tab_id": "owned-tab-2",
+            "workspace_id": "owned-workspace-1"
+          },
+          "type": "tab_created"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-3",
+        "method": "pane.split",
+        "params": {
+          "target_pane_id": "owned-pane-2",
+          "direction": "right",
+          "focus": false
+        }
+      },
+      "response": {
+        "id": "owned-native-3",
+        "result": {
+          "pane": {
+            "agent_status": "unknown",
+            "cwd": "/owned/work",
+            "focused": false,
+            "foreground_cwd": "/owned/work",
+            "pane_id": "owned-pane-3",
+            "revision": 0,
+            "scroll": {
+              "max_offset_from_bottom": 0,
+              "offset_from_bottom": 0,
+              "viewport_rows": 38
+            },
+            "tab_id": "owned-tab-2",
+            "terminal_id": "owned-terminal-3",
+            "workspace_id": "owned-workspace-1"
+          },
+          "type": "pane_info"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-4",
+        "method": "pane.send_text",
+        "params": {
+          "pane_id": "owned-pane-2",
+          "text": "printf '%s%s\\n' 'owned-' '0123456789abcdef'"
+        }
+      },
+      "response": {
+        "id": "owned-native-4",
+        "result": {
+          "type": "ok"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-5",
+        "method": "pane.send_keys",
+        "params": {
+          "pane_id": "owned-pane-2",
+          "keys": [
+            "Enter"
+          ]
+        }
+      },
+      "response": {
+        "id": "owned-native-5",
+        "result": {
+          "type": "ok"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-6",
+        "method": "pane.read",
+        "params": {
+          "pane_id": "owned-pane-2",
+          "source": "visible",
+          "format": "text",
+          "strip_ansi": true
+        }
+      },
+      "response": {
+        "id": "owned-native-6",
+        "result": {
+          "read": {
+            "format": "text",
+            "pane_id": "owned-pane-2",
+            "revision": 0,
+            "source": "visible",
+            "tab_id": "owned-tab-2",
+            "text": "owner@owned:/owned/work$ printf '%s%s\\n' 'owned-' '0123456789abcdef'\nowned-0123456789abcdef\nowner@owned:/owned/work$\n",
+            "truncated": false,
+            "workspace_id": "owned-workspace-1"
+          },
+          "type": "pane_read"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-7",
+        "method": "agent.list",
+        "params": {}
+      },
+      "response": {
+        "id": "owned-native-7",
+        "result": {
+          "agents": [],
+          "type": "agent_list"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-8",
+        "method": "tab.close",
+        "params": {
+          "tab_id": "owned-tab-2"
+        }
+      },
+      "response": {
+        "id": "owned-native-8",
+        "result": {
+          "type": "ok"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "owned-native-9",
+        "method": "workspace.close",
+        "params": {
+          "workspace_id": "owned-workspace-1"
+        }
+      },
+      "response": {
+        "id": "owned-native-9",
+        "result": {
+          "type": "ok"
+        }
+      }
+    }
+  ]
+}

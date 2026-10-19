@@ -1,0 +1,101 @@
+{
+  "format": 1,
+  "runtime": "herdr",
+  "version": "0.9.5",
+  "protocol": 22,
+  "source": {
+    "repository": "herdrdev/herdr",
+    "commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+    "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "schema_sha256": "9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b"
+  },
+  "scope": "own synthetic workspace; only native request IDs replaced with fixed fixture IDs",
+  "authorizes_dispatch": false,
+  "exchanges": [
+    {
+      "request": {
+        "method": "workspace.report_metadata",
+        "params": {
+          "workspace_id": "w1",
+          "source": "rovloom",
+          "tokens": {
+            "rovloom_note": "synthetic-one"
+          },
+          "seq": 1,
+          "ttl_ms": 60000
+        },
+        "id": "metadata-set"
+      },
+      "response": {
+        "id": "metadata-set",
+        "result": {
+          "type": "ok"
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "workspace.report_metadata",
+        "params": {
+          "workspace_id": "w1",
+          "source": "rovloom",
+          "tokens": {
+            "rovloom_note": "synthetic-conflict"
+          },
+          "seq": 1,
+          "ttl_ms": 60000
+        },
+        "id": "metadata-stale-noop"
+      },
+      "response": {
+        "id": "metadata-stale-noop",
+        "result": {
+          "type": "ok"
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "workspace.report_metadata",
+        "params": {
+          "workspace_id": "w1",
+          "source": "rovloom",
+          "tokens": {
+            "rovloom_note": null
+          },
+          "seq": 2,
+          "ttl_ms": 60000
+        },
+        "id": "metadata-clear"
+      },
+      "response": {
+        "id": "metadata-clear",
+        "result": {
+          "type": "ok"
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "workspace.report_metadata",
+        "params": {
+          "workspace_id": "wZZZZZZZZZZZZ",
+          "source": "rovloom",
+          "tokens": {
+            "rovloom_note": "synthetic-missing"
+          },
+          "seq": 5,
+          "ttl_ms": 60000
+        },
+        "id": "metadata-missing-workspace"
+      },
+      "response": {
+        "error": {
+          "code": "workspace_not_found",
+          "message": "workspace wZZZZZZZZZZZZ not found"
+        },
+        "id": "metadata-missing-workspace"
+      }
+    }
+  ]
+}

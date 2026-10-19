@@ -35,12 +35,11 @@ test(
 )
 
 for (const method of [
-  'pane.read',
-  'agent.read',
   'events.subscribe',
   'events.wait',
-  'workspace.rename',
-  'agent.prompt',
+  'workspace.unknown',
+  'pane.unknown',
+  'agent.unknown',
   'server.stop',
   'unknown'
 ]) {
@@ -56,10 +55,10 @@ for (const method of [
   )
 }
 
-for (const params of [undefined, null, [], { recent: true }, { viewport: true }, { extra: 1 }]) {
+for (const params of [undefined, null, [], 1, 'invalid']) {
   test(
-    `passive RPC rejects nonempty or missing params ${JSON.stringify(params)}`,
-    /** 逐项验证缺失或非空参数，保持被动 RPC 的精确空对象范围。 */ () => {
+    `ordinary RPC rejects missing or non-record params ${JSON.stringify(params)}`,
+    /** 参数必须是记录，具体字段约束由官方完整 schema 提供。 */ () => {
       assert.throws(
         /** 将当前参数反例传给 snapshot 编码器。 */ () =>
           createHerdrCodec(source, schemas).encode({ id: 'n', method: 'session.snapshot', params })
@@ -194,46 +193,55 @@ test(
 )
 
 test(
-  'shared Herdr candidate gate blocks even synthetic validated registry and complete codec',
-  /** 用完整合成 registry 验证真实共享 Herdr gate 仍拒绝派发和来源凭据。 */ () => {
-    const fixture = backendFixture()
+  'shared provider gate permits only validated fixed provenance and branded production schemas',
+  /** 真实 gate 接纳固定已评审来源，但离线完整根副本不能伪装成生产 Worker 编译结果。 */ () => {
+    const state = backendFixture()
+    assert.equal(providerFor(state.binding, state.context).kind, 'herdr')
+    state.wire.support_status = 'candidate' as any
     assert.throws(
-      /** 直接调用真实 provider gate，防止测试替身掩盖生产关闭状态。 */ () =>
-        providerFor(fixture.binding, fixture.context),
+      /** candidate 即使摘要相同也不能变为执行许可。 */ () => providerFor(state.binding, state.context),
       /provider_support_candidate/
     )
-    const adapter = createHerdrReadonlyAdapter(fixture.backend)
-    const resolved = adapter.resolve(fixture.identity)
-    assert.throws(
-      /** 尝试通过 adapter 编码 ping，检查共享 candidate 硬拒绝。 */ () =>
-        adapter.encodeRequest({ ...fixture.record.native_request, id: fixture.binding.native_request_id }, resolved),
-      /provider_support_candidate/
-    )
-    assert.throws(
-      /** 尝试获取私有证据来源，检查关闭门禁不能被只解析句柄绕过。 */ () => adapter.trustedSource(resolved),
-      /provider_support_candidate/
-    )
-    adapter.release(resolved)
-    assert.throws(
-      /** 释放句柄后再次编码，检查旧 handle 不能复活。 */ () =>
-        adapter.encodeRequest({ ...fixture.record.native_request, id: fixture.binding.native_request_id }, resolved),
-      /native_handle_unavailable/
-    )
+    state.wire.support_status = 'validated'
+    const contract = state.backend.contract(state.binding.contract_ref)!
+    state.backend.contract = /** 完整校验器方法的复制品没有真实编译来源品牌。 */ () => ({
+      wire: contract.wire,
+      schemas: { ...contract.schemas }
+    })
+    const adapter = createHerdrReadonlyAdapter(state.backend)
+    try {
+      assert.throws(
+        /** 生产 resolve 在创建句柄前拒绝未持有品牌的 schema。 */ () => adapter.resolve(state.identity),
+        /herdr_schema_uncompiled/
+      )
+    } finally {
+      adapter.close()
+    }
   }
 )
 
 test(
-  'snapshot protocol evidence cannot become an execution permission even with a synthetic registry',
-  /** 将原 attempt 改为 snapshot，验证协议可回放不等于允许执行。 */ () => {
+  'snapshot is an ordinary reviewed RPC and preserves its native result without passive guarantees',
+  /** snapshot 使用原有权限和完整 schema；普通请求成功不建立事件恢复或被动读取保证。 */ () => {
     const fixture = backendFixture()
     fixture.record.method = fixture.record.native_request.method = 'session.snapshot'
+    for (const side of [fixture.context.policies!.caller, fixture.context.policies!.local]) {
+      side.grants[0]!.methods = ['session.snapshot']
+    }
     const adapter = createHerdrReadonlyAdapter(fixture.backend)
-    assert.throws(
-      /** 解析 snapshot attempt，检查在创建执行句柄前拒绝。 */ () => adapter.resolve(fixture.identity),
-      /herdr_method_unreviewed/
-    )
-    assert.deepEqual(review.methods, ['ping'])
-    assert.deepEqual(review.protocol_methods, ['ping', 'session.snapshot'])
+    try {
+      const context = adapter.resolve(fixture.identity)
+      adapter.encodeRequest({ ...fixture.record.native_request, id: fixture.binding.native_request_id }, context)
+      const response = { ...exchanges[2]!.response, id: fixture.binding.native_request_id }
+      assert.deepEqual(adapter.decodeResponse(Buffer.from(JSON.stringify(response) + '\n'), context), response)
+      assert.equal(review.methods.length, 65)
+      assert.deepEqual(review.protocol_methods, review.methods)
+      assert.equal(review.guarantees.event_recovery, 'unavailable')
+      assert.equal(review.guarantees.terminal_fence, 'unavailable')
+      assert.equal(review.guarantees.prompt_completion, 'unavailable')
+    } finally {
+      adapter.close()
+    }
   }
 )
 
@@ -253,8 +261,8 @@ test(
           target: { machine_id: 'machine1', provider_id: 'herdr1', profile: 'host' }
         })
     )
-    fixture.record.native_request.params = { viewport: true }
-    assert.throws(/** 使用带 viewport 参数的原调用解析句柄。 */ () => adapter.resolve(fixture.identity))
+    fixture.record.native_request.params = []
+    assert.throws(/** 参数数组不能充当原生参数记录。 */ () => adapter.resolve(fixture.identity))
     fixture.record.native_request.params = {}
     fixture.backend.nativeSource = /** 模拟宿主无法独立建立原生来源。 */ () => undefined
     assert.throws(

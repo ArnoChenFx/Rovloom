@@ -8,6 +8,7 @@ import type { NativeRequest } from './contracts.js'
 import {
   assertBinding,
   boundedJson,
+  contractRef,
   LIMITS,
   planHistoryAdmission,
   registeredRequestDigest,
@@ -18,7 +19,7 @@ import {
 } from './wire/index.js'
 import type { HistoryScope, HistoryRecord } from './wire/history.js'
 import type { ResponseAnchor, ResponseEvidencePlan } from './wire/evidence.js'
-import type { AttemptBinding, AttemptIdentity, ProviderBinding, V2Target } from './wire/types.js'
+import type { AttemptBinding, AttemptIdentity, JsonObject, ProviderBinding, V2Target } from './wire/types.js'
 import type { TrustedAttempt } from './integration/luvus-wire.js'
 import { DEFAULT_RETENTION, retention } from './storage/config.js'
 import type { Retention } from './storage/config.js'
@@ -28,6 +29,8 @@ import { auditRecord } from './storage/audit.js'
 import { completionReservation } from './storage/completion.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, privateFile, privatePath } from './storage/files.js'
+import { fixedHerdrSource } from './connector/herdr/review.js'
+import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
 export { DEFAULT_RETENTION }
 export type {
@@ -997,12 +1000,13 @@ export class Store {
     target: V2Target,
     request: NativeRequest,
     options: CallAdmissionOptions,
-    authorize?: () => void
+    authorize?: () => void,
+    preflight?: (request: JsonObject) => void
   ): CallAdmission {
     if (options.timeoutMs !== undefined) {
       throw new GatewayError('invalid_deadline')
     }
-    return this.registerCall(principal, target, request, options, { deadline: options.deadline }, authorize)
+    return this.registerCall(principal, target, request, options, { deadline: options.deadline }, authorize, preflight)
   }
   // 快照完整意图，在唯一 writer 事务中决定新旧；不提供查询后创建、派发或通用 SQL 回调入口。
   private registerCall(
@@ -1011,7 +1015,8 @@ export class Store {
     requestValue: NativeRequest,
     supplied: CallOptions,
     timing: { timeoutMs: number } | { deadline: number },
-    authorize?: () => void
+    authorize?: () => void,
+    preflight?: (request: JsonObject) => void
   ): CallAdmission {
     validateTarget(targetValue)
     validateRequest(requestValue)
@@ -1024,6 +1029,9 @@ export class Store {
     }
     if (authorize !== undefined && typeof authorize !== 'function') {
       throw new GatewayError('synchronous_authorization_required')
+    }
+    if (preflight !== undefined && typeof preflight !== 'function') {
+      throw new GatewayError('synchronous_native_preflight_required')
     }
     const { target, request } = JSON.parse(canonical({ target: targetValue, request: requestValue })) as {
       target: V2Target
@@ -1050,7 +1058,14 @@ export class Store {
         if (!provider || !provider.enabled || provider.binding_revision !== options.binding_revision) {
           throw new GatewayError('provider_binding_mismatch')
         }
-        if (provider.kind === 'herdr') {
+        // Herdr 在此只登记已评审 RPC 意图；实际发送前仍须完整安装 schema 和当前权限检查。
+        if (
+          provider.kind === 'herdr' &&
+          (target.profile !== 'session' ||
+            (options.validation ?? 'strict') !== 'strict' ||
+            options.contract_ref !== contractRef(fixedHerdrSource()) ||
+            !reviewedHerdrRequest(request))
+        ) {
           throw new GatewayError('provider_support_candidate')
         }
         const identity: AttemptIdentity = {
@@ -1142,6 +1157,14 @@ export class Store {
         }
         if (this.machine(target.machine_id).status !== 'online') {
           throw new GatewayError('machine_offline')
+        }
+        // 首次登记在唯一 writer 中使用实际原生 ID 验证完整根；失败回滚，不生成 call 或派发锚点。
+        const checked: unknown = preflight?.(JSON.parse(canonical({ ...request, id: identity.native_request_id })))
+        if (checked !== undefined) {
+          if (checked instanceof Promise) {
+            void checked.catch(/* 消费违反同步契约的晚到拒绝，不能在回调完成前登记。 */ () => {})
+          }
+          throw new GatewayError('synchronous_native_preflight_required')
         }
         this.db
           .prepare(`INSERT INTO calls(call_id,principal,machine_id,provider_id,binding_revision,provider_kind,

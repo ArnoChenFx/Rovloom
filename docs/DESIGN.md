@@ -13,7 +13,7 @@ Rovloom 是一个多机器 MCP 网关项目，同一发行产物提供 Gateway �
 - 一个 runtime provider binding 对应一个 Luvus 或 Herdr 实例；同 kind 的多个实例也各有独立 provider_id。runtime provider 与 LLM/model provider 是不同概念。
 - 每次调用使用显式 Target 和预期 binding revision；权限、契约、原生身份、去重、结果与流都隔离到该实例，禁止跨 provider 自动 failover。
 - 对外提供少量通用 MCP 工具，按目标发现和描述原生方法；普通 RPC、Host 与持续/双向流分别适配。
-- Luvus 的目标范围是受支持版本内获授权的 UHP 能力。Herdr 的初始范围是发现、状态、经核实被动只读和事件失效后的当前状态重建；写入、终端控制及更强保证须独立设计和验证。
+- Luvus 的目标范围是受支持版本内获授权的 UHP 能力。Herdr 在固定 Linux x86_64、0.9.5/protocol 22 下实现 65 个普通 RPC，覆盖状态、workspace/tab/pane 管理、终端输入与 Agent 启动、prompt 和等待；其余 37 个原生方法尚未接入，更强保证须独立验证。
 
 ## 2. 用户需求与边界
 
@@ -49,7 +49,7 @@ Connector A                   Connector B
 
 三条边界独立认证：caller → Gateway；设备 Connector → Gateway；Connector → 本地原生实例。machine_id 不由 hostname/name 自报产生，epoch 或 welcome 也不能自行证明通道已认证。原生来源必须由本机受保护配置、endpoint 归属及平台身份核验建立；收到的消息、设备广告和 caller 参数不能自证 `authenticated/source_verified`。
 
-Connector 仅执行管理员固定的 binary、状态根和 session 策略。caller 不能提交 binary 路径、环境、endpoint、状态根或 SSH 目标选择 adapter。设备广告不得创建、重绑或扩大 binding；双方受保护配置不一致即拒绝派发。
+Connector 仅执行管理员固定的 binary、状态根和 session 策略。caller 不能提交连接/安装的 binary 路径、环境、endpoint、状态根或 SSH 目标来选择或替换 adapter。已授权普通 RPC 的原生 `workspace.create`、`pane.split` 等参数仍保留官方 `env/cwd` 语义，不把这些业务参数当作 Connector 安装配置。设备广告不得创建、重绑或扩大 binding；双方受保护配置不一致即拒绝派发。
 
 ### 4.1 两种 Gateway 部署
 
@@ -189,7 +189,11 @@ observe 永不可写；图片/上传等高级 action 只有在契约、分类、
 
 ### 9.4 Herdr JSON adapter
 
-保留 Herdr 原生 request/result/error，不模拟 UHP、Host、通用 cancel、原子 terminal fence 或 UI renderer。初始切片必须在独立 P0-H 证明安装契约、endpoint/peer、framing、被动读和事件重建后接入。recent 等读取可能有滚动/输入副作用，按具体 method+params+实现审核，未核实不进 observer。prompt wait 的状态变化不能证明本次 prompt 完成。
+Herdr 普通 RPC 保留原生 request/result/error，以安装 CLI 原始 schema 的完整根和固定逐方法成功类型校验。运行时复用既有 Store、完整 Target/provider binding、当前 caller/local grants、原调用期限和持久发送 claims；本机来源由受监管 child 与实际 socket peer 独立核验，Gateway 仅持有已认证 Connector 通道来源。
+
+65 个方法由 `src/connector/herdr/methods.ts` 精确列举；`server.*`、worktree、integration、plugin、事件订阅等其余 37 方法继续拒绝。普通 RPC 可能改变状态、发送终端输入或提交模型任务，read 名称和 schema 枚举均不授予 observer 被动读权限。当前原生请求/响应完整 UTF-8 JSON 加 LF 帧上限为 65536 字节，目录逐方法公开该预算，大结果不走对象分片。固定 snapshot/list/read 接口没有原生 continuation 分页；读取的 `lines`只控制末尾行窗口，最多 1000 行，不保证字节数适配。
+
+模块实现与唯一 CLI/HTTP MCP 联合验收分开。管理交换、Agent 启动和同一真实会话的两个模型回合分别取证；`agent.prompt` 返回提交/状态、`agent.wait` 返回 Agent 状态，均不等于本轮回答。事件恢复、通用原生 cancel、原子 terminal fence、共同序号/replay 和 per-turn receipt 未由本桥接提供。
 
 被动读精确 allowlist、写入/终端原子身份保证、prompt 完成归属与取消语义尚无充分证据的部分属于待设计决策，默认拒绝；不能用 Luvus 证据或外层 revision 补造保证。
 
@@ -328,7 +332,7 @@ HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用�
 
 ## 16. 待设计决策与部署输入
 
-Herdr 被动读精确 allowlist、任何写入/终端控制、prompt 归属和取消保证，以及完全无可用 bundle 的 raw 最小契约，均须独立证据及设计评审，未定默认拒绝。
+Herdr observer 被动读精确 allowlist、原子终端控制、prompt 完成归属和原生取消保证，以及完全无可用 bundle 的 raw 最小契约，均须独立证据及设计评审，未定默认拒绝。已实现普通 RPC 的副作用通过明确目标与双方授权治理，不等于这些更强保证已经成立。
 
 目标 OS/原生版本、Gateway 可达地址、TLS/反代、MCP Host/版本、身份服务及真实双机环境是部署输入；按平台/客户端单独验收，不能由一个 Linux fixture 推导跨平台支持。Owner/Host admin 默认不授予。已经明确的多 provider、安全语义和管理 UI 不因实现滞后退回单 provider 设计。
 

@@ -4,6 +4,7 @@
 from copy import deepcopy
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/herdr'))
 import collect as collector
 from contract import (
     audit, decode, DIALECT, exchange, frame, MAX_LINE, method_classification,
-    read_file, Rejected, ROOT, schema_closure, sha, StateRebuild,
+    audit_method_policy, read_file, Rejected, ROOT, schema_closure, sha, StateRebuild,
+    reviewed_production_allowlist, WORKFLOW_RESPONSE_TYPES,
 )
 
 
@@ -74,8 +76,8 @@ class NativeFrames(unittest.TestCase):
             with self.subTest(response=response), self.assertRaises(Rejected):
                 exchange(self.request, encoded(response))
 
-    # 验证危险、未审查或参数不符的方法既无派发许可也不能离线回放。
-    def test_dangerous_or_unknown_method_params_are_not_replayed(self):
+    # 验证产品工作流、未实现方法和非法参数都不能从离线回放取得执行权限。
+    def test_workflow_or_unknown_method_params_are_not_replayed(self):
         for method, params in [
             ('pane.read', {'source': 'recent'}), ('pane.read', {'source': 'visible'}),
             ('pane.read', {'source': 'viewport'}), ('agent.read', {}),
@@ -88,12 +90,13 @@ class NativeFrames(unittest.TestCase):
                 with self.assertRaises(Rejected):
                     exchange(encoded({'id': 'id', 'method': method, 'params': params}), None)
 
-    # 验证候选方法在完整原生安全评审完成前仍无派发许可，不能由受控运行证据自动启用。
-    def test_candidates_still_have_no_dispatch_permission(self):
-        for method in ('ping', 'session.snapshot'):
-            self.assertEqual(method_classification(method, {}), {
-                'dispatch_allowed': False, 'reason': 'candidate_without_complete_native_safety_review',
-            })
+    # 验证所有条件实现都不能通过离线分类函数取得派发许可。
+    def test_offline_classification_still_has_no_dispatch_permission(self):
+        for method in WORKFLOW_RESPONSE_TYPES:
+            with self.subTest(method=method):
+                self.assertEqual(method_classification(method, {}), {
+                    'dispatch_allowed': False, 'reason': 'offline_audit_has_no_execution_authority',
+                })
 
     # 验证 pong 和快照必须携带有效原生元数据，不能仅靠类型标签通过。
     def test_native_metadata_is_not_invented_from_type_tag(self):
@@ -174,6 +177,114 @@ class SchemaClosure(unittest.TestCase):
                 schema_closure({'root': document(**{'allOf': [True], 'name': 1, '$ref': ref})}, 'root')
 
 
+class ReviewedRuntimePolicy(unittest.TestCase):
+    # 复制固定方法策略，每个反例都不能改变原始 fixture。
+    def setUp(self):
+        self.policy = decode((ROOT / 'test/fixtures/herdr/0.9.5/method-policy.json').read_bytes())
+
+    # 验证固定来源与版本对应实际安装 provenance，TS 运行时修订也同步维护。
+    def test_fixed_identity_matches_provenance_and_runtime_revision(self):
+        audit_method_policy(self.policy)
+        provenance = decode((ROOT / 'test/fixtures/herdr/0.9.5/provenance.json').read_bytes())
+        review = (ROOT / 'src/connector/herdr/review.ts').read_text()
+        for record in self.policy['production_allowlist']:
+            for name in ('binary_sha256', 'schema_sha256'):
+                self.assertEqual(record['source'][name], provenance[name])
+            self.assertEqual(record['source']['binary_version'], provenance['version'])
+            self.assertEqual(record['platform'], provenance['platform'])
+            for name in ('adapter_revision', 'classification_revision'):
+                self.assertIn(name + ": '" + record['source'][name] + "'", review)
+            self.assertEqual(record['native_process_image_hash'], 'not_measured')
+            self.assertFalse(method_classification(record['method'], record.get('params', {}))['dispatch_allowed'])
+
+    # 验证方法、参数、平台、进程边界、来源摘要和修订都不能从 fixture 放宽。
+    def test_each_runtime_scope_dimension_is_exact(self):
+        for name, value in [('method', 'session.snapshot'), ('params', {'extra': True}),
+                            ('platform', 'darwin-arm64'), ('profile', 'host'), ('validation', 'raw'),
+                            ('instance_source', 'self_reported_pid'), ('required_runtime_checks', [])]:
+            changed = deepcopy(self.policy)
+            changed['production_allowlist'][0][name] = value
+            with self.subTest(name=name), self.assertRaisesRegex(Rejected, 'production scope'):
+                audit_method_policy(changed)
+        for name, value in [('binary_sha256', 'a' * 64), ('schema_sha256', 'a' * 64),
+                            ('binary_version', 'future'), ('adapter_revision', 'future'),
+                            ('classification_revision', 'future')]:
+            changed = deepcopy(self.policy)
+            changed['production_allowlist'][0]['source'][name] = value
+            with self.subTest(name=name), self.assertRaisesRegex(Rejected, 'production scope'):
+                audit_method_policy(changed)
+        self.policy['production_allowlist'].append(deepcopy(self.policy['production_allowlist'][0]))
+        with self.assertRaisesRegex(Rejected, 'production scope'):
+            audit_method_policy(self.policy)
+
+    # 验证离线候选或所谓原生保证中的 true 不会变成执行许可。
+    def test_replay_permission_and_native_guarantees_cannot_be_promoted(self):
+        self.policy['offline_replay_candidates'][0]['dispatch_allowed'] = True
+        with self.assertRaisesRegex(Rejected, 'replay cannot authorize'):
+            audit_method_policy(self.policy)
+        self.setUp()
+        self.policy['guarantees']['cancel'] = 'available'
+        with self.assertRaisesRegex(Rejected, 'guarantee promotion'):
+            audit_method_policy(self.policy)
+        self.assertEqual(reviewed_production_allowlist()[0]['parameter_validation'],
+                         'complete_installed_request_root_no_adapter_subset')
+
+    # 验证四个完整工作流方法族与原始 schema 同步，参数保持完整原生根。
+    def test_complete_native_workflow_has_no_adapter_parameter_subset(self):
+        schema = decode((ROOT / 'test/fixtures/herdr/0.9.5/schema.json').read_bytes())
+        native_methods = [branch['properties']['method']['const']
+                          for branch in schema['schemas']['request']['oneOf']]
+        expected = [name for name in native_methods if name in ('ping', 'session.snapshot') or
+                    name.startswith(('workspace.', 'tab.', 'pane.', 'agent.'))]
+        self.assertEqual(list(WORKFLOW_RESPONSE_TYPES), expected)
+        self.assertEqual([row['method'] for row in self.policy['production_allowlist']], expected)
+        for record in self.policy['production_allowlist']:
+            with self.subTest(method=record['method']):
+                self.assertEqual(record['parameter_validation'], 'complete_installed_request_root_no_adapter_subset')
+                self.assertNotIn('params', record)
+                self.assertNotIn('params_schema', record)
+                self.assertEqual(record['native_result_types'], WORKFLOW_RESPONSE_TYPES[record['method']])
+                self.assertEqual(record['local_passive_review'], record['method'] == 'ping')
+
+    # 验证运行时表与离线表逐方法一致，成功 subtype 均来自完整官方 response 根。
+    def test_runtime_and_policy_response_types_match_native_schema(self):
+        scope = (ROOT / 'src/connector/herdr/methods.ts').read_text()
+        pairs = [(name.strip("'"), values) for name, values in
+                 re.findall(r"('[^']+'|\w+): Object\.freeze\(\[([^\]]+)\]\)", scope)]
+        table = {name: re.findall(r"'([^']+)'", values) for name, values in pairs}
+        self.assertEqual(table, WORKFLOW_RESPONSE_TYPES)
+        self.assertEqual([name for name, _ in pairs], list(WORKFLOW_RESPONSE_TYPES))
+        schema = decode((ROOT / 'test/fixtures/herdr/0.9.5/schema.json').read_bytes())
+        result_types = {branch['properties']['type']['const'] for branch in
+                        schema['schemas']['success_response']['$defs']['ResponseResult']['oneOf']}
+        for name, values in table.items():
+            with self.subTest(method=name):
+                self.assertTrue(values)
+                self.assertEqual(len(values), len(set(values)))
+                self.assertTrue(set(values) <= result_types)
+        self.assertEqual(table['agent.wait'], ['agent_info'])
+        self.assertEqual(table['agent.read'], ['pane_read'])
+        self.assertEqual(table['workspace.create'], ['workspace_created'])
+        self.assertEqual(table['tab.create'], ['tab_created'])
+
+    # 验证静态表既不能改成更宽执行许可，也不能复制旧的产品参数小子集。
+    def test_native_workflow_policy_cannot_invent_scope_or_result_semantics(self):
+        index = list(WORKFLOW_RESPONSE_TYPES).index('workspace.report_metadata')
+        for field, value in [
+            ('local_passive_review', True), ('local_passive_review', 0),
+            ('native_result_types', ['write_applied']), ('effect', 'passive'),
+            ('parameter_validation', 'unchecked'), ('params_schema', {'type': 'object'}),
+            ('params', {'source': 'rovloom', 'tokens': {'rovloom_note': 'only'}}),
+        ]:
+            changed = deepcopy(self.policy)
+            changed['production_allowlist'][index][field] = value
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(Rejected, 'production scope'):
+                audit_method_policy(changed)
+        for method in ('workspace.report_metadata', 'agent.start', 'agent.prompt', 'pane.send_keys'):
+            with self.subTest(method=method), self.assertRaisesRegex(Rejected, 'offline replay candidates'):
+                exchange(encoded({'id': 'workflow', 'method': method, 'params': {}}), None)
+
+
 class Archive(unittest.TestCase):
     # 复制合成 fixture 到私有临时输入目录，并加载可修改的清单。
     def setUp(self):
@@ -204,6 +315,8 @@ class Archive(unittest.TestCase):
         self.assertEqual(result['offline_audit'], 'passed')
         self.assertFalse(result['native_verified'])
         self.assertEqual(result['production_allowlist'], [])
+        self.assertFalse(result['authorizes_dispatch'])
+        self.assertEqual(result['reviewed_runtime_methods'], list(WORKFLOW_RESPONSE_TYPES))
         self.assertEqual(result['outcomes'], ['response', 'response', 'native_error', 'outcome_unknown', 'outcome_unknown'])
         self.assertIn('endpoint_and_peer', result['unverified'])
 
@@ -230,11 +343,16 @@ class Archive(unittest.TestCase):
         with self.assertRaisesRegex(Rejected, 'recorded observation'):
             audit(self.root)
 
-    # 验证修改本地策略启用生产许可会触发原生门禁拒绝。
+    # 验证缺少精确条件的 fixture 不能开启许可，布尔自报授权同样拒绝。
     def test_allowlist_cannot_be_enabled_by_fixture(self):
         policy = self.parent / 'policy.json'
         policy.write_bytes(encoded({'production_allowlist': [{'method': 'ping', 'params': {}}]}))
-        with patch('contract.POLICY', policy), self.assertRaisesRegex(Rejected, 'native gate'):
+        with patch('contract.POLICY', policy), self.assertRaises(Rejected):
+            audit(self.root)
+        value = decode((ROOT / 'test/fixtures/herdr/0.9.5/method-policy.json').read_bytes())
+        value['authorizes_dispatch'] = True
+        policy.write_bytes(encoded(value))
+        with patch('contract.POLICY', policy), self.assertRaisesRegex(Rejected, 'authorize dispatch'):
             audit(self.root)
 
     # 验证每条交换记录的实例和契约各维度必须与归档绑定一致。

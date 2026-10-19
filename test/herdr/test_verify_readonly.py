@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/herdr'))
 
 from verify_native import Run, encoded
-from verify_readonly import retained_boundary
+from verify_readonly import passive_ping, retained_boundary
 
 
 class BoundaryFailures(unittest.TestCase):
@@ -127,6 +127,63 @@ class BoundaryFailures(unittest.TestCase):
                 with self.assertRaisesRegex(error, message):
                     retained_boundary(self.run, 512)
                 self.channel.close.assert_called_once()
+
+
+class PassivePingFailures(unittest.TestCase):
+    """静态 ping 观察不能从坏确认、状态变化、输入或 EOF 中得出通过。"""
+
+    def setUp(self):
+        """只使用本轮合成状态和 mock socket，不创建原生进程。"""
+        self.temp = tempfile.TemporaryDirectory(prefix='rovloom-ping-unit-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root/'shell.input.bytes').write_text('0')
+        self.channel = Mock()
+        self.snapshot = {'version': '0.9.5', 'protocol': 22, 'panes': [], 'agents': []}
+        self.snapshots = [self.snapshot, dict(self.snapshot)]
+        self.run = SimpleNamespace(root=self.root, sockets=[self.channel], connect=Mock(return_value=self.channel),
+                                   request=Mock(side_effect=self.request), save=Mock(),
+                                   read_line=Mock(return_value=encoded({'id': 'ping-observer', 'result': {'type': 'subscription_started'}})))
+
+    def request(self, method, _params, _label):
+        """按实际顺序返回两份对照和精确 pong，不用候选报告补造原生许可。"""
+        if method == 'session.snapshot':
+            return {'result': {'snapshot': self.snapshots.pop(0)}}
+        return {'id': 'synthetic', 'result': {'type': 'pong', 'version': '0.9.5', 'protocol': 22}}
+
+    def test_exact_ack_is_required(self):
+        """错 ID 或错类型的确认必须失败并关闭当前通道。"""
+        self.run.read_line.return_value = encoded({'id': 'other', 'result': {'type': 'subscription_started'}})
+        with self.assertRaises(AssertionError):
+            passive_ping(self.run)
+        self.channel.close.assert_called_once()
+
+    def test_state_or_input_change_cannot_pass(self):
+        """任何可见状态变化或合成输入都使比较失败，不以 ping 名称推断被动。"""
+        for change in ('state', 'input'):
+            with self.subTest(change=change):
+                self.snapshots = [self.snapshot, {**self.snapshot, **({'agents': ['changed']} if change == 'state' else {})}]
+                (self.root/'shell.input.bytes').write_text('1' if change == 'input' else '0')
+                self.run.sockets = [self.channel]
+                with self.assertRaises(AssertionError):
+                    passive_ping(self.run)
+
+    def test_readable_event_or_eof_is_not_a_quiet_window(self):
+        """通道可读时 EOF 同样拒绝，不能把订阅死亡报告为无事件。"""
+        self.run.read_line.side_effect = [encoded({'id': 'ping-observer', 'result': {'type': 'subscription_started'}}), b'']
+        with patch('verify_readonly.select.select', return_value=([self.channel], [], [])):
+            with self.assertRaisesRegex(AssertionError, 'event or observer EOF'):
+                passive_ping(self.run)
+        self.channel.close.assert_called_once()
+
+    def test_quiet_window_reports_scope_without_production_permission(self):
+        """成功也只能报告有限窗口，明确缺 UI/agent 覆盖和产品派发许可。"""
+        with patch('verify_readonly.select.select', return_value=([], [], [])):
+            result = passive_ping(self.run)
+        self.assertEqual(result['calls'], 32)
+        self.assertFalse(result['production_permission'])
+        self.assertIn('active_ui', result['not_covered'])
+        self.assertEqual(self.run.sockets, [])
 
 
 if __name__ == '__main__':
