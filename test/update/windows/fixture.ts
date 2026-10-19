@@ -36,6 +36,19 @@ async function marker(path: string, timeout = 15000): Promise<string> {
   throw new Error('fixture_marker_timeout')
 }
 
+// JSON 只在完整写入、同步并关闭后原子发布；读端不重试空内容或放宽解析断言。
+async function publishJsonMarker(path: string, value: unknown): Promise<void> {
+  const pending = path + '.pending'
+  const file = await fs.open(pending, 'wx', 0o600)
+  try {
+    await file.writeFile(JSON.stringify(value), 'utf8')
+    await file.sync()
+  } finally {
+    await file.close()
+  }
+  await fs.rename(pending, path)
+}
+
 // 使用真实编译 PE 载荷注入官方元数据；不请求尚未存在的外部 Release 资产。
 async function network(root: string): Promise<UpdateNetwork> {
   const platform = updatePlatform('win32', process.arch)
@@ -208,10 +221,7 @@ if (process.argv[2] === '--version') {
   const role = process.argv[3]!
   const root = process.argv[4]!
   const nonce = process.argv[5]!
-  await fs.writeFile(
-    join(root, `ready-${nonce}.json`),
-    JSON.stringify({ role, nonce, version: WINDOWS_FIXTURE_VERSION })
-  )
+  await publishJsonMarker(join(root, `ready-${nonce}.json`), { role, nonce, version: WINDOWS_FIXTURE_VERSION })
   await marker(join(root, `stop-${nonce}`), 60000)
 } else if (process.argv[2] === WINDOWS_HELPER_COMMAND) {
   const root = dirname(dirname(process.execPath))
@@ -231,10 +241,12 @@ if (process.argv[2] === '--version') {
   } catch (error) {
     code = updateExitCode(error)
   }
-  await fs.writeFile(
-    join(root, 'helper-result.json'),
-    JSON.stringify({ code, snapshots: controlled.snapshots(), pid: process.pid, self: nativeWindowsParent.self() })
-  )
+  await publishJsonMarker(join(root, 'helper-result.json'), {
+    code,
+    snapshots: controlled.snapshots(),
+    pid: process.pid,
+    self: nativeWindowsParent.self()
+  })
   try {
     await marker(join(root, 'finish-helper'))
   } finally {
@@ -256,7 +268,7 @@ if (process.argv[2] === '--version') {
       output += text
     }
   })
-  await fs.writeFile(join(root, 'parent-result.json'), JSON.stringify({ code, output, plan }))
+  await publishJsonMarker(join(root, 'parent-result.json'), { code, output, plan })
   if (output.includes('handoff_pending')) {
     await marker(join(root, 'allow-parent-exit'))
   }

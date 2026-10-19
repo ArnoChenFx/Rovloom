@@ -175,7 +175,7 @@ def main():
             started = time.monotonic()
             # 全套回归的聚合预算覆盖增长与追踪开销，不改变产品或单例自身的时限。
             seconds = 600 if label == 'foundation' else 180
-            process = subprocess.Popen([trace_tool, '-f', '-qq', '-s', '256', '-e', 'trace=execve,execveat',
+            process = subprocess.Popen([trace_tool, '-f', '-q', '-s', '256', '-e', 'trace=execve,execveat',
                                         '-o', str(trace), *arguments], cwd=project, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             try:
@@ -206,7 +206,17 @@ def main():
             if (root / 'blocked.log').exists():
                 raise RuntimeError(f'{label}: blocked executable invoked')
             if process.returncode != expected:
-                print(combined[-12000:], file=sys.stderr)
+                # 完整保留两条脱敏流，不能让大量通过项覆盖较早的 hook/strace 错误。
+                print(f'{label}: command={json.dumps(arguments)}; traced command exit={process.returncode}',
+                      file=sys.stderr)
+                for stream, content in (('stdout', stdout), ('stderr', stderr)):
+                    content = content.replace(str(root), '/isolated').replace(str(bun), '/verified/bun')
+                    print(f'{label}: {stream}\n{content}', file=sys.stderr)
+                # -q 保留真实进程退出状态；外层 strace 的退出码不能冒充内层 Bun 的退出码。
+                trace_lines = traced.splitlines()
+                print(f'{label}: initial exec\n' + '\n'.join(trace_lines[:1]), file=sys.stderr)
+                statuses = [line for line in trace_lines if re.search(r'\+\+\+ (?:exited with|killed by)', line)]
+                print(f'{label}: process exit tail\n' + '\n'.join(statuses[-64:]), file=sys.stderr)
                 raise RuntimeError(f'{label}: exit {process.returncode}, expected {expected}; see {output}')
             records.append({'label': label, 'command': arguments, 'exit': process.returncode,
                             'timeoutSeconds': seconds,
