@@ -1,0 +1,104 @@
+# 仅响应用户创建的版本 tag；全门禁和真实产品验收完成后才组装草稿并一次公开。
+name: Tagged product release
+on:
+  push:
+    tags: ['v*']
+permissions: {}
+concurrency:
+  group: product-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.tag.outputs.matrix }}
+      artifactSet: ${{ steps.tag.outputs.artifactSet }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: bun-linux-x64
+      - name: Validate exact tag, checkout and product/package version
+        id: tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-env-file scripts/release/validate.mjs
+  quality:
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/bun.yml
+  preflight:
+    needs: quality
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: bun-linux-x64
+      - run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Require isolated real product HTTP/WebUI/Worker acceptance before matrix
+        env:
+          RELEASE_TARGET: bun-linux-x64
+        run: bun --no-env-file scripts/release/package.mjs "$RUNNER_TEMP/product-preflight"
+  build:
+    needs: [validate, preflight]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: ${{ matrix.target }}
+      - run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Compile and accept real product on the native runner
+        shell: bash
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: bun --no-env-file scripts/release/package.mjs "$RUNNER_TEMP/release-stage"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-${{ needs.validate.outputs.artifactSet }}-${{ matrix.target }}
+          path: ${{ runner.temp }}/release-stage/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: bun-linux-x64
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: release-${{ needs.validate.outputs.artifactSet }}-bun-*
+          path: ${{ runner.temp }}/release-stage
+          merge-multiple: true
+      - name: Verify complete bytes, resume matching draft, then publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-env-file scripts/release/publish.mjs "$RUNNER_TEMP/release-stage"

@@ -1,0 +1,124 @@
+/** 维护发行版本、平台和确定性资产契约；只允许固定官方仓库，不载入用户配置。 */
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { lstatSync, readFileSync, readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+export const repository = 'ArnoChenFx/Rovloom'
+export const manifestName = 'release-manifest.json'
+export const checksumsName = 'SHA256SUMS'
+export const platforms = JSON.parse(readFileSync(new URL('./platforms.json', import.meta.url), 'utf8'))
+export const root = resolve(import.meta.dir, '../..')
+
+/** 接受规范 SemVer 稳定版或预发布版，拒绝前导零、构建别名和不可安全比较的数字。 */
+export function versionFromTag(tag) {
+  assert.equal(typeof tag, 'string')
+  assert(tag.length <= 128, 'Release tag is too long')
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u.exec(tag)
+  assert(match, 'Expected vMAJOR.MINOR.PATCH[-PRERELEASE], without build metadata')
+  for (const number of match.slice(1, 4)) {
+    assert(Number.isSafeInteger(Number(number)), 'Unsafe SemVer number')
+  }
+  for (const identifier of match[4]?.split('.') ?? []) {
+    if (/^\d+$/u.test(identifier)) {
+      assert(
+        /^(?:0|[1-9]\d*)$/u.test(identifier) && Number.isSafeInteger(Number(identifier)),
+        'Invalid prerelease number'
+      )
+    }
+  }
+  return tag.slice(1)
+}
+
+/** 校验事件必须绑定官方仓库的完整 tag ref 与确切提交 SHA。 */
+export function releaseContext(env = process.env) {
+  assert.equal(env.GITHUB_REPOSITORY, repository, 'Release repository mismatch')
+  assert.equal(env.GITHUB_EVENT_NAME, 'push', 'Only tag push events can publish')
+  assert.equal(env.GITHUB_REF_TYPE, 'tag')
+  const tag = env.GITHUB_REF?.slice('refs/tags/'.length)
+  assert.equal(env.GITHUB_REF, `refs/tags/${tag}`)
+  const version = versionFromTag(tag)
+  assert(/^[0-9a-f]{40}$/u.test(env.GITHUB_SHA), 'Expected full event commit SHA')
+  return { tag, version, commit: env.GITHUB_SHA }
+}
+
+/** 产品版本只从受审源码导出读取，必须与包版本和 tag 三者完全一致，不在构建时偷偷改号。 */
+export async function validateProductVersion(context, directory = root) {
+  const pkg = JSON.parse(readFileSync(resolve(directory, 'package.json'), 'utf8'))
+  assert.equal(pkg.version, context.version, 'Tag and package.json version differ')
+  const source = resolve(directory, 'src/mcp/version.ts')
+  assert(lstatSync(source).isFile(), 'Product version module missing')
+  const { PRODUCT_VERSION } = await import(source)
+  assert.equal(PRODUCT_VERSION, context.version, 'Tag and PRODUCT_VERSION differ')
+}
+
+/** 公开平台字段使用 Node/Bun 命名；归档中的 aarch64 只属于官方工具链下载名。 */
+export function nativePlatform() {
+  const os = process.platform === 'win32' ? 'windows' : process.platform
+  const platform = platforms.find(
+    /** 精确选择运行中的 OS/arch，禁止模拟交叉验收。 */ (item) => item.os === os && item.arch === process.arch
+  )
+  assert(platform, 'Unsupported native release platform')
+  return platform
+}
+
+/** 资产名绑定精确版本和平台，不提供会被覆盖的无版本二进制别名。 */
+export function assetName(version, platform) {
+  assert.equal(versionFromTag(`v${version}`), version)
+  assert(
+    platforms.some(
+      /** 只允许已维护矩阵中的完整平台组合。 */ (item) =>
+        item.os === platform.os && item.arch === platform.arch && item.libc === platform.libc
+    ),
+    'Unknown release platform'
+  )
+  return `rovloom-${version}-${platform.os}-${platform.arch}${platform.os === 'windows' ? '.exe' : ''}`
+}
+
+/** 读取普通文件的完整字节计算公开长度和 SHA-256，拒绝目录、符号链接及空产物。 */
+export function fileMetadata(path) {
+  const stat = lstatSync(path)
+  assert(stat.isFile() && stat.size > 0, 'Expected nonempty regular asset')
+  const bytes = readFileSync(path)
+  return { size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }
+}
+
+/** 使用固定键顺序和 LF 序列化，构建时间、用户目录和 runner 名称不进入更新契约。 */
+export function encode(value) {
+  return JSON.stringify(value, null, 2) + '\n'
+}
+
+/** 聚合每项验收后的最小收据，检查恰好完整矩阵及全部原始文件摘要。 */
+export function assemble(context, directory) {
+  const entries = readdirSync(directory).sort()
+  assert.deepEqual(entries, platforms.map(/** 每个平台只占一个固定目录。 */ (item) => item.target).sort())
+  const assets = []
+  const files = new Map()
+  for (const platform of platforms) {
+    const folder = resolve(directory, platform.target)
+    assert(lstatSync(folder).isDirectory() && !lstatSync(folder).isSymbolicLink())
+    const name = assetName(context.version, platform)
+    assert.deepEqual(readdirSync(folder).sort(), [name, 'receipt.json'].sort())
+    const path = resolve(folder, name)
+    const asset = { os: platform.os, arch: platform.arch, libc: platform.libc, name, ...fileMetadata(path) }
+    assert(lstatSync(resolve(folder, 'receipt.json')).isFile())
+    const receipt = JSON.parse(readFileSync(resolve(folder, 'receipt.json'), 'utf8'))
+    assert.deepEqual(
+      receipt,
+      { ...context, target: platform.target, asset },
+      'Receipt does not match tag, commit or bytes'
+    )
+    assets.push(asset)
+    files.set(name, path)
+  }
+  const manifest = { schemaVersion: 1, repository, ...context, bun: '1.4.3', assets }
+  const manifestBytes = encode(manifest)
+  const sums = assets.map(/** 按矩阵固定顺序输出每个二进制摘要。 */ (asset) => `${asset.sha256}  ${asset.name}`)
+  sums.push(`${createHash('sha256').update(manifestBytes).digest('hex')}  ${manifestName}`)
+  return { manifest, manifestBytes, checksumsBytes: sums.join('\n') + '\n', files }
+}
+
+if (import.meta.main) {
+  assert.deepEqual(process.argv.slice(2), ['matrix'])
+  console.log(JSON.stringify({ include: platforms }))
+}
