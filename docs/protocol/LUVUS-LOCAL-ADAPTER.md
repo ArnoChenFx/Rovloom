@@ -5,7 +5,8 @@
 [Native contract](NATIVE-CONTRACT.md) 和 Wire v2。
 它不提供 Gateway listener、Connector 认证通道、生产身份验证器或默认许可。
 
-`src/connector/luvus/index.ts` 导出 `LuvusRpcAdapter`、`createLuvusCatalog` 及所需宿主类型。
+`src/connector/luvus/index.ts` 导出 `LuvusRpcAdapter`、`createLuvusCatalog`、
+`createLuvusResultAccess` 及所需宿主类型。
 构造参数只能来自受保护本机配置，不能由 MCP 参数、设备广告或 Wire 消息构造。
 一个 adapter 固定一个完整 session Target、provider revision 和 opaque config_ref。
 Host、流、access/machines 和 Herdr 不在本目录范围内。
@@ -120,11 +121,46 @@ binary/schema、provider、epoch、策略或分类 revision 变化均失效。�
 `task.next` 虽列为 read，却可认领或在 `start: true` 时启动任务。宿主必须审核
 具体 method 与参数，不得从 token scope 或 read 标签自动生成无副作用白名单。
 
+## 持久结果访问
+
+`createLuvusResultAccess` 复用现有 Store 和 Router，提供 `open(callId)`、
+`read(resultId, cursor, maxBytes)` 和 `discard(callId)`。它不拥有 Store/Wire 的
+生命周期，不缓存正文、许可或截止时间，不提供 MCP 工具或服务入口。
+
+受保护宿主必须提供当前 `principal()`、`localPolicies(target)` 和
+`resolveOriginalRead(callId)`。
+全部接口同步完成；Promise 被拒绝，晚到拒绝被消费。`resolveOriginalRead`
+只能返回登记原请求持有的完整 `binding` 和真实原 Wire 实例；上下文缺失、
+关闭或仅响应态均拒绝内容读取，不能从 Store、JSON 或相同摘要重建派发许可。
+open 还必须调用原 Wire 的 `checkResultRetention(binding, nativeFrame)`，独立
+检查原派发分类和当前分类均允许保留。现行 Wire 尚未导出该能力，所以 open
+目前在 `saveResult` 前以 `result_retention_context_unavailable` 拒绝。不能以
+`checkResult` 成功或分类 JSON 代替原 permit 保留门禁，不能填入固定成功回调。
+当前 read/discard 测试使用依法保留阶段在 Store 预置的句柄，不证明 open 可用。
+分页直接使用现有 `Store.readResult` 的 `ResultPage`，其中 `expires` 是实际
+results 记录的绝对毫秒截止时间，以 `now < expires` 为有效条件。没有独立元数据
+注入或期限缓存；读取不调用 `saveResult`、不创建句柄或刷新期限。
+
+open/read 使用完整 binding 核对 Store 的原响应锚点，对保存的完整原生响应运行
+原 Wire `checkResult`，并按当前身份和双方 ACL 重新授权。回调返回后的身份变化、
+撤权或内容丢弃也会阻止交付。保留能力接入后，open 仅调用现有 `saveResult` 创建或复用句柄；
+重复 open 不刷新有效句柄，read 从不重开已到期句柄或重发原生请求。
+
+read 返回既有 base64 字节页、下一游标、eof、完整原生响应的字节数和 SHA-256，
+另返回实际句柄 `expires`。每页最多 65,536 字节，游标是 UTF-8 字节偏移，单页
+可能拆开多字节字符；应先拼接解码后的所有字节，再校验完整 hash 和解析 JSON。
+保留原生 id/result/error/error.data 的解析字段和值；摘要针对 Store 保存的完整
+原生 JSON，不承诺原始传输空白、键序或 Wire 外层对象的 hash 相同。
+显式 discard 独立要求当前调用归属、双方读取 ACL 和 `discard_response` 权限，
+通过 Store 删除正文和句柄；原读取上下文已回收也不妨碍获得专门授权的清理。
+
 ## 接入限制
 
 生产 peer/CLI 证明、delegated auth custody、认证通道及 durable 派发账本必须由
 宿主独立提供。本目录不能凭合成回调作为公开接入入口。大于配置上限的结果
-直接失败；尚未连接受限结果对象、分页/TTL/清理与大结果完整重组，不能将有界普通 RPC 模块视为完整结果交付实现。默认 build 入口尚未包含本目录，发行接线需要单独纳入。
+直接失败。结果访问层已有独立测试并直接复用 Store 的实际句柄期限；原 Wire 保留
+门禁、认证通道的原 Wire 对象编码/接收提交及原上下文查询仍需接线验收，不能据此宣称大结果端到端
+交付完成。默认 build 入口尚未包含本目录，发行接线需要单独纳入。
 
 `test/connector/luvus` 只使用仓库 P0 字节、自建私有 socket 和固定 Bun 测试子进程。
 synthetic peer/CLI 回调仅用于测试，不能代表生产身份实现；这些测试不证明真实
