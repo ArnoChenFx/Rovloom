@@ -1,0 +1,26 @@
+[
+  {
+    "os": "linux", "arch": "x64", "libc": "glibc", "runner": "ubuntu-24.04", "target": "bun-linux-x64",
+    "archive": "bun-linux-x64", "sha256": "3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18"
+  },
+  {
+    "os": "linux", "arch": "arm64", "libc": "glibc", "runner": "ubuntu-24.04-arm", "target": "bun-linux-arm64",
+    "archive": "bun-linux-aarch64", "sha256": "efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21"
+  },
+  {
+    "os": "darwin", "arch": "x64", "libc": null, "runner": "macos-15-intel", "target": "bun-darwin-x64",
+    "archive": "bun-darwin-x64", "sha256": "62660e6438eb872278877acca77e1152d5d031324df368d4a81b428211489d2d"
+  },
+  {
+    "os": "darwin", "arch": "arm64", "libc": null, "runner": "macos-15", "target": "bun-darwin-arm64",
+    "archive": "bun-darwin-aarch64", "sha256": "80afd4c069b46a6fa8f3ec520bebc750a7843e4a8d5b9583d29ad436c00a3403"
+  },
+  {
+    "os": "windows", "arch": "x64", "libc": null, "runner": "windows-2025", "target": "bun-windows-x64",
+    "archive": "bun-windows-x64", "sha256": "0bf84e808552beea67bf1202a287a35c6c825d837b287b3f8e9dd513dba35d3d"
+  },
+  {
+    "os": "windows", "arch": "arm64", "libc": null, "runner": "windows-11-arm", "target": "bun-windows-arm64",
+    "archive": "bun-windows-aarch64", "sha256": "5e8f142ef722cbc9f67dc068a166e46ee72be8307b38cac7186589d2face668f"
+  }
+]
