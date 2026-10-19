@@ -1,0 +1,329 @@
+/** 用真实 SQLite 和私有文件覆盖持久发送账本；不连接 native，也不提供生产认证。 */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { chmodSync, existsSync, lstatSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
+import { LuvusDispatchClaims } from '../../../src/connector/luvus/claims.js'
+import { LuvusAdapterError } from '../../../src/connector/luvus/types.js'
+import type { AttemptBinding } from '../../../src/wire/types.js'
+
+/** 仅建立账本测试需要的合法绑定；不将这些合成身份当作原生来源。 */
+function binding(call = 'call1'): AttemptBinding {
+  return {
+    machine_id: 'm1',
+    recovery_generation: 'g1',
+    connection_epoch: 'e1',
+    call_id: call,
+    attempt_id: 'attempt1',
+    native_request_id: 'native1',
+    provider_kind: 'luvus',
+    binding_revision: 1,
+    contract_ref: 'a'.repeat(64),
+    target: { machine_id: 'm1', provider_id: 'p1', profile: 'session', session: 'synthetic' },
+    registration: { deadline: 500, history: null, caller_policy_revision: 'caller1', local_policy_revision: 'local1' }
+  }
+}
+
+/** 在非共享可写祖先下创建私有目录，返回显式时钟和首次/正常打开选项。 */
+function setup() {
+  const root = mkdtempSync(
+    join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../../../', import.meta.url)), '.luvus-claims-')
+  )
+  const path = join(root, 'claims.sqlite')
+  const clock = { now: 100 }
+  const options = {
+    path,
+    ledger_id: 'connector1',
+    limits: { entries: 16, bytes: 262_144 },
+    now: /* 提供隔离用例的可控时钟，不冒称生产时钟。 */ () => clock.now
+  }
+  return {
+    root,
+    path,
+    clock,
+    options,
+    create: /* 仅首次显式创建测试账本。 */ () => new LuvusDispatchClaims({ ...options, mode: 'create' }),
+    open: /* 正常重启必须打开同一份持久账本。 */ () => new LuvusDispatchClaims({ ...options, mode: 'open' }),
+    close: /* 测试结束删除仅本用例拥有的私有文件。 */ () => rmSync(root, { recursive: true, force: true })
+  }
+}
+
+/** 断言公开错误只有稳定码，不包含路径、绑定内容或底层 SQLite 信息。 */
+function failure(code: string) {
+  return /* 验证稳定异常类型、码与消息。 */ (error: unknown) => {
+    assert(error instanceof LuvusAdapterError)
+    assert.equal(error.code, code)
+    assert.equal(error.message, code)
+    return true
+  }
+}
+
+test(
+  'dispatch claim survives reopen and cannot be renewed by changing epoch or provider',
+  /** 真正关闭并重开 SQLite；读取独立连接确认固定期限与原绑定仍在。 */ () => {
+    const f = setup()
+    let claims = f.create()
+    try {
+      claims.claim(binding(), 1000)
+      claims.close()
+      claims = f.open()
+      for (const change of [{}, { connection_epoch: 'e2' }, { target: { ...binding().target, provider_id: 'p2' } }]) {
+        assert.throws(
+          /* 相同 call/attempt 在任何新连接绑定下都拒绝。 */ () => claims.claim({ ...binding(), ...change }, 2000),
+          failure('dispatch_already_claimed')
+        )
+      }
+      const reader = new DatabaseSync(f.path, { readOnly: true })
+      try {
+        const row = reader.prepare('SELECT binding,expires FROM luvus_dispatch_claims').get()!
+        assert.deepEqual(JSON.parse(String(row.binding)), binding())
+        assert.equal(row.expires, 1000)
+      } finally {
+        reader.close()
+      }
+    } finally {
+      claims.close()
+      f.close()
+    }
+  }
+)
+
+test(
+  'normal open never recreates a missing ledger and creation never replaces one',
+  /** 区分首次配置和正常启动；丢库或 ledger ID 错误都不重置唯一 fence。 */ () => {
+    const f = setup()
+    try {
+      assert.throws(f.open, failure('claim_ledger_missing'))
+      assert.equal(existsSync(f.path), false)
+      const claims = f.create()
+      assert.throws(f.create, failure('claim_ledger_exists'))
+      assert.throws(f.open, failure('claim_storage_unavailable'))
+      claims.close()
+      assert.throws(
+        /* 错误配置引用不能把旧库当作新的实例账本。 */ () =>
+          new LuvusDispatchClaims({ ...f.options, ledger_id: 'other', mode: 'open' }),
+        failure('claim_ledger_mismatch')
+      )
+      const reopened = f.open()
+      reopened.close()
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'untrusted residual lock and replaced database fail closed without deleting foreign files',
+  /** 模拟崩溃遗留锁，再检查打开期间实际 inode 替换。 */ () => {
+    const f = setup()
+    const claims = f.create()
+    claims.close()
+    try {
+      writeFileSync(f.path + '.lock', 'controlled crash marker', { mode: 0o600, flag: 'wx' })
+      assert.throws(f.open, failure('claim_storage_unavailable'))
+      assert(existsSync(f.path + '.lock'))
+      // 仅测试所有者显式移除自己构造的锁；生产没有自动恢复路径。
+      rmSync(f.path + '.lock')
+      const active = f.open()
+      try {
+        renameSync(f.path, f.path + '.old')
+        writeFileSync(f.path, '', { mode: 0o600, flag: 'wx' })
+        assert.throws(
+          /* 活跃连接不能继续写被替换的旧 inode。 */ () => active.claim(binding(), 1000),
+          failure('claim_ledger_identity_changed')
+        )
+        renameSync(f.path + '.lock', f.path + '.lock.old')
+        writeFileSync(f.path + '.lock', 'foreign', { mode: 0o600, flag: 'wx' })
+      } finally {
+        active.close()
+      }
+      assert(existsSync(f.path + '.lock'))
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'fixed deadlines, persistent clock rollback and capacity all block new claims',
+  /** 拒绝过短墓碑和过期请求；容量失败后保留既有 claim 且正常事务仍可继续。 */ () => {
+    const f = setup()
+    f.options.limits.entries = 1
+    let claims = f.create()
+    try {
+      assert.throws(
+        /* 墓碑不能在原派发 deadline 前消失。 */ () => claims.claim(binding(), 499),
+        failure('claim_deadline_invalid')
+      )
+      claims.claim(binding(), 1000)
+      assert.throws(
+        /* 行数配额满时第二个 attempt 不可放行。 */ () => claims.claim(binding('call2'), 1000),
+        failure('claim_capacity')
+      )
+      claims.close()
+      claims = f.open()
+      f.clock.now = 99
+      assert.throws(
+        /* 跨重启保留时钟高水位。 */ () => claims.claim(binding('call2'), 1000),
+        failure('claim_deadline_invalid')
+      )
+      f.clock.now = 1100
+      assert.throws(
+        /* 请求 deadline 已过，不能因墓碑 TTL 到期重新发送。 */ () => claims.claim(binding(), 2000),
+        failure('claim_deadline_invalid')
+      )
+      const next = binding('call2')
+      next.registration.deadline = 1500
+      claims.claim(next, 2000)
+    } finally {
+      claims.close()
+      f.close()
+    }
+  }
+)
+
+test(
+  'SQLite byte exhaustion cannot publish a claim or exceed the allocated file budget',
+  /** 真正写满小配额库，确认失败的 attempt 没有提交，先前墓碑仍保留。 */ () => {
+    const f = setup()
+    f.options.limits.entries = 4096
+    const claims = f.create()
+    let accepted = 0
+    try {
+      for (let index = 0; index < 1000; index++) {
+        try {
+          claims.claim(binding('call' + index), 1000)
+          accepted++
+        } catch (error) {
+          assert(error instanceof LuvusAdapterError)
+          assert(['claim_capacity', 'claim_storage_unavailable'].includes(error.code))
+          break
+        }
+      }
+      assert(accepted > 1 && accepted < 1000)
+      assert(lstatSync(f.path).size <= f.options.limits.bytes)
+      const reader = new DatabaseSync(f.path, { readOnly: true })
+      try {
+        assert.equal(reader.prepare('SELECT count(*) AS n FROM luvus_dispatch_claims').get()!.n, accepted)
+      } finally {
+        reader.close()
+      }
+    } finally {
+      claims.close()
+      f.close()
+    }
+  }
+)
+
+test(
+  'opening with a smaller quota cannot silently keep a larger SQLite page allocation',
+  /** 先生成真实较大库，再以较小配额打开；拒绝发生在任何下一次清理/插入之前。 */ () => {
+    const f = setup()
+    f.options.limits.entries = 4096
+    f.options.limits.bytes = 1_048_576
+    const claims = f.create()
+    try {
+      for (let index = 0; lstatSync(f.path).size <= 131_072; index++) {
+        claims.claim(binding('call' + index), 1000)
+      }
+    } finally {
+      claims.close()
+    }
+    try {
+      const bytes = lstatSync(f.path).size
+      f.options.limits.bytes = 262_144
+      assert(bytes < f.options.limits.bytes)
+      assert.throws(f.open, failure('claim_capacity'))
+      assert.equal(lstatSync(f.path).size, bytes)
+      assert.equal(existsSync(f.path + '-journal'), false)
+      f.options.limits.bytes = 1_048_576
+      const original = f.open()
+      try {
+        assert.throws(
+          /* 原 claim 保留，不因失败的配额变更而重建库。 */ () => original.claim(binding('call0'), 1000),
+          failure('dispatch_already_claimed')
+        )
+      } finally {
+        original.close()
+      }
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'opening checks combined database and journal bytes before SQLite recovery',
+  /** 两个文件单独都未超配额，合计超限仍须在 SQLite 触碰 journal 前拒绝。 */ () => {
+    const f = setup()
+    const claims = f.create()
+    claims.close()
+    try {
+      const journal = f.path + '-journal'
+      writeFileSync(journal, Buffer.alloc(250_000), { flag: 'wx', mode: 0o600 })
+      assert(lstatSync(f.path).size + lstatSync(journal).size > f.options.limits.bytes)
+      assert.throws(f.open, failure('claim_capacity'))
+      assert.equal(lstatSync(journal).size, 250_000)
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'invalid claim configuration always has a safe adapter error',
+  /** 不读取文件、不把 TypeError/WireError 当作公开配置错误格式。 */ () => {
+    for (const options of [undefined, {}, { ledger_id: 'bad.id' }, { ledger_id: 'valid', limits: null }]) {
+      assert.throws(
+        /* 非法受保护配置也应稳定失败，不落入隐式默认配置。 */ () => new LuvusDispatchClaims(options as never),
+        failure('claim_config_invalid')
+      )
+    }
+  }
+)
+
+test(
+  'dangling journal links are rejected before SQLite can open or recover them',
+  /** lstat 必须看到断链；不能用 exists 跳过后让 SQLite 创建链接目标。 */ () => {
+    const f = setup()
+    const claims = f.create()
+    claims.close()
+    const destination = join(f.root, 'must-not-exist')
+    try {
+      symlinkSync(destination, f.path + '-journal')
+      assert.throws(f.open, failure('claim_storage_unavailable'))
+      assert.equal(existsSync(destination), false)
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'schema additions and unsafe file permissions cannot be accepted as a trusted ledger',
+  /** 拒绝触发器等额外 schema；权限修改也不能被原句柄静默忽略。 */ () => {
+    const f = setup()
+    const claims = f.create()
+    try {
+      chmodSync(f.path, 0o644)
+      assert.throws(
+        /* 私有文件不再私有时安全收敛底层异常。 */ () => claims.claim(binding(), 1000),
+        failure('claim_storage_unavailable')
+      )
+      chmodSync(f.path, 0o600)
+      claims.close()
+      const writer = new DatabaseSync(f.path)
+      try {
+        writer.exec('CREATE TABLE foreign_table(value TEXT)')
+      } finally {
+        writer.close()
+      }
+      assert.throws(f.open, failure('claim_ledger_invalid'))
+    } finally {
+      claims.close()
+      f.close()
+    }
+  }
+)
