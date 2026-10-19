@@ -205,7 +205,10 @@ function frameLimit(
 }
 
 // 校验协议、目标身份、方法目录与访问提示的一致性，生成可信方法索引。
-function shapeCapabilities(value: JsonObject, binding: NativeBinding): Map<string, NativeMethodContract> {
+function shapeCapabilities(
+  value: JsonObject,
+  binding: Pick<NativeBinding, 'target' | 'server_generation'>
+): Map<string, NativeMethodContract> {
   if (!equal(value.protocol, { name: 'luvus-uhp', major: 1, minor: 0 })) {
     fail('capability_invalid', 'discovery', 'protocol')
   }
@@ -423,13 +426,14 @@ function candidateOf(context: CheckedRequest | DispatchPermit): DispatchCandidat
 // 为一个已登记契约创建校验入口，所有可信状态均保存在私有句柄表中。
 export function createNativeValidator(contract: CompiledContract): NativeValidator {
   data(contract)
-  // 复制并校验响应族 schema；只有流 ack 保留开流所需关联，RPC 响应不反向强引原请求。
+  // 复制并校验响应族 schema；纯能力检查不登记响应，其余入口仅为流 ack 保留开流关联。
   function responseShape(
     input: unknown,
     family: 'general' | 'terminal',
     bound: boolean,
     candidate: DispatchCandidate | null,
-    permit: DispatchPermit | null = null
+    permit: DispatchPermit | null = null,
+    registerResponse = true
   ): CheckedResponse {
     const response = copy(contract, input)
     validate(contract, `${UHP}response.schema.json`, response, 'native_response_invalid')
@@ -438,7 +442,9 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     }
     const result = Object.freeze({ response, identity: contract.identity, bound })
     const streamAck = candidate !== null && permit !== null && STREAM_METHODS.has(candidate.method)
-    responses.set(result, { candidate: streamAck ? candidate : null, contract, permit: streamAck ? permit : null })
+    if (registerResponse) {
+      responses.set(result, { candidate: streamAck ? candidate : null, contract, permit: streamAck ? permit : null })
+    }
     return result
   }
   // 校验能力、信封、参数和帧预算并保留实际覆盖状态；仅 allowRaw 时允许 unavailable 候选。
@@ -491,6 +497,28 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     return result
   }
   const api: NativeValidator = {
+    // 只核对有界能力数据和预期身份，不读取认证标志、政策修订或登记任何许可句柄。
+    checkCapabilitiesShape(input, expected) {
+      return attempt(
+        'capabilities',
+        /* 预期值仅含目标和代次；复用原响应 schema 及完整目录检查，不调用来源认证。 */ () => {
+          const binding = snapshot(
+            { target: expected.target, server_generation: expected.server_generation },
+            data(contract).limits
+          ) as unknown as Pick<NativeBinding, 'target' | 'server_generation'>
+          validateTarget(binding.target)
+          if (
+            binding.target.profile === 'session'
+              ? typeof binding.server_generation !== 'string' || !binding.server_generation.length
+              : binding.server_generation !== null
+          ) {
+            fail('invalid_context')
+          }
+          const response = responseShape(input, 'general', false, null, null, false).response
+          shapeCapabilities(object(response.result, 'capability_invalid'), binding)
+        }
+      )
+    },
     // 把独立验证的原生来源与能力广告绑定为当前契约的内存视图。
     bindCapabilities(input, source) {
       return attempt(

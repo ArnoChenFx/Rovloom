@@ -37,7 +37,8 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 
 ### 编译 Worker 与生成物接纳
 
-首版只接受宿主已审核的本地安装 schema，不自动信任 Wire 重组对象、远端 URL 或 caller
+首版只接受宿主已审核并精确 pin 的安装版 schema 原字节。远端 Gateway 可独立接收受保护
+配置交付的同一固定资料，本地 Worker 编译，不要求安装或运行 Luvus；不自动信任 Wire 重组对象、远端 URL 或 caller
 提交的 schema。公共工厂只收原字节、安装身份/限额和可选取消信号，不接收代码、路径或
 Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；构建时内嵌 Worker 模块。
 Worker 使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译；
@@ -73,6 +74,12 @@ session capability 必须提供正安全整数的 `limits.frame_bytes`、
 计入完整 UTF-8 JSON 和结束 LF。`checkResponseShape` 没有原 capability，不能证明
 在线较低预算或来源关联通过。Connector 注入受保护 auth 后，实际写出入口还须
 重新计量完整帧；禁止用注入前长度作为可发送证明。
+
+`checkCapabilitiesShape(input, expected)` 复用原响应 schema、完整方法目录、protocol、
+session/generation 和 terminal 预算检查，只返回 shape 结果；它不读取认证标志或登记
+view、response handle、candidate、permit。远端 epoch 接纳可在没有 MCP caller 时用它
+拒绝非法快照。之后 `bindCapabilities` 仍必须取得独立当前 `TrustedNativeContext`，
+并生成 Gateway 本地 opaque view；shape 成功不授予读取或派发权限。
 
 固定 Luvus 0.14.3 有 29 文档、223 方法，其中 79 个有条件参数分支，144 个只有
 通用 params object；79 个也不代表业务语义完备。session、Host 与未接入的

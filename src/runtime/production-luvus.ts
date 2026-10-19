@@ -1,4 +1,4 @@
-/** 把唯一 CLI 已解析的本机 Owner 引用装配为真实 Luvus 角色资源，不复制入口协议或打开第二个 Gateway writer。 */
+/** 装配唯一 CLI 已解析的本机 Owner 或远端 pin，不复制入口协议或打开第二个 Gateway writer。 */
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { LuvusDispatchClaims, LuvusAdapterError } from '../connector/luvus/index.js'
@@ -21,7 +21,9 @@ import type { ManagedLuvusRoot } from './native-root.js'
 import { OwnedProcessShutdownError } from './native-process.js'
 import { startManagedLuvus } from './native-source.js'
 import type { ControlledLuvusProcess } from './native-source.js'
-import type { ConnectorRuntimeOptions, RuntimeProvider } from './types.js'
+import type { ConnectorRuntimeOptions, RemoteLuvusRuntimeProvider, RuntimeProvider } from './types.js'
+import { checkedRemoteLuvusConfig, createPinnedRemoteLuvus } from './remote-luvus.js'
+import type { LuvusProductionRemoteConfig } from './remote-luvus.js'
 
 export type LuvusProductionReference = Readonly<{ reference: string; value: unknown }>
 export type LuvusProductionOwnerConfig = Readonly<{
@@ -40,6 +42,7 @@ export type LuvusProductionOwnerConfig = Readonly<{
   storage_mode: 'create' | 'open'
 }>
 type CheckedReference = Readonly<{ reference: string; value: LuvusProductionOwnerConfig }>
+type GatewayReference = CheckedReference | Readonly<{ reference: string; value: LuvusProductionRemoteConfig }>
 type CliState = Readonly<{ state_dir: string }>
 
 /** 有界复制已解析引用，只校验 provider 自己的配置，不重新读取或解析 CLI 配置文件。 */
@@ -85,6 +88,32 @@ function references(input: readonly LuvusProductionReference[], mode: 'managed' 
           throw new LuvusAdapterError('production_reference_invalid')
         }
         return { reference: entry.reference, value: value as LuvusProductionOwnerConfig }
+      }
+    )
+  } catch (error) {
+    throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('production_reference_invalid')
+  }
+}
+
+/** Gateway 的远端 pin 与既有本机 attach 显式区分；先校验全部已解析引用，不读取第二份产品配置。 */
+function gatewayReferences(input: readonly LuvusProductionReference[]): GatewayReference[] {
+  try {
+    const copied: LuvusProductionReference[] = JSON.parse(boundedJson(input, 1_048_576))
+    if (!Array.isArray(copied) || copied.length > 64) {
+      throw new LuvusAdapterError('production_reference_count_invalid')
+    }
+    const names = new Set<string>()
+    return copied.map(
+      /** 每个配置名只绑定一个明确实例，不允许远端 pin 与本机 root 互为别名。 */ (entry) => {
+        fields(object(entry), ['reference', 'value'])
+        id(entry.reference)
+        if (names.has(entry.reference)) {
+          throw new LuvusAdapterError('production_reference_duplicate')
+        }
+        names.add(entry.reference)
+        return object(entry.value).authentication === 'remote_connector'
+          ? { reference: entry.reference, value: checkedRemoteLuvusConfig(entry.reference, entry.value) }
+          : references([entry], 'attach')[0]!
       }
     )
   } catch (error) {
@@ -142,7 +171,7 @@ async function startupFailure(error: unknown, release: () => Promise<void>): Pro
   throw error
 }
 
-/** 静态创建 #8 ProductionCliSources；Gateway 只观察明确已有实例，Connector 才持有显式 managed child。 */
+/** 静态创建唯一 CLI 的生产来源；Gateway 可仅持远端 pin，Connector 才核验并持有实际 managed child。 */
 export function createLuvusProductionSources() {
   return Object.freeze({
     /** 第三参数保持唯一 CLI 的管理 authority 接缝；普通 Owner 操作不消费批准或发行 token。 */
@@ -150,13 +179,23 @@ export function createLuvusProductionSources() {
       _config: CliState,
       input: readonly LuvusProductionReference[],
       _authority?: ManagementSessionAuthority
-    ): Promise<Readonly<{ providers: readonly RuntimeProvider[]; admission_context: true; release(): Promise<void> }>> {
-      const entries = references(input, 'attach')
-      const roots: ManagedLuvusRoot[] = []
+    ): Promise<
+      Readonly<{
+        providers: readonly (RuntimeProvider | RemoteLuvusRuntimeProvider)[]
+        admission_context: true
+        release(): Promise<void>
+      }>
+    > {
+      const entries = gatewayReferences(input)
+      const roots = new Map<GatewayReference, ManagedLuvusRoot>()
       const attached: AttachedLuvusInstance[] = []
+      const remote: Awaited<ReturnType<typeof createPinnedRemoteLuvus>>[] = []
       const release = releaseOnce(
         /** 关闭观察者与 root 句柄；绝不停止 Connector 拥有的既有 native。 */ async () => {
           const errors: unknown[] = []
+          for (const instance of remote) {
+            instance.close()
+          }
           for (const instance of attached) {
             try {
               instance.close()
@@ -164,7 +203,7 @@ export function createLuvusProductionSources() {
               errors.push(error)
             }
           }
-          for (const root of roots) {
+          for (const root of roots.values()) {
             root.close()
           }
           if (errors.length) {
@@ -175,21 +214,38 @@ export function createLuvusProductionSources() {
       try {
         // 全部 root 引用先核实，避免在后续错误引用前部分启动或接管实例。
         for (const entry of entries) {
-          roots.push(openRoot(entry))
+          if (entry.value.authentication === 'local_owner') {
+            roots.set(entry, openRoot({ reference: entry.reference, value: entry.value }))
+          }
         }
         const targets = new Set<string>()
-        for (const root of roots) {
-          const target = boundedJson(root.config.target)
+        const machineModes = new Map<string, string>()
+        for (const entry of entries) {
+          const configuredTarget =
+            entry.value.authentication === 'remote_connector' ? entry.value.target : roots.get(entry)!.config.target
+          const mode = entry.value.authentication
+          const previousMode = machineModes.get(configuredTarget.machine_id)
+          if (previousMode && previousMode !== mode) {
+            throw new LuvusAdapterError('production_machine_source_conflict')
+          }
+          machineModes.set(configuredTarget.machine_id, mode)
+          const target = boundedJson(configuredTarget)
           if (targets.has(target)) {
             throw new LuvusAdapterError('production_target_duplicate')
           }
           targets.add(target)
         }
-        const providers: RuntimeProvider[] = []
-        for (const [index, entry] of entries.entries()) {
-          const instance = await attachExistingLuvus(roots[index]!.config)
-          attached.push(instance)
-          providers.push(createLuvusOperationsProvider(instance, entry.value.peer_policy_revision))
+        const providers: (RuntimeProvider | RemoteLuvusRuntimeProvider)[] = []
+        for (const entry of entries) {
+          if (entry.value.authentication === 'remote_connector') {
+            const instance = await createPinnedRemoteLuvus(entry.value)
+            remote.push(instance)
+            providers.push(instance.provider)
+          } else {
+            const instance = await attachExistingLuvus(roots.get(entry)!.config)
+            attached.push(instance)
+            providers.push(createLuvusOperationsProvider(instance, entry.value.peer_policy_revision))
+          }
         }
         return Object.freeze({ providers: Object.freeze(providers), admission_context: true as const, release })
       } catch (error) {
@@ -276,6 +332,15 @@ export function createLuvusProductionSources() {
         const owner = processOwner.localOwner()
         const provider = createLuvusOperationsProvider(owner, selected.value.peer_policy_revision)
         const reference = contractRef(provider.contract.wire.source)
+        const snapshot = Object.freeze([
+          Object.freeze({
+            binding: provider.binding,
+            target: provider.target,
+            source: provider.contract.wire.source,
+            capabilities: object(provider.contract.capabilities),
+            capability_revision: provider.contract.capability_revision
+          })
+        ])
         /** 双方策略只来自已解析受保护配置，按完整路由的固定 principal 返回独立快照。 */
         function policies(principal: string): ProviderPolicies {
           if (stopping || principal !== selected.value.principal_id) {
@@ -285,6 +350,7 @@ export function createLuvusProductionSources() {
         }
         return Object.freeze({
           admission_context: true as const,
+          provider_snapshot: true as const,
           /** welcome 实际认证连接必须协商完整 receipt；缺能力在原 ledger 内拒绝，不降级为相对保留期。 */
           session(connection: Connection): ReturnType<ConnectorRuntimeOptions['session']> {
             if (stopping) {
@@ -322,6 +388,13 @@ export function createLuvusProductionSources() {
                 backend,
                 admissions: receipts,
                 claims: dispatchClaims,
+                providerSnapshot:
+                  /** 每个 epoch 交付同一份真实实测快照；实际实例失效须关闭 WSS，不更新原 generation。 */ () => {
+                    if (stopping || !provider.ready()) {
+                      throw new LuvusAdapterError('production_source_closed')
+                    }
+                    return snapshot
+                  },
                 nativeAuth: /** 显式本机 Owner 仍须核验真实同 socket 证据，缺 token 不触发任何回退。 */ (
                   binding,
                   evidence

@@ -1,12 +1,12 @@
-# Luvus 本机窗口和 Agent 装配
+# Luvus 窗口和 Agent 角色装配
 
 `createLuvusProductionSources()` 供唯一 CLI 的 `ProductionCliSources` 静态调用。
 它消费 CLI 已解析的 `{reference,value}`，不读取第二份 CLI 配置、不实现 MCP/HTTP
 入口。Gateway 返回 `providers/release`；Connector 返回去掉 `transport` 的
 `ConnectorRuntimeOptions`。Connector 首版明确只接受一个引用；Gateway 可连接多个
-明确已有的本机实例，拒绝重复完整 Target。
+明确配置的本机或远端实例，拒绝重复完整 Target。远端引用不要求 Gateway 安装 Luvus。
 
-受保护引用的最小 JSON 如下。`reference` 必须与原 root record 内
+Connector 本机 Owner 引用的最小 JSON 如下。`reference` 必须与原 root record 内
 `config.config_ref` 完全相同；binary、HOME、状态根、完整 Target、binding revision
 只读取原 root record，不接受 caller 提供的替代路径或默认 session。
 
@@ -48,7 +48,7 @@
 ```
 
 Connector 使用 `native.mode=managed`，通过既有 `startManagedLuvus` 启动并持有实际
-child。Gateway 对同一本机 root 使用 `native.mode=attach`，通过
+child。同机 Gateway 兼容模式对同一本机 root 使用 `native.mode=attach`，通过
 `attachExistingLuvus` 核对实际内核 peer、固定安装、启动目录和环境；不会再次启动
 native。Gateway 关闭只释放观察者，Connector 关闭必须等待真实 child 退出确认。
 本机 Owner 是显式身份模式，缺 token 不触发回退，也不签发 token 或消费有限批准。
@@ -81,6 +81,70 @@ generic 外壳称为严格参数契约。两轮 Agent 对话应保存相同完�
 generation、选定 pane/alias、`terminal_id` 和已知 native `session`；`ready=true`
 只表示识别就绪，`submitted/queued` 不表示 prompt 已消费或回复完成，应继续读真实
 状态与输出。上游模型失败不触发重发或切换收费模型。
+
+## 远端 Gateway 的受保护 pin
+
+Gateway 可使用 `LuvusProductionRemoteConfig`，由同一 `createLuvusProductionSources().gateway`
+消费已解析引用，返回相同 `providers/release` 资源。以下 `schema_bundle` 占位符须由唯一
+配置入口替换为原安装版 schema 的完整 UTF-8 文本；不先 JSON.parse 再序列化。
+schema 是可独立交付的固定资料，Gateway 不运行 Luvus、读取 Connector HOME/root、
+访问其 socket 或根据远端 JSON 重建本机 Owner。受保护配置仍由唯一入口读取与校验权限。
+
+```json
+{
+  "reference": "remote_luvus",
+  "value": {
+    "kind": "luvus",
+    "authentication": "remote_connector",
+    "binding": {"machine_id":"machine1","provider_id":"provider1","kind":"luvus","config_ref":"remote_luvus","binding_revision":1,"enabled":true},
+    "target": {"machine_id":"machine1","provider_id":"provider1","profile":"session","session":"work"},
+    "peer_policy_revision": "local_policy_v1",
+    "contract": {
+      "binary_version": "0.14.3",
+      "binary_sha256": "895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9",
+      "schema_sha256": "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6",
+      "adapter_revision": "managed-owned-luvus-0.14.3-1",
+      "classification_revision": "managed-owned-rpc-1",
+      "schema_bundle": "<原始 schema 全文>"
+    },
+    "raw_grant": {"principal_id":"operator","methods":["workspace.list","agent.list","agent.read"]}
+  }
+}
+```
+
+`binding` 必须与唯一 Store 已注册的 canonical binding 完全一致，设备广告不能注册或重绑。
+远端配置固定版本/hash/adapter/classification，Gateway 启动时经原 2 秒 Bun Worker
+编译固定原字节，监听器可以先启动，provider 保持 `ready=false`。`runtime_generation`
+不由静态 pin 猜测；它与原 capabilities envelope 由 Connector 对真实受控实例实测后，
+通过当前认证 WSS 的 `provider_snapshot` 交付。
+
+runtime 自动为远端 Gateway 及交付快照的生产 Connector 添加可选能力广告；Gateway
+按受保护配置中的 machine 名单协商，远端机器必需快照，本机 attach 机器不协商该能力。
+不同设备可分别使用两种来源；同一 machine 的 provider 不可混用本机 attach 与远端模式，
+配置在 attach/编译前明确拒绝。需要远端来源的实际 session 未协商该能力即拒绝，已协商却
+缺 source/receiver 同样拒绝。一个 provider 每 epoch 只发送一次单帧快照，仍受原 1 MiB
+上限约束。Gateway 验实际 SocketChannel、设备认证、Store epoch、完整 binding/Target、
+全部 source pin、能力摘要与原 schema；完整能力目录及 34 个普通方法的固定评审均通过后
+才安装该 epoch 的来源。Gateway 信任受保护配置指定的 Connector 测量职责，
+不声称自己在远端读取了 SO_PEERCRED 或 pidfd。
+
+Connector 保留固定 binary/root/session、实际 socket peer、进程、原生 auth、Wire 和持久
+claims 的全部核验。快照深冻结；实例/契约/能力/generation 失效时关闭 WSS，该 epoch
+不能更新后继续执行。Gateway 的 ready/source/catalog 每次回到实际通道和 canonical
+binding，断连、撤权、重绑或关闭即使旧来源失效；新 epoch 须独立接收快照。
+原调用、结果句柄和可能执行但未确认的响应不会迁到新连接或自动重派。
+
+`raw_grant` 是额外的受保护授权，可省略。缺省不授予 generic 方法的 raw 权限；严格
+schema 方法仍按正常 ACL 使用。raw 授权只覆盖明确 principal 和方法，实际 permit 仍绑定
+当前完整 Target、契约、能力、分类、双方政策、实际 epoch 和原业务 deadline。
+此授权不建立 `LocalOwnerLuvusInstance`、发行原生 token 或把 generic 参数称为完整 schema。
+
+同机分目录真实 WSS 回归可在现有 `verify-luvus-operations.mjs` 加
+`--remote-gateway --gateway-schema-bundle /absolute/approved/schema-bundle.json`；
+仍需原 `--binary`、短私有父目录及非生产确认。Gateway 此时只收到上面的远端引用，
+Connector 使用官方 binary。该报告明确 `deployment:same_host_isolated_regression`，
+不证明真实两主机或文件系统隔离。两主机验收须另证 Gateway 无 Luvus 安装且不共享
+Connector runtime 文件系统，并通过唯一 MCP 入口完成发现、描述、调用及原结果读取。
 
 ## 方法、选择和状态映射
 
@@ -163,9 +227,9 @@ bun --no-env-file scripts/runtime/verify-luvus-operations.mjs \
 
 维护脚本只从构建产物调用公开工厂，在自有空白实例及合成身份上核对真实 WSS、
 窗口/pane/Agent 发现、原生状态、实际 epoch 目录及原 Wire 结果分页。它不配置模型
-Agent，因此不代表同 session 真实模型两轮验收。当前工厂是明确的同机 Gateway
-attach + Connector managed 组合；跨机 Gateway 的独立 native 来源不能由本机
-`/proc` 或设备广告补造。
+Agent，因此不代表同 session 真实模型两轮验收。默认回归为同机 Gateway attach +
+Connector managed；远端 pin 回归使用上面的明确选项。两者都属于同机隔离回归，
+不作为真实双机或共享文件系统隔离证据。
 
 完整的稳定 ID **WSS** 验收直接在同一入口加 `--stable-selection`。以下命令从当前
 检出版本构建，预先在受保护的 `/workspace` 下选择短私有父目录，再启动唯一一轮实例：

@@ -39,6 +39,7 @@ export { attachExistingLuvus } from './native-attach.js'
 export type { AttachedLuvusInstance } from './native-attach.js'
 export { createLuvusProductionSources, LuvusProductionStartupError } from './production-luvus.js'
 export type { LuvusProductionOwnerConfig, LuvusProductionReference } from './production-luvus.js'
+export type { LuvusProductionRemoteConfig } from './remote-luvus.js'
 export {
   LUVUS_OPERATION_METHODS,
   luvusOperationDescriptor,
