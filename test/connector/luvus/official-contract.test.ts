@@ -32,6 +32,25 @@ test(
 )
 
 test(
+  '官方 automation.list 空参数有完整 strict 分支且拒绝额外参数',
+  /** 第二族只是只读投影；离线 schema 检查不冒称真实 native 执行。 */ () => {
+    const from = view()
+    const description = validator.describe(from, 'automation.list')
+    assert(description.ok)
+    assert.equal(description.value.schema_status, 'conditional_branch')
+    const allowed = request(from, { id: 'automation-strict-preflight', method: 'automation.list', params: {} })
+    assert(checkDispatch(allowed, auth(allowed)).ok)
+    const result = validator.checkRequest(from, {
+      id: 'automation-strict-preflight',
+      method: 'automation.list',
+      params: { extra: true }
+    })
+    assert(!result.ok)
+    assert.equal(result.error.code, 'native_request_invalid')
+  }
+)
+
+test(
   '原生允许 task.list/get/delete 的 scope 不能扩大 strict schema 覆盖',
   /** 保留当前官方 schema 的 fail closed 行为，不启用 raw 或 Owner。 */ () => {
     const from = view()

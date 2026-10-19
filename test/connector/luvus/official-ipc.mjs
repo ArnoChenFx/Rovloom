@@ -1,34 +1,34 @@
 /** 显式运行官方二进制的隔离 IPC 验收；不由默认测试启动，不提供生产认证或公开入口。 */
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
-import {
-  copyFileSync,
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { copyFileSync, chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createConnection } from 'node:net'
 import { spawn, spawnSync } from 'node:child_process'
 import { dlopen, FFIType, ptr } from 'bun:ffi'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 import { Store } from '../../../src/store.ts'
 import { Router } from '../../../src/router.ts'
 import { persistentBackend, commitLuvusResponse } from '../../../src/integration/persistence.ts'
 import { createLuvusWireAdapter } from '../../../src/integration/luvus-wire.ts'
 import { compileBundle, createNativeValidator } from '../../../src/native-contract/index.ts'
 import { assertBinding, boundedJson, contractRef, providerScopeAllowed } from '../../../src/wire/index.ts'
-import { LuvusRpcAdapter, LuvusAdapterError, createLuvusResultAccess } from '../../../src/connector/luvus/index.ts'
+import {
+  LuvusRpcAdapter,
+  LuvusAdapterError,
+  createLuvusResultAccess,
+  LuvusDispatchClaims,
+  readLinuxLuvusPeer,
+  LuvusBoundDelegation
+} from '../../../src/connector/luvus/index.ts'
 
 const binaryHash = '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9'
 const schemaHash = '00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6'
 const version = '0.14.3'
 const frameBytes = 131_072
-const methods = ['task.add', 'task.update']
+// 每个方法单独审过效果；原生 access=read 不能自动推导为无副作用。
+const effects = Object.freeze({ 'task.add': 'execute', 'task.update': 'execute', 'automation.list': 'read' })
+const methods = Object.keys(effects)
 
 /** 只对已知有界字节求摘要，报告不包含真实 native 正文、token 或私有路径。 */
 function hash(bytes) {
@@ -94,6 +94,7 @@ export async function officialIpc(binaryPath) {
   let store
   let claims
   let claimReader
+  let delegation
   let wire
   let responseWire
   const adapters = new Set()
@@ -129,14 +130,7 @@ export async function officialIpc(binaryPath) {
   /** 对 adapter 实际使用的同一已连接 socket 读取内核 peer，并核对持续持有的实例。 */
   function peer(socket) {
     live()
-    const fd = socket._handle?.fd
-    assert(Number.isInteger(fd) && fd >= 0, 'socket_fd_unavailable')
-    const value = Buffer.alloc(12)
-    const size = Buffer.alloc(4)
-    size.writeUInt32LE(12)
-    assert.equal(libc.symbols.getsockopt(fd, 1, 17, ptr(value), ptr(size)), 0)
-    assert.equal(size.readUInt32LE(), 12)
-    const actual = { pid: value.readInt32LE(), uid: value.readUInt32LE(4), gid: value.readUInt32LE(8) }
+    const actual = readLinuxLuvusPeer(socket)
     assert.deepEqual(actual, { pid: child.pid, uid, gid }, 'owned_peer_mismatch')
     peerChecks++
     return actual
@@ -231,7 +225,6 @@ export async function officialIpc(binaryPath) {
     assert(compiled.ok, 'official_schema_compile_failed')
     const validator = createNativeValidator(compiled.value)
     libc = dlopen('libc.so.6', {
-      getsockopt: { args: [FFIType.i32, FFIType.i32, FFIType.i32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
       pidfd_open: { args: [FFIType.i32, FFIType.u32], returns: FFIType.i32 },
       poll: { args: [FFIType.ptr, FFIType.u64, FFIType.i32], returns: FFIType.i32 },
       close: { args: [FFIType.i32], returns: FFIType.i32 }
@@ -299,8 +292,8 @@ export async function officialIpc(binaryPath) {
       server_version: version,
       native_protocol_version: '1.0',
       runtime_generation: capabilities.result.server_generation,
-      adapter_revision: 'official-ipc-1',
-      classification_revision: 'official-task-ledger-review-1',
+      adapter_revision: 'official-ipc-2',
+      classification_revision: 'official-reviewed-rpc-2',
       support_basis: 'live_catalog'
     }
     const ref = contractRef(origin)
@@ -352,6 +345,31 @@ export async function officialIpc(binaryPath) {
       negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'objects'] }
     }
     const bindings = new Map()
+    const nativeBinding = {
+      kind: 'luvus',
+      provider_id: provider.provider_id,
+      binding_revision: 1,
+      contract_source_ref: ref,
+      target: { machine_id: device.machine_id, profile: 'session', session },
+      server_generation: capabilities.result.server_generation,
+      connection_epoch: epoch,
+      recovery_generation: store.generation(),
+      capability_revision: 'owned-live-caps-1',
+      caller_policy_revision: policies.caller.revision,
+      local_policy_revision: policies.local.revision,
+      classification_revision: origin.classification_revision,
+      contract: compiled.value.identity
+    }
+    const delegationContext = { config_ref: provider.config_ref, binding: nativeBinding }
+    // 这里只绑定本轮自有进程引导取得的真实委托；不冒称已有生产 custody 发行者。
+    delegation = new LuvusBoundDelegation({
+      ...delegationContext,
+      scopes: issued.result.scopes,
+      methods,
+      issued_at: store.clock(),
+      expires_at: tokenExpires,
+      token
+    })
     const source = /* 来源只在真实存活实例、有限委托、当前 Store epoch 和原 binding 同时成立时可用。 */ (
       callId,
       attemptId
@@ -362,26 +380,15 @@ export async function officialIpc(binaryPath) {
         store.assertConnection(connection)
         const b = bindings.get(callId)
         assert(b && b.attempt_id === attemptId)
-        assertBinding(b, store.attempt(callId, attemptId).binding)
-        return {
+        const attempt = store.attempt(callId, attemptId)
+        assertBinding(b, attempt.binding)
+        const current = {
           authenticated: true,
           source_verified: true,
-          binding: {
-            kind: 'luvus',
-            provider_id: provider.provider_id,
-            binding_revision: 1,
-            contract_source_ref: ref,
-            target: { machine_id: device.machine_id, profile: 'session', session },
-            server_generation: capabilities.result.server_generation,
-            connection_epoch: epoch,
-            recovery_generation: store.generation(),
-            capability_revision: 'owned-live-caps-1',
-            caller_policy_revision: policies.caller.revision,
-            local_policy_revision: policies.local.revision,
-            classification_revision: origin.classification_revision,
-            contract: compiled.value.identity
-          }
+          binding: nativeBinding
         }
+        delegation.assertCurrent(delegationContext, current, attempt.method, store.clock())
+        return current
       } catch {
         return undefined
       }
@@ -404,7 +411,7 @@ export async function officialIpc(binaryPath) {
           : undefined,
       nativeSource: source,
       policies: /* 每次取得同一受保护宿主的当前双方授权。 */ () => structuredClone(policies),
-      authority: /* 人工审过的两个 ledger 写方法；不从原生 read 标签推导安全分类。 */ (attempt, _binding) => {
+      authority: /* 逐方法使用人工审过的效果；保留 potentially_sensitive 和当前 read 授权。 */ (attempt, _binding) => {
         assert(methods.includes(attempt.method), 'unreviewed_method')
         const view = validator.bindCapabilities(
           capabilities,
@@ -422,7 +429,7 @@ export async function officialIpc(binaryPath) {
               contract: compiled.value.identity,
               native: description.value.native_contract,
               transport: 'single_request_rpc',
-              effect: 'execute',
+              effect: effects[attempt.method],
               requires_owner: false,
               management_permission: null,
               confirmation_required: false,
@@ -450,12 +457,14 @@ export async function officialIpc(binaryPath) {
     wire = createLuvusWireAdapter(backend)
     responseWire = createLuvusWireAdapter(backend)
     const claimsPath = join(root, 'gateway/claims.sqlite')
-    writeFileSync(claimsPath, '', { flag: 'wx', mode: 0o600 })
-    claims = new Database(claimsPath)
-    claims.exec(
-      'PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; CREATE TABLE claims(call_id TEXT, attempt_id TEXT, binding TEXT NOT NULL, PRIMARY KEY(call_id,attempt_id))'
-    )
-    claimReader = new Database(claimsPath, { readonly: true })
+    claims = new LuvusDispatchClaims({
+      path: claimsPath,
+      mode: 'create',
+      ledger_id: 'owned-official-ipc',
+      limits: { entries: 128, bytes: 1_048_576 },
+      now: /* 复用本轮 Store 的可信时钟和回拨治理。 */ () => store.clock()
+    })
+    claimReader = new DatabaseSync(claimsPath, { readOnly: true })
     const router = new Router(store, /* 每次返回当前本地策略快照。 */ () => structuredClone(policies.local))
     const config = {
       target,
@@ -475,9 +484,15 @@ export async function officialIpc(binaryPath) {
         binding,
         evidence
       ) => {
-        assert(source(binding.call_id, binding.attempt_id) && evidence.transport === 'ipc')
+        const current = source(binding.call_id, binding.attempt_id)
+        assert(current && evidence.transport === 'ipc')
         assert.deepEqual(evidence.peer, { pid: child.pid, uid, gid })
-        return token
+        return delegation.read(
+          delegationContext,
+          current,
+          store.attempt(binding.call_id, binding.attempt_id).method,
+          store.clock()
+        )
       },
       claimDispatch: /* 独立 SQLite FULL 事务提交唯一 claim；原 Wire 还在实际写入前复核当前许可。 */ async (
         binding,
@@ -493,21 +508,16 @@ export async function officialIpc(binaryPath) {
         assert(providerScopeAllowed(binding, record.method, 'dispatch', policies))
         assert(store.clock() < binding.registration.deadline)
         claimsEntered++
-        claims.exec('BEGIN IMMEDIATE')
         try {
-          claims
-            .prepare('INSERT INTO claims VALUES(?,?,?)')
-            .run(binding.call_id, binding.attempt_id, boundedJson(binding))
-          claims.exec('COMMIT')
+          claims.claim(binding, store.responseAnchor(binding).dedup_expires_at)
         } catch (error) {
-          claims.exec('ROLLBACK')
-          if (error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+          if (error instanceof LuvusAdapterError && error.code === 'dispatch_already_claimed') {
             claimsDuplicated++
           }
           throw error
         }
         const persisted = claimReader
-          .prepare('SELECT binding FROM claims WHERE call_id=? AND attempt_id=?')
+          .prepare('SELECT binding FROM luvus_dispatch_claims WHERE call_id=? AND attempt_id=?')
           .get(binding.call_id, binding.attempt_id)
         assert.equal(persisted.binding, boundedJson(binding))
         claimsCommitted++
@@ -568,7 +578,7 @@ export async function officialIpc(binaryPath) {
     assert.equal(claimsEntered, 2)
     assert.equal(claimsCommitted, 1)
     assert.equal(claimsDuplicated, 1)
-    assert.equal(claimReader.prepare('SELECT count(*) AS n FROM claims').get().n, 1)
+    assert.equal(claimReader.prepare('SELECT count(*) AS n FROM luvus_dispatch_claims').get().n, 1)
     store.stop(actor, interrupted.call.call_id)
     checks.push({
       check: 'durable_claim_blocks_fresh_adapter_before_native_write',
@@ -612,6 +622,14 @@ export async function officialIpc(binaryPath) {
       last = { ...p, response: result.native_response }
       return result.native_response
     }
+    const automations = await execute('automation.list', {})
+    assert.equal(automations.result?.type, 'automation_list')
+    assert.deepEqual(automations.result.automations, [])
+    checks.push({
+      check: 'second_strict_rpc_family_automation_list',
+      method: 'automation.list',
+      empty_owned_session: true
+    })
     const paths = Array.from(
       { length: 64 },
       /* 唯一合成路径仅作 ledger 字符串，不访问这些文件。 */ (_, index) =>
@@ -757,6 +775,7 @@ export async function officialIpc(binaryPath) {
       }
       wire?.close()
       responseWire?.close()
+      delegation?.close()
       claimReader?.close()
       claims?.close()
       store?.close()
