@@ -172,6 +172,7 @@ export function createConnector(options: ConnectorOptions) {
     const frame = envelope(active, 'response', { attempt, native_response: response })
     const bytes = Buffer.byteLength(boundedJson(frame, LIMITS.object_bytes))
     if (bytes <= limits.frame_bytes) {
+      current.adapter.checkResult(binding, response)
       write(frame)
       return
     }

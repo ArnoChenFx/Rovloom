@@ -62,6 +62,18 @@ export function requestFrame(request: JsonObject, nativeId: string, auth: string
   return bytes
 }
 type RpcRequest = Extract<AuthenticatedEnvelope, { type: 'request' }>
+/** 只从已经通过 Wire 校验的认证帧提取绑定，供本机私有状态终结清理。 */
+function frameBinding(frame: AuthenticatedEnvelope): AttemptBinding | undefined {
+  if (!('attempt' in frame.payload)) {
+    return undefined
+  }
+  return {
+    machine_id: frame.machine_id,
+    recovery_generation: frame.recovery_generation,
+    connection_epoch: frame.connection_epoch,
+    ...frame.payload.attempt
+  }
+}
 export type RpcResult = Readonly<{
   binding: AttemptBinding
   native_response: JsonObject
@@ -256,12 +268,16 @@ export class LuvusRpcAdapter {
     let linked: /* 将外部取消传播到本次派发的无参数处理器类型。 */ (() => void) | undefined
     let key: string | undefined
     let activeAbort: AbortController | undefined
+    let decodedBinding: AttemptBinding | undefined
     try {
       if (this.#closed) {
         throw new LuvusAdapterError('adapter_closed')
       }
       // 始终先验证真实 Wire/NativeValidator 许可，不提供绕过 gate 的原始 execute API。
       const frame = this.#wire.decode(input, 'gateway_to_connector')
+      if ('connection_epoch' in frame) {
+        decodedBinding = frameBinding(frame)
+      }
       if (frame.type !== 'request' || !('connection_epoch' in frame)) {
         throw new LuvusAdapterError('ordinary_rpc_required')
       }
@@ -412,33 +428,54 @@ export class LuvusRpcAdapter {
       if (key && this.#active.get(key)?.abort === activeAbort) {
         this.#active.delete(key)
       }
+      if (decodedBinding) {
+        this.#releaseIdle(decodedBinding)
+      }
     }
   }
 
   /** 校验并去重 Wire 取消帧，仅中止完全匹配的活动等待；不撤销原生操作。 */
   cancel(input: string | Uint8Array): boolean {
-    const frame = this.#wire.decode(input, 'gateway_to_connector')
-    if (frame.type !== 'cancel' || !('connection_epoch' in frame)) {
-      throw new LuvusAdapterError('cancel_frame_required')
+    let binding: AttemptBinding | undefined
+    try {
+      const frame = this.#wire.decode(input, 'gateway_to_connector')
+      if ('connection_epoch' in frame) {
+        binding = frameBinding(frame)
+      }
+      if (frame.type !== 'cancel' || !('connection_epoch' in frame)) {
+        throw new LuvusAdapterError('cancel_frame_required')
+      }
+      if (this.#wire.observeMessage(frame, 'gateway_to_connector') !== 'new') {
+        return false
+      }
+      binding = frameBinding(frame)!
+      this.#match(binding)
+      const key = boundedJson([binding.machine_id, binding.target.provider_id, binding.call_id, binding.attempt_id])
+      const active = this.#active.get(key)
+      if (!active) {
+        return false
+      }
+      assertBinding(binding, active.binding)
+      active.abort.abort(frame.payload.reason === 'deadline_exceeded' ? 'deadline' : 'cancelled')
+      return true
+    } finally {
+      if (binding) {
+        this.#releaseIdle(binding)
+      }
     }
-    if (this.#wire.observeMessage(frame, 'gateway_to_connector') !== 'new') {
-      return false
-    }
-    const binding: AttemptBinding = {
-      machine_id: frame.machine_id,
-      recovery_generation: frame.recovery_generation,
-      connection_epoch: frame.connection_epoch,
-      ...frame.payload.attempt
-    }
-    this.#match(binding)
+  }
+  /** 仅释放无人执行的本机 Wire 原文；重复请求/取消不能释放仍在途的所属许可，seen 防重放记录始终保留。 */
+  #releaseIdle(binding: AttemptBinding): void {
     const key = boundedJson([binding.machine_id, binding.target.provider_id, binding.call_id, binding.attempt_id])
-    const active = this.#active.get(key)
-    if (!active) {
-      return false
+    if (this.#active.has(key)) {
+      return
     }
-    assertBinding(binding, active.binding)
-    active.abort.abort(frame.payload.reason === 'deadline_exceeded' ? 'deadline' : 'cancelled')
-    return true
+    try {
+      this.#wire.release(binding)
+    } catch {
+      // 已关闭或无法安全清理时终结整个本机 adapter，不以旧私有状态继续服务，也不改写原派发结果。
+      this.close()
+    }
   }
   /** 拒绝新派发、取消已登记派发的活动等待，并释放私有 Wire 上下文、维护计时器和账本订阅。 */
   close(): void {

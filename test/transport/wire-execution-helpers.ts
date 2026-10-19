@@ -69,6 +69,13 @@ export async function wireFixture(
           },
           /** 沿用真实 Gateway Wire 解码，失败只记录安全错误码供组合断言。 */
           decode(input, direction) {
+            try {
+              if (JSON.parse(typeof input === 'string' ? input : Buffer.from(input).toString()).type === 'response') {
+                state.receivedResponses++
+              }
+            } catch {
+              /* 非 JSON 仍交原 decoder 拒绝，不改变真实校验错误。 */
+            }
             const frame = trace(
               'decode',
               /** 用原 adapter 和实际方向校验收到的帧。 */
@@ -115,6 +122,8 @@ export async function wireFixture(
     corruptChunk: boolean
     nativeCompleted: number
     receivedChunks: number
+    receivedResponses: number
+    rpcErrors: { code: string; outcome?: string }[]
     dropLastChunk: boolean
     /** 在 auth 返回前制造有界等待或撤权，所有改变仅作用于本测试资源。 */
     beforeAuth?: (binding: AttemptBinding) => Promise<void>
@@ -133,6 +142,8 @@ export async function wireFixture(
     corruptChunk: false,
     nativeCompleted: 0,
     receivedChunks: 0,
+    receivedResponses: 0,
+    rpcErrors: [],
     dropLastChunk: false
   }
   native.respond(
@@ -247,7 +258,16 @@ export async function wireFixture(
             async executeWire(raw, signal) {
               state.hook++
               state.requests.push(raw)
-              const result = await rpc.dispatch(raw, signal)
+              let result
+              try {
+                result = await rpc.dispatch(raw, signal)
+              } catch (error) {
+                state.rpcErrors.push({
+                  code: error instanceof Error && 'code' in error ? String(error.code) : 'unknown',
+                  ...(error instanceof Error && 'outcome' in error ? { outcome: String(error.outcome) } : {})
+                })
+                throw error
+              }
               state.nativeCompleted++
               await state.afterDispatch?.(result.binding)
               return state.badBinding

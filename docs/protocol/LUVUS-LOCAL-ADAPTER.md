@@ -90,6 +90,10 @@ claim 返回后重验 binary/endpoint，最后一次 await 后在实际 write �
 `checkResult` 重新检查原生响应与当前读许可。
 
 内存 attempt 集合默认 128，满后拒绝、不淘汰、不重试；它不能代替持久 dedup。
+该上限属于同一 adapter 的 seen 防重放记录，普通 RPC 模式不承诺同 epoch 连续成功 130 次。
+每次完成、取消或失败后回收无人执行的私有 Wire 原文，不删除 seen，也不释放 Gateway 的独立
+结果读取上下文。重复请求或取消不能清理另一个仍在途的执行；满额意图在 auth/claim 前拒绝，
+transport 关闭后以 fresh epoch 创建新 adapter，只有宿主明确创建的新意图才可继续。
 重启或新建 adapter 后仍须由宿主 durable claim 阻止重放。`close()`/Wire cancel/
 AbortSignal 只关闭本 adapter 的 socket/桥接进程；不会发送 native rollback、关闭
 terminal 或终止原生 session。派发后超时、取消、断线和未知退出保守为

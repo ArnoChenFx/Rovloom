@@ -34,10 +34,38 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport 与 Herdr 十个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport、Herdr 与 webui 十一个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
+
+管理页另以 browser target 输出 `dist/webui/` 的 ESM、HTML/CSS 与外部 source maps，
+不依赖 Node、远端字体或 UI 框架。默认入口只显示管理读取不可用，不能将它当作已接线的管理服务。
+顶栏与 favicon 复用[独立橙色 R](assets/brand/rovloom-mark-orange.png)；[横版全名图](assets/brand/rovloom-logo.png)仍保留在静态产物中。构建和隔离验证保持两张原 PNG 的字节、背景及纵横比。
+
+## 管理页面的隔离验证
+
+`bun run test` 自动包含 `test/webui/` 的共享 DTO 消费、边界与生命周期测试。
+构建后可运行仅监听 `127.0.0.1`、随机端口的展示验证服务：
+
+```sh
+bun --no-env-file scripts/webui/preview.mjs
+```
+
+日志给出本次端口。`/` 使用构建后的默认不可用入口；`/fixtures/` 显式使用隔离测试数据，
+不包含管理 API、真实管理员授权或 Connector。它是测试工具，不能用来部署管理面。
+验证完以 Ctrl-C 关闭。
+
+已有 Python Playwright 与 `/usr/bin/chromium` 的环境可另开终端执行：
+
+```sh
+python3 scripts/webui/check-browser.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-browser-new
+```
+
+将 `PORT` 替换为本次预览端口；输出目录必须全新且位于 checkout 外。
+检查生成桌面/390px 截图与 JSON 断言结果；它验证真实 Chromium 上的合成 UI 数据、转义、
+焦点、导航、取消、部分失败及会话失效展示，不验证真实管理后端或安全认证。
+浏览器检查需显式运行，不从工具链通过推导浏览器或跨平台验收。
 
 ## 隔离验收
 

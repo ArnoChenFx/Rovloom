@@ -175,6 +175,7 @@ Connector 预检每片预算，使用同一 socket 发送；每片前复核当�
 接收窗先去重，再以原 adapter `acceptChunk` 顺序重组；完整 hash/长度/原生验证通过后才
 观察内层响应并执行原提交事务。分片本身不进入内层 `observeMessage`。部分传输、坏 hash、
 撤权、关闭、COMMIT 失败均不能报告 responded；旧 epoch 的分片和迟到 hook 不转交给新连接。
+小响应也在同步写出前用原 Wire 复验响应及当前 read；宿主 hook 的等待不能延长旧读取授权。
 
 受保护宿主通过 `gateway.resolveOriginalRead(callId)` 取得
 `{ binding, wire } | undefined`：binding 是副本，wire 是仍持有该原请求的实际 Gateway
@@ -237,6 +238,13 @@ provider 不可用时停止其响应交付/观察，设备撤销或断线关闭�
 一日自签 mock TLS 证书和合成原生来源。Wire 接缝另组合实际 LuvusRpcAdapter、临时唯一
 claim 库和自建 Unix listener，验证原始帧、原生错误、分片、读取失效与提交故障。TLS 负例在独立 loopback listener 验证未知 CA
 及错误 hostname；证书生成只调用 Linux `/usr/bin/openssl`，不导入系统信任。
+RPC 的 seen 上限独立于 transport；标准回归收紧至 2 验证满额及 fresh epoch，新意图不可自动重放。
+默认 128 的扩展回归使用同一真实 adapter/IPC harness，执行 128 次成功、第 129 次拒绝及第 130 个新意图：
+
+```sh
+bun --no-env-file -e 'import { verifyRpcCapacity } from "./test/transport/wire-capacity-helpers.ts"; await verifyRpcCapacity(128)'
+```
+
 日志负例用 stdin 交付随机 mock secret，并扫描子进程 stdout/stderr、普通审计和业务帧。
 基础生命周期单测保留明确 mock 扩展的失败窗口；真实组合测试另使用实际 Store 两个桥方法、
 磁盘双库和双 Connector，覆盖 WSS、精确重配/同 ID、新凭据/撤销、主库失败后公开恢复、
