@@ -131,6 +131,7 @@ export function createConnectorAdmissionLedger(options: ConnectorAdmissionLedger
   let revision = 0
   let closed = false
   let decoding = false
+  let admittingBinding: AttemptBinding | undefined
   let reading = false
   let pending: Pending | undefined
   let unsubscribe: (() => void) | undefined
@@ -404,10 +405,16 @@ export function createConnectorAdmissionLedger(options: ConnectorAdmissionLedger
     if (closed) {
       return
     }
-    revision++
     if (event.kind === 'closed') {
       close()
       return
+    }
+    // 独立 reader 的时钟推进可同时回收其它调用，只有本候选的身份/内容变化才中断本次准入。
+    if (
+      admittingBinding?.machine_id === event.machine_id &&
+      (event.kind === 'device_fence' || admittingBinding.call_id === event.call_id)
+    ) {
+      revision++
     }
     for (const entry of entries.values()) {
       if (
@@ -452,6 +459,9 @@ export function createConnectorAdmissionLedger(options: ConnectorAdmissionLedger
       if (closed || observed !== revision) {
         fail(closed ? 'adapter_closed' : 'attempt_context_invalidated')
       }
+      if (entries.get(binding.call_id + ':' + binding.attempt_id)?.fenced) {
+        fail('attempt_anchor_unavailable')
+      }
       if (expiry !== anchor.dedup_expires_at) {
         fail('attempt_anchor_unavailable')
       }
@@ -495,6 +505,7 @@ export function createConnectorAdmissionLedger(options: ConnectorAdmissionLedger
           connection_epoch: frame.connection_epoch as string,
           recovery_generation: frame.recovery_generation as string
         }
+        admittingBinding = binding
         const selected = routes.get(boundedJson(binding.target))
         if (!selected || binding.target.machine_id !== connection.machine_id) {
           fail('connector_route_unavailable')
@@ -618,18 +629,22 @@ export function createConnectorAdmissionLedger(options: ConnectorAdmissionLedger
         return result
       } finally {
         pending = undefined
+        admittingBinding = undefined
         decoding = false
       }
     },
     /** 完成释放只丢本 epoch 请求原文，响应锚点、共享去重簿和持久 claims 均保留。 */
     release(binding: AttemptBinding): void {
+      if (admittingBinding?.call_id === binding.call_id && admittingBinding.attempt_id === binding.attempt_id) {
+        assertBinding(binding, admittingBinding)
+        revision++
+      }
       if (
         pending?.entry.attempt.binding.call_id === binding.call_id &&
         pending.entry.attempt.binding.attempt_id === binding.attempt_id
       ) {
         assertBinding(binding, pending.entry.attempt.binding)
         dropBody(pending.entry)
-        revision++
       }
       const found = entries.get(binding.call_id + ':' + binding.attempt_id)
       if (found) {

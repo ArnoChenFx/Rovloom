@@ -679,6 +679,93 @@ test(
 )
 
 test(
+  'neutral Connector ledger admits B when its snapshot expires unrelated A through the real receipt clock',
+  /** B 的 receipt 先到、request 跨过 A 的正文截止时，仅回收 A，不能把 B 误判成上下文失效。 */ async () => {
+    const a = await admitted()
+    const receipts = new ConnectorAdmissionReceipts({
+      path: join(a.f.root, 'two-call-admission.json'),
+      mode: 'create',
+      ledger_id: 'two_call_admission_fixture',
+      routes: a.options.routes,
+      limits: { entries: 8, bytes: 262_144 },
+      now: /** 原 receipt 的实际持久时钟在两条调用之间推进。 */ () => a.f.state.now
+    })
+    const first = a.snapshot
+    /** 只在合成认证端构造独立交付，不从 Wire request 自建 Connector 权限。 */
+    function accept(snapshot: TrustedAdmissionSnapshot): void {
+      receipts.accept(
+        authenticateAdmissionReceipt(
+          {
+            binding: snapshot.binding,
+            request_sha256: snapshot.request_sha256,
+            dedup_expires_at: snapshot.anchor.dedup_expires_at,
+            context: {
+              principal_id: snapshot.principal_id,
+              registered_request_sha256: snapshot.registered_request_sha256,
+              anchor: snapshot.anchor,
+              sequence: snapshot.sequence,
+              fenced: snapshot.fenced
+            }
+          },
+          /** 本测试认证夹具只接受自己建立的短期交付。 */ () => true
+        )
+      )
+    }
+    accept(first)
+    const book = new ConnectorAttemptBook({
+      now: /** book 与 reader 使用同一独立时间，但不能自算原截止。 */ () => a.f.state.now,
+      dedupExpires: /** 完整原绑定与去重截止继续取真实持久 reader。 */ (binding) => receipts.dedupExpires(binding)
+    })
+    const ledger = createConnectorAdmissionLedger({ ...a.options, receipts, book })
+    const wire = createLuvusWireAdapter({ ...a.f.backend, ...ledger })
+    try {
+      ledger.decode(a.f.input(), 'gateway_to_connector', wire.decode)
+      const binding = structuredClone(a.f.binding)
+      binding.call_id = 'call2'
+      binding.attempt_id = 'attempt2'
+      binding.native_request_id = 'native_2'
+      binding.registration.deadline = 110_000
+      const { machine_id: _machine, recovery_generation: _generation, connection_epoch: _epoch, ...identity } = binding
+      const payload = { ...structuredClone(a.f.envelope.payload), attempt: identity }
+      const second: TrustedAdmissionSnapshot = {
+        ...first,
+        binding,
+        request_sha256: admissionRequestDigest({
+          binding,
+          native_request: a.f.row.native_request,
+          validation: 'strict'
+        }),
+        registered_request_sha256: registeredRequestDigest(payload, first.principal_id),
+        anchor: { ...first.anchor, binding, content_expires_at: 120_000, dedup_expires_at: 150_000 }
+      }
+      a.f.state.now = 60_099
+      accept(second)
+      const events: LedgerInvalidation[] = []
+      ledger.subscribeInvalidation(/** 只记录已提交的回收身份，不保留业务正文。 */ (event) => events.push(event))
+      a.f.state.now = 60_100
+      const frame = { ...structuredClone(a.f.envelope), message_id: 'message2', payload }
+      assert.equal(ledger.decode(boundedJson(frame), 'gateway_to_connector', wire.decode).type, 'request')
+      assert.equal(ledger.attempt('call2', 'attempt2')?.binding.call_id, 'call2')
+      assert.equal(ledger.attempt('call1', 'attempt1'), undefined)
+      assert.equal(ledger.contentStatus(a.f.binding), 'expired')
+      assert(
+        events.some(
+          /** A 的真实本机 TTL 回收必须实际发生，不能通过关闭维护掩盖竞态。 */ (event) =>
+            event.kind === 'content' && event.call_id === 'call1'
+        )
+      )
+      assert.equal(book.dedupExpires(a.f.binding), 90_100)
+      assert.equal(ledger.dedupExpires(binding), 150_000)
+    } finally {
+      wire.close()
+      ledger.close()
+      receipts.close()
+      await a.close()
+    }
+  }
+)
+
+test(
   'neutral Connector ledger rejects asynchronous verification without committing an attempt',
   /** 同步 Wire 提交不能把 Promise 返回误作完成，候选句柄在拒绝后不可见。 */ async () => {
     const a = await admitted()
