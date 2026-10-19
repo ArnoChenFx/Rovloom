@@ -23,7 +23,7 @@ import {
 
 // 将接口无关场景转为真实内存工厂；不把 JSON 中的可信标志直接当作生产认证。
 const matrix: any = JSON.parse(
-  readFileSync(new URL('../../fixtures/native-contract/matrix.json', import.meta.url), 'utf8')
+  readFileSync(new URL('../fixtures/native-contract/matrix.json', import.meta.url), 'utf8')
 )
 const seeds = new Map<string, any>()
 // 在测试样本中按 JSON Pointer 读取选定节点。
@@ -38,7 +38,7 @@ for (const [name, spec] of Object.entries(matrix.seeds) as [string, any][]) {
   if ('value' in spec) {
     value = spec.value
   } else {
-    assert(spec.artifact.startsWith('fixtures/p0/linux-luvus-0.14.3/'))
+    assert(spec.artifact.startsWith('test/fixtures/luvus/0.14.3/linux/'))
     value = json(spec.artifact.split('/').at(-1))
     if (spec.select) {
       const chosen = value.filter(
