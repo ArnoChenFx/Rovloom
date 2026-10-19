@@ -1,8 +1,8 @@
 // 只绑定 Windows 内核报告的直接父进程并持有查询/同步句柄；不接收 PID，不终止任何进程。
-import { createRequire } from 'node:module'
 import { win32 } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import { UpdateError } from '../contract.js'
+import { windowsLibrary } from './native.js'
 
 export type WindowsProcessStamp = Readonly<{ image: string; born: string }>
 export type WindowsParentPort = {
@@ -33,10 +33,7 @@ function systemKernel(): Kernel {
     throw new UpdateError('replacement_unavailable')
   }
   if (!kernel) {
-    const ffi = createRequire(import.meta.url)('bun:ffi') as {
-      dlopen(path: string, symbols: Record<string, { args: string[]; returns: string }>): { symbols: Kernel }
-    }
-    kernel = ffi.dlopen('C:\\Windows\\System32\\kernel32.dll', {
+    kernel = windowsLibrary<Kernel>('kernel32', {
       GetCurrentProcessId: { args: [], returns: 'u32' },
       GetCurrentProcess: { args: [], returns: 'u64' },
       CreateToolhelp32Snapshot: { args: ['u32', 'u32'], returns: 'u64' },
@@ -48,7 +45,7 @@ function systemKernel(): Kernel {
       WaitForSingleObject: { args: ['u64', 'u32'], returns: 'u32' },
       CloseHandle: { args: ['u64'], returns: 'i32' },
       GetLastError: { args: [], returns: 'u32' }
-    }).symbols
+    })
   }
   return kernel
 }
