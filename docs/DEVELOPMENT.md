@@ -16,6 +16,7 @@ bun run toolchain
 bun run comments:check
 bun run typecheck
 bun run test
+bun run test:isolated
 bun run test:p0
 bun run test:bun
 bun run p0:audit
@@ -37,18 +38,20 @@ bun run smoke
 native-contract、wire、integration、persistence、transport 与 Herdr 十个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
-SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
+SQLite 文件重开。构建另从固定官方源码离线生成 `dist/native-contract/` 执行器；
+测试和构建均重建该产物，验证器比对重复构建摘要。资源范围、依赖和宿主使用见
+[schema 隔离边界](protocol/SCHEMA-ISOLATION.md)。当前没有服务 CLI、Node target 或声明产物。
 
 ## 隔离验收
 
-Linux 需 Python 3、strace 和固定 Bun，在 checkout 外指定尚不存在的输出目录：
+Linux x64/glibc 需 Python 3.12+、strace、GCC/binutils、glibc 开发文件和固定 Bun，在 checkout 外指定尚不存在的输出目录：
 
 ```sh
 python3 scripts/bun/verify.py --bun /absolute/path/to/bun --output /tmp/rovloom-verification-new
 ```
 
 验证器在新项目、新 HOME、空缓存与最小环境中冻结安装，审计实装依赖，运行
-strict 类型检查及故意错误反例、验收器自身回归、递归发现的全部主测试、
+strict 类型检查及故意错误反例、验收器自身回归、递归发现的全部主测试及隔离契约完整回放、
 P0 JS/Python 测试、Bun 兼容测试、fixture 审计、clean build 与产物 smoke。
 Node/npm/npx 阻断探针必须返回 99，项目 execve/execveat 追踪不得出现 Node
 回退。GitHub Actions 的 checkout 宿主不属于项目运行时。

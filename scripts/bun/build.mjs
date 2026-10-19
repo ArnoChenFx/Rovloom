@@ -1,9 +1,11 @@
 // 按固定 Bun 工具链构建模块化 ESM 产物并清除旧输出；不启动 Gateway 或 Connector 服务。
 import { rmSync } from 'node:fs'
 import { toolchain } from './toolchain.mjs'
+import { buildSchemaWorker } from '../native-contract/build-worker.mjs'
 
 toolchain()
 rmSync(new URL('../../dist/', import.meta.url), { recursive: true, force: true })
+await buildSchemaWorker()
 const result = await Bun.build({
   entrypoints: [
     'src/contracts.ts',

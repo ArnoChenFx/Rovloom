@@ -1,6 +1,6 @@
 # Luvus 原生校验与宿主接口
 
-`src/native-contract/index.ts` 提供纯同步、无 I/O 的契约内核，
+`src/native-contract/index.ts` 提供同步校验接口及本地硬预算编译工厂，
 `src/integration/luvus-wire.ts` 的 `createLuvusWireAdapter(backend, limits?)`
 将其接入 [Wire v2](WIRE-PROTOCOL.md)。准确签名以源码及
 `src/native-contract/types.ts` 为准；安全原则、provider 模型和恢复设计分别见
@@ -13,7 +13,7 @@
 
 ## 契约与内存许可
 
-`compileBundle` 用 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包；
+`compileBundleIsolated` 在硬预算进程内用同一 Ajv2020 离线编译安装 bundle 的完整根、条件及引用闭包；
 不联网解析 $ref，不读路径，不补默认值、不转换类型、不删除原生字段。
 URL 是 bundle 内索引。未知方言、关键字、缺引用、副本冲突及资源超限拒绝。
 `parseNativeJson` 执行有界 JSON 检查；对象入口只供内部无行为 JSON。
@@ -33,9 +33,11 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 此项同样不含 LF；下述在线 request/response 帧预算则包含 LF，两项分别执行。
 
 `CompileOptions.limits` 只能降低这些上界。Wire 的 16 MiB bundle 重组上界不扩大
-原生编译预算。以上为结构/字节预算；同步 `compileBundle` 没有硬 CPU/heap 隔离，
-只能用于已审核本地 bundle。生产自动接纳 schema 仍须先交付 DESIGN 的可终止独立
-编译 worker 和 2 秒/64 MiB 限额；线程选项、定时器或快照计量不能作其验收证明。
+原生编译预算。Linux x64/glibc 的 `compileBundleIsolated` 使用独立原生进程、
+内核 2 秒实时时限、64 MiB 地址空间及 JS 分配上限；同步 `compileBundle` 仅供
+已审核离线测试。生产宿主须提供受保护构建路径并在退役时释放原句柄，失败不回退。
+每个上下文另有短命校验子进程，资源范围、数据寿命、依赖与完整验收要求见
+[隔离执行边界](SCHEMA-ISOLATION.md)。该工厂不自动接纳未认证或未审核的外部 schema。
 
 session capability 必须提供正安全整数的 `limits.frame_bytes`、
 `terminal.limits.request_bytes` 与 `terminal.limits.response_bytes`。

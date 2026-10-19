@@ -1,6 +1,6 @@
 // 独立执行调用、结果读取与结果保留的安全门禁，校验可信分类及策略后登记内存派发许可。
 import { authorize } from '../contracts.js'
-import { candidates, permits, SCOPES, views } from './internal.js'
+import { assertContractActive, candidates, permits, SCOPES, views } from './internal.js'
 import { attempt, ContractFault, equal, fail, object, pointer, snapshot } from './json.js'
 import { verifySource } from './validator.js'
 import type {
@@ -147,6 +147,7 @@ function checkedAuthorization(candidate: DispatchCandidate, input: DispatchAutho
   if (!stored || !views.has(stored.view)) {
     reject('invalid_request_handle')
   }
+  assertContractActive(views.get(stored.view)!.contract)
   const context = snapshot(input) as unknown as DispatchAuthorization
   if (!context.source?.authenticated) {
     reject('unauthenticated')
@@ -403,6 +404,11 @@ export function checkResultBoundary(permit: DispatchPermit, input: ResultAuthori
       if (!stored) {
         reject('invalid_permit_handle')
       }
+      const view = candidates.get(stored.candidate)?.view
+      if (!view) {
+        reject('invalid_request_handle')
+      }
+      assertContractActive(views.get(view)!.contract)
       const context = snapshot(input) as unknown as ResultAuthorization
       if (context.classification_source_verified !== true) {
         reject('safety_classification_untrusted')

@@ -314,7 +314,7 @@ test(
     globalThis.fetch = /* 记录任何意外网络解析并立即抛错，使测试能检测在线抓取。 */ (() => {
       requests++
       throw new Error('禁止网络 resolver')
-    }) as typeof fetch
+    }) as unknown as typeof fetch
     try {
       for (const [ref, reason] of [
         ['https://untrusted.invalid/schema.json', 'missing_document'],

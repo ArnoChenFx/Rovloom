@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { toolchain } from './toolchain.mjs'
 
 toolchain()
@@ -59,26 +60,33 @@ assert.deepEqual(
     'checkResultBoundary',
     'checkSequence',
     'compileBundle',
+    'compileBundleIsolated',
+    'releaseCompiledContract',
     'createNativeValidator',
     'inspectRequestGate',
     'parseNativeJson'
   ].sort()
 )
 const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
-const compiled = native.compileBundle(bytes, {
-  identity: {
-    binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
-    schema_sha256: contracts.digest(bytes.toString('utf8')),
-    revision: 'artifact-smoke'
-  }
-})
+const compiled = native.compileBundleIsolated(
+  bytes,
+  {
+    identity: {
+      binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
+      schema_sha256: contracts.digest(bytes.toString('utf8')),
+      revision: 'artifact-smoke'
+    }
+  },
+  { assets_directory: fileURLToPath(new URL('../../dist/native-contract/', import.meta.url)) }
+)
 assert(compiled.ok)
 assert.equal(compiled.value.documents.length, 29)
 const response = {
   id: 'artifact',
   error: { code: 'synthetic', message: 'synthetic', data: { preserved: true } }
 }
-const checked = native.createNativeValidator(compiled.value).checkResponseShape(response)
+const nativeValidator = native.createNativeValidator(compiled.value)
+const checked = nativeValidator.checkResponseShape(response)
 assert(checked.ok)
 assert.deepEqual(checked.value.response, response)
 // 仅用 P0 fixture 测试跨构建入口的私有 handle 身份，不建立网络或真实权限。
@@ -309,3 +317,8 @@ try {
 console.log(
   'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries and SQLite reopen: pass'
 )
+
+// 构建入口持有真实隔离句柄，释放后不得继续给出结构校验结论。
+assert(native.releaseCompiledContract(compiled.value).ok)
+const released = nativeValidator.checkResponseShape(response)
+assert.equal(released.ok, false)

@@ -159,7 +159,7 @@ Luvus 安装 schema 与 session/Host 在线能力分别核对；Herdr 安装 sch
 
 strict 必须应用完整根、条件和离线引用闭包，并有方法参数约束；generic/unavailable 不能标完整。Owner 显式选择 raw-contract 且有绑定 principal、完整目标、精确方法、版本/revisions/期限的独立 grant 时，只可放宽明确的参数覆盖缺口。保留所有已有约束、有界 envelope、保留字段、来源、传输、安全分类、权限和结果边界；已知参数不合法不能降格放行。整个 bundle 不可用且没有独立受信最小 request/response 契约时仍拒绝；完全无 bundle 的 raw 路径待另行设计。
 
-schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。schema 编译须在可终止的独立 worker 中受硬资源限制：编译时间预算 2 秒、heap 预算 64 MiB；超限终止并返回不可用，不自动放宽。该预算是设计要求，不由结构检查、JSON 快照计量或同步 Promise 超时代替，也不表示宿主已实现 CPU/heap 隔离。
+schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。schema 编译须在可终止的独立 worker 中受硬资源限制：编译时间预算 2 秒、heap 预算 64 MiB；超限终止并返回不可用，不自动放宽。该预算不由结构检查、JSON 快照计量或同步 Promise 超时代替。Linux x64 的 Luvus 工厂以独立原生进程落实硬限制，资源按每进程计量，并以短命校验子进程隔离原文寿命；具体范围和宿主责任见[执行边界](protocol/SCHEMA-ISOLATION.md)。其他平台及 Herdr 入口须独立验收。
 
 派发与流输入前核对当前双端 binding、策略、分类、能力、epoch、generation 及 deadline；任一失效拒绝，不能透明降级。缓存按完整来源和上下文失效。发现、安全分类、参数覆盖、传输与支持状态分别呈现，不合成一个“支持”标记。
 

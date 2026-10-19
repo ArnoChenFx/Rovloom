@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { compileBundle, createNativeValidator } from '../../src/native-contract/index.js'
+import { compileBundle, compileBundleIsolated, createNativeValidator } from '../../src/native-contract/index.js'
 import type {
   CapabilityView,
   Check,
@@ -39,7 +39,16 @@ export function rejects(result: Check<unknown>, code: string): void {
     assert.equal(result.error.code, code)
   }
 }
-export const compiled = unwrap(compileBundle(bytes, { identity }))
+// 隔离回放模式只存在于测试工厂；生产模块没有通过环境变量绕过预算的入口。
+export const compiled = unwrap(
+  process.env.ROVLOOM_TEST_ISOLATED_VALIDATOR === '1'
+    ? compileBundleIsolated(
+        bytes,
+        { identity },
+        { assets_directory: new URL('../../dist/native-contract/', import.meta.url).pathname }
+      )
+    : compileBundle(bytes, { identity })
+)
 export const validator = createNativeValidator(compiled)
 export const G = '0'.repeat(32)
 export const T = '1'.repeat(32)

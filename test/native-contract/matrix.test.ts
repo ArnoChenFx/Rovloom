@@ -181,7 +181,7 @@ function bundleCase(c: any): any {
   globalThis.fetch = /* 记录任何意外网络访问并抛错，确保契约引用仅在本地闭包解析。 */ (() => {
     requests++
     throw Error('禁止网络 resolver')
-  }) as typeof fetch
+  }) as unknown as typeof fetch
   try {
     const checked = compileBundle(serialized, { identity: expected })
     assert.equal(requests, 0)

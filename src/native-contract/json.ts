@@ -1,5 +1,6 @@
 // 提供受资源预算约束的纯同步 JSON 解析、冻结快照、契约失败及身份比较工具。
-import { createHash } from 'node:crypto'
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js'
 import type { Check, Json, JsonObject, Limits, NativeContractFailure } from './types.js'
 
 export const DEFAULT_LIMITS: Limits = Object.freeze({
@@ -66,7 +67,17 @@ export function limits(overrides: Partial<Limits> = {}): Limits {
 
 // 计算原始契约字节的 SHA-256 十六进制摘要。
 export function hash(bytes: string | Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex')
+  return bytesToHex(sha256(typeof bytes === 'string' ? utf8ToBytes(bytes) : bytes))
+}
+
+// 逐码点计量 UTF-8，避免为了比较大小再分配完整编码副本。
+export function utf8Length(value: string): number {
+  let bytes = 0
+  for (const point of value) {
+    const code = point.codePointAt(0)!
+    bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4
+  }
+  return bytes
 }
 
 // 要求输入为非 null 且非数组的对象，否则抛出指定失败码。
@@ -263,7 +274,7 @@ export function parse(bytes: Uint8Array | string, budget: Limits): Json {
   } else {
     fail('invalid_json', 'parse')
   }
-  if (Buffer.byteLength(input) > budget.object_bytes) {
+  if (utf8Length(input) > budget.object_bytes) {
     fail('object_limit', 'parse')
   }
   let position = 0

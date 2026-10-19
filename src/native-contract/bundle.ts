@@ -1,7 +1,21 @@
 // 离线校验 Luvus schema bundle 的身份、文档闭包与资源边界，并编译内存校验句柄。
 import { Ajv2020 } from 'ajv/dist/2020.js'
+import { URL } from 'whatwg-url'
 import type { AnySchema, ValidateFunction } from 'ajv'
-import { attempt, ContractFault, equal, fail, hash, limits, object, parse, pointer, snapshot, text } from './json.js'
+import {
+  attempt,
+  ContractFault,
+  equal,
+  fail,
+  hash,
+  limits,
+  object,
+  parse,
+  pointer,
+  snapshot,
+  text,
+  utf8Length
+} from './json.js'
 import { contracts, UHP } from './internal.js'
 import type { Check, CompiledContract, CompileOptions, ContractIdentity, JsonObject, Limits } from './types.js'
 
@@ -268,7 +282,7 @@ export function compileBundle(bytes: Uint8Array | string, options: CompileOption
           new URL(uri).href !== uri ||
           new URL(uri).hash ||
           new URL(uri).search ||
-          Buffer.byteLength(JSON.stringify(value)) > budget.document_bytes
+          utf8Length(JSON.stringify(value)) > budget.document_bytes
         ) {
           fail('schema_unavailable', 'compile', 'invalid_document')
         }
@@ -298,7 +312,9 @@ export function compileBundle(bytes: Uint8Array | string, options: CompileOption
           useDefaults: false,
           removeAdditional: false,
           ownProperties: true,
-          inlineRefs: false
+          inlineRefs: false,
+          // 关闭生成代码的可选优化遍历，保留全部校验语义并减少硬时限内的编译工作。
+          code: { optimize: false }
         })
         for (const [uri, doc] of entries) {
           ajv.addSchema(doc as AnySchema, uri)
@@ -355,11 +371,8 @@ export function compileBundle(bytes: Uint8Array | string, options: CompileOption
         documents: Object.freeze(entries.map(/* 提取文档 URI，作为编译句柄的只读文档目录。 */ ([uri]) => uri))
       })
       contracts.set(compiled, {
-        bundle,
-        documents,
         limits: budget,
         validators,
-        requestMethods,
         branches
       })
       return compiled

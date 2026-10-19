@@ -15,9 +15,11 @@ assert.deepEqual(Object.keys(api).sort(), [
   'checkResultBoundary',
   'checkSequence',
   'compileBundle',
+  'compileBundleIsolated',
   'createNativeValidator',
   'inspectRequestGate',
-  'parseNativeJson'
+  'parseNativeJson',
+  'releaseCompiledContract'
 ])
 const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
 const identity = {
