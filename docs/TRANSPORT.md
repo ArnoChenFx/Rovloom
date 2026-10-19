@@ -234,13 +234,33 @@ Gateway `dispatch(call_id)` 从宿主当前 principal 经 Router 重授权，Sto
 成功才发 accepted 并调用宿主 execute。响应通过原 adapter 和 `commitLuvusResponse` 事务提交，
 提交前不发布 durable responded。accepted 不等于原生完成。
 
+`gateway.cancel(call_id): Call` 只从同一可信宿主取得当前 principal，复用 `Router.cancel`
+逐次复验归属及当前双端 cancel 权限，先提交持久停止，再向原活 socket 的精确
+machine/generation/epoch/call/attempt/native ID 发送既有 Wire cancel。无需额外 read 权限；
+返回值是去掉响应正文的宿主内部调用元数据，须按公共 DTO 投影，不能直接作为工具回复。
+未派发调用为 `not_dispatched`，可能已送达的调用
+仍为 `outcome_unknown`；没有取消 ack，成功写出也不能投影为 `bridge_stopped` 或
+`native_confirmed`。MCP/CLI 宿主只在显式 call_cancel 操作调用此端口，前端 wait_signal
+仅结束等待，不能自动转成执行取消。
+
+取消提交失败不发送。提交后先释放 Gateway 本地等待并消费一次发送机会；重复取消、
+缺原上下文、关闭、旧 epoch 或发送失败均不重发、不排队，也不回滚已提交的状态。
+原 Wire 响应约束仍受既有容量和固定保留期限限制；取消不主动销毁迟到补证能力。
+取消后在途 accepted 不复活状态或误关共享通道；合法同 attempt 响应仍须协商
+`late_evidence`，经原 `commitLuvusResponse` 事务补证，保留取消历史及原 deadline/history/TTL。
+
+Connector 复用原 Wire 的方向、完整 binding、当前双端 cancel 权限及消息去重，再只中止
+同一运行 attempt 的 AbortController。已有 `executeWire` hook 把该 signal 传给实际
+`LuvusRpcAdapter.dispatch`，沿用其本地等待中止路径，不另建取消执行器。取消后的拒绝不关闭
+其它调用或设备；忽略 signal 的工作仍占 Connector 原生并发额度，实际 Promise 结束后才释放。
+
 模块可直接组合既有服务 backend：Gateway 接 call_id 与宿主 current principal；Connector
 execute 接完整原生 JSON、AbortSignal 和独立账本固定的 AttemptBinding，宿主据此选择固定
 provider adapter，不能从原生 JSON 的路径/endpoint 或自报 provider 选择执行来源。本模块没有
 第二套 CLI。schema 的硬 CPU/heap worker 隔离仍未产品化，本通道与身份库不解除该执行门禁，
 不能仅因连接 ready 或 fixture 编译成功而宣称生产 native 执行可用。
 
-当前业务范围为普通 RPC 及其已协商响应对象。流、请求对象、schema 分发和 Wire cancel 尚未
+当前业务范围为普通 RPC、逐调用观察取消及已协商响应对象。流、请求对象和 schema 分发尚未
 接到原生执行，不得广告为这些能力已可用。
 每次实际执行前检查 deadline；观察取消/关闭通过 AbortSignal 通知宿主，**不代表原生回滚**。
 宿主 execute 必须有界并响应观察关闭，忽略 AbortSignal 的工作仍占并发预算直至完成。
