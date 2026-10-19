@@ -479,6 +479,11 @@ export class PosixUpdater {
               }
               await nativeHeader(output, platform)
               await output.sync()
+              // 网络摘要不能证明文件系统实际写入字节；执行候选或停止角色前核验持有句柄的落盘内容。
+              const storedDigest = await handleDigest(output)
+              if (storedDigest !== plan.asset.sha256) {
+                throw new UpdateError('checksum_mismatch')
+              }
               currentCandidate = Object.freeze({
                 dev: String(stat.dev),
                 ino: String(stat.ino),
@@ -486,7 +491,7 @@ export class PosixUpdater {
                 gid: Number(stat.gid),
                 mode: Number(stat.mode) & 0o777,
                 size: Number(stat.size),
-                sha256: plan.asset.sha256
+                sha256: storedDigest
               })
             } finally {
               await quietWrite()
@@ -511,6 +516,8 @@ export class PosixUpdater {
             await directoryHandle!.sync()
             await assertOriginal(installation!, files, true)
             await journal('prepared')
+            // 子目录内记录持久化并不能持久化父目录中的事务入口；停服前同步父目录。
+            await installation!.parent.sync()
             live()
             await journal('quiescing')
             armed = true

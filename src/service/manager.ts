@@ -98,8 +98,11 @@ export class ServiceManager {
               }
               if (
                 !['running', 'stopped'].includes(current.state) ||
-                (this.backend.platform === 'darwin' && current.state === 'stopped' && current.loaded)
+                (this.backend.platform === 'darwin' &&
+                  ((current.state === 'stopped' && current.loaded) ||
+                    (current.state === 'running' && !current.enabled)))
               ) {
+                // macOS 已撤自启的活 job 不能在 bootout 后等价 bootstrap；拒绝先停后无法恢复。
                 throw new ServiceError('service_busy')
               }
               const spec = Object.freeze(validateSpec(current.spec))
@@ -172,7 +175,16 @@ export class ServiceManager {
                         throw new ServiceError('service_conflict')
                       }
                     }
-                    await observe(snapshot)
+                  } catch (error) {
+                    failure ??= error
+                  }
+                }
+                // 全部业务探针结束后重新检查每个原角色，不能忽略探针后退出或后续角色恢复期间的状态变化。
+                for (const snapshot of snapshots) {
+                  try {
+                    if ((await observe(snapshot)).state !== snapshot.state) {
+                      throw new ServiceError(snapshot.state === 'running' ? 'service_start_failed' : 'service_conflict')
+                    }
                   } catch (error) {
                     failure ??= error
                   }

@@ -49,6 +49,65 @@ test(
 )
 
 test(
+  'equal-size candidate corruption is rejected from the held file before execution or role shutdown',
+  { timeout: 45_000 },
+  /* 注入实际文件的等长错写，区分网络摘要与落盘摘要；这不是物理磁盘故障实测。 */ async () => {
+    if (process.platform === 'win32') {
+      return
+    }
+    const f = await setup()
+    let corrupted = false
+    let executed = false
+    try {
+      const updater = createPosixUpdater({
+        executable: f.executable,
+        services: f.manager,
+        verifyRoleReady: f.health,
+        files: {
+          ...fs,
+          // 网络下载仍是正确 fixture，独立在首次 fsync 后破坏磁盘文件的一字节。
+          open: async (...args: Parameters<typeof fs.open>) => {
+            const file = await fs.open(...args)
+            if (basename(String(args[0])) === 'candidate') {
+              const sync = file.sync.bind(file)
+              file.sync = /* 模拟等长持久化错写，保留原生头与文件大小。 */ async () => {
+                await sync()
+                if (!corrupted) {
+                  const byte = Buffer.alloc(1)
+                  await file.read(byte, 0, 1, 64)
+                  byte[0] = byte[0]! ^ 1
+                  await file.write(byte, 0, 1, 64)
+                  corrupted = true
+                }
+              }
+            }
+            return file
+          }
+        },
+        runner: /* 候选在落盘摘要通过前绝不能执行。 */ async (plan) => {
+          if (basename(plan.executable) === 'candidate') {
+            executed = true
+          }
+          return runSystemCommand(plan)
+        }
+      })
+      await assert.rejects(/* 实际长度和原生头仍合法，必须由文件摘要阻断。 */ () => updater.update(f.network, f.plan), {
+        code: 'checksum_mismatch'
+      })
+      assert.equal(corrupted, true)
+      assert.equal(executed, false)
+      assert.equal(f.calls.length, 0)
+      await probeVersion(f.executable, oldVersion)
+      assert(
+        !(await fs.readdir(f.root)).some(/* 没有接触角色或旧版备份。 */ (name) => name.startsWith('.rovloom-update-'))
+      )
+    } finally {
+      await f.cleanup()
+    }
+  }
+)
+
+test(
   'a backup link applied before an error is identified and safely unwound',
   { timeout: 45_000 },
   /* 不遗留使下次安装误判的额外硬链接。 */ async () => {
@@ -437,7 +496,41 @@ test(
 )
 
 test(
-  'new-version health failure atomically restores old binary and both running roles including disabled boot',
+  'role exit after successful readiness causes rollback instead of deleting the usable old binary',
+  { timeout: 45_000 },
+  /* 使用真实自有子进程退出证明，不能把稍早成功的业务探针当作最终仍运行。 */ async () => {
+    if (process.platform === 'win32') {
+      return
+    }
+    const f = await setup()
+    try {
+      const original = await fs.stat(f.executable)
+      const updater = createPosixUpdater({
+        executable: f.executable,
+        services: f.manager,
+        verifyRoleReady: /* 模拟探针返回时真实进程已经退出，旧版恢复仍使用真实标记。 */ async (spec, version) => {
+          await f.health(spec, version)
+          if (version === newVersion) {
+            await f.backend.stop(spec)
+          }
+        }
+      })
+      await assert.rejects(/* 最终监管状态必须使新版事务失败并恢复旧版。 */ () => updater.update(f.network, f.plan), {
+        code: 'update_rolled_back'
+      })
+      await probeVersion(f.executable, oldVersion)
+      assert.equal((await fs.stat(f.executable)).ino, original.ino)
+      assert.equal(f.snapshots.get('gateway')!.state, 'running')
+      assert.equal(f.versions.get('gateway'), oldVersion)
+      assert.equal(f.snapshots.get('connector')!.state, 'stopped')
+    } finally {
+      await f.cleanup()
+    }
+  }
+)
+
+test(
+  'new-version health failure atomically restores old binary and both roles, with Linux disabled boot preserved',
   { timeout: 45_000 },
   /* 不以 enable/install 重建原服务。 */ async () => {
     if (process.platform === 'win32') {
@@ -457,12 +550,93 @@ test(
         assert.equal(f.snapshots.get(role)!.state, 'running')
         assert.equal(f.versions.get(role), oldVersion)
       }
-      assert.equal(f.snapshots.get('connector')!.enabled, false)
+      assert.equal(f.snapshots.get('connector')!.enabled, process.platform === 'darwin')
     } finally {
       await f.cleanup()
     }
   }
 )
+
+for (const failSync of [false, true]) {
+  test(
+    `the transaction directory entry is synced after prepared and before shutdown (fail=${failSync})`,
+    { timeout: 45_000 },
+    /* 对真实临时目录句柄注入同步失败及顺序观测，不把它称为断电实测。 */ async () => {
+      if (process.platform === 'win32') {
+        return
+      }
+      const f = await setup()
+      const order: string[] = []
+      let prepared = false
+      let injected = false
+      const stop = f.backend.stop.bind(f.backend)
+      f.backend.stop = /* 记录首个受控停服是否发生在父目录持久化之后。 */ async (spec) => {
+        order.push('stop')
+        await stop(spec)
+      }
+      try {
+        const updater = createPosixUpdater({
+          executable: f.executable,
+          services: f.manager,
+          verifyRoleReady: f.health,
+          files: {
+            ...fs,
+            // prepared 记录已经同步到事务目录后，父目录入口仍须独立同步。
+            open: async (...args: Parameters<typeof fs.open>) => {
+              const file = await fs.open(...args)
+              if (String(args[0]) === f.root) {
+                const sync = file.sync.bind(file)
+                file.sync = /* 只在 prepared 后的父目录持久化点注入一次故障。 */ async () => {
+                  if (prepared) {
+                    if (failSync && !injected) {
+                      injected = true
+                      throw Object.assign(new Error('fixture directory sync failure'), { code: 'EIO' })
+                    }
+                    order.push('parent-sync')
+                  }
+                  await sync()
+                }
+              }
+              return file
+            },
+            // 记录真实 journal rename 后的阶段；安装文件交换另记，不能用子目录 fsync 顶替父目录。
+            rename: async (from, to) => {
+              await fs.rename(from, to)
+              if (basename(String(to)) === 'journal.json') {
+                const record = JSON.parse(await fs.readFile(to, 'utf8'))
+                if (record.phase === 'prepared') {
+                  prepared = true
+                  order.push('prepared')
+                }
+              }
+              if (to === f.executable) {
+                order.push('replace')
+              }
+            }
+          }
+        })
+        if (failSync) {
+          await assert.rejects(/* 无法持久化入口时不能先停止角色。 */ () => updater.update(f.network, f.plan), {
+            code: 'staging_failed'
+          })
+          assert.equal(injected, true)
+          assert.equal(order.includes('stop'), false)
+          assert.equal(order.includes('replace'), false)
+          assert.equal(f.snapshots.get('gateway')!.state, 'running')
+          await probeVersion(f.executable, oldVersion)
+          assert.equal((await fs.stat(f.executable)).nlink, 1)
+        } else {
+          assert.equal((await updater.update(f.network, f.plan)).status, 'updated')
+          assert(order.indexOf('prepared') < order.indexOf('parent-sync'))
+          assert(order.indexOf('parent-sync') < order.indexOf('stop'))
+          assert(order.indexOf('stop') < order.indexOf('replace'))
+        }
+      } finally {
+        await f.cleanup()
+      }
+    }
+  )
+}
 
 for (const applied of [false, true]) {
   test(

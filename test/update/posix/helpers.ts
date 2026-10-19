@@ -100,7 +100,9 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
         account: 'rovloom'
       },
       state: 'stopped',
-      enabled: role === 'gateway'
+      // macOS disabled 的运行态不能由 bootstrap 等价恢复，该初态由 native 组合回归单独验证。
+      enabled: role === 'gateway' || (process.platform === 'darwin' && running.includes(role)),
+      loaded: false
     })
   }
   await fs.writeFile(join(root, 'state.db'), 'unchanged database')
@@ -125,6 +127,9 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
     // 仅启动自己编译并复制到私有根的进程，保存 child 对象而非接受任意 PID。
     start: async (spec) => {
       calls.push(`start:${spec.role}`)
+      if (process.platform === 'darwin' && !snapshots.get(spec.role)!.enabled) {
+        throw new ServiceError('service_start_failed')
+      }
       const child = spawn(executable, ['--fixture-service'], { cwd: root, env: {}, stdio: ['ignore', 'pipe', 'pipe'] })
       children.set(spec.role, child)
       await new Promise<void>(
@@ -154,6 +159,7 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
               }
               versions.set(spec.role, match[1]!)
               snapshots.get(spec.role)!.state = 'running'
+              snapshots.get(spec.role)!.loaded = process.platform === 'darwin'
               resolve()
             }
           )
@@ -178,6 +184,7 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
       }
       children.delete(spec.role)
       snapshots.get(spec.role)!.state = 'stopped'
+      snapshots.get(spec.role)!.loaded = false
     }
   }
   const manager = new ServiceManager(backend, {

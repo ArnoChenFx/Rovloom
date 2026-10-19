@@ -11,6 +11,7 @@ import { manifest } from '../../src/service/spec.js'
 import { checkedCommand, runSystemCommand, type CommandPlan, type CommandRunner } from '../../src/service/runner.js'
 import { inspectTask, taskCall, TASK_SCRIPT } from '../../src/service/windows.js'
 import { sampleSpec } from './helpers.js'
+import { ServiceManager } from '../../src/service/manager.js'
 
 // 仅在内存记录注册的独占写和精确删除，不向原生系统路径写入。
 function memoryFiles() {
@@ -510,6 +511,93 @@ test(
     await native.stop(spec)
     assert.equal(await native.remove(spec), true)
     assert.equal(ops.filter(/* 只有显式停止调用产生一次 bootout。 */ (x) => x === 'bootout').length, 1)
+  }
+)
+
+test(
+  'macOS update rejects a boot-disabled running job before bootout or any replacement scope',
+  /* 真实 manager/native 计划组合模拟 disabled 阻止 bootstrap，不触碰 launchd 或系统文件。 */ async () => {
+    const memory = memoryFiles()
+    const spec = sampleSpec('darwin')
+    const definition = renderDefinition(spec)
+    memory.data.set('io.rovloom.connector.plist', definition)
+    let loaded = true
+    let enabled = true
+    const ops: string[] = []
+    const backend = createNativeServiceBackend({
+      platform: 'darwin',
+      files: memory.files,
+      verifyRuntime: /* 此测试不执行或注册任何实际角色。 */ async () => {},
+      runner: /* loaded、运行 PID、自启 override 与 bootstrap 许可分别建模。 */ async (plan) => {
+        assert.equal(plan.executable, '/bin/launchctl')
+        const op = plan.args[0]!
+        ops.push(op)
+        if (op === 'list') {
+          return {
+            code: 0,
+            stdout: 'PID\tStatus\tLabel\n' + (loaded ? '123\t0\tio.rovloom.connector\n' : ''),
+            stderr: ''
+          }
+        }
+        if (op === 'print') {
+          return {
+            code: 0,
+            stdout: 'system/io.rovloom.connector = {\n path = /Library/LaunchDaemons/io.rovloom.connector.plist\n}\n',
+            stderr: ''
+          }
+        }
+        if (op === 'print-disabled') {
+          return {
+            code: 0,
+            stdout: `disabled services = {\n "io.rovloom.connector" => ${enabled ? 'enabled' : 'disabled'}\n}\n`,
+            stderr: ''
+          }
+        }
+        if (op === 'disable') {
+          enabled = false
+        } else if (op === 'bootout') {
+          loaded = false
+        } else if (op === 'bootstrap') {
+          if (!enabled) {
+            return { code: 5, stdout: '', stderr: '' }
+          }
+          loaded = true
+        } else {
+          assert.fail('unexpected fixture launchctl mutation')
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }
+    })
+    // 仅替换安装预检，真实 native inspect/stop/start 及其 disabled 失败语义保持参与本回归。
+    backend.preflight = /* 仅跳过 fixture 不存在的磁盘安装预检。 */ async () => {}
+    const manager = new ServiceManager(backend)
+    assert.equal((await manager.execute({ action: 'uninstall', role: 'connector' })).state, 'running')
+    assert.equal(enabled, false)
+    assert.equal(loaded, true)
+    ops.length = 0
+    let entered = false
+    await assert.rejects(
+      /* 旧策略会先 bootout，再因 disabled 拒绝 bootstrap；必须在进入文件事务前拒绝。 */ () =>
+        manager.withBinaryUpdate(
+          spec.executable,
+          /* 此范围在受保护初态下不可进入。 */ async (session) => {
+            entered = true
+            await session.quiesce()
+            await session.restore('fixture-version', /* 若进入旧流程，仍须通过 native bootstrap。 */ async () => {})
+          }
+        ),
+      { code: 'service_busy' }
+    )
+    assert.equal(entered, false)
+    assert.equal(enabled, false)
+    assert.equal(loaded, true)
+    assert(
+      ops.every(
+        /* 仅允许只读监管查询，不改变原运行/disabled 意图。 */ (op) => ['list', 'print', 'print-disabled'].includes(op)
+      )
+    )
+    assert.equal(memory.data.get('io.rovloom.connector.plist'), definition)
+    assert.deepEqual(memory.removed, [])
   }
 )
 
