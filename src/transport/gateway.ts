@@ -422,43 +422,51 @@ export function createGateway(options: GatewayOptions) {
       }
     }
   })
-  /** 清除过期、清理或旧 fence 的读取引用；在途调用仍保留原 Wire 自身的仅响应补证状态。 */
+  /** 只清理指定调用的失效读取引用；在途调用仍保留原 Wire 自身的仅响应补证状态。 */
+  function pruneOriginalRead(call: string): void {
+    const original = reads.get(call)
+    if (!original) {
+      return
+    }
+    let usable = false
+    try {
+      const anchor = options.store.responseAnchor(original.binding)
+      usable =
+        !original.peer.closed &&
+        !original.wire.stats().closed &&
+        anchor.content_status === 'available' &&
+        options.store.clock() < original.expires
+      if (usable) {
+        try {
+          original.wire.checkResult(original.binding)
+        } catch (error) {
+          // 只回收已失去原状态的引用；当前 caller 或读取 grant 被拒绝不能驱逐所有者上下文。
+          if (
+            error instanceof WireError &&
+            (error.code === 'dispatch_permit_unavailable' || error.code === 'content_unavailable')
+          ) {
+            usable = false
+          }
+        }
+      }
+    } catch {
+      /* 原锚点或存储门禁失效后不能继续提供读取上下文。 */
+    }
+    if (!usable) {
+      reads.delete(call)
+      if (!inflight.has(call)) {
+        try {
+          original.wire.release(original.binding)
+        } catch {
+          /* 原会话可能已经关闭，拒绝引用仍须被移除。 */
+        }
+      }
+    }
+  }
+  /** 仅在统计或读取容量满时扫描全部原上下文，回收内容失效或已显式释放的引用。 */
   function pruneOriginalReads(): void {
-    for (const [call, original] of reads) {
-      let usable = false
-      try {
-        const anchor = options.store.responseAnchor(original.binding)
-        usable =
-          !original.peer.closed &&
-          !original.wire.stats().closed &&
-          anchor.content_status === 'available' &&
-          options.store.clock() < original.expires
-        if (usable) {
-          try {
-            original.wire.checkResult(original.binding)
-          } catch (error) {
-            // 只回收已失去原状态的引用；当前 caller 或读取 grant 被拒绝不能驱逐所有者上下文。
-            if (
-              error instanceof WireError &&
-              (error.code === 'dispatch_permit_unavailable' || error.code === 'content_unavailable')
-            ) {
-              usable = false
-            }
-          }
-        }
-      } catch {
-        /* 原锚点或存储门禁失效后不能继续提供读取上下文。 */
-      }
-      if (!usable) {
-        reads.delete(call)
-        if (!inflight.has(call)) {
-          try {
-            original.wire.release(original.binding)
-          } catch {
-            /* 原会话可能已经关闭，拒绝引用仍须被移除。 */
-          }
-        }
-      }
+    for (const call of reads.keys()) {
+      pruneOriginalRead(call)
     }
   }
   /** 对已认证连接编码并计量整帧，发送背压时关闭通道并拒绝继续写出。 */
@@ -693,7 +701,7 @@ export function createGateway(options: GatewayOptions) {
         commitLuvusResponse(options.store, peer.session.adapter, decoded)
         refreshAdmission(binding.call_id)
         inflight.delete(binding.call_id)
-        pruneOriginalReads()
+        pruneOriginalRead(binding.call_id)
         if (!reads.has(binding.call_id)) {
           peer.session.adapter.release(binding)
         }
@@ -900,7 +908,7 @@ export function createGateway(options: GatewayOptions) {
     /** 受保护宿主按当前 caller 解析仍存活的原请求 Wire，任何缺上下文、失效或读取拒绝均返回 undefined。 */
     resolveOriginalRead(callId: string): OriginalRead | undefined {
       try {
-        pruneOriginalReads()
+        pruneOriginalRead(callId)
         options.router.get(options.principal(), callId)
         let original: (OriginalRead & { peer: Peer }) | undefined = reads.get(callId)
         if (!original) {
@@ -982,7 +990,9 @@ export function createGateway(options: GatewayOptions) {
       if (!ready(peer.session, peer.connection, target.provider_id)) {
         fail('provider_not_ready')
       }
-      pruneOriginalReads()
+      if (reads.size >= limits.read_contexts) {
+        pruneOriginalReads()
+      }
       if (inflight.size >= limits.inflight || reads.size >= limits.read_contexts) {
         fail('transport_concurrency_limit')
       }
