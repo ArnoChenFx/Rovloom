@@ -1,7 +1,7 @@
 flowchart TB
-  subgraph CLIENTS["客户端 / CLI / MCP"]
+  subgraph ACCESS["接入层"]
     direction LR
-    MCP["MCP 客户端 / Agent"]
+    AI["AI Agent / AI Bot"]
     CLI["CLI"]
   end
 
@@ -29,7 +29,7 @@ flowchart TB
     PB <--> HB
   end
 
-  MCP <-->|"MCP 请求 / 结果"| GW
+  AI <-->|"MCP 请求 / 结果"| GW
   CLI <-->|"命令 / 结果"| GW
   GW <-->|"请求 ↓ · 结果 / 事件 ↑"| CA
   GW <-->|"请求 ↓ · 结果 / 事件 ↑"| CB
