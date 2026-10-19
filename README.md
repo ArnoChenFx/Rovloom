@@ -6,11 +6,9 @@
 
 # Rovloom
 
-[MIT License](LICENSE)
-
-Connect MCP agents to local Luvus and Herdr runtimes across your devices.
+Connect your AI Agent / AI Bot to local Luvus and Herdr runtimes across devices through MCP.
 Rovloom is designed around one Gateway and one outbound Connector per device,
-so runtimes stay on their own machines while clients use a common entry point.
+so runtimes stay on their own machines with a common entry point for AI Agent / AI Bot.
 
 **Availability:** Linux source/build preview. A deployable Gateway/Connector service
 and remote runtime execution are not yet available.
@@ -27,15 +25,16 @@ The target product is designed to provide:
 
 ## Architecture
 
-Clients sit above the Gateway; each device below it runs one Connector and its
-local provider adapters. A Connector can manage multiple runtime instances.
+AI Agent / AI Bot and CLI sit above the Gateway; each device below it runs one
+Connector and its local provider adapters. A Connector can manage multiple runtime instances.
 
 <!-- Keep this fence identical to docs/assets/architecture/target.en.mmd. -->
+
 ```mermaid
 flowchart TB
-  subgraph CLIENTS["Clients / CLI / MCP"]
+  subgraph ACCESS["Access layer"]
     direction LR
-    MCP["MCP clients / agents"]
+    AI["AI Agent / AI Bot"]
     CLI["CLI"]
   end
 
@@ -63,7 +62,7 @@ flowchart TB
     PB <--> HB
   end
 
-  MCP <-->|"MCP requests / results"| GW
+  AI <-->|"MCP requests / results"| GW
   CLI <-->|"commands / results"| GW
   GW <-->|"requests ↓ · results / events ↑"| CA
   GW <-->|"requests ↓ · results / events ↑"| CB
@@ -92,3 +91,7 @@ runtime access will be available in a later preview.
 - [Implementation roadmap](docs/IMPLEMENTATION-PLAN.md)
 - [Management UI design](docs/GATEWAY-WEBUI.md)
 - [Development and validation](docs/DEVELOPMENT.md)
+
+## License
+
+[MIT License](LICENSE)
