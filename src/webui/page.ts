@@ -2,6 +2,9 @@
 import { createSnapshotReader, ReadError, type ReadClock, type SnapshotReader, type TimedSnapshot } from './reader.js'
 import { parseRoute, renderPage, type PageRoute, type PageView } from './view.js'
 import { checkPage } from './validate.js'
+import type { ReaderState } from './reader.js'
+import { createLocalizer } from './i18n.js'
+import { createUiPreferences, type UiPreferences } from './preferences.js'
 
 /** 接入共享管理读取后的页面投影函数；不是授权接口，不能代替每次后端鉴权。 */
 export type PageRead = (route: Readonly<PageRoute>, signal: AbortSignal) => Promise<TimedSnapshot<PageView>>
@@ -28,18 +31,17 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   const header = element('header', '', 'topbar')
   const brand = element('a', '', 'brand')
   brand.href = '#'
-  brand.setAttribute('aria-label', 'Rovloom，返回设备列表')
   const logo = element('img', '', 'brand-logo')
   logo.src = './rovloom-mark-orange.png'
   logo.alt = 'Rovloom'
   logo.width = 48
   logo.height = 48
   brand.append(logo)
-  const title = element('span', '设备与连接管理', 'muted')
+  const title = element('span', '', 'muted')
   const toolbar = element('div', '', 'toolbar')
-  const refresh = element('button', '刷新')
+  const refresh = element('button', '')
   refresh.type = 'button'
-  const cancel = element('button', '取消读取')
+  const cancel = element('button', '')
   cancel.type = 'button'
   const indicator = element('span', '', 'muted')
   indicator.setAttribute('role', 'status')
@@ -49,20 +51,96 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   content.tabIndex = -1
   refresh.setAttribute('aria-controls', content.id)
   cancel.setAttribute('aria-controls', content.id)
-  toolbar.append(refresh, cancel, indicator)
+  const languageLabel = element('label', '', 'preference')
+  const languageCaption = element('span', '')
+  const language = element('select', '')
+  for (const value of ['system', 'zh-CN', 'en']) {
+    const option = element('option', '')
+    option.value = value
+    language.append(option)
+  }
+  languageLabel.append(languageCaption, language)
+  const themeLabel = element('label', '', 'preference')
+  const themeCaption = element('span', '')
+  const theme = element('select', '')
+  for (const value of ['system', 'light', 'dark']) {
+    const option = element('option', '')
+    option.value = value
+    theme.append(option)
+  }
+  themeLabel.append(themeCaption, theme)
+  toolbar.append(refresh, cancel, indicator, languageLabel, themeLabel)
   header.append(brand, title, toolbar)
-  const skip = element('a', '跳到管理内容', 'skip-link')
+  const skip = element('a', '', 'skip-link')
   skip.href = '#management-content'
-  const footer = element(
-    'footer',
-    '只读管理切片 · 所有管理变更尚未接入 · 每次读取须由后端验证当前管理员与目标权限',
-    'muted'
-  )
+  const footer = element('footer', '', 'muted')
   root.replaceChildren(skip, header, content, footer)
-  document.title = 'Rovloom 管理'
   let route = parseRoute(location.hash)
   let reader: SnapshotReader<PageView>
   let disposed = false
+  let i18n = createLocalizer('en')
+
+  /** 稳定工具栏与当前快照重新本地化；不替换 reader、路由、等待信号或时间锚点。 */
+  function paint(state: ReaderState<PageView>, current: PageRoute): void {
+    refresh.disabled = state.pending || ['unauthenticated', 'forbidden', 'not_found'].includes(state.problem ?? '')
+    cancel.disabled = !state.pending
+    indicator.textContent = i18n.t(
+      state.pending
+        ? 'reader.pending'
+        : state.snapshot
+          ? state.stale
+            ? 'reader.stale'
+            : 'reader.snapshot'
+          : 'reader.empty'
+    )
+    content.setAttribute('aria-busy', String(state.pending))
+    renderPage(content, state, current, i18n)
+  }
+
+  /** 偏好仅改变文案与 CSS 主题；标题、语言和无障碍名称随词典同步。 */
+  function applyPreferences(state: UiPreferences): void {
+    const languageChanged = i18n.language !== state.language
+    if (languageChanged) {
+      i18n = createLocalizer(state.language)
+    }
+    const { t } = i18n
+    document.documentElement.lang = state.language
+    document.documentElement.dataset.theme = state.theme
+    document.title = t('app.title')
+    brand.setAttribute('aria-label', t('app.navigation'))
+    title.textContent = t('app.subtitle')
+    refresh.textContent = t('action.refresh')
+    cancel.textContent = t('action.cancel')
+    skip.textContent = t('app.skip')
+    footer.textContent = t('app.footer')
+    languageCaption.textContent = t('language.label')
+    language.setAttribute('aria-label', t('language.label'))
+    language.options[0]!.textContent = t('language.system')
+    language.options[1]!.textContent = t('language.chinese')
+    language.options[2]!.textContent = t('language.english')
+    language.value = state.languageChoice
+    themeCaption.textContent = t('theme.label')
+    theme.setAttribute('aria-label', t('theme.label'))
+    theme.options[0]!.textContent = t('theme.system')
+    theme.options[1]!.textContent = t('theme.light')
+    theme.options[2]!.textContent = t('theme.dark')
+    theme.value = state.themeChoice
+    if (languageChanged && reader) {
+      paint(reader.state(), route)
+    }
+  }
+  const preferences = createUiPreferences(applyPreferences)
+  applyPreferences(preferences.state())
+
+  /** 手选语言只保存固定枚举，不读取设备或重连后台。 */
+  function selectLanguage(): void {
+    preferences.setLanguage(language.value)
+  }
+
+  /** 手选主题仅更新本页样式及该项偏好。 */
+  function selectTheme(): void {
+    preferences.setTheme(theme.value)
+  }
 
   /** 每个路由拥有独立 reader，拒绝旧机器或旧分页响应写入新页面。 */
   function start(): void {
@@ -70,29 +148,13 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     reader = createSnapshotReader(
       /** 调用已有授权读取的展示适配层；不传 principal、credential 或 approved 标志。 */
       async (signal) => checkPage(await read(current, signal), current),
-      /** 更新稳定工具栏，并保留内容中当前键盘焦点。 */
-      (state) => {
-        refresh.disabled =
-          state.pending ||
-          state.problem === 'unauthenticated' ||
-          state.problem === 'forbidden' ||
-          state.problem === 'not_found'
-        cancel.disabled = !state.pending
-        indicator.textContent = state.pending
-          ? '正在读取…'
-          : state.snapshot
-            ? state.stale
-              ? '快照已过期'
-              : '只读快照'
-            : '无可用快照'
-        content.setAttribute('aria-busy', String(state.pending))
-        renderPage(content, state, current)
-      },
+      /** 读取生命周期更新使用当前词典，不续期或改变授权结果。 */
+      (state) => paint(state, current),
       clock
     )
     if (document.visibilityState === 'hidden') {
       reader.visible(false)
-      renderPage(content, reader.state(), current)
+      paint(reader.state(), current)
     } else {
       void reader.refresh()
     }
@@ -135,6 +197,7 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   function show(event: PageTransitionEvent): void {
     if (event.persisted) {
       reader.dispose()
+      preferences.sync()
       route = parseRoute(location.hash)
       start()
     }
@@ -156,6 +219,9 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
     skip.removeEventListener('click', skipContent)
     refresh.removeEventListener('click', refreshPage)
     cancel.removeEventListener('click', cancelRead)
+    language.removeEventListener('change', selectLanguage)
+    theme.removeEventListener('change', selectTheme)
+    preferences.dispose()
     window.removeEventListener('hashchange', navigate)
     document.removeEventListener('visibilitychange', visibility)
     window.removeEventListener('pageshow', show)
@@ -166,6 +232,8 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   skip.addEventListener('click', skipContent)
   refresh.addEventListener('click', refreshPage)
   cancel.addEventListener('click', cancelRead)
+  language.addEventListener('change', selectLanguage)
+  theme.addEventListener('change', selectTheme)
   window.addEventListener('hashchange', navigate)
   document.addEventListener('visibilitychange', visibility)
   window.addEventListener('pageshow', show)

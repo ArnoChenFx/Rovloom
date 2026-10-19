@@ -1,11 +1,34 @@
 /* 内置管理页的桌面/窄屏、键盘焦点及分层状态样式，不加载第三方资源。 */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
+  --text: light-dark(#193037, #e2ece8);
+  --background: light-dark(#f3f6f5, #0f1b1b);
+  --surface: light-dark(#ffffff, #182b2b);
+  --muted: light-dark(#516860, #a6bbb3);
+  --link: light-dark(#00665c, #65dbc4);
+  --border: light-dark(#d3ded9, #405b54);
+  --control-border: light-dark(#9aada8, #75998c);
+  --disabled-text: light-dark(#606d69, #a0b6ad);
+  --disabled-background: light-dark(#e8edeb, #253c37);
+  --disabled-border: light-dark(#c6d1cc, #536d63);
+  --focus: light-dark(#007b71, #66e3ce);
+  --neutral-background: light-dark(#e9efed, #29433d);
+  --neutral-text: light-dark(#334f45, #cee0d9);
+  --good-background: light-dark(#e0f2e9, #183e2e);
+  --good-text: light-dark(#176140, #86e4b3);
+  --warning-background: light-dark(#fff1cf, #493819);
+  --warning-text: light-dark(#77520a, #ffdc8a);
+  --danger-background: light-dark(#ffe5e3, #482c2a);
+  --danger-text: light-dark(#98332b, #ffb4ab);
+  --notice-border: light-dark(#dacb9c, #ae9456);
   font-family: system-ui, sans-serif;
-  color: #193037;
-  background: #f3f6f5;
+  color: var(--text);
+  background: var(--background);
   line-height: 1.6;
 }
+/* 显式选择覆盖系统默认；light-dark 调色板保持一份，不用内联样式或重绘品牌图。 */
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
 * {
   box-sizing: border-box;
 }
@@ -13,27 +36,29 @@ body {
   margin: 0;
 }
 a {
-  color: #00665c;
+  color: var(--link);
   text-underline-offset: 0.2em;
 }
 button,
+select,
 .button-link {
   min-height: 42px;
   font: inherit;
-  border: 1px solid #9aada8;
+  border: 1px solid var(--control-border);
   border-radius: 7px;
-  background: white;
+  background: var(--surface);
   padding: 0.4rem 0.8rem;
   cursor: pointer;
+  color: var(--text);
 }
 button:disabled {
-  color: #606d69;
-  background: #e8edeb;
+  color: var(--disabled-text);
+  background: var(--disabled-background);
   cursor: default;
-  border-color: #c6d1cc;
+  border-color: var(--disabled-border);
 }
 :focus-visible {
-  outline: 3px solid #007b71;
+  outline: 3px solid var(--focus);
   outline-offset: 4px;
 }
 main:focus {
@@ -45,8 +70,8 @@ main:focus {
   gap: 1.5rem;
   flex-wrap: wrap;
   padding: 1.2rem max(1.2rem, calc((100vw - 1100px) / 2));
-  background: white;
-  border-bottom: 1px solid #d3ded9;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 .brand {
   display: inline-flex;
@@ -54,7 +79,7 @@ main:focus {
   font-size: 1.5rem;
   font-weight: 750;
   text-decoration: none;
-  color: #193037;
+  color: var(--text);
 }
 .brand-logo {
   display: block;
@@ -87,7 +112,7 @@ h3 {
   overflow-wrap: anywhere;
 }
 .muted {
-  color: #516860;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 code,
@@ -98,8 +123,8 @@ dd {
 .device-card,
 .provider-card {
   padding: 1.3rem;
-  background: white;
-  border: 1px solid #d3ded9;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   margin-bottom: 1rem;
 }
@@ -138,21 +163,21 @@ dd {
   margin: 0.15rem 0.3rem 0.15rem 0;
   padding: 0.1rem 0.65rem;
   border-radius: 999px;
-  background: #e9efed;
-  color: #334f45;
+  background: var(--neutral-background);
+  color: var(--neutral-text);
   font-size: 0.85rem;
 }
 .good {
-  background: #e0f2e9;
-  color: #176140;
+  background: var(--good-background);
+  color: var(--good-text);
 }
 .warning {
-  background: #fff1cf;
-  color: #77520a;
+  background: var(--warning-background);
+  color: var(--warning-text);
 }
 .danger {
-  background: #ffe5e3;
-  color: #98332b;
+  background: var(--danger-background);
+  color: var(--danger-text);
 }
 .facts {
   display: grid;
@@ -162,7 +187,7 @@ dd {
   font-size: 0.9rem;
 }
 dt {
-  color: #516860;
+  color: var(--muted);
 }
 dd {
   margin: 0;
@@ -172,11 +197,11 @@ dd {
 .empty {
   padding: 1rem;
   border-radius: 8px;
-  border: 1px solid #dacb9c;
+  border: 1px solid var(--notice-border);
 }
 .empty {
-  background: white;
-  border-color: #d3ded9;
+  background: var(--surface);
+  border-color: var(--border);
 }
 .actions {
   padding: 0.5rem 0 1rem;
@@ -192,7 +217,7 @@ footer {
   max-width: 1100px;
   margin: 2rem auto;
   padding: 1rem 1.2rem;
-  border-top: 1px solid #d3ded9;
+  border-top: 1px solid var(--border);
 }
 .skip-link {
   position: fixed;
@@ -200,7 +225,7 @@ footer {
   left: 1rem;
   z-index: 10;
   padding: 1rem;
-  background: white;
+  background: var(--surface);
 }
 .skip-link:focus {
   top: 0.5rem;
@@ -231,3 +256,14 @@ footer {
     margin-bottom: 0.7rem;
   }
 }
+
+/* 语言和主题控件常驻工具栏，更新文案不会替换焦点所在的 select。 */
+.preference {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  font-size: 0.85rem;
+}
+.preference select { min-width: 0; max-width: 12rem; }
+.topbar > * { min-width: 0; max-width: 100%; }

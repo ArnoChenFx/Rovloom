@@ -32,7 +32,7 @@ def main():
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
-        context = browser.new_context(viewport={'width': 1280, 'height': 960})
+        context = browser.new_context(viewport={'width': 1280, 'height': 960}, locale='zh-CN')
         page = context.new_page()
         page.on('pageerror', browser_error)
         page.goto(base + '/')
@@ -112,7 +112,7 @@ def main():
 
         page.evaluate("window.webUiFixture.mode='near_stale'")
         page.get_by_role('button', name='刷新', exact=True).click()
-        page.get_by_text('管理 readiness：ready', exact=True).wait_for()
+        page.get_by_text('管理 readiness：就绪 (ready)', exact=True).wait_for()
         page.get_by_text('运行观测已过期', exact=False).first.wait_for()
         assert page.get_by_text('快照有效', exact=True).count() == 1
         assert page.locator('.provider-card .good, main .badges .good').count() == 0
@@ -135,7 +135,7 @@ def main():
         page.get_by_role('button', name='刷新', exact=True).click()
         page.get_by_text('权限提示已过期，等待刷新；它不授予后端权限。', exact=True).wait_for()
         assert page.get_by_text('快照有效', exact=True).count() == 1
-        assert page.get_by_text('管理 readiness：ready', exact=True).count() == 1
+        assert page.get_by_text('管理 readiness：就绪 (ready)', exact=True).count() == 1
         checks.append('权限自身观测过期即失效，未到 TTL 也不能被 status 续期')
 
         for mode, text in [('unverified', '连接未核实'), ('heartbeat', 'heartbeat_timeout'), ('reconnecting', '重新握手中')]:
