@@ -864,6 +864,15 @@ test(
       f.decode(f.opening)
       const current = initialRetention === 'none' ? 'caller_policy' : 'none'
       f.state.classifications = [{ ...row, result: { ...row.result, retention: current } }]
+      assert.doesNotThrow(
+        /* 可读取仍不足以保留：派发时或当前的任一禁存分类必须被独立门禁拒绝。 */ () =>
+          f.adapter.checkResult(f.binding, f.response.payload.native_response)
+      )
+      rejects(
+        /* 新保留 port 使用同一个原 permit，当前分类放宽也不能复活派发时禁存原文。 */ () =>
+          f.adapter.checkResultRetention(f.binding, f.response.payload.native_response),
+        'content_retention_forbidden'
+      )
       assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
     }
     const f = fixture()
@@ -882,8 +891,17 @@ test(
     f.state.channel = 'custody'
     f.state.custody = true
     f.decode(f.opening)
+    assert.doesNotThrow(
+      /* 原 permit 和当前分类均允许保留，且当前秘密通道独立满足时才通过。 */ () =>
+        f.adapter.checkResultRetention(f.binding, f.response.payload.native_response)
+    )
     assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload')
     f.state.channel = 'ordinary'
+    rejects(
+      /* 保留 port 不能跳过当前秘密读取通道。 */ () =>
+        f.adapter.checkResultRetention(f.binding, f.response.payload.native_response),
+      'secret_boundary_required'
+    )
     assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
     f.state.channel = 'custody'
     f.state.reader = 'other'
@@ -894,6 +912,87 @@ test(
     f.state.trustedClassification = true
     f.state.classifications = []
     assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
+  }
+)
+
+test(
+  '保留 port 要求活的原请求、精确响应和当前读取授权，不由账本或响应反建 permit',
+  /* 独立核对无原上下文、错响应、撤权和显式释放；所有拒绝均发生在结果层创建句柄之前。 */ () => {
+    const f = fixture()
+    const cold = createLuvusWireAdapter(f.backend)
+    const native = f.response.payload.native_response
+    try {
+      f.decode(f.opening)
+      rejects(
+        /* 相同受信后端与完整响应仍不能为冷 adapter 恢复原请求许可。 */ () =>
+          cold.checkResultRetention(f.binding, native),
+        'dispatch_permit_unavailable'
+      )
+      assert.doesNotThrow(
+        /* 真实原请求、精确响应与双时点保留分类全部有效时允许创建结果句柄。 */ () =>
+          f.adapter.checkResultRetention(f.binding, native)
+      )
+      for (const missing of [undefined, null, [], 'response']) {
+        assert.throws(
+          /* JS 调用或不可信宿主传入非对象时也拒绝，不能退化为省略响应的读取检查。 */ () =>
+            f.adapter.checkResultRetention(f.binding, missing as unknown as typeof native)
+        )
+      }
+      rejects(
+        /* 不能用另一个原生 ID 的响应为当前请求保留内容。 */ () =>
+          f.adapter.checkResultRetention(f.binding, { ...native, id: 'other_native' }),
+        'control_ack_unbound'
+      )
+      f.policies.caller.grants[0]!.actions = ['dispatch']
+      rejects(
+        /* 原派发和保留许可不能替代当前 caller 的读取 grant。 */ () =>
+          f.adapter.checkResultRetention(f.binding, native),
+        'forbidden'
+      )
+      f.policies.caller.grants[0]!.actions = ['dispatch', 'read']
+      f.adapter.release(f.binding)
+      rejects(
+        /* 原上下文显式释放后，既有响应 JSON 不能重新创建 permit。 */ () =>
+          f.adapter.checkResultRetention(f.binding, native),
+        'dispatch_permit_unavailable'
+      )
+    } finally {
+      cold.close()
+      f.adapter.close()
+    }
+  }
+)
+
+test(
+  '普通 RPC 保留 port 拒绝流及控制 ack，不借开流许可绕过输入保留分类',
+  /* 分别令控制输入派发时禁存、当前禁存或均允许，流始终不属于本结果句柄接口范围。 */ () => {
+    for (const [initialRetention, currentRetention] of [
+      ['none', 'caller_policy'],
+      ['caller_policy', 'none'],
+      ['caller_policy', 'caller_policy']
+    ] as const) {
+      const f = controlFixture()
+      const ordinary = clone(f.state.classifications[0]!)
+      const control = { ...ordinary, action: 'type_literal' }
+      try {
+        f.state.classifications.push({ ...control, result: { ...control.result, retention: initialRetention } })
+        f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector')
+        f.state.classifications[1] = { ...control, result: { ...control.result, retention: currentRetention } }
+        assert.doesNotThrow(
+          /* 读取控制响应仍按其自己的真实许可检查，与创建持久句柄的接口范围独立。 */ () =>
+            f.adapter.checkResult(f.binding, f.inputAck)
+        )
+        for (const native of [f.ack, f.inputAck]) {
+          rejects(
+            /* 开流或控制响应均不可借普通 RPC 的原 permit 保留入口保存。 */ () =>
+              f.adapter.checkResultRetention(f.binding, native),
+            'result_retention_rpc_only'
+          )
+        }
+      } finally {
+        f.adapter.close()
+      }
+    }
   }
 )
 

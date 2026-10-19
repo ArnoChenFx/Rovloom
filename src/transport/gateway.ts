@@ -3,13 +3,17 @@ import { randomUUID } from 'node:crypto'
 import type { Store } from '../store.js'
 import type { Router, Principal } from '../router.js'
 import { commitLuvusResponse } from '../integration/persistence.js'
-import { decodeWireFrame, encodeWireFrame, negotiate, fail, LIMITS, validateOffer } from '../wire/index.js'
-import type { AuthenticatedEnvelope, VersionOffer } from '../wire/types.js'
+import { decodeWireFrame, encodeWireFrame, negotiate, fail, LIMITS, validateOffer, WireError } from '../wire/index.js'
+import type { AttemptBinding, AuthenticatedEnvelope, VersionOffer } from '../wire/types.js'
 import type { IdentityHost } from './identity.js'
 import { ChannelRegistry } from './channel-host.js'
 import type { SocketChannel } from './channel-host.js'
 import { budget, envelope, loopback, OFFER, positive, providerHealth, ready, ReceiveWindow, runtime } from './common.js'
-import type { Connection, Listener, ServerSocket, Session } from './common.js'
+import type { Adapter, Connection, Listener, ServerSocket, Session } from './common.js'
+
+export type OriginalRead = Readonly<{ binding: AttemptBinding; wire: Adapter }>
+/** 仅供受保护结果服务按当前宿主身份解析实际活 Wire；缺原请求或读取权限时拒绝。 */
+export type OriginalReadResolver = (callId: string) => OriginalRead | undefined
 
 type Peer = {
   opened: number
@@ -39,6 +43,8 @@ export type GatewayOptions = {
   principal(): Principal
   /** 为当前认证连接创建独立 adapter、可信 readiness 和资源清理接口。 */
   session(connection: Connection, channel: SocketChannel): Session
+  /** 显式按 read_contexts 预算保留完成后的原 Wire 读取状态；默认完成即释放，不延长内容期限。 */
+  retainOriginalRead?: boolean
   offer?: VersionOffer
   limits?: Partial<{
     connections: number
@@ -50,6 +56,7 @@ export type GatewayOptions = {
     idle_ms: number
     frame_bytes: number
     inflight: number
+    read_contexts: number
   }>
 }
 
@@ -68,6 +75,7 @@ export function createGateway(options: GatewayOptions) {
     idle_ms: 20_000,
     frame_bytes: LIMITS.frame_bytes,
     inflight: 128,
+    read_contexts: 128,
     ...options.limits
   }
   Object.values(limits).forEach(
@@ -75,12 +83,14 @@ export function createGateway(options: GatewayOptions) {
     (v) => positive(v)
   )
   positive(limits.frame_bytes, LIMITS.frame_bytes)
+  positive(limits.read_contexts, LIMITS.dedup_entries)
   const offer = structuredClone(options.offer ?? OFFER)
   validateOffer(offer)
   const peers = new Set<Peer>()
   const channels = options.channels ?? new ChannelRegistry()
   const machines = new Map<string, Peer>()
   const inflight = new Map<string, AuthenticatedEnvelope & { type: 'request' }>()
+  const reads = new Map<string, { binding: AttemptBinding; wire: Adapter; peer: Peer; expires: number }>()
   let authWindow = performance.now()
   let authAttempts = 0
   let stopped = false
@@ -92,6 +102,11 @@ export function createGateway(options: GatewayOptions) {
     }
     peer.closed = true
     peers.delete(peer)
+    for (const [call, original] of reads) {
+      if (original.peer === peer) {
+        reads.delete(call)
+      }
+    }
     if (peer.connection) {
       if (machines.get(peer.connection.machine_id) === peer) {
         machines.delete(peer.connection.machine_id)
@@ -138,6 +153,45 @@ export function createGateway(options: GatewayOptions) {
       fail('connection_binding_mismatch')
     }
     options.identity.assert(peer.connection, peer.lease)
+  }
+  /** 清除过期、清理或旧 fence 的读取引用；在途调用仍保留原 Wire 自身的仅响应补证状态。 */
+  function pruneOriginalReads(): void {
+    for (const [call, original] of reads) {
+      let usable = false
+      try {
+        const anchor = options.store.responseAnchor(original.binding)
+        usable =
+          !original.peer.closed &&
+          !original.wire.stats().closed &&
+          anchor.content_status === 'available' &&
+          options.store.clock() < original.expires
+        if (usable) {
+          try {
+            original.wire.checkResult(original.binding)
+          } catch (error) {
+            // 只回收已失去原状态的引用；当前 caller 或读取 grant 被拒绝不能驱逐所有者上下文。
+            if (
+              error instanceof WireError &&
+              (error.code === 'dispatch_permit_unavailable' || error.code === 'content_unavailable')
+            ) {
+              usable = false
+            }
+          }
+        }
+      } catch {
+        /* 原锚点或存储门禁失效后不能继续提供读取上下文。 */
+      }
+      if (!usable) {
+        reads.delete(call)
+        if (!inflight.has(call)) {
+          try {
+            original.wire.release(original.binding)
+          } catch {
+            /* 原会话可能已经关闭，拒绝引用仍须被移除。 */
+          }
+        }
+      }
+    }
   }
   /** 对已认证连接编码并计量整帧，发送背压时关闭通道并拒绝继续写出。 */
   function write(peer: Peer, frame: AuthenticatedEnvelope): void {
@@ -250,9 +304,19 @@ export function createGateway(options: GatewayOptions) {
       if (peer.received.observe(input, now) === 'duplicate') {
         return
       }
-      const decoded = peer.session.adapter.decode(input, 'connector_to_gateway')
+      let decoded = peer.session.adapter.decode(input, 'connector_to_gateway')
       if (!('connection_epoch' in decoded)) {
         fail('authentication_required')
+      }
+      if (decoded.type === 'object_chunk') {
+        const completed = peer.session.adapter.acceptChunk(input, 'connector_to_gateway')
+        if (!completed) {
+          return
+        }
+        if (completed.kind !== 'envelope' || completed.envelope.type !== 'response') {
+          fail('response_frame_required')
+        }
+        decoded = completed.envelope
       }
       if (peer.session.adapter.observeMessage(decoded, 'connector_to_gateway') === 'duplicate') {
         return
@@ -274,7 +338,10 @@ export function createGateway(options: GatewayOptions) {
       } else {
         commitLuvusResponse(options.store, peer.session.adapter, decoded)
         inflight.delete(binding.call_id)
-        peer.session.adapter.release(binding)
+        pruneOriginalReads()
+        if (!reads.has(binding.call_id)) {
+          peer.session.adapter.release(binding)
+        }
       }
     } catch {
       close(peer)
@@ -389,6 +456,7 @@ export function createGateway(options: GatewayOptions) {
     url: `${options.tls ? 'wss' : 'ws'}://${options.hostname.includes(':') ? '[' + options.hostname + ']' : options.hostname}:${listener.port}/connector`,
     /** 返回有界连接和 provider 健康状态；失效认证会触发关闭且不输出内容或 secret。 */
     status() {
+      pruneOriginalReads()
       const devices = [...machines].map(
         /** 逐设备复验认证并读取可信 provider 健康，失效 peer 直接收敛为不可用。 */
         ([machine_id, peer]) => {
@@ -418,6 +486,7 @@ export function createGateway(options: GatewayOptions) {
           (p) => !p.connection
         ).length,
         inflight: inflight.size,
+        read_contexts: reads.size,
         devices
       }
     },
@@ -440,6 +509,38 @@ export function createGateway(options: GatewayOptions) {
         close(peer)
       }
     },
+    /** 受保护宿主按当前 caller 解析仍存活的原请求 Wire，任何缺上下文、失效或读取拒绝均返回 undefined。 */
+    resolveOriginalRead(callId: string): OriginalRead | undefined {
+      try {
+        pruneOriginalReads()
+        options.router.get(options.principal(), callId)
+        let original: (OriginalRead & { peer: Peer }) | undefined = reads.get(callId)
+        if (!original) {
+          const frame = inflight.get(callId)
+          const peer = frame ? machines.get(frame.machine_id) : undefined
+          if (frame && peer?.session) {
+            original = {
+              binding: {
+                machine_id: frame.machine_id,
+                recovery_generation: frame.recovery_generation,
+                connection_epoch: frame.connection_epoch,
+                ...frame.payload.attempt
+              },
+              wire: peer.session.adapter,
+              peer
+            }
+          }
+        }
+        if (!original) {
+          return undefined
+        }
+        assertPeer(original.peer)
+        original.wire.checkResult(original.binding)
+        return { binding: structuredClone(original.binding), wire: original.wire }
+      } catch {
+        return undefined
+      }
+    },
     /** 从宿主 principal 经 Router 授权并提交 Store binding 后才编码发送；后续失败保持 unknown。 */
     dispatch(callId: string) {
       const principal = options.principal()
@@ -453,7 +554,8 @@ export function createGateway(options: GatewayOptions) {
       if (!ready(peer.session, peer.connection, target.provider_id)) {
         fail('provider_not_ready')
       }
-      if (inflight.size >= limits.inflight) {
+      pruneOriginalReads()
+      if (inflight.size >= limits.inflight || reads.size >= limits.read_contexts) {
         fail('transport_concurrency_limit')
       }
       const binding = options.router.dispatch(principal, callId, peer.connection.connection_epoch)
@@ -472,6 +574,14 @@ export function createGateway(options: GatewayOptions) {
         })
         inflight.set(callId, frame)
         write(peer, frame)
+        if (options.retainOriginalRead === true) {
+          reads.set(callId, {
+            binding: structuredClone(binding),
+            wire: peer.session.adapter,
+            peer,
+            expires: options.store.responseAnchor(binding).content_expires_at
+          })
+        }
         return binding
       } catch {
         close(peer)

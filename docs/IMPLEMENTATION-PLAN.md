@@ -12,7 +12,7 @@
 | Wire 2 | 严格 codec/协商、显式 provider/context、内存去重、对象重组、流状态、历史准入/晚到证据计划 | 真认证/WSS、持久化事务、实际发送/重复抑制/资源释放的宿主接线 |
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
-| 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 和部署发行 |
+| 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector、消费共享管理 DTO 的 WebUI 展示/快照生命周期模块 | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 的受保护 HTTP/认证接线和部署发行 |
 | Herdr | 固定官方 binary/schema 来源、完整根回放、专用边界/并发验证器、只读原生编解码与共享 attempt 接缝 | P0-H 副作用覆盖与独立评审、精确生产 allowlist、硬预算 schema 编译、可信原生 backend、共享门禁与实际网关接线；写入/终端另行设计 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
@@ -84,6 +84,10 @@ Store 身份桥完成隔离组合验证。生产管理员/配置来源、全局�
 交付：Gateway listener、Connector 出站通道、管理后端与可信状态观测。
 
 ### 3.4 Luvus RPC、MCP 与多机可靠性
+
+认证通道已有原始 Wire RPC hook、受控响应对象发送/重组、活原请求读取及原 permit 保留检查 port，接口见
+[transport 接线](TRANSPORT.md#原始-wire-执行接缝)。隔离 IPC 组合不替代生产 peer/auth/唯一
+claim、公共发现/结果分页或真实 stdio/MCP 联合验收；各层继续保留自身原请求状态和提交归属。
 
 - 交付固定 binary/root、shell=false 的 RPC/Host adapter，以及目标平台的本地 endpoint/peer 验证；发现/缓存按完整来源隔离。
 - 实现 DESIGN 的通用机器/provider/runtime 工具面及 stdio facade，短 wait 与执行 deadline 分离，大结果有界分页，原生 result/error 深度保真。

@@ -2,6 +2,31 @@
 
 本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[实施计划](IMPLEMENTATION-PLAN.md)，文档职责见[导航](README.md)。以下是目标契约，不表示服务已交付。
 
+## 可本地验证的展示模块
+
+[展示入口](../src/webui/index.ts)提供无第三方 UI 依赖的列表/详情、分层状态和只读快照生命周期；
+[读取组合层](../src/webui/read.ts)直接消费 [MCP/CLI 共享管理契约](../src/mcp/management.ts)，
+不接收浏览器提交的 `AdminContext`、principal 或管理会话引用，不实现另一套身份服务。
+宿主通过 `ManagementReadTransport` 接入既有受保护管理传输，每个读取仍由后端重新认证、核对精确目标与权限。
+该传输须把公共失败映射为 `ReadError`；原始错误/正文不应传给页面。
+
+当前构建同时输出 Bun 展示模块和 `dist/webui/` 静态资源，默认浏览器入口使用明确不可用的读取器，
+不自动启动管理 listener、提供登录/退出或加载测试数据。确认、配对、设备/provider 变更与回执后端尚未接入，
+相关操作保持不可用；没有后台一次性确认或持久提交证明时不显示成功。
+此模块通过不表示 issue #14、管理 API 安全门禁或真实设备链路已完成。
+
+共享读取未提供设备 ready 证明、配对进度、最近连接/重连时间、OS/version、实际监听范围或管理员会话截止时间；
+页面明确显示缺口。`persisted_state=online` 不填补 `Observed.verification=unverified`，
+权限提示的 `expires_at` 与 history 截止时间均不作为登录期限。宿主如有可信管理会话截止信息，
+可通过内部 `TimedSnapshot.sessionExpiresAt` 传递；未提供时依靠每次重新认证的读取，收到 401 即清空并停轮询。
+
+读取前后核对全局模式、恢复代次、管理策略/history fence 及详情的设备 revision/epoch；变化拒绝混合快照，并取前后 status 较早的观测时间计算页面年龄。
+设备、连接、认证、provider 登记与原生运行观测还分别按自己的 `observed_at` 和服务时间/单调经过时间计算十五秒过期；新 status 不续期旧子观测。过期状态只作历史展示，不显示绿色在线/ready；当前认证未核实不显示绿色在线，provider 运行观测或所依赖设备认证/链路未核实也不显示绿色 ready。
+待配对登记不显示旧连接的在线或已认证徽标；新鲜原生运行观测仍可独立展示，但不能据此显示 provider 绿色 ready。
+展示边界最多 200 行、512 KiB，并拒绝未知字段和越目标数据；该限制仅是 UI 本地防护，不替代 HTTP 解析/大小/速率门禁。
+恢复隔离仅读取并展示最小 status；provider 的 403/暂不可用单独显示，401 使整页失效。
+隔离 fixture 与真实 Chromium 的复现入口见[开发指引](DEVELOPMENT.md#管理页面的隔离验证)。
+
 ## 范围与服务边界
 
 Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登录壳与导航品牌为「Rovloom」。设备、runtime provider、连接/认证等业务名称保持原义；Luvus/Herdr 继续显示为 runtime 名，页面不展示包兼容标识作为产品名。

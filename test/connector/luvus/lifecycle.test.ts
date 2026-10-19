@@ -65,6 +65,39 @@ test(
 )
 
 test(
+  'pre-dispatch rejection and inactive cancel release private Wire without consuming seen attempts',
+  { timeout: 20_000 },
+  /* 超过私有 Wire 默认容量的不同意图均在原生写入前终结，随后真实派发仍可执行。 */ async (t) => {
+    const f = await fixture()
+    t.after(/* 释放本测试拥有的 adapter、listener 和安装目录。 */ () => f.close())
+    const mismatched = new LuvusRpcAdapter({ ...f.config, config_ref: 'other_config' }, f.host)
+    t.after(/* 错配 adapter 也必须停止维护和订阅，不影响原 adapter。 */ () => mismatched.close())
+    for (let i = 0; i < 130; i++) {
+      f.binding.call_id = f.envelope.payload.attempt.call_id = `call_${i}`
+      f.binding.attempt_id = f.envelope.payload.attempt.attempt_id = `attempt_${i}`
+      f.envelope.message_id = `request_${i}`
+      await assert.rejects(
+        mismatched.dispatch(f.input()),
+        /* 每次应独立拒绝配置错配，不能变成泄漏状态导致的 adapter_limit。 */ (error: unknown) => {
+          assert(error instanceof LuvusAdapterError)
+          assert.equal(error.code, 'local_binding_mismatch')
+          assert.equal(error.outcome, 'not_dispatched')
+          return true
+        }
+      )
+      const cancel = JSON.parse(f.cancel())
+      cancel.message_id = `idle_cancel_${i}`
+      assert.equal(f.adapter.cancel(JSON.stringify(cancel)), false)
+    }
+    assert.equal(f.state.claims, 0)
+    assert.equal(f.received(), '')
+    await f.adapter.dispatch(f.input())
+    assert.equal(f.state.claims, 1)
+    assert.equal(f.state.responses, 1)
+  }
+)
+
+test(
   'close during pending auth releases Wire and prevents late auth from claiming or writing',
   /* 在认证尚未返回时关闭，随后结算旧认证，验证没有延迟 claim 或原生写入。 */ async (t) => {
     const f = await fixture()

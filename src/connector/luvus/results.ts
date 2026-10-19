@@ -65,14 +65,16 @@ export function createLuvusResultAccess(options: LuvusResultAccessOptions) {
   }
 
   /** 为一次授权绑定主体快照，本地策略回调改变身份、策略或专门权限时立即拒绝。 */
-  function router(reader: Principal): Router {
+  function router(reader: Principal, observe?: (policy: ReturnType<LocalPolicies>) => void): Router {
     return new Router(
       store,
       /* 先快照当前本地策略，随后核验回调没有改变本次授权所使用的完整主体事实。 */ (target) => {
-        const local = JSON.parse(boundedJson(synchronous(options.localPolicies(target)))) as ReturnType<LocalPolicies>
+        const live = synchronous(options.localPolicies(target))
+        const local = JSON.parse(boundedJson(live)) as ReturnType<LocalPolicies>
         if (boundedJson(principal(reader.id)) !== boundedJson(reader)) {
           throw new GatewayError('forbidden')
         }
+        observe?.(live)
         return local
       }
     )
@@ -88,13 +90,35 @@ export function createLuvusResultAccess(options: LuvusResultAccessOptions) {
   }
 
   /** 按真实归属和当前双端 ACL 读取调用，仅允许本模块处理 Luvus 的结果。 */
-  function call(principal: Principal, callId: string): Call {
+  function call(principal: Principal, callId: string, observe?: (policy: ReturnType<LocalPolicies>) => void): Call {
     id(callId)
-    const value = router(principal).get(principal, callId)
+    router(principal, observe).get(principal, callId)
+    // Router 在读取调用后才执行策略回调；回调可能同步提交丢弃或清理，因此不能返回其旧正文快照。
+    const value = store.call(principal.id, callId)
     if (value.provider_kind !== 'luvus') {
       throw new GatewayError('provider_kind_mismatch')
     }
     return value
+  }
+
+  /** 仅转接原 Wire 的当前读取及独立保留门禁，不从分类 JSON 或持久数据恢复原 permit。 */
+  function nativeResult(
+    original: LuvusOriginalRead,
+    binding: AttemptBinding,
+    response: JsonObject,
+    retain: boolean
+  ): void {
+    if (synchronous(original.wire.checkResult(binding, response)) !== undefined) {
+      throw new GatewayError('result_port_invalid')
+    }
+    if (retain) {
+      if (typeof original.wire.checkResultRetention !== 'function') {
+        throw new GatewayError('result_retention_context_unavailable')
+      }
+      if (synchronous(original.wire.checkResultRetention(binding, response)) !== undefined) {
+        throw new GatewayError('result_port_invalid')
+      }
+    }
   }
 
   /** 用原始完整 binding 关联 Store 锚点，并对保存的完整响应执行原许可及当前原生读取门禁。 */
@@ -119,23 +143,39 @@ export function createLuvusResultAccess(options: LuvusResultAccessOptions) {
     if (!response.ok || !response.value || typeof response.value !== 'object' || Array.isArray(response.value)) {
       throw new GatewayError('native_response_invalid')
     }
-    if (synchronous(original.wire.checkResult(binding, response.value as JsonObject)) !== undefined) {
-      throw new GatewayError('result_port_invalid')
-    }
-    if (retain) {
-      if (typeof original.wire.checkResultRetention !== 'function') {
-        throw new GatewayError('result_retention_context_unavailable')
-      }
-      if (synchronous(original.wire.checkResultRetention(binding, response.value as JsonObject)) !== undefined) {
-        throw new GatewayError('result_port_invalid')
-      }
-    }
+    nativeResult(original, binding, response.value as JsonObject, retain)
     // 宿主读取门禁可能更新当前事实；返回前再次核对双端 ACL，且整段流程没有 await。
-    const final = call(principal(reader.id), callId)
+    const finalReader = principal(reader.id)
+    let local: { value: ReturnType<LocalPolicies>; stamp: string } | undefined
+    const final = call(
+      finalReader,
+      callId,
+      /* 仅保存本次授权的活策略值及摘要，供末次原生门禁返回后同步检查；不跨操作保留。 */ (value) => {
+        local = { value, stamp: boundedJson(value) }
+      }
+    )
     if (final.state !== 'responded' || final.content_status !== 'available' || final.response === null) {
       throw new GatewayError('result_not_ready')
     }
-    return final
+    // 最后一次策略回调也可能关闭原 Wire 或撤销原生来源；不能以回调前已通过的门禁作为交付依据。
+    const live = synchronous(options.resolveOriginalRead(callId))
+    if (!live || live.wire !== original.wire) {
+      throw new GatewayError('result_context_unavailable')
+    }
+    assertBinding(binding, live.binding)
+    nativeResult(live, binding, response.value as JsonObject, retain)
+    if (
+      boundedJson(principal(reader.id)) !== boundedJson(finalReader) ||
+      !local ||
+      boundedJson(local.value) !== local.stamp
+    ) {
+      throw new GatewayError('forbidden')
+    }
+    const checked = store.call(reader.id, callId)
+    if (checked.state !== 'responded' || checked.content_status !== 'available' || checked.response === null) {
+      throw new GatewayError('result_not_ready')
+    }
+    return checked
   }
 
   /** 校验 Store 实际句柄元数据形状与内容期限上界，不推导或保存另一份期限。 */
@@ -176,8 +216,10 @@ export function createLuvusResultAccess(options: LuvusResultAccessOptions) {
           id(resultId)
           const owned = store.resultCall(principal.id, resultId)
           call(principal, owned.call_id)
-          const page = router(principal).readResult(principal, resultId, cursor, maxBytes)
+          router(principal).readResult(principal, resultId, cursor, maxBytes)
           const current = readable(principal, owned.call_id)
+          // 最后一道策略回调可能已使实际句柄失效；授权结束后重新读页，禁止交付回调前准备的副本。
+          const page = store.readResult(principal.id, resultId, cursor, maxBytes)
           metadata(page, current, resultId)
           return Object.freeze(page)
         }

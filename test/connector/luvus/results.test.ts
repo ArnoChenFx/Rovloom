@@ -71,6 +71,15 @@ function fixture() {
     handles() {
       return Number(inspect.prepare('SELECT COUNT(*) AS n FROM results').get()!.n)
     },
+    /** 通过第二个真实连接模拟已提交的句柄维护删除，不改变调用正文或原 Wire。 */
+    deleteHandle(resultId: string) {
+      const maintenance = new DatabaseSync(path)
+      try {
+        maintenance.prepare('DELETE FROM results WHERE result_id=?').run(resultId)
+      } finally {
+        maintenance.close()
+      }
+    },
     /** 按所有权关闭原 Wire 与测试 Store，避免保留维护计时器或订阅。 */
     close() {
       native.adapter.close()
@@ -279,10 +288,14 @@ test(
 
 test(
   'open fails closed without the original Wire retention gate before any handle is created',
-  /* 真实 checkResult 不代替独立保留许可；现行 Wire 未提供该能力时，不创建或模拟句柄。 */ (t) => {
+  /* 真实 checkResult 不代替独立保留许可；旧宿主缺少该能力时，不创建或模拟句柄。 */ (t) => {
     const f = fixture()
     t.after(/* 释放本用例的 Wire、只读观察连接和 SQLite。 */ () => f.close())
     f.native.adapter.checkResult(f.binding, f.frame.payload.native_response)
+    const legacy = { ...f.native.adapter }
+    // 仅构造缺 port 的拒绝输入；保留其它真实原 Wire 方法，不模拟保留门禁成功。
+    Reflect.deleteProperty(legacy, 'checkResultRetention')
+    f.context({ binding: f.binding, wire: legacy })
     assert.throws(
       /* 缺保留能力必须在 Store.saveResult 之前拒绝。 */ () => f.access.open(f.call.call_id),
       /result_retention_context_unavailable/
@@ -293,8 +306,8 @@ test(
 )
 
 test(
-  'current retention none permits existing-handle read while missing retention port still blocks open',
-  /* 只撤销当前保留分类，真实读取仍可通过；open 的拒绝证明缺 port 时关闭，不冒称保留能力已交付。 */ (t) => {
+  'current retention none permits existing-handle read while the actual original retention gate blocks open',
+  /* 只撤销当前保留分类，真实读取仍可通过；open 必须由同一原 permit 的真实保留门禁拒绝。 */ (t) => {
     const f = fixture()
     t.after(/* 释放本用例的 Wire、只读观察连接和 SQLite。 */ () => f.close())
     const meta = f.savedHandle()
@@ -313,8 +326,8 @@ test(
     }
     assert.equal(f.access.read(meta.result_id, 0, 7).expires, meta.expires)
     assert.throws(
-      /* 当前禁存与保留能力缺失均不能以 checkResult 成功放行 open。 */ () => f.access.open(f.call.call_id),
-      /result_retention_context_unavailable/
+      /* 独立保留门禁确实运行，不能以 checkResult 成功放行 open。 */ () => f.access.open(f.call.call_id),
+      /content_retention_forbidden/
     )
     assert.equal(f.handles(), 1)
     assert.equal(f.native.state.sends, 1)
@@ -420,6 +433,163 @@ for (const change of ['caller', 'identity', 'permission'] as const) {
         }
         assert.equal(f.handles(), 1)
       }
+      assert.equal(f.native.state.sends, 1)
+    }
+  )
+}
+
+test(
+  'discard in final local policy callback blocks the already prepared result page',
+  /* 使用真实 Store 在最后一道策略回调中同步丢弃，不能交付回调前准备的正文页。 */ (t) => {
+    const f = fixture()
+    t.after(/* 释放本用例的原 Wire、只读观察连接和 SQLite。 */ () => f.close())
+    const meta = f.savedHandle()
+    let reads = 0
+    const access = createLuvusResultAccess({
+      ...f.ports,
+      localPolicies: /* 第四次是最后一道 Router 读取授权，此时主体和 grant 保持不变。 */ () => {
+        if (++reads === 4) {
+          f.store.discardResponse(f.principal.id, f.call.call_id)
+        }
+        return f.local
+      }
+    })
+    assert.throws(
+      /* 即使策略仍允许，正文及句柄已经丢弃就必须终止交付。 */ () => access.read(meta.result_id, 0, 32),
+      /result_not_ready/
+    )
+    assert.equal(reads, 4)
+    assert.equal(f.store.call(f.principal.id, f.call.call_id).response, null)
+    assert.equal(f.handles(), 0)
+    assert.equal(f.native.state.sends, 1)
+  }
+)
+
+for (const change of ['handle_delete', 'handle_expiry', 'content_expiry'] as const) {
+  test(
+    `final local policy ${change} invalidation prevents delivery of a prepared page`,
+    /* 在最后一道策略回调中实际删除或到期，要求重新核对正文状态与实际句柄行。 */ (t) => {
+      const f = fixture()
+      t.after(/* 释放本用例的原 Wire、只读观察连接和 SQLite。 */ () => f.close())
+      const meta = f.savedHandle()
+      let reads = 0
+      const access = createLuvusResultAccess({
+        ...f.ports,
+        localPolicies: /* 保持当前身份及双方 ACL，仅提交本用例的实际清理或时间变化。 */ () => {
+          if (++reads === 4) {
+            if (change === 'handle_delete') {
+              f.deleteHandle(meta.result_id)
+            } else {
+              f.state.now = change === 'handle_expiry' ? 110 : 130
+              f.store.expire()
+            }
+          }
+          return f.local
+        }
+      })
+      assert.throws(
+        /* 旧页不是有效交付证据，实际句柄或内容已失效就必须拒绝。 */ () => access.read(meta.result_id, 0, 32),
+        /result_not_found|result_not_ready/
+      )
+      assert.equal(reads, 4)
+      assert.equal(f.handles(), 0)
+      assert.equal(f.store.call(f.principal.id, f.call.call_id).response === null, change === 'content_expiry')
+      assert.equal(f.native.state.sends, 1)
+    }
+  )
+}
+
+for (const change of [
+  'wire_close',
+  'wire_release',
+  'source',
+  'native_caller',
+  'native_local',
+  'classification',
+  'context'
+] as const) {
+  test(
+    `final local policy ${change} invalidation requires a fresh original Wire gate`,
+    /* 保持 Store 正文、句柄和结果 Router ACL 有效，仅在最后策略回调失效原生读取事实。 */ (t) => {
+      const f = fixture()
+      t.after(/* 释放本用例的原 Wire、只读观察连接和 SQLite。 */ () => f.close())
+      const meta = f.savedHandle()
+      let reads = 0
+      const access = createLuvusResultAccess({
+        ...f.ports,
+        localPolicies: /* 第四次回调后不能再使用之前已成功的原生读取许可。 */ () => {
+          if (++reads === 4) {
+            if (change === 'wire_close') {
+              f.native.adapter.close()
+            } else if (change === 'wire_release') {
+              f.native.adapter.release(f.binding)
+            } else if (change === 'source') {
+              f.native.state.sourceVerified = false
+            } else if (change === 'context') {
+              f.state.available = false
+            } else if (change === 'classification') {
+              const authority = f.native.backend.authority
+              f.native.backend.authority = /* 仅撤销实际 Native 后端当前分类的来源可信性。 */ (...args) => ({
+                ...authority(...args),
+                classification_source_verified: false
+              })
+            } else {
+              const policies = f.native.backend.policies
+              f.native.backend.policies = /* 仅撤销原生一端的读取权，结果 Router 使用原先独立策略。 */ (...args) => {
+                const current = clone(policies(...args))
+                current[change === 'native_caller' ? 'caller' : 'local'].grants = []
+                return current
+              }
+            }
+          }
+          return f.local
+        }
+      })
+      assert.throws(
+        /* 实际页仍在也不能取代已经失效的原 Wire、来源、分类或当前 native read grant。 */ () =>
+          access.read(meta.result_id, 0, 32)
+      )
+      assert.equal(reads, 4)
+      assert.notEqual(f.store.call(f.principal.id, f.call.call_id).response, null)
+      assert.equal(f.handles(), 1)
+      assert.equal(f.native.state.sends, 1)
+    }
+  )
+}
+
+for (const change of ['caller', 'local', 'identity', 'discard'] as const) {
+  test(
+    `late native gate ${change} changes cannot invalidate the final authorization silently`,
+    /* 在末次原生门禁返回边界改变当前主体、活本地策略或内容，不能用重排门禁重新引入旧窗口。 */ (t) => {
+      const f = fixture()
+      t.after(/* 释放本用例的原 Wire、只读观察连接和 SQLite。 */ () => f.close())
+      const meta = f.savedHandle()
+      let checks = 0
+      f.context({
+        binding: f.binding,
+        wire: {
+          ...f.native.adapter,
+          checkResult: /* 先执行真实原生检查，仅在第二次调用时注入当前事实变化。 */ (binding, frame) => {
+            f.native.adapter.checkResult(binding, frame)
+            if (++checks === 2) {
+              if (change === 'caller') {
+                f.principal.policy.grants = []
+              } else if (change === 'local') {
+                f.local.grants = []
+              } else if (change === 'identity') {
+                f.principal.id = 'other'
+              } else {
+                f.store.discardResponse('synthetic', f.call.call_id)
+              }
+            }
+          }
+        }
+      })
+      assert.throws(
+        /* 原生门禁之后同步检查主体、活策略快照和实际正文，禁止交付已撤销的数据。 */ () =>
+          f.access.read(meta.result_id, 0, 32)
+      )
+      assert.equal(checks, 2)
       assert.equal(f.native.state.sends, 1)
     }
   )
