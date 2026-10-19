@@ -542,6 +542,16 @@ test(
     assert.equal((await inspectTask(runner, 'connector'))?.enabled, false)
     enabled = true
     assert.equal((await inspectTask(runner, 'connector'))?.enabled, true)
+    state = 2
+    assert.equal((await inspectTask(runner, 'connector'))?.state, 'starting')
+    state = 4
+    assert.equal((await inspectTask(runner, 'connector'))?.state, 'running')
+    for (const invalid of [0, 5, -1]) {
+      state = invalid
+      await assert.rejects(/* 有实例计数也不能放行未知任务状态。 */ () => inspectTask(runner, 'connector'), {
+        code: 'system_command_failed'
+      })
+    }
     assert(TASK_SCRIPT.includes('$t.State -notin @(1,2,3,4)'))
     assert(TASK_SCRIPT.includes('$t.State -notin @(1,3)'))
     assert(TASK_SCRIPT.includes('$t.GetInstances(0).Count -ne 0'))

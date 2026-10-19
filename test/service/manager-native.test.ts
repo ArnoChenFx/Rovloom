@@ -6,7 +6,8 @@ import { createNativeServiceBackend } from '../../src/service/native.js'
 import { manifest } from '../../src/service/spec.js'
 import type { RegistrationFiles } from '../../src/service/files.js'
 import type { CommandRunner } from '../../src/service/runner.js'
-import { sampleSpec } from './helpers.js'
+import { model, sampleSpec } from './helpers.js'
+import { inspectTask } from '../../src/service/windows.js'
 
 test(
   'Windows uninstall updates boot only, reinstall preserves instance, explicit stop cleans up later',
@@ -73,3 +74,42 @@ test(
     assert.equal((await manager.execute({ action: 'uninstall', role: 'connector' })).changed, false)
   }
 )
+
+for (const action of ['start', 'restart'] as const) {
+  test(
+    `Windows ${action} cannot succeed while state is QUEUED with one enumerated instance`,
+    /* 精确组合真实 Windows 状态映射与管理器等待逻辑，虚拟时间持续排队直到原超时。 */ async () => {
+      const spec = sampleSpec('win32')
+      const m = model('win32')
+      let state = action === 'restart' ? 4 : 3
+      let instances = action === 'restart' ? 1 : 0
+      const runner: CommandRunner = /* 模拟官方允许的 QUEUED+Count=1，不调用真实 COM。 */ async (p) => ({
+        code: 0,
+        stdout: JSON.stringify(
+          JSON.parse(p.input!).op === 'read'
+            ? { marker: manifest(spec) }
+            : { state, instances, enabled: true, exitCode: 0 }
+        ),
+        stderr: ''
+      })
+      m.backend.inspect = /* 使用真实映射，使错误的 Count 优先逻辑会提前返回 running 并使本测试失败。 */ async (role) =>
+        inspectTask(runner, role)
+      m.backend.stop = /* 模拟显式重启先停止已有实例。 */ async () => {
+        state = 3
+        instances = 0
+      }
+      m.backend.start = /* 启动请求已受理，但实例持续排队，不能冒充运行成功。 */ async () => {
+        state = 2
+        instances = 1
+      }
+      await assert.rejects(
+        /* 原有稳定运行观测与 30 秒预算保持不变。 */ () =>
+          new ServiceManager(m.backend, m.clock).execute({ action, role: 'connector' }),
+        { code: 'service_start_failed' }
+      )
+      assert.equal(m.clock.now(), 30000)
+      assert.equal(state, 2)
+      assert.equal(instances, 1)
+    }
+  )
+}

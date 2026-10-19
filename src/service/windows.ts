@@ -136,12 +136,12 @@ export async function inspectTask(run: CommandRunner, role: ServiceRole): Promis
   ) {
     throw new ServiceError('system_command_failed')
   }
-  // TASK_STATE_RUNNING=4、QUEUED=2；已退出且结果非零的实例明确报告失败。
+  // QUEUED 的实例也可能被计数，必须先判 starting；Count>0 不能把排队误报为运行成功。
   const state =
-    actual.state === 4 || (actual.instances as number) > 0
-      ? 'running'
-      : actual.state === 2
-        ? 'starting'
+    actual.state === 2
+      ? 'starting'
+      : actual.state === 4 || (actual.instances as number) > 0
+        ? 'running'
         : actual.exitCode === 0 || actual.exitCode === 0x41303 || actual.exitCode === 0x41306
           ? 'stopped'
           : 'failed'
