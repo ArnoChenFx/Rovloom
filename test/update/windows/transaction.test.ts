@@ -11,6 +11,7 @@ import { handleWindowsUpdateHelperCommand } from '../../../src/update/windows/tr
 import { WindowsPathLease, readWindowsExecutable } from '../../../src/update/windows/files.js'
 import { parseWindowsReceipt, windowsReceiptExit } from '../../../src/update/windows/protocol.js'
 import { runSystemCommand } from '../../../src/service/runner.js'
+import { windowsLibrary } from '../../../src/update/windows/native.js'
 
 declare const Bun: { build(options: unknown): Promise<{ success: boolean }> }
 let binaries: Promise<{ root: string; old: string; next: string }> | undefined
@@ -58,6 +59,60 @@ async function marker(path: string, timeout = 20000): Promise<string> {
     await pause(20)
   }
   throw new Error('fixture_marker_timeout')
+}
+
+// 只读观察本测试私有 marker 中仍等待 finish 的自有 helper；映像/出生时间吻合后持有内核对象，绝不取得终止权限。
+function observeHelper(pid: number, expected: { image: string; born: string }, image: string) {
+  assert.equal(expected.image, image)
+  assert(Number.isSafeInteger(pid) && pid > 0 && pid <= 0xffffffff)
+  const k = windowsLibrary<{
+    OpenProcess(access: number, inherit: number, pid: number): bigint
+    GetProcessTimes(handle: bigint, born: Buffer, exit: Buffer, kernel: Buffer, user: Buffer): number
+    QueryFullProcessImageNameW(handle: bigint, flags: number, text: Buffer, length: Buffer): number
+    WaitForSingleObject(handle: bigint, milliseconds: number): number
+    GetExitCodeProcess(handle: bigint, code: Buffer): number
+    CloseHandle(handle: bigint): number
+  }>('kernel32', {
+    OpenProcess: { args: ['u32', 'i32', 'u32'], returns: 'u64' },
+    GetProcessTimes: { args: ['u64', 'buffer', 'buffer', 'buffer', 'buffer'], returns: 'i32' },
+    QueryFullProcessImageNameW: { args: ['u64', 'u32', 'buffer', 'buffer'], returns: 'i32' },
+    WaitForSingleObject: { args: ['u64', 'u32'], returns: 'u32' },
+    GetExitCodeProcess: { args: ['u64', 'buffer'], returns: 'i32' },
+    CloseHandle: { args: ['u64'], returns: 'i32' }
+  })
+  const handle = k.OpenProcess(0x101000, 0, pid)
+  assert(handle !== 0n && handle !== 0xffffffffffffffffn)
+  try {
+    const born = Buffer.alloc(8)
+    assert(k.GetProcessTimes(handle, born, Buffer.alloc(8), Buffer.alloc(8), Buffer.alloc(8)))
+    assert.equal(born.readBigUInt64LE().toString(), expected.born)
+    const text = Buffer.alloc(32768 * 2)
+    const length = Buffer.alloc(4)
+    length.writeUInt32LE(32768)
+    assert(k.QueryFullProcessImageNameW(handle, 0, text, length))
+    assert.equal(text.toString('utf16le', 0, length.readUInt32LE() * 2), image)
+  } catch (error) {
+    k.CloseHandle(handle)
+    throw error
+  }
+  return {
+    // 同一对象已 signaled 才读取真实退出码；超时保留 fixture 而不强杀或猜测 PID 状态。
+    exit: async () => {
+      try {
+        const until = performance.now() + 10000
+        while (k.WaitForSingleObject(handle, 0) === 258) {
+          assert(performance.now() < until, 'owned helper did not physically exit')
+          await pause(20)
+        }
+        assert.equal(k.WaitForSingleObject(handle, 0), 0)
+        const code = Buffer.alloc(4)
+        assert(k.GetExitCodeProcess(handle, code))
+        return code.readUInt32LE()
+      } finally {
+        assert(k.CloseHandle(handle))
+      }
+    }
+  }
 }
 
 test(
@@ -128,6 +183,8 @@ if (process.platform === 'win32') {
         let output = ''
         let closed = false
         let directory: string | undefined
+        let observation: ReturnType<typeof observeHelper> | undefined
+        let failure: unknown
         child.stdout.on(
           'data',
           /* 本测试输出只含固定诊断，不包含 ticket 或配置。 */ (chunk: Buffer) => {
@@ -182,6 +239,7 @@ if (process.platform === 'win32') {
           await fs.writeFile(join(root, 'allow-parent-exit'), '')
           assert.equal(await exit, 4)
           const done = JSON.parse(await marker(join(root, 'helper-result.json')))
+          observation = observeHelper(done.pid, done.self, join(directory, 'helper.exe'))
           assert.equal(done.code, mode.code, output)
           const receipt = parseWindowsReceipt(await fs.readFile(receiptPath))
           assert.equal(receipt.state, mode.state)
@@ -229,16 +287,26 @@ if (process.platform === 'win32') {
           } catch {
             /* 仅自有动作/版本日志，不读取配置数据。 */
           }
-          throw new Error(
+          failure = new Error(
             `fixture_failed: ${error instanceof Error ? error.message : 'unknown'}; phase=${phase}; state=${state}; streamsClosed=${closed}; output=${output.slice(-4096)}; actions=${observations}`
           )
         } finally {
-          await fs.writeFile(join(root, 'allow-parent-exit'), '')
-          await fs.writeFile(join(root, 'finish-helper'), '')
-          await complete
-          if (closed) {
-            await fs.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
+          try {
+            await fs.writeFile(join(root, 'allow-parent-exit'), '')
+            await fs.writeFile(join(root, 'finish-helper'), '')
+            await complete
+            if (observation) {
+              assert.equal(await observation.exit(), mode.code, 'actual helper exit differs from its receipt')
+              if (closed) {
+                await fs.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
+              }
+            }
+          } catch (cleanup) {
+            failure = failure ? new AggregateError([failure, cleanup], 'fixture and cleanup failed') : cleanup
           }
+        }
+        if (failure) {
+          throw failure
         }
       }
     )

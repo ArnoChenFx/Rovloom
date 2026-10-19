@@ -10,6 +10,7 @@ import type { ServiceBackend, ServiceRole, ServiceSnapshot, ServiceSpec } from '
 import { handleUpdateCommand } from '../../../src/update/command.js'
 import { createWindowsUpdater, handleWindowsUpdateHelperCommand } from '../../../src/update/windows/transaction.js'
 import { WINDOWS_HELPER_COMMAND } from '../../../src/update/windows/protocol.js'
+import { nativeWindowsParent } from '../../../src/update/windows/parent.js'
 import { checkForUpdate } from '../../../src/update/plan.js'
 import { updatePlatform, updateExitCode } from '../../../src/update/contract.js'
 import { officialAssetUrl, type UpdateNetwork } from '../../../src/update/network.js'
@@ -208,7 +209,10 @@ if (process.argv[2] === '--version') {
   } catch (error) {
     code = updateExitCode(error)
   }
-  await fs.writeFile(join(root, 'helper-result.json'), JSON.stringify({ code, snapshots: controlled.snapshots() }))
+  await fs.writeFile(
+    join(root, 'helper-result.json'),
+    JSON.stringify({ code, snapshots: controlled.snapshots(), pid: process.pid, self: nativeWindowsParent.self() })
+  )
   try {
     await marker(join(root, 'finish-helper'))
   } finally {
