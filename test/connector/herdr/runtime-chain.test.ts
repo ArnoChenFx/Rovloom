@@ -1,10 +1,11 @@
 /** 仅用自有 Unix listener 验证真实 Store 的受管目录边界；本文件不运行或冒充 Herdr 原生验收。 */
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createHerdrRuntimeChain } from './runtime-chain.js'
+import { privateHerdrTestRoot } from './private-root.js'
 
 /** 自有 socket 即使权限正确，也只能放在原生实例边界，不能混入 Store 管理的普通文件目录。 */
 async function listener(address: string) {
@@ -31,7 +32,7 @@ test(
   'native sockets remain outside the real Store managed parent while its socket guard stays strict',
   /** 重现曾阻断 fixture_authenticate 的根因，正确分区后正向事务通过，污染 Store 子目录仍拒绝。 */
   async () => {
-    const root = mkdtempSync('/workspace/rovloom-herdr-chain-test-')
+    const root = privateHerdrTestRoot('.herdr-chain-')
     const chain = createHerdrRuntimeChain(root)
     let native: Awaited<ReturnType<typeof listener>> | undefined
     let contaminated: Awaited<ReturnType<typeof listener>> | undefined

@@ -18,9 +18,6 @@ import { fixture, until } from '../../transport/helpers.js'
 
 /** 先完成现有 mock 配对并暴露完整 Target；调用方随后显式安装/监管自己的 Herdr，再传入 connect。 */
 export function createHerdrRuntimeChain(root: string) {
-  if (!root.startsWith('/workspace/')) {
-    throw new Error('herdr_chain_private_workspace_required')
-  }
   inspectHerdrPath(root, 'directory')
   const config_ref = 'owned-herdr-runtime-chain'
   const binding_revision = 1

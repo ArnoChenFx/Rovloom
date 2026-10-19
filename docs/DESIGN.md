@@ -202,7 +202,8 @@ H1 仅接纳固定 Linux x86_64 Herdr 0.9.5/protocol 22 的 session、strict `pi
 `createHerdrRuntime` 提供现有 `ConnectorWireSession` 的 adapter/executeWire/close 接口。
 原始 Wire request 在真实写入前重查当前双端策略、完整 Target、固定来源与 deadline，复用现有持久发送 claim 和 Store 证据事务。
 原生 Pong 的 capabilities 原样保留，仍只有 `schema_and_version` 依据，不能据此签发其它方法或桥接保证。
-正式运行宿主、CLI/MCP 接线和跨平台 native 验收由对应任务独立交付；编译资源上限不表示硬 heap 或 Worker 物理退出时限。
+现有正式角色宿主按 Luvus 契约/委托装配，Herdr 的 provider 选择及结果读取组合仍是独立门禁，不能以 UHP 替代其原生契约。
+H1 已接通共享传输 hook，未认领正式 Herdr Role、CLI/MCP 或跨平台 native 验收；编译资源上限不表示硬 heap 或 Worker 物理退出时限。
 
 被动读精确 allowlist、写入/终端原子身份保证、prompt 完成归属与取消语义尚无充分证据的部分属于待设计决策，默认拒绝；不能用 Luvus 证据或外层 revision 补造保证。
 

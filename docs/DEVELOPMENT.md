@@ -34,7 +34,7 @@ bun run smoke
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
 native-contract、wire、integration、persistence、transport、Herdr readonly/compiler/installation/runtime、
-webui、admin、独立 service 与 update 十七个 Bun ESM 入口、共享 chunk 与外部 source maps，
+webui、admin、独立 service/update 与角色 runtime 十八个 Bun ESM 入口、共享 chunk 与外部 source maps，
 依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 Luvus 与 Herdr 的固定编译 Worker 由同一 Bun 构建入口分别打包并内嵌，含锁定 Ajv；
 不增加第二运行时或原生归档。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
@@ -340,6 +340,11 @@ attempt 与既有持久发送 claim 共同阻止重复执行，claim 提交失�
 原 dedup 期限内的最小响应元数据；撤权、过期或 discard 不恢复请求、原文或派发权。
 关闭和 AbortSignal 仅清理所属 socket/桥接等待，不发送 native cancel，也不停止 Herdr
 server；可能写出后的失败保守标记 `outcome_unknown`。server 归显式启动它的宿主回收。
+
+当前[角色宿主类型](../src/runtime/types.ts)的 provider 契约、来源和委托仍按 Luvus 装配。
+H1 暴露的 `ConnectorWireSession` hook 已接通原传输接口，尚未成为该正式角色的 Herdr
+provider 选择分支。后续组合必须保持 Herdr 原生 schema/source 类型，复用角色的认证、
+准入锚点、readiness 和关闭边界，不能把 Herdr 填入 Luvus 的 UHP 契约或另建角色宿主。
 
 独立验收入口只创建自己拥有的空白临时实例，结果与临时库留在 checkout 外：
 

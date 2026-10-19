@@ -145,7 +145,7 @@ claim 与 32 次证据提交；三组方法/参数拒绝且零新 claim；当前
 - 按 method+params+版本核实被动读，断言焦点、viewport、输入、agent 状态/通知均无未声明副作用；recent 等未经证明不进 allowlist。
 - 验证订阅确认、events_lost/EOF、另一连接 snapshot 与脏刷新，明确 gap/state_rebuild_only，不重放载荷覆盖快照或伪造序号。
 - H1 五组真实验收已完成；后续扩展真实重复/取消/断线和多 provider 场景，不能用已有 mock/合成端口测试代替。正式宿主/MCP 组合仍另验，原生实证不是系统就绪证明。
-- 后续宿主切片：将 H1 runtime 接入 #8 的受保护配置、readiness、认证 epoch 与资源预算，验证同机多 provider、同 kind 多实例和真实 Connector 通道；不另建 Gateway/CLI/auth 或模型凭据体系。
+- 后续宿主切片：现有角色 provider/契约/委托按 Luvus 装配；将 H1 的独立 Herdr 原生端口接入其受保护配置、准入锚点、readiness、认证 epoch、结果读取和资源预算，验证同机多 provider、同 kind 多实例和真实 Connector 通道；不套用 UHP，不另建 Gateway/CLI/auth 或模型凭据体系。
 - 后续普通调用/生命周期切片：按矩阵逐方法分类，保持 session/server 管理各自权限、真实确认和丢回复的 unknown；不把 server.* 伪装为 Luvus Host。
 - 后续输入/prompt 切片：按 agent.start、agent.prompt、pane/agent 输入的真实语义接入调用账本；先用自有合成进程验证。等待状态、原生写成功与本次工作完成分别暴露，不能从状态或回显补造 turn 归属、取消或幂等保证。
 - 后续事件/终端切片：每个 filter 和控制动作独立审查副作用、背压、EOF 和关闭；事件仅保证 state_rebuild_only。核实各操作原生支持形态，不能虚构统一 lease/fence/replay/input ack。

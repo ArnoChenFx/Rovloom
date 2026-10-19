@@ -1,12 +1,13 @@
 /** 检验 Herdr 本机路径、显式启动品牌及单请求 IO；测试不启动真实 Herdr。 */
 import assert from 'node:assert/strict'
-import { ChildProcess } from 'node:child_process'
+import { ChildProcess, spawnSync } from 'node:child_process'
 import { EventEmitter, once } from 'node:events'
 import {
   chmodSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -15,7 +16,8 @@ import {
 import { createServer } from 'node:net'
 import type { Socket } from 'node:net'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { tmpdir } from 'node:os'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import {
   HerdrLocalError,
@@ -28,26 +30,83 @@ import {
 import type { HerdrLocalConfig, HerdrEndpoint } from '../../../src/connector/herdr/local.js'
 import { exchangeHerdr, herdrDeadline, runHerdrCommand, withHerdrSocket } from '../../../src/connector/herdr/io.js'
 import { HERDR_READONLY_REVIEW } from '../../../src/connector/herdr/review.js'
+import { privateHerdrTestRoot } from './private-root.js'
 
 const request = Buffer.from('{"id":"synthetic","method":"ping","params":{}}\n')
 const reply = Buffer.from('{"id":"synthetic","result":{"type":"pong"}}\n')
 
-/** 创建自有私有目录；隔离 verifier 运行在公开 tmp 下时改用显式 workspace 测试根。 */
+/** 使用与其它 native 测试相同的 harness 根，不依赖当前工作目录或特定云环境路径。 */
 function privateRoot(): string {
-  for (const parent of [process.cwd(), '/workspace']) {
-    let root: string | undefined
+  return privateHerdrTestRoot('.herdr-local-test-')
+}
+
+test(
+  'private test roots use the harness or source checkout independently of an untrusted cwd',
+  /** 在隔离 Bun 子进程重现 CI 的 tmp cwd，核对两种可信根与不安全显式根的拒绝清理。 */ () => {
+    const root = privateHerdrTestRoot('.herdr-root-harness-')
+    const untrustedCwd = mkdtempSync(join(tmpdir(), 'herdr-untrusted-cwd-'))
     try {
-      root = mkdtempSync(join(parent, '.herdr-local-test-'))
-      inspectHerdrPath(root, 'directory')
-      return root
-    } catch {
-      if (root) {
-        rmSync(root, { recursive: true, force: true })
+      chmodSync(untrustedCwd, 0o777)
+      assert.throws(/** tmp 的公开可写祖先仍须被真实生产检查拒绝。 */ () => inspectHerdrPath(untrustedCwd, 'directory'))
+      const copied = join(root, 'checkout', 'test', 'connector', 'herdr')
+      mkdirSync(copied, { recursive: true, mode: 0o700 })
+      const helperUrl = new URL('./private-root.ts', import.meta.url)
+      const copiedHelper = join(copied, 'private-root.ts')
+      writeFileSync(
+        copiedHelper,
+        readFileSync(helperUrl, 'utf8').replace(
+          '../../../src/connector/herdr/local.js',
+          new URL('../../../src/connector/herdr/local.ts', import.meta.url).href
+        ),
+        { mode: 0o600 }
+      )
+      for (const explicit of [true, false]) {
+        const source = explicit ? fileURLToPath(helperUrl) : copiedHelper
+        const script = `
+import { dirname } from 'node:path';
+import { rmSync } from 'node:fs';
+import { privateHerdrTestRoot } from ${JSON.stringify(pathToFileURL(source).href)};
+const root = privateHerdrTestRoot('owned-');
+try { console.log(dirname(root)); } finally { rmSync(root,{recursive:true,force:true}); }
+`
+        const child = spawnSync(process.execPath, ['--no-env-file', '-e', script], {
+          cwd: untrustedCwd,
+          env: explicit ? { LUVUS_TEST_ROOT: root } : {},
+          encoding: 'utf8',
+          timeout: 5000,
+          maxBuffer: 4096
+        })
+        assert.equal(child.status, 0, child.stderr)
+        assert.equal(child.stdout.trim(), root)
       }
+      const rejected = spawnSync(
+        process.execPath,
+        [
+          '--no-env-file',
+          '-e',
+          `
+import { privateHerdrTestRoot } from ${JSON.stringify(helperUrl.href)};
+try { privateHerdrTestRoot('rejected-'); process.exitCode=1; }
+catch (error) { console.log(error.code); }
+`
+        ],
+        {
+          cwd: untrustedCwd,
+          env: { LUVUS_TEST_ROOT: untrustedCwd },
+          encoding: 'utf8',
+          timeout: 5000,
+          maxBuffer: 4096
+        }
+      )
+      assert.equal(rejected.status, 0, rejected.stderr)
+      assert.equal(rejected.stdout.trim(), 'herdr_local_path_untrusted')
+      assert.deepEqual(readdirSync(untrustedCwd), [])
+    } finally {
+      rmSync(untrustedCwd, { recursive: true, force: true })
+      rmSync(root, { recursive: true, force: true })
     }
   }
-  throw new Error('private test root unavailable')
-}
+)
 
 /** 在自有目录建立纯合成配置；二进制刻意不匹配官方 hash，因此不会执行。 */
 function configFixture(root: string): HerdrLocalConfig {
