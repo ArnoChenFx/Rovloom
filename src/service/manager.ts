@@ -6,8 +6,23 @@ import {
   type ServiceRequest,
   type ServiceResult,
   type ServiceSnapshot,
-  type ServiceSpec
+  type ServiceSpec,
+  type ServiceRole
 } from './types.js'
+
+export type ServiceUpdateSession = {
+  readonly snapshots: readonly Readonly<ServiceSnapshot>[]
+  // 保留注册、自启和配置，仅停止本次安装的受控角色并核实静止。
+  quiesce(): Promise<void>
+  // 替换前后逐次检查原身份、自启和静止证明。
+  assertQuiescent(): Promise<void>
+  // 只恢复原本运行的角色，独立验证监管稳定及业务就绪；尝试恢复全部角色后才报告失败。
+  restore(
+    version: string,
+    ready: (spec: ServiceSpec, version: string) => Promise<void>,
+    signal?: AbortSignal
+  ): Promise<void>
+}
 
 export type ServiceClock = {
   // 使用单调时钟计算总超时，避免墙钟校正延长操作。
@@ -60,6 +75,133 @@ export class ServiceManager {
       await this.time.wait(250)
     }
     throw new ServiceError(running ? 'service_start_failed' : 'service_timeout')
+  }
+
+  // 同时持有两个既有角色锁，阻止安装/卸载/启停与文件替换交错；Windows 交付另走受控 helper。
+  async withBinaryUpdate<T>(executable: string, operation: (session: ServiceUpdateSession) => Promise<T>): Promise<T> {
+    if (this.backend.platform === 'win32') {
+      throw new ServiceError('backend_unavailable')
+    }
+    await this.backend.authorize()
+    return this.backend.lock(
+      'gateway',
+      /* 所有更新都按固定角色顺序取锁，避免死锁。 */ async () =>
+        this.backend.lock(
+          'connector',
+          /* 两个锁完整包围快照、静止、替换与恢复。 */ async () => {
+            let active = true
+            const snapshots: Readonly<ServiceSnapshot>[] = []
+            for (const role of ['gateway', 'connector'] as const satisfies readonly ServiceRole[]) {
+              const current = await this.backend.inspect(role)
+              if (!current || current.spec.executable !== executable) {
+                continue
+              }
+              if (
+                !['running', 'stopped'].includes(current.state) ||
+                (this.backend.platform === 'darwin' &&
+                  ((current.state === 'stopped' && current.loaded) ||
+                    (current.state === 'running' && !current.enabled)))
+              ) {
+                // macOS 已撤自启的活 job 不能在 bootout 后等价 bootstrap；拒绝先停后无法恢复。
+                throw new ServiceError('service_busy')
+              }
+              const spec = Object.freeze(validateSpec(current.spec))
+              await this.backend.preflight(spec)
+              snapshots.push(Object.freeze({ ...current, spec }))
+            }
+            // 会话能力只在持锁作用域有效，不能在 finally 解锁后继续操作服务。
+            const assertActive = () => {
+              if (!active) {
+                throw new ServiceError('service_conflict')
+              }
+            }
+            // 原声明、自启与控制记录不能在更新中被重写或清空。
+            const observe = async (snapshot: Readonly<ServiceSnapshot>) => {
+              assertActive()
+              const current = await this.observe(snapshot.spec)
+              if (current.enabled !== snapshot.enabled) {
+                throw new ServiceError('service_conflict')
+              }
+              return current
+            }
+            const session: ServiceUpdateSession = {
+              snapshots: Object.freeze(snapshots),
+              // 即使原本停止，也取消潜在待启动 Job；不调用 enable/remove 或注销注册。
+              quiesce: async () => {
+                assertActive()
+                for (const snapshot of snapshots) {
+                  await observe(snapshot)
+                  await this.backend.stop(snapshot.spec)
+                  await this.settle(snapshot.spec, false)
+                }
+                await session.assertQuiescent()
+              },
+              // 原生 inspect 对 stopped/failed 的 PID、Job 和来源证明保持有效。
+              assertQuiescent: async () => {
+                for (const snapshot of snapshots) {
+                  const current = await observe(snapshot)
+                  if (!['stopped', 'failed'].includes(current.state)) {
+                    throw new ServiceError('service_conflict')
+                  }
+                }
+                assertActive()
+              },
+              // 对每个角色尽力恢复；应用探针与监管稳定分别验证，不用 running 冒充业务就绪。
+              restore: async (version, ready, signal) => {
+                assertActive()
+                let failure: unknown
+                for (const snapshot of snapshots) {
+                  try {
+                    signal?.throwIfAborted()
+                    const current = await observe(snapshot)
+                    if (!['running', 'stopped', 'failed'].includes(current.state)) {
+                      throw new ServiceError('service_conflict')
+                    }
+                    if (snapshot.state === 'running') {
+                      if (current.state !== 'running') {
+                        await this.backend.preflight(snapshot.spec)
+                        signal?.throwIfAborted()
+                        await this.backend.start(snapshot.spec)
+                      }
+                      await this.settle(snapshot.spec, true)
+                      signal?.throwIfAborted()
+                      await ready(snapshot.spec, version)
+                    } else {
+                      if (!['stopped', 'failed'].includes(current.state)) {
+                        await this.backend.stop(snapshot.spec)
+                        await this.settle(snapshot.spec, false)
+                      }
+                      if ((await observe(snapshot)).state !== 'stopped') {
+                        throw new ServiceError('service_conflict')
+                      }
+                    }
+                  } catch (error) {
+                    failure ??= error
+                  }
+                }
+                // 全部业务探针结束后重新检查每个原角色，不能忽略探针后退出或后续角色恢复期间的状态变化。
+                for (const snapshot of snapshots) {
+                  try {
+                    if ((await observe(snapshot)).state !== snapshot.state) {
+                      throw new ServiceError(snapshot.state === 'running' ? 'service_start_failed' : 'service_conflict')
+                    }
+                  } catch (error) {
+                    failure ??= error
+                  }
+                }
+                if (failure) {
+                  throw failure
+                }
+              }
+            }
+            try {
+              return await operation(session)
+            } finally {
+              active = false
+            }
+          }
+        )
+    )
   }
 
   // 安装和卸载只控制未来开机启动；运行中撤销自启保留控制记录，只有显式 stop/restart 能停止实例。

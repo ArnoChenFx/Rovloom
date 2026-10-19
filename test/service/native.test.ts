@@ -1,7 +1,7 @@
 // 通过受控 runner 与内存注册表检验原生命令计划和所有权边界；不模拟成三平台实机验收。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, open, readFile, rm, symlink, writeFile, type FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNativeServiceBackend } from '../../src/service/native.js'
@@ -10,7 +10,9 @@ import { renderDefinition } from '../../src/service/render.js'
 import { manifest } from '../../src/service/spec.js'
 import { checkedCommand, runSystemCommand, type CommandPlan, type CommandRunner } from '../../src/service/runner.js'
 import { inspectTask, taskCall, TASK_SCRIPT } from '../../src/service/windows.js'
-import { sampleSpec } from './helpers.js'
+import { model, sampleSpec } from './helpers.js'
+import { ServiceManager } from '../../src/service/manager.js'
+import { ServiceError } from '../../src/service/types.js'
 
 // 仅在内存记录注册的独占写和精确删除，不向原生系统路径写入。
 function memoryFiles() {
@@ -332,6 +334,67 @@ test(
 )
 
 test(
+  'recovery protection survives an inner close error and retains both role locks against service start',
+  /* 真实私有目录和文件锁，close 后注入一次 EIO；不操作系统服务或真实安装。 */ async () => {
+    if (process.platform === 'win32') {
+      return
+    }
+    const directory = await mkdtemp(join(tmpdir(), 'rovloom-recovery-locks-'))
+    const probe = await open(join(directory, 'probe'), 'wx', 0o600)
+    const prototype = Object.getPrototypeOf(probe) as { close: FileHandle['close'] }
+    const originalClose = prototype.close
+    await probe.close()
+    let connectorInode: number | undefined
+    let injected = false
+    const files = registrationFiles(directory)
+    try {
+      // 仅对当前测试 connector 锁的 inode 产生故障；其它句柄继续使用真实 close。
+      prototype.close = /* 只在目标自有 inode 真正 close 后报告注入故障。 */ async function (this: FileHandle) {
+        const stat = await this.stat()
+        await originalClose.call(this)
+        if (!injected && stat.ino === connectorInode) {
+          injected = true
+          throw Object.assign(new Error('fixture close result failure'), { code: 'EIO' })
+        }
+      }
+      await assert.rejects(
+        /* 内层保护不能被 finally 普通异常替换，否则外层会错误地删除 gateway 锁。 */ () =>
+          files.lock(
+            'rovloom-gateway',
+            /* 模拟真实更新的固定双角色锁顺序。 */ async () =>
+              files.lock(
+                'rovloom-connector',
+                /* 已到不可恢复阶段，所有外层锁都须保留。 */ async () => {
+                  connectorInode = (await lstat(join(directory, '.rovloom-connector.lock'))).ino
+                  throw new ServiceError('service_recovery_required')
+                }
+              )
+          ),
+        { code: 'service_recovery_required' }
+      )
+      assert.equal(injected, true)
+      prototype.close = originalClose
+      assert((await lstat(join(directory, '.rovloom-gateway.lock'))).isFile())
+      assert((await lstat(join(directory, '.rovloom-connector.lock'))).isFile())
+      const m = model('linux')
+      m.backend.lock = /* 正常 service 操作必须被同一持久角色锁阻断。 */ (role, operation) =>
+        files.lock(`rovloom-${role}`, operation)
+      const manager = new ServiceManager(m.backend, m.clock)
+      for (const role of ['gateway', 'connector'] as const) {
+        await assert.rejects(
+          /* 不能在更新恢复未完成时单独误启任一角色。 */ () => manager.execute({ action: 'start', role }),
+          { code: 'service_busy' }
+        )
+      }
+      assert(!m.calls.includes('start'))
+    } finally {
+      prototype.close = originalClose
+      await rm(directory, { recursive: true, force: true })
+    }
+  }
+)
+
+test(
   'real controlled runner preserves argv, propagates exit status, bounds time and output',
   /* 只启动隔离 Bun 子进程验证执行器，绝不调用服务设施。 */ async () => {
     const arg = '汉字 space $HOME `literal` "quote"'
@@ -510,6 +573,93 @@ test(
     await native.stop(spec)
     assert.equal(await native.remove(spec), true)
     assert.equal(ops.filter(/* 只有显式停止调用产生一次 bootout。 */ (x) => x === 'bootout').length, 1)
+  }
+)
+
+test(
+  'macOS update rejects a boot-disabled running job before bootout or any replacement scope',
+  /* 真实 manager/native 计划组合模拟 disabled 阻止 bootstrap，不触碰 launchd 或系统文件。 */ async () => {
+    const memory = memoryFiles()
+    const spec = sampleSpec('darwin')
+    const definition = renderDefinition(spec)
+    memory.data.set('io.rovloom.connector.plist', definition)
+    let loaded = true
+    let enabled = true
+    const ops: string[] = []
+    const backend = createNativeServiceBackend({
+      platform: 'darwin',
+      files: memory.files,
+      verifyRuntime: /* 此测试不执行或注册任何实际角色。 */ async () => {},
+      runner: /* loaded、运行 PID、自启 override 与 bootstrap 许可分别建模。 */ async (plan) => {
+        assert.equal(plan.executable, '/bin/launchctl')
+        const op = plan.args[0]!
+        ops.push(op)
+        if (op === 'list') {
+          return {
+            code: 0,
+            stdout: 'PID\tStatus\tLabel\n' + (loaded ? '123\t0\tio.rovloom.connector\n' : ''),
+            stderr: ''
+          }
+        }
+        if (op === 'print') {
+          return {
+            code: 0,
+            stdout: 'system/io.rovloom.connector = {\n path = /Library/LaunchDaemons/io.rovloom.connector.plist\n}\n',
+            stderr: ''
+          }
+        }
+        if (op === 'print-disabled') {
+          return {
+            code: 0,
+            stdout: `disabled services = {\n "io.rovloom.connector" => ${enabled ? 'enabled' : 'disabled'}\n}\n`,
+            stderr: ''
+          }
+        }
+        if (op === 'disable') {
+          enabled = false
+        } else if (op === 'bootout') {
+          loaded = false
+        } else if (op === 'bootstrap') {
+          if (!enabled) {
+            return { code: 5, stdout: '', stderr: '' }
+          }
+          loaded = true
+        } else {
+          assert.fail('unexpected fixture launchctl mutation')
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }
+    })
+    // 仅替换安装预检，真实 native inspect/stop/start 及其 disabled 失败语义保持参与本回归。
+    backend.preflight = /* 仅跳过 fixture 不存在的磁盘安装预检。 */ async () => {}
+    const manager = new ServiceManager(backend)
+    assert.equal((await manager.execute({ action: 'uninstall', role: 'connector' })).state, 'running')
+    assert.equal(enabled, false)
+    assert.equal(loaded, true)
+    ops.length = 0
+    let entered = false
+    await assert.rejects(
+      /* 旧策略会先 bootout，再因 disabled 拒绝 bootstrap；必须在进入文件事务前拒绝。 */ () =>
+        manager.withBinaryUpdate(
+          spec.executable,
+          /* 此范围在受保护初态下不可进入。 */ async (session) => {
+            entered = true
+            await session.quiesce()
+            await session.restore('fixture-version', /* 若进入旧流程，仍须通过 native bootstrap。 */ async () => {})
+          }
+        ),
+      { code: 'service_busy' }
+    )
+    assert.equal(entered, false)
+    assert.equal(enabled, false)
+    assert.equal(loaded, true)
+    assert(
+      ops.every(
+        /* 仅允许只读监管查询，不改变原运行/disabled 意图。 */ (op) => ['list', 'print', 'print-disabled'].includes(op)
+      )
+    )
+    assert.equal(memory.data.get('io.rovloom.connector.plist'), definition)
+    assert.deepEqual(memory.removed, [])
   }
 )
 
