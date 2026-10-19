@@ -20,6 +20,7 @@ export type { ManagedLuvusRoot, NativeCustodyPolicy } from './native-root.js'
 export { startManagedLuvus, MANAGED_LUVUS_REVISION, MANAGED_LUVUS_CLASSIFICATION } from './native-source.js'
 export type {
   ControlledLuvusProcess,
+  LocalOwnerLuvusInstance,
   RestrictedLuvusCustody,
   RestrictedLuvusRequest,
   RestrictedLuvusIssuance
@@ -33,6 +34,17 @@ export type {
   NativeCustodyApprovalWriter
 } from './native-custody.js'
 export { createManagedLuvusProvider } from './managed-provider.js'
+export { createLuvusOperationsProvider } from './luvus-operations-provider.js'
+export { attachExistingLuvus } from './native-attach.js'
+export type { AttachedLuvusInstance } from './native-attach.js'
+export { createLuvusProductionSources, LuvusProductionStartupError } from './production-luvus.js'
+export type { LuvusProductionOwnerConfig, LuvusProductionReference } from './production-luvus.js'
+export {
+  LUVUS_OPERATION_METHODS,
+  luvusOperationDescriptor,
+  luvusOperationValidation,
+  validateLuvusOperationParams
+} from './luvus-operations.js'
 export {
   ConnectorAttemptBook,
   createConnectorAdmissionBackend,

@@ -17,6 +17,9 @@ import type {
   PeerIdentity
 } from '../connector/luvus/types.js'
 import type { LuvusBoundDelegation } from '../connector/luvus/delegation.js'
+import type { Connection } from '../transport/index.js'
+import type { CompiledContract } from '../native-contract/index.js'
+import { NativeInstanceContext } from './native-instance-context.js'
 import { NativeCustodyContext } from './native-context.js'
 import type { LuvusIssuanceMetadata } from './native-instance.js'
 import { assertManagedRoot, claimManagedRoot } from './native-root.js'
@@ -36,6 +39,7 @@ export const MANAGED_LUVUS_REVISION = 'managed-owned-luvus-0.14.3-1'
 export const MANAGED_LUVUS_CLASSIFICATION = 'managed-owned-rpc-1'
 const processBrand = Symbol('managed-luvus-process')
 const custodyBrand = Symbol('restricted-luvus-custody')
+const localOwners = new WeakMap<LocalOwnerLuvusInstance, () => boolean>()
 const deliveredCustodies = new WeakSet<RestrictedLuvusCustody>()
 export type RestrictedLuvusRequest = Readonly<{
   scopes: readonly ('read' | 'orchestration')[]
@@ -60,6 +64,33 @@ export interface RestrictedLuvusCustody {
   ready(): boolean
   close(): void
 }
+export interface LocalOwnerLuvusInstance {
+  readonly config: LuvusLocalConfig & { readonly transport: 'ipc' }
+  readonly contract: NativeContractRecord
+  source(binding: AttemptBinding): TrustedNativeContext
+  catalogSource(
+    connection: Connection,
+    policies: Readonly<{ caller_policy_revision: string; local_policy_revision: string }>
+  ): TrustedNativeContext
+  verifyPeer(socket: Socket, endpoint: EndpointIdentity, binding: AttemptBinding): Promise<PeerIdentity>
+  assertEvidence(binding: AttemptBinding, evidence: NativeTransportEvidence): void
+  nativeAuth(binding: AttemptBinding, evidence: NativeTransportEvidence): Readonly<{ kind: 'local_owner' }>
+  ready(): boolean
+}
+/** 内部真实 managed/attach 工厂在实际 peer 检查完成后登记闭包，不向产品入口开放 JSON 注册。 */
+export function registerLocalOwnerLuvus(owner: LocalOwnerLuvusInstance, live: () => boolean): void {
+  if (localOwners.has(owner) || !live()) {
+    throw new LuvusAdapterError('local_owner_unavailable')
+  }
+  localOwners.set(owner, live)
+}
+/** 仅接受本次受控进程明确交付的 Owner；没有 token 不是自动选择此模式的理由。 */
+export function assertLocalOwnerLuvus(owner: LocalOwnerLuvusInstance): void {
+  const live = localOwners.get(owner)
+  if (!live || !live()) {
+    throw new LuvusAdapterError('local_owner_unavailable')
+  }
+}
 export interface ControlledLuvusProcess {
   readonly [processBrand]: true
   readonly root_id: string
@@ -67,6 +98,8 @@ export interface ControlledLuvusProcess {
   readonly config: LuvusLocalConfig & { readonly transport: 'ipc' }
   readonly contract: NativeContractRecord
   issueRestricted(request: RestrictedLuvusRequest, authorize: NativeCustodyAuthorizer): Promise<RestrictedLuvusCustody>
+  // 宿主显式选择本机 Owner 操作，不签发 token、添加批准或创建持续访问。
+  localOwner(): LocalOwnerLuvusInstance
   ready(): boolean
   close(): Promise<void>
 }
@@ -77,20 +110,29 @@ function observedContract(
   observed: Readonly<{ frame: Record<string, unknown>; result: Record<string, unknown> }>
 ): NativeContractRecord {
   assertControlledLuvus(control)
+  return observedLuvusContract(control.config, control.compiled, observed)
+}
+
+/** 共享真实能力快照到安装契约的纯映射；调用者必须先建立自身实际 socket/process 来源。 */
+export function observedLuvusContract(
+  config: LuvusLocalConfig,
+  compiled: CompiledContract,
+  observed: Readonly<{ frame: Record<string, unknown>; result: Record<string, unknown> }>
+): NativeContractRecord {
   const value = observed.result
   const protocol = value.protocol as Record<string, unknown> | undefined
   if (
     typeof value.server_generation !== 'string' ||
     !value.server_generation.length ||
     value.server_generation.length > 512 ||
-    value.session !== control.config.target.session ||
+    value.session !== config.target.session ||
     protocol?.name !== 'luvus-uhp' ||
     protocol.major !== 1 ||
     protocol.minor !== 0
   ) {
     throw new LuvusAdapterError('native_source_capabilities_invalid')
   }
-  const maximum = Math.min(localLimits(control.config.limits).discovery_bytes, 1_048_576)
+  const maximum = Math.min(localLimits(config.limits).discovery_bytes, 1_048_576)
   const snapshot = parseNativeJson(boundedJson(observed.frame, maximum), { object_bytes: maximum })
   if (!snapshot.ok) {
     throw new LuvusAdapterError('native_source_capabilities_invalid')
@@ -99,7 +141,7 @@ function observedContract(
     provider_kind: 'luvus',
     protocol_family: 'uhp',
     binary_version: '0.14.3',
-    binary_sha256: control.config.binary_sha256,
+    binary_sha256: config.binary_sha256,
     schema_sha256: FIXED_LUVUS_SCHEMA_SHA256,
     schema_origin: 'installed_cli',
     schema_command: 'luvus uhp schema',
@@ -112,7 +154,7 @@ function observedContract(
   })
   return Object.freeze({
     wire: Object.freeze({ source, support_status: 'validated' as const }),
-    compiled: control.compiled,
+    compiled,
     capabilities: snapshot.value,
     capability_revision: createHash('sha256').update(boundedJson(value, maximum)).digest('hex')
   })
@@ -166,12 +208,10 @@ export function assertRestrictedLuvusCustody(custody: RestrictedLuvusCustody): v
 }
 
 /** 持有真实 child 与永久 owner 锁；启动、审批发行和关闭分别有独立的可验证边界。 */
-class ManagedProcess implements ControlledLuvusProcess {
+class ManagedProcess extends NativeInstanceContext implements ControlledLuvusProcess {
   readonly [processBrand] = true as const
   readonly root_id: string
   readonly root_revision: number
-  readonly config: LuvusLocalConfig & { readonly transport: 'ipc' }
-  readonly contract: NativeContractRecord
   readonly #root: ManagedLuvusRoot
   readonly #control: ControlledLuvusSession
   readonly #lock: ReturnType<typeof claimManagedRoot>
@@ -188,15 +228,58 @@ class ManagedProcess implements ControlledLuvusProcess {
     lock: ReturnType<typeof claimManagedRoot>,
     contract: NativeContractRecord
   ) {
+    super(
+      control.config,
+      control.process,
+      control.endpoint,
+      /* 同一受控 root、直接 child 与真实 endpoint 继续由既有基础核对。 */ () => assertControlledLuvus(control),
+      contract
+    )
     this.#root = root
     this.#control = control
     this.#lock = lock
     this.root_id = root.root_id
     this.root_revision = root.root_revision
-    this.config = control.config
-    this.contract = contract
   }
 
+  /** Owner 与有限 custody 使用同一真实受控实例寿命。 */
+  protected assertAccess(): void {
+    this.#live()
+  }
+  /** Owner 不持有新发行 token；来源失效始终由原进程状态继续拒绝。 */
+  protected invalidateAccess(): void {}
+  /** 显式本机 Owner 句柄只用于受控实例的普通操作，不变更原有限签发接口。 */
+  localOwner(): LocalOwnerLuvusInstance {
+    this.#live()
+    const owner: LocalOwnerLuvusInstance = Object.freeze({
+      config: this.config,
+      contract: this.contract,
+      source: /* 每个原调用继续绑定同一实际 native 来源。 */ (binding: AttemptBinding) => this.source(binding),
+      catalogSource: /* 目录只绑定当前实际认证连接及本次当前政策，不创建虚构 attempt。 */ (
+        connection: Connection,
+        policies: Readonly<{ caller_policy_revision: string; local_policy_revision: string }>
+      ) => this.catalogSource(connection, policies),
+      verifyPeer: /* 原 adapter 的同一 IPC socket 继续进行实际 peer 检查。 */ (
+        socket: Socket,
+        endpoint: EndpointIdentity,
+        binding: AttemptBinding
+      ) => this.verifyPeer(socket, endpoint, binding),
+      assertEvidence: /* 写入前核对原 socket 与完整调用匹配。 */ (
+        binding: AttemptBinding,
+        evidence: NativeTransportEvidence
+      ) => this.assertEvidence(binding, evidence),
+      nativeAuth: /* 显式省略 native auth 字段才表示官方本机 Owner；peer 事实另行核验。 */ (
+        binding: AttemptBinding,
+        evidence: NativeTransportEvidence
+      ) => {
+        this.assertEvidence(binding, evidence)
+        return Object.freeze({ kind: 'local_owner' as const })
+      },
+      ready: /* 当前受控进程失效时不沿用旧就绪状态。 */ () => this.ready()
+    })
+    registerLocalOwnerLuvus(owner, /* 只调用原实现的当前真实进程核验，不采信交付对象自报。 */ () => this.ready())
+    return owner
+  }
   /** 没有有限 custody 时进程仍可存活，但不能借此接口取得 token 或派发能力。 */
   ready(): boolean {
     try {

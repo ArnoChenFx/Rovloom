@@ -84,9 +84,9 @@ test(
   }
 )
 
-type ReentrantStage = 'session' | 'connection' | 'wire' | 'rpc' | 'readiness'
+type ReentrantStage = 'session' | 'authentication' | 'connection' | 'wire' | 'rpc' | 'readiness'
 
-/** 通过真实 authenticate/welcome 回调重入关闭；本机安装、原生权限和设备身份仅属隔离 fixture。 */
+/** 通过真实 authenticate/welcome 验证关闭重入或认证属性失败；安装、原生权限与设备身份仅属隔离 fixture。 */
 async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose = false): Promise<void> {
   const native = await localFixture()
   const gateway = transportFixture()
@@ -101,6 +101,7 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
   let runtime!: Awaited<ReturnType<typeof createConnectorRuntime>>
   let callbackClose: Promise<void> | undefined
   let sessionCalls = 0
+  let authenticationReads = 0
   let resourceCloses = 0
   let delegationCloses = 0
   let lazyCalls = 0
@@ -175,6 +176,14 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
         const resource: ReturnType<ConnectorRuntimeOptions['session']> = {
           backend,
           config: { ...native.config, transport: 'ipc' },
+          /** 新认证模式的属性失败也属于已交付会话，不能绕过原资源及直接委托的回收。 */
+          get authentication(): 'delegated' {
+            authenticationReads++
+            if (stage === 'authentication') {
+              throw new Error('isolated_authentication_getter_failure')
+            }
+            return 'delegated'
+          },
           delegation: lazy
             ? /** 关闭阶段绝不应为了清理而调用此入口。 */ () => {
                 lazyCalls++
@@ -218,7 +227,13 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
         claims.close()
       }
     })
-    await until(/** 真实 welcome 或后续宿主回调必须实际触发关闭。 */ () => callbackClose !== undefined)
+    await until(
+      /** 属性异常必须确实经过真实 welcome；其它阶段必须实际触发关闭回调。 */ () =>
+        stage === 'authentication' ? authenticationReads === 1 : callbackClose !== undefined
+    )
+    if (stage === 'authentication') {
+      stopFromCallback()
+    }
     if (failingClose) {
       await assert.rejects(callbackClose!, /connector_runtime_close_failed/)
       await assert.rejects(runtime.closed, /connector_runtime_close_failed/)
@@ -231,8 +246,14 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
     assert.equal(resourceCloses, 1)
     assert.equal(releases, 1)
     assert.equal(lazyCalls, 0)
+    if (stage === 'authentication') {
+      assert.equal(authenticationReads, 1)
+    }
     assert.equal(delegationCloses, lazy ? 0 : 1)
-    assert.equal(subscriptions, stage === 'session' || stage === 'connection' ? 0 : stage === 'wire' ? 1 : 2)
+    assert.equal(
+      subscriptions,
+      stage === 'session' || stage === 'authentication' || stage === 'connection' ? 0 : stage === 'wire' ? 1 : 2
+    )
     assert.equal(unsubscribes, subscriptions)
     assert.equal(runtime.transport.status().phase, 'stopped')
     assert.equal(native.state.responses, 0)
@@ -265,6 +286,12 @@ for (const stage of ['session', 'connection', 'wire', 'rpc', 'readiness'] as con
     /** 各个真实构建边界都必须回收返回的直接委托、Wire/RPC 和宿主资源。 */ async () => welcomeReentry(stage)
   )
 }
+
+test(
+  'Connector cleans the returned session and direct delegation when its authentication getter throws',
+  /** 属性异常发生于真实 welcome 之后，原会话与直接交付 token 均须关闭一次且不得建 Wire 或原生派发。 */ async () =>
+    welcomeReentry('authentication')
+)
 
 test(
   'Connector welcome reentry does not resolve an unused lazy delegation',

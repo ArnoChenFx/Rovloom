@@ -9,7 +9,13 @@ import { aborted, deadline, interruptible, runFixedProcess, runSocket } from './
 import type { PreparedFrame } from './io.js'
 import { inspectEndpoint, localLimits, pinConfig, recheckEndpoint, verifyInstallation } from './local.js'
 import { LuvusAdapterError } from './types.js'
-import type { EndpointIdentity, LuvusLocalConfig, LuvusRpcHost, NativeTransportEvidence } from './types.js'
+import type {
+  EndpointIdentity,
+  LuvusLocalConfig,
+  LuvusRpcHost,
+  NativeTransportEvidence,
+  LuvusNativeAuth
+} from './types.js'
 
 /** 按原生 JSON 规则解析有界字节，失败时仅暴露安全错误码。 */
 function parse(bytes: Buffer, maxBytes: number): Json {
@@ -42,8 +48,10 @@ export function parseRpcFrame(bytes: Buffer, maxBytes: number): JsonObject {
   }
 }
 /** 由宿主注入原生 id 和受限认证串，并将 UTF-8、转义及末尾 LF 纳入完整帧预算。 */
-export function requestFrame(request: JsonObject, nativeId: string, auth: string, budget: number): Buffer {
-  if (typeof auth !== 'string' || !/^[!-~]{1,256}$/.test(auth)) {
+export function requestFrame(request: JsonObject, nativeId: string, auth: LuvusNativeAuth, budget: number): Buffer {
+  const owner =
+    auth !== null && typeof auth === 'object' && auth.kind === 'local_owner' && Object.keys(auth).length === 1
+  if (!owner && (typeof auth !== 'string' || !/^[!-~]{1,256}$/.test(auth))) {
     throw new LuvusAdapterError('native_auth_required')
   }
   if (Object.hasOwn(request, 'id') || Object.hasOwn(request, 'auth')) {
@@ -52,7 +60,7 @@ export function requestFrame(request: JsonObject, nativeId: string, auth: string
   // Wire 已校验请求；此处将 Connector 专有字段加入后，重新计算完整 UTF-8 帧预算。
   let bytes: Buffer
   try {
-    bytes = Buffer.from(boundedJson({ ...request, id: nativeId, auth }, budget) + '\n')
+    bytes = Buffer.from(boundedJson({ ...request, id: nativeId, ...(owner ? {} : { auth }) }, budget) + '\n')
   } catch {
     throw new LuvusAdapterError('native_request_limit')
   }
