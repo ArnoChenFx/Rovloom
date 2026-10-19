@@ -29,8 +29,12 @@ bun run smoke
 再执行其原生编译器，保留 `strict` 和 `noUncheckedIndexedAccess`；转译不能
 替代类型检查，也不要直接运行 TypeScript 的 Node shebang。
 
+新增及后续修改的代码文件须在开头用中文注释说明功能与职责。每个函数、方法及有实际逻辑的
+回调都须有紧邻的中文说明；复杂逻辑补充重要边界、返回含义或副作用。注释应具体解释作用，
+不要仅复述名称，也不要记录开发过程。
+
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration 与 persistence 八个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence 与 transport 九个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
@@ -181,6 +185,7 @@ SDK 实证 revision 为 `2025-11-25`，Bun 的 `process.version` 只是 Node 兼
 SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v4 要求全新库并拒绝未发布的旧库。
 Store/Router 已提供 provider/binding、固定原文期限、持久 history、全局预算、降级与隔离快照；
 本机管理接口与独立可信来源的接线边界见[存储运行指引](STORAGE.md)。测试使用临时 SQLite
-文件、真实 SQLITE_FULL 与异常退出，不触及真实库。服务认证、跨平台存储和重启后的原生
+文件、真实 SQLITE_FULL 与异常退出，不触及真实库。WSS/loopback 模块与独立宿主接线见
+[通道接线](TRANSPORT.md)，测试证书另需 Linux `/usr/bin/openssl`。生产持久身份服务、跨平台存储和重启后的原生
 响应上下文恢复仍待接线；unknown 不重放，取消不代表回滚，逻辑删除不保证物理擦除。
 Herdr 未通过独立 P0-H，仍不可执行。

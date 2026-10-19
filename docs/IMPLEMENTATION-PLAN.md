@@ -12,7 +12,7 @@
 | Wire 2 | 严格 codec/协商、显式 provider/context、内存去重、对象重组、流状态、历史准入/晚到证据计划 | 真认证/WSS、持久化事务、实际发送/重复抑制/资源释放的宿主接线 |
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
-| 产品服务 | 模块接口及测试 backend | Gateway/Connector 角色 CLI、MCP facade、设备 transport、原生 adapters、管理 UI 和部署发行 |
+| 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 和部署发行 |
 | Herdr | 固定官方 binary/schema 来源、candidate 来源表达、离线审计、专用原生验证器与状态重建回放 | P0-H 完整副作用覆盖与独立评审、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
@@ -70,6 +70,11 @@ Herdr P0-H → 被动读/事件语义评审 → 独立 adapter → 同一网关�
 交付：规范 SQLite schema、fake clock/真实磁盘故障测试、本机受保护恢复接口与运维说明。服务级运维入口仍待交付；不提供跨重启的响应上下文恢复或重放。
 
 ### 3.3 设备身份、配对与 WSS
+
+当前模块及隔离验证范围见[通道接线](TRANSPORT.md)。listener / 出站连接已复用现有 Wire 和
+持久账本；独立 hash-only 身份库、一次性证明、配对/轮换专用 custody 和精确 socket 封锁已与受保护
+Store 身份桥完成隔离组合验证。生产管理员/配置来源、全局预算分配、流接线及真实多机
+仍须完成以下门禁。
 
 - 实现一次性 enrollment 签发/受保护交付、原子兑换、独立设备认证、撤销/轮换、重复连接拒绝与授权 takeover；凭据不入模型、URL、argv 或日志。
 - Store 提供受保护的 verified 连接及同 ID 重配桥：注入独立一次性凭据校验证明、管理确认与 epoch fence；重配提交后按设备作用域释放执行/仅响应上下文和分片，跨库失败保留外部 blocked，不宣称双库原子提交。接口与失败顺序见[存储运行指引](STORAGE.md#独立身份库的设备生命周期桥)，身份/WSS 宿主仍须实现证明消费、同步通道阻断及新配对完成后的解锁。

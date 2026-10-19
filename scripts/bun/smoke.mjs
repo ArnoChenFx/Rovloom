@@ -1,3 +1,4 @@
+// 验证构建后入口、共享许可身份及 SQLite 重开；原生来源和设备均限隔离 fixture。
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,6 +15,19 @@ const native = await import('../../dist/src/native-contract/index.js')
 const wire = await import('../../dist/src/wire/index.js')
 const integration = await import('../../dist/src/integration/luvus-wire.js')
 const persistence = await import('../../dist/src/integration/persistence.js')
+const transport = await import('../../dist/src/transport/index.js')
+assert.equal(typeof transport.createGateway, 'function')
+assert.equal(typeof transport.createConnector, 'function')
+assert.equal(typeof transport.loadCredential, 'function')
+assert.equal(typeof transport.IdentityStore, 'function')
+assert.equal(typeof transport.PersistentIdentity, 'function')
+assert.equal(typeof transport.createPairingDelivery, 'function')
+assert.equal(typeof transport.createStoreDeviceLedger, 'function')
+assert.equal(typeof transport.createStoreIdentityFacts, 'function')
+assert.equal(typeof transport.PersistentProofIdentity, 'function')
+assert.equal(typeof transport.ChannelRegistry, 'function')
+assert.equal(typeof transport.createDeviceLifecycleWiring, 'function')
+assert.equal(typeof transport.createDeviceLifecycleAdapter, 'function')
 assert.equal(typeof persistence.persistentBackend, 'function')
 assert.equal(typeof persistence.commitLuvusResponse, 'function')
 assert.deepEqual(
@@ -149,21 +163,29 @@ const proof = {
 }
 const grants = [{ target, methods: ['task.add'], actions: ['dispatch', 'read'] }]
 const adapter = integration.createLuvusWireAdapter({
+  /** 为构建产物的隔离 adapter 提供固定 mock 连接，不接入真实设备。 */
   connection: () => connection,
+  /** 提供已固定的 mock attempt，验证跨构建入口的私有 handle 关联。 */
   attempt: () => row,
+  /** 提供 Gateway 侧的 mock provider registry，限定产物 smoke 的目标实例。 */
   provider: () => provider,
+  /** 提供独立本机侧的 mock provider 配置，验证双端 binding 核对。 */
   localProvider: () => provider,
+  /** 把固定离线 bundle 与合成来源组成 smoke 契约记录，不授予生产许可。 */
   contract: () => ({
     wire: { source: origin, support_status: 'validated' },
     compiled: compiled.value,
     capabilities,
     capability_revision: 'caps'
   }),
+  /** 提供仅限 smoke 的原生来源证明，供真实 validator 校验来源关联。 */
   nativeSource: () => proof,
+  /** 提供同一 mock 目标的双端 grant，验证构建后的授权交集路径。 */
   policies: () => ({
     caller: { revision: 'caller', grants },
     local: { revision: 'local', grants }
   }),
+  /** 为固定 task.add fixture 提供合成分类和权限边界，验证产物间许可身份一致。 */
   authority: () => ({
     classification_source_verified: true,
     classifications: [
@@ -171,7 +193,10 @@ const adapter = integration.createLuvusWireAdapter({
         method: 'task.add',
         revision: 'review',
         contract: compiled.value.identity,
-        native: capabilities.result.method_contracts.find((row) => row.method === 'task.add'),
+        native: capabilities.result.method_contracts.find(
+          /** 从固定能力表选择 task.add 的原生契约，避免使用其它方法的来源。 */
+          (row) => row.method === 'task.add'
+        ),
         transport: 'single_request_rpc',
         effect: 'execute',
         requires_owner: false,
@@ -194,8 +219,11 @@ const adapter = integration.createLuvusWireAdapter({
     raw_requested: false,
     supported_transports: ['single_request_rpc']
   }),
+  /** 提供 smoke 专用 caller ID，不从业务输入构造 principal。 */
   currentPrincipal: () => 'principal',
+  /** 固定 smoke 可信时间，使许可和期限判断可重复。 */
   now: () => 100,
+  /** 将 smoke 内容状态固定为可读，仅用于结果门禁验证。 */
   contentStatus: () => 'available'
 })
 const base = {
@@ -228,11 +256,13 @@ const heartbeat = { ...base, type: 'heartbeat', payload: { sequence: 0 } }
 const heartbeatContext = { phase: 'authenticated', direction: 'gateway_to_connector', connection }
 assert.deepEqual(protocol.decodeFrame(protocol.encodeFrame(heartbeat, heartbeatContext), heartbeatContext), heartbeat)
 assert.throws(
+  /** 用旧 major 帧触发拒绝，确认产物未回退旧 Wire 执行协议。 */
   () => protocol.decodeFrame(JSON.stringify({ ...heartbeat, protocol_major: 1 }), heartbeatContext),
   /protocol_major_unsupported/
 )
 const { provider_id: _providerId, ...missingProvider } = target
 assert.throws(
+  /** 删除 provider 字段后尝试解码，确认产物不能补造缺失目标。 */
   () =>
     adapter.decode(
       JSON.stringify({
@@ -255,7 +285,11 @@ try {
   const machine = store.register('artifact')
   assert.equal(store.machine(machine.machine_id).name, 'artifact')
   // 共享 chunk 必须保留不同构建入口之间的类身份。
-  assert.throws(() => store.machine('missing'), contracts.GatewayError)
+  assert.throws(
+    /** 查询缺失机器，确认构建后的 Store 保持拒绝语义。 */
+    () => store.machine('missing'),
+    contracts.GatewayError
+  )
   store.close()
   const reopened = new Store(join(dir, 'db'))
   assert.equal(reopened.machine(machine.machine_id).name, 'artifact')
