@@ -57,6 +57,9 @@ const server = Bun.serve({
     } else if (url.pathname === '/rovloom-mark-orange.png' || url.pathname === '/fixtures/rovloom-mark-orange.png') {
       body = readFileSync(root + 'dist/webui/rovloom-mark-orange.png')
       type = 'image/png'
+    } else if (url.pathname === '/theme.js' || url.pathname === '/fixtures/theme.js') {
+      body = readFileSync(root + 'dist/webui/theme.js')
+      type = 'text/javascript; charset=utf-8'
     } else if (/^\/(?:browser|chunk-[a-zA-Z0-9]+)\.js$/.test(url.pathname)) {
       body = readFileSync(root + 'dist/webui' + url.pathname)
       type = 'text/javascript; charset=utf-8'

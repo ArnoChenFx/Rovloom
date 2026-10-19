@@ -41,6 +41,69 @@ def controls(page):
     return page.locator('.preference select').nth(0), page.locator('.preference select').nth(1)
 
 
+
+def first_paint(browser, base, output, checks, page_error):
+    """暂停主模块，核对保存主题在首次绘制前生效且无需主模块装载。"""
+    records = []
+    for system, saved, background in [('light', 'dark', 'rgb(15, 27, 27)'), ('dark', 'light', 'rgb(243, 246, 245)')]:
+        context = browser.new_context(locale='en-US', color_scheme=system, viewport={'width': 900, 'height': 650})
+        context.add_init_script("localStorage.setItem('rovloom.webui.theme'," + json.dumps(saved) + ");window.themePaints=[];new PerformanceObserver(/** 捕获实际首帧属性和背景，不依赖模块完成后的断言。 */list=>{for(const entry of list.getEntries())window.themePaints.push({name:entry.name,theme:document.documentElement.dataset.theme,background:getComputedStyle(document.documentElement).backgroundColor})}).observe({type:'paint',buffered:true})")
+        page = context.new_page()
+        page.on('pageerror', page_error)
+        held = []
+
+        def hold(route):
+            """只暂停既有主模块，首屏经典初始化资源照常加载。"""
+            held.append(route)
+
+        page.route('**/browser.js', hold)
+        page.goto(base + '/', wait_until='commit')
+        page.wait_for_selector('body', state='attached')
+        expect(page.locator('html')).to_have_attribute('data-theme', saved)
+        page.wait_for_function('''/* 等待CSS完成但保持主模块暂停。 */ (expected)=>getComputedStyle(document.documentElement).backgroundColor===expected''', arg=background)
+        assert held
+        assert page.locator('#rovloom-management').inner_text() == ''
+        assert page.evaluate('''/** 检查初始化脚本仍是同步经典脚本。 */ ({})=>{const script=document.querySelector('script[src="./theme.js"]');return script.type===''&&!script.async&&!script.defer}''', {})
+        page.screenshot(path=str(output / f'first-paint-{saved}.png'))
+        page.wait_for_function('''/* 验证浏览器已交付真实first-paint记录。 */ ()=>window.themePaints.some(/** 仅筛选首次绘制。 */entry=>entry.name==='first-paint')''')
+        paints = page.evaluate('window.themePaints')
+        assert all(paint['theme'] == saved and paint['background'] == background for paint in paints), paints
+        records.append({'system': system, 'saved': saved, 'main_module_paused': True, 'paints': paints})
+        for route in held:
+            route.continue_()
+        page.get_by_text(WORDS['en']['unavailable'], exact=False).wait_for()
+        assert page.locator('html').get_attribute('data-theme') == saved
+        checks.append(f'first paint: saved {saved} overrides system {system} before CSS/main module; paint timing verified')
+        context.close()
+    context = browser.new_context(locale='en-US', color_scheme='light')
+    context.add_init_script("localStorage.setItem('rovloom.webui.theme','system')")
+    page = context.new_page()
+    page.on('pageerror', page_error)
+    held = []
+
+    def hold_system(route):
+        """系统默认也暂停主模块，验证CSS在初始化期间保持动态。"""
+        held.append(route)
+
+    page.route('**/browser.js', hold_system)
+    page.goto(base + '/', wait_until='commit')
+    page.wait_for_selector('body', state='attached')
+    page.wait_for_function("() => getComputedStyle(document.documentElement).backgroundColor==='rgb(243, 246, 245)'")
+    assert page.locator('html').get_attribute('data-theme') is None
+    page.emulate_media(color_scheme='dark')
+    page.wait_for_function("() => getComputedStyle(document.documentElement).backgroundColor==='rgb(15, 27, 27)'")
+    assert page.locator('html').get_attribute('data-theme') is None
+    assert page.locator('#rovloom-management').inner_text() == ''
+    for route in held:
+        route.continue_()
+    page.get_by_text(WORDS['en']['unavailable'], exact=False).wait_for()
+    expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
+    records.append({'saved': 'system', 'main_module_paused': True, 'system_change_before_main': 'light to dark', 'css_followed_system': True})
+    checks.append('before main module: system preference keeps live CSS system theme changes')
+    context.close()
+    (output / 'first-paint.json').write_text(json.dumps(records, ensure_ascii=False, indent=2) + '\n')
+
+
 def main():
     """在全新浏览器上下文检查两语两主题、系统变化、保存回退和认证失败生命周期。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -64,6 +127,7 @@ def main():
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        first_paint(browser, base, output, checks, page_error)
         for language, locale in [('zh-CN', 'zh-TW'), ('en', 'en-GB')]:
             for theme in ['light', 'dark']:
                 words = WORDS[language]
@@ -97,7 +161,7 @@ def main():
                 contrast_check(page)
                 page.evaluate("window.webUiFixture.mode='hold'")
                 page.get_by_role('button', name=words['refresh'], exact=True).click()
-                page.wait_for_function('window.webUiFixture.pending.length===1')
+                page.wait_for_function('/* 只等隔离请求进入挂起。 */ ()=>window.webUiFixture.pending.length===1')
                 before = page.evaluate('({reads:window.webUiFixture.reads,aborted:window.webUiFixture.aborted,hash:location.hash})')
                 language_select, theme_select = controls(page)
                 language_select.focus()

@@ -45,7 +45,7 @@ function languageChoice(value: unknown): LanguageChoice {
 }
 
 /** 验证主题偏好，默认跟随系统且不把未知值写到 class/style。 */
-function themeChoice(value: unknown): ThemeChoice {
+export function themeChoice(value: unknown): ThemeChoice {
   return value === 'light' || value === 'dark' ? value : 'system'
 }
 

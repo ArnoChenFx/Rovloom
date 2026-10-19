@@ -32,7 +32,14 @@ export function loadManagementAssets(directory: string): ManagementAssets {
     }
     result.set(path, new Uint8Array(body))
   }
-  for (const path of ['/', '/browser.js', '/manage.css', '/rovloom-mark-orange.png', '/rovloom-logo.png']) {
+  for (const path of [
+    '/',
+    '/browser.js',
+    '/theme.js',
+    '/manage.css',
+    '/rovloom-mark-orange.png',
+    '/rovloom-logo.png'
+  ]) {
     if (!result.has(path)) {
       throw new Error('management_assets_missing')
     }

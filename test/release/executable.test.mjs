@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { buildStandalone, sha256 } from '../../scripts/release/build.mjs'
 import { smokeStandalone } from '../../scripts/release/smoke.mjs'
+import { loadManagementAssets } from '../../src/admin/assets.ts'
 
 test(
   'single executable embeds Worker, controlled helper, management assets and SQLite without external Bun',
@@ -28,11 +29,11 @@ test(
     const paths = new Map(
       report.assets.map(/* 将探针实际读到的嵌入资源映射到摘要以逐项比对。 */ (asset) => [asset.path, asset.sha256])
     )
-    for (const name of ['index.html', 'browser.js', 'manage.css', 'rovloom-mark-orange.png', 'rovloom-logo.png']) {
-      assert.equal(
-        paths.get(name === 'index.html' ? '/' : '/' + name),
-        sha256(readFileSync(`${output.directory}/webui/${name}`))
-      )
+    assert(paths.has('/theme.js'))
+    const resources = loadManagementAssets(`${output.directory}/webui`)
+    assert.deepEqual([...paths.keys()].sort(), [...resources.keys()].sort())
+    for (const [path, bytes] of resources) {
+      assert.equal(paths.get(path), sha256(bytes))
     }
     assert.equal(
       paths.get('/rovloom-mark-orange.png'),

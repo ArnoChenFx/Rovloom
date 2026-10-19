@@ -17,11 +17,24 @@ export async function buildWebui(directory) {
   if (!browser.success) {
     throw new AggregateError(browser.logs, 'Management UI build failed')
   }
+  // 独立经典脚本在CSS前执行；静态导入的单文件资源清单也必须包含它。
+  const theme = await Bun.build({
+    entrypoints: ['src/webui/theme.ts'],
+    root: 'src/webui',
+    outdir: directory,
+    target: 'browser',
+    format: 'iife',
+    splitting: false,
+    sourcemap: 'external'
+  })
+  if (!theme.success) {
+    throw new AggregateError(theme.logs, 'Theme initialization build failed')
+  }
   for (const asset of ['index.html', 'manage.css']) {
     copyFileSync(`src/webui/${asset}`, resolve(directory, asset))
   }
   for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
     copyFileSync(`docs/assets/brand/${asset}`, resolve(directory, asset))
   }
-  return browser.outputs.length
+  return browser.outputs.length + theme.outputs.length
 }
