@@ -30,10 +30,10 @@ export function mountWebUi(root: HTMLElement, read: PageRead = unavailableRead, 
   brand.href = '#'
   brand.setAttribute('aria-label', 'Rovloom，返回设备列表')
   const logo = element('img', '', 'brand-logo')
-  logo.src = './rovloom-logo.png'
+  logo.src = './rovloom-mark-orange.png'
   logo.alt = 'Rovloom'
-  logo.width = 2172
-  logo.height = 724
+  logo.width = 48
+  logo.height = 48
   brand.append(logo)
   const title = element('span', '设备与连接管理', 'muted')
   const toolbar = element('div', '', 'toolbar')

@@ -41,7 +41,7 @@ SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
 
 管理页另以 browser target 输出 `dist/webui/` 的 ESM、HTML/CSS 与外部 source maps，
 不依赖 Node、远端字体或 UI 框架。默认入口只显示管理读取不可用，不能将它当作已接线的管理服务。
-顶栏与页面图标复用[原始 logo](assets/brand/rovloom-logo.png)，构建和隔离验证保持原 PNG 字节并纳入静态产物。
+顶栏与 favicon 复用[独立橙色 R](assets/brand/rovloom-mark-orange.png)；[横版全名图](assets/brand/rovloom-logo.png)仍保留在静态产物中。构建和隔离验证保持两张原 PNG 的字节、背景及纵横比。
 
 ## 管理页面的隔离验证
 
@@ -108,9 +108,6 @@ docstring 可以作为说明保留。
 编写时应对照真实控制流，说明该函数的输入处理、输出、拒绝边界或副作用；
 “执行函数”“处理回调”等重述名称的文字不能作为有用说明。自动门禁只判断
 注释位置与是否包含汉字，不验证自然语言正确性。
-
-`test/wire/reliability.test.ts` 暂缓注释维护，仅此精确路径不参加注释覆盖检查；
-主测试执行和语义比较仍包含该文件。恢复其注释维护时同步移除这一例外。
 
 新增代码或合入其他工作分支后，先运行以下门禁，再执行上面的完整验收：
 

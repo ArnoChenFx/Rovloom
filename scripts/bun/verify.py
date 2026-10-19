@@ -91,10 +91,11 @@ def main():
         for name in ('package.json', 'bun.lock', 'bunfig.toml', '.bun-version', 'tsconfig.json',
                      '.gitignore', '.oxlintrc.json', '.oxfmtrc.json'):
             shutil.copyfile(repo / name, project / name)
-        # WebUI 构建复用唯一品牌源，仅复制明确的静态 PNG，不引入其它文档或运行日志。
-        brand = Path('docs/assets/brand/rovloom-logo.png')
-        (project / brand).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(repo / brand, project / brand)
+        # WebUI 只复制明确的应用标与横版全名图，保留原背景和字节，不引入其它文档或日志。
+        for name in ('rovloom-mark-orange.png', 'rovloom-logo.png'):
+            brand = Path('docs/assets/brand') / name
+            (project / brand).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(repo / brand, project / brand)
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'bun').symlink_to(bun)

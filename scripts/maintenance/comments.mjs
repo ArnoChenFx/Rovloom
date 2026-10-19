@@ -10,8 +10,6 @@ import { createScanner, getShebang, NodeFlags, SyntaxKind } from 'typescript/uns
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
 const javascriptExtensions = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts'])
-// 仅暂缓指定测试的注释维护；主测试运行与语义比较仍覆盖该文件。
-const deferredCommentPaths = new Set(['test/wire/reliability.test.ts'])
 const functionKinds = new Set([
   SyntaxKind.FunctionDeclaration,
   SyntaxKind.FunctionExpression,
@@ -45,9 +43,7 @@ export function maintainedFiles(root) {
       if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '__pycache__') {
         walk(path)
       } else if (entry.isFile() && (javascriptExtensions.has(extname(path)) || extname(path) === '.py')) {
-        if (!deferredCommentPaths.has(relative(root, path).split('\\').join('/'))) {
-          files.push(path)
-        }
+        files.push(path)
       }
     }
   }
