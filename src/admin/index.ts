@@ -17,3 +17,10 @@ export {
 } from '../mcp/transport-observations.js'
 
 export { createManagementHandler, type ManagementWriteHttpOptions } from './write-http.js'
+
+export {
+  createManagementSessionAdapter,
+  type ManagementSessionBinding,
+  type ManagementSessionSource,
+  type ManagementSessionAdapterOptions
+} from './session-adapter.js'
