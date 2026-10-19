@@ -20,7 +20,9 @@ import { fixture, until } from './helpers.js'
 
 /** workspace 私有祖先满足真实持久文件边界，不把世界可写目录当受保护路由来源。 */
 function directory(): string {
-  return mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.context-test-'))
+  return mkdtempSync(
+    join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.context-test-')
+  )
 }
 
 /** 单元夹具明确合成通道证明；跨进程用例必须经过真实 transport 私有接收路径。 */
