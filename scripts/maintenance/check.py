@@ -19,24 +19,12 @@ from run_python_tests import test_files as python_test_files
 
 ROOT = Path(__file__).resolve().parents[2]
 TEST_FILE = re.compile(r'[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$')
-# Removed execution records, scoped to their original locations. Versioned inputs
-# under fixtures/ and provenance/compatibility records are deliberately unaffected.
-TRANSIENT_DIRS = (
-    'docs/bun/verification/', 'docs/issue4/implementation-logs/',
-    'docs/issue4/focused-review-logs/', 'docs/worker-logs/',
-)
-TRANSIENT_FILES = {
-    'docs/HANDOVER.md', 'docs/PROGRESS.md', 'docs/FOUNDATION-REVIEW.md',
-    'docs/bun/CI.md', 'docs/bun/REPORT.md', 'docs/bun/REVIEW.md',
-    'docs/bun/dependency-migration.json', 'docs/bun/verified-inputs.json',
-    'docs/bun/native-verification.json', 'docs/p0/REPORT.md', 'docs/p0/REVIEW.md',
-    'docs/bun/review/ci-first-failure.json', 'docs/bun/review/review.json',
-    'docs/bun/review/verified-inputs.json',
-    'docs/p0/review-verification.json', 'docs/issue4/FOCUSED-REVIEW-API.md',
-    'docs/issue4/FOCUSED-REVIEW.md', 'docs/issue4/IMPLEMENTATION-REPORT.md',
-    'docs/issue4/VERIFICATION.md', 'docs/issue4/design-audit.json',
-    'docs/issue4/integration-review.json', 'docs/issue4/matrix-implementation-coverage.json',
-}
+# 生成的执行记录使用通用输出目录；版本化协议输入和来源资料在 test/fixtures 维护。
+TRANSIENT_DIRS = ('artifacts/', 'coverage/')
+TRANSIENT_DOC_DIRS = {'verification', 'worker-logs', 'implementation-logs', 'focused-review-logs'}
+TRANSIENT_DOC_NAMES = {'HANDOVER.md', 'PROGRESS.md', 'REPORT.md', 'REVIEW.md',
+                       'VERIFICATION.md', 'FOUNDATION-REVIEW.md', 'IMPLEMENTATION-REPORT.md'}
+
 
 
 # 读取 Git 跟踪文件集合，排除工作区中未纳入版本控制的文件。
@@ -49,9 +37,11 @@ def tracked_files(root):
 def transient_paths(files):
     found = []
     for path in sorted(files):
-        scoped = path.startswith(('docs/bun/', 'docs/p0/', 'docs/issue4/'))
-        if (path in TRANSIENT_FILES or path.startswith(TRANSIENT_DIRS) or
-                (scoped and (path.endswith(('.log', '-verification.json')) or '/worker-logs/' in path))):
+        parts = PurePosixPath(path).parts
+        document_output = path.startswith('docs/') and (
+            bool(set(parts[1:-1]) & TRANSIENT_DOC_DIRS) or
+            parts[-1] in TRANSIENT_DOC_NAMES or path.endswith(('.log', '-verification.json')))
+        if path.startswith(TRANSIENT_DIRS) or document_output:
             found.append(f'{path}: transient execution record; put output outside the checkout')
     return found
 
@@ -238,36 +228,23 @@ def toolchain_and_readmes(root):
     return errors
 
 
-# 从 JUnit 和 Bun 日志汇总实际成功执行的文件，拒绝空或不成功的测试段。
+# 从统一 JUnit 汇总实际成功执行的文件，拒绝空报告与失败或跳过用例。
 def executed_test_files(evidence):
     root = ET.parse(evidence / 'foundation.junit.xml').getroot()
     cases = list(root.iter('testcase'))
-    if not cases or any(node.tag in {'skipped', 'failure', 'error'} for node in root.iter()):
-        raise ValueError('foundation report contains no tests or unsuccessful cases')
-    files = {case.attrib['file'].removeprefix('./') for case in cases}
-    for label in ('p0', 'bun-compatibility'):
-        log = (evidence / f'{label}.log').read_text()
-        sections = list(re.finditer(r'^([^\r\n]+):\s*$', log, re.M))
-        found = set()
-        for index, section in enumerate(sections):
-            path = section[1].removeprefix('./')
-            if not TEST_FILE.search(path):
-                continue
-            end = sections[index + 1].start() if index + 1 < len(sections) else len(log)
-            output = log[section.end():end]
-            if not re.search(r'^\(pass\) ', output, re.M) or re.search(r'^\((?:fail|skip|todo)\) ', output, re.M):
-                raise ValueError(f'{path}: no executed tests or unsuccessful cases')
-            found.add(path)
-        if not found:
-            raise ValueError(f'{label}: no discovered test files in Bun report')
-        files |= found
-    return files
+    if not cases or int(root.attrib.get('tests', '-1')) != len(cases):
+        raise ValueError('foundation report contains no tests or inconsistent case count')
+    if any(node.tag in {'skipped', 'failure', 'error'} or any(
+            int(node.attrib.get(key, '0')) for key in ('failures', 'errors', 'skipped', 'disabled'))
+            for node in root.iter()):
+        raise ValueError('foundation report contains unsuccessful cases')
+    return {case.attrib['file'].removeprefix('./') for case in cases}
 
 
 # 比较版本化测试源码与执行文件集合，报告漏跑或来源未跟踪的文件。
 def test_discovery(files, evidence):
     # Any new suite location must be wired into CI; fixture source examples are data.
-    expected = {path for path in files if TEST_FILE.search(path) and not path.startswith('fixtures/')}
+    expected = {path for path in files if TEST_FILE.search(path) and not path.startswith('test/fixtures/')}
     actual = executed_test_files(evidence)
     return ([f'{path}: test file was not executed by verification' for path in sorted(expected - actual)] +
             [f'{path}: reported test file is not tracked source' for path in sorted(actual - expected)])

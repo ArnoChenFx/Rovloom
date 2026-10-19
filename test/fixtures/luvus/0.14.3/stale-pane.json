@@ -1,0 +1,39 @@
+{
+  "format": 1,
+  "evidence_kind": "sanitized_native_exchange",
+  "source": {
+    "repository": "https://github.com/ArnoChenFx/Rovloom",
+    "commit": "bb7b29b7f1a24b78801ad39c721b80924143f083",
+    "archive_path": "fixtures/bun/native-evidence.tar.gz",
+    "archive_sha256": "71c38aa6ce308cb71fe02746a8380034e2869b75d82c8c288edefd3b4935cc41",
+    "archive_git_blob": "02156e6e696e5ff9210314a864afcc821df594e7",
+    "member": "native/transcript.json",
+    "record_indices": [
+      73,
+      74
+    ],
+    "capture_completed": true
+  },
+  "binary_version": "0.14.3",
+  "binary_sha256": "895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9",
+  "schema_sha256": "00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6",
+  "terminal_identity": {
+    "server_generation": "01a502a874923c7eeb1bc97f84d0dc04",
+    "terminal_id": "a785fa986fc6c1deb2ec153ade5e2255",
+    "pane_id": "2"
+  },
+  "records": [
+    {
+      "kind": "send",
+      "channel": "control-wrong-pane",
+      "wire": "{\"id\":\"control-wrong-pane\",\"method\":\"terminal.backend.control\",\"params\":{\"server_generation\":\"01a502a874923c7eeb1bc97f84d0dc04\",\"terminal_id\":\"a785fa986fc6c1deb2ec153ade5e2255\",\"pane_id\":\"1\"}}\n",
+      "wire_sha256": "050a974b6c809f4801c2f18448a61aacac9ff39a591eefc64430f250ec7c872f"
+    },
+    {
+      "kind": "receive",
+      "channel": "control-wrong-pane",
+      "wire": "{\"error\":{\"code\":\"stale_route\",\"message\":\"terminal identity no longer matches the pane route\"},\"id\":\"control-wrong-pane\"}\n",
+      "wire_sha256": "129b896a75e31beb52b8fca054379a55091f18f6050a2bd67fb590b9a9cac7b1"
+    }
+  ]
+}

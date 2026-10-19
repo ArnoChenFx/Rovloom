@@ -12,5 +12,5 @@
     "curly": ["error", "all"],
     "one-var": ["error", "never"]
   },
-  "ignorePatterns": ["node_modules/**", "dist/**", ".state/**", "coverage/**", "docs/**", "fixtures/**"]
+  "ignorePatterns": ["node_modules/**", "dist/**", ".state/**", "coverage/**", "docs/**"]
 }

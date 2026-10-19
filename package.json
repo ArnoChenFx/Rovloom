@@ -14,10 +14,6 @@
     "build": "bun --no-env-file scripts/bun/build.mjs",
     "typecheck": "bun --no-env-file node_modules/typescript/bin/tsc --noEmit",
     "test": "bun --no-env-file test ./test",
-    "test:p0": "bun --no-env-file test ./scripts/p0/fixtures.test.mjs && python3 scripts/p0/test_endpoint.py",
-    "p0:audit": "bun --no-env-file scripts/p0/audit-fixtures.mjs",
-    "p0:bun-native": "python3 scripts/bun/audit_native.py",
-    "test:bun": "bun --no-env-file test ./scripts/bun/compatibility.test.mjs",
     "smoke": "bun --no-env-file scripts/bun/smoke.mjs",
     "verify": "python3 scripts/bun/verify.py",
     "lint": "bun --no-env-file node_modules/oxlint/bin/oxlint --config .oxlintrc.json --deny-warnings --report-unused-disable-directives-severity error src test scripts",
@@ -26,7 +22,10 @@
     "format:check": "bun --no-env-file node_modules/oxfmt/bin/oxfmt --config .oxfmtrc.json --check \"{src,test,scripts}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}\" package.json tsconfig.json .oxlintrc.json .oxfmtrc.json",
     "test:quality": "bun --no-env-file test ./test/quality",
     "comments:check": "bun --no-env-file scripts/maintenance/comments.mjs",
-    "comments:equivalence": "bun --no-env-file scripts/maintenance/comment_equivalence.mjs"
+    "comments:equivalence": "bun --no-env-file scripts/maintenance/comment_equivalence.mjs",
+    "audit:luvus": "bun --no-env-file scripts/luvus/audit-fixtures.mjs",
+    "test:protocol": "bun --no-env-file test ./test/luvus ./test/mcp/sdk-compatibility.test.mjs",
+    "test:toolchain": "bun --no-env-file test ./test/toolchain/compatibility.test.mjs"
   },
   "dependencies": {
     "ajv": "8.20.0"

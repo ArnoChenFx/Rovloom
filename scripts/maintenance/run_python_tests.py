@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # 筛选符合 Python 测试命名的文件，排除 fixtures 中作为数据保存的源码。
 def test_files(files):
-    return {path for path in files if not path.startswith('fixtures/') and
+    return {path for path in files if not path.startswith('test/fixtures/') and
             (Path(path).match('test_*.py') or Path(path).match('*_test.py'))}
 
 
