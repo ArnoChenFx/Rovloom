@@ -4,3 +4,12 @@ export { ReadError, createSnapshotReader, type ReadClock, type TimedSnapshot } f
 export { parseRoute, routeHref, type PageRoute, type PageView } from './view.js'
 export { createManagementPageRead, type ManagementReadTransport, type ManagementReadOperation } from './read.js'
 export { createManagementHttpRead, type ManagementFetch } from './http-client.js'
+
+export { createManagementWriteClient, type ManagementWriteClientOptions } from './write-client.js'
+export {
+  ManagementClientError,
+  type ManagementWriteTransport,
+  type ManagementClientOperation,
+  type DeviceManagementIntent
+} from './write-contract.js'
+export { createDeviceManagementFlow, type DeviceManagementState, type ManagementOperationKey } from './write-flow.js'

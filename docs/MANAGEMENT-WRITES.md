@@ -4,6 +4,9 @@
 它复用同一 Store、既有设备身份及管理会话来源，不初始化角色、账户、配置凭据或 listener。
 没有生产 session 来源时保持拒绝；合成管理员测试不代表真实身份交付完成。
 
+可复用的同源会话适配及三个设备动作的浏览器确认/回执状态机见
+[管理会话与客户端](MANAGEMENT-SESSION-CLIENT.md)；生产 session/bootstrap 和实际页面接线仍由宿主交付。
+
 ## 服务组合
 
 `src/admin/index.ts` 导出 `StoreManagementWriteService`、`ManagementServiceError` 和
