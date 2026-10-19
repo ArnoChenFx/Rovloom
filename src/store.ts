@@ -29,8 +29,24 @@ import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, privateFile, privatePath } from './storage/files.js'
 
 export { DEFAULT_RETENTION }
-export type { Call, CallOptions, ManagementRequest, DeviceLifecycleRequest, StoreOptions } from './storage/model.js'
-import type { Call, CallOptions, Machine, Metadata, Row, StoreOptions, LedgerInvalidation } from './storage/model.js'
+export type {
+  Call,
+  CallOptions,
+  ManagementRequest,
+  DeviceLifecycleRequest,
+  StoreOptions,
+  ResultPage
+} from './storage/model.js'
+import type {
+  Call,
+  CallOptions,
+  Machine,
+  Metadata,
+  Row,
+  StoreOptions,
+  LedgerInvalidation,
+  ResultPage
+} from './storage/model.js'
 import { publicCall } from './storage/model.js'
 // 为本地账本实体生成带类别前缀的随机标识，避免顺序 ID 产生关联。
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
@@ -1285,8 +1301,8 @@ export class Store {
     }
     return call
   }
-  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标和原内容摘要。
-  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536) {
+  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标、原内容摘要及实际句柄截止时间，不创建或续期句柄。
+  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): ResultPage {
     const call = this.resultCall(principal, resultId)
     if (
       !Number.isSafeInteger(cursor) ||
@@ -1297,9 +1313,12 @@ export class Store {
     ) {
       throw new GatewayError('invalid_result_cursor')
     }
-    const row = this.db.prepare('SELECT bytes,hash FROM results WHERE result_id=?').get(resultId) as {
-      bytes: number
-      hash: string
+    const row = this.db
+      .prepare('SELECT bytes,hash,expires FROM results WHERE result_id=? AND expires>?')
+      .get(resultId, this.time()) as { bytes: number; hash: string; expires: number } | undefined
+    // 授权读取与此处查询之间可能已提交清理；按实际句柄是否仍存在及未到期拒绝，不以原内容期限替代。
+    if (!row) {
+      throw new GatewayError('result_not_found')
     }
     if (cursor > row.bytes) {
       throw new GatewayError('invalid_result_cursor')

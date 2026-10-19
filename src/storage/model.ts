@@ -62,6 +62,17 @@ export type Call = {
   dedup_expires: number
   content_status: ResponseAnchor['content_status']
 }
+// 单次结果页携带原句柄的绝对毫秒截止时间；它不延长句柄，也不保证后续删除或撤权后仍可读取。
+export type ResultPage = {
+  result_id: string
+  encoding: 'base64'
+  data: string
+  next_cursor: number
+  eof: boolean
+  bytes: number
+  hash: string
+  expires: number
+}
 // 内部行追加原文、绑定和摘要等账本字段；适配器密封的仅响应能力不进入持久化行。
 export type Row = Call & {
   identity_json: string
