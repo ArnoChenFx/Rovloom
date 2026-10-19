@@ -64,7 +64,7 @@ must be rejected by the trusted host. There is no silent promotion to SYSTEM/roo
 Use [src/service/index.ts](../src/service/index.ts) as an importable Bun module. Before the existing
 CLI parses role commands, call `handleServiceCommand(args, host)` and use a defined numeric return
 as the command exit code; `undefined` leaves all unrelated commands to the existing parser.
-The service help is `service --help`. Send its diagnostics to stderr, keeping MCP stdout separate.
+The service help is `service --help`. Send its diagnostics to stderr; Gateway stdout is not an MCP transport.
 This slice deliberately leaves the existing CLI files untouched until their owning change is integrated.
 
 Supported parser forms (examples describe the host seam, not an available installed CLI):
@@ -85,8 +85,9 @@ user across elevation: a missing/unverifiable identity requires explicit `--conf
 The resolved absolute path is frozen into the manifest before account/path preflight; boot/start/restart
 never resolve it again using root/LocalService's home. No secret is copied or ACL adjusted to make a default work.
 
-Both roles have fixed separate identities. `gateway` may be registered only after the host provides a
-non-stdio background Gateway; the current stdio-only CLI preview must fail `verifyRuntime`.
+Both roles have fixed separate identities. `gateway` requires the unique CLI host to provide a persistent
+Streamable HTTP MCP lifecycle, independent of stdin EOF. stdout is not an MCP protocol transport.
+No stdio compatibility path, second MCP server or listener configuration is supplied by this module.
 `verifyRuntime` is mandatory and must validate the actual single-file Rovloom executable, config role,
 fixed absolute state/config paths and login-independent background behavior. It must reject the Bun
 interpreter, arbitrary executables and unavailable role backends. This is a trusted code port, never a
@@ -165,8 +166,9 @@ UID、可执行文件/祖先不可被普通用户替换、目标账户私有配�
 接线点为 `handleServiceCommand(args, host)`：现有唯一 CLI 应在原 parser 之前调用，有数字返回
 时直接作为退出码，`undefined` 表示交还原 parser；诊断只走 stderr。后台程序验证器
 `verifyRuntime` 必须核实真实单文件 Rovloom 产物、角色配置、固定状态根和无登录会话的后台能力，
-拒绝 Bun 解释器、任意第三方程序及缺后端角色。当前 stdio Gateway 不满足后台服务要求，未接线
-前不能注册。`--config` 可省略，但须复用唯一 CLI 的受信身份/默认路径 resolver，默认是已验证 home 下
+拒绝 Bun 解释器、任意第三方程序及缺后端角色。Gateway 必须核验唯一 CLI 注入的持久
+Streamable HTTP MCP 宿主，不依赖 stdin EOF，stdout 不承载 MCP；不保留 stdio 兼容，不另建
+MCP 服务或监听配置。未接线前不能注册。`--config` 可省略，但须复用唯一 CLI 的受信身份/默认路径 resolver，默认是已验证 home 下
 `.config/rovloom/gateway.json` 或 `connector.json`，Windows 同样如此；显式路径优先。不能确定提升前
 真实用户时要求 `--config`，不盲信 HOME/SUDO_USER。解析后的绝对路径在安装时固化，开机/重启不会
 再按 root/LocalService 的 HOME 展开；不会为适配默认路径修改 ACL 或复制秘密。Windows 另需 `verifyWindowsInstallation` 及预先准备的管理员/SYSTEM 专有控制目录；

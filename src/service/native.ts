@@ -17,7 +17,7 @@ import {
 
 export type NativeServiceOptions = {
   platform: string
-  // 必须验证当前单文件产物、配置角色、固定状态根及无登录会话的后台能力；不允许 stdout stdio Gateway。
+  // 核验唯一 CLI 单文件产物、角色/状态根及后台能力；Gateway 必须为持久 Streamable HTTP 宿主，不依赖 stdin EOF。
   verifyRuntime(spec: ServiceSpec): Promise<void>
   // Windows 必须验证 executable/祖先不可被普通账户替换，以及 LocalService 对指定配置/状态目录的最小 ACL。
   verifyWindowsInstallation?: (spec: ServiceSpec) => Promise<void>

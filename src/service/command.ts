@@ -77,7 +77,7 @@ export type ServiceCommandHost = {
   manager: ServiceManager
   // 复用唯一 CLI 的已验证 home/角色默认路径 helper，不接收配置中的身份断言。
   resolveDefaultConfig?: ServiceConfigPathResolver
-  // 诊断使用 stderr；输出固定错误码或非秘密监管状态，不污染 MCP stdout。
+  // 诊断使用 stderr，仅输出固定错误码或非秘密监管状态；不把 stdout 当作 MCP transport。
   diagnostic(text: string): void
 }
 
