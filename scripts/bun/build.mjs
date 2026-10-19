@@ -14,7 +14,8 @@ const result = await Bun.build({
     'src/wire/index.ts',
     'src/integration/luvus-wire.ts',
     'src/integration/persistence.ts',
-    'src/transport/index.ts'
+    'src/transport/index.ts',
+    'src/herdr/readonly.ts'
   ],
   outdir: 'dist/src',
   root: 'src',

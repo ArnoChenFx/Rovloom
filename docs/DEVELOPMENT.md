@@ -34,7 +34,7 @@ bun run smoke
 不要仅复述名称，也不要记录开发过程。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence 与 transport 九个 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport 与 Herdr 十个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开。当前没有服务 CLI、Node target 或声明产物。
@@ -172,6 +172,56 @@ python3 scripts/p0h/verify_native.py --binary /absolute/verified/herdr --output 
 完整参数编译；静态合成 pane 的可观测状态/输入比较不证明所有 UI、agent、通知或
 其它参数无副作用。原生通过范围和失败保留在 PR/CI，生产 allowlist 与保证仍须独立
 评审和实际 adapter 接线，不从本地验证报告生成执行许可。
+
+保留窗边界和并发刷新使用独立实验，每个场景各建全新实例：
+
+```sh
+python3 scripts/p0h/verify_readonly.py --binary /absolute/verified/herdr --output /tmp/rovloom-herdr-readonly-new
+```
+
+实验先用独立对照实际观察大事件写超时后的截断帧和 EOF，再观察一条尚未写完的大
+事件，以相同设置的受控背压固定下一批轮询的游标，再分别生成
+512/513 条自己的重命名事件。完整事件、`events_lost` 和 EOF 均须实际收到；超时、
+生成超预算或游标未固定即失败。游标的解释依赖固定官方实现，不是公共原生序号。
+512 场景读满后另发 marker 并实际读取其事件，确认订阅仍能继续消费；marker 不计入
+初始保留窗。生成预算包含最后一次请求返回，不能只检查请求开始时间。
+大事件只用于测试，不放宽产品 64 KiB 帧限额。并发场景记录真实客户端请求区间、
+脏刷新和整体替换；另用合成 OSC 标题/输出观察元数据变化，不向 PTY 发送输入。
+原生日志与失败轮次继续只留在临时输出和 PR/CI。
+
+### 只读 adapter 接缝
+
+[原生组件](../src/herdr/readonly.ts)复用 Wire 的 `AttemptBinding`、`ContractRecord`、
+双端策略与 Store attempt，不创建第二套设备/provider 身份。协议回放限
+`ping {}` 和 `session.snapshot {}` 的 RPC，保留原生 result/error；adapter 执行候选
+进一步限 `ping {}`，snapshot 仍因副作用覆盖不足而拒绝。流、raw、Host、其它参数、
+终端和写入均拒绝。共享 provider 的 Herdr candidate 硬门禁仍保持关闭。
+
+[安装 schema 原文](../fixtures/p0h/herdr-0.9.5.schema.json)的 hash 对应固定 provenance，
+[脱敏原生回放](../fixtures/p0h/readonly-native.json)仅替换路径和请求 ID；上游许可见
+[LICENSE.herdr](../fixtures/p0h/LICENSE.herdr)。测试从完整 request/success/error 根编译，
+不把 method envelope 检查冒充完整 schema 校验。
+
+宿主须实现源码中的 `HerdrReadonlyBackend`：从现有 Store 取原 attempt/内容状态，
+重新解析当前连接、registry、双端完整 Target grants；独立核对安装契约和本机
+endpoint/peer 后持有不可序列化来源 token。实例或连接改变时替换 token，旧句柄失效。
+同一完整 binding 的重复解析复用私有句柄和原 permit；换 epoch/恢复代次不得复用。
+原生响应证据验证不依赖当前内容读者、read grant 或原策略 revision 仍生效；它始终
+核对原锚点/permit、当前有效连接/provider 与独立来源。读取撤权、过期或 discard
+只能进入 Store 的最小证据分流，原文保存和交付仍须另查当前权限及原期限。
+完整 schema 编译仍须满足 DESIGN 的可终止 worker 与硬资源预算；测试中的直接
+编译不能满足这个生产门禁。原生传输、共享 provider 支持切换、Store 证据提交及
+实际 Gateway/Connector 接线未由这个组件交付。
+
+当前证据测试由合成 backend 保留原 attempt；它不证明真实 Store 清理请求后的迟到路径。
+Herdr 尚未接入共享的 `responseAnchor`、`subscribeInvalidation`、失效关闭及最小仅响应
+上下文，不能直接充当现行 transport 的完整 adapter。宿主原 attempt 回收后仍需补齐
+这些接口及事务接线，不能从保留状态反例推导生产 metadata-only 已可用。
+
+`ping` 足以核对存活和版本，不能提供当前 session 状态。`session.snapshot` 经过公共
+请求前置的待处理终端标题同步，可能更新标题缓存并发布 pane 元数据事件；它不是
+冻结状态读取。只测静态 pane、合成输出和并发重命名，不证明活动 UI、真实 agent
+或通知路径无副作用，不能据此默认给 observer 开放。生产允许集继续为空。
 
 ## 实现范围
 

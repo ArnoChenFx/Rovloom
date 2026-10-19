@@ -13,7 +13,7 @@
 | Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
 | Store/Router | 规范 v4 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
 | 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 和部署发行 |
-| Herdr | 固定官方 binary/schema 来源、candidate 来源表达、离线审计、专用原生验证器与状态重建回放 | P0-H 完整副作用覆盖与独立评审、精确被动读分类/allowlist、adapter 与实际网关接线；写入/终端另行设计 |
+| Herdr | 固定官方 binary/schema 来源、完整根回放、专用边界/并发验证器、只读原生编解码与共享 attempt 接缝 | P0-H 副作用覆盖与独立评审、精确生产 allowlist、硬预算 schema 编译、可信原生 backend、共享门禁与实际网关接线；写入/终端另行设计 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -107,6 +107,13 @@ Store 身份桥完成隔离组合验证。生产管理员/配置来源、全局�
 离线输入、方法门禁与归档命令见[开发指引](DEVELOPMENT.md#herdr-p0-h-离线输入)。
 生产允许集保持为空；合成回放通过不减少以下原生证据要求，归档审计也不建立
 可信 endpoint、安装来源或执行许可。
+
+已有原生组件回放固定版本的 `ping {}` / `session.snapshot {}` RPC，执行候选仅限
+`ping {}`，复用现有 provider/Store/Wire 身份和门禁；它不提供 socket backend、证据提交或 Gateway 服务。
+共享 response anchor、失效订阅/关闭及请求回收后的最小仅响应上下文尚未接入，不能直接
+替代 transport 的完整 adapter，也不表示真实 Store 的 TTL 后证据路径已经接通。
+`ping` 只满足健康核对；snapshot 的公共前置标题同步及活动 UI/agent/通知覆盖仍需
+分类评审。当前不得把候选接口或安装 schema 回放称为默认状态接入已完成。
 
 - P0-H 固定官方 binary 来源/hash、安装 schema/方言/闭包、实际 ping/protocol、endpoint 归属/peer、framing/大小及断线行为，使用自建隔离实例。
 - 按 method+params+版本核实被动读，断言焦点、viewport、输入、agent 状态/通知均无未声明副作用；recent 等未经证明不进 allowlist。
