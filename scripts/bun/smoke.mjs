@@ -85,6 +85,14 @@ assert.deepEqual(
   ].sort()
 )
 const bytes = readFileSync(new URL('../../fixtures/p0/linux-luvus-0.14.3/schema-bundle.json', import.meta.url))
+// 构建产物的普通坏 bundle 不能污染编译服务，随后仍须完成完整有效编译。
+const malformed = await native.compileBundle('{}', {
+  identity: { binary_sha256: 'a'.repeat(64), schema_sha256: contracts.digest('{}'), revision: 'artifact-rejection' }
+})
+assert.deepEqual(malformed, {
+  ok: false,
+  error: { origin: 'contract', code: 'schema_unavailable', stage: 'compile', reason: 'invalid_schema' }
+})
 const compiled = await native.compileBundle(bytes, {
   identity: {
     binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',

@@ -10,7 +10,7 @@ import type { CompilerArtifact, CompilerPort, CompileJob } from '../../src/nativ
 import { hash } from '../../src/native-contract/json.js'
 import { compileBundle, createNativeValidator } from '../../src/native-contract/index.js'
 import type { Check } from '../../src/native-contract/index.js'
-import { bytes, clone, identity, unwrap } from './helpers.js'
+import { bytes, clone, identity, json, unwrap } from './helpers.js'
 
 // 固定内部测试端口保存当前任务；生产 API 不提供该工厂或任意产物安装入口。
 class TestPort implements CompilerPort {
@@ -70,7 +70,9 @@ function reason(result: Check<unknown>, expected: string): void {
   assert.equal(result.ok, false)
   if (!result.ok) {
     assert.equal(result.error.code, 'schema_unavailable')
+    assert.equal(result.error.stage, 'compile')
     assert.equal(result.error.reason, expected)
+    assert.deepEqual(Object.keys(result.error).sort(), ['code', 'origin', 'reason', 'stage'])
     assert(!JSON.stringify(result).includes('synthetic-private-schema'))
   }
 }
@@ -106,6 +108,119 @@ test(
           Ajv2020.prototype[key] = originals[i] as never
         }
       )
+    }
+  }
+)
+
+test(
+  '公共工厂在真实 Worker 拒绝空 bundle 后仍可编译有效 bundle',
+  /* 原始空对象带匹配摘要，拒绝必须是普通编译错误，不能永久关闭全局工厂。 */ async () => {
+    reason(await compileBundle('{}', { identity: { ...identity, schema_sha256: hash('{}') } }), 'invalid_schema')
+    const compiled = unwrap(await compileBundle(bytes, { identity }))
+    assert.equal(compiled.documents.length, 29)
+    assert(createNativeValidator(compiled).checkResponseShape({ id: 'after-invalid-bundle', result: {} }).ok)
+  }
+)
+
+const requestUri = 'https://luvus.dev/protocol/uhp/v1/request.schema.json'
+const rejectedBundles: Array<[string, string, string | ((bundle: Record<string, any>) => void)]> = [
+  ['空根', 'invalid_schema', 'null'],
+  ['数组根', 'invalid_schema', '[]'],
+  ['文档表形状', 'invalid_schema', '{"documents":null}'],
+  [
+    '文档根形状',
+    'invalid_schema',
+    /* 完整文档必须是合法 schema 对象。 */ (bundle) => {
+      bundle.documents[requestUri] = null
+    }
+  ],
+  [
+    '方法目录形状',
+    'invalid_schema',
+    /* 同步修改原根及别名，避免副本冲突遮蔽形状错误。 */ (bundle) => {
+      delete bundle.documents[requestUri].properties
+      bundle.request = clone(bundle.documents[requestUri])
+    }
+  ],
+  [
+    '条件分支形状',
+    'invalid_schema',
+    /* 合法 JSON Schema 布尔分支仍不满足方法条件目录。 */ (bundle) => {
+      bundle.documents[requestUri].allOf = [true]
+      bundle.request = clone(bundle.documents[requestUri])
+    }
+  ],
+  [
+    '缺失引用',
+    'missing_fragment',
+    /* 离线引用失败属于输入拒绝，不属于 Worker 私有协议损坏。 */ (bundle) => {
+      bundle.documents[requestUri].$ref = '#/$defs/nonexistent_review_fixture'
+    }
+  ],
+  [
+    '未知关键字',
+    'unsupported_keyword',
+    /* 未知 schema 语义保守拒绝，随后仍允许已审核 schema。 */ (bundle) => {
+      bundle.documents[requestUri].synthetic_future_keyword = true
+    }
+  ],
+  [
+    'Ajv 根约束',
+    'invalid_schema',
+    /* 完整根的非法 required 由 Ajv 实际拒绝。 */ (bundle) => {
+      bundle.documents[requestUri].required = 'synthetic-invalid'
+      bundle.request = clone(bundle.documents[requestUri])
+    }
+  ]
+]
+for (const [name, expected, input] of rejectedBundles) {
+  test(
+    `真实 Worker 拒绝${name}后复用同一实例编译有效根`,
+    /* 每项真实坏输入之后执行完整有效编译，不能用伪造错误消息代替可用性验证。 */ async () => {
+      let starts = 0
+      const compiler = new SchemaCompiler(
+        /* 统计真实 Worker 创建次数，确认拒绝后复用而非自动重建。 */ () => {
+          starts++
+          return createCompilerWorker()
+        }
+      )
+      try {
+        const bundle = json('schema-bundle.json')
+        if (typeof input === 'function') {
+          input(bundle)
+        }
+        const encoded = typeof input === 'string' ? input : JSON.stringify(bundle)
+        reason(await compiler.compile(encoded, { identity: { ...identity, schema_sha256: hash(encoded) } }), expected)
+        const compiled = unwrap(await compiler.compile(bytes, { identity }))
+        assert.equal(compiled.documents.length, 29)
+        assert.equal(starts, 1)
+      } finally {
+        compiler.close()
+      }
+    }
+  )
+}
+
+test(
+  '非规范 Worker 错误仍作为私有协议损坏永久退役',
+  /* 仅生产端投影已知 schema 拒绝，宿主不放宽阶段、命名空间、字段或 reason 协议。 */ async () => {
+    const error = { origin: 'contract', code: 'schema_unavailable', stage: 'compile', reason: 'invalid_schema' }
+    const { reason: omitted, ...missingReason } = error
+    assert.equal(omitted, 'invalid_schema')
+    for (const [changed, expected] of [
+      [{ ...error, origin: 'authorization' }, 'compiler_protocol_invalid'],
+      [{ ...error, code: 'invalid_context' }, 'compiler_protocol_invalid'],
+      [{ ...error, stage: 'validation' }, 'compiler_protocol_invalid'],
+      [missingReason, 'compiler_artifact_invalid'],
+      [{ ...error, future: true }, 'compiler_artifact_invalid']
+    ] as const) {
+      const port = new TestPort()
+      const compiler = new SchemaCompiler(/* 每种损坏错误仅属于自己的内部测试服务。 */ () => port)
+      const pending = compiler.compile(bytes, { identity })
+      port.reply({ ok: false, error: changed })
+      reason(await pending, expected)
+      reason(await compiler.compile(bytes, { identity }), 'compiler_unavailable')
+      assert.equal(port.terminated, 1)
     }
   }
 )

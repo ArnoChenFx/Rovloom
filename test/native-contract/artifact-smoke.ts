@@ -25,6 +25,14 @@ const identity = {
   schema_sha256: createHash('sha256').update(bytes).digest('hex'),
   revision: 'artifact-smoke'
 }
+// 在同一构建产物的真实 Worker 中先拒绝坏输入，再验证有效契约仍可接纳。
+const malformed = await api.compileBundle('{}', {
+  identity: { ...identity, schema_sha256: createHash('sha256').update('{}').digest('hex') }
+})
+assert.deepEqual(malformed, {
+  ok: false,
+  error: { origin: 'contract', code: 'schema_unavailable', stage: 'compile', reason: 'invalid_schema' }
+})
 const compiled = await api.compileBundle(bytes, { identity })
 assert(compiled.ok, JSON.stringify(compiled))
 assert.equal(compiled.value.documents.length, 29)

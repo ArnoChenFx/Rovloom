@@ -222,7 +222,7 @@ function aliases(bundle: JsonObject, docs: Record<string, unknown>): void {
 
 // 只在 Worker 内校验完整闭包并生成官方 standalone 代码，不生成宿主权限句柄。
 export function compileArtifact(bytes: Uint8Array | string, options: CompileOptions): Check<CompilerArtifact> {
-  return attempt(
+  const result = attempt<CompilerArtifact>(
     'compile',
     /* 依次完成预算校验、文档预检和 Ajv 编译，成功后登记方法分支覆盖信息。 */ () => {
       if (ajvPackage.version !== AJV_VERSION) {
@@ -255,7 +255,11 @@ export function compileArtifact(bytes: Uint8Array | string, options: CompileOpti
           fail(
             'schema_unavailable',
             'compile',
-            error.failure.code === 'object_limit' ? 'bundle_limit' : error.failure.code
+            error.failure.code === 'object_limit'
+              ? 'bundle_limit'
+              : error.failure.code === 'schema_unavailable'
+                ? 'invalid_schema'
+                : error.failure.code
           )
         }
         throw error
@@ -309,10 +313,10 @@ export function compileArtifact(bytes: Uint8Array | string, options: CompileOpti
           }
           validators.set(uri, validate)
         }
-        const catalog = object(bundle.event_catalog)
-        for (const name of Object.keys(object(catalog.properties))) {
+        const catalog = object(bundle.event_catalog, 'schema_unavailable')
+        for (const name of Object.keys(object(catalog.properties, 'schema_unavailable'))) {
           // 片段只编译一次，standalone 复用同一缓存；全部完整根仍已编译。
-          const check = ajv.getSchema(`${text(catalog.$id)}#/properties/${escaped(name)}`)
+          const check = ajv.getSchema(`${text(catalog.$id, 'schema_unavailable')}#/properties/${escaped(name)}`)
           if (!check) {
             fail('schema_unavailable', 'compile', 'invalid_schema')
           }
@@ -324,9 +328,9 @@ export function compileArtifact(bytes: Uint8Array | string, options: CompileOpti
         }
         fail('schema_unavailable', 'compile', 'invalid_schema')
       }
-      const request = object(bundle.request)
-      const props = object(request.properties)
-      const methodEnum = object(props.method).enum
+      const request = object(bundle.request, 'schema_unavailable')
+      const props = object(request.properties, 'schema_unavailable')
+      const methodEnum = object(props.method, 'schema_unavailable').enum
       if (
         !Array.isArray(methodEnum) ||
         methodEnum.some(/* 发现方法枚举中不是字符串的条目。 */ (m) => typeof m !== 'string') ||
@@ -345,8 +349,11 @@ export function compileArtifact(bytes: Uint8Array | string, options: CompileOpti
         const paths: string[] = []
         request.allOf.forEach(
           /* 为当前方法收集命中的条件分支路径，保留没有专用分支的参数缺口。 */ (raw, i) => {
-            const condition = object(object(object(raw).if).properties).method
-            const test = object(condition)
+            const condition = object(
+              object(object(raw, 'schema_unavailable').if, 'schema_unavailable').properties,
+              'schema_unavailable'
+            ).method
+            const test = object(condition, 'schema_unavailable')
             if (test.const === method || (Array.isArray(test.enum) && test.enum.includes(method))) {
               paths.push(`#/allOf/${i}`)
             }
@@ -356,10 +363,12 @@ export function compileArtifact(bytes: Uint8Array | string, options: CompileOpti
       }
       const exports: Record<string, string> = {}
       const schemas: Array<[string, string]> = []
-      const catalog = object(bundle.event_catalog)
+      const catalog = object(bundle.event_catalog, 'schema_unavailable')
       for (const key of validators.keys()) {
         const name = 'v' + schemas.length
-        exports[name] = key.startsWith('event:') ? `${text(catalog.$id)}#/properties/${escaped(key.slice(6))}` : key
+        exports[name] = key.startsWith('event:')
+          ? `${text(catalog.$id, 'schema_unavailable')}#/properties/${escaped(key.slice(6))}`
+          : key
         schemas.push([key, name])
       }
       const standalone = standaloneModule as unknown as (compiler: Ajv2020, refs: Record<string, string>) => string
@@ -388,4 +397,17 @@ export function compileArtifact(bytes: Uint8Array | string, options: CompileOpti
       }
     }
   )
+  // 普通输入拒绝统一成准确编译错误；未知内部异常仍由严格宿主协议判为故障。
+  if (result.ok || result.error.origin !== 'contract' || result.error.code !== 'schema_unavailable') {
+    return result
+  }
+  return {
+    ok: false,
+    error: {
+      origin: 'contract',
+      code: 'schema_unavailable',
+      stage: 'compile',
+      reason: result.error.reason ?? 'invalid_schema'
+    }
+  }
 }
