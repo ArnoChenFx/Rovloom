@@ -23,7 +23,7 @@ async function isolated(run: (root: string) => Promise<void>) {
 // 从固定合成元数据创建待测试的可用计划，不请求外部 Release。
 async function planned() {
   const f = fixture()
-  const plan = await checkForUpdate(f.network, '1.0.0', updatePlatform('linux', 'x64'))
+  const plan = await checkForUpdate(f.network, '1.0.0', updatePlatform('linux', 'x64', 'glibc'))
   return { f, plan }
 }
 

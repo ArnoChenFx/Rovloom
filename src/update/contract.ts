@@ -1,33 +1,40 @@
 // 固定官方更新清单契约；发布任务须采用同一字段和命名，不从远端清单读取 URL 或命令。
-export const UPDATE_REPOSITORY = 'ArnoChenFx/Rovloom'
-export const UPDATE_MANIFEST = 'rovloom-update.json'
-export const MAX_BINARY_BYTES = 256 * 1024 * 1024
+import {
+  assetName,
+  releasePlatform,
+  RELEASE_MAX_BINARY_BYTES,
+  RELEASE_MANIFEST,
+  RELEASE_REPOSITORY,
+  type ReleasePlatform,
+  type ReleaseAsset,
+  type ReleaseManifest,
+  type ReleaseOs,
+  type ReleaseArch
+} from '../release/contract.js'
+export const UPDATE_REPOSITORY = RELEASE_REPOSITORY
+export const UPDATE_MANIFEST = RELEASE_MANIFEST
+export const MAX_BINARY_BYTES = RELEASE_MAX_BINARY_BYTES
 export const MAX_MANIFEST_BYTES = 128 * 1024
 export const MAX_RELEASE_BYTES = 1024 * 1024
-export type UpdateOs = 'linux' | 'darwin' | 'windows'
-export type UpdateArch = 'x64' | 'arm64'
-export type UpdatePlatform = Readonly<{ os: UpdateOs; arch: UpdateArch }>
-export type UpdateAsset = Readonly<UpdatePlatform & { name: string; size: number; sha256: string }>
-export type UpdateManifest = Readonly<{
-  schemaVersion: 1
-  repository: typeof UPDATE_REPOSITORY
-  tag: string
-  version: string
-  assets: readonly UpdateAsset[]
-}>
+export type UpdateOs = ReleaseOs
+export type UpdateArch = ReleaseArch
+export type UpdatePlatform = ReleasePlatform
+export type UpdateAsset = ReleaseAsset
+export type UpdateManifest = ReleaseManifest
 
 // 根据受支持的平台元组生成唯一未压缩单文件名称，不接受路径或可执行脚本名。
-export function updateAssetName(platform: UpdatePlatform): string {
-  return `rovloom-${platform.os}-${platform.arch}${platform.os === 'windows' ? '.exe' : ''}`
+export function updateAssetName(version: string, platform: UpdatePlatform): string {
+  return assetName(version, platform)
 }
 
 // 把运行时平台转换为发行清单用词；其它平台必须在发起网络请求前拒绝。
-export function updatePlatform(os: string, arch: string): UpdatePlatform {
+export function updatePlatform(os: string, arch: string, libc: unknown = undefined): UpdatePlatform {
   const normalized = os === 'win32' ? 'windows' : os
-  if (!['linux', 'darwin', 'windows'].includes(normalized) || !['x64', 'arm64'].includes(arch)) {
+  try {
+    return releasePlatform(normalized, arch, libc === undefined && normalized !== 'linux' ? null : libc)
+  } catch {
     throw new UpdateError('unsupported_platform')
   }
-  return Object.freeze({ os: normalized as UpdateOs, arch: arch as UpdateArch })
 }
 
 export type UpdateErrorCode =

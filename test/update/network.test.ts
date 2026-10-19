@@ -4,11 +4,43 @@ import assert from 'node:assert/strict'
 import { MAX_RELEASE_BYTES, UpdateError, updatePlatform } from '../../src/update/contract.js'
 import { checkForUpdate } from '../../src/update/plan.js'
 import { downloadUpdate } from '../../src/update/download.js'
-import { LATEST_RELEASE_URL, officialAssetUrl, readOfficial, type UpdateFetch } from '../../src/update/network.js'
+import {
+  LATEST_RELEASE_URL,
+  officialAssetUrl,
+  readOfficial,
+  readOfficialJson,
+  type UpdateFetch
+} from '../../src/update/network.js'
 import { fixture } from './fixtures.js'
 
 // 固定只读块消费者，不把下载内容交给执行器。
 async function discard(_chunk: Uint8Array): Promise<void> {}
+
+test(
+  'external metadata rejects duplicate and escaped duplicate keys, BOM and deep containers',
+  /* 不允许 JSON.parse 覆盖歧义字段。 */ async () => {
+    for (const raw of [
+      '{"schemaVersion":1,"schemaVersion":1}',
+      '{"name":"a","na\\u006de":"b"}',
+      '{"assets":[{"size":10,"size":20}]}',
+      '\uFEFF{}',
+      '['.repeat(40) + '0' + ']'.repeat(40),
+      '{"size":9007199254740992}'
+    ]) {
+      await assert.rejects(
+        /* 所有响应在 schema 校验之前完成唯一键和资源检查。 */ () =>
+          readOfficialJson(
+            {
+              fetch: /* 只返回受控坏元数据，不访问外网。 */ async () => new Response(raw)
+            },
+            { kind: 'asset', tag: 'v1.2.0', name: 'release-manifest.json' },
+            128 * 1024
+          ),
+        { code: 'invalid_manifest' }
+      )
+    }
+  }
+)
 
 test(
   'network budgets reject nonfinite bounds and zero-progress chunks',
@@ -44,7 +76,7 @@ test(
   'download checks SHA256 and byte size, with no executable invocation',
   /* 只验证流字节和摘要。 */ async () => {
     const f = fixture()
-    const plan = await checkForUpdate(f.network, '1.0.0', updatePlatform('linux', 'x64'))
+    const plan = await checkForUpdate(f.network, '1.0.0', updatePlatform('linux', 'x64', 'glibc'))
     const parts: Uint8Array[] = []
     const receipt = await downloadUpdate(
       f.network,
@@ -56,7 +88,7 @@ test(
     assert.deepEqual(Buffer.concat(parts), f.payload)
     assert.equal(receipt.sha256, plan.asset.sha256)
     assert.equal(receipt.size, f.payload.byteLength)
-    assert.equal(f.requests.length, 3)
+    assert.equal(f.requests.length, 4)
   }
 )
 
@@ -64,7 +96,7 @@ test(
   'download refuses corruption, truncation, excess bytes and forged downgrade plans',
   /* sink 内容在成功返回前均不可信。 */ async () => {
     const f = fixture()
-    const plan = await checkForUpdate(f.network, '1.0.0', updatePlatform('linux', 'x64'))
+    const plan = await checkForUpdate(f.network, '1.0.0', updatePlatform('linux', 'x64', 'glibc'))
     for (const [bytes, code] of [
       [Buffer.alloc(f.payload.byteLength), 'checksum_mismatch'],
       [f.payload.subarray(1), 'size_mismatch'],
@@ -87,7 +119,7 @@ test(
         downloadUpdate(f.network, { ...plan, currentVersion: '2.0.0' }, discard),
       { code: 'invalid_manifest' }
     )
-    assert.equal(f.requests.length, 2)
+    assert.equal(f.requests.length, 3)
   }
 )
 
@@ -95,7 +127,7 @@ test(
   'single HTTPS GitHub CDN redirect is allowed without forwarding credentials',
   /* 只模型验证官方 CDN 跳转形状。 */ async () => {
     const calls: string[] = []
-    const source = { kind: 'asset', tag: 'v1.2.0', name: 'rovloom-linux-x64' } as const
+    const source = { kind: 'asset', tag: 'v1.2.0', name: 'rovloom-1.2.0-linux-x64' } as const
     const fetch: UpdateFetch = /* 精确区分首个官方地址与 CDN。 */ async (url, init) => {
       calls.push(url)
       assert.equal(init.credentials, 'omit')
@@ -138,7 +170,7 @@ test(
                 return new Response(null, { status: 302, headers: { location } })
               }
             },
-            { kind: 'asset', tag: 'v1.2.0', name: 'rovloom-linux-x64' },
+            { kind: 'asset', tag: 'v1.2.0', name: 'rovloom-1.2.0-linux-x64' },
             1,
             discard
           ),
@@ -160,7 +192,7 @@ test(
                 })
               }
             },
-            kind === 'release' ? { kind } : { kind, tag: 'v1.2.0', name: 'rovloom-linux-x64' },
+            kind === 'release' ? { kind } : { kind, tag: 'v1.2.0', name: 'rovloom-1.2.0-linux-x64' },
             1,
             discard
           ),
@@ -193,7 +225,7 @@ test(
               fetch: /* 只有单个元数据响应。 */ async () => response
             },
             '1.0.0',
-            updatePlatform('linux', 'x64')
+            updatePlatform('linux', 'x64', 'glibc')
           ),
         { code }
       )

@@ -1,18 +1,38 @@
 // 只访问固定 GitHub API 与本仓库下载路径，手动约束 CDN 跳转、总时限和流式字节上界。
 import { MAX_BINARY_BYTES, UpdateError, UPDATE_REPOSITORY } from './contract.js'
 import { stableVersion } from './version.js'
+import { officialReleaseAssetName, parseReleaseJson } from '../release/contract.js'
 
 export type UpdateFetch = (url: string, init: RequestInit) => Promise<Response>
 export type UpdateNetwork = { fetch: UpdateFetch; timeoutMs?: number }
 export const LATEST_RELEASE_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases/latest`
 const redirects = new Set([301, 302, 303, 307, 308])
+type OfficialSource =
+  | { kind: 'release' }
+  | { kind: 'asset'; tag: string; name: string }
+  | { kind: 'tag-ref'; tag: string }
+  | { kind: 'tag-object'; sha: string }
 
 // 只构造稳定 tag 下的受控资产路径；调用者不能提供任意 URL。
 export function officialAssetUrl(tag: string, name: string): string {
-  if (!tag.startsWith('v') || !stableVersion(tag.slice(1)) || !/^rovloom[-.a-z0-9]+$/u.test(name)) {
+  if (!tag.startsWith('v') || !stableVersion(tag.slice(1)) || !officialReleaseAssetName(tag.slice(1), name)) {
     throw new UpdateError('invalid_manifest')
   }
   return `https://github.com/${UPDATE_REPOSITORY}/releases/download/${encodeURIComponent(tag)}/${name}`
+}
+
+// 固定的 tag 元数据查询也不能通过注入参数改变仓库或 API 路径。
+export function officialMetadataUrl(source: Exclude<OfficialSource, { kind: 'asset' }>): string {
+  if (source.kind === 'release') {
+    return LATEST_RELEASE_URL
+  }
+  if (source.kind === 'tag-ref' && source.tag.startsWith('v') && stableVersion(source.tag.slice(1))) {
+    return `https://api.github.com/repos/${UPDATE_REPOSITORY}/git/ref/tags/${encodeURIComponent(source.tag)}`
+  }
+  if (source.kind === 'tag-object' && /^[0-9a-f]{40}$/u.test(source.sha)) {
+    return `https://api.github.com/repos/${UPDATE_REPOSITORY}/git/tags/${source.sha}`
+  }
+  throw new UpdateError('invalid_release')
 }
 
 // 以 AbortSignal 约束网络 Promise；注入适配器忽略取消时也不会无限阻塞调用方。
@@ -38,7 +58,7 @@ async function bounded<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> 
 // 在固定请求边界内逐块消费响应；不执行脚本，不自动重试或回退其它主机。
 export async function readOfficial(
   network: UpdateNetwork,
-  source: { kind: 'release' } | { kind: 'asset'; tag: string; name: string },
+  source: OfficialSource,
   limit: number,
   consume: (chunk: Uint8Array) => Promise<void>,
   expected?: number
@@ -60,7 +80,7 @@ export async function readOfficial(
   let response: Response | undefined
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try {
-    let url = source.kind === 'release' ? LATEST_RELEASE_URL : officialAssetUrl(source.tag, source.name)
+    let url = source.kind === 'asset' ? officialAssetUrl(source.tag, source.name) : officialMetadataUrl(source)
     for (let hop = 0; ; hop++) {
       response = await bounded(
         network.fetch(url, {
@@ -68,7 +88,7 @@ export async function readOfficial(
           redirect: 'manual',
           credentials: 'omit',
           referrerPolicy: 'no-referrer',
-          headers: { Accept: source.kind === 'release' ? 'application/vnd.github+json' : 'application/octet-stream' },
+          headers: { Accept: source.kind === 'asset' ? 'application/octet-stream' : 'application/vnd.github+json' },
           signal: controller.signal
         }),
         controller.signal
@@ -173,8 +193,8 @@ export async function readOfficialJson(
     expected
   )
   try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(parts)))
+    return parseReleaseJson(Buffer.concat(parts), limit)
   } catch {
-    throw new UpdateError(source.kind === 'release' ? 'invalid_release' : 'invalid_manifest')
+    throw new UpdateError(source.kind === 'asset' ? 'invalid_manifest' : 'invalid_release')
   }
 }

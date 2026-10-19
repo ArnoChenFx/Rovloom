@@ -13,6 +13,7 @@ function host(currentVersion = '1.0.0') {
     currentVersion,
     platform: 'linux',
     arch: 'x64',
+    libc: 'glibc',
     // 测试只捕获固定诊断，不写 MCP stdout。
     write: (message) => {
       output.push(message)
@@ -39,7 +40,7 @@ test(
     const h = host()
     assert.equal(await handleUpdateCommand(['update', '--check'], h.context), 0)
     assert.equal(h.output.join(''), 'current=1.0.0 target=1.2.0 status=available\n')
-    assert.equal(h.f.requests.length, 2)
+    assert.equal(h.f.requests.length, 3)
   }
 )
 
@@ -49,7 +50,7 @@ test(
     const h = host()
     assert.equal(await handleUpdateCommand(['update'], h.context), 5)
     assert(h.output.join('').includes('replacement_unavailable'))
-    assert.equal(h.f.requests.length, 2)
+    assert.equal(h.f.requests.length, 3)
   }
 )
 
@@ -59,7 +60,7 @@ test(
     for (const version of ['1.2.0', '2.0.0']) {
       const h = host(version)
       assert.equal(await handleUpdateCommand(['update'], h.context), 0)
-      assert.equal(h.f.requests.length, 2)
+      assert.equal(h.f.requests.length, 3)
       assert(!h.output.join('').includes('replacement_unavailable'))
     }
   }

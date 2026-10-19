@@ -6,12 +6,12 @@ import {
   UPDATE_MANIFEST,
   UPDATE_REPOSITORY,
   UpdateError,
-  updateAssetName,
   updatePlatform,
   type UpdateAsset,
   type UpdateManifest,
   type UpdatePlatform
 } from './contract.js'
+import { validateReleaseManifest } from '../release/contract.js'
 import { officialAssetUrl, readOfficialJson, type UpdateNetwork } from './network.js'
 import { compareVersions, stableVersion } from './version.js'
 
@@ -20,6 +20,8 @@ export type UpdatePlan = Readonly<{
   currentVersion: string
   targetVersion: string
   tag: string
+  commit: string
+  bun: '1.4.3'
   platform: UpdatePlatform
   asset: UpdateAsset
   status: 'available' | 'up_to_date' | 'newer_than_release'
@@ -34,63 +36,13 @@ function record(value: unknown, code: 'invalid_release' | 'invalid_manifest'): J
   return value as JsonRecord
 }
 
-// 清单字段使用封闭集合，禁止加入可执行命令、动态路径或下载 URL。
-function keys(value: JsonRecord, allowed: readonly string[]): void {
-  if (
-    Object.keys(value).length !== allowed.length ||
-    Object.keys(value).some(/* 限定每个字段必须由本地契约识别。 */ (key) => !allowed.includes(key))
-  ) {
-    throw new UpdateError('invalid_manifest')
-  }
-}
-
-// 核验稳定 tag、仓库、版本、平台唯一性、固定名称、大小与摘要，并复制冻结远端值。
+// 复用发布端共享的封闭清单规则；默认更新额外要求稳定版本。
 export function parseUpdateManifest(input: unknown, tag: string): UpdateManifest {
-  const value = record(input, 'invalid_manifest')
-  keys(value, ['schemaVersion', 'repository', 'tag', 'version', 'assets'])
-  if (
-    value.schemaVersion !== 1 ||
-    value.repository !== UPDATE_REPOSITORY ||
-    value.tag !== tag ||
-    !stableVersion(value.version) ||
-    tag !== `v${value.version}` ||
-    !Array.isArray(value.assets) ||
-    value.assets.length < 1 ||
-    value.assets.length > 6
-  ) {
+  try {
+    return validateReleaseManifest(input, tag, true)
+  } catch {
     throw new UpdateError('invalid_manifest')
   }
-  const seen = new Set<string>()
-  const assets: UpdateAsset[] = []
-  for (const item of value.assets) {
-    const raw = record(item, 'invalid_manifest')
-    keys(raw, ['os', 'arch', 'name', 'size', 'sha256'])
-    if (!['linux', 'darwin', 'windows'].includes(String(raw.os)) || !['x64', 'arm64'].includes(String(raw.arch))) {
-      throw new UpdateError('invalid_manifest')
-    }
-    const platform = updatePlatform(String(raw.os), String(raw.arch))
-    const name = updateAssetName(platform)
-    if (
-      raw.name !== name ||
-      seen.has(name) ||
-      !Number.isSafeInteger(raw.size) ||
-      (raw.size as number) < 1 ||
-      (raw.size as number) > MAX_BINARY_BYTES ||
-      typeof raw.sha256 !== 'string' ||
-      !/^[a-f0-9]{64}$/u.test(raw.sha256)
-    ) {
-      throw new UpdateError('invalid_manifest')
-    }
-    seen.add(name)
-    assets.push(Object.freeze({ ...platform, name, size: raw.size as number, sha256: raw.sha256 }))
-  }
-  return Object.freeze({
-    schemaVersion: 1,
-    repository: UPDATE_REPOSITORY,
-    tag,
-    version: value.version,
-    assets: Object.freeze(assets)
-  })
 }
 
 // 只接受本次 Release 中唯一、已上传且 URL 与本地构造完全一致的指定资产。
@@ -114,6 +66,33 @@ function releaseAsset(assets: unknown[], tag: string, name: string, limit: numbe
   return item.size as number
 }
 
+// 有界解引用官方轻量或附注 tag，清单 commit 必须仍绑定当前远端 tag。
+async function verifyManifestTag(network: UpdateNetwork, manifest: UpdateManifest): Promise<void> {
+  let value = record(
+    await readOfficialJson(network, { kind: 'tag-ref', tag: manifest.tag }, MAX_RELEASE_BYTES),
+    'invalid_release'
+  )
+  for (let depth = 0; depth <= 4; depth++) {
+    const object = record(value.object, 'invalid_release')
+    if (typeof object.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(object.sha)) {
+      throw new UpdateError('invalid_release')
+    }
+    if (object.type === 'commit') {
+      if (object.sha !== manifest.commit) {
+        throw new UpdateError('invalid_manifest')
+      }
+      return
+    }
+    if (object.type !== 'tag' || depth === 4) {
+      throw new UpdateError('invalid_release')
+    }
+    value = record(
+      await readOfficialJson(network, { kind: 'tag-object', sha: object.sha }, MAX_RELEASE_BYTES),
+      'invalid_release'
+    )
+  }
+}
+
 // 检查 GitHub 标记的最新稳定发行；较旧或相同版本只报告状态，绝不自动降级。
 export async function checkForUpdate(
   network: UpdateNetwork,
@@ -121,7 +100,7 @@ export async function checkForUpdate(
   platform: UpdatePlatform
 ): Promise<UpdatePlan> {
   compareVersions(currentVersion, currentVersion)
-  const local = updatePlatform(platform.os, platform.arch)
+  const local = updatePlatform(platform.os, platform.arch, platform.libc)
   const release = record(await readOfficialJson(network, { kind: 'release' }, MAX_RELEASE_BYTES), 'invalid_release')
   if (
     release.draft !== false ||
@@ -139,8 +118,10 @@ export async function checkForUpdate(
     await readOfficialJson(network, { kind: 'asset', tag, name: UPDATE_MANIFEST }, MAX_MANIFEST_BYTES, manifestSize),
     tag
   )
+  await verifyManifestTag(network, manifest)
   const asset = manifest.assets.find(
-    /* 精确匹配当前 OS 和架构，不回退其它平台。 */ (item) => item.os === local.os && item.arch === local.arch
+    /* 精确匹配当前 OS 和架构，不回退其它平台。 */ (item) =>
+      item.os === local.os && item.arch === local.arch && item.libc === local.libc
   )
   if (!asset) {
     throw new UpdateError('unsupported_platform')
@@ -154,6 +135,8 @@ export async function checkForUpdate(
     currentVersion,
     targetVersion: manifest.version,
     tag,
+    commit: manifest.commit,
+    bun: manifest.bun,
     platform: local,
     asset,
     status: comparison > 0 ? 'available' : comparison === 0 ? 'up_to_date' : 'newer_than_release'
@@ -168,17 +151,20 @@ export function validateDownloadPlan(plan: UpdatePlan): UpdateAsset {
       repository: plan.repository,
       tag: plan.tag,
       version: plan.targetVersion,
+      commit: plan.commit,
+      bun: plan.bun,
       assets: [plan.asset]
     },
     plan.tag
   )
-  const local = updatePlatform(plan.platform.os, plan.platform.arch)
+  const local = updatePlatform(plan.platform.os, plan.platform.arch, plan.platform.libc)
   const asset = manifest.assets[0]!
   if (
     plan.status !== 'available' ||
     compareVersions(plan.targetVersion, plan.currentVersion) <= 0 ||
     asset.os !== local.os ||
-    asset.arch !== local.arch
+    asset.arch !== local.arch ||
+    asset.libc !== local.libc
   ) {
     throw new UpdateError('invalid_manifest')
   }

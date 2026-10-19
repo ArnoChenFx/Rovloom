@@ -7,6 +7,8 @@ export type UpdateCommandHost = UpdateNetwork & {
   currentVersion: string
   platform: string
   arch: string
+  // Linux 必须由受信运行时证明 glibc；musl 或未知不能套用同 OS/arch 的 binary。
+  libc?: 'glibc' | null
   // 同步写入固定诊断；宿主仍负责真实流错误和背压。
   write(message: string): void
 }
@@ -30,7 +32,7 @@ export async function handleUpdateCommand(
     if (args.length > 2 || (args.length === 2 && args[1] !== '--check')) {
       throw new UpdateError('invalid_arguments')
     }
-    const plan = await checkForUpdate(host, host.currentVersion, updatePlatform(host.platform, host.arch))
+    const plan = await checkForUpdate(host, host.currentVersion, updatePlatform(host.platform, host.arch, host.libc))
     host.write(`current=${plan.currentVersion} target=${plan.targetVersion} status=${plan.status}\n`)
     if (args[1] === '--check' || plan.status !== 'available') {
       return 0

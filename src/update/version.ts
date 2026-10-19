@@ -1,49 +1,42 @@
-// 严格比较有界 SemVer；忽略构建元数据，稳定发行优于同核心版本的预发行。
+// 复用发布端的单一规范版本语法，仅补充默认更新需要的稳定性和先后比较。
+import { parseReleaseVersion, type ReleaseVersion } from '../release/contract.js'
 import { UpdateError } from './contract.js'
 
-const pattern =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u
-
-// 限制版本串长度并验证所有数字标识符，避免宽松解析接受路径或非法 SemVer。
-function parse(version: string): RegExpExecArray {
-  const result = version.length <= 128 ? pattern.exec(version) : null
-  if (!result) {
+// 把共享版本拒绝投影为更新命令的固定公共错误。
+function parse(version: string): ReleaseVersion {
+  try {
+    return parseReleaseVersion(version)
+  } catch {
     throw new UpdateError('invalid_current_version')
   }
-  return result
 }
 
-// 检查 Release 版本不含预发行字段；构建元数据不影响稳定性。
+// 更新默认只接纳无预发行字段的规范版本；发布端可用同一语法支持预发行。
 export function stableVersion(value: unknown): value is string {
   if (typeof value !== 'string') {
     return false
   }
   try {
-    return parse(value)[4] === undefined
+    return parseReleaseVersion(value).prerelease.length === 0
   } catch {
     return false
   }
 }
 
-// 按 SemVer 比较核心、稳定性及预发行标识符，不使用浮点版本运算。
+// 按规范 SemVer 比较安全整数核心与预发行标识符；不接受 +build 别名。
 export function compareVersions(left: string, right: string): number {
   const a = parse(left)
   const b = parse(right)
-  for (let i = 1; i <= 3; i++) {
-    const x = BigInt(a[i]!)
-    const y = BigInt(b[i]!)
-    if (x !== y) {
-      return x > y ? 1 : -1
+  for (let i = 0; i < 3; i++) {
+    if (a.core[i] !== b.core[i]) {
+      return a.core[i]! > b.core[i]! ? 1 : -1
     }
   }
-  if (a[4] === b[4]) {
-    return 0
+  const x = a.prerelease
+  const y = b.prerelease
+  if (x.length === 0 || y.length === 0) {
+    return x.length === y.length ? 0 : x.length === 0 ? 1 : -1
   }
-  if (a[4] === undefined || b[4] === undefined) {
-    return a[4] === undefined ? 1 : -1
-  }
-  const x = a[4].split('.')
-  const y = b[4].split('.')
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
     const p = x[i]
     const q = y[i]
@@ -56,7 +49,7 @@ export function compareVersions(left: string, right: string): number {
     const numericP = /^\d+$/u.test(p)
     const numericQ = /^\d+$/u.test(q)
     if (numericP && numericQ) {
-      return BigInt(p) > BigInt(q) ? 1 : -1
+      return Number(p) > Number(q) ? 1 : -1
     }
     if (numericP !== numericQ) {
       return numericP ? -1 : 1

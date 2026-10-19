@@ -2,7 +2,7 @@
 
 `src/update/index.ts` 是可组合模块，没有第二个 CLI、角色服务、定时更新器或安装器。
 `handleUpdateCommand(args, host)` 供 #8 的唯一 CLI 调用：返回数字为该命令退出码，
-`undefined` 表示交还原 parser。宿主传入原 CLI 的版本常量、运行平台、`fetch` 和 stderr writer。
+`undefined` 表示交还原 parser。宿主传入原 CLI 的版本常量、运行平台、libc 证明、`fetch` 和 stderr writer。Linux 必须明确传入 `libc: glibc`；可由受信 Bun `process.report.getReport().header.glibcVersionRuntime` 证明，缺失或 musl 拒绝，不能读环境变量猜测。
 检查不读取安装路径、配置、数据库或 service 注册，不调用文件系统或执行器。
 默认配置仍由原 CLI 维护为已验证 home 下的 `.config/rovloom/{gateway|connector}.json`。
 本模块没有配置路径参数，也不改变 Gateway 持久 HTTP-only 方向。
@@ -11,7 +11,7 @@
 
 | 命令接缝 | 当前结果 |
 | --- | --- |
-| `update --check` | 只读官方最新稳定 Release 元数据和 manifest，报告 current、target、status；不下载二进制、不写文件 |
+| `update --check` | 只读官方最新稳定 Release、manifest 与有界 tag 提交元数据，报告 current、target、status；不下载二进制、不写文件 |
 | `update`，相同版本 | `up_to_date`，退出 0，不下载 |
 | `update`，当前新于官方版本 | `newer_than_release`，退出 0，不降级、不下载 |
 | `update`，存在新版本 | 先报告版本；返回 `replacement_unavailable` / 5，不下载、不替换、不停服务 |
@@ -28,33 +28,34 @@ main 尚未合入唯一 CLI 及后台宿主；此表是模块行为，不能写�
 
 ## 发布契约协调
 
-以下是本模块测试使用的**待发布任务确认的候选契约**，不是对现有远端资产的推测。
-发布 workflow 由另一任务负责；确认后双方必须使用同一份契约再集成。
+本模块已核对并保留已合入 main `b0d12b747cf815984bcb209ae08ccea537f4f1d5` 的[发布任务 PR63](https://github.com/ArnoChenFx/Rovloom/pull/63) 的 `scripts/release/metadata.mjs`、`platforms.json` 与封装测试。以下字段与该发布契约一致；六平台 runner 与工具链已由父任务独立审查，但当前仍只有 probe，不能当作已发布或全平台产品验收。
+共享纯校验位于 `src/release/contract.ts`：`versionFromTag`、`assetName`、`validateReleaseManifest`。更新端与本 PR 中的发布 metadata 均使用：发布端导入版本/命名，并在 assemble 后调用清单校验，原重复规则已移除；原发布工作流和其它脚本保持 main 内容。不能让运行时导入会读磁盘平台文件的 metadata.mjs。
 本轮所有 Release 响应和载荷来自注入 fetch 的合成样例，没有为测试创建 tag 或 Release。
 
-- 唯一仓库：`ArnoChenFx/Rovloom`；固定 manifest 资产 `rovloom-update.json`。
-- 稳定 tag：`v<SemVer>`，manifest `version` 不含 `v`，必须逐字满足 `tag === 'v' + version`；拒绝预发行。
-- 未压缩单文件名：`rovloom-<os>-<arch>`，Windows 添加 `.exe`。
+- 唯一仓库：`ArnoChenFx/Rovloom`；固定 manifest 资产 `release-manifest.json`。
+- 稳定 tag：`v<SemVer>`，manifest `version` 不含 `v`，必须逐字满足 `tag === 'v' + version`；默认更新拒绝预发行。版本禁止 `+build`、数字前导零及不安全整数；发布器可使用同一语法发布预发行。
+- 未压缩单文件名：`rovloom-<version>-<os>-<arch>`，Windows 添加 `.exe`。
 - 平台词汇：`linux`、`darwin`、`windows`；架构 `x64`、`arm64`。运行时 `win32` 归一为 `windows`。
-  六个元组表示 parser 支持范围，不表示已发布或实机验收；只有 manifest 明确列出的资产才能下载。
-- JSON 顶层字段恰为 `schemaVersion: 1`、`repository`、`tag`、`version`、`assets`。
-- `assets` 为 1–6 项数组；每项字段恰为 `os`、`arch`、`name`、`size`、`sha256`；平台不可重复。
+  Linux 必须 `libc: glibc`，其它 OS 必须 `libc: null`。六个元组表示 parser 支持范围，不表示已发布或实机验收；只有 manifest 明确列出的资产才能下载。
+- JSON 顶层字段恰为 `schemaVersion: 1`、`repository`、`tag`、`version`、`commit`、`bun`、`assets`。`commit` 必须为 40 位小写 SHA，`bun` 必须为 `1.4.3`；有界解引用官方 tag 必须落到该提交，循环、未知类型或不匹配拒绝。
+- `assets` 为 1–6 项数组；每项字段恰为 `os`、`arch`、`libc`、`name`、`size`、`sha256`；平台不可重复。
   `size` 为 1–268435456 的整数字节数；`sha256` 为 64 位小写 hex。不得加入 URL、路径或命令字段。
 - Release API 中 manifest 和所选 binary 必须各出现一次、状态 uploaded、大小与实际一致、下载地址等于本地构造的官方地址。
   manifest 上限 128 KiB，Release JSON 上限 1 MiB；缺平台资产明确失败，不回退其它架构或更早发行。
 
-仅访问固定 `https://api.github.com/repos/ArnoChenFx/Rovloom/releases/latest`，
-核对 `draft=false`、`prerelease=false` 和稳定 tag。它代表 GitHub 标记的最新稳定发行，
-模块不会枚举或自行重新定义所有历史 Release 的排序。比较遵循 SemVer，忽略构建元数据；
+Release 来源固定为 `https://api.github.com/repos/ArnoChenFx/Rovloom/releases/latest`，
+核对 `draft=false`、`prerelease=false` 和稳定 tag；另外只允许本仓库固定 git/ref/tags 与 git/tags API 路径核验 manifest.commit，附注 tag 最多解引用四层。它代表 GitHub 标记的最新稳定发行，
+模块不会枚举或自行重新定义所有历史 Release 的排序。比较遵循同一规范 SemVer；
 同核心版本的稳定发行可更新预发行，较低版本一律不下载。
 
 官方资产地址由本地 tag 和名称构造。fetch 必须 `redirect: manual`、`credentials: omit`；
 API 禁止跳转，资产只允许一次 HTTPS 跳往精确的 `release-assets.githubusercontent.com`，
 拒绝凭据、非默认端口、fragment、其它主机及多跳。模块不提供替换仓库、镜像或 URL 的 CLI 参数。
 每次请求与响应体共用最多 60 秒时限；流式检查总字节、Content-Length、清单大小及 SHA256，
-不解压、不调用 shell、不执行下载内容。
+不解压、不调用 shell、不执行下载内容。JSON 使用既有受预算解析器拒绝重复键（含转义后相同键）、损坏 UTF-8、BOM、不安全整数、超过 32 层或 50000 节点的结构。
 
 **未签名的 checksum 只能证明清单与载荷的传输完整性，不能认证发布者，不能抵御仓库或发布凭据被攻陷。**
+`SHA256SUMS` 由发布任务覆盖六个 binary 与 manifest；更新端使用同一 manifest 内的摘要，不把另一份未签名 checksum 当作独立信任根。
 本模块没有签名/信任根实现，不得把 HTTPS 或 manifest 摘要称为该级别的认证。
 
 ## 独立下载与暂存
