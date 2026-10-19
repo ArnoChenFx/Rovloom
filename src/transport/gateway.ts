@@ -5,6 +5,8 @@ import type { Router, Principal } from '../router.js'
 import { commitNativeResponse } from '../integration/persistence.js'
 import {
   boundedJson,
+  admissionRequestDigest,
+  assertBinding,
   decodeWireFrame,
   encodeWireFrame,
   negotiate,
@@ -880,6 +882,22 @@ export function createGateway(options: GatewayOptions) {
           validation: row.mode
         })
         inflight.set(callId, frame)
+        if (peer.connection.negotiated.capabilities.includes('admission_receipt')) {
+          const anchor = options.store.responseAnchor(binding)
+          assertBinding(anchor.binding, binding)
+          write(
+            peer,
+            envelope(peer.connection, 'admission_receipt', {
+              attempt,
+              request_sha256: admissionRequestDigest({
+                binding,
+                native_request: row.native_request,
+                validation: row.mode
+              }),
+              dedup_expires_at: anchor.dedup_expires_at
+            })
+          )
+        }
         write(peer, frame)
         if (options.retainOriginalRead === true) {
           reads.set(callId, {

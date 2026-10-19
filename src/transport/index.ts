@@ -46,3 +46,7 @@ export type {
   LifecycleStoreFactory,
   DeviceLifecycleWiring
 } from './lifecycle.js'
+export type { AdmissionRequest } from '../wire/admission.js'
+export type { AuthenticatedAdmissionReceipt, AdmissionReceiptSink } from './admission-proof.js'
+export { ConnectorAdmissionReceipts } from './admission-receipts.js'
+export type { ConnectorAdmissionReceiptsOptions } from './admission-receipts.js'

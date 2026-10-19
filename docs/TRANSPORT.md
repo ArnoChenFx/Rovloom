@@ -25,7 +25,9 @@ Gateway 是常驻宿主，客户端断开或前端等待结束不调用 `close` 
 进程的显式生命周期控制。模块不写 stdout；唯一入口决定 HTTP 常驻和日志通道。
 
 Gateway 准入仅 `created=true` 才调用真实 transport 派发；重复 key 只返回原元数据，不重新
-发送或延长期限。`get/cancel` 始终不含原文。`results.open/read` 每次通过当前归属、双端 ACL、
+发送或延长期限。登记提交后派发失败仍返回同一调用的当前账本元数据，便于无 history 的调用对账；
+锚点前未发送与锚点后 unknown 保留 Store 实际状态，不隐式重试。返回前仍重新核对当前身份及
+read 权限，撤权后不返回新旧调用 ID。`get/cancel` 始终不含原文。`results.open/read` 每次通过当前归属、双端 ACL、
 原请求 Wire 的读取/保留门禁及 Store 固定期限；缺原 Wire 时不从数据库重建许可。
 响应保留在同步提交栈内按原持久 caller 的当前权限评估，不使用最近 HTTP caller；普通交付
 仍要求当前请求作用域。显式 cancel 复用现有 Wire 取消，不宣称 native 回滚；断线不重放。
@@ -58,24 +60,77 @@ token，再以该 token 读取实际能力并确认实例空白。秘密仅驻�
 审核的普通 RPC 分类；仍须 caller/local grants、原生权限及原 Wire 许可，不开放 raw、Host、
 终端、token 方法或秘密结果。其它能力缺分类继续拒绝。
 
-正式外部 supervisor 的 opaque 实例交付、生产受限 native custody 和真实用户持久凭据仍须
-独立受信配置与动作级批准；开发来源不能冒充生产安装。Herdr 不使用这套 Luvus 来源。
+外部 supervisor 的 opaque 实例交付和真实用户持久凭据仍须独立受信配置与动作级批准；
+受控自有 child 与有限 custody 的实际接口见下节，开发来源不能冒充生产安装。
+Herdr 不使用这套 Luvus 来源。
 
-### 证据与尚需消费的端口
+### 受控持久 Luvus 来源
 
-当前 Wire 未携带 caller principal 或 Gateway dedup 截止。Connector principal 因而必须来自
-受保护的单一固定本机路由，不从消息猜测。共享 `ConnectorAttemptBook`可通过独立可信
-`dedupExpires(binding)`端口保存 Gateway 原截止；显式 `retention_ms`只表示 Connector 自有
-首次固定期限，不能证明 Gateway 的原期限。跨 epoch 共享 book，实际发送继续受
-`LuvusDispatchClaims`持久唯一记录约束，断连不清墓碑。正式跨进程部署还须交付可信截止元数据，
-缺来源不能用重连时钟补造。
+`initializeManagedLuvusRoot`只在显式调用时登记空白自有 root，核对固定官方 Luvus 0.14.3
+Linux x64 安装与私有目录，持久记录完整配置、目录身份和独立 custody 上限。
+`openManagedLuvusRoot`只重开同一记录与目录身份；不读取业务正文、不认领用户已有实例。
+`startManagedLuvus`持有排他 owner 锁，直接创建固定 child/pidfd，并核对实际 socket peer、
+安装契约和原生 generation；启动不发行 token。未确认退出不释放 owner 锁。
+
+`issueRestricted`只在独立 native-custody 授权和精确一次批准后签发至多五分钟的有限内存
+委托。批准文件绑定 root/revision、配置摘要、真实 generation、scope、方法和 TTL；消费墓碑
+先持久提交，再发送一次原生发行请求，失败不重放。普通管理权限与 `providers_manage`
+不能代替此授权。所有 epoch 沿用原 issued/expires，custody 关闭只清除内存秘密；process
+关闭才请求停止自有 child，不把忘记秘密声称为原生撤销。
+
+批准 writer 在返回可信时间前同步保存持久高水位，close/reopen 不归零；已观察过期的批准
+不能因时钟回拨恢复。私有 clock 记录与固定 inode 锚绑定同一 root/config，更新的 pending
+标记在完整落盘核验后才移除；缺失、替换、损坏或未完成提交均拒绝，不自动重建或接管。
+正常 close 只移除本轮仍匹配的锁。目录须为规范绝对路径，拒绝 `.`、相对路径和折叠别名。
+
+`createManagedLuvusProvider`只接受真实 opaque custody，复用开发来源同一份三项已审普通
+RPC 分类，使用独立契约修订。它不增加方法、scope、raw、Host、终端或秘密结果权限。
+Herdr 的来源、协议、分类与凭据仍由其 provider 实现分别交付。
+
+### 受信原截止交付
+
+Wire 可选能力 `admission_receipt`由 Gateway 在原派发事务提交后、原请求之前交付完整
+binding、规范请求摘要和 Store 原 dedup 截止。Connector 经实际认证连接及原 codec 校验后
+才产生一次性 opaque 交付证明，`ConnectorAdmissionReceipts`将其独立持久保存；不读取
+Gateway Store，也不保存请求正文或制造执行许可。缺回执、冲突、旧 epoch、摘要不符或过期
+均拒绝执行。文件、锁、固定期限与时钟高水位逐次复核，崩溃标记不自动接管。
+
+启用此能力的宿主将它列入 required，并把同一持久接收端交给 session 的 `admissions`
+及 `ConnectorAdmissionOptions.receipts`，其 `dedupExpires`交给共享 book 与 claims。
+默认 offer 仍仅 `rpc`。显式 `retention_ms`只证明本机首次固定期限，不代替 Gateway 原值。
+Wire 仍未携带 caller principal，Connector principal 来自受保护单一固定本机路由。
+跨 epoch 共享 book/回执与原持久唯一 claims，断连不清墓碑，不续期或重放工作。
+
+### 管理会话与 provider 接缝
+
+`createManagementSessionAuthority`复用同一身份服务认可的既有管理员及原 session ref。
+显式 bootstrap 只建立至多五分钟的 cookie/CSRF 查询绑定，不创建账户、角色、身份数据库或
+长期凭据；同一宿主内 ref 的首次截止不滑动，重启使全部旧 cookie 失效。秘密只交给本次受信 bootstrap 调用者，宿主负责实际
+用户认证、cookie 属性和专用交付。没有既有有效管理员来源则拒绝。
+
+其 `sessions.identities`与返回的 `identities`为同一对象；Gateway 和管理读写服务使用该对象，
+管理 HTTP 使用现有 `createManagementSessionAdapter`消费 `sessions`。查询和 writer 的
+`administrator`均复验当前来源、固定期限和撤销；MCP caller、设备凭据或 session id 不升级
+成管理身份。独立本机 custody 审批还须当前管理作用域与精确 native-custody grant。
+
+`createProviderConnectorRuntime`只管理通用认证通道和角色寿命，provider 自行交付已有
+`ConnectorWireSession`的 adapter、执行、readiness 与关闭资源；不选择原生协议或凭据。
+现有 `createConnectorRuntime`保留 Luvus IPC 的专用装配边界，Herdr 不借此伪装 UHP。
+
+通用 Connector 的 `close/closed`使用同一逻辑结果，默认至多等待 release 五秒；受保护配置
+`release_timeout_ms`仅可在 1..5000ms 内收紧。超时返回 `connector_runtime_close_timeout`，
+不取消或重试原 release，不宣称物理资源已释放。`releaseSettled`和 `releaseStatus()`继续
+观察原回调；pending/failed 保留所交付 owner 引用，晚成功只更新独立观察，不改判关闭结果。
+启动失败的 `ConnectorHostStartupError.shutdown`保留同一关闭与所有者观察入口，调用者须
+保留它直到实际释放确认；`owner_held`仅表示本宿主保留引用，不证明内核退出状态。
 
 ### Herdr 对通用角色的消费契约
 
 Herdr 的固定 `ping {}` 与受限 `workspace.report_metadata` 已由
 [`createHerdrRuntime`](../src/connector/herdr/runtime.ts)提供实际原生执行 hook；
-当前角色工厂仍按 Luvus 装配。下一片通用角色须消费下列接口与可信准入来源，
-这些是尚待实现的组合要求，不代表现有 Wire 已包含准入凭据。
+`createProviderConnectorRuntime`已提供认证 epoch 的同步 session factory 和有界关闭观察，
+Luvus 专用装配仍独立。Herdr 的正式 provider 选择、独立准入簿、结果权限及全局预算组合
+尚待交付；下列接口约束该通用角色的后续 Herdr 装配，不表示全部 Herdr 能力可用。
 
 每次认证成功后，角色同步调用 `(connection: Connection) => ConnectorWireSession`。
 `Connection`、`Session`、`Readiness` 与 `Adapter`沿用
@@ -97,7 +152,10 @@ Connector 本机准入簿须实现
 | `now()` | 受保护、不可回拨且与持久 claims 一致的毫秒时钟；期限比较不能混用未经校准的远端时钟 |
 | `subscribeInvalidation(listener)` | 仅发布已提交的 `content/fence/device_fence/closed`通知，并返回同步退订函数 |
 
-准入凭据须来自 Gateway 唯一 Store 的已提交原登记，由认证通道独立交付并持久保存；
+现有 `admission_receipt`已通过认证通道交付完整 binding、`admissionRequestDigest`和
+原 `dedup_expires_at`，但尚未包含下述 Herdr 所需的原 caller、Store 同式摘要及 content 锚点/状态；
+两种请求摘要不能互换，也不能用原 dedup 截止补造其它状态。完整 Herdr 准入凭据
+须来自 Gateway 唯一 Store 的已提交原登记，由认证通道独立交付并持久保存；
 普通请求 JSON、设备广告和 `verified: true`不构成凭据。所需核对字段是完整
 `AttemptBinding`（machine/recovery/epoch、call/attempt/native_request ID、完整 Target、
 provider kind/revision/contract_ref，以及 registration 的原 deadline/history/双端政策修订）、
@@ -134,8 +192,8 @@ Gateway 的结果读取/保留与 `planEvidence`消费公共 Adapter，证据仍
 
 ### 生产来源边界
 
-当前工厂消费受信来源，尚未提供正式 supervisor 的实例交付、生产 restricted custody 或
-跨进程原截止交付。已有端口的来源责任如下：
+当前提供受控 Linux Luvus child 来源、显式有限 custody 与认证原截止交付；外部 supervisor
+的实例交付及跨进程原生来源证明仍未提供。已有端口的来源责任如下：
 
 | 已有消费端口 | 受信来源责任 |
 |---|---|
@@ -150,8 +208,8 @@ opaque 实例不能经 JSON 序列化成为跨进程归属证明。OS 服务的 
 
 `test/runtime`覆盖隔离双库、实际认证连接、唯一派发、原 Wire 结果、关闭重入、迟到请求作用域、
 能力冲突及开发来源拒绝。自建 native listener 的回归与官方 binary 的隔离运行是不同证据。
-正式公开 CLI 的 GatewayHTTP + Connector 产品 smoke、HTTP 认证来源、远端双机、OpenCode
-客户端及生产 supervisor/custody 需各自验收；模块 build 或 help/version 不代替产品运行。
+正式公开 CLI 的 GatewayHTTP + Connector 产品 smoke、用户身份配置、远端双机、OpenCode
+客户端及外部 supervisor 仍须各自验收；模块 build 或 help/version 不代替产品运行。
 
 ## 通道与可信宿主
 

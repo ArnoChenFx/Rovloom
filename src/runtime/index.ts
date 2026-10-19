@@ -4,6 +4,35 @@ export { createTrustedRequestScope } from './request-scope.js'
 export { createDevelopmentLuvusProvider } from './development-provider.js'
 export { openGatewayState } from './state.js'
 export { createConnectorRuntime } from './connector.js'
+export { createProviderConnectorRuntime, ConnectorHostStartupError } from './connector-host.js'
+export type { ConnectorHostOptions, ConnectorHostShutdown, ConnectorReleaseStatus } from './connector-host.js'
+export { createManagementSessionAuthority } from './management-session.js'
+export type {
+  ManagementSessionAuthority,
+  ManagementSessionLease,
+  ManagementSessionBootstrap,
+  CurrentManagementSession
+} from './management-session.js'
+export { createLuvusCustodyAuthorizer } from './luvus-custody-authorization.js'
+export type { LuvusCustodyGrant } from './luvus-custody-authorization.js'
+export { initializeManagedLuvusRoot, openManagedLuvusRoot } from './native-root.js'
+export type { ManagedLuvusRoot, NativeCustodyPolicy } from './native-root.js'
+export { startManagedLuvus, MANAGED_LUVUS_REVISION, MANAGED_LUVUS_CLASSIFICATION } from './native-source.js'
+export type {
+  ControlledLuvusProcess,
+  RestrictedLuvusCustody,
+  RestrictedLuvusRequest,
+  RestrictedLuvusIssuance
+} from './native-source.js'
+export { openNativeCustodyApprovals } from './native-custody.js'
+export type {
+  NativeCustodyIntent,
+  NativeCustodyDecision,
+  NativeCustodyAuthorizer,
+  NativeCustodyApproval,
+  NativeCustodyApprovalWriter
+} from './native-custody.js'
+export { createManagedLuvusProvider } from './managed-provider.js'
 export { ConnectorAttemptBook, createConnectorAdmissionBackend } from './connector-attempts.js'
 export {
   startDevelopmentLuvus,

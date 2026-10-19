@@ -271,9 +271,12 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
         }
       })
       assertSessionOpen()
+      const admissions = resource.admissions
+      assertSessionOpen()
       const execution = rpc
       const result: ConnectorWireSession = {
         adapter,
+        ...(admissions ? { admissions } : {}),
         /** 宿主 readiness 也可能同步关闭角色，返回值不能越过关闭 fence。 */
         readiness() {
           assertSessionOpen()
