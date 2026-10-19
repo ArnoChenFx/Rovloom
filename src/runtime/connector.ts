@@ -63,6 +63,7 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
     const pending = new Map<string, Pending>()
     const delegations = new Set<LuvusBoundDelegation>()
     const resolvedDelegations = new Map<string, LuvusBoundDelegation>()
+    let localOwner = false
     let suppliedDelegation: typeof resource.delegation | undefined
 
     /** 每个外部构建回调返回后都复核角色状态，关闭中的资源只能进入清理分支。 */
@@ -112,7 +113,11 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
       if (suppliedDelegation instanceof LuvusBoundDelegation) {
         delegations.add(suppliedDelegation)
       }
+      localOwner = resource.authentication === 'local_owner'
       assertSessionOpen()
+      if (localOwner && typeof resource.nativeAuth !== 'function') {
+        fail('native_host_binding_required')
+      }
       const configuredTransport = resource.config.transport
       assertSessionOpen()
       if (configuredTransport !== 'ipc') {
@@ -148,12 +153,14 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
           if (boundedJson(source) !== tracked.source || boundedJson(tracked.nativeEvidence) !== tracked.evidence) {
             fail('native_evidence_changed')
           }
-          getDelegation(attempt.binding).assertCurrent(
-            { config_ref: resource.config.config_ref, binding: source.binding },
-            source,
-            attempt.method,
-            resource.backend.now()
-          )
+          if (!localOwner) {
+            getDelegation(attempt.binding).assertCurrent(
+              { config_ref: resource.config.config_ref, binding: source.binding },
+              source,
+              attempt.method,
+              resource.backend.now()
+            )
+          }
         }
         return source
       }
@@ -239,12 +246,18 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
             fail('synchronous_native_evidence_required')
           }
           const state = current(binding)
-          const token = getDelegation(binding).read(
-            { config_ref: resource.config.config_ref, binding: state.source.binding },
-            state.source,
-            state.attempt.method,
-            resource.backend.now()
-          )
+          const token = localOwner
+            ? await resource.nativeAuth!(binding, evidence)
+            : getDelegation(binding).read(
+                { config_ref: resource.config.config_ref, binding: state.source.binding },
+                state.source,
+                state.attempt.method,
+                resource.backend.now()
+              )
+          if (localOwner && (typeof token !== 'object' || token?.kind !== 'local_owner')) {
+            fail('native_auth_required')
+          }
+          current(binding)
           state.tracked.evidence = boundedJson(evidence)
           state.tracked.source = boundedJson(state.source)
           state.tracked.nativeEvidence = evidence
@@ -259,12 +272,14 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
           if (state.tracked.evidence !== boundedJson(evidence) || state.tracked.source !== boundedJson(state.source)) {
             throw new LuvusAdapterError('native_evidence_changed')
           }
-          getDelegation(binding).assertCurrent(
-            { config_ref: resource.config.config_ref, binding: state.source.binding },
-            state.source,
-            state.attempt.method,
-            resource.backend.now()
-          )
+          if (!localOwner) {
+            getDelegation(binding).assertCurrent(
+              { config_ref: resource.config.config_ref, binding: state.source.binding },
+              state.source,
+              state.attempt.method,
+              resource.backend.now()
+            )
+          }
           const expires = resource.dedupExpires(binding)
           assertSessionOpen()
           resource.claims.claim(binding, expires)

@@ -827,6 +827,20 @@ export function createGateway(options: GatewayOptions) {
   return {
     channels,
     observations,
+    /** 只交付当前实际认证 peer 的连接副本，断连或失效即未知；不从观测引用推测 epoch。 */
+    currentConnection(machine: string): Connection | undefined {
+      const peer = stopped ? undefined : machines.get(machine)
+      if (!peer) {
+        return undefined
+      }
+      try {
+        assertPeer(peer)
+        options.store.assertConnection(peer.connection)
+        return structuredClone(peer.connection)
+      } catch {
+        return undefined
+      }
+    },
     url: `${options.tls ? 'wss' : 'ws'}://${options.hostname.includes(':') ? '[' + options.hostname + ']' : options.hostname}:${listener.port}/connector`,
     /** 返回有界连接和 provider 健康状态；失效认证会触发关闭且不输出内容或 secret。 */
     status() {

@@ -170,6 +170,14 @@ type Admission = {
 }
 const admissions = new WeakMap<NativeWireBackend, Admission>()
 
+/** 内部组合点将真实认证 context ledger 接到既有 Luvus Wire decode 生命周期，不另建协议或请求缓存。 */
+export function bindConnectorAdmissionLedger(backend: NativeWireBackend, ledger: Admission): void {
+  if (admissions.has(backend)) {
+    fail('connector_backend_reused')
+  }
+  admissions.set(backend, ledger)
+}
+
 /** 装配独立于 Gateway writer 的准入后端；候选只在原 Wire decode 的同步验证范围可见。 */
 export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptions) {
   const connection = JSON.parse(boundedJson(options.connection)) as Connection

@@ -15,6 +15,7 @@ import type {
   GatewayRuntimeOptions,
   ProviderGatewayRuntimeOptions,
   RuntimeCallInput,
+  RuntimeCatalogProvider,
   RuntimeProvider,
   RuntimeProviderBinding
 } from './types.js'
@@ -398,6 +399,42 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           : undefined
       }
     })
+    const catalog: RuntimeCatalogProvider = Object.freeze({
+      /** 目录复用唯一 Store 与当前实际认证 epoch；Owner 无 token 到期，实例/连接寿命逐次复核。 */
+      resolve(target, requesting) {
+        const provider = nativeProviders.get(key(target))
+        const binding = localProvider(target)
+        const connection = active.currentConnection(target.machine_id)
+        if (!provider?.catalogSource || !binding || !connection) {
+          return undefined
+        }
+        if (boundedJson(principal()) !== boundedJson(requesting)) {
+          fail('principal_changed')
+        }
+        const local = localPolicies(target)
+        const native = provider.catalogSource(connection, {
+          caller_policy_revision: requesting.policy.revision,
+          local_policy_revision: local.revision
+        })
+        store.assertConnection(connection)
+        if (
+          boundedJson(principal()) !== boundedJson(requesting) ||
+          boundedJson(localPolicies(target)) !== boundedJson(local) ||
+          boundedJson(active.currentConnection(target.machine_id) ?? null) !== boundedJson(connection) ||
+          boundedJson(localProvider(target) ?? null) !== boundedJson(binding) ||
+          closing
+        ) {
+          fail('runtime_catalog_unavailable')
+        }
+        return Object.freeze({
+          record: provider.contract,
+          source: native,
+          local_provider: binding,
+          // 该字段满足既有目录有限整数格式；它不建立委托寿命，真实 Owner/epoch 失效即拒绝。
+          expires_at: Number.MAX_SAFE_INTEGER
+        })
+      }
+    })
     return Object.freeze({
       store,
       router,
@@ -405,6 +442,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
       principal,
       runAuthenticated: scope.runAuthenticated,
       results,
+      catalog,
       closed,
       close,
       /** 原子准入仅 created=true 才派发；重复 key 不再次发送、不刷新任何期限。 */
