@@ -197,7 +197,8 @@ test(
           'rovloom',
           /* 固定受控错误。 */ () => {
             throw new ServiceError('backend_unavailable')
-          }
+          },
+          'linux'
         ),
       { code: 'backend_unavailable' }
     )

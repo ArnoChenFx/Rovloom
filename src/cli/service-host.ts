@@ -172,7 +172,7 @@ export async function verifyProductServiceRuntime(
     }
     let role: string
     try {
-      role = parseConfig(parsed.value, spec.platform).role
+      role = parseConfig(parsed.value).role
     } catch {
       throw new ServiceError('invalid_arguments')
     }
