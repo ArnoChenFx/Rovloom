@@ -99,8 +99,13 @@ MCP 仅监听 loopback，远程客户端需要管理员安排本地/隧道访问
 
 让客户端完成 MCP 初始化并加载**全部工具页**。在工具运行界面执行，或要求 Agent 依次完成：
 
-1. 用 `machines_list`、`providers_list`、`providers_get` 选择实际设备/provider，检查就绪状态。
-2. 用完整 Target 和实测 `expected_binding_revision` 调用 `runtime_discover`，遍历所有 `next_cursor`。
+1. 用 `machines_list`、`providers_list`、`providers_get` 选择实际 `machine_id` / `provider_id`，
+   核对当前 `binding_revision` 和就绪状态。
+2. 向管理员取得该 provider 的完整 Target：`machine_id`、`provider_id`、`profile`，
+   session profile 还须有精确的 `session`。`providers_list` / `providers_get` 不返回
+   `profile` 或 `session`，不要猜测或从 provider 名称推导 session。核对交付的设备/provider
+   ID 与选择一致，再用此 Target 和实测 revision（作为 `expected_binding_revision`）
+   调用 `runtime_discover`，遍历所有 `next_cursor`。
 3. 对所选原生方法调用 `runtime_describe`，使用返回的 `contract_ref`、参数 schema 和校验要求。
 4. 保留该完整 Target/revision/contract，仅提交一次 `runtime_call`。`deadline` 设为未来的绝对
    Unix 毫秒时间；`wait_ms`（0–5000）只控制前端短等。

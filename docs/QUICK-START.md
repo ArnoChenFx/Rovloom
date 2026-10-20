@@ -116,9 +116,15 @@ Let the client finish MCP initialization and load **all tool pages**. In its too
 runner, or by asking the Agent to perform these steps:
 
 1. Use `machines_list`, then `providers_list` and `providers_get`, to choose an
-   actual device/provider and check readiness.
-2. Use `runtime_discover` with the full Target and observed
-   `expected_binding_revision`; follow every `next_cursor`.
+   actual `machine_id` / `provider_id` and check the current `binding_revision`
+   and readiness.
+2. Obtain that provider's complete Target from your administrator: `machine_id`,
+   `provider_id`, `profile` and, for a session profile, the exact `session`.
+   `providers_list` / `providers_get` do not return `profile` or `session`; do not
+   guess them or derive a session from the provider name. Check that the supplied
+   device/provider IDs match your selection. Use this Target and the observed
+   revision as `expected_binding_revision` for `runtime_discover`; follow every
+   `next_cursor`.
 3. Use `runtime_describe` for the selected native method. Use the returned
    `contract_ref`, parameter schema and validation requirements.
 4. Use `runtime_call` once, preserving that full Target/revision/contract. Set
