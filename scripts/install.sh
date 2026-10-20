@@ -1,0 +1,98 @@
+#!/bin/sh
+# 仅安装官方固定版本二进制；不创建角色配置、身份、服务或修改用户 PATH。
+set -eu
+
+version=0.1.0
+install_dir=${HOME:?HOME is required}/.local/bin
+print_asset=false
+stage=''
+
+# 所有失败均在原子替换前退出；只回收本次创建的私有暂存目录。
+cleanup() {
+  if [ -n "$stage" ]; then rm -rf -- "$stage"; fi
+}
+trap cleanup 0
+trap 'exit 1' HUP INT TERM
+
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+usage() {
+  printf '%s\n' 'Usage: sh install.sh [--version X.Y.Z] [--install-dir /absolute/path] [--print-asset]' \
+    'Default: v0.1.0 from ArnoChenFx/Rovloom; installs to ~/.local/bin.' \
+    'Requires curl and sha256sum (Linux) or shasum (macOS). Linux requires glibc.' \
+    'Installing a binary does not establish Gateway/Connector platform support.'
+}
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --version|--install-dir)
+      [ "$#" -ge 2 ] || fail 'Missing option value.'
+      case "$1" in --version) version=${2#v};; --install-dir) install_dir=$2;; esac
+      shift 2 ;;
+    --print-asset) print_asset=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail 'Unknown option.' ;;
+  esac
+done
+# 稳定版本只接受规范三段数字；不从 latest 或可变分支选择程序。
+printf '%s\n' "$version" | LC_ALL=C grep -Eq '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$' \
+  || fail 'Expected a stable version X.Y.Z.'
+case "$install_dir" in /*) ;; *) fail 'Install directory must be absolute.';; esac
+case "$(uname -s)" in
+  Linux)
+    os=linux
+    getconf GNU_LIBC_VERSION 2>/dev/null | LC_ALL=C grep -Eq '^glibc [0-9]+\.[0-9]+' \
+      || fail 'Only glibc Linux binaries are available.' ;;
+  Darwin) os=darwin ;;
+  *) fail 'Unsupported operating system. Windows requires install.ps1.' ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) arch=x64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) fail 'Unsupported architecture; expected x64 or arm64.' ;;
+esac
+asset=rovloom-$version-$os-$arch
+if [ "$print_asset" = true ]; then printf '%s\n' "$asset"; exit 0; fi
+command -v curl >/dev/null 2>&1 || fail 'curl is required.'
+if command -v sha256sum >/dev/null 2>&1; then
+  hash_program=sha256sum
+elif command -v shasum >/dev/null 2>&1; then
+  hash_program=shasum
+else
+  fail 'sha256sum or shasum is required.'
+fi
+[ ! -L "$install_dir" ] || fail 'Install directory must not be a symbolic link.'
+mkdir -p -- "$install_dir"
+[ -d "$install_dir" ] || fail 'Install directory is not a directory.'
+destination=$install_dir/rovloom
+[ ! -L "$destination" ] || fail 'Existing program must not be a symbolic link.'
+if [ -e "$destination" ] && [ ! -f "$destination" ]; then fail 'Existing program is not a regular file.'; fi
+stage=$(mktemp -d "$install_dir/.rovloom-install.XXXXXXXX")
+chmod 700 "$stage"
+base=https://github.com/ArnoChenFx/Rovloom/releases/download/v$version
+# 强制 HTTPS，拒绝 HTTP 失败并限制时间和大小；没有第三方镜像或自定义下载来源。
+download() {
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 15 --max-time 120 --max-filesize "$3" --output "$2" "$base/$1"
+}
+download SHA256SUMS "$stage/SHA256SUMS" 65536 || fail 'Release checksums are unavailable; existing program was kept.'
+expected=$(LC_ALL=C awk -v name="$asset" '
+  $2 == name {
+    count++
+    if (NF != 2 || length($1) != 64 || $1 !~ /^[a-f0-9]+$/ || $0 != $1 "  " name) bad=1
+    digest=$1
+  }
+  END { if (count != 1 || bad) exit 1; print digest }
+' "$stage/SHA256SUMS") || fail 'Missing or ambiguous asset checksum; existing program was kept.'
+download "$asset" "$stage/rovloom" 268435456 || fail 'Release binary is unavailable; existing program was kept.'
+[ -s "$stage/rovloom" ] || fail 'Release binary is empty; existing program was kept.'
+if [ "$hash_program" = sha256sum ]; then
+  actual=$(sha256sum "$stage/rovloom" | awk '{print $1}')
+else
+  actual=$(shasum -a 256 "$stage/rovloom" | awk '{print $1}')
+fi
+[ "$actual" = "$expected" ] || fail 'Release checksum mismatch; existing program was kept.'
+chmod 755 "$stage/rovloom"
+# 同目录暂存使 rename 保持同文件系统原子提交；失败不先删除旧程序。
+mv -f -- "$stage/rovloom" "$destination" || fail 'Unable to replace program; existing program was kept.'
+printf 'Installed Rovloom %s at %s\n' "$version" "$destination"
+printf '%s\n' 'Run the full path with --help. Add its directory to PATH if desired.' \
+  'This installs the binary only; role configuration and platform runtime acceptance are separate.'
