@@ -1,5 +1,5 @@
 // 将MCP动作投影到既有常驻宿主；准入、取消和原Wire结果门禁均复用同一运行实例。
-import { randomUUID } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { GatewayError } from '../contracts.js'
 import { WireError } from '../wire/index.js'
 import { LuvusAdapterError } from '../connector/luvus/index.js'
@@ -32,7 +32,6 @@ export type RuntimeGatewayServiceOptions = Omit<StoreGatewayOptions, 'store' | '
   runtime: RuntimeGatewayPort
 }
 type Request = { [K in ToolName]: { name: K; args: ToolArguments[K] } }[ToolName]
-type Cursor = { caller: string; result: string; offset: number; bytes: number; expires: number }
 const errors: Record<string, ServiceErrorCode> = {
   runtime_closed: 'unavailable',
   connection_unavailable: 'unavailable',
@@ -66,7 +65,7 @@ function publicError(error: unknown): FacadeServiceError {
 export class RuntimeGatewayService implements GatewayService {
   readonly management: StoreGatewayService['management']
   private readonly reads: StoreGatewayService
-  private readonly cursors = new Map<string, Cursor>()
+  private readonly cursorKey = randomBytes(32)
   private closed = false
 
   // 同一宿主已拥有Store/Router，查询服务不再创建第二个writer或transport。
@@ -75,10 +74,10 @@ export class RuntimeGatewayService implements GatewayService {
     this.management = this.reads.management
   }
 
-  // 显式关闭只回收门面游标，底层资源仍由角色宿主按顺序释放。
+  // 显式关闭销毁门面游标签名密钥，底层资源仍由角色宿主按顺序释放。
   close(): void {
     this.closed = true
-    this.cursors.clear()
+    this.cursorKey.fill(0)
   }
 
   // 每次操作核对等待和真实身份；终止等待不能进入runtime.cancel。
@@ -135,7 +134,14 @@ export class RuntimeGatewayService implements GatewayService {
     return view
   }
 
-  // 服务游标绑定主体、原结果、分页大小和不延长的期限；偏移始终交原results.read重新验权。
+  // 完整绑定当前主体、结果、页大小、偏移与固定期限；只签名服务产生的位置，不承担读取授权。
+  private cursorTag(caller: string, result: string, bytes: number, offset: number, expires: number): string {
+    return createHmac('sha256', this.cursorKey)
+      .update(JSON.stringify([caller, result, bytes, offset, expires]))
+      .digest('base64url')
+  }
+
+  // 无状态游标不占逐页名额；同一游标重试生成同一后继，所有后继沿用首次下载期限并重新验权。
   private readResult(
     args: ToolArguments['runtime_result_read'],
     context: ServiceContext
@@ -143,43 +149,34 @@ export class RuntimeGatewayService implements GatewayService {
     const runtime = this.options.runtime
     const caller = this.current(context)
     const now = runtime.store.clock()
-    for (const [key, value] of this.cursors) {
-      if (now >= value.expires) {
-        this.cursors.delete(key)
+    const bytes = args.max_bytes ?? 4096
+    let offset = 0
+    let expires = now + 30_000
+    if (args.cursor) {
+      const parts = /^result_v1\.([1-9][0-9]{0,15})\.([1-9][0-9]{0,15})\.([A-Za-z0-9_-]{43})$/.exec(args.cursor)
+      if (!parts) {
+        throw new FacadeServiceError('invalid_cursor')
+      }
+      offset = Number(parts[1])
+      expires = Number(parts[2])
+      if (
+        !Number.isSafeInteger(offset) ||
+        !Number.isSafeInteger(expires) ||
+        now >= expires ||
+        !timingSafeEqual(
+          Buffer.from(parts[3]!),
+          Buffer.from(this.cursorTag(caller, args.result_id, bytes, offset, expires))
+        )
+      ) {
+        throw new FacadeServiceError('invalid_cursor')
       }
     }
-    const bytes = args.max_bytes ?? 4096
-    const cursor = args.cursor ? this.cursors.get(args.cursor) : undefined
-    if (
-      args.cursor &&
-      (!cursor || cursor.caller !== caller || cursor.result !== args.result_id || cursor.bytes !== bytes)
-    ) {
-      throw new FacadeServiceError('invalid_cursor')
-    }
-    const page = runtime.results.read(args.result_id, cursor?.offset ?? 0, bytes)
+    const page = runtime.results.read(args.result_id, offset, bytes)
     this.current(context)
     let next: string | undefined
     if (!page.eof) {
-      next = [...this.cursors].find(
-        /* 重读同一页复用其固定后继引用，避免重试无界创建游标。 */ ([, value]) =>
-          value.caller === caller &&
-          value.result === args.result_id &&
-          value.bytes === bytes &&
-          value.offset === page.next_cursor
-      )?.[0]
-      if (!next) {
-        if (this.cursors.size >= 128) {
-          throw new FacadeServiceError('busy')
-        }
-        next = 'result_' + randomUUID()
-        this.cursors.set(next, {
-          caller,
-          result: args.result_id,
-          offset: page.next_cursor,
-          bytes,
-          expires: Math.min(page.expires, now + 30_000)
-        })
-      }
+      expires = Math.min(page.expires, expires)
+      next = `result_v1.${page.next_cursor}.${expires}.${this.cursorTag(caller, args.result_id, bytes, page.next_cursor, expires)}`
     }
     return {
       result_id: page.result_id,
