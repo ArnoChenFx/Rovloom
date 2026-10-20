@@ -83,6 +83,10 @@ request_key_conflict，未知或失效 history 继续拒绝。调用方必须仅
 重复返回即使仍为 created 状态也不得重发；`created: true` 本身不是派发或原生执行许可。
 Router 登记和取消统一返回 `response: null` 的元数据投影；响应原文仅由另经当前 read 授权的
 get/readResult 返回，命中已完成旧调用也不能凭 dispatch/cancel 权限取得原文。
+`runtime_call_get` 每轮由 `Router.get` → `Store.call` 取得最新持久时钟并重验归属、恢复及双端 ACL，
+不跨轮缓存时间。共同 provider 结果层的前置 `Router.checkResultRead` 与实际分页共用句柄、期限和
+参数校验，但不构造正文页；原 Wire 与当前权限末次复验后仍由 `Store.readResult` 重新读页，
+句柄删除或到期必须拒绝。本轮预检成功不授予后续读取权，也不刷新任何期限或取消时钟高水位。
 Store 的可选 `authorize` 是独立可信宿主参数，必须同步返回 undefined；异常或非 undefined
 返回值回滚登记，不支持异步授权，也不承诺撤销异步回调已产生的外部影响。Router 不从工具 JSON
 接收该回调。内部 `Router.create` / `Store.createCall` 保留相对 `timeoutMs` 和原有 Call 返回值，

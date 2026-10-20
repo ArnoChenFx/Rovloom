@@ -1672,8 +1672,8 @@ export class Store {
     }
     return call
   }
-  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标、原内容摘要及实际句柄截止时间，不创建或续期句柄。
-  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): ResultPage {
+  // 共用原归属、参数及末次句柄查询，返回仅供本次同步操作使用的读取事实，不构造正文页。
+  private resultRead(principal: string, resultId: string, cursor: number, maxBytes: number) {
     const call = this.resultCall(principal, resultId)
     if (
       !Number.isSafeInteger(cursor) ||
@@ -1694,6 +1694,15 @@ export class Store {
     if (cursor > row.bytes) {
       throw new GatewayError('invalid_result_cursor')
     }
+    return { call, row }
+  }
+  // 执行与实际分页相同的归属、期限和参数检查；成功只表示本次预检通过，不授予后续交付权。
+  checkResultRead(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): void {
+    this.resultRead(principal, resultId, cursor, maxBytes)
+  }
+  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标、原内容摘要及实际句柄截止时间，不创建或续期句柄。
+  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): ResultPage {
+    const { call, row } = this.resultRead(principal, resultId, cursor, maxBytes)
     const data = Buffer.from(call.response!).subarray(cursor, cursor + maxBytes)
     return {
       result_id: resultId,

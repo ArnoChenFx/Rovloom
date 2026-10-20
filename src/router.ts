@@ -164,6 +164,12 @@ export class Router {
     this.get(principal, call.call_id)
     return this.store.readResult(principal.id, resultId, cursor, maxBytes)
   }
+  // 预检沿用分页的归属、当前双端 ACL、期限和参数门禁，不准备或缓存正文页。
+  checkResultRead(principal: Principal, resultId: string, cursor = 0, maxBytes = 65_536): void {
+    const call = this.store.resultCall(principal.id, resultId)
+    this.get(principal, call.call_id)
+    this.store.checkResultRead(principal.id, resultId, cursor, maxBytes)
+  }
   // 重新核对取消权限后持久停止调用，返回未派发或结果未知等实际状态。
   cancel(principal: Principal, callId: string) {
     this.authorized(principal, callId, 'cancel')
