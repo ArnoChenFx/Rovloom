@@ -12,8 +12,13 @@
 ```
 
 配置的其余 binary、Target、目录和来源字段仍须完整有效。字符串 `"true"`、数字与未知
-字段不会转换成许可。唯一 CLI 加载、Gateway 目录和跨机器联合验收仍须完成产品接线，
-此模块交付不表示任何现有机器已经开启远程执行。
+字段不会转换成许可。标准 Connector CLI 沿用原 owner 的本地配置：Luvus 来自原
+managed root 的 `config.allow_terminal_execution`，Herdr 来自 provider ref 的
+`config.connector.local.allow_terminal_execution`；没有额外 argv 或 Gateway 开关。
+本轮 pin 的配置变化须按原 owner 生命周期重建资源，不直接改写 Luvus root 记录。
+Gateway 目录描述原生方法及参数，不代表已知远端 Connector 当前开关或发放执行许可；
+不能用 Gateway 自报值绕过 Connector 最终检查。目录的当前本机开关过滤与跨机器联合
+验收仍是独立接线边界；已有机器不会因升级或目录查询自动开启远程执行。
 
 ## 检查范围
 
@@ -87,8 +92,10 @@ Nonblank task gates, custom task worker commands, and task completion
 or retry paths that can execute saved commands are also covered; plain task records remain usable.
 
 Both adapters recheck the current local switch immediately before their existing native write.
-Catalog filtering must use the same shared predicate. The CLI loader and joint catalog integration
-remain separate product wiring work. Native replies and terminal truncation stay unchanged:
+Catalog filtering must use the same shared predicate. The standard Connector CLI preserves the
+original owner's local configuration; it adds no argument or Gateway switch. Gateway metadata
+does not attest the remote Connector's current local switch. Joint catalog state filtering remains
+a separate wiring boundary. Native replies and terminal truncation stay unchanged:
 input acknowledgments never become command completion or a fabricated exit code. A lost reply
 after dispatch remains unknown and is not replayed. No existing real machine is enabled by this change.
 

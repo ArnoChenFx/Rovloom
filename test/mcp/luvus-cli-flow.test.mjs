@@ -353,6 +353,12 @@ test(
           stub.nativeRequests.filter(/* 业务输入只提交一次。 */ (row) => row.method === 'agent.prompt').length,
           1
         )
+        assert.equal(
+          stub.nativeRequests.find(
+            /** 关闭终端时文本调用由原caller显式选择严格原生门禁。 */ (row) => row.method === 'agent.prompt'
+          ).params.strict,
+          true
+        )
         const selected = stub.nativeRequests.find(
           /* 窗口读取使用实际选择后的稳定ID，不以位置或猜测revision替代。 */ (row) => row.method === 'workspace.get'
         )

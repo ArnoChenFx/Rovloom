@@ -160,7 +160,7 @@ export async function verifyLuvusMcpOperations(
       target: agent.name,
       terminal_id: agent.terminal_id,
       text: `Return exactly ROVLOOM_CLI_${randomBytes(8).toString('hex')}. Do not run commands or access files.`,
-      strict: false
+      strict: true
     })
     assert.equal(submitted.result.submitted, true)
     const output = await rpc('agent.read', { target: agent.name, lines: 40, source: 'recent' })

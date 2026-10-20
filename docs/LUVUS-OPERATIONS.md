@@ -208,6 +208,10 @@ true，可明确设 false。新建/open 返回的位置不是稳定 ID，应再�
 
 `pane.read` 只接 `pane/lines`；`agent.read` 接 `target/lines/source`，返回真实
 `text/content_revision/terminal_id`。prompt 的 `until/timeout_s` 必须配合 `wait:true`。
+Connector 本地 `allow_terminal_execution` 默认关闭；普通文本 `agent.send/prompt`
+应由 caller 原请求显式指定 `strict:true`，省略或 false 保持上游宽松语义并被拒绝。
+不由最终 IO 补参数；`agent.keys` 和自定义启动 argv/env 仍要求所有者明确开启本地开关。
+该开关不隔离 Agent 自身工具，完整边界见[终端执行](TERMINAL-EXECUTION.md)。
 同一 Agent 的等待串行执行；超时、queued 或 observed_state 不能代表模型回复完成。
 两轮须核对完整 Target、server_generation、选定 pane/alias、terminal_id 和有值时的
 Agent session；第二轮验证真正回复对第一轮随机内容的记忆，不能以终端回显代替。
