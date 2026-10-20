@@ -33,8 +33,8 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 ```
 
 保存示例时将 `/home/your-user` 替换为真实 home。程序首次生成时会写入真实 home。
-默认 Gateway 可在没有身份时本地启动；Connector 空地址可通过配置检查，但启动返回
-`configuration_required`（2）。填写地址不等于已配对或安装原生 provider。
+默认 Gateway 可在没有身份时本地启动；Connector 空地址可通过配置检查，本地真实终端会
+询问地址，非 TTY 启动返回 `configuration_required`（2）。填写地址不等于已配对或安装原生 provider。
 
 ## 全部用户参数
 
@@ -55,10 +55,14 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `management.port` | integer 1–65535，关闭时也必填 | `9445`；监听地址固定 `127.0.0.1`。 |
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
+| Connector `native` | object，可选 | 默认省略，只接受以下两个安装目录字段，在首次 Luvus 初始化时应用。 |
+| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找 `luvus`；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
+| `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
 
 Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、runtime/ref 选择、TLS/CA
 路径、schema 摘要、binary pin 和凭据值均拒绝。用户参数不含原生 root、账本、绑定或
-身份摘要。本切片不提供效果仍待后续实现的 native-discovery 或 Agent 目录配置开关。
+身份摘要。原生初始化后更改安装设置会拒绝；本预览没有引导式原生重配置。
+已初始化 Connector 更改 Gateway URL 也会在向另一 origin 发送已保存设备凭据前拒绝。
 
 路径为规范绝对路径，不相对 JSON 位置解析，不展开 `~` 或环境变量。默认角色文件始终
 按进程用户 home 选择，Windows 也如此，不使用 AppData 或 XDG 覆盖。`--config` 接受
@@ -82,21 +86,32 @@ Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、
   managed/            私有程序管理 provider/caller/管理状态
 <Connector data.directory>/
   managed/            已准备时的私有配对凭据和provider状态
+  control/            受保护Luvus root记录、claims和admission账本
+  n/                  隔离Luvus状态；该完整路径最多52个UTF-8字节
+  h/                  隔离HOME及config/data/cache/runtime XDG子目录
+  w/                  隔离原生工作目录
 ```
 
 数据库可有 WAL/锁/控制附属文件，保留整个目录。不要编辑记录、编造凭据或重建缺失
-账本。原生 runtime 自有状态及安装目录不属于用户配置；自动准备这些原生状态的用户
-流程仍未完成。旧 `runtime.json` 和 `refs/` 不再加载，未发布预览不保留旧格式迁移。
+账本。原生 runtime 自有状态及安装目录不属于用户配置；首次本地终端批准会准备上述
+Luvus 资源，尚未接通 Herdr/混合首次引导。部分创建和不确定交付保留原非秘密 attempt
+记录，不为启动成功而重建缺失账本；引导恢复尚不可用。
+旧 `runtime.json` 和 `refs/` 不再加载，未发布预览不保留旧格式迁移。
 已移除自管证书/CA 路径。
 
 没有 caller 状态的 Gateway 以**待配对**状态运行，MCP 返回 401，管理页不创建管理员
 会话。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
-原值只存 MCP 客户端秘密存储，Gateway 在私有管理状态保存摘要和期限。设备凭据、
+首次原生批准为精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
+原值保留于私有 `managed/mcp-client.json`（0600）；复制到 MCP 客户端秘密存储。
+有效期30天，本预览没有续期引导。`managed/mcp-callers.json` 保存摘要和期限。设备凭据、
 MCP Bearer 与独立管理证明互不替代。既有管理认证仍使用独立 principal/proof，
-MCP Bearer 不能登录管理员。当前 CLI 不签发这些凭据。
+MCP Bearer 不能登录管理员；首次引导不创建管理 cookie 或默认管理员。
 
-Connector 需要可达 Gateway 地址和已完成的配对/原生状态。输入地址/配对码与自动原生
-初始化尚未接通，全新用户无法只靠这些文件完成部署。缺少 provider 状态表示待配置，
+Connector 需要可达 Gateway 地址和已完成的配对/原生状态。真实本地 TTY 上，Gateway
+批准后签发五分钟一次性码；Connector 输入地址及不回显的码，兑换既有 enrollment，
+先把设备身份持久保存到 `managed/device.json`，再确认该次准确交付。实测安装还需独立
+所有者确认，才建立 provider/caller 配置。非 TTY 不等待输入或创建这些权限；初始化
+不会登录模型、创建 Agent 或证明模型回复。缺少 provider 状态表示待配置，
 损坏或不安全状态会拒绝。`config check-runtime` 检查已有程序管理 provider registry，
 不检查 caller 凭据、TLS 信任、原生 binary 或模型连接。
 
@@ -128,8 +143,19 @@ schema 输出保留原字节。已知预编译摘要只用于缓存命中，未�
 将官方 Agent（如 OpenCode）安装到机器所有者控制的目录。既有原生集成使用
 `/usr/bin:/bin`，不继承登录 shell 的 PATH。所有者选择的 `agent_bin_dir` 可前置一个
 规范绝对目录；它是原生安装设置，不是程序文件、PATH 列表、MCP 参数或
-`--agent-bin-dir` 选项。新的单文件用户流程尚未创建这份原生安装设置，添加到角色 JSON
-会拒绝；不要修改 managed root 记录或摘要来强行设置。
+`--agent-bin-dir` 选项。首次原生初始化前，在唯一 Connector 用户文件加入可选片段：
+
+```json
+{
+  "native": {
+    "runtime_bin_dir": "/home/your-user/.local/bin",
+    "agent_bin_dir": "/home/your-user/.local/bin"
+  }
+}
+```
+
+这是完整 Connector 文档中的可选片段。安装目录应由机器所有者控制；不要修改 managed
+root 记录或摘要来更换已初始化的安装。
 
 Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对话可保持本地
 `allow_terminal_execution:false`，不要用任意 argv/env 或终端输入绕过缺失 PATH。
@@ -166,7 +192,8 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对�
 
 显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
-`start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider/Agent 初始化尚未接通用户流程。
+`start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
+上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
 
 ### Service 命令语法与当前可用性
 

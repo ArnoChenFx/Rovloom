@@ -26,12 +26,12 @@ WebUI 原字节及内存 SQLite，并用漏掉 Worker 的反例验证缺包失�
 探针不代表生产 Ajv 工厂或宿主接线。真实入口存在时另行上传 `cli-preview-candidate`。
 该 CI 只上传短期 Actions artifacts，不签名、不发布 GitHub Release。
 
-Linux 原生 runner 另运行 [Gateway 产品 smoke](../scripts/release/gateway-smoke.mjs)：
+Linux/macOS 的 x64/arm64 原生 runner 另运行 [Gateway 产品 smoke](../scripts/release/gateway-smoke.mjs)：
 只复制真实 `rovloom` 到空 cwd/PATH/HOME，使用短期合成身份和离线 schema，
 验证实际认证 MCP、管理页完整白名单资源、确认改名持久化、撤权、正常关闭，
 以及同一产品内 Luvus/Herdr schema 工厂。漏掉 Worker 插件的产物必须失败。
-Herdr 沿用真实祖先路径检查，临时私有目录创建在受信 harness 根或 checkout 父目录；
-不放宽 `/tmp` 等可写祖先限制。测试种子、临时证书和数据库在 child 真正 close 后清理。
+Gateway 种子和 schema 使用共享私有存储与原子写入接口，校验实际 fd 的权限、UID、链接数和ACL；
+Herdr Connector/ref 继续沿用原 Linux 安装路径检查。测试种子、临时证书和数据库在 child 真正 close 后清理。
 该切片返回 `connector: pending`，不代表双角色、真实原生执行或跨机验收。
 
 Linux x64 原生 runner 另运行[完整产品 smoke](../scripts/release/product-smoke.mjs)：
@@ -40,7 +40,9 @@ Linux x64 原生 runner 另运行[完整产品 smoke](../scripts/release/product
 经实际 MCP 通道读取持久化 `pong` 字节、摘要与游标终态。官方 Herdr 下载使用固定 SHA256、
 大小和时间限制，只在本轮私有目录运行；不调用模型、使用真实外部凭据或安装系统服务。
 验收要求 Connector 真实取得并释放原生 Owner、回收自己启动的 Herdr child，
-两个产品角色均收到 SIGTERM 后正常退出。完整结果只有真实往返成功才返回 `connector: passed`。
+两个产品角色均收到 SIGTERM 后正常退出。完整结果只有真实往返成功才返回 `connector: passed`、`nativeOwner: passed`。
+其余三个 POSIX 目标的发行验收仍须通过完整 Gateway 产品 smoke，明确返回
+`connector: unsupported`、`nativeOwner: unsupported`，不伪造双角色结果。
 
 ## Tag 发行门禁
 
@@ -87,11 +89,11 @@ Linux 真实产品打包 smoke 通过后才启动六项矩阵；每项都重新�
 工具链 SHA256 来自 [Bun 1.4.3 官方校验和](https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/SHASUMS256.txt)，
 安装器先核对归档字节与成员，再使用原生 executable；官方归档的 `aarch64` 在产品契约统一写作 `arm64`。
 不提供 musl、32 位、其它 arch 或模拟执行的发行资产；runner 系统版本不代表已验证所有更旧系统。
-此表是编译/原生探针矩阵。当前真实私有存储和runtime文件限制Linux，原生Owner还要求x64；
-macOS/Windows的CLI或schema探针通过不能证明Gateway/Connector已可运行。
-Linux x64与arm64已有实际Gateway隔离验收；完整双角色原生验收仅接纳Linux x64，
-回环双进程验收不等同双机验收。现有六目标tag门禁会拒绝其余目标的完整验收，
-这些运行平台的实现缺口解决前，不能凭六平台编译成功公开六项发行资产。
+此表是编译/原生探针矩阵。真实 Gateway 的私有存储和runtime文件支持 Linux/macOS x64/arm64；
+这四项须分别通过本机完整 Gateway 隔离验收，不能用编译或无认证启动替代。
+完整双角色原生验收仅接纳Linux x64，原生Owner并未随Gateway文件层扩展；
+回环双进程验收不等同双机验收。Windows文件层尚未接通，六目标tag门禁仍会拒绝Windows产品验收；
+该缺口解决前，不能凭六平台编译成功公开六项发行资产。
 支持目标须在该次 tag 的相应真实产品 smoke 全部通过后才实际交付。
 Windows 两种 arch 均要求原生 Windows 图标资源检查；不能用跨编译代替。
 

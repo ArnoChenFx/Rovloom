@@ -47,8 +47,7 @@ function seed(f) {
     }
   }
   const schema = join(f.refs, 'fixture_herdr_schema.json')
-  copyFileSync(new URL('../../test/fixtures/herdr/0.9.5/schema.json', import.meta.url), schema)
-  chmodSync(schema, 0o600)
+  f.write(schema, readFileSync(new URL('../../test/fixtures/herdr/0.9.5/schema.json', import.meta.url)))
   f.save(join(f.refs, 'fixture_herdr.json'), {
     kind: 'herdr',
     config: {
@@ -62,11 +61,10 @@ function seed(f) {
     }
   })
   f.save(join(f.refs, 'fixture_luvus.json'), luvus)
-  copyFileSync(
-    new URL('../../test/fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url),
-    join(f.refs, 'fixture_luvus_schema.json')
+  f.write(
+    join(f.refs, 'fixture_luvus_schema.json'),
+    readFileSync(new URL('../../test/fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url))
   )
-  chmodSync(join(f.refs, 'fixture_luvus_schema.json'), 0o600)
   f.configureProviders([
     { reference: 'fixture_luvus', value: luvus },
     { reference: 'fixture_herdr', value: JSON.parse(readFileSync(join(f.refs, 'fixture_herdr.json'))) }
@@ -218,13 +216,13 @@ async function withGateway(binary, f, cwd, env, inspect) {
   }
 }
 
-/** 仅支持已实现安全存储语义的Linux；其它平台必须明确失败，不能退回help探针充当角色验收。 */
+/** 仅接纳已实现私有文件语义的Linux/macOS；其它平台明确失败，不用编译探针替代角色验收。 */
 export async function smokeGatewayProduct(
   binary,
   version,
   assets = loadManagementAssets(join(dirname(binary), 'webui'))
 ) {
-  assert.equal(process.platform, 'linux', 'product_gateway_storage_platform_unsupported')
+  assert(['linux', 'darwin'].includes(process.platform), 'product_gateway_storage_platform_unsupported')
   assert(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(version), 'product_smoke_version_required')
   const f = await gatewaySmokeFixture()
   let client

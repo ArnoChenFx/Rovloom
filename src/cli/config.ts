@@ -1,9 +1,9 @@
 // 定义双角色无密钥配置及严格只读加载边界；不解析凭据、不创建状态或连接。
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
-import { dirname, posix, win32 } from 'node:path'
-import { userInfo } from 'node:os'
-import { canonical } from '../contracts.js'
+import { posix, win32 } from 'node:path'
+import { canonical, GatewayError } from '../contracts.js'
+import { readPrivateBytes } from '../storage/files.js'
 import { parseNativeJson } from '../native-contract/json.js'
+import { agentSearchPath } from '../connector/local/agent-path.js'
 
 export type GatewayConfig = Readonly<{
   schema_version: 1
@@ -24,6 +24,7 @@ export type ConnectorConfig = Readonly<{
   state_dir: string
   gateway_url: string
   provider_config_refs: readonly string[]
+  native?: Readonly<{ runtime_bin_dir?: string; agent_bin_dir?: string }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
 
@@ -33,6 +34,7 @@ export const CLI_ERROR_CODES = [
   'config_platform_unsupported',
   'config_not_protected',
   'config_unreadable',
+  'config_changed',
   'config_not_found',
   'config_home_unavailable',
   'configuration_required',
@@ -50,6 +52,9 @@ export class CliError extends Error {
     this.name = 'CliError'
   }
 }
+
+// 只标识本机终止信号取消的引导等待；资源清理异常仍由原关闭路径独立传播。
+export class CliCancelled extends Error {}
 
 // 统一拒绝非法配置，避免将输入值混入错误消息。
 function fail(): never {
@@ -175,17 +180,29 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
         authentication_ref: 'mcp-callers'
       })
     }
-    exact(input, ['schema_version', 'role', 'data', 'gateway'])
+    exact(input, ['schema_version', 'role', 'data', 'gateway'], ['native'])
     const gateway = exact(input.gateway, ['url'])
     if (gateway.url !== '' && !gatewayUrl(gateway.url)) {
       return fail()
+    }
+    const native =
+      input.native === undefined ? undefined : exact(input.native, [], ['runtime_bin_dir', 'agent_bin_dir'])
+    if (native) {
+      for (const directory of Object.values(native)) {
+        if (!fixedPath(directory, platform)) {
+          return fail()
+        }
+        agentSearchPath(directory as string, '/usr/bin:/bin', platform)
+      }
+      Object.freeze(native)
     }
     return Object.freeze({
       schema_version: 1,
       role: 'connector',
       state_dir: data.directory,
       gateway_url: gateway.url as string,
-      provider_config_refs: Object.freeze([])
+      provider_config_refs: Object.freeze([]),
+      ...(native ? { native } : {})
     })
   } catch {
     return fail()
@@ -204,7 +221,8 @@ export function configDocument(config: RoleConfig): Record<string, unknown> {
       }
     : {
         ...common,
-        gateway: { url: config.gateway_url }
+        gateway: { url: config.gateway_url },
+        ...(config.native ? { native: config.native } : {})
       }
 }
 
@@ -246,28 +264,13 @@ export function readProtectedJson(path: string): unknown {
   if (!fixedPath(path)) {
     throw new CliError('invalid_config_path')
   }
-  let fd: number | undefined
+  let bytes: Buffer | undefined
   try {
-    const os = userInfo()
-    if (process.platform === 'win32' || os.uid < 0) {
+    if (!['linux', 'darwin'].includes(process.platform)) {
       throw new CliError('config_platform_unsupported')
     }
-    const parent = lstatSync(dirname(path))
-    if (!parent.isDirectory() || parent.uid !== os.uid || (parent.mode & 0o077) !== 0) {
-      throw new CliError('config_not_protected')
-    }
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
-    const stat = fstatSync(fd)
-    if (!stat.isFile() || stat.uid !== os.uid || (stat.mode & 0o077) !== 0 || stat.size > 16_384) {
-      throw new CliError('config_not_protected')
-    }
-    // 按 descriptor 有界读取，避免读取过程中增长的文件耗尽内存。
-    const buffer = Buffer.alloc(16_385)
-    const length = readSync(fd, buffer, 0, buffer.length, 0)
-    if (length > 16_384) {
-      throw new CliError('invalid_config')
-    }
-    const parsed = parseNativeJson(buffer.subarray(0, length), {
+    bytes = readPrivateBytes(path, 16_384, true)
+    const parsed = parseNativeJson(bytes, {
       object_bytes: 16_384,
       object_depth: 16,
       object_nodes: 4096
@@ -283,11 +286,12 @@ export function readProtectedJson(path: string): unknown {
     if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new CliError('config_not_found')
     }
+    if (error instanceof GatewayError) {
+      throw new CliError('config_not_protected')
+    }
     throw new CliError('config_unreadable')
   } finally {
-    if (fd !== undefined) {
-      closeSync(fd)
-    }
+    bytes?.fill(0)
   }
 }
 

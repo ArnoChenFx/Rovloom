@@ -2,9 +2,10 @@
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:net'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { inspectHerdrPath } from '../../src/connector/herdr/local.ts'
+import { ensurePrivateDirectory } from '../../src/storage/files.ts'
+import { writeSetupFile } from '../../src/cli/setup-files.ts'
 import { dirname, join } from 'node:path'
 import * as configSchema from '../../src/cli/config.ts'
 import { runtimeReference } from '../../src/cli/runtime-files.ts'
@@ -32,7 +33,7 @@ export async function gatewaySmokeFixture() {
   const parent = process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../../', import.meta.url))
   const root = mkdtempSync(join(parent, '.rovloom-product-gateway-'))
   try {
-    inspectHerdrPath(root, 'directory')
+    ensurePrivateDirectory(root)
   } catch (error) {
     rmSync(root, { recursive: true, force: true })
     throw error
@@ -40,8 +41,8 @@ export async function gatewaySmokeFixture() {
   const state = join(root, 'gateway')
   const refs = dirname(runtimeReference(state, 'management'))
   const legacyRuntime = typeof configSchema.configDocument !== 'function'
-  mkdirSync(state, { mode: 0o700 })
-  mkdirSync(refs, { mode: 0o700 })
+  ensurePrivateDirectory(state)
+  ensurePrivateDirectory(refs)
   const ports = new Set()
   while (ports.size < 3) {
     ports.add(await port())
@@ -109,8 +110,13 @@ export async function gatewaySmokeFixture() {
       }
     ]
   }
-  const save = /** 只覆写本例自有JSON，权限恢复必须显式操作，不能作为生产自动修复。 */ (path, value) =>
-    writeFileSync(path, JSON.stringify(value), { mode: 0o600 })
+  const written = new Set()
+  const write = /** 复用同fd私有校验和原子发布；只替换本例此前成功创建的文件。 */ (path, bytes) => {
+    writeSetupFile(path, bytes, written.has(path))
+    written.add(path)
+  }
+  const save = /** 所有JSON仅为本例合成记录，不修复已有对象权限或接受用户文件。 */ (path, value) =>
+    write(path, JSON.stringify(value))
   save(configPath, legacyRuntime ? config : configSchema.configDocument(config))
   save(callerPath, callers)
   save(sourcePath, source)
@@ -173,6 +179,7 @@ export async function gatewaySmokeFixture() {
     callers,
     origin: `http://127.0.0.1:${managementPort}`,
     save,
+    write,
     request: /** 固定实际Origin和Host；Basic值只在测试内存，不能作为URL或CLI参数。 */ (
       authorization = 'Basic ' + Buffer.from(lease.caller.principal_id + ':' + managementProof).toString('base64'),
       init = {}

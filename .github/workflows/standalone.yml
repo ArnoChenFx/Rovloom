@@ -76,15 +76,15 @@ jobs:
             echo 'CLI product wiring pending; only the packaging probe was accepted.'
             echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
-      - name: Accept real standalone Gateway with isolated HTTP, MCP, WebUI and schema factories
-        if: runner.os == 'Linux'
+      - name: Accept real standalone Gateway and explicit unsupported native roles
+        if: (runner.os == 'Linux' || runner.os == 'macOS') && matrix.target != 'bun-linux-x64'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
-          bun --no-env-file scripts/release/gateway-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom" "$version"
+          bun --no-env-file scripts/release/product-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom" "$version"
       - name: Accept same product Gateway and Connector with official native Herdr ping
         if: matrix.target == 'bun-linux-x64'
         shell: bash

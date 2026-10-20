@@ -1,44 +1,19 @@
 // 仅在角色文件缺失时独占创建单份用户配置；不读取stdin、不生成凭据、不写runtime/ref文档。
-import {
-  closeSync,
-  constants,
-  fchmodSync,
-  fsyncSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  unlinkSync,
-  writeFileSync
-} from 'node:fs'
+import { closeSync, constants, fchmodSync, fsyncSync, linkSync, openSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { dirname, join, parse } from 'node:path'
+import { dirname, join } from 'node:path'
+import { ensurePrivateDirectory } from '../storage/files.js'
+import { assertPrivateDescriptor } from '../storage/private-posix.js'
 import { CliError, configDocument, configTemplate, parseConfig, readConfig, type RoleConfig } from './config.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 
 // 逐级拒绝链接和非目录，只创建缺失目录，已有目录的权限及内容永不修复或覆盖。
 export function privateDirectory(path: string): void {
-  const chain = [path]
-  while (chain[0] !== parse(path).root) {
-    chain.unshift(dirname(chain[0]!))
-  }
-  for (const current of chain) {
-    try {
-      mkdirSync(current, { mode: 0o700 })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        throw new CliError('config_unreadable')
-      }
-    }
-    const stat = lstatSync(current)
-    if (
-      !stat.isDirectory() ||
-      stat.isSymbolicLink() ||
-      (current === path && (stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o700))
-    ) {
-      throw new CliError('config_not_protected')
-    }
+  try {
+    ensurePrivateDirectory(path)
+  } catch {
+    throw new CliError('config_not_protected')
   }
 }
 
@@ -80,7 +55,7 @@ export function readOrCreateRoleConfig(
       throw error
     }
   }
-  if (process.platform !== 'linux') {
+  if (!['linux', 'darwin'].includes(process.platform)) {
     throw new CliError('config_platform_unsupported')
   }
   const config = defaults(role, environment)
@@ -93,6 +68,7 @@ export function readOrCreateRoleConfig(
     fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
     created = true
     fchmodSync(fd, 0o600)
+    assertPrivateDescriptor(fd, false)
     writeFileSync(fd, JSON.stringify(configDocument(config), null, 2) + '\n')
     fsyncSync(fd)
     const written = fd

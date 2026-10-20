@@ -76,8 +76,9 @@ flowchart TB
 Follow the [Quick Start](docs/QUICK-START.md) for installation prerequisites,
 Gateway/Connector configuration paths, startup, HTTP MCP access and Agent use.
 The [configuration reference](docs/CONFIGURATION.md) lists the exact settings
-and complete non-secret templates. A first run creates the role file; fresh-device
-pairing and native setup are still incomplete.
+and complete non-secret templates. Local terminal setup can pair one Connector
+and initialize an installed Luvus; Agent/model setup and Herdr first-run guidance
+remain prerequisites outside this flow.
 
 ```sh
 rovloom --version
