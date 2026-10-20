@@ -34,8 +34,11 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
   if (spec.platform !== environment.platform || spec.executable !== environment.executable) {
     throw new ServiceError('unsafe_installation')
   }
-  // 本机native Connector仍限Linux x64；macOS服务入口由独立接线提供。
-  if (environment.platform !== 'linux' || (spec.role === 'connector' && environment.arch !== 'x64')) {
+  // Gateway服务支持Linux/macOS；本机native Connector仍限Linux x64。
+  if (
+    !['linux', 'darwin'].includes(environment.platform) ||
+    (spec.role === 'connector' && (environment.platform !== 'linux' || environment.arch !== 'x64'))
+  ) {
     throw new ServiceError('backend_unavailable')
   }
 }
@@ -44,49 +47,73 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
 export function serviceAccountConfig(
   role: ServiceRole,
   account: string,
-  lookup: (account: string) => string = accountRecord
+  lookup?: (account: string) => string,
+  platform: string = process.platform
 ): string {
   if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/u.test(account) || account === 'root') {
     throw new ServiceError('invalid_arguments')
   }
   let record: string
   try {
-    record = lookup(account).trimEnd()
+    record = (lookup ?? /* 平台由受信宿主选择，不从CLI传入。 */ ((name) => accountRecord(name, platform)))(
+      account
+    ).trimEnd()
   } catch (error) {
     if (error instanceof ServiceError && error.code === 'backend_unavailable') {
       throw error
     }
     throw new ServiceError('config_path_required')
   }
-  const fields = record.split(':')
-  if (
-    fields.length !== 7 ||
-    fields[0] !== account ||
-    !/^[1-9]\d*$/u.test(fields[2]!) ||
-    !Number.isSafeInteger(Number(fields[2])) ||
-    record.includes('\n')
-  ) {
+  let home: string | undefined
+  let uid: string | undefined
+  if (platform === 'darwin') {
+    const values = new Map<string, string>()
+    for (const line of record.split('\n').filter(Boolean)) {
+      const match = /^([a-z_]+): (.*)$/u.exec(line)
+      if (!match || values.has(match[1]!)) {
+        throw new ServiceError('config_path_required')
+      }
+      values.set(match[1]!, match[2]!)
+    }
+    if (values.get('name') !== account) {
+      throw new ServiceError('config_path_required')
+    }
+    uid = values.get('uid')
+    home = values.get('dir')
+  } else {
+    const fields = record.split(':')
+    if (fields.length !== 7 || fields[0] !== account || record.includes('\n')) {
+      throw new ServiceError('config_path_required')
+    }
+    uid = fields[2]
+    home = fields[5]
+  }
+  if (!uid || !/^[1-9]\d*$/u.test(uid) || !Number.isSafeInteger(Number(uid))) {
     throw new ServiceError('config_path_required')
   }
   try {
-    return resolveRoleConfigPath(role, undefined, { home: fields[5], platform: 'linux' })
+    return resolveRoleConfigPath(role, undefined, { home, platform: platform === 'darwin' ? 'darwin' : 'linux' })
   } catch {
     throw new ServiceError('config_path_required')
   }
 }
 
-// 同步 parser 只读取有界 passwd 记录；绝对程序、独立 argv 和固定环境阻止 shell/环境注入。
-function accountRecord(account: string): string {
-  if (process.platform !== 'linux') {
+// 同步parser只读取有界系统账户记录；绝对程序、独立 argv 和固定环境阻止 shell/环境注入。
+function accountRecord(account: string, platform: string): string {
+  if (!['linux', 'darwin'].includes(platform)) {
     throw new ServiceError('backend_unavailable')
   }
-  return execFileSync('/usr/bin/getent', ['passwd', account], {
-    encoding: 'utf8',
-    timeout: 5000,
-    maxBuffer: 16384,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
-  })
+  return execFileSync(
+    platform === 'darwin' ? '/usr/bin/dscacheutil' : '/usr/bin/getent',
+    platform === 'darwin' ? ['-q', 'user', '-a', 'name', account] : ['passwd', account],
+    {
+      encoding: 'utf8',
+      timeout: 5000,
+      maxBuffer: 16384,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
+    }
+  )
 }
 
 // 已有配置只做普通文件/JSON/角色检查；缺失配置留给角色正常首次启动生成，不核对UID/mode/ACL或状态目录。
@@ -157,9 +184,9 @@ export function createProductServiceHost(): CliServiceHost {
     // 当前不能运行角色的平台在接触系统控制目录、权限或注册之前明确拒绝。
     async authorize(role?: ServiceRole) {
       if (
-        environment.platform !== 'linux' ||
+        !['linux', 'darwin'].includes(environment.platform) ||
         !environment.standalone ||
-        (role === 'connector' && environment.arch !== 'x64')
+        (role === 'connector' && (environment.platform !== 'linux' || environment.arch !== 'x64'))
       ) {
         throw new ServiceError('backend_unavailable')
       }

@@ -3,9 +3,10 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Store } from '../store.js'
 import type { LocalPolicies, Principal } from '../router.js'
 import { boundedJson, hash, LIMITS, providerScopeAllowed, validatePolicies } from '../wire/index.js'
-import type { AttemptBinding, JsonObject, ProviderPolicy, V2Target } from '../wire/types.js'
+import type { AttemptBinding, JsonObject, ProviderBinding, ProviderPolicy, V2Target } from '../wire/types.js'
 import type { ProviderCatalogProvider, ProviderCatalogSource } from './native-catalog.js'
 import { FacadeServiceError } from './types.js'
+import { terminalExecutionCatalog } from '../connector/terminal-execution.js'
 
 // 复用现行目录的目标/read、当前主体和固定绑定门禁，原生字段由各provider自己的安装/schema解释。
 export function authorizedProviderCatalog(options: {
@@ -16,6 +17,7 @@ export function authorizedProviderCatalog(options: {
   provider: ProviderCatalogProvider
   target: V2Target
   expected_binding_revision: number
+  terminalExecutionState?(binding: ProviderBinding): boolean | undefined
 }) {
   const { store, principal, target } = options
   const local = JSON.parse(boundedJson(options.localPolicies(target))) as ProviderPolicy
@@ -30,8 +32,21 @@ export function authorizedProviderCatalog(options: {
   if (!binding.enabled) {
     throw new FacadeServiceError('unavailable')
   }
+  /** 只接受原连接的同步布尔观察；异步结果既不启用目录也不留下晚拒绝。 */
+  function terminalState(): boolean | undefined {
+    const value = options.terminalExecutionState?.(binding!)
+    if (value !== undefined && typeof value !== 'boolean') {
+      void Promise.resolve(value).catch(/** 消费违规异步来源的拒绝。 */ () => {})
+      throw new FacadeServiceError('contract_unavailable')
+    }
+    return value
+  }
+  const terminal = terminalState()
   const generation = store.generation()
   const check = /* owner回调前后重读同一现行主体/配置，不能沿用已改变的目录快照。 */ () => {
+    if (terminalState() !== terminal) {
+      throw new FacadeServiceError('contract_unavailable')
+    }
     if (
       store.generation() !== generation ||
       !isDeepStrictEqual(options.currentPrincipal(), principal) ||
@@ -98,6 +113,7 @@ export function authorizedProviderCatalog(options: {
         {
           target,
           binding,
+          terminal_execution: terminal ?? null,
           contract_ref: source.contract_ref,
           revision: source.capability_revision,
           methods
@@ -115,15 +131,21 @@ export function authorizedProviderCatalog(options: {
   const allowed = /* 同一完整Target和方法继续使用现有双端read交集。 */ (method: string) =>
     providerScopeAllowed({ target } as AttemptBinding, method, 'read', { caller: principal.policy, local })
   const visible = methods.filter(
-    /* 不把原生目录中的其它方法作为隐式授权。 */ (method) => allowed(method.method as string)
+    /* 不把原生目录中的其它方法作为隐式授权。 */ (method) =>
+      allowed(method.method as string) &&
+      terminalExecutionCatalog(binding.kind, method.method as string, terminal).visible
   )
   current()
   return {
-    methods: visible.map(
-      /* 契约引用取同一owner快照，不使用条目自报的另一引用。 */ (method) => ({
-        ...method,
-        contract_ref: source.contract_ref
-      })
+    methods: visible.map<JsonObject>(
+      /* 契约引用取同一owner快照，不使用条目自报的另一引用。 */ (method) => {
+        const entry = terminalExecutionCatalog(binding.kind, method.method as string, terminal)
+        return {
+          ...method,
+          contract_ref: source.contract_ref,
+          ...(entry.details ? { terminal_execution: entry.details } : {})
+        }
+      }
     ),
     scope: {
       generation,
@@ -143,7 +165,13 @@ export function authorizedProviderCatalog(options: {
       if (!description || typeof description !== 'object' || Array.isArray(description)) {
         throw new FacadeServiceError('contract_unavailable')
       }
-      return { ...description, method, contract_ref: source.contract_ref }
+      const entry = terminalExecutionCatalog(binding.kind, method, terminal)
+      return {
+        ...description,
+        method,
+        contract_ref: source.contract_ref,
+        ...(entry.details ? { terminal_execution: entry.details } : {})
+      }
     }
   }
 }

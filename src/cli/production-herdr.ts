@@ -22,6 +22,7 @@ import type { ProductionCliSources, ProductionProviderReference } from './produc
 import { createHerdrProductSources } from './herdr-sources.js'
 import { readRuntimeFile } from './runtime-files.js'
 import { ProviderUnavailableError } from './provider-unavailable.js'
+import { pinTerminalExecution } from '../connector/terminal-execution.js'
 
 export type HerdrProductionOwnerConfig = Readonly<{
   kind: 'herdr'
@@ -224,7 +225,13 @@ export function createHerdrProductionSources(): ProductionCliSources {
   return Object.freeze({
     ...createHerdrProductSources(),
     /** 单个 Connector 只交付一个真实 provider，会话、receipt、claims 与原始预算完全复用现有工厂。 */
-    async connector(_config, input) {
+    async connector(roleConfig, input) {
+      const terminalExecution =
+        roleConfig.allow_terminal_execution === undefined
+          ? undefined
+          : /** 每次写入仍从单文件角色配置读取显式开关，不改变原生安装记录。 */ () =>
+              pinTerminalExecution(roleConfig.allow_terminal_execution)
+      terminalExecution?.()
       const selected = reference(input)
       const config = selected.config
       const local = config.connector.local
@@ -306,6 +313,7 @@ export function createHerdrProductionSources(): ProductionCliSources {
           config,
           installation,
           now: Date.now,
+          ...(terminalExecution ? { terminalExecution } : {}),
           /** 固定 principal 的策略来自受保护配置快照，不读取消息自报身份或打开 Gateway Store。 */
           policies(principal) {
             if (stopping || principal !== config.connector.principal_id) {

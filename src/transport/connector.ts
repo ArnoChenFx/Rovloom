@@ -141,6 +141,7 @@ export function createConnector(options: ConnectorOptions) {
   const providerFences = new Map<string, ProviderBinding>()
   let received = new ReceiveWindow()
   let observedTime = 0
+  const terminalReported = new Map<string, string>()
   let published:
     | {
         connection: Connection
@@ -285,6 +286,39 @@ export function createConnector(options: ConnectorOptions) {
     }
     if (published !== captured || connection !== active || session !== current || ws !== captured.socket || stopped) {
       fail('connection_unavailable')
+    }
+  }
+  /** 只发布本 epoch 的本地有效开关；原生能力与执行许可仍走各自原接口。 */
+  function publishTerminalExecution(active: Connection, current: Session): void {
+    if (!active.negotiated.capabilities.includes('terminal_execution_state')) {
+      return
+    }
+    const values = current.terminalExecutionState?.() ?? []
+    if (!Array.isArray(values) || values.length > 64) {
+      void Promise.resolve(values).catch(/** 不接受异步配置结果，也不遗留无人观察的拒绝。 */ () => {})
+      fail('terminal_execution_state_invalid')
+    }
+    const seen = new Set<string>()
+    for (const value of values) {
+      validateProvider(value.binding)
+      const provider = value.binding.provider_id
+      if (value.binding.machine_id !== active.machine_id || typeof value.enabled !== 'boolean' || seen.has(provider)) {
+        fail('terminal_execution_state_invalid')
+      }
+      seen.add(provider)
+      if (providerFences.has(provider)) {
+        continue
+      }
+      const payload = { binding: value.binding, enabled: value.enabled }
+      const fingerprint = boundedJson(payload)
+      if (terminalReported.get(provider) === fingerprint) {
+        continue
+      }
+      if (connection !== active || session !== current || stopped) {
+        fail('connection_unavailable')
+      }
+      write(envelope(active, 'terminal_execution_state', payload))
+      terminalReported.set(provider, fingerprint)
     }
   }
   /** welcome 后仅向原 socket 各发布一次单 provider 快照；任何重入、替换或背压都关闭原 epoch。 */
@@ -664,7 +698,9 @@ export function createConnector(options: ConnectorOptions) {
             ) {
               fail('provider_fence_backend_unavailable')
             }
+            terminalReported.clear()
             publishSnapshots(connection, session)
+            publishTerminalExecution(connection, session)
             if (stopped || ws !== current || !connection || !session) {
               fail('connection_unavailable')
             }
@@ -832,6 +868,7 @@ export function createConnector(options: ConnectorOptions) {
         }
         reconcileProviders(connection, session)
         assertSnapshots(connection, session)
+        publishTerminalExecution(connection, session)
         for (const { controller, binding } of running.values()) {
           if (
             !ready(session, connection, binding.target.provider_id) ||

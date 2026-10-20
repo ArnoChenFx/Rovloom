@@ -8,7 +8,7 @@ export function setupTarget(machine: string): V2Target & { profile: 'session' } 
   return { machine_id: machine, provider_id: 'luvus', profile: 'session', session: 'rovloom' }
 }
 
-// 权限绑定一次配对的稳定主体和完整Target；terminal执行不属于此普通接口集合。
+// 权限绑定一次配对的稳定主体和完整Target；pane.run 仍需本机显式开关及原生契约门禁。
 export function setupPolicies(
   plan: Pick<PairingPlan, 'attempt_id' | 'actor'>,
   target: V2Target

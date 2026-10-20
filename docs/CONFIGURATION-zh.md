@@ -30,7 +30,8 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
   "schema_version": 1,
   "role": "connector",
   "data": {"directory": "/home/your-user/.local/share/rovloom/connector"},
-  "gateway": {"url": ""}
+  "gateway": {"url": ""},
+  "allow_terminal_execution": false
 }
 ```
 
@@ -57,6 +58,7 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `management.port` | integer 1–65535，关闭时也必填 | `9445`；监听地址固定 `127.0.0.1`。 |
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
+| Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |
 | Connector `native` | object，可选 | 默认省略，只接受以下两个安装目录字段，在首次 Luvus 初始化时应用。 |
 | `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找 `luvus`；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
 | `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
@@ -158,6 +160,12 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 `allow_terminal_execution:false`，不要用任意 argv/env 或终端输入绕过缺失 PATH。
 终端开关不会沙箱化 Agent 自身工具；binary/schema 校验或 `ready` 不证明模型已回复。
 
+直接终端操作复用原生方法：Luvus `pane.run` 接受显式 `pane` 与 `command`，随后用
+`pane.read` 读取终端输出。`ok` 仅确认 PTY 输入，不表示命令完成或 shell 退出码。
+当前认证 Gateway 目录在本地开关关闭或未知时隐藏直接输入，保留并标明严格文本变体的
+参数限制。已有初始化策略可能未包含 `pane.run`，开启本地开关不会修改它们。执行环境、
+输出和未知结果语义见[终端执行](TERMINAL-EXECUTION.md)。
+
 ## 完整 CLI 参考
 
 以下覆盖当前产品的全部命令形状。`ROLE` 表示 `gateway` 或 `connector`，`ABS` 表示
@@ -194,7 +202,7 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。产品入口已连接Linux systemd，macOS产品接线单独交付；安装要求当前
+`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
 Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
 缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
 Windows等待普通角色启动接口；原生格式解析不等于生命周期验收。
@@ -241,7 +249,7 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | Gateway 启动 / `config check-runtime` | 可用 | Gateway 私有文件层可用 | runtime 加载器拒绝该平台 |
 | 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
 | 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
-| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | 产品入口未启用 | 产品在系统访问前拒绝；普通角色文件与启动接线未完成 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品在系统访问前拒绝；普通角色文件与启动接线未完成 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，

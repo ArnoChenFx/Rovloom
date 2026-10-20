@@ -16,7 +16,7 @@ install registers boot startup without starting; uninstall only revokes future b
 Omitted --executable uses the current standalone binary; a different binary is rejected.
 Omitted --config uses the selected service account's verified home; unavailable identity requires explicit --config.
 Linux uses systemd system units; macOS uses system LaunchDaemons; Windows uses boot-triggered tasks, not SCM services or login tasks.
-The current product runtime supports Linux only; macOS/Windows installation fails closed with backend_unavailable.
+Gateway services support Linux systemd and macOS system LaunchDaemons; local native Connector remains Linux x64. Windows product installation still fails closed with backend_unavailable.
 Windows requires --user S-1-5-19 (LocalService); explicit stop/restart may terminate the task; uninstall never stops it.
 `
 

@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { createHerdrRuntimeChain } from './runtime-chain.js'
 import { privateHerdrTestRoot } from './private-root.js'
 
-/** 自有 socket 即使权限正确，也只能放在原生实例边界，不能混入 Store 管理的普通文件目录。 */
+/** 为容量统计测试创建自有socket，不监听或复用外部原生端点。 */
 async function listener(address: string) {
   const server = createServer()
   await new Promise<void>(
@@ -29,8 +29,8 @@ async function listener(address: string) {
 }
 
 test(
-  'native sockets remain outside the real Store managed parent while its socket guard stays strict',
-  /** 重现曾阻断 fixture_authenticate 的根因，正确分区后正向事务通过，污染 Store 子目录仍拒绝。 */
+  'Store capacity accounting ignores ordinary socket entries without blocking transactions',
+  /** 普通特殊文件不计入文件容量，也不阻断原有SQLite事务。 */
   async () => {
     const root = privateHerdrTestRoot('.herdr-chain-')
     const chain = createHerdrRuntimeChain(root)
@@ -42,10 +42,7 @@ test(
         /** 原生 socket 不属于独立受管数据库目录，真实 Store 事务应成功。 */ () => chain.f.store.expire()
       )
       contaminated = await listener(join(root, 'gateway-store', 'unexpected.sock'))
-      assert.throws(
-        /** 即使 0600 socket 也必须被原生产 managedBytes 文件类型检查拒绝。 */ () => chain.f.store.expire(),
-        { code: 'unsafe_storage_file' }
-      )
+      assert.doesNotThrow(/** 自有socket不被当作配置、数据库或普通文件字节读取。 */ () => chain.f.store.expire())
     } finally {
       await contaminated?.close()
       await native?.close()

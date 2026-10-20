@@ -202,7 +202,7 @@ test(
     input.wire.source.binary_version = 'future-diagnostic-version'
     input.wire.source.server_version = 'different-server-version'
     assert.doesNotThrow(/** 版本标签不参与接口兼容判断。 */ () => assertLuvusOperationsContract(input))
-    assert.equal(LUVUS_OPERATION_METHODS.length, 34)
+    assert.equal(LUVUS_OPERATION_METHODS.length, 35)
   }
 )
 
@@ -385,5 +385,19 @@ test(
       )
     }
     assert.equal(decisions, 0)
+  }
+)
+
+test(
+  'pane.run retains the original raw authority and explicit pane contract without executing a terminal',
+  /** 真实 validator/dispatch gate 与合成来源组合；这里只形成许可判定，不调用原生执行。 */ () => {
+    const input = fixture('pane.run', { pane: '1', command: 'printf fixture' })
+    assert.equal(dispatch(input, false).ok, false)
+    assert.equal(dispatch(input, true).ok, true)
+    input.attempt.native_request.params = { command: 'printf fixture' }
+    assert.throws(
+      /** 本地开关不允许绕过明确 pane 参数或任意进入 raw。 */ () => dispatch(input, true),
+      /luvus_operation_params_invalid/
+    )
   }
 )
