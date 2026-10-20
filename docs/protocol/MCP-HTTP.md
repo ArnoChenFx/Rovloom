@@ -256,7 +256,8 @@ bun --no-env-file /tmp/rovloom-preview.js --help
 [配置参考](../CONFIGURATION-zh.md)。默认路径分别为当前用户home下的
 `.config/rovloom/gateway.json`、`connector.json`；显式`--config`覆盖精确文件位置。
 Linux角色启动在文件缺失时独占创建0600文件及0700目录，已有文件（包括坏文件）永不覆盖。
-`config check`和`check-runtime`保持只读，不创建文件。已有显式文件不依赖home，生成缺失文件
+`config check`和`check-runtime`保持只读，不创建文件；无选项时读取两份默认用户文件并逐角色报告，
+`--role gateway|connector`单选，`--config ABS`覆盖文件且可与role联合核对。已有显式文件不依赖home，生成缺失文件
 需要home以选择默认数据目录。Windows沿用同样路径约定，实际受保护读取仍未支持。
 角色解析拒绝未知字段、旧扁平格式、用户ref/TLS/CA路径、secret、identity和pin。
 
@@ -287,7 +288,7 @@ Connector地址来自`gateway.url`，固定端点为`/connector`；本机/可信
 缺地址、provider或配对凭据返回`configuration_required`，非TTY不等待stdin。
 地址/配对码交互、一次性交付和自动原生初始化尚未接通，普通新用户仍不能完成全新部署。
 
-`config check-runtime --config ABS`复用角色及现有provider registry校验，成功输出
+`config check-runtime [--role gateway|connector] [--config ABS]`复用角色及现有provider registry校验，成功输出
 `runtime_config_valid`；不加载caller/设备凭据、验证native/Agent或打开数据库。
 它不表示端口可监听、设备已连接或模型已回复；私有runtime读取仍要求Linux。
 生产两端将`admission_receipt`列入required，真实session所有者必须交付同一认证原截止接收端及持久claims。

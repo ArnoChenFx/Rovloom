@@ -197,3 +197,108 @@ test(
     )
   }
 )
+
+test(
+  '无参数check分别检查两份默认用户文件，缺失也不创建目录或配置',
+  /* 同时验证直接分派和实际main，不以启动命令的自动生成替代只读检查。 */ async () => {
+    await temporary(
+      /* 整个HOME起初没有.config，两种检查均保持原样。 */ async (home) => {
+        const environment = { home, platform: process.platform }
+        for (const action of ['check', 'check-runtime']) {
+          assert.deepEqual(await capture(['config', action], environment), {
+            code: 2,
+            stdout: '',
+            stderr: 'gateway config_not_found\nconnector config_not_found\n'
+          })
+          assert.deepEqual(await capture(['config', action, '--role', 'gateway'], environment), {
+            code: 2,
+            stdout: '',
+            stderr: 'config_not_found\n'
+          })
+          assert.equal(existsSync(join(home, '.config')), false)
+        }
+        const main = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url))
+        const actual = spawnSync(process.execPath, ['--no-env-file', main, 'config', 'check'], {
+          env: { PATH: process.env.PATH ?? '', HOME: home },
+          input: '',
+          timeout: 5000,
+          encoding: 'utf8'
+        })
+        assert.equal(actual.status, 2)
+        assert.equal(actual.stdout, '')
+        assert.equal(actual.stderr, 'gateway config_not_found\nconnector config_not_found\n')
+        assert.equal(existsSync(join(home, '.config')), false)
+      }
+    )
+  }
+)
+
+test(
+  'check按role单选或显式覆盖，两份中一份无效仍报告另一份且不覆盖既有用户文件',
+  /* 每个路径选择均有角色核验，不隐式把Gateway当作唯一默认角色。 */ async () => {
+    await temporary(
+      /* 两份同目录用户文件就是默认位置的配置，不另外建立defaults文件。 */ async (home) => {
+        const environment = { home, platform: process.platform }
+        const gateway = configFile(home, 'gateway')
+        const connector = configFile(home, 'connector')
+        assert.deepEqual(await capture(['config', 'check'], environment), {
+          code: 0,
+          stdout: '',
+          stderr: 'gateway config_valid\nconnector config_valid\n'
+        })
+        writeFileSync(gateway, '{"incomplete":')
+        assert.deepEqual(await capture(['config', 'check'], environment), {
+          code: 2,
+          stdout: '',
+          stderr: 'gateway invalid_config\nconnector config_valid\n'
+        })
+        assert.equal(readFileSync(gateway, 'utf8'), '{"incomplete":')
+        for (const action of ['check', 'check-runtime']) {
+          const diagnostic = action === 'check' ? 'config_valid\n' : 'runtime_config_valid\n'
+          assert.deepEqual(await capture(['config', action, '--role', 'connector'], environment), {
+            code: 0,
+            stdout: '',
+            stderr: diagnostic
+          })
+          assert.deepEqual(
+            await capture(['config', action, '--config', connector], { home: undefined, platform: process.platform }),
+            {
+              code: 0,
+              stdout: '',
+              stderr: diagnostic
+            }
+          )
+          assert.deepEqual(await capture(['config', action, '--role', 'gateway', '--config', connector], environment), {
+            code: 2,
+            stdout: '',
+            stderr: 'config_role_mismatch\n'
+          })
+        }
+        for (const options of [
+          ['--role', 'unknown'],
+          ['--role'],
+          ['--role', 'gateway', '--role', 'connector'],
+          ['--config', connector, '--config', gateway]
+        ]) {
+          assert.deepEqual(await capture(['config', 'check', ...options], environment), {
+            code: 2,
+            stdout: '',
+            stderr: 'invalid_arguments\n'
+          })
+        }
+        assert.equal(existsSync(join(home, 'state')), false)
+        const main = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url))
+        configFile(home, 'gateway')
+        const actual = spawnSync(process.execPath, ['--no-env-file', main, 'config', 'check'], {
+          env: { PATH: process.env.PATH ?? '', HOME: home },
+          input: '',
+          timeout: 5000,
+          encoding: 'utf8'
+        })
+        assert.equal(actual.status, 0)
+        assert.equal(actual.stdout, '')
+        assert.equal(actual.stderr, 'gateway config_valid\nconnector config_valid\n')
+      }
+    )
+  }
+)

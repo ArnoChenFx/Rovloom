@@ -50,8 +50,8 @@ has completed.
 | Gateway | `~/.config/rovloom/gateway.json` | `~/.local/share/rovloom/gateway` |
 | Connector | `~/.config/rovloom/connector.json` | `~/.local/share/rovloom/connector` |
 
-`~` here means the current process user's home. Both roles generate only their own
-missing file and never overwrite an existing file, including a malformed one.
+`~` here means the current process user's home. The default path and the user configuration are the same file. Both roles
+generate only their own missing file and never overwrite an existing file, including a malformed one.
 `--config /absolute/path.json` selects that exact file, including for first
 creation. There is no working-directory search, cross-role fallback or AppData/XDG
 override. Windows uses the same home-relative path convention, but runtime and
@@ -75,12 +75,16 @@ access requires an administrator's proxy or tunnel arrangement.
 Check saved configuration without starting a role:
 
 ```sh
-rovloom config check --config /absolute/path/gateway.json
-rovloom config check-runtime --config /absolute/path/gateway.json
+rovloom config check --role gateway
+rovloom config check-runtime --role gateway
 ```
 
-Repeat for Connector. Checks do not create missing files, pair devices, load
-credentials or establish Agent readiness. Foreground roles keep running until
+On a Connector machine use `--role connector`. With no options, each check reads
+both default user files and reports each role separately; a missing file returns
+nonzero even when you only use the other role. Use `--role gateway` or `--role connector` to check one; `--config
+/absolute/path.json` overrides the selected file. If both are supplied, the file
+must match the selected role. Checks never create missing files, pair devices,
+load credentials or establish Agent readiness. Foreground roles keep running until
 Ctrl-C; an MCP client disconnect does not stop Gateway.
 
 ## 3. Prepare the native programs

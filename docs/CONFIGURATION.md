@@ -2,7 +2,8 @@
 
 **English** · [简体中文](CONFIGURATION-zh.md) · [Quick Start](QUICK-START.md)
 
-Each role has one user JSON document. Startup generates it only when missing;
+Each role has one user JSON document at its default path; there is no separate
+defaults file and user file. Startup generates it only when missing;
 existing documents are parsed strictly and are never reset. All fields below
 are required unless marked optional. Defaults describe the generated document,
 not fallback values for missing fields. Examples contain no credentials.
@@ -176,8 +177,13 @@ unspecified extra arguments are supported. Only top-level help has a short flag.
 | `rovloom --version` | No additional arguments | Prints product version. No `-v` alias. | `rovloom --version` |
 | `rovloom gateway --help`, `rovloom connector --help` | Exactly one `--help` flag | Prints top-level help; cannot combine with `--config`. | `rovloom connector --help` |
 | `rovloom config template ROLE` | Required positional enum `ROLE`; no options | Prints complete non-secret role JSON; writes no file. | `rovloom config template gateway` |
-| `rovloom config check --config ABS` | `--config`: required path string | No default for this command; checks the selected role JSON. | `rovloom config check --config /home/rovloom/.config/rovloom/gateway.json` |
-| `rovloom config check-runtime --config ABS` | `--config`: required path string | Checks role JSON and existing program-managed provider state; does not create state, load credentials or verify Agent readiness. | `rovloom config check-runtime --config /home/rovloom/.config/rovloom/connector.json` |
+| `rovloom config check [--role ROLE] [--config ABS]` | `--role`: optional `gateway`/`connector`; `--config`: optional absolute path string | No options: read both default user files and report each role. Role selects one; an explicit file overrides its path. Read-only, never creates missing files. | `rovloom config check` |
+| `rovloom config check-runtime [--role ROLE] [--config ABS]` | Same optional role and path options as `check` | Same default selection; additionally checks existing program-managed provider state. No creation, credential loading or Agent-readiness claim. | `rovloom config check-runtime --role connector` |
+
+For either check, `--role` and `--config` may appear in either order. An explicit
+file without a role uses the role declared in that file; with a role, a mismatch
+is an error. Checking both continues after a role error, reports both results,
+and returns nonzero if either fails. Neither check creates a missing file.
 
 ### Run a role
 

@@ -26,8 +26,8 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom --help
   rovloom --version
   rovloom config template gateway|connector
-  rovloom config check --config /absolute/protected/config.json
-  rovloom config check-runtime --config /absolute/protected/config.json
+  rovloom config check [--role gateway|connector] [--config /absolute/protected/config.json]
+  rovloom config check-runtime [--role gateway|connector] [--config /absolute/protected/config.json]
   rovloom gateway [--config /absolute/protected/config.json]
   rovloom connector [--config /absolute/protected/config.json]
   rovloom service --help
@@ -38,6 +38,8 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
 当前受保护配置读取仅支持 POSIX；Windows 读取返回 config_platform_unsupported。
 显式 --config 优先。Linux角色首次缺失配置时生成单份默认配置，不覆盖已有文件；无法确定home返回config_home_unavailable。
 配置文件及所在目录须由当前 POSIX 用户持有，权限分别为 0600/0700。
+各角色默认配置与用户配置是同一份文件；check省略路径时读取所选role的默认文件。
+check既无role也无路径时分别检查两份；检查始终只读，不为缺失文件生成默认值。
 模板只含分组业务参数；不接受 argv secret、URL 凭据、动态模块或任意 shell RPC。
 check-runtime核对单份角色配置及程序管理状态，不读取凭据或宣称原生Agent就绪。
 Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
@@ -79,7 +81,8 @@ export type CliIo = { stdin: Readable; stdout: Writable; stderr: Writable; signa
 type Command =
   | { action: 'help' | 'version' }
   | { action: 'template'; role: 'gateway' | 'connector' }
-  | { action: 'check' | 'check-runtime' | 'gateway' | 'connector'; path: string }
+  | { action: 'check' | 'check-runtime'; checks: readonly { role?: 'gateway' | 'connector'; path: string }[] }
+  | { action: 'gateway' | 'connector'; path: string }
 
 // 解析固定命令形状，未知参数只返回稳定错误，不回显 argv。
 export function parseCommand(args: readonly string[], environment?: ConfigPathEnvironment): Command {
@@ -92,9 +95,6 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
   if (args.length === 2 && ['gateway', 'connector'].includes(args[0]!) && args[1] === '--help') {
     return { action: 'help' }
   }
-  if (args.length === 4 && args[0] === 'config' && args[1] === 'check-runtime' && args[2] === '--config') {
-    return { action: 'check-runtime', path: args[3]! }
-  }
   if (
     args.length === 3 &&
     args[0] === 'config' &&
@@ -103,8 +103,34 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
   ) {
     return { action: 'template', role: args[2] }
   }
-  if (args.length === 4 && args[0] === 'config' && args[1] === 'check' && args[2] === '--config') {
-    return { action: 'check', path: args[3]! }
+  if (args[0] === 'config' && (args[1] === 'check' || args[1] === 'check-runtime')) {
+    let role: 'gateway' | 'connector' | undefined
+    let explicit: string | undefined
+    for (let index = 2; index < args.length; index += 2) {
+      const value = args[index + 1]
+      if (value === undefined) {
+        throw new CliError('invalid_arguments')
+      }
+      if (args[index] === '--role' && role === undefined && (value === 'gateway' || value === 'connector')) {
+        role = value
+      } else if (args[index] === '--config' && explicit === undefined) {
+        explicit = value
+      } else {
+        throw new CliError('invalid_arguments')
+      }
+    }
+    return {
+      action: args[1],
+      checks:
+        role || explicit !== undefined
+          ? [{ ...(role ? { role } : {}), path: explicit ?? resolveRoleConfigPath(role!, undefined, environment) }]
+          : (['gateway', 'connector'] as const).map(
+              /* 无歧义地逐个选择两份用户文件，不选择任一角色作为隐式默认。 */ (selected) => ({
+                role: selected,
+                path: resolveRoleConfigPath(selected, undefined, environment)
+              })
+            )
+    }
   }
   if (
     (args[0] === 'gateway' || args[0] === 'connector') &&
@@ -196,22 +222,33 @@ export async function runCli(
       io.stdout.write(JSON.stringify(configDocument(configTemplate(command.role)), null, 2) + '\n')
       return 0
     }
+    if ('checks' in command) {
+      let code = 0
+      for (const selected of command.checks) {
+        const prefix = command.checks.length > 1 ? selected.role + ' ' : ''
+        try {
+          const config = readConfig(selected.path)
+          if (selected.role && config.role !== selected.role) {
+            throw new CliError('config_role_mismatch')
+          }
+          if (command.action === 'check-runtime') {
+            readRuntimeConfig(config)
+          }
+          io.stderr.write(prefix + (command.action === 'check' ? 'config_valid\n' : 'runtime_config_valid\n'))
+        } catch (error) {
+          if (!(error instanceof CliError) || !CLI_ERROR_CODES.includes(error.code)) {
+            throw error
+          }
+          io.stderr.write(prefix + error.code + '\n')
+          code = error.exitCode
+        }
+      }
+      return code
+    }
     if (!('path' in command)) {
       throw new CliError('invalid_arguments')
     }
-    const config =
-      command.action === 'gateway' || command.action === 'connector'
-        ? readOrCreateRoleConfig(command.action, command.path, environment)
-        : readConfig(command.path)
-    if (command.action === 'check') {
-      io.stderr.write('config_valid\n')
-      return 0
-    }
-    if (command.action === 'check-runtime') {
-      readRuntimeConfig(config)
-      io.stderr.write('runtime_config_valid\n')
-      return 0
-    }
+    const config = readOrCreateRoleConfig(command.action, command.path, environment)
     if (config.role !== command.action) {
       throw new CliError('config_role_mismatch')
     }

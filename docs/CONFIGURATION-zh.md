@@ -2,7 +2,7 @@
 
 [English](CONFIGURATION.md) · **简体中文** · [快速开始](QUICK-START-zh.md)
 
-每个角色只有一份用户 JSON。启动仅在文件缺失时生成；已有文件严格解析，永不重置。
+每个角色在默认位置只有一份用户 JSON，不区分另一份defaults文件与用户文件。启动仅在文件缺失时生成；已有文件严格解析，永不重置。
 下列字段除特别说明均为必填。默认值表示新生成文档的值，不是已有文件遗漏字段时的
 隐式补值。全部示例均不含凭据。
 
@@ -149,8 +149,12 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对�
 | `rovloom --version` | 不接受额外参数 | 输出产品版本，没有 `-v` 别名。 | `rovloom --version` |
 | `rovloom gateway --help`、`rovloom connector --help` | 仅一个 `--help` | 输出顶层帮助，不能与 `--config` 同用。 | `rovloom connector --help` |
 | `rovloom config template ROLE` | 必填位置 enum `ROLE`，无选项 | 输出完整无秘密角色 JSON，不写文件。 | `rovloom config template gateway` |
-| `rovloom config check --config ABS` | `--config`：必填路径 string | 此命令没有默认路径，检查所选角色 JSON。 | `rovloom config check --config /home/rovloom/.config/rovloom/gateway.json` |
-| `rovloom config check-runtime --config ABS` | `--config`：必填路径 string | 检查角色 JSON 与已有程序管理 provider 状态，不创建状态、不加载凭据或确认 Agent 就绪。 | `rovloom config check-runtime --config /home/rovloom/.config/rovloom/connector.json` |
+| `rovloom config check [--role ROLE] [--config ABS]` | `--role`：可选 `gateway`/`connector`；`--config`：可选绝对路径 string | 无选项时读取两份默认用户文件并分别报告；role单选，显式文件覆盖路径。始终只读，不生成缺失文件。 | `rovloom config check` |
+| `rovloom config check-runtime [--role ROLE] [--config ABS]` | 与 `check` 相同的可选role和路径选项 | 使用相同默认选择，额外检查已有程序管理 provider 状态；不创建、不加载凭据或确认 Agent 就绪。 | `rovloom config check-runtime --role connector` |
+
+两种检查的 `--role` 和 `--config` 顺序可交换。仅指定文件时按文件内声明的角色检查；
+同时指定角色时必须匹配。检查两份时一份错误不会跳过另一份，任一失败则退出非零。
+检查均不创建缺失文件。
 
 ### 运行角色
 

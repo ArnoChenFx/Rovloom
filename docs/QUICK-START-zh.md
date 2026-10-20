@@ -43,7 +43,7 @@ rovloom connector
 | Gateway | `~/.config/rovloom/gateway.json` | `~/.local/share/rovloom/gateway` |
 | Connector | `~/.config/rovloom/connector.json` | `~/.local/share/rovloom/connector` |
 
-此处 `~` 表示当前进程用户的 home。角色只生成自己的缺失文件，不覆盖任何已有文件，
+此处 `~` 表示当前进程用户的 home。默认位置与用户配置是同一份文件，角色只生成自己的缺失文件，不覆盖任何已有文件，
 包括损坏文件。`--config /absolute/path.json` 选择该精确位置，首次创建也使用它。
 没有工作目录搜索、跨角色回退或 AppData/XDG 覆盖。Windows 的默认路径约定相同，但
 runtime 与首次文件创建目前要求 Linux；已有受保护角色 JSON 可在 POSIX 检查。
@@ -62,12 +62,14 @@ Connector 的 `gateway.url` 设为可达的 `ws://host:port` 或 `wss://host:por
 只检查已保存配置、不启动角色：
 
 ```sh
-rovloom config check --config /absolute/path/gateway.json
-rovloom config check-runtime --config /absolute/path/gateway.json
+rovloom config check --role gateway
+rovloom config check-runtime --role gateway
 ```
 
-Connector 使用自己的文件执行同样检查。检查不生成缺失文件、不配对、不加载凭据，
-也不证明 Agent 就绪。前台角色运行至 Ctrl-C；MCP 客户端断开不会停止 Gateway。
+Connector 机器使用 `--role connector`。无选项检查读取两份默认用户文件并分别报告；
+即使只使用一个角色，另一份缺失仍返回非零。`--role gateway` 或
+`--role connector` 可单选，`--config /absolute/path.json` 可覆盖所选文件。两者同时
+指定时核对文件角色。检查始终只读，不生成缺失文件、不配对、不加载凭据，也不证明 Agent 就绪。前台角色运行至 Ctrl-C；MCP 客户端断开不会停止 Gateway。
 
 ## 3. 准备原生程序
 
