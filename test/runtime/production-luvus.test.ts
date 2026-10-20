@@ -64,7 +64,7 @@ test(
 )
 
 /** 建立真实受保护目录与合成 root 记录；假 binary 的真实摘要不符，必须在任何 child 启动前拒绝。 */
-function fixture() {
+function fixture(agentDirectory?: string) {
   const directory = mkdtempSync(
     join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.production-luvus-')
   )
@@ -96,7 +96,8 @@ function fixture() {
     state_root: native,
     home,
     cwd,
-    transport: 'ipc'
+    transport: 'ipc',
+    ...(agentDirectory === undefined ? {} : { agent_bin_dir: agentDirectory, allow_terminal_execution: false })
   }
   const record = join(control, 'root.json')
   createNativeRecord(record, {
@@ -143,6 +144,44 @@ function fixture() {
     }
   }
 }
+
+test(
+  'CLI Luvus source loads the Agent directory only from its protected root config',
+  /** 正式 provider 配置链接纳 root 内字段并继续执行原 binary 校验；假安装始终不能启动。 */ async () => {
+    const f = fixture('/home/synthetic/Agent Tools/bin')
+    try {
+      await assert.rejects(
+        createLuvusProductionSources().connector({ state_dir: f.state }, f.refs()),
+        /binary_identity_changed/
+      )
+      assert.equal(f.config.allow_terminal_execution, false)
+      const supplied = f.refs()[0]!
+      await assert.rejects(
+        createLuvusProductionSources().connector({ state_dir: f.state }, [
+          { ...supplied, value: { ...supplied.value, agent_bin_dir: '/rpc/override' } }
+        ]),
+        /production_reference_invalid/
+      )
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'CLI Luvus root rejects a noncanonical Agent directory before any native execution',
+  /** 路径先通过同一本地 pin 校验，不由伪造 root 摘要或外层 ref 扩大配置。 */ async () => {
+    const f = fixture('relative/bin')
+    try {
+      await assert.rejects(
+        createLuvusProductionSources().connector({ state_dir: f.state }, f.refs()),
+        /agent_bin_dir_invalid/
+      )
+    } finally {
+      f.close()
+    }
+  }
+)
 
 test(
   'production Gateway supports no local providers and shares its idempotent release result',

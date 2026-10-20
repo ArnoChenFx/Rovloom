@@ -8,6 +8,7 @@ import type { V2Target } from '../../wire/types.js'
 import type { NativePeer } from '../local/linux-peer.js'
 import { HERDR_READONLY_REVIEW } from './review.js'
 import { pinTerminalExecution } from '../terminal-execution.js'
+import { agentSearchPath } from '../local/agent-path.js'
 
 export class HerdrLocalError extends Error {
   /** 区分未派发与可能已发送的失败，仅保留固定错误码。 */
@@ -33,6 +34,8 @@ export type HerdrLocalConfig = Readonly<{
   cwd: string
   // 默认关闭直接终端执行；本地显式开启不扩大 caller grants 或赋予操作系统权限。
   allow_terminal_execution?: boolean
+  // 显式 Agent 安装目录只来自本地配置，默认仍使用固定系统 PATH。
+  agent_bin_dir?: string
 }>
 export type HerdrEndpoint = Readonly<{ address: string; stamp: string; uid: number }>
 
@@ -105,6 +108,7 @@ export function inspectHerdrPath(path: string, kind: 'directory' | 'binary' | 's
 export function pinHerdrConfig(value: HerdrLocalConfig): HerdrLocalConfig {
   const config = JSON.parse(boundedJson(value, 16_384)) as HerdrLocalConfig
   pinTerminalExecution(config.allow_terminal_execution)
+  agentSearchPath(config.agent_bin_dir, '/usr/bin:/bin')
   validateTarget(config.target)
   const keys = [
     'target',
@@ -120,7 +124,8 @@ export function pinHerdrConfig(value: HerdrLocalConfig): HerdrLocalConfig {
   ]
   if (
     Object.keys(config).some(
-      /** 只增加明确开关，其余未知配置仍拒绝。 */ (key) => !keys.includes(key) && key !== 'allow_terminal_execution'
+      /** 只接纳明确本地扩展，其余未知配置仍拒绝。 */ (key) =>
+        !keys.includes(key) && key !== 'allow_terminal_execution' && key !== 'agent_bin_dir'
     ) ||
     keys.some(/** 任何配置项缺失都不能使用环境默认值。 */ (key) => !Object.hasOwn(config, key)) ||
     config.target.profile !== 'session' ||
@@ -162,7 +167,7 @@ export function herdrEndpoint(config: HerdrLocalConfig): HerdrEndpoint {
 /** 只导出本次配置的最小环境，普通发现不继承 SSH、模型凭据或 session/socket 覆盖。 */
 export function herdrEnvironment(config: HerdrLocalConfig): NodeJS.ProcessEnv {
   return {
-    PATH: '/usr/bin:/bin',
+    PATH: agentSearchPath(config.agent_bin_dir, '/usr/bin:/bin'),
     HOME: config.home,
     XDG_CONFIG_HOME: config.config_home,
     XDG_STATE_HOME: config.state_home,
