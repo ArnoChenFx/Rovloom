@@ -1,20 +1,20 @@
-# Docker 部署
+# Docker deployment
 
-[English](DOCKER.en.md) · [用户快速开始](QUICK-START-zh.md)
+[中文](DOCKER-zh.md) · [User Quick Start](QUICK-START.md)
 
-Rovloom 的 Docker 方案运行 **Gateway**。Gateway 镜像保留管理页和 MCP 服务；Luvus/Herdr Connector 运行在原生程序所在的 Linux 主机上。
+The Docker setup runs the **Gateway**, including its management page and MCP service. Run the Luvus/Herdr Connector on the Linux host that owns the native application.
 
-## 当前可用范围
+## Availability
 
-目前尚无可用的正式镜像。只有官方 latest 稳定产品发行工作流全部通过、GitHub Release 已公开、后续 GHCR 工作流成功且包允许匿名拉取后，下面的命令才可使用。
+No official image is available yet. The commands below become usable only after the official latest stable product release succeeds, its GitHub Release is public, the subsequent GHCR workflow succeeds, and the package permits anonymous pulls.
 
-支持目标为原生 Linux rootful Docker Engine 的 `linux/amd64` 和 `linux/arm64`。两种架构分别由对应原生 CI runner 启动实际镜像；没有通过的架构不能以编译成功替代运行验收。当前 Compose 使用 Linux host 网络保留产品的回环监听；尚未验收 rootless Engine 或 Docker Desktop。
+The targets are native Linux rootful Docker Engine on `linux/amd64` and `linux/arm64`. CI starts each image on a matching native runner; compilation alone is insufficient acceptance. This Compose file uses Linux host networking to preserve the product's loopback listeners. Rootless Engine and Docker Desktop have not been accepted by these tests.
 
-## 从零启动 Gateway
+## Start a Gateway
 
-前提：Linux 主机已安装并启动 Docker Engine，以及 Docker Compose v2。无需安装 Bun、Node、Luvus 或 Herdr来运行 Gateway 镜像。
+Install and start Docker Engine and Docker Compose v2 on your Linux host. Running the Gateway image requires no Bun, Node, Luvus, or Herdr installation.
 
-发行和镜像可用后，在一个空目录保存 `main` 中维护的 Compose 文件并启动；它默认使用官方 latest 稳定镜像：
+Once the release and image are available, save the maintained Compose file from `main` in an empty directory. It defaults to the official latest stable image:
 
 ```sh
 mkdir rovloom && cd rovloom
@@ -25,32 +25,32 @@ docker compose up -d
 docker compose ps
 ```
 
-默认镜像为 `ghcr.io/arnochenfx/rovloom:latest`，唯一镜像仓库是 GHCR。命名卷会分别保留用户配置与数据；普通 `docker compose down` 不删除它们。首次启动生成唯一用户配置 `/home/rovloom/.config/rovloom/gateway.json`，默认数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
+The default image is `ghcr.io/arnochenfx/rovloom:latest`; GHCR is the only image registry. Separate named volumes preserve configuration and data; ordinary `docker compose down` keeps them. First startup creates one user configuration file at `/home/rovloom/.config/rovloom/gateway.json`. Its default data directory is `/home/rovloom/.local/share/rovloom/gateway`.
 
-默认本机入口：
+Default local endpoints:
 
-| 用途 | 地址 | 首次启动状态 |
+| Purpose | Address | First startup |
 | --- | --- | --- |
-| 管理页 | `http://127.0.0.1:9445/` | 匿名页面，没有管理员会话 |
-| MCP | `http://127.0.0.1:9444/mcp` | 未认证请求返回 401 |
-| Connector 设备监听 | `127.0.0.1:9443` | 仍须完成身份及 provider 配置 |
+| Management page | `http://127.0.0.1:9445/` | Anonymous page, without an administrator session |
+| MCP | `http://127.0.0.1:9444/mcp` | Unauthenticated requests receive 401 |
+| Connector device listener | `127.0.0.1:9443` | Identity and provider configuration are still required |
 
-`healthy` 只说明 MCP 的真实认证监听已响应，不表示设备已经配对、管理员已登录或原生 Agent 已就绪。首次日志中的 `pairing_required` 是待配对状态。继续按[用户快速开始](QUICK-START-zh.md)核对当前已交付的配置与配对能力。
+`healthy` means the real MCP authentication listener responds. It does not establish pairing, an administrator login, or native Agent readiness. The initial `pairing_required` diagnostic means setup is pending. Follow the [User Quick Start](QUICK-START.md) for the configuration and pairing capabilities currently delivered.
 
-host 网络使这些监听直接使用主机端口，因此不要另加 `ports` 映射；运行前需确保上述端口空闲。默认没有公网监听。远程 Connector 的 TLS 入口须由用户另行明确配置标准反向代理，本文不会代配代理或修改网络设置。
+Host networking uses the host's ports directly. Leave those ports free and do not add `ports` mappings. Defaults do not create a public listener. Remote Connectors require an explicitly configured standard TLS reverse proxy; these files do not configure a proxy or change host networking.
 
-## 配置、停止与更新
+## Configure, stop, and update
 
-镜像以 UID/GID `10001:10001` 运行，根文件系统只读。默认命名卷已按该身份初始化；自定义 bind mount 时，目录应属于该 UID，配置目录为 `0700`，配置文件为 `0600`。不要以 `chmod 777` 解决权限问题。
+The image runs as UID/GID `10001:10001` with a read-only root filesystem. Default named volumes inherit that ownership. For custom bind mounts, use that UID, `0700` for the configuration directory, and `0600` for the configuration file. Do not use `chmod 777` to bypass ownership checks.
 
-导出当前配置进行编辑：
+Export the generated configuration for editing:
 
 ```sh
 docker compose cp gateway:/home/rovloom/.config/rovloom/gateway.json ./gateway.json
 chmod 600 gateway.json
 ```
 
-保留单文件中的 `data`、`mcp`、`devices` 和 `management` 分组。编辑完成后，以容器原用户原子替换配置并重启：
+Keep the single file's `data`, `mcp`, `devices`, and `management` groups. After editing, replace it atomically as the container's original user and restart:
 
 ```sh
 docker compose exec -T gateway sh -c \
@@ -59,26 +59,26 @@ docker compose exec -T gateway sh -c \
 docker compose restart gateway
 ```
 
-修改 MCP 端口时，同时在 Compose 所在目录的 `.env` 设置 `ROVLOOM_MCP_PORT`，供健康检查使用；该变量不会修改配置中的端口。数据目录应保持在持久卷内。配置不包含旧 `runtime.json`、ref 清单或自管 CA 路径；身份/provider 状态由程序管理，不作为用户配置模板。
+If you change the MCP port, also set `ROVLOOM_MCP_PORT` in the Compose directory's `.env` for the health check. That variable does not change the configuration's listener port. Keep data inside its persistent volume. The user configuration contains no old `runtime.json`, ref list, or private CA paths. Program-managed identity/provider state is not a user configuration template.
 
 ```sh
-docker compose stop       # SIGTERM，等待正常关闭
-docker compose start      # 复用原配置和数据
-docker compose down       # 删除容器和网络，保留命名卷
+docker compose stop       # SIGTERM and graceful shutdown
+docker compose start      # Reuse configuration and data
+docker compose down       # Remove containers and networks; retain named volumes
 ```
 
-`docker compose down -v` 会删除持久卷，包括配置和数据，仅在明确要丢弃这些数据时使用。升级前先正常停止并备份卷；将 `ROVLOOM_VERSION` 保持未设置或设为 `latest`，再执行 `docker compose pull && docker compose up -d`。Compose 默认使用 `latest`，发布流程仅让当前官方最新稳定版取得该标签。程序的 `--version` 仍报告实际发行版本。
+`docker compose down -v` deletes persistent volumes, including configuration and data. Use it only when you intend to discard them. Before upgrading, stop normally and back up the volumes. Leave `ROVLOOM_VERSION` unset or set it to `latest`, then run `docker compose pull && docker compose up -d`. Compose defaults to `latest`, which publication assigns only to the current official latest stable release. The executable's `--version` still reports its actual release version.
 
-## Connector 运行位置
+## Where to run the Connector
 
-本方案将 Connector 留在 Luvus/Herdr 所在的受支持 Linux x64 主机。当前原生进程所有者对其它架构仍明确拒绝；Linux arm64 Gateway 镜像不代表 arm64 原生 Connector 已可运行。Connector 必须验证真实原生 binary/schema、进程归属、私有文件权限、Unix socket peer 和实例生命周期。容器中的用户、PID 和路径空间与主机不同，单独挂载宿主 socket 不能证明这些条件成立。
+Keep the Connector on a supported Linux x64 host running Luvus/Herdr. The native process owners currently reject other architectures; the Linux arm64 Gateway image does not establish support for an arm64 native Connector. It must verify the actual native binary/schema, process ownership, private file permissions, Unix socket peer, and instance lifecycle. Container users, PIDs, and paths differ from those of the host; mounting a host socket does not establish those guarantees.
 
-因此，默认 Compose 不包含 Connector、不挂载 `/var/run/docker.sock`，也不要求 `privileged`、主机 PID 或额外 capability。要在容器内运行 Connector，需要在同一容器内正确安装和管理原生程序并完成独立验收；当前没有将该路径宣称为可用。
+The default Compose file therefore has no Connector, `/var/run/docker.sock` mount, `privileged` flag, host PID namespace, or additional capabilities. A containerized Connector would need a correctly installed and managed native application in the same container and separate acceptance. That path is not currently claimed as available.
 
-## 镜像发布与验收
+## Publication and acceptance
 
-PR 和 main 的容器工作流只构建并测试，不登录或推送 registry。正式发布只由官方 `Tagged product release` 成功完成后触发：先核验 tag、commit、已公开 Release、六平台清单和 `SHA256SUMS`，再使用其中两个 Linux 二进制构建镜像。每种架构原生测试通过后，发布 job 使用临时 `GITHUB_TOKEN` 和最小 `packages: write` 推送 GHCR，并创建带实际版本的多架构 manifest。对当前官方最新稳定版，`latest` 使用同批验收的这两个镜像 manifest。已有版本只有在两个完整镜像摘要与本次已验收产物精确相同时才可只读复用，继续补齐 latest；不同字节或不确定的 registry 查询会阻止覆盖。
+PR and main container workflows build and test without registry login or publication. Official publication follows only a successful official `Tagged product release`: verify its tag, commit, public Release, six-platform manifest, and `SHA256SUMS`, then build from its two Linux binaries. After both native image tests pass, the publishing job uses its short-lived `GITHUB_TOKEN` with minimal `packages: write` to publish to GHCR and create a versioned multi-architecture manifest. For the current official latest stable release, `latest` uses those same two tested image manifests. An existing version is reused without rewriting only when its two complete image descriptors exactly match the current tested artifacts, allowing a failed latest step to resume. Different bytes and uncertain registry lookups block overwriting.
 
-GitHub说明首次 GHCR 包[默认可见性为 private](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。首次包的公开可见性和现有包的写入权限需要仓库维护者核对；工作流不会改变账号或包的设置。若匿名拉取被拒绝，先检查包是否公开及该仓库是否获准写入，不要在配置或文档中加入长期 token。
+GitHub documents that a new GHCR package [defaults to private visibility](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry). A maintainer must verify the first GHCR package's public visibility and permission for an existing package. The workflow does not change account or package settings. If anonymous pulls fail, check public visibility and repository access rather than adding a long-lived token to configuration or documentation.
 
-容器 smoke 使用无外网的临时容器与自有命名卷，核对非 root、准确二进制摘要、单文件首次配置、真实双库、MCP 401、内置管理资源、正常终止和重启持久性；不调用模型或创建真实外部身份。原生 provider/Worker 的完整产品验收仍由前置发行门禁负责，容器首次未配对启动不替代它。
+Container smoke tests use isolated containers without external networking and private named volumes. They verify non-root execution, the exact binary digest, first-run single-file configuration, real databases, MCP 401, embedded management resources, graceful termination, and restart persistence. They do not call models or create real external identities. Complete native provider/Worker acceptance remains a prerequisite in the product release gate; an unpaired first startup does not replace it.
