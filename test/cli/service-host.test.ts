@@ -23,7 +23,7 @@ import { ServiceError } from '../../src/service/types.js'
 test(
   'Windows排队取消前已变成running时明确失败，不能绕过正常Abort强停',
   /* 真实产品组合器、原生后端及状态机参与，只有系统命令/文件端口为隔离内存模型。 */ async () => {
-    for (const becomesRunning of [true, false]) {
+    for (const finalState of [4, 2, 3]) {
       const spec = { ...sampleSpec('win32'), role: 'gateway' as const }
       const operations: string[] = []
       let inspections = 0
@@ -39,7 +39,7 @@ test(
         platform: 'win32',
         files,
         verifyRuntime: /* 本例不启动角色，也不读业务配置。 */ async () => assert.fail('unexpected preflight'),
-        runner: /* 前两次观察排队，原生取消边界已运行；旧代码将在这里对运行实例强停。 */ async (plan) => {
+        runner: /* 前两次观察排队，最后分别运行/排队/退出；均不能强停或虚报终止。 */ async (plan) => {
           const request = JSON.parse(plan.input!)
           operations.push(request.op)
           if (request.op === 'authorize') {
@@ -50,7 +50,7 @@ test(
           }
           if (request.op === 'inspect') {
             inspections++
-            const state = inspections <= 2 || !becomesRunning ? 2 : forcedWhileRunning ? 3 : 4
+            const state = inspections <= 2 ? 2 : forcedWhileRunning ? 3 : finalState
             return {
               code: 0,
               stdout: JSON.stringify({ state, instances: state === 4 ? 1 : 0, enabled: true, exitCode: 0 }),
