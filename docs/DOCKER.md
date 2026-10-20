@@ -6,7 +6,7 @@ Rovloom 的 Docker 方案运行 **Gateway**。Gateway 镜像保留管理页和 M
 
 ## 当前可用范围
 
-镜像发布准备尚在审查中。只有 `v0.1.0` 产品发行工作流全部通过、GitHub Release 已公开、后续 GHCR 工作流成功且包允许读取后，下面的固定版本拉取命令才可使用。本文不表示镜像已经存在。
+目前尚无可用的正式镜像。只有官方 latest 稳定产品发行工作流全部通过、GitHub Release 已公开、后续 GHCR 工作流成功且包允许匿名拉取后，下面的命令才可使用。
 
 支持目标为原生 Linux rootful Docker Engine 的 `linux/amd64` 和 `linux/arm64`。两种架构分别由对应原生 CI runner 启动实际镜像；没有通过的架构不能以编译成功替代运行验收。当前 Compose 使用 Linux host 网络保留产品的回环监听；尚未验收 rootless Engine 或 Docker Desktop。
 
@@ -14,18 +14,18 @@ Rovloom 的 Docker 方案运行 **Gateway**。Gateway 镜像保留管理页和 M
 
 前提：Linux 主机已安装并启动 Docker Engine，以及 Docker Compose v2。无需安装 Bun、Node、Luvus 或 Herdr来运行 Gateway 镜像。
 
-发行和镜像可用后，在一个空目录保存该版本的 Compose 文件并启动：
+发行和镜像可用后，在一个空目录保存 `main` 中维护的 Compose 文件并启动；它默认使用官方 latest 稳定镜像：
 
 ```sh
 mkdir rovloom && cd rovloom
 curl --fail --location --output compose.yaml \
-  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/v0.1.0/compose.yaml
+  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/compose.yaml
 docker compose pull
 docker compose up -d
 docker compose ps
 ```
 
-镜像唯一地址是 `ghcr.io/arnochenfx/rovloom:0.1.0`。命名卷会分别保留用户配置与数据；普通 `docker compose down` 不删除它们。首次启动生成唯一用户配置 `/home/rovloom/.config/rovloom/gateway.json`，默认数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
+默认镜像为 `ghcr.io/arnochenfx/rovloom:latest`，唯一镜像仓库是 GHCR。命名卷会分别保留用户配置与数据；普通 `docker compose down` 不删除它们。首次启动生成唯一用户配置 `/home/rovloom/.config/rovloom/gateway.json`，默认数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
 
 默认本机入口：
 
@@ -67,7 +67,7 @@ docker compose start      # 复用原配置和数据
 docker compose down       # 删除容器和网络，保留命名卷
 ```
 
-`docker compose down -v` 会删除持久卷，包括配置和数据，仅在明确要丢弃这些数据时使用。升级前先正常停止并备份卷；设置 `ROVLOOM_VERSION` 为明确的新版本后，再执行 `docker compose pull && docker compose up -d`。发布流程仅让当前官方最新稳定版取得 `latest`，默认 Compose 始终固定版本。
+`docker compose down -v` 会删除持久卷，包括配置和数据，仅在明确要丢弃这些数据时使用。升级前先正常停止并备份卷；将 `ROVLOOM_VERSION` 保持未设置或设为 `latest`，再执行 `docker compose pull && docker compose up -d`。Compose 默认使用 `latest`，发布流程仅让当前官方最新稳定版取得该标签。程序的 `--version` 仍报告实际发行版本。
 
 ## Connector 运行位置
 
@@ -77,7 +77,7 @@ docker compose down       # 删除容器和网络，保留命名卷
 
 ## 镜像发布与验收
 
-PR 和 main 的容器工作流只构建并测试，不登录或推送 registry。正式发布只由官方 `Tagged product release` 成功完成后触发：先核验 tag、commit、已公开 Release、六平台清单和 `SHA256SUMS`，再使用其中两个 Linux 二进制构建镜像。每种架构原生测试通过后，发布 job 使用临时 `GITHUB_TOKEN` 和最小 `packages: write` 推送 GHCR，并创建固定版本的多架构 manifest。已有版本只有在两个完整镜像摘要与本次已验收产物精确相同时才可只读复用，继续补齐 latest；不同字节或不确定的 registry 查询会阻止覆盖。
+PR 和 main 的容器工作流只构建并测试，不登录或推送 registry。正式发布只由官方 `Tagged product release` 成功完成后触发：先核验 tag、commit、已公开 Release、六平台清单和 `SHA256SUMS`，再使用其中两个 Linux 二进制构建镜像。每种架构原生测试通过后，发布 job 使用临时 `GITHUB_TOKEN` 和最小 `packages: write` 推送 GHCR，并创建带实际版本的多架构 manifest。对当前官方最新稳定版，`latest` 使用同批验收的这两个镜像 manifest。已有版本只有在两个完整镜像摘要与本次已验收产物精确相同时才可只读复用，继续补齐 latest；不同字节或不确定的 registry 查询会阻止覆盖。
 
 GitHub说明首次 GHCR 包[默认可见性为 private](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。首次包的公开可见性和现有包的写入权限需要仓库维护者核对；工作流不会改变账号或包的设置。若匿名拉取被拒绝，先检查包是否公开及该仓库是否获准写入，不要在配置或文档中加入长期 token。
 

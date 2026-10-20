@@ -6,7 +6,7 @@ The Docker setup runs the **Gateway**, including its management page and MCP ser
 
 ## Availability
 
-Image publication is being prepared for review. The pinned pull commands below become usable only after the complete `v0.1.0` product release succeeds, its GitHub Release is public, the subsequent GHCR workflow succeeds, and the package permits reads. This document does not claim the image already exists.
+No official image is available yet. The commands below become usable only after the official latest stable product release succeeds, its GitHub Release is public, the subsequent GHCR workflow succeeds, and the package permits anonymous pulls.
 
 The targets are native Linux rootful Docker Engine on `linux/amd64` and `linux/arm64`. CI starts each image on a matching native runner; compilation alone is insufficient acceptance. This Compose file uses Linux host networking to preserve the product's loopback listeners. Rootless Engine and Docker Desktop have not been accepted by these tests.
 
@@ -14,18 +14,18 @@ The targets are native Linux rootful Docker Engine on `linux/amd64` and `linux/a
 
 Install and start Docker Engine and Docker Compose v2 on your Linux host. Running the Gateway image requires no Bun, Node, Luvus, or Herdr installation.
 
-Once the release and image are available, save the versioned Compose file in an empty directory:
+Once the release and image are available, save the maintained Compose file from `main` in an empty directory. It defaults to the official latest stable image:
 
 ```sh
 mkdir rovloom && cd rovloom
 curl --fail --location --output compose.yaml \
-  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/v0.1.0/compose.yaml
+  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/compose.yaml
 docker compose pull
 docker compose up -d
 docker compose ps
 ```
 
-The only image location is `ghcr.io/arnochenfx/rovloom:0.1.0`. Separate named volumes preserve configuration and data; ordinary `docker compose down` keeps them. First startup creates one user configuration file at `/home/rovloom/.config/rovloom/gateway.json`. Its default data directory is `/home/rovloom/.local/share/rovloom/gateway`.
+The default image is `ghcr.io/arnochenfx/rovloom:latest`; GHCR is the only image registry. Separate named volumes preserve configuration and data; ordinary `docker compose down` keeps them. First startup creates one user configuration file at `/home/rovloom/.config/rovloom/gateway.json`. Its default data directory is `/home/rovloom/.local/share/rovloom/gateway`.
 
 Default local endpoints:
 
@@ -67,7 +67,7 @@ docker compose start      # Reuse configuration and data
 docker compose down       # Remove containers and networks; retain named volumes
 ```
 
-`docker compose down -v` deletes persistent volumes, including configuration and data. Use it only when you intend to discard them. Before upgrading, stop normally and back up the volumes. Set `ROVLOOM_VERSION` to an explicit new version, then run `docker compose pull && docker compose up -d`. Publication assigns `latest` only to the current official latest stable release; Compose always defaults to a pinned version.
+`docker compose down -v` deletes persistent volumes, including configuration and data. Use it only when you intend to discard them. Before upgrading, stop normally and back up the volumes. Leave `ROVLOOM_VERSION` unset or set it to `latest`, then run `docker compose pull && docker compose up -d`. Compose defaults to `latest`, which publication assigns only to the current official latest stable release. The executable's `--version` still reports its actual release version.
 
 ## Where to run the Connector
 
@@ -77,7 +77,7 @@ The default Compose file therefore has no Connector, `/var/run/docker.sock` moun
 
 ## Publication and acceptance
 
-PR and main container workflows build and test without registry login or publication. Official publication follows only a successful official `Tagged product release`: verify its tag, commit, public Release, six-platform manifest, and `SHA256SUMS`, then build from its two Linux binaries. After both native image tests pass, the publishing job uses its short-lived `GITHUB_TOKEN` with minimal `packages: write` to publish to GHCR and create a pinned multi-architecture manifest. An existing version is reused without rewriting only when its two complete image descriptors exactly match the current tested artifacts, allowing a failed latest step to resume. Different bytes and uncertain registry lookups block overwriting.
+PR and main container workflows build and test without registry login or publication. Official publication follows only a successful official `Tagged product release`: verify its tag, commit, public Release, six-platform manifest, and `SHA256SUMS`, then build from its two Linux binaries. After both native image tests pass, the publishing job uses its short-lived `GITHUB_TOKEN` with minimal `packages: write` to publish to GHCR and create a versioned multi-architecture manifest. For the current official latest stable release, `latest` uses those same two tested image manifests. An existing version is reused without rewriting only when its two complete image descriptors exactly match the current tested artifacts, allowing a failed latest step to resume. Different bytes and uncertain registry lookups block overwriting.
 
 GitHub documents that a new GHCR package [defaults to private visibility](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry). A maintainer must verify the first GHCR package's public visibility and permission for an existing package. The workflow does not change account or package settings. If anonymous pulls fail, check public visibility and repository access rather than adding a long-lived token to configuration or documentation.
 
