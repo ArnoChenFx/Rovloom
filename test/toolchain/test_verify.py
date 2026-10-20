@@ -15,7 +15,70 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/bun'))
 
 from verify import (foundation_failure_summary, FAILURE_CONSOLE_BYTES, save_timeout_diagnostics,
-                    TIMEOUT_LOG_BYTES, TIMEOUT_TRACE_BYTES, validate_tests)
+                    TIMEOUT_LOG_BYTES, TIMEOUT_TRACE_BYTES, TRACE_SYSCALLS, trace_failure_summary, validate_tests)
+
+
+class TraceFailureDiagnostics(unittest.TestCase):
+    # 追踪器异常可发生在业务用例全部通过后；仍保持失败并保留错误线程和创建链，不反射秘密参数。
+    def test_ptrace_failure_keeps_lineage_and_root_signal_separate_from_passed_cases(self):
+        traced = ('3153 execve("/isolated/bin/bun", ["bun", "run", "test"], 0x0) = 0\n'
+                  '3153 clone3({flags=CLONE_VM|CLONE_VFORK}, 88) = 4000\n'
+                  '4000 execve("/verified/bun", ["bun", "test/child.ts", "SYNTHETIC_SECRET"], 0x0) = 0\n'
+                  '4000 clone(child_stack=NULL, flags=SIGCHLD) = 5436\n'
+                  '5436 execve("/private/SYNTHETIC_SECRET", ["SYNTHETIC_SECRET"], 0x0) = 0\n'
+                  '5436 --- SIGTERM {si_signo=SIGTERM, si_pid=4000} ---\n'
+                  '3153 +++ killed by SIGTERM +++\n')
+        raw = ('1673 pass\n0 fail\n/usr/bin/strace: '
+               'ptrace(PTRACE_LISTEN,pid:5436,sig:0): Input/output error\n')
+        console = trace_failure_summary(traced, raw, 1, frozenset({'test/child.ts'}))
+        result = json.loads(console)
+        self.assertEqual(result['status'], 'failed')
+        self.assertFalse(result['completeAudit'])
+        self.assertEqual(result['tracerExit'], 1)
+        self.assertEqual(result['root']['exit'], {'kind': 'signal', 'signal': 'SIGTERM'})
+        failure = result['ptraceErrors'][0]
+        self.assertEqual((failure['operation'], failure['errno']), ('PTRACE_LISTEN', 'EIO'))
+        self.assertEqual([entry['tid'] for entry in failure['lineage']], [5436, 4000, 3153])
+        self.assertEqual(failure['lineage'][0]['program'], 'unrecognized')
+        self.assertEqual(failure['lineage'][1]['sourceArguments'], ['test/child.ts'])
+        self.assertNotIn('SYNTHETIC_SECRET', console)
+        self.assertNotIn('/private', console)
+
+    # 只接纳成功exec和实际退出；未完成、失败exec、未知退出不能被改写为业务成功。
+    def test_unfinished_exec_and_missing_exit_do_not_invent_success(self):
+        traced = ('10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
+                  '10 clone3({flags=CLONE_VM}, 88 <unfinished ...>\n'
+                  '10 <... clone3 resumed>) = 11\n'
+                  '11 execve("/verified/bun", ["bun", "test/child.ts"], 0x0 <unfinished ...>\n'
+                  '11 <... execve resumed>) = 0\n'
+                  '11 execve("/private/failed", ["secret"], 0x0) = -1 ENOENT (No such file)\n'
+                  '10 +++ exited with 7 +++\n')
+        result = json.loads(trace_failure_summary(traced, 'ptrace(PTRACE_LISTEN,pid:11,sig:0): Input/output error',
+                                                1, frozenset({'test/child.ts'})))
+        self.assertEqual(result['root']['exit'], {'kind': 'exit', 'code': 7})
+        child = result['ptraceErrors'][0]['lineage'][0]
+        self.assertEqual(child['program'], 'bun')
+        self.assertIsNone(child['exit'])
+        self.assertEqual(child['sourceArguments'], ['test/child.ts'])
+        self.assertEqual(json.loads(trace_failure_summary('', '', 1, set()))['ptraceErrors'], [])
+
+    # 长日志、循环创建链和伪造秘密参数保持有界；诊断扩展必须保留两种执行系统调用审计。
+    def test_untrusted_context_is_bounded_and_exec_audit_remains_enabled(self):
+        known = {'test/' + 'a' * 230 + '.ts', 'test/' + 'b' * 230 + '.ts'}
+        trace = []
+        for tid in range(1, 30):
+            trace.append(f'{tid} execve("/verified/bun", '
+                         f'{json.dumps(sorted(known) + ["PRIVATE_SECRET"])}, 0x0) = 0')
+            trace.append(f'{tid} clone(child_stack=NULL, flags=SIGCHLD) = {tid + 1}')
+        trace.append('30 clone(child_stack=NULL, flags=SIGCHLD) = 29')
+        errors = 'ptrace(PTRACE_LISTEN,pid:28,sig:0): Input/output error\n' * 100
+        console = trace_failure_summary('\n'.join(trace), errors, 1, known)
+        self.assertLessEqual(len(console.encode()), FAILURE_CONSOLE_BYTES)
+        self.assertNotIn('PRIVATE_SECRET', console)
+        self.assertFalse(json.loads(console)['completeAudit'])
+        self.assertTrue(json.loads(console)['truncated'])
+        self.assertIn('execve', TRACE_SYSCALLS)
+        self.assertIn('execveat', TRACE_SYSCALLS)
 
 
 class FailureSummary(unittest.TestCase):
