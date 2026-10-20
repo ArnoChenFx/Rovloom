@@ -22,7 +22,12 @@ import { management } from '../../storage/helpers.js'
 import { until } from '../../transport/helpers.js'
 import { createOwnedHerdrProcesses } from './owned-processes.js'
 
-export type HerdrWorkflowHostOptions = { root: string; binary: string; opencode?: string }
+export type HerdrWorkflowHostOptions = {
+  root: string
+  binary: string
+  opencode?: string
+  synthetic_terminal?: boolean
+}
 type Gateway = Awaited<ReturnType<typeof createProviderGatewayRuntime>>
 type Connector = Awaited<ReturnType<typeof createProviderConnectorRuntime>>
 type GatewayResources = Awaited<ReturnType<typeof createHerdrGatewayResources>>
@@ -224,9 +229,16 @@ export async function createHerdrWorkflowHost(options: HerdrWorkflowHostOptions)
     ]) {
       mkdirSync(directory, { mode: 0o700 })
     }
+    let shell = '/bin/bash'
+    if (options.synthetic_terminal) {
+      // 合成终端只记录输入字节，不解释命令；仍由同一原生进程盘点与 owner 回收。
+      shell = join(root, 'synthetic-terminal')
+      copyFileSync(new URL('./terminal-fixture.py', import.meta.url), shell, constants.COPYFILE_EXCL)
+      chmodSync(shell, 0o700)
+    }
     writeFileSync(
       join(config.config_home, 'herdr', 'config.toml'),
-      'onboarding = false\n[update]\nversion_check = false\nmanifest_check = false\n[session]\nresume_agents_on_restore = false\n[terminal]\ndefault_shell = "/bin/bash"\nshell_mode = "non_login"\nnew_cwd = "current"\n',
+      `onboarding = false\n[update]\nversion_check = false\nmanifest_check = false\n[session]\nresume_agents_on_restore = false\n[terminal]\ndefault_shell = ${JSON.stringify(shell)}\nshell_mode = "non_login"\nnew_cwd = "current"\n`,
       { mode: 0o600, flag: 'wx' }
     )
     const launched = await launchHerdrProcess(config)

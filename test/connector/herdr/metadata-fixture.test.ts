@@ -32,3 +32,24 @@ test(
     assert.equal(fixture.exchanges[3].response.error.code, 'workspace_not_found')
   }
 )
+
+test(
+  'workspace metadata accepts the installed schema without the former token and TTL subset',
+  /** 验收输入的固定值不是产品限制；完整安装根仍接纳其它 source、多 token、长文本及可选期限。 */ () => {
+    const codec = createHerdrCodec(source, schemas)
+    const params = {
+      workspace_id: 'owned-workspace',
+      source: 'another-namespace',
+      tokens: { another_token: ' 长文本 '.repeat(40), second_token: null }
+    }
+    for (const optional of [{}, { seq: null, ttl_ms: null }, { seq: 0, ttl_ms: 86_400_000 }]) {
+      const request = {
+        id: 'metadata-schema-regression',
+        method: 'workspace.report_metadata',
+        params: { ...params, ...optional }
+      }
+      assert(reviewedHerdrRequest({ method: request.method, params: request.params }))
+      assert.deepEqual(JSON.parse(Buffer.from(codec.encode(request)).toString()), request)
+    }
+  }
+)
