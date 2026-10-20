@@ -1,12 +1,17 @@
 /** Herdr 生产来源的独立配置、双角色与 child 生命周期回归；合成子进程不提供任何原生身份或成功响应。 */
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { createHerdrProductionSources, createHerdrChildOwner } from '../../src/cli/production-herdr.js'
+import {
+  createHerdrProductionSources,
+  createHerdrChildOwner,
+  assertHerdrProductionEndpointAbsent
+} from '../../src/cli/production-herdr.js'
+import { ProviderUnavailableError } from '../../src/cli/provider-unavailable.js'
 import type { HerdrProductionOwnerConfig } from '../../src/cli/production-herdr.js'
 import { CliError, configTemplate } from '../../src/cli/config.js'
 import { createProductionCliRuntime } from '../../src/cli/production.js'
@@ -101,6 +106,41 @@ function fixture() {
     }
   }
 }
+
+test(
+  'Herdr 遗留拒连 socket 只声明该配置不可用，不删除端点、创建 owner 或尝试原生重启',
+  /** Python 只绑定并关闭本例 Unix socket；没有 Herdr、模型、设备身份或用户 session。 */ () => {
+    const f = fixture()
+    try {
+      const directory = join(f.value.config.connector.local.config_home, 'herdr', 'sessions', 'owned')
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+      const socket = join(directory, 'herdr.sock')
+      const bound = spawnSync('python3', [
+        '-c',
+        'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()',
+        socket
+      ])
+      assert.equal(bound.status, 0)
+      const before = lstatSync(socket, { bigint: true })
+      assert(before.isSocket())
+      assert.throws(
+        /** 原生产 guard 只交付验证过的原配置，不创建可执行替代后端。 */ () =>
+          assertHerdrProductionEndpointAbsent(f.value.config),
+        /** 固定错误类型仅表示此配置不可用，不能据此接管或删除端点。 */ (error: unknown) => {
+          assert(error instanceof ProviderUnavailableError)
+          assert.deepEqual(error.provider.target, f.value.config.target)
+          assert.equal(error.provider.binding.config_ref, 'herdr_fixture')
+          return true
+        }
+      )
+      const after = lstatSync(socket, { bigint: true })
+      assert.equal(after.dev, before.dev)
+      assert.equal(after.ino, before.ino)
+    } finally {
+      f.close()
+    }
+  }
+)
 
 test(
   'Herdr CLI loads the local Agent directory without opening terminal execution',

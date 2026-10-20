@@ -2,6 +2,7 @@
 import { privateDirectory } from './first-config.js'
 import { join } from 'node:path'
 import { openGatewayState, createManagementSessionAuthority } from '../runtime/index.js'
+import { composeConnectorSessions } from '../runtime/provider-sessions.js'
 import type {
   GatewayRuntimeOptions,
   ProviderGatewayRuntimeOptions,
@@ -90,6 +91,7 @@ function offer(context: true | undefined): VersionOffer {
     minor: 0,
     capabilities: [
       'rpc',
+      'provider_fence',
       'dispatch_refusal',
       'history_scope',
       'admission_receipt',
@@ -346,7 +348,22 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
           return {
             kind: 'provider' as const,
             transport,
-            session: resource.session.bind(resource),
+            /** 混合资源已持有原组合；单一 provider 仍用同一原 owner 包装隔离生命周期。 */
+            session(connection) {
+              const current = resource.session(connection)
+              if (
+                current.fenceProvider ||
+                !resource.providers?.length ||
+                !connection.negotiated.capabilities.includes('provider_fence')
+              ) {
+                return current
+              }
+              return composeConnectorSessions(
+                connection,
+                [{ providers: resource.providers, session: current }],
+                Date.now
+              )
+            },
             release: resource.release.bind(resource),
             release_timeout_ms: resource.release_timeout_ms,
             provider_snapshot: resource.provider_snapshot

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { routeProductionSources } from '../../src/cli/product-sources.js'
 import { ProductionSourcesStartupError } from '../../src/cli/composite-sources.js'
+import { ProviderUnavailableError } from '../../src/cli/provider-unavailable.js'
 import { configTemplate } from '../../src/cli/config.js'
 import { createManagementSessionAuthority } from '../../src/runtime/index.js'
 import type { ProductionCliSources, ProductionGatewayResources } from '../../src/cli/production.js'
@@ -184,6 +185,55 @@ test(
       assert.equal(releases, 2)
     } finally {
       actual.close()
+    }
+  }
+)
+
+test(
+  '混合Connector仅对明确的无资源不可用声明保留健康owner，未知启动错误仍回滚',
+  /** 工厂是拒绝执行的装配探针；实际认证与来源撤回另由 loopback 集成回归验证。 */ async () => {
+    const config = configTemplate('connector')
+    if (config.role !== 'connector') {
+      assert.fail('connector required')
+    }
+    const herdr = resource('herdr', []).providers[0]!
+    for (const known of [true, false]) {
+      let releases = 0
+      let sessions = 0
+      const failure = known ? new ProviderUnavailableError(herdr) : new Error('component_unknown_startup')
+      const routed = routeProductionSources({
+        luvus: {
+          connector: /** 原真实工厂接缝探针；此测试不会建立假native session。 */ async () => ({
+            admission_context: true,
+            provider_snapshot: true,
+            session: /** 未认证不得构造来源或执行后端。 */ () => {
+              sessions++
+              throw new Error('component_native_unavailable')
+            },
+            release: /** 只记录本次已取得原owner的释放。 */ async () => {
+              releases++
+            }
+          })
+        },
+        herdr: {
+          connector: /** 没有取得任何 child/owner/writer，固定不可用声明不冒充成功资源。 */ async () => {
+            throw failure
+          }
+        }
+      })
+      if (known) {
+        const mixed = await routed.connector!(config, references)
+        assert.equal(mixed.kind, 'provider')
+        assert.equal(releases, 0)
+        await mixed.release()
+      } else {
+        await assert.rejects(
+          routed.connector!(config, references),
+          /** 原未知错误不能被改判为已安全隔离。 */ (error: unknown) => error === failure
+        )
+      }
+      assert.equal(releases, 1)
+      assert.equal(sessions, 0)
     }
   }
 )

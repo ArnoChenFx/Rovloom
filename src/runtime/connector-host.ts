@@ -272,6 +272,22 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
           cleanup([/** 只回收当前 provider 交付的会话所有者，不猜测其原生停止语义。 */ () => current.close()])
         }
       }
+      if (current.fenceProvider) {
+        owned.fenceProvider = /** 只转发原组合会话的同步 provider 撤回，仍复核角色关闭 fence。 */ (binding) => {
+          assertOpen()
+          const result = current.fenceProvider!(binding)
+          assertOpen()
+          return result
+        }
+      }
+      if (current.providerFences) {
+        owned.providerFences = /** 永久失效配置来自原 owner，不从消息或状态字符串重建。 */ () => {
+          assertOpen()
+          const result = current.providerFences!()
+          assertOpen()
+          return result
+        }
+      }
       if (current.providerSnapshot) {
         const snapshot = current.providerSnapshot.bind(current)
         owned.providerSnapshot = /** 原getter每次重验来源和epoch，组合层不刷新快照。 */ () => {

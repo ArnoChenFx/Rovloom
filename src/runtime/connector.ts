@@ -10,6 +10,7 @@ import type { Adapter, Connection, ConnectorWireSession } from '../transport/ind
 import { assertBinding, boundedJson, fail } from '../wire/index.js'
 import type { AttemptBinding, V2Target } from '../wire/types.js'
 import type { ProviderSessionGroup } from './provider-sessions.js'
+import { composeConnectorSessions } from './provider-sessions.js'
 import { connectorAdmissionAdapter } from './connector-attempts.js'
 import { OFFER } from '../transport/common.js'
 import type { ConnectorRuntimeOptions } from './types.js'
@@ -425,7 +426,11 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
     }
   }
 
-  const session = owner.session
+  /** 单 provider 也使用同一原 owner 组合，隔离后仍可处理当前连接的治理帧。 */
+  const session = (connection: Connection): ConnectorWireSession =>
+    connection.negotiated.capabilities.includes('provider_fence')
+      ? composeConnectorSessions(connection, [owner.group(connection)], Date.now)
+      : owner.session(connection)
 
   let transport: ReturnType<typeof createConnector>
   try {

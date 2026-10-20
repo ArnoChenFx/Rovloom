@@ -9,6 +9,7 @@ import {
   hash,
   LIMITS,
   validateProviderSnapshot,
+  validateProvider,
   validateOffer
 } from '../wire/index.js'
 import type {
@@ -16,6 +17,8 @@ import type {
   AuthenticatedEnvelope,
   JsonObject,
   ProviderSnapshot,
+  ProviderBinding,
+  WireEnvelope,
   VersionOffer
 } from '../wire/types.js'
 import type { DeviceCredential } from './identity.js'
@@ -25,6 +28,8 @@ import { dispatchRefusal } from './dispatch-refusal.js'
 import {
   budget,
   closeSession,
+  discardProviderFrame,
+  fenceSessionProvider,
   endpoint,
   envelope,
   OFFER,
@@ -131,6 +136,7 @@ export function createConnector(options: ConnectorOptions) {
   let messageWindow = 0
   const running = new Map<string, { controller: AbortController; binding: AttemptBinding }>()
   const seen = new Set<string>()
+  const providerFences = new Map<string, ProviderBinding>()
   let received = new ReceiveWindow()
   let observedTime = 0
   let published:
@@ -151,10 +157,78 @@ export function createConnector(options: ConnectorOptions) {
     observedTime = now
     return now
   }
+  /** 只永久撤回当前 epoch 的原 provider；同连接其它来源与在途观察保持独立。 */
+  function fenceProvider(active: Connection, current: Session, binding: ProviderBinding, announce = true): void {
+    validateProvider(binding)
+    if (connection !== active || session !== current || stopped || binding.machine_id !== active.machine_id) {
+      fail('connection_binding_mismatch')
+    }
+    const previous = providerFences.get(binding.provider_id)
+    if (previous) {
+      if (boundedJson(previous) !== boundedJson(binding)) {
+        fail('provider_binding_mismatch')
+      }
+      return
+    }
+    providerFences.set(binding.provider_id, structuredClone(binding))
+    fenceSessionProvider(current, binding)
+    if (published?.connection === active && published.session === current) {
+      const retained = published.snapshots
+        .map(
+          /** 保留健康来源的原引用与原摘要，不刷新 generation。 */ (snapshot, index) => ({
+            snapshot,
+            fingerprint: published!.fingerprints[index]!
+          })
+        )
+        .filter(
+          /** 已失效元数据不再作为活快照保留。 */ (entry) => entry.snapshot.binding.provider_id !== binding.provider_id
+        )
+      published.snapshots = Object.freeze(retained.map(/** 保留原纯数据对象。 */ (entry) => entry.snapshot))
+      published.fingerprints = Object.freeze(retained.map(/** 保留对应原指纹。 */ (entry) => entry.fingerprint))
+    }
+    for (const runningCall of running.values()) {
+      if (runningCall.binding.target.provider_id === binding.provider_id) {
+        runningCall.controller.abort('provider_unavailable')
+      }
+    }
+    if (connection !== active || session !== current || stopped) {
+      fail('connection_unavailable')
+    }
+    if (announce) {
+      write(envelope(active, 'provider_fenced', { binding }))
+    }
+  }
+  /** 从原 owner 的当前健康和永久 fence 同步撤回，不由远端广告构造 ready 或替换 binding。 */
+  function reconcileProviders(active: Connection, current: Session): void {
+    if (!active.negotiated.capabilities.includes('provider_fence')) {
+      return
+    }
+    const state = current.readiness()
+    const health = providerHealth(active, state)
+    const fenced = current.providerFences?.() ?? []
+    if (fenced.length > 64) {
+      fail('provider_limit')
+    }
+    for (const binding of fenced) {
+      fenceProvider(active, current, binding)
+    }
+    for (const provider of state.providers) {
+      if (
+        !health.find(/** 只检查同一原 provider 的观测。 */ (row) => row.provider_id === provider.local.provider_id)!
+          .ready
+      ) {
+        fenceProvider(active, current, provider.local)
+      }
+    }
+  }
   /** 快照 getter 必须同步返回；违规异步来源的晚到拒绝被消费，但不当作来源已接纳。 */
   function snapshots(current: Session): readonly ProviderSnapshot[] {
     const values = current.providerSnapshot?.()
-    if (!Array.isArray(values) || values.length < 1 || values.length > 64) {
+    if (
+      !Array.isArray(values) ||
+      (values.length < 1 && !connection?.negotiated.capabilities.includes('provider_fence')) ||
+      values.length > 64
+    ) {
       void Promise.resolve(values).catch(/** 关闭之外仍消费违规异步 getter 的晚到拒绝。 */ () => {})
       fail('provider_snapshot_source_required')
     }
@@ -177,7 +251,14 @@ export function createConnector(options: ConnectorOptions) {
     ) {
       fail('connection_unavailable')
     }
-    const values = snapshots(current)
+    let values = snapshots(current)
+    reconcileProviders(active, current)
+    if (active.negotiated.capabilities.includes('provider_fence')) {
+      // getter 与健康复核之间来源也可能失效；只移除刚永久撤回的原条目，健康快照仍逐项比较。
+      values = values.filter(
+        /** 失效条目不再属于本 epoch 的已发布活来源。 */ (snapshot) => !providerFences.has(snapshot.binding.provider_id)
+      )
+    }
     if (values.length !== captured.snapshots.length) {
       fail('provider_snapshot_changed')
     }
@@ -190,7 +271,7 @@ export function createConnector(options: ConnectorOptions) {
       }
     }
     const health = providerHealth(active, current.readiness())
-    for (const value of values) {
+    for (const value of active.negotiated.capabilities.includes('provider_fence') ? [] : values) {
       if (
         !health.some(
           /** 每个已发布目标都必须仍有真实 native readiness。 */ (item) =>
@@ -233,6 +314,9 @@ export function createConnector(options: ConnectorOptions) {
     published = { connection: active, session: current, socket: ws, snapshots: values, fingerprints }
     for (const value of values) {
       assertSnapshots(active, current)
+      if (providerFences.has(value.binding.provider_id)) {
+        continue
+      }
       write(envelope(active, 'provider_snapshot', value))
     }
     assertSnapshots(active, current, true)
@@ -266,6 +350,7 @@ export function createConnector(options: ConnectorOptions) {
       }
     }
     seen.clear()
+    providerFences.clear()
     received = new ReceiveWindow()
   }
   /** 移除当前 socket 并清理会话，按有界抖动退避安排重连；停止状态不再重连。 */
@@ -345,6 +430,7 @@ export function createConnector(options: ConnectorOptions) {
     active: Connection,
     current: Session | ConnectorWireSession
   ): Promise<void> {
+    reconcileProviders(active, current)
     assertSnapshots(active, current, true)
     const binding: AttemptBinding = {
       machine_id: active.machine_id,
@@ -423,6 +509,10 @@ export function createConnector(options: ConnectorOptions) {
       await sendResponse(binding, response, active, current, controller.signal)
     } catch (error) {
       if (!controller.signal.aborted) {
+        reconcileProviders(active, current)
+        if (providerFences.has(binding.target.provider_id)) {
+          return
+        }
         const code = dispatchRefusal(error, binding.provider_kind)
         if (
           code &&
@@ -563,6 +653,13 @@ export function createConnector(options: ConnectorOptions) {
             if (stopped || ws !== current || !connection || !session) {
               fail('connection_unavailable')
             }
+            if (
+              connection.negotiated.capabilities.includes('provider_fence') &&
+              !session.fenceProvider &&
+              session.readiness().providers.length
+            ) {
+              fail('provider_fence_backend_unavailable')
+            }
             publishSnapshots(connection, session)
             if (stopped || ws !== current || !connection || !session) {
               fail('connection_unavailable')
@@ -577,14 +674,26 @@ export function createConnector(options: ConnectorOptions) {
           if (received.observe(event.data, now) === 'duplicate') {
             return
           }
-          const frame = session.adapter.decode(event.data, 'gateway_to_connector')
+          reconcileProviders(connection, session)
+          let frame: WireEnvelope
+          try {
+            frame = session.adapter.decode(event.data, 'gateway_to_connector')
+          } catch (error) {
+            reconcileProviders(connection, session)
+            if (discardProviderFrame(event.data, connection, 'gateway_to_connector', providerFences)) {
+              return
+            }
+            throw error
+          }
           if (!('connection_epoch' in frame)) {
             fail('authentication_required')
           }
           if (session.adapter.observeMessage(frame, 'gateway_to_connector') === 'duplicate') {
             return
           }
-          if (frame.type === 'heartbeat') {
+          if (frame.type === 'provider_fenced') {
+            fenceProvider(connection, session, frame.payload.binding, false)
+          } else if (frame.type === 'heartbeat') {
             if (frame.payload.sequence !== sequence++) {
               fail('heartbeat_sequence_mismatch')
             }
@@ -653,6 +762,16 @@ export function createConnector(options: ConnectorOptions) {
               /** 仅关闭仍对应当前 socket 的失败执行，避免旧会话异常影响新连接。 */
               () => {
                 if (ws === current) {
+                  try {
+                    if (connection && session) {
+                      reconcileProviders(connection, session)
+                      if (providerFences.has(frame.payload.attempt.target.provider_id)) {
+                        return
+                      }
+                    }
+                  } catch {
+                    /* 全局认证/存储等不可信时仍关闭原连接。 */
+                  }
                   close()
                 }
               }
@@ -703,6 +822,7 @@ export function createConnector(options: ConnectorOptions) {
           close()
           return
         }
+        reconcileProviders(connection, session)
         assertSnapshots(connection, session)
         for (const { controller, binding } of running.values()) {
           if (

@@ -447,14 +447,8 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     }
     return result
   }
-  // 校验能力、信封、参数和帧预算并保留实际覆盖状态；仅 allowRaw 时允许 unavailable 候选。
-  function checkedRequest(
-    view: CapabilityView,
-    input: unknown,
-    allowRaw: boolean
-  ): CheckedRequest | RawRequestCandidate {
-    viewData(contract, view)
-    const request = copy(contract, input)
+  // 已收录方法检查完整根；未知方法仅复用 raw 的最小信封，后续门禁仍独立决定是否可执行。
+  function requestShape(request: JsonObject, allowRaw: boolean): string {
     const name = text(request.method, 'native_request_invalid')
     const known = data(contract).requestMethods.includes(name)
     if (known || !allowRaw) {
@@ -476,6 +470,17 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
         fail('native_request_invalid', 'request', 'minimal_envelope')
       }
     }
+    return name
+  }
+  // 校验能力、信封、参数和帧预算并保留实际覆盖状态；仅 allowRaw 时允许 unavailable 候选。
+  function checkedRequest(
+    view: CapabilityView,
+    input: unknown,
+    allowRaw: boolean
+  ): CheckedRequest | RawRequestCandidate {
+    viewData(contract, view)
+    const request = copy(contract, input)
+    const name = requestShape(request, allowRaw)
     const descriptor = method(contract, view, name)
     requestSemantics(request, view)
     frameLimit(contract, view, request, 'native_request_invalid', name.startsWith('terminal.backend.'), 'request')
@@ -497,6 +502,15 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
     return result
   }
   const api: NativeValidator = {
+    // 登记前检查既有请求结构；成功不绑定原生来源，也不登记候选或 permit。
+    checkRequestShape(input) {
+      return attempt(
+        'request',
+        /** 已知方法使用完整已编译根，未知方法保留最小信封，不采用默认值或类型转换。 */ () => {
+          requestShape(copy(contract, input), true)
+        }
+      )
+    },
     // 只核对有界能力数据和预期身份，不读取认证标志、政策修订或登记任何许可句柄。
     checkCapabilitiesShape(input, expected) {
       return attempt(
