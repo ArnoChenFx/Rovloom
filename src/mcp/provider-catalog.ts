@@ -30,8 +30,10 @@ export function authorizedProviderCatalog(options: {
   if (!binding.enabled) {
     throw new FacadeServiceError('unavailable')
   }
+  const generation = store.generation()
   const check = /* owner回调前后重读同一现行主体/配置，不能沿用已改变的目录快照。 */ () => {
     if (
+      store.generation() !== generation ||
       !isDeepStrictEqual(options.currentPrincipal(), principal) ||
       !isDeepStrictEqual(options.localPolicies(target), local) ||
       !isDeepStrictEqual(store.provider(target.machine_id, target.provider_id), binding)
@@ -40,6 +42,7 @@ export function authorizedProviderCatalog(options: {
     }
   }
   let stamp: string | undefined
+  let expiresAt: number | undefined
   const current = /* callback必须返回当前真实目录，缺失时不生成空成功目录。 */ () => {
     check()
     const resolved = options.provider.resolve(structuredClone(target), structuredClone(principal))
@@ -71,12 +74,14 @@ export function authorizedProviderCatalog(options: {
       typeof source.capability_revision !== 'string' ||
       !source.capability_revision.length ||
       !Number.isSafeInteger(source.expires_at) ||
-      store.clock() >= source.expires_at ||
+      store.clock() >= Math.min(source.expires_at, expiresAt ?? source.expires_at) ||
       !Array.isArray(source.methods) ||
       source.methods.length > 256
     ) {
       throw new FacadeServiceError('contract_unavailable')
     }
+    // fresh目录视图可以有不同观察期限，但同一次读取始终受最早取得的期限约束。
+    expiresAt = Math.min(expiresAt ?? source.expires_at, source.expires_at)
     const methods = JSON.parse(boundedJson(source.methods, LIMITS.object_bytes)) as JsonObject[]
     const names = methods.map(/* 原生方法名逐项保留，拒绝重复/畸形目录。 */ (method) => method.method)
     if (
@@ -95,7 +100,6 @@ export function authorizedProviderCatalog(options: {
           binding,
           contract_ref: source.contract_ref,
           revision: source.capability_revision,
-          expires_at: source.expires_at,
           methods
         },
         LIMITS.object_bytes
@@ -122,12 +126,13 @@ export function authorizedProviderCatalog(options: {
       })
     ),
     scope: {
+      generation,
       contract_ref: source.contract_ref,
       capability_revision: source.capability_revision,
-      expires_at: source.expires_at,
       capability_digest: stamp!,
       local
     },
+    expires_at: expiresAt!,
     describe: /* 原生描述返回前再复验当前目录、身份与原绑定。 */ (method: string): JsonObject => {
       if (!visible.some(/* 精确匹配已可见方法，不按前缀开放。 */ (entry) => entry.method === method)) {
         throw new FacadeServiceError('not_found')

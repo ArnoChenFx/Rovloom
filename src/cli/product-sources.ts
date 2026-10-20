@@ -1,5 +1,6 @@
 // 唯一入口静态链接真实provider工厂；配置只选kind，不加载任意模块、脚本或另一套角色。
 import { createLuvusProductionSources } from '../runtime/index.js'
+import { createHerdrProductSources } from './herdr-sources.js'
 import { CliError } from './config.js'
 import type { ProductionCliSources, ProductionProviderReference } from './production.js'
 
@@ -63,5 +64,5 @@ export function routeProductionSources(registry: ProductionSourceRegistry): Prod
 
 // 只有角色启动才导入固定模块表；未注册provider明确拒绝，不从JSON加载可执行代码。
 export function createProductSources(): ProductionCliSources {
-  return routeProductionSources({ luvus: createLuvusProductionSources() })
+  return routeProductionSources({ luvus: createLuvusProductionSources(), herdr: createHerdrProductSources() })
 }

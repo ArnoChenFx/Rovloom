@@ -47,7 +47,7 @@ test(
       assert.equal(catalog.methods[0]!.contract_ref, original.contract_ref)
       assert.equal(catalog.scope.contract_ref, original.contract_ref)
       assert.equal(catalog.scope.capability_revision, original.capability_revision)
-      assert.equal(catalog.scope.expires_at, original.expires_at)
+      assert.equal(catalog.expires_at, original.expires_at)
       assert.equal(catalog.describe('pane.read').contract_ref, original.contract_ref)
       assert(reads > 1)
     } finally {

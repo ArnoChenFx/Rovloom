@@ -302,12 +302,18 @@ Connector的`state_dir/runtime.json`只含`schema_version: 1`、`role: 'connecto
 `credential_ref`、`ca_ref`和与角色配置逐项相同的`provider_config_refs`。
 凭据由既有`loadCredential`读取`refs/<credential_ref>.json`，CA读取`refs/<ca_ref>.ca.pem`；
 WSS origin固定取角色配置，实际transport仍强制证书及hostname核验。
+启动先校验受保护CA的PEM证书及既有设备凭据，再准备provider/native资源；缺失、非法或权限错误
+以固定诊断退出。资源准备期间撤去凭据也释放本次资源；后续每次连接仍重新读取凭据。
 生产两端将`admission_receipt`列入required，真实session所有者必须交付同一认证原截止接收端及持久claims。
 
 非空provider引用须由静态链接的`ProductionCliSources.gateway/connector`解析为实际opaque来源，
 每个Gateway ref恰好对应其自身provider。唯一`main.ts`按需加载固定工厂表，Luvus使用runtime的
 `createLuvusProductionSources()`，其实际配置见[Luvus操作装配](../LUVUS-OPERATIONS.md)。Gateway attach
 已有本机实例，Connector持有明确managed child；用户须先显式准备原root及所选持久文件。
+单个Herdr Gateway引用采用`{ kind: 'herdr', config: <HerdrProviderRefConfig> }`封套，`config_ref`须与
+引用名一致；原Herdr工厂只接收`config`，不向其精确配置追加kind。当前直接复用
+`createHerdrGatewayResources`，不启动Herdr进程。Connector仍须取得真实installation、当前policies及
+releaseOwner；默认入口缺该所有者时明确不可用。
 未注册kind、空Connector引用或缺少混合kind会话组合时返回`backend_unavailable`；不会创建native成功stub。
 外部supervisor实例交付和跨进程native来源仍遵循[TRANSPORT](../TRANSPORT.md#生产来源边界)的未完成边界。
 受信embedding可交付现有管理员来源；加载器使用PR71同一authority的identities/sessions，
@@ -323,9 +329,11 @@ Gateway资源采用明确联合：旧`kind?: 'luvus'`交付现行`GatewayRuntime
 默认旧分支仍只强制原rpc/admission_receipt。原receipt/ledger及失效清理由各provider和runtime现行实现负责。
 
 中性目录用`catalog: { kind: 'provider', resolve(target, principal) }`。resolve从当前原生安装/能力返回
-`ProviderCatalogSource`：完整target、当前local_provider、contract_ref、capability_revision、固定expires_at、
+`ProviderCatalogSource`：完整target、当前local_provider、contract_ref、capability_revision、每个观察视图的expires_at、
 原生methods描述列表及`describe(method)`。同一Store服务沿用完整Target/read交集、当前主体和绑定校验，
-分页继续绑定目录快照；它不会把目录或schema变成执行许可。实际调用仍走同一runtime准入、原Wire和原生backend。
+稳定目录身份绑定契约、能力修订、方法内容、provider配置及恢复代次，不把每次resolve的观察期限作为修订。
+同次描述仍受最早取得的观察期限约束；每页重新核验当前有效视图，后续游标沿用原期限与当前视图的
+较早值，不能通过resolve或翻页续期。它不会把目录或schema变成执行许可。实际调用仍走同一runtime准入、原Wire和原生backend。
 旧Luvus catalog结构与校验路径保持兼容；CLI使用`resource.catalog ?? gateway.catalog`消费同一真实
 连接上的目录，Herdr无需填造UHP schema或Luvus可信来源。每个角色的引用当前选择同一静态kind工厂；
 跨kind会话组合须由实际runtime宿主交付，CLI不会为此另建Router或adapter。

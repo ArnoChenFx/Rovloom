@@ -257,7 +257,13 @@ export class StoreGatewayService implements GatewayService {
   }
 
   // 对授权后的行分页；游标是有界短期关联，绑定身份、查询、政策和恢复代次，每页仍重新授权。
-  private page<T>(items: T[], args: { cursor?: string; limit?: number }, scope: unknown, now: number): Page<T> {
+  private page<T>(
+    items: T[],
+    args: { cursor?: string; limit?: number },
+    scope: unknown,
+    now: number,
+    expiresAt?: number
+  ): Page<T> {
     const fingerprint = digest(canonical(scope))
     for (const [token, cursor] of this.cursors) {
       if (cursor.expires <= now) {
@@ -265,12 +271,15 @@ export class StoreGatewayService implements GatewayService {
       }
     }
     let offset = 0
+    let expires = Math.min(now + 30_000, expiresAt ?? Infinity)
     if (args.cursor !== undefined) {
       const prior = this.cursors.get(args.cursor)
       if (!prior || prior.scope !== fingerprint) {
         throw new FacadeServiceError('invalid_cursor')
       }
       offset = prior.offset
+      // 后续页只沿用原游标与当前目录的较早期限，不能借fresh resolve滑动续期。
+      expires = Math.min(expires, prior.expires)
     }
     const limit = args.limit ?? 50
     const next = offset + limit
@@ -282,7 +291,7 @@ export class StoreGatewayService implements GatewayService {
     }
     // 此引用只关联分页位置，不是认证凭据或业务 history，重启后明确失效。
     const token = 'page_' + randomUUID()
-    this.cursors.set(token, { scope: fingerprint, offset: next, expires: now + 30_000 })
+    this.cursors.set(token, { scope: fingerprint, offset: next, expires })
     return { items: items.slice(offset, next), next_cursor: token }
   }
 
@@ -392,7 +401,8 @@ export class StoreGatewayService implements GatewayService {
           catalog: catalog.scope,
           args: queryArguments(request.args)
         },
-        now
+        now,
+        'expires_at' in catalog ? catalog.expires_at : catalog.scope.expires_at
       )
     }
     if (!['machines_list', 'machines_get', 'providers_list', 'providers_get'].includes(request.name)) {

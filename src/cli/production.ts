@@ -1,5 +1,6 @@
 // 唯一产品入口按固定role/ref加载真实资源；JSON不能重建opaque native来源或执行任意模块。
 import { openGatewayState, createManagementSessionAuthority } from '../runtime/index.js'
+import { X509Certificate } from 'node:crypto'
 import type {
   GatewayRuntimeOptions,
   ProviderGatewayRuntimeOptions,
@@ -273,15 +274,40 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
       if (!sources.connector) {
         throw new CliError('backend_unavailable', 3)
       }
+      const caBytes = readRuntimeFile(runtimeReference(config.state_dir, settings.ca_ref, '.ca.pem'), 65_536)
+      let ca: string
+      try {
+        ca = caBytes.toString('utf8')
+        const pem = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g
+        const certificates = ca.match(pem)
+        if (!certificates?.length || ca.replace(pem, '').trim()) {
+          throw new CliError('invalid_config')
+        }
+        for (const certificate of certificates) {
+          new X509Certificate(certificate)
+        }
+      } catch {
+        throw new CliError('invalid_config')
+      } finally {
+        caBytes.fill(0)
+      }
+      const path = runtimeReference(config.state_dir, settings.credential_ref)
+      const credential = /* 启动和每次认证均读取同一既有凭据，固定错误不反射路径或秘密。 */ () => {
+        try {
+          return loadCredential(path)
+        } catch {
+          throw new CliError('backend_unavailable', 3)
+        }
+      }
+      // 先验证静态认证输入，缺失或非法时不得启动provider所属的native child。
+      credential()
       const resource = await sources.connector(config, references(config.state_dir, settings.provider_config_refs))
       try {
-        const caBytes = readRuntimeFile(runtimeReference(config.state_dir, settings.ca_ref, '.ca.pem'), 65_536)
-        const ca = caBytes.toString('utf8')
-        caBytes.fill(0)
-        const path = runtimeReference(config.state_dir, settings.credential_ref)
+        // 资源准备可能跨异步边界；期间撤去凭据也必须立即释放本次资源并退出。
+        credential()
         const transport = {
           ca,
-          credential: /* 每次认证重读同一受保护既有设备凭据，不按主机名创建身份。 */ () => loadCredential(path),
+          credential,
           offer: offer(resource.admission_context)
         }
         if (resource.kind === 'provider') {

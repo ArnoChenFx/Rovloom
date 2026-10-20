@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -16,6 +16,135 @@ import { createProductionCliRuntime } from '../../src/cli/production.js'
 import { runtime as transportRuntime } from '../../src/transport/common.js'
 import { saveCredential } from '../../src/transport/index.js'
 import { decodeWireFrame } from '../../src/wire/index.js'
+
+test(
+  '生产Connector在provider启动前拒绝无效CA和凭据，准备期间撤去凭据仍释放资源并固定诊断',
+  /** provider/session为明确清理stub；不启动native或签发真实身份，CLI错误走实际入口。 */ async () => {
+    if (process.platform !== 'linux') {
+      return
+    }
+    const directory = mkdtempSync(join(tmpdir(), 'rovloom-cli-credential-preflight-'))
+    const refs = join(directory, 'refs')
+    mkdirSync(refs, { mode: 0o700 })
+    const tls = certificate(directory)
+    const config = {
+      ...configTemplate('connector'),
+      state_dir: directory,
+      provider_config_refs: ['credential_fixture']
+    } as ConnectorConfig
+    const configPath = join(directory, 'connector.json')
+    const caPath = join(refs, 'fixture_tls.ca.pem')
+    const credentialPath = join(refs, 'fixture_device.json')
+    const synthetic = {
+      machine_id: 'preflight_fixture',
+      recovery_generation: 'preflight_generation',
+      credential: 'SYNTHETIC_PREFLIGHT_CREDENTIAL_NOT_REAL'
+    }
+    writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 })
+    writeFileSync(
+      join(directory, 'runtime.json'),
+      JSON.stringify({
+        schema_version: 1,
+        role: 'connector',
+        credential_ref: 'fixture_device',
+        ca_ref: 'fixture_tls',
+        provider_config_refs: config.provider_config_refs
+      }),
+      { mode: 0o600 }
+    )
+    writeFileSync(join(refs, 'credential_fixture.json'), JSON.stringify({ kind: 'luvus' }), { mode: 0o600 })
+    let opened = 0
+    let released = 0
+    const runtime = createProductionCliRuntime({
+      connector: /** 只返回启动后立刻失效的资源stub，以验证唯一清理委托。 */ async () => {
+        opened++
+        unlinkSync(credentialPath)
+        return {
+          session: /** 本例不得建立认证会话，更不提供原生成功响应。 */ () => {
+            assert.fail('fixture session must not open')
+          },
+          release: /** 仅计数本例资源释放，不冒称实际native进程退出。 */ async () => {
+            released++
+          }
+        }
+      }
+    })
+    try {
+      for (const failure of [
+        'missing_credential',
+        'invalid_credential',
+        'unsafe_credential',
+        'missing_ca',
+        'invalid_ca',
+        'unsafe_ca',
+        'revoked_during_prepare'
+      ]) {
+        writeFileSync(caPath, tls.cert, { mode: 0o600 })
+        chmodSync(caPath, 0o600)
+        writeFileSync(credentialPath, JSON.stringify(synthetic), { mode: 0o600 })
+        chmodSync(credentialPath, 0o600)
+        if (failure === 'missing_credential') {
+          unlinkSync(credentialPath)
+        }
+        if (failure === 'invalid_credential') {
+          writeFileSync(credentialPath, '{"credential":"SYNTHETIC_SECRET"}')
+        }
+        if (failure === 'unsafe_credential') {
+          chmodSync(credentialPath, 0o644)
+        }
+        if (failure === 'missing_ca') {
+          unlinkSync(caPath)
+        }
+        if (failure === 'invalid_ca') {
+          writeFileSync(caPath, 'SYNTHETIC_SECRET_INVALID_CA')
+        }
+        if (failure === 'unsafe_ca') {
+          chmodSync(caPath, 0o644)
+        }
+        const stdin = new PassThrough()
+        const stdout = new PassThrough()
+        const stderr = new PassThrough()
+        let output = ''
+        let diagnostic = ''
+        stdout.on(
+          'data',
+          /** 收集协议流外的产品stdout以确认启动失败不反射秘密。 */ (bytes) => {
+            output += bytes
+          }
+        )
+        stderr.on(
+          'data',
+          /** 只验证固定诊断，不打印测试中的配置或凭据。 */ (bytes) => {
+            diagnostic += bytes
+          }
+        )
+        try {
+          const code = await runCli(
+            ['connector', '--config', configPath],
+            {
+              stdin,
+              stdout,
+              stderr,
+              signal: new AbortController().signal
+            },
+            runtime
+          )
+          assert.notEqual(code, 0)
+          assert.equal(output, '')
+          assert.match(diagnostic, /^(backend_unavailable|invalid_config|config_unreadable|config_not_protected)\n$/)
+          assert.equal(opened, failure === 'revoked_during_prepare' ? 1 : 0)
+          assert.equal(released, opened)
+        } finally {
+          stdin.destroy()
+          stdout.destroy()
+          stderr.destroy()
+        }
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
+)
 
 test(
   '生产Connector的快照声明穿过两层CLI并进入真实TLS认证帧，未声明时不补广告',
