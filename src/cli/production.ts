@@ -216,13 +216,23 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
         if (sources.gateway && !provider) {
           throw new CliError('invalid_config')
         }
+        // 核对所有原条目，但不把中性provider放入Luvus原生注册表或丢弃其session。
+        const declared = provider
+          ? [
+              ...provider.providers,
+              ...(provider.kind === 'mixed'
+                ? provider.hosted.flatMap(
+                    /** 仅收集原宿主的完整条目供引用校验，运行时仍保留明确分组。 */ (group) => group.providers
+                  )
+                : [])
+            ]
+          : []
         if (
           provider &&
-          (provider.providers.length !== settings.provider_config_refs.length ||
-            new Set(
-              provider.providers.map(/* 每个配置引用只能由其自身来源履行一次。 */ (entry) => entry.binding.config_ref)
-            ).size !== settings.provider_config_refs.length ||
-            provider.providers.some(
+          (declared.length !== settings.provider_config_refs.length ||
+            new Set(declared.map(/* 每个配置引用只能由其自身来源履行一次。 */ (entry) => entry.binding.config_ref))
+              .size !== settings.provider_config_refs.length ||
+            declared.some(
               /* 实际来源仍须逐个属于配置选择，受信resolver也不能附带未声明provider。 */ (entry) =>
                 !settings.provider_config_refs.includes(entry.binding.config_ref)
             ))

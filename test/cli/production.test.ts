@@ -26,6 +26,8 @@ import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { CliError, configTemplate, type GatewayConfig } from '../../src/cli/config.js'
 import { createProductionCliRuntime } from '../../src/cli/production.js'
 import { createProductSources } from '../../src/cli/product-sources.js'
+import { fixedHerdrSource } from '../../src/connector/herdr/review.js'
+import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
 import { createManagementWriteClient } from '../../src/webui/write-client.js'
 import { createDeviceManagementFlow } from '../../src/webui/write-flow.js'
 import { createManagementHttpRead } from '../../src/webui/http-client.js'
@@ -131,7 +133,7 @@ function certificate(refs: string): void {
 }
 
 test(
-  '生产远端Gateway以私有schema引用装配真实工厂，16KiB配置不内联大bundle且原始字节仍验pin',
+  '生产混合Gateway保留真实Luvus远端pin与Herdr目录，标准loader核对全部引用且原始字节仍验pin',
   /** 设备/数据库种子是明确fixture；真实CLI/Worker/远端资源不需要本机native或合成成功会话。 */ async () => {
     if (process.platform !== 'linux') {
       return
@@ -168,6 +170,15 @@ test(
         schema_bundle_ref: 'fixture_schema'
       }
     }
+    const herdrRoot = privateHerdrTestRoot('.mixed-production-schema-')
+    const herdrTarget: V2Target = { ...target, provider_id: 'fixture_herdr' }
+    const herdrBinding: ProviderBinding = {
+      ...binding,
+      provider_id: herdrTarget.provider_id,
+      kind: 'herdr',
+      config_ref: 'fixture_herdr'
+    }
+    const herdrSchema = join(herdrRoot, 'schema.json')
     const refPath = join(f.refs, 'fixture_remote.json')
     const schemaPath = join(f.refs, 'fixture_schema.json')
     const state = /** 同一个真实双库只在种子阶段或产品角色中独占打开。 */ () =>
@@ -185,8 +196,39 @@ test(
       const manifest = readRuntimeJson(join(f.state, 'runtime.json')) as Record<string, unknown>
       writeFileSync(
         join(f.state, 'runtime.json'),
-        JSON.stringify({ ...manifest, provider_config_refs: ['fixture_remote'] })
+        JSON.stringify({ ...manifest, provider_config_refs: ['fixture_remote', 'fixture_herdr'] })
       )
+      writeFileSync(herdrSchema, readFileSync(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url)), {
+        mode: 0o600
+      })
+      writeFileSync(
+        join(f.refs, 'fixture_herdr.json'),
+        JSON.stringify({
+          kind: 'herdr',
+          config: {
+            version: 1,
+            target: herdrTarget,
+            binding_revision: 1,
+            config_ref: 'fixture_herdr',
+            expected_source: fixedHerdrSource(),
+            schema_path: herdrSchema,
+            peer_policy_revision: f.source.local_policy.revision
+          }
+        }),
+        { mode: 0o600 }
+      )
+      const grants = [target, herdrTarget].map(
+        /** 两个完整目标分别授权，只读取目录，不授予native执行。 */ (selected) => ({
+          target: selected,
+          methods: [selected.provider_id === target.provider_id ? 'automation.list' : 'ping'],
+          actions: ['read']
+        })
+      )
+      f.source.local_policy.grants = grants as typeof f.source.local_policy.grants
+      f.source.callers[0]!.principal.policy.grants = structuredClone(
+        grants
+      ) as (typeof f.source.callers)[0]['principal']['policy']['grants']
+      writeFileSync(f.auth, JSON.stringify(f.source))
       writeFileSync(refPath, JSON.stringify(reference), { mode: 0o600 })
       writeFileSync(schemaPath, schema, { mode: 0o600 })
       assert(readFileSync(refPath).length < 16_384)
@@ -204,12 +246,48 @@ test(
         seed
           .prepare('INSERT INTO providers VALUES(?,?,?,?,?,?)')
           .run(binding.machine_id, binding.provider_id, binding.kind, binding.config_ref, binding.binding_revision, 1)
+        seed
+          .prepare('INSERT INTO providers VALUES(?,?,?,?,?,?)')
+          .run(
+            herdrBinding.machine_id,
+            herdrBinding.provider_id,
+            herdrBinding.kind,
+            herdrBinding.config_ref,
+            herdrBinding.binding_revision,
+            1
+          )
       } finally {
         seed.close()
       }
       const runtime = createProductionCliRuntime(createProductSources())
       active = await runtime.gateway!(f.config)
       assert.equal(existsSync(join(f.root, 'control')), false)
+      const context = { caller: { principal_id: 'fixture_caller' }, wait_signal: new AbortController().signal }
+      const providers = await active.service.execute('providers_list', { machine_id: target.machine_id }, context)
+      assert.deepEqual(
+        providers.data.items
+          .map(/** 只有同一Store已登记且当前可读的两个原provider。 */ (provider) => provider.provider_id)
+          .sort(),
+        [target.provider_id, herdrTarget.provider_id].sort()
+      )
+      assert.equal(
+        (
+          await active.service.execute(
+            'runtime_describe',
+            { target: herdrTarget, expected_binding_revision: 1, method: 'ping' },
+            context
+          )
+        ).data.method,
+        'ping'
+      )
+      await assert.rejects(
+        active.service.execute(
+          'runtime_describe',
+          { target, expected_binding_revision: 1, method: 'automation.list' },
+          context
+        ),
+        { code: 'backend_unavailable' }
+      )
       await active.close()
       active = undefined
       state().close()
@@ -233,6 +311,7 @@ test(
     } finally {
       await active?.close()
       rmSync(f.root, { recursive: true, force: true })
+      rmSync(herdrRoot, { recursive: true, force: true })
     }
   }
 )
