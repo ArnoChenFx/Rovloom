@@ -300,6 +300,8 @@ not_dispatched；已 unknown、已响应或已拒绝保持原态，不续期、�
 不取消其他在途调用。未协商、认证/锚点错误或存储提交失败继续保守拒绝，不发布虚假终态。
 宿主的原 Store 须实现 `DispatchRefusalLedger.commitDispatchRefusal`；缺少该事务接口时 Gateway
 不广告可选能力，若配置要求此能力则以 `dispatch_refusal_backend_unavailable` 拒绝启动。
+事务仅在真正提交 not_dispatched 时返回 true；对 unknown、responded 或已拒绝的 no-op 返回 false。
+Gateway 仅在 true 时释放本 call 的上下文；response 后到达的原 tuple 拒绝不得驱逐仍有效的结果读取许可。
 
 ## 可信 context 与原生薄适配
 

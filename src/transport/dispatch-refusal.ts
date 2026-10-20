@@ -4,8 +4,8 @@ import { LuvusAdapterError } from '../connector/luvus/types.js'
 import type { AttemptBinding, DispatchRefusalCode, ProviderKind } from '../wire/types.js'
 
 export interface DispatchRefusalLedger {
-  /** 在原 Store writer 事务核验完整锚点并提交确定拒绝，已 unknown/终态不得倒退。 */
-  commitDispatchRefusal(binding: AttemptBinding, code: DispatchRefusalCode): void
+  /** 仅真正提交确定拒绝时返回 true；已 unknown/终态返回 false，不得据此驱逐原结果上下文。 */
+  commitDispatchRefusal(binding: AttemptBinding, code: DispatchRefusalCode): boolean
 }
 
 /** 固定白名单只覆盖终端最终门禁；未知、可能已写出或其它 provider 的异常仍走保守失败路径。 */

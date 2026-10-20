@@ -1420,19 +1420,20 @@ export class Store {
     )
   }
   /** 仅由已认证 Wire 拒绝路径调用；原子提交确定未写出，未知或既有终态绝不倒退。 */
-  commitDispatchRefusal(binding: AttemptBinding, code: DispatchRefusalCode): void {
+  commitDispatchRefusal(binding: AttemptBinding, code: DispatchRefusalCode): boolean {
     if (code !== 'terminal_execution_disabled') {
       throw new GatewayError('invalid_dispatch_refusal')
     }
-    this.transaction(
+    return this.transaction(
       /** 先落实原固定 deadline，再核对当前完整锚点；审计提交前不发布拒绝。 */ (now) => {
         this.stopWhere('call_id=? AND deadline<=?', [binding.call_id, String(now)], 'deadline_exceeded', now)
         const row = this.responseAnchorRow(binding)
         if (!['dispatching', 'connector_accepted'].includes(row.state)) {
-          return
+          return false
         }
         this.db.prepare("UPDATE calls SET state='not_dispatched',reserved=0 WHERE call_id=?").run(binding.call_id)
         this.audit('dispatch_refused', 'connector', now, this.row(binding.call_id), { code })
+        return true
       },
       false
     )

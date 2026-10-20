@@ -793,15 +793,17 @@ export function createGateway(options: GatewayOptions) {
           fail('dispatch_refusal_backend_unavailable')
         }
         // 认证、当前连接和原独立 attempt 已由原 codec 核对；先提交终态，再释放本 call 的资源。
-        const committed = commitDispatchRefusal(binding, decoded.payload.code)
-        if (committed !== undefined) {
+        const committed: unknown = commitDispatchRefusal(binding, decoded.payload.code)
+        if (typeof committed !== 'boolean') {
           void Promise.resolve(committed).catch(/** 消费违规异步 port 的晚到拒绝，不发布假终态。 */ () => {})
           fail('synchronous_dispatch_refusal_required')
         }
         refreshAdmission(binding.call_id)
-        inflight.delete(binding.call_id)
-        reads.delete(binding.call_id)
-        peer.session.adapter.release(binding)
+        if (committed) {
+          inflight.delete(binding.call_id)
+          reads.delete(binding.call_id)
+          peer.session.adapter.release(binding)
+        }
       } else {
         commitNativeResponse(options.store, peer.session.adapter, decoded)
         refreshAdmission(binding.call_id)

@@ -7,6 +7,94 @@ import { fixture, rawConnect, until } from './helpers.js'
 import { wireFixture } from './wire-execution-helpers.js'
 import { Store } from '../../src/store.js'
 import { createGateway } from '../../src/transport/gateway.js'
+import { randomUUID } from 'node:crypto'
+import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
+import { persistentBackend } from '../../src/integration/persistence.js'
+import { responseFrame } from '../storage/helpers.js'
+import type { AttemptBinding, AuthenticatedEnvelope } from '../../src/wire/types.js'
+
+test(
+  '已 responded 后原 tuple 的新拒绝帧不能驱逐原结果读取上下文',
+  /** 原生客户端为明确的合成回包 stub；原 Gateway codec、Store 和活 Wire 读取检查均为真实实现。 */
+  async () => {
+    let observed = 0
+    const f = fixture(
+      { retainOriginalRead: true },
+      {},
+      {
+        /** 只观察原 decoder 真正接纳的拒绝帧，不伪造认证或账本结果。 */ adapter(_connection, _channel, services) {
+          const original = createLuvusWireAdapter(persistentBackend(f.store, services))
+          return {
+            ...original,
+            /** 原始字节仍完整经过独立原请求锚点和原生许可校验。 */ decode(input, direction) {
+              const frame = original.decode(input, direction)
+              if (frame.type === 'dispatch_refused') {
+                observed++
+              }
+              return frame
+            }
+          }
+        }
+      }
+    )
+    const device = f.pair('synthetic_responded_refusal')
+    const raw = rawConnect(f.gateway.url, device.credential, {
+      major: 2,
+      minor: 0,
+      capabilities: ['rpc', 'dispatch_refusal'],
+      required: ['rpc', 'dispatch_refusal']
+    })
+    try {
+      await until(/** 只从真实 welcome 取得当前认证 epoch。 */ () => raw.epoch !== '')
+      const call = f.call(device.target)
+      f.gateway.dispatch(call.call_id)
+      await until(
+        /** 等待实际 Gateway 写出的原 request。 */ () =>
+          raw.frames.some(/** 固定请求类型的无密钥观察。 */ (value: any) => value.type === 'request')
+      )
+      const request = raw.frames.find(
+        /** 精确选择本次唯一已登记请求。 */ (value: any) => value.type === 'request'
+      ) as Extract<AuthenticatedEnvelope, { type: 'request' }>
+      const binding: AttemptBinding = {
+        machine_id: request.machine_id,
+        recovery_generation: request.recovery_generation,
+        connection_epoch: request.connection_epoch,
+        ...request.payload.attempt
+      }
+      const response = responseFrame(binding, { result: { id: 'synthetic_task' } })
+      raw.ws.send(JSON.stringify(response))
+      await until(
+        /** 合成回包必须通过真实证据事务后才成为 responded。 */ () =>
+          f.store.call(f.principal.id, call.call_id).state === 'responded'
+      )
+      const original = f.gateway.resolveOriginalRead(call.call_id)
+      assert(original)
+      original.wire.checkResult(binding, response.payload.native_response)
+      const handle = f.store.saveResult(f.principal.id, call.call_id)
+      const page = f.store.readResult(f.principal.id, handle.result_id)
+      raw.ws.send(
+        JSON.stringify({
+          ...response,
+          type: 'dispatch_refused',
+          message_id: randomUUID(),
+          payload: { attempt: request.payload.attempt, code: 'terminal_execution_disabled' }
+        })
+      )
+      await until(/** 确认原 decoder 已实际接收新 message_id 的合法拒绝帧。 */ () => observed === 1)
+      assert.equal(f.store.call(f.principal.id, call.call_id).state, 'responded')
+      const retained = f.gateway.resolveOriginalRead(call.call_id)
+      assert(retained, 'responded refusal must preserve the original read context')
+      assert.equal(retained.wire, original.wire)
+      retained.wire.checkResult(binding, response.payload.native_response)
+      assert.deepEqual(f.store.readResult(f.principal.id, handle.result_id), page)
+      assert.equal(f.gateway.status().connections, 1)
+      assert.equal(f.executions, 0)
+    } finally {
+      raw.ws.close()
+      f.stop()
+    }
+  }
+)
 
 test(
   '缺真实拒绝事务后端时不协商能力，显式必需配置拒绝启动',

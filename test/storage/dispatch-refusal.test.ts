@@ -46,8 +46,8 @@ test(
         store.accepted(pending)
         store.accepted(refused)
         const before = store.call('alice', second.call_id)
-        store.commitDispatchRefusal(refused, 'terminal_execution_disabled')
-        store.commitDispatchRefusal(refused, 'terminal_execution_disabled')
+        assert.equal(store.commitDispatchRefusal(refused, 'terminal_execution_disabled'), true)
+        assert.equal(store.commitDispatchRefusal(refused, 'terminal_execution_disabled'), false)
         const after = store.call('alice', second.call_id)
         assert.equal(after.state, 'not_dispatched')
         assert.equal(after.response, null)
@@ -83,7 +83,7 @@ test(
           } else {
             state.now = call.deadline
           }
-          store.commitDispatchRefusal(binding, 'terminal_execution_disabled')
+          assert.equal(store.commitDispatchRefusal(binding, 'terminal_execution_disabled'), false)
           assert.equal(store.call('alice', call.call_id).state, 'outcome_unknown')
         }
         assert.equal(db.prepare("SELECT count(*) n FROM audit WHERE action='dispatch_refused'").get()!.n, 0)
