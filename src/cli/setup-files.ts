@@ -1,38 +1,30 @@
 // 为程序管理的初始化状态原子落盘；不覆盖未知文件，不把内部状态变成第二份用户配置。
 import {
-  constants,
   closeSync,
   fsyncSync,
   fchmodSync,
   linkSync,
-  lstatSync,
+  statSync,
   openSync,
   renameSync,
   unlinkSync,
   writeFileSync
 } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
-import { privateFile, privatePath } from '../storage/files.js'
+import { privatePath, readPrivateBytes } from '../storage/files.js'
 import { boundedJson } from '../wire/index.js'
 import { CliError } from './config.js'
 import { readRuntimeJson } from './runtime-files.js'
 
-// 同步发布或清理后的目录项，不以rename返回代替持久完成。
-function syncParent(path: string): void {
-  const fd = openSync(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-// 捕获受保护目标的完整代次，原子替换前发现外部改动即拒绝。
+// 只比较配置字节，防止覆盖并发编辑；权限、所有者和文件对象身份不作为代次。
 export function setupFileStamp(path: string): string {
-  privateFile(path)
-  const stat = lstatSync(path, { bigint: true })
-  return [stat.dev, stat.ino, stat.uid, stat.mode, stat.nlink, stat.size, stat.ctimeNs].join(':')
+  const bytes = readPrivateBytes(path, 16_777_216)
+  try {
+    return createHash('sha256').update(bytes).digest('hex')
+  } finally {
+    bytes.fill(0)
+  }
 }
 
 // 调用方仅能写自己的固定状态路径；首次使用link排他发布，更新须保留已核对的文件代次。
@@ -51,9 +43,13 @@ export function writeSetupFile(
   let fd: number | undefined
   let created = false
   try {
-    fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
+    const mode = replace ? statSync(path).mode & 0o777 : 0o600
+    fd = openSync(temporary, 'wx', mode)
     created = true
-    fchmodSync(fd, 0o600)
+    // 仅为新临时文件复制已有普通权限，原文件及目录的权限不作修复。
+    if (replace && process.platform !== 'win32') {
+      fchmodSync(fd, mode)
+    }
     writeFileSync(fd, bytes)
     fsyncSync(fd)
     const complete = fd
@@ -69,7 +65,6 @@ export function writeSetupFile(
       unlinkSync(temporary)
     }
     created = false
-    syncParent(path)
   } catch (error) {
     if (error instanceof CliError) {
       throw error
@@ -83,7 +78,6 @@ export function writeSetupFile(
     } finally {
       if (created) {
         unlinkSync(temporary)
-        syncParent(path)
       }
     }
   }

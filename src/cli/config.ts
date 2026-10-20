@@ -1,6 +1,6 @@
 // 定义双角色无密钥配置及严格只读加载边界；不解析凭据、不创建状态或连接。
 import { posix, win32 } from 'node:path'
-import { canonical, GatewayError } from '../contracts.js'
+import { canonical } from '../contracts.js'
 import { readPrivateBytes } from '../storage/files.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { agentSearchPath } from '../connector/local/agent-path.js'
@@ -259,17 +259,14 @@ export function configTemplate(
   )
 }
 
-// 共用有界私有JSON读取边界；重复键、非法编码和非regular文件均拒绝，不加载模块或身份。
+// 普通跨平台有界JSON读取；保留重复键、编码、文件类型和精确字段校验。
 export function readProtectedJson(path: string): unknown {
   if (!fixedPath(path)) {
     throw new CliError('invalid_config_path')
   }
   let bytes: Buffer | undefined
   try {
-    if (!['linux', 'darwin'].includes(process.platform)) {
-      throw new CliError('config_platform_unsupported')
-    }
-    bytes = readPrivateBytes(path, 16_384, true)
+    bytes = readPrivateBytes(path, 16_384)
     const parsed = parseNativeJson(bytes, {
       object_bytes: 16_384,
       object_depth: 16,
@@ -286,16 +283,13 @@ export function readProtectedJson(path: string): unknown {
     if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new CliError('config_not_found')
     }
-    if (error instanceof GatewayError) {
-      throw new CliError('config_not_protected')
-    }
     throw new CliError('config_unreadable')
   } finally {
     bytes?.fill(0)
   }
 }
 
-// 读取受保护角色配置后继续执行精确字段校验，不从文件扩张宿主能力。
+// 读取角色配置后继续执行精确字段校验，不从文件扩张宿主能力。
 export function readConfig(path: string): RoleConfig {
   return parseConfig(readProtectedJson(path))
 }

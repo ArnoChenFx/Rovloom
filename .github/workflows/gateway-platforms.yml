@@ -1,5 +1,5 @@
 # 独立验收纯 Gateway 文件层和真实单文件入口；不注册服务或放宽原生 Connector Owner。
-name: Gateway private platforms
+name: Gateway platforms
 on:
   push:
   pull_request:
@@ -20,6 +20,10 @@ jobs:
             target: bun-darwin-x64
           - runner: macos-15
             target: bun-darwin-arm64
+          - runner: windows-2025
+            target: bun-windows-x64
+          - runner: windows-11-arm
+            target: bun-windows-arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -30,15 +34,17 @@ jobs:
           target: ${{ matrix.target }}
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - name: Verify private files, actual Darwin ACL, locks and unknown recovery
-        run: bun --no-env-file test ./test/storage/private-platforms.test.ts
+      - name: Verify ordinary files, atomic config, locks and unknown recovery
+        run: bun --no-env-file test ./test/storage/file-platforms.test.ts
       - name: Build actual standalone product
         run: bun --no-env-file run release:build
-      - name: Run actual standalone unpaired Gateway twice with private state
+      - name: Run actual standalone and production Gateway twice with persistent state
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          export ROVLOOM_GATEWAY_EXECUTABLE="$PWD/dist/release/$TARGET/candidate/rovloom"
+          executable="$PWD/dist/release/$TARGET/candidate/rovloom"
+          if [[ "$TARGET" == bun-windows-* ]]; then executable="$(cygpath -w "$executable.exe")"; fi
+          export ROVLOOM_GATEWAY_EXECUTABLE="$executable"
           bun --no-env-file test ./test/release/gateway-platform.test.mjs

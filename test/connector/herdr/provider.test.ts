@@ -126,7 +126,7 @@ test(
 )
 
 test(
-  'ref loader reads private JSON and Gateway compilation refuses changed schema bytes',
+  'ref loader reads ordinary JSON and Gateway compilation refuses changed schema bytes',
   /** 只创建本测试自有配置和官方公开 schema 文件；没有 socket 或 native 命令。 */ async () => {
     const root = privateHerdrTestRoot('.herdr-provider-ref-')
     const input = config(root)
@@ -135,10 +135,7 @@ test(
       writeFileSync(file, JSON.stringify(input), { mode: 0o600 })
       assert.deepEqual(readHerdrProviderRefConfig(file), parseHerdrProviderRefConfig(input))
       chmodSync(file, 0o644)
-      assert.throws(
-        /** 不放宽 production 0600 配置文件边界。 */ () => readHerdrProviderRefConfig(file),
-        /unsafe_storage_file/
-      )
+      assert.deepEqual(readHerdrProviderRefConfig(file), parseHerdrProviderRefConfig(input))
       chmodSync(file, 0o600)
       writeFileSync(input.schema_path, Buffer.concat([raw, Buffer.from(' ')]), { mode: 0o600 })
       await assert.rejects(createHerdrGatewayResources({ config: input }), /herdr_schema_unreviewed/)

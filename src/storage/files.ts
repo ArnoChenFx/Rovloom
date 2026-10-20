@@ -1,46 +1,112 @@
-// Gateway 私有文件统一走同描述符 POSIX 边界；Windows 未接入等效 ACL 前明确拒绝。
-import { lstatSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { GatewayError } from '../contracts.js'
+// 普通跨平台文件读写：检查路径、文件类型及字节预算，保留排他创建和落盘，不附加所有权/权限门禁。
 import {
-  createPosixPrivate,
-  ensurePosixPrivateDirectory,
-  posixPrivateFile,
-  posixPrivatePath,
-  readPosixPrivate
-} from './private-posix.js'
+  closeSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  readdirSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { GatewayError } from '../contracts.js'
 
-// 要求规范绝对路径、无软链接祖先，以及属于当前用户的私有直接父目录。
+// 固定存储位置须为规范绝对路径且父级是目录；访问能力遵循操作系统正常文件权限。
 export function privatePath(path: string): void {
-  posixPrivatePath(path)
+  if (!isAbsolute(path) || resolve(path) !== path || path.includes('\0')) {
+    throw new GatewayError('invalid_storage_path')
+  }
+  if (!statSync(dirname(path)).isDirectory()) {
+    throw new GatewayError('invalid_storage_path')
+  }
 }
-// 要求文件为当前用户独占拥有的 0600 普通文件，拒绝符号链接和额外硬链接。
+// 只读取普通文件；正常文件链接按平台文件系统规则解析。
 export function privateFile(path: string): void {
-  posixPrivatePath(path)
-  posixPrivateFile(path)
+  if (!statSync(path).isFile()) {
+    throw new GatewayError('invalid_storage_file')
+  }
 }
-// 以排他且不跟随符号链接的方式创建 0600 文件，写入可选内容并同步文件描述符。
+// 排他创建并写完、同步同一文件；默认权限只用于新文件，不修改任何已有对象。
 export function createPrivate(path: string, content = ''): void {
-  createPosixPrivate(path, content)
+  privatePath(path)
+  const fd = openSync(path, 'wx', 0o600)
+  try {
+    writeFileSync(fd, content)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
 }
-// 同一 fd 有界读取并核对读取前后身份；角色配置可允许所有者自行收紧写权限。
-export function readPrivateBytes(path: string, maximum: number, ownerOnly = false): Buffer {
-  return readPosixPrivate(path, maximum, ownerOnly)
+// 从实际文件描述符有界读取，防止增长中的文件突破预算；不比较UID、mode、ACL或路径封印。
+export function readPrivateBytes(path: string, maximum: number): Buffer {
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 16_777_216) {
+    throw new GatewayError('invalid_storage_limit')
+  }
+  privatePath(path)
+  privateFile(path)
+  const fd = openSync(path, 'r')
+  const bytes = Buffer.alloc(maximum + 1)
+  let keep = false
+  try {
+    const stat = fstatSync(fd)
+    if (!stat.isFile() || stat.size > maximum) {
+      throw new GatewayError('invalid_storage_file')
+    }
+    let length = 0
+    while (length < bytes.length) {
+      const count = readSync(fd, bytes, length, bytes.length - length, null)
+      if (!count) {
+        break
+      }
+      length += count
+    }
+    if (length > maximum) {
+      throw new GatewayError('invalid_storage_file')
+    }
+    keep = true
+    return bytes.subarray(0, length)
+  } finally {
+    if (!keep) {
+      bytes.fill(0)
+    }
+    closeSync(fd)
+  }
 }
-// 只创建缺失的私有目录，不修复已有用户对象。
+// 只创建缺失目录，已有目录沿用其正常权限与内容。
 export function ensurePrivateDirectory(path: string): void {
-  ensurePosixPrivateDirectory(path)
+  if (!isAbsolute(path) || resolve(path) !== path || path.includes('\0')) {
+    throw new GatewayError('invalid_storage_path')
+  }
+  mkdirSync(path, { recursive: true, mode: 0o700 })
+  if (!statSync(path).isDirectory()) {
+    throw new GatewayError('invalid_storage_path')
+  }
 }
-// 递归累计普通文件大小，遇到符号链接或其他特殊文件时拒绝统计。
+// 统计自身普通文件和目录；文件链接计入目标大小，目录链接不递归以免遍历成环。
 export function managedBytes(directory: string): number {
   let total = 0
   for (const entry of readdirSync(directory)) {
     const path = join(directory, entry)
     const st = lstatSync(path)
-    if (st.isSymbolicLink() || (!st.isFile() && !st.isDirectory())) {
-      throw new GatewayError('unsafe_storage_file')
+    if (st.isSymbolicLink()) {
+      try {
+        const target = statSync(path)
+        if (target.isFile()) {
+          total += target.size
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error
+        }
+      }
+    } else if (st.isDirectory()) {
+      total += managedBytes(path)
+    } else if (st.isFile()) {
+      total += st.size
     }
-    total += st.isDirectory() ? managedBytes(path) : st.size
   }
   return total
 }
