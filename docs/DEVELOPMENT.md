@@ -367,6 +367,18 @@ python3 -B scripts/herdr/audit_methods.py --source-tree /absolute/path/to/pinned
 启动或 `interactive_ready`不证明模型调用；同会话两轮须独立关联 user/assistant 消息与回答。
 局部组件、注释套件或构建通过均不能替代完整测试和实际宿主验收。
 
+`verify-workspace-metadata.ts`是独立的自有 workspace 元数据验收入口。需提供固定官方版本的绝对
+binary 路径，以及 checkout 外尚不存在的绝对报告路径；运行环境须允许在`/workspace`创建私有
+临时目录。它经既有安装、Wire、Store与唯一发送账本核对TTL实际过期、seq保留、no-op和clear，
+只在本次自有实例中创建合成workspace，不运行模型或继承用户会话。报告记录实际检查与清理结果；
+下列命令是运行方法，不表示已完成原生验收。
+
+```sh
+bun --no-env-file scripts/herdr/verify-workspace-metadata.ts \
+  --binary /absolute/verified/herdr \
+  --report /tmp/rovloom-herdr-metadata-new.json
+```
+
 ## 实现范围
 
 Linux 原生基线不证明跨平台、商业 MCP Host、HTTP/OAuth 或真实双机已验收；
