@@ -288,6 +288,15 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
           return result
         }
       }
+      if (current.terminalExecutionState) {
+        const terminalState = current.terminalExecutionState.bind(current)
+        owned.terminalExecutionState = /** 保留原本机开关观察口；读取前后都复核所属 epoch 的关闭 fence。 */ () => {
+          assertOpen()
+          const result = terminalState()
+          assertOpen()
+          return result
+        }
+      }
       if (current.providerSnapshot) {
         const snapshot = current.providerSnapshot.bind(current)
         owned.providerSnapshot = /** 原getter每次重验来源和epoch，组合层不刷新快照。 */ () => {

@@ -203,10 +203,10 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次设置的 HOME �
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
+`rovloom service --help` 可离线使用。Gateway连接Linux systemd、macOS系统LaunchDaemon或Windows用户开机任务；安装要求当前
 Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
 缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
-Windows产品服务生命周期仍不可用；原生格式解析不等于生命周期验收。
+Windows使用显式选择的既有用户S4U及同一配置绝对路径；原生格式解析不等于生命周期验收。
 见[服务前提与平台限制](SERVICE.md)。
 
 | 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
@@ -226,11 +226,11 @@ Windows产品服务生命周期仍不可用；原生格式解析不等于生命�
 | `--executable` | 仅 install，可选绝对路径 string，≤4096 字符，默认当前单文件程序 | 必须等于当前规范可执行路径；拒绝另一安装、shell 或解释器。Windows 路径须以 `.exe` 结尾。 |
 | `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 省略时与前台使用当前用户同一份角色文件。安装固定其绝对路径，后台不另选home；通过sudo执行时显式传原用户文件的绝对路径。 |
 | `--workdir` | 仅 install，必填绝对目录 string，≤4096 字符，无默认 | 服务工作目录，不设置或替代 JSON 的 `data.directory`。 |
-| `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
+| `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS上既有非root账户；Windows既有用户名或用户SID，以S4U运行，不保存密码；不另选配置目录。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
 安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
-不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
+不创建账户、不修改已有权限。Windows使用所选既有用户，不自动切换为系统服务账户。
 运行账户不决定第二套配置目录。安装不启动角色，
 不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
 Linux 工作目录不得以空白或反斜杠结尾。
@@ -250,7 +250,7 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | Gateway 启动 / `config check-runtime` | 可用 | 可用 | 可用 |
 | 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
 | 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
-| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品服务生命周期不可用；在系统访问前拒绝 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | Gateway用户BootTrigger开机任务；本机Connector仍拒绝 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，

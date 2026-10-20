@@ -1,5 +1,7 @@
 # 通过临时 Bun 项目回归验证测试发现门禁能接纳新增用例并拒绝遗漏和未执行项。
 """用真实 Bun 运行报告回归测试发现门禁，不执行项目业务或使用真实数据。"""
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -14,144 +16,46 @@ import xml.etree.ElementTree as ET
 # 从当前仓库显式载入被测维护工具，隔离不同测试文件的导入状态。
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/bun'))
 
-from verify import (foundation_failure_summary, FAILURE_CONSOLE_BYTES, save_timeout_diagnostics,
-                    TIMEOUT_LOG_BYTES, TIMEOUT_TRACE_BYTES, TRACE_SYSCALLS, trace_completion_error,
-                    trace_failure_summary, validate_tests)
+from verify import (foundation_failure_summary, FAILURE_CONSOLE_BYTES, run_command,
+                    save_timeout_diagnostics, TIMEOUT_LOG_BYTES, validate_tests)
 
 
-class TraceCompletion(unittest.TestCase):
-    # 类型检查预期1不能与追踪器故障1碰撞；即使已输出两项预期诊断或根退出1仍须拒绝。
-    def test_expected_one_never_accepts_tracer_failure(self):
-        start = '10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
-        errors = ('error TS2322: synthetic strict error\nerror TS2532: synthetic strict error\n'
-                  '/usr/bin/strace: ptrace(PTRACE_LISTEN,pid:10,sig:0): Input/output error\n')
-        for ending in ('', '10 +++ killed by SIGTERM +++\n', '10 +++ exited with 1 +++\n'):
-            with self.subTest(ending=ending):
-                self.assertIn('tracer diagnostic', trace_completion_error(start + ending, errors, 1, 1))
-        for diagnostic in ('strace: detach: synthetic failure\n',
-                           '/usr/bin/strace: synthetic fatal failure\n',
-                           'ptrace(PTRACE_LISTEN,pid:10,sig:0): Input/output error\n'):
-            self.assertIsNotNone(trace_completion_error(start + '10 +++ exited with 1 +++\n',
-                                                       diagnostic, 1, 1))
+class CommandExecution(unittest.TestCase):
+    # 运行真实子进程，预期的非零类型检查结果必须保留为非零而不是改写为成功退出。
+    def test_expected_nonzero_exit_keeps_actual_status_and_both_streams(self):
+        with tempfile.TemporaryDirectory(prefix='rovloom-command-test-') as temp:
+            output = Path(temp)
+            code = "import sys; print('strict diagnostic'); print('stderr detail', file=sys.stderr); sys.exit(1)"
+            with redirect_stdout(StringIO()):
+                log, record = run_command(output, output, 'typecheck-negative',
+                                          [sys.executable, '-c', code], os.environ, expected=1)
+            self.assertEqual(record['exit'], 1)
+            self.assertEqual(record['expectedExit'], 1)
+            self.assertEqual(log, 'strict diagnostic\nstderr detail\n')
+            self.assertEqual((output / 'typecheck-negative.log').read_text(), log)
 
-    # 根身份、正常退出和两层退出码均必须完整；子进程的预期退出不能替代根进程状态。
-    def test_missing_signalled_and_mismatched_root_exits_fail_closed(self):
-        start = '10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
-        child = ('10 clone(child_stack=NULL, flags=SIGCHLD) = 11\n'
-                 '11 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
-                 '11 +++ exited with 1 +++\n')
-        for trace, outer in (('', 1), (start, 1), (start + child, 1),
-                             (child + '10 +++ killed by SIGTERM +++\n', 1),
-                             (start + '10 +++ killed by SIGTERM +++\n', 1),
-                             (start + '10 +++ exited with 0 +++\n', 1),
-                             (start + '10 +++ exited with 1 +++\n', 0)):
-            with self.subTest(trace=trace, outer=outer):
-                self.assertIsNotNone(trace_completion_error(trace, '', outer, 1))
-        resumed = ('10 execve("/missing", ["bun"], 0x0) = -1 ENOENT (No such file)\n'
-                   '10 execve("/isolated/bin/bun", ["bun"], 0x0 <unfinished ...>\n'
-                   '10 <... execve resumed>) = 0\n' + child + '10 +++ exited with 1 +++\n')
-        self.assertIsNone(trace_completion_error(resumed, '', 1, 1))
+    # 即使输出声称测试全通过，实际非零退出仍须拒绝并明确报告真实状态。
+    def test_passed_output_cannot_hide_unexpected_exit(self):
+        with tempfile.TemporaryDirectory(prefix='rovloom-command-exit-') as temp:
+            output = Path(temp)
+            errors = StringIO()
+            with redirect_stderr(errors):
+                with self.assertRaisesRegex(RuntimeError, 'exit 7, expected 0'):
+                    run_command(output, output, 'synthetic',
+                                [sys.executable, '-c', "print('99 pass\\n0 fail'); raise SystemExit(7)"],
+                                os.environ)
+            self.assertIn('exit=7, expected=0', errors.getvalue())
+            self.assertEqual((output / 'synthetic.log').read_text(), '99 pass\n0 fail\n')
 
-class TraceFailureDiagnostics(unittest.TestCase):
-    # strace 的真实 group-stop 行不带 siginfo，必须与 signal-delivery 区分并保留顺序。
-    def test_group_stop_and_delivery_are_retained_without_inventing_exit(self):
-        traced = ('10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
-                  '10 clone3({flags=CLONE_VM|CLONE_THREAD}, 88) = 11\n'
-                  '11 --- SIGSTOP {si_signo=SIGSTOP, si_pid=10} ---\n'
-                  '11 --- stopped by SIGSTOP ---\n'
-                  '11 --- SIGCONT {si_signo=SIGCONT, si_pid=10} ---\n')
-        error = '/usr/bin/strace: ptrace(PTRACE_LISTEN,pid:11,sig:0): Input/output error\n'
-        result = json.loads(trace_failure_summary(traced, error, 1, set()))
-        child = result['ptraceErrors'][0]['lineage'][0]
-        self.assertEqual(child['signalsTail'], ['SIGSTOP', 'SIGCONT'])
-        self.assertEqual(child['stopsTail'], [{'kind': 'delivery', 'signal': 'SIGSTOP'},
-                                            {'kind': 'group', 'signal': 'SIGSTOP'},
-                                            {'kind': 'delivery', 'signal': 'SIGCONT'}])
-        self.assertIsNone(child['exit'])
-        self.assertFalse(result['completeAudit'])
-        self.assertIsNotNone(trace_completion_error(traced, error, 1, 1))
-
-    # 新增停止上下文只保存最后四项固定字段，不输出 siginfo、任意后缀或其他线程的停止。
-    def test_stop_context_is_bounded_and_does_not_reflect_private_signal_details(self):
-        events = ['10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0',
-                  '10 --- SIGUSR1 {PRIVATE_SECRET} ---',
-                  '20 --- stopped by SIGTTOU ---',
-                  '10 --- stopped by SIGSTOP ---',
-                  '10 --- SIGCONT {PRIVATE_SECRET} ---',
-                  '10 --- stopped by SIGTSTP ---',
-                  '10 --- stopped by SIGTTIN ---',
-                  '10 --- stopped by PRIVATE_SECRET ---',
-                  '10 --- stopped by SIGSTOP --- PRIVATE_SECRET']
-        console = trace_failure_summary('\n'.join(events), '', 1, set())
-        result = json.loads(console)
-        self.assertEqual(result['root']['stopsTail'], [{'kind': 'group', 'signal': 'SIGSTOP'},
-                                                     {'kind': 'delivery', 'signal': 'SIGCONT'},
-                                                     {'kind': 'group', 'signal': 'SIGTSTP'},
-                                                     {'kind': 'group', 'signal': 'SIGTTIN'}])
-        self.assertEqual(result['root']['signalsTail'], ['SIGUSR1', 'SIGCONT'])
-        self.assertNotIn('PRIVATE_SECRET', console)
-        self.assertNotIn('SIGTTOU', console)
-
-    # 追踪器异常可发生在业务用例全部通过后；仍保持失败并保留错误线程和创建链，不反射秘密参数。
-    def test_ptrace_failure_keeps_lineage_and_root_signal_separate_from_passed_cases(self):
-        traced = ('3153 execve("/isolated/bin/bun", ["bun", "run", "test"], 0x0) = 0\n'
-                  '3153 clone3({flags=CLONE_VM|CLONE_VFORK}, 88) = 4000\n'
-                  '4000 execve("/verified/bun", ["bun", "test/child.ts", "SYNTHETIC_SECRET"], 0x0) = 0\n'
-                  '4000 clone(child_stack=NULL, flags=SIGCHLD) = 5436\n'
-                  '5436 execve("/private/SYNTHETIC_SECRET", ["SYNTHETIC_SECRET"], 0x0) = 0\n'
-                  '5436 --- SIGTERM {si_signo=SIGTERM, si_pid=4000} ---\n'
-                  '3153 +++ killed by SIGTERM +++\n')
-        raw = ('1673 pass\n0 fail\n/usr/bin/strace: '
-               'ptrace(PTRACE_LISTEN,pid:5436,sig:0): Input/output error\n')
-        console = trace_failure_summary(traced, raw, 1, frozenset({'test/child.ts'}))
-        result = json.loads(console)
-        self.assertEqual(result['status'], 'failed')
-        self.assertFalse(result['completeAudit'])
-        self.assertEqual(result['tracerExit'], 1)
-        self.assertEqual(result['root']['exit'], {'kind': 'signal', 'signal': 'SIGTERM'})
-        failure = result['ptraceErrors'][0]
-        self.assertEqual((failure['operation'], failure['errno']), ('PTRACE_LISTEN', 'EIO'))
-        self.assertEqual([entry['tid'] for entry in failure['lineage']], [5436, 4000, 3153])
-        self.assertEqual(failure['lineage'][0]['program'], 'unrecognized')
-        self.assertEqual(failure['lineage'][1]['sourceArguments'], ['test/child.ts'])
-        self.assertNotIn('SYNTHETIC_SECRET', console)
-        self.assertNotIn('/private', console)
-
-    # 只接纳成功exec和实际退出；未完成、失败exec、未知退出不能被改写为业务成功。
-    def test_unfinished_exec_and_missing_exit_do_not_invent_success(self):
-        traced = ('10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
-                  '10 clone3({flags=CLONE_VM}, 88 <unfinished ...>\n'
-                  '10 <... clone3 resumed>) = 11\n'
-                  '11 execve("/verified/bun", ["bun", "test/child.ts"], 0x0 <unfinished ...>\n'
-                  '11 <... execve resumed>) = 0\n'
-                  '11 execve("/private/failed", ["secret"], 0x0) = -1 ENOENT (No such file)\n'
-                  '10 +++ exited with 7 +++\n')
-        result = json.loads(trace_failure_summary(traced, 'ptrace(PTRACE_LISTEN,pid:11,sig:0): Input/output error',
-                                                1, frozenset({'test/child.ts'})))
-        self.assertEqual(result['root']['exit'], {'kind': 'exit', 'code': 7})
-        child = result['ptraceErrors'][0]['lineage'][0]
-        self.assertEqual(child['program'], 'bun')
-        self.assertIsNone(child['exit'])
-        self.assertEqual(child['sourceArguments'], ['test/child.ts'])
-        self.assertEqual(json.loads(trace_failure_summary('', '', 1, set()))['ptraceErrors'], [])
-
-    # 长日志、循环创建链和伪造秘密参数保持有界；诊断扩展必须保留两种执行系统调用审计。
-    def test_untrusted_context_is_bounded_and_exec_audit_remains_enabled(self):
-        known = {'test/' + 'a' * 230 + '.ts', 'test/' + 'b' * 230 + '.ts'}
-        trace = []
-        for tid in range(1, 30):
-            trace.append(f'{tid} execve("/verified/bun", '
-                         f'{json.dumps(sorted(known) + ["PRIVATE_SECRET"])}, 0x0) = 0')
-            trace.append(f'{tid} clone(child_stack=NULL, flags=SIGCHLD) = {tid + 1}')
-        trace.append('30 clone(child_stack=NULL, flags=SIGCHLD) = 29')
-        errors = 'ptrace(PTRACE_LISTEN,pid:28,sig:0): Input/output error\n' * 100
-        console = trace_failure_summary('\n'.join(trace), errors, 1, known)
-        self.assertLessEqual(len(console.encode()), FAILURE_CONSOLE_BYTES)
-        self.assertNotIn('PRIVATE_SECRET', console)
-        self.assertFalse(json.loads(console)['completeAudit'])
-        self.assertTrue(json.loads(console)['truncated'])
-        self.assertIn('execve', TRACE_SYSCALLS)
-        self.assertIn('execveat', TRACE_SYSCALLS)
+    # 信号终止不能冒充预期退出1，直接子进程的负信号状态保持可见。
+    def test_signal_exit_is_rejected_even_when_nonzero_is_expected(self):
+        with tempfile.TemporaryDirectory(prefix='rovloom-command-signal-') as temp:
+            output = Path(temp)
+            with redirect_stderr(StringIO()):
+                with self.assertRaisesRegex(RuntimeError, f'exit {-signal.SIGTERM}, expected 1'):
+                    run_command(output, output, 'typecheck-negative',
+                                [sys.executable, '-c', 'import os,signal; os.kill(os.getpid(), signal.SIGTERM)'],
+                                os.environ, expected=1)
 
 
 class FailureSummary(unittest.TestCase):
@@ -253,40 +157,36 @@ class FailureSummary(unittest.TestCase):
 
 
 class TimeoutDiagnostics(unittest.TestCase):
-    # 用实际超时子进程输出验证日志保留，不把合成进度当作项目业务验收。
+    # 真实命令超时后必须终止并回收子进程，保留有界脱敏进度及实际终止状态。
     def test_timeout_preserves_bounded_redacted_progress_and_incomplete_status(self):
         with tempfile.TemporaryDirectory(prefix='rovloom-timeout-test-') as temp:
             output = Path(temp)
-            code = ("import sys,time; "
+            pid_file = output / 'child.pid'
+            code = ("import os,sys,time; "
+                    "open(sys.argv[1], 'w').write(str(os.getpid())); "
                     "sys.stdout.write('x'*200000+'\\ntest/example.test.ts:\\n(pass) synthetic progress\\n/private/run\\n'); "
                     "sys.stdout.flush(); time.sleep(30)")
-            process = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE, text=True, start_new_session=True)
-            try:
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
                 with self.assertRaises(subprocess.TimeoutExpired):
-                    process.communicate(timeout=0.2)
-            finally:
-                os.killpg(process.pid, signal.SIGKILL)
-                stdout, stderr = process.communicate()
-            trace = output / 'foundation.execve.log'
-            trace.write_text('x' * (TIMEOUT_TRACE_BYTES + 1) + '\n/private/run/bun\n')
-            console = save_timeout_diagnostics(output, 'foundation', stdout, stderr, 0.2, 0.3,
-                                               [('/private/run', '/isolated')])
+                    run_command(output, output, 'foundation', [sys.executable, '-c', code, str(pid_file)],
+                                os.environ, seconds=0.2, replacements=[('/private/run', '/isolated')])
+            pid = int(pid_file.read_text())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
             log = (output / 'foundation.log').read_text()
             summary = json.loads((output / 'foundation.timeout.json').read_text())
             self.assertLessEqual((output / 'foundation.log').stat().st_size, TIMEOUT_LOG_BYTES)
-            self.assertLessEqual(trace.stat().st_size, TIMEOUT_TRACE_BYTES)
             self.assertIn('(pass) synthetic progress', log)
-            self.assertNotIn('/private/run', log + trace.read_text() + console)
+            self.assertNotIn('/private/run', log)
             self.assertIn('/isolated', log)
             self.assertEqual(summary['status'], 'timed_out')
+            self.assertEqual(summary['exit'], -signal.SIGKILL)
             self.assertFalse(summary['complete'])
             self.assertTrue(summary['logTailTruncated'])
-            self.assertTrue(summary['traceTailTruncated'])
             self.assertEqual(summary['observedTestFilesTail'], ['test/example.test.ts'])
             self.assertEqual(summary['observedTestCasesTail'], ['(pass) synthetic progress'])
 
-    # 验证 UTF-8 截断、超量用例与不存在的追踪文件均保持有效且有界的失败诊断。
+    # 验证 UTF-8 截断和超量用例仍保留有效且有界的失败诊断。
     def test_timeout_unicode_tail_and_case_inventory_are_bounded(self):
         with tempfile.TemporaryDirectory(prefix='rovloom-timeout-unicode-') as temp:
             output = Path(temp)
@@ -299,7 +199,6 @@ class TimeoutDiagnostics(unittest.TestCase):
             self.assertEqual(len(summary['observedTestFilesTail']), 32)
             self.assertEqual(len(summary['observedTestCasesTail']), 32)
             self.assertEqual(summary['observedTestFilesTail'][-1], 'test/79.test.ts')
-            self.assertEqual(summary['capturedTraceBytes'], 0)
             self.assertFalse(summary['complete'])
 
 

@@ -24,7 +24,7 @@ const digest = createHash('sha256').update(payload).digest('hex')
 const version = '0.2.3'
 const latestEndpoint = 'https://github.com/ArnoChenFx/Rovloom/releases/latest'
 
-/** 假命令只选择合成资产；补充可信 POSIX 工具路径，原隔离 PATH 的 Node 拒绝 shim 仍优先。 */
+/** 假命令只选择合成资产；保留当前 PATH 并补充测试所需的 POSIX 工具路径。 */
 function fixture({
   os = 'Linux',
   arch = 'x86_64',

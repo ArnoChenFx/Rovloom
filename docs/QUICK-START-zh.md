@@ -101,7 +101,8 @@ rovloom config check --role connector
 先在 Connector 按 Ctrl-C 并等待退出，再关闭 Gateway。下次使用相同用户文件和数据，
 运行相同命令即可。Gateway也可使用Linux systemd或macOS系统LaunchDaemon；本机Connector
 服务仍限Linux x64。[开机服务](SERVICE.md#简体中文)说明五项命令、正常系统授权及账户/配置选择。
-Windows产品服务和自动替换程序更新仍不可用。
+Windows Gateway使用既有用户开机任务及同一配置文件；本机Connector服务仍限Linux x64。
+自动替换程序更新仍不可用。
 
 | 问题 | 处理方法 |
 |---|---|
