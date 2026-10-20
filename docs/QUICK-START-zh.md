@@ -88,7 +88,8 @@ Connector 机器使用 `--role connector`。无选项检查读取两份默认用
 
 ## 3. 准备原生程序
 
-安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。兼容性按实际协议和方法能力判断，版本仅用于诊断。实际安装身份与
+安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。兼容性按实际协议和接口能力判断，
+版本仅用于诊断。本机安装身份与
 受控 PATH 见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。Rovloom 经首次明确
 批准后会发现并初始化已安装的 Luvus，不安装 binary 或配置 Agent/模型访问。
 原生进程使用全新的私有 HOME/XDG，不复制普通 home 中的登录。本预览还没有模型登录
@@ -165,6 +166,7 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 | 问题 | 处理 |
 |---|---|
 | `pairing_required` / `configuration_required` | 在真实本地终端完成地址、一次性码、Luvus 安装和两次所有者批准；只填写地址不建立身份。结果不确定时保留原 attempt，不另注册或删除状态。 |
+| `config_changed` | 问答期间角色文件发生修改，程序保留用户修改并拒绝旧快照写回；重新启动角色加载新配置后再继续。 |
 | `native_state_path_too_long` | 配对前选择较短 `data.directory`；`<data.directory>/n` 须≤52个UTF-8字节。 |
 | home/路径/配置/角色错误 | 检查进程用户、精确角色文件和绝对路径，使用 `--config` 与配置检查；已有坏文件会保留。 |
 | 不可读或权限不安全 | 检查所有者、私有目录与文件权限，避免链接；产品不会静默修复已有权限。 |

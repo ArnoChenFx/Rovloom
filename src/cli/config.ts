@@ -35,6 +35,7 @@ export const CLI_ERROR_CODES = [
   'config_platform_unsupported',
   'config_not_protected',
   'config_unreadable',
+  'config_changed',
   'config_not_found',
   'config_home_unavailable',
   'configuration_required',
@@ -52,6 +53,9 @@ export class CliError extends Error {
     this.name = 'CliError'
   }
 }
+
+// 只标识本机终止信号取消的引导等待；资源清理异常仍由原关闭路径独立传播。
+export class CliCancelled extends Error {}
 
 // 统一拒绝非法配置，避免将输入值混入错误消息。
 function fail(): never {

@@ -120,22 +120,23 @@ Gateway 在本机/可信网络使用普通 HTTP/WS，公网 TLS 由外部标准 
 
 ## 原生安装与 pins
 
-通过官方分发安装 Luvus 或 Herdr。兼容性由安装版协议、完整请求/响应 schema 和实际方法能力
-判断；版本标签保留作提示与诊断，不要求指定 Luvus/Herdr 发行版或预设 binary/schema 摘要。
-可选方法缺失或不兼容只影响依赖功能，其它健康方法继续可用。目录只展示已接入的方法和传输。
+通过官方 [Luvus](https://github.com/RizRiyz/luvus) 或
+[Herdr](https://github.com/herdrdev/herdr/releases) 分发安装。兼容性按安装版协议、完整请求/响应
+schema 和实际方法能力判断；版本标签只用于诊断，不要求固定原生发行版或预设 binary/schema
+摘要。缺少或不兼容的可选接口仅使依赖操作不可用。
 
-| 安装观测 | Luvus | Herdr |
+| 接入依据 | Luvus | Herdr |
 |---|---|---|
 | Schema 命令 | `luvus uhp schema` | `herdr api schema --json` |
-| 协议依据 | UHP v1 信封及实际在线方法目录 | schema 中的实际协议与完整 JSON RPC 根 |
+| 协议依据 | UHP v1 信封及实际在线方法目录 | schema 中的实际协议和完整 JSON RPC 根 |
 | Adapter revision | `managed-owned-luvus-0.14.3-1` | `herdr-workflow-4` |
 | Classification revision | `managed-owned-rpc-1` | `herdr-0.9.5-workflow-4` |
 
 revision 字符串标识 Rovloom 适配/分类代码，其中的历史版本文字不是原生安装要求。
-程序测量并记录本机实际安装摘要、保留 schema 原始字节，用户无需复制摘要或维护原生状态。
-受保护配置与当前来源仍须一致指向所选
-binary/schema 和完整目标；文件替换或过期配置会拒绝。这些核对防止误投，不选择原生版本。
-已知预编译摘要只用于缓存命中，未知 schema 在同一编译预算内从真实原字节完整编译。
+程序管理的受保护状态与当前来源仍须一致指向实际 binary/schema 摘要、完整目标和 generation；
+schema 输出保留原字节。已知预编译摘要只用于缓存命中，未知 schema 在同一编译预算内完整编译。
+这些是接入检查，不是用户 JSON 字段。内部发现不等于用户侧 provider 初始化或安装原生程序；
+首次生成配置文件不会准备原生设置或模型访问。
 
 ## Agent 安装目录
 

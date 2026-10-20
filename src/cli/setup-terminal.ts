@@ -3,7 +3,7 @@ import { isatty } from 'node:tty'
 import { userInfo } from 'node:os'
 import { Writable } from 'node:stream'
 import { createInterface, type Interface } from 'node:readline/promises'
-import { CliError, readConfig, type RoleConfig } from './config.js'
+import { CliCancelled, CliError, readConfig, type RoleConfig } from './config.js'
 import type { CliIo } from './run.js'
 
 // 使用内核TTY事实，流对象上的isTTY自报或来自网络的JSON均不能成为本地确认。
@@ -53,10 +53,12 @@ export class SetupTerminal {
 
   // 每个批准边界复验实际进程UID、TTY、终止信号及同一角色/数据根，不依赖SUDO或环境自报。
   assertOwner(): void {
+    if (this.io.signal.aborted) {
+      throw new CliCancelled()
+    }
     const user = userInfo()
     if (
       this.#closed ||
-      this.io.signal.aborted ||
       !hasLocalTerminal(this.io) ||
       process.platform !== 'linux' ||
       user.uid < 0 ||
@@ -86,7 +88,18 @@ export class SetupTerminal {
             this.io.stderr.write(prompt)
             this.#muted = true
           }
-          const answer = await this.#reader.question(secret ? '' : prompt, { signal: active })
+          let answer: string
+          try {
+            answer = await this.#reader.question(secret ? '' : prompt, { signal: active })
+          } catch (error) {
+            if (
+              this.io.signal.aborted &&
+              (error === active.reason || (error instanceof Error && error.name === 'AbortError'))
+            ) {
+              throw new CliCancelled()
+            }
+            throw error
+          }
           this.assertOwner()
           if (active.aborted) {
             throw new CliError('configuration_required')
@@ -119,9 +132,8 @@ export class SetupTerminal {
   // 同一实例持有终止回调，正常关闭时能移除监听并恢复终端模式。
   readonly #abort = () => this.close()
 
-  // readline原始模式的Ctrl-C先恢复终端，再转给唯一进程信号处理器关闭角色资源。
+  // readline原始模式的Ctrl-C交给唯一进程信号处理器，统一中止问题、恢复终端并关闭角色资源。
   readonly #interrupt = () => {
-    this.finishQuestions()
     process.kill(process.pid, 'SIGINT')
   }
 
@@ -131,7 +143,11 @@ export class SetupTerminal {
       this.#questionsClosed = true
       this.#reader.off('SIGINT', this.#interrupt)
       this.#reader.close()
-      this.#output.end()
+      void this.#queue.then(
+        /* readline的abort回调仍会写终端收尾，问题结算后才结束本实例的包装输出。 */ () => {
+          this.#output.end()
+        }
+      )
     }
   }
 

@@ -29,16 +29,24 @@ function syncParent(path: string): void {
 }
 
 // 捕获受保护目标的完整代次，原子替换前发现外部改动即拒绝。
-function stamp(path: string): string {
+export function setupFileStamp(path: string): string {
   privateFile(path)
   const stat = lstatSync(path, { bigint: true })
   return [stat.dev, stat.ino, stat.uid, stat.mode, stat.nlink, stat.size, stat.ctimeNs].join(':')
 }
 
 // 调用方仅能写自己的固定状态路径；首次使用link排他发布，更新须保留已核对的文件代次。
-export function writeSetupFile(path: string, bytes: Uint8Array | string, replace = false): void {
+export function writeSetupFile(
+  path: string,
+  bytes: Uint8Array | string,
+  replace = false,
+  expectedStamp?: string
+): void {
   privatePath(path)
-  const previous = replace ? stamp(path) : undefined
+  const previous = replace ? (expectedStamp ?? setupFileStamp(path)) : undefined
+  if (replace && setupFileStamp(path) !== previous) {
+    throw new CliError('config_changed')
+  }
   const temporary = join(dirname(path), '.rovloom-setup-' + randomUUID() + '.tmp')
   let fd: number | undefined
   let created = false
@@ -52,8 +60,8 @@ export function writeSetupFile(path: string, bytes: Uint8Array | string, replace
     fd = undefined
     closeSync(complete)
     if (replace) {
-      if (stamp(path) !== previous) {
-        throw new CliError('configuration_required')
+      if (setupFileStamp(path) !== previous) {
+        throw new CliError('config_changed')
       }
       renameSync(temporary, path)
     } else {

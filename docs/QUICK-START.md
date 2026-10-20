@@ -109,8 +109,8 @@ Ctrl-C; an MCP client disconnect does not stop Gateway.
 ## 3. Prepare the native programs
 
 Install the approved official Luvus or Herdr and the Agent you intend to use.
-Compatibility follows actual protocol and method capabilities; version labels are
-diagnostic. Actual installation identity and controlled PATH are described in
+Compatibility uses actual protocols and interfaces; version labels are diagnostic.
+Actual installation identity and controlled PATH are described in
 [native installation](CONFIGURATION.md#native-installation-and-pins).
 Rovloom discovers and initializes the installed Luvus after explicit first-run
 approvals. It does not install binaries or configure Agent/model access. Its native
@@ -208,6 +208,7 @@ not connected.
 | Problem | Next action |
 |---|---|
 | `pairing_required` / `configuration_required` | Complete the local-terminal address/code flow, Luvus installation and both owner approvals. Address JSON alone grants no identity. Preserve uncertain attempts instead of registering again or deleting state. |
+| `config_changed` | The role file changed during a prompt. Your edits are preserved; restart the role to load them before continuing setup. |
 | `native_state_path_too_long` | Choose a shorter `data.directory` before pairing; `<data.directory>/n` must be ≤52 UTF-8 bytes. |
 | Home/path/configuration/role error | Check process user, exact role file and absolute paths; use `--config` and configuration checks. Existing bad files are preserved. |
 | Configuration unreadable/not protected | Check owner, private directory and file permissions; avoid links. Existing permissions are not silently repaired. |

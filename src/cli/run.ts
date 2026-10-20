@@ -12,6 +12,7 @@ import { readOrCreateRoleConfig } from './first-config.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import {
   CLI_ERROR_CODES,
+  CliCancelled,
   CliError,
   configTemplate,
   configDocument,
@@ -328,6 +329,9 @@ export async function runCli(
     } while (reload && !io.signal.aborted)
     return 0
   } catch (error) {
+    if (error instanceof CliCancelled && io.signal.aborted) {
+      return 0
+    }
     if (error instanceof CliError && CLI_ERROR_CODES.includes(error.code)) {
       // 错误只由固定代码组成，绝不打印 argv、配置内容、异常 message 或 stack。
       io.stderr.write(error.code + '\n')

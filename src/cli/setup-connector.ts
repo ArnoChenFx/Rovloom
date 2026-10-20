@@ -4,10 +4,10 @@ import type { DeviceCredential } from '../transport/identity.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { boundedJson, fields, id, object, uint, hash } from '../wire/index.js'
 import type { ProviderPolicies } from '../wire/types.js'
-import { CliError, configDocument, parseConfig, type ConnectorConfig } from './config.js'
+import { CliError, configDocument, parseConfig, readConfig, type ConnectorConfig } from './config.js'
 import { privateDirectory } from './first-config.js'
 import { SetupTerminal } from './setup-terminal.js'
-import { readSetupJson, writeSetupFile, writeSetupJson } from './setup-files.js'
+import { readSetupJson, setupFileStamp, writeSetupFile, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
 import { prepareSetupNative, assertSetupNativePath } from './setup-native.js'
 import { setupPolicies, setupTarget } from './setup-policy.js'
@@ -239,9 +239,13 @@ export async function setupConnector(config: ConnectorConfig, terminal: SetupTer
     return config
   }
   if (!config.gateway_url) {
+    const previous = setupFileStamp(terminal.configPath)
+    if (boundedJson(configDocument(readConfig(terminal.configPath))) !== boundedJson(configDocument(config))) {
+      throw new CliError('config_changed')
+    }
     const address = await terminal.ask('Gateway address (ws://host:port or wss://host) / Gateway 地址: ')
     config = parseConfig({ ...configDocument(config), gateway: { url: address } }) as ConnectorConfig
-    writeSetupFile(terminal.configPath, JSON.stringify(configDocument(config), null, 2) + '\n', true)
+    writeSetupFile(terminal.configPath, JSON.stringify(configDocument(config), null, 2) + '\n', true, previous)
   }
   assertSetupNativePath(config, terminal)
   privateDirectory(config.state_dir)
