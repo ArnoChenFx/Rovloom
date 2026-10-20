@@ -27,7 +27,7 @@ export function windowsFfi(): WindowsFfi {
 
 // 仅内部固定调用点定义 ABI；保留 library 对象，避免仍用符号时其动态库生命周期丢失。
 export function windowsLibrary<T>(
-  name: 'kernel32' | 'advapi32',
+  name: 'kernel32' | 'advapi32' | 'authz',
   definitions: Record<string, { args: string[]; returns: string }>
 ): T {
   try {
