@@ -1,6 +1,6 @@
 // 定义双角色无密钥配置及严格只读加载边界；不解析凭据、不创建状态或连接。
 import { posix, win32 } from 'node:path'
-import { canonical, GatewayError } from '../contracts.js'
+import { canonical } from '../contracts.js'
 import { readPrivateBytes } from '../storage/files.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { agentSearchPath } from '../connector/local/agent-path.js'
@@ -24,6 +24,7 @@ export type ConnectorConfig = Readonly<{
   state_dir: string
   gateway_url: string
   provider_config_refs: readonly string[]
+  allow_terminal_execution?: boolean
   native?: Readonly<{ runtime_bin_dir?: string; agent_bin_dir?: string }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
@@ -180,7 +181,10 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
         authentication_ref: 'mcp-callers'
       })
     }
-    exact(input, ['schema_version', 'role', 'data', 'gateway'], ['native'])
+    exact(input, ['schema_version', 'role', 'data', 'gateway'], ['native', 'allow_terminal_execution'])
+    if (input.allow_terminal_execution !== undefined && typeof input.allow_terminal_execution !== 'boolean') {
+      return fail()
+    }
     const gateway = exact(input.gateway, ['url'])
     if (gateway.url !== '' && !gatewayUrl(gateway.url)) {
       return fail()
@@ -202,6 +206,7 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
       state_dir: data.directory,
       gateway_url: gateway.url as string,
       provider_config_refs: Object.freeze([]),
+      allow_terminal_execution: input.allow_terminal_execution === true,
       ...(native ? { native } : {})
     })
   } catch {
@@ -222,6 +227,7 @@ export function configDocument(config: RoleConfig): Record<string, unknown> {
     : {
         ...common,
         gateway: { url: config.gateway_url },
+        allow_terminal_execution: config.allow_terminal_execution === true,
         ...(config.native ? { native: config.native } : {})
       }
 }
@@ -253,23 +259,21 @@ export function configTemplate(
           schema_version: 1,
           role,
           data: { directory: paths.join(base, role) },
-          gateway: { url: '' }
+          gateway: { url: '' },
+          allow_terminal_execution: false
         },
     platform
   )
 }
 
-// 共用有界私有JSON读取边界；重复键、非法编码和非regular文件均拒绝，不加载模块或身份。
+// 普通跨平台有界JSON读取；保留重复键、编码、文件类型和精确字段校验。
 export function readProtectedJson(path: string): unknown {
   if (!fixedPath(path)) {
     throw new CliError('invalid_config_path')
   }
   let bytes: Buffer | undefined
   try {
-    if (!['linux', 'darwin'].includes(process.platform)) {
-      throw new CliError('config_platform_unsupported')
-    }
-    bytes = readPrivateBytes(path, 16_384, true)
+    bytes = readPrivateBytes(path, 16_384)
     const parsed = parseNativeJson(bytes, {
       object_bytes: 16_384,
       object_depth: 16,
@@ -286,16 +290,13 @@ export function readProtectedJson(path: string): unknown {
     if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new CliError('config_not_found')
     }
-    if (error instanceof GatewayError) {
-      throw new CliError('config_not_protected')
-    }
     throw new CliError('config_unreadable')
   } finally {
     bytes?.fill(0)
   }
 }
 
-// 读取受保护角色配置后继续执行精确字段校验，不从文件扩张宿主能力。
+// 读取角色配置后继续执行精确字段校验，不从文件扩张宿主能力。
 export function readConfig(path: string): RoleConfig {
   return parseConfig(readProtectedJson(path))
 }

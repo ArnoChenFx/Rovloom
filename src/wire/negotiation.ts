@@ -10,6 +10,7 @@ const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   provider_fence: 0,
   dispatch_refusal: 0,
   provider_snapshot: 0,
+  terminal_execution_state: 0,
   admission_receipt: 0,
   admission_context: 0,
   history_scope: 0,
@@ -116,6 +117,9 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
     fail('invalid_capabilities')
   }
   if (v.capabilities.includes('provider_snapshot') && !v.capabilities.includes('rpc')) {
+    fail('invalid_capabilities')
+  }
+  if (v.capabilities.includes('terminal_execution_state') && !v.capabilities.includes('rpc')) {
     fail('invalid_capabilities')
   }
   if (v.capabilities.includes('provider_fence') && !v.capabilities.includes('rpc')) {

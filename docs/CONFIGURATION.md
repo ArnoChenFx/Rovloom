@@ -32,7 +32,8 @@ Connector, normally `~/.config/rovloom/connector.json`:
   "schema_version": 1,
   "role": "connector",
   "data": {"directory": "/home/your-user/.local/share/rovloom/connector"},
-  "gateway": {"url": ""}
+  "gateway": {"url": ""},
+  "allow_terminal_execution": false
 }
 ```
 
@@ -61,6 +62,7 @@ Setting an address does not establish pairing or install a native provider.
 | `management.port` | Integer 1–65535, required even when disabled | `9445`; listener hostname is fixed to `127.0.0.1`. |
 | Connector `gateway` | Object, required | Contains only `url`. |
 | `gateway.url` | String, required | `""` while setup is pending; otherwise WS/WSS origin, ≤2048 characters, e.g. `ws://192.0.2.10:9443` or `wss://gateway.example`. No credentials/query/fragment/path except optional trailing `/`. Product selects `/connector`. |
+| Connector `allow_terminal_execution` | Boolean, optional | `false`, also when omitted. Only literal `true` enables direct terminal input and custom launch/restore commands through the existing local guard. Edit this single user file and restart Connector; it does not change installation settings or caller/local grants. |
 | Connector `native` | Object, optional | Absent by default. Contains only the two installation-directory settings below; applied at first Luvus initialization. |
 | `native.runtime_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: search `/usr/bin:/bin` for `luvus`. When set, search this directory first, then those fixed system directories. No PATH lists, shell expansion or executable argv. |
 | `native.agent_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: native/Agent PATH is `/usr/bin:/bin`. When set, prepend this one directory to that fixed PATH. It does not install or authenticate an Agent. |
@@ -192,6 +194,15 @@ Ordinary strict text conversation can keep local `allow_terminal_execution:false
 Do not use arbitrary argv/env or terminal input to work around missing PATH.
 The terminal switch does not sandbox an Agent's own tools. Binary/schema validation
 or `ready` alone is not evidence that a model replied.
+
+Direct terminal operation uses the existing native methods: Luvus `pane.run` takes
+an explicit `pane` and `command`; read subsequent terminal output with `pane.read`.
+Its `ok` acknowledges PTY input, not command completion or a shell exit code.
+The current authenticated Gateway catalog hides direct input while local state is
+off or unknown; strict text variants retain their parameter restriction. Existing
+initialized policies may still exclude `pane.run`; enabling the switch does not
+amend them. See [terminal execution](TERMINAL-EXECUTION.md) for environment,
+output and unknown-result semantics.
 
 ## Complete CLI reference
 

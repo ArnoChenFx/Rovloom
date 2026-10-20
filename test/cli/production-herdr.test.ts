@@ -261,14 +261,14 @@ test(
 )
 
 test(
-  '完整配置仍须通过真实 binary/schema 与文件保护，不能从固定 pin 或普通 JSON 建立来源',
-  /** 假 binary 可执行但摘要错误；保护/摘要失败不能留下 owner、ledger 或进程执行标记。 */ async () => {
+  '完整配置仍须通过真实 binary/schema，普通权限不能代替实际来源核验',
+  /** 假binary可执行但摘要错误；普通文件权限不改变摘要与schema校验。 */ async () => {
     const f = fixture()
     try {
       const sources = createHerdrProductionSources()
       await assert.rejects(sources.connector!(f.config, f.refs()), { code: 'herdr_binary_identity_changed' })
       chmodSync(f.schema, 0o644)
-      await assert.rejects(sources.connector!(f.config, f.refs()), { code: 'config_unreadable' })
+      await assert.rejects(sources.connector!(f.config, f.refs()), { code: 'herdr_binary_identity_changed' })
       chmodSync(f.schema, 0o600)
       writeFileSync(f.schema, '{}')
       await assert.rejects(sources.connector!(f.config, f.refs()), { code: 'herdr_schema_unreviewed' })

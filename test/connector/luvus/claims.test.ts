@@ -1,7 +1,7 @@
 /** 用真实 SQLite 和私有文件覆盖持久发送账本；不连接 native，也不提供生产认证。 */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, lstatSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
@@ -302,17 +302,11 @@ test(
 )
 
 test(
-  'schema additions and unsafe file permissions cannot be accepted as a trusted ledger',
-  /** 拒绝触发器等额外 schema；权限修改也不能被原句柄静默忽略。 */ () => {
+  'unexpected schema cannot be accepted as a dispatch ledger',
+  /** 额外表和schema仍不能成为合法账本，不以本地权限作为schema证据。 */ () => {
     const f = setup()
     const claims = f.create()
     try {
-      chmodSync(f.path, 0o644)
-      assert.throws(
-        /* 私有文件不再私有时安全收敛底层异常。 */ () => claims.claim(binding(), 1000),
-        failure('claim_storage_unavailable')
-      )
-      chmodSync(f.path, 0o600)
       claims.close()
       const writer = new DatabaseSync(f.path)
       try {

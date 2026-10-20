@@ -1,19 +1,18 @@
 // 仅在角色文件缺失时独占创建单份用户配置；不读取stdin、不生成凭据、不写runtime/ref文档。
-import { closeSync, constants, fchmodSync, fsyncSync, linkSync, openSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, openSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { ensurePrivateDirectory } from '../storage/files.js'
-import { assertPrivateDescriptor } from '../storage/private-posix.js'
 import { CliError, configDocument, configTemplate, parseConfig, readConfig, type RoleConfig } from './config.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 
-// 逐级拒绝链接和非目录，只创建缺失目录，已有目录的权限及内容永不修复或覆盖。
+// 只创建缺失目录，沿用已有目录的正常权限与内容。
 export function privateDirectory(path: string): void {
   try {
     ensurePrivateDirectory(path)
   } catch {
-    throw new CliError('config_not_protected')
+    throw new CliError('config_unreadable')
   }
 }
 
@@ -32,16 +31,6 @@ function defaults(role: RoleConfig['role'], environment?: ConfigPathEnvironment)
   })
 }
 
-// 同步已发布文件的目录项；临时文件本身在发布前已完整写入并fsync。
-function syncDirectory(path: string): void {
-  const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
 // 只有缺失错误触发首次生成；完整临时文件通过原子link发布，不覆盖已有文件或留下写入残片。
 export function readOrCreateRoleConfig(
   role: RoleConfig['role'],
@@ -55,9 +44,6 @@ export function readOrCreateRoleConfig(
       throw error
     }
   }
-  if (!['linux', 'darwin'].includes(process.platform)) {
-    throw new CliError('config_platform_unsupported')
-  }
   const config = defaults(role, environment)
   const directory = dirname(path)
   privateDirectory(directory)
@@ -65,10 +51,8 @@ export function readOrCreateRoleConfig(
   let fd: number | undefined
   let created = false
   try {
-    fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
+    fd = openSync(temporary, 'wx', 0o600)
     created = true
-    fchmodSync(fd, 0o600)
-    assertPrivateDescriptor(fd, false)
     writeFileSync(fd, JSON.stringify(configDocument(config), null, 2) + '\n')
     fsyncSync(fd)
     const written = fd
@@ -83,8 +67,7 @@ export function readOrCreateRoleConfig(
     }
     unlinkSync(temporary)
     created = false
-    syncDirectory(directory)
-    // 也校验并发获胜者；其内容、角色或权限有误仍拒绝，绝不以自己的默认值覆盖。
+    // 校验并发获胜者的内容与角色，不以自己的默认值覆盖它。
     return readConfig(path)
   } catch (error) {
     if (error instanceof CliError) {
@@ -99,7 +82,6 @@ export function readOrCreateRoleConfig(
     } finally {
       if (created) {
         unlinkSync(temporary)
-        syncDirectory(directory)
       }
     }
   }

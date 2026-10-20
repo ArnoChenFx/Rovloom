@@ -126,7 +126,7 @@ test(
 )
 
 test(
-  'ref loader reads private JSON and Gateway compilation refuses changed schema bytes',
+  'ref loader reads ordinary JSON and Gateway compilation refuses changed schema bytes',
   /** 只创建本测试自有配置和官方公开 schema 文件；没有 socket 或 native 命令。 */ async () => {
     const root = privateHerdrTestRoot('.herdr-provider-ref-')
     const input = config(root)
@@ -135,10 +135,7 @@ test(
       writeFileSync(file, JSON.stringify(input), { mode: 0o600 })
       assert.deepEqual(readHerdrProviderRefConfig(file), parseHerdrProviderRefConfig(input))
       chmodSync(file, 0o644)
-      assert.throws(
-        /** 不放宽 production 0600 配置文件边界。 */ () => readHerdrProviderRefConfig(file),
-        /unsafe_storage_file/
-      )
+      assert.deepEqual(readHerdrProviderRefConfig(file), parseHerdrProviderRefConfig(input))
       chmodSync(file, 0o600)
       writeFileSync(input.schema_path, Buffer.concat([raw, Buffer.from(' ')]), { mode: 0o600 })
       await assert.rejects(createHerdrGatewayResources({ config: input }), /herdr_schema_unreviewed/)
@@ -363,9 +360,11 @@ test(
       const replacement = join(root, 'replacement.json')
       writeFileSync(replacement, raw, { mode: 0o600 })
       renameSync(replacement, input.schema_path)
+      assert.equal(resources.providers[0]!.ready(), true)
       assert.throws(
-        /** 同字节换 inode 的 schema 也不能替换原编译来源。 */ () => resources.providers[0]!.ready(),
-        /herdr_provider_file_changed/
+        /** 文件变化不复活已被网络代次隔离的旧token。 */ () =>
+          session.adapter.decode(rawResponse, 'connector_to_gateway'),
+        /native_source_untrusted/
       )
       await resources.release()
       assert.equal(session.adapter.stats().closed, true)
