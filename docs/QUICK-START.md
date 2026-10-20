@@ -197,12 +197,12 @@ failures without automatically resending or switching models.
 Stop Connector with Ctrl-C and wait for exit, then stop Gateway with Ctrl-C.
 Shutdown does not promise native rollback. Preserve data if shutdown fails.
 
-The Linux product CLI connects systemd install/uninstall/start/restart/stop.
+Gateway service commands use Linux systemd and macOS system LaunchDaemons.
 Use the current standalone binary with root authorization and an existing non-root
-service account; prepare its protected configuration/data/work directories first.
+service account and an existing working directory; normal startup handles missing config/data.
 `service --help` documents the options. Install enables boot startup without
 starting now; uninstall removes future boot startup without stopping now.
-Gateway service actions support Linux systemd and macOS system LaunchDaemons; Windows remains unavailable (`backend_unavailable`, 3). Re-install before restarting a macOS job after uninstall.
+Gateway service actions support Linux systemd and macOS system LaunchDaemons; Windows remains unavailable (`backend_unavailable`, 3).
 No boot/lifecycle acceptance is claimed. See the [complete CLI reference](CONFIGURATION.md#complete-cli-reference)
 and [service prerequisites](SERVICE.md).
 `update --check` checks official stable releases over the network; no published

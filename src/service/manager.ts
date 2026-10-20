@@ -274,10 +274,6 @@ export class ServiceManager {
               }
             }
           } else {
-            // Darwin的disable覆盖禁止重新bootstrap；撤自启后不能先bootout再发现无法恢复。
-            if (request.action === 'restart' && this.backend.platform === 'darwin' && !current.enabled) {
-              throw new ServiceError('service_busy')
-            }
             if (
               request.action !== 'start' &&
               (!['stopped', 'failed'].includes(current.state) ||
@@ -285,7 +281,7 @@ export class ServiceManager {
             ) {
               // 撤销自启后，Linux 显式 stop 仍须取消待启动 Job；macOS 则释放 loaded job。卸载分支不走这里。
               stopRequested = true
-              await this.backend.stop(spec)
+              await this.backend.stop(spec, request.action === 'restart')
               current = await this.settle(spec, false)
               changed = true
             }

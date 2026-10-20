@@ -267,11 +267,9 @@ test(
       platform: 'win32',
       files: memoryFiles().files,
       runner,
-      verifyRuntime: /* 提供后台能力但故意缺少 ACL 证明。 */ async () => {}
+      verifyRuntime: /* 只验证本例实际选择的后台配置。 */ async (selected) => assert.deepEqual(selected, spec)
     })
-    await assert.rejects(/* 缺 Windows 账户/路径 ACL 验证器时不能注册。 */ () => backend.preflight(spec), {
-      code: 'backend_unavailable'
-    })
+    await backend.preflight(spec)
   }
 )
 
@@ -304,7 +302,7 @@ test(
 )
 
 test(
-  'registration lock is cross-instance and preserves unrelated files; symlink registrations are refused',
+  'registration lock is cross-instance and normal file unlink preserves unrelated user data',
   /* 在临时目录验证真实文件锁，不触及系统注册目录。 */ async () => {
     const root = await mkdtemp(join(tmpdir(), 'rovloom-service-files-'))
     const files = registrationFiles(root)
@@ -323,9 +321,12 @@ test(
       )
       await second.lock('rovloom-connector', /* 前一个实例释放后可安全重入。 */ async () => {})
       await symlink(join(root, 'keep.db'), join(root, 'rovloom-connector.service'))
-      await assert.rejects(/* 注册符号链接不能转向用户数据。 */ () => files.read('rovloom-connector.service'), {
-        code: 'service_conflict'
-      })
+      assert.equal(await files.read('rovloom-connector.service'), 'user data')
+      await assert.rejects(
+        /* 内容不匹配时不能删除登记或用户文件。 */ () => files.remove('rovloom-connector.service', 'other'),
+        { code: 'service_conflict' }
+      )
+      await files.remove('rovloom-connector.service', 'user data')
       assert.equal(await readFile(join(root, 'keep.db'), 'utf8'), 'user data')
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -751,5 +752,76 @@ test(
     await assert.rejects(/* not-found 不覆盖 Job 尚在等待的事实。 */ () => native.inspect('connector'), {
       code: 'service_conflict'
     })
+  }
+)
+
+test(
+  'Darwin restart after uninstall keeps the loaded job and disabled boot policy',
+  /* 组合真实manager/backend验证kill→kickstart；不注册系统服务、不以enable掩盖重启。 */ async () => {
+    const memory = memoryFiles()
+    const spec = sampleSpec('darwin')
+    let loaded = false
+    let running = false
+    let enabled = true
+    const operations: string[] = []
+    const backend = createNativeServiceBackend({
+      platform: 'darwin',
+      files: memory.files,
+      verifyRuntime: /* 模型只核对选择的实际角色清单。 */ async (selected) => assert.deepEqual(selected, spec),
+      runner: /* 按launchctl公开命令模型改变监管状态。 */ async (plan) => {
+        const op = plan.args[0]!
+        operations.push(op)
+        if (plan.executable === '/usr/bin/id') {
+          return { code: 0, stdout: '501\n', stderr: '' }
+        }
+        let stdout = ''
+        if (op === 'list') {
+          stdout = 'PID\tStatus\tLabel\n' + (loaded ? `${running ? '200' : '-'}\t0\tio.rovloom.connector\n` : '')
+        }
+        if (op === 'print') {
+          stdout = 'system/io.rovloom.connector = {\n path = /Library/LaunchDaemons/io.rovloom.connector.plist\n}\n'
+        }
+        if (op === 'print-disabled') {
+          stdout = `disabled services = {\n "io.rovloom.connector" => ${enabled ? 'false' : 'true'}\n}\n`
+        }
+        if (op === 'enable') {
+          enabled = true
+        }
+        if (op === 'disable') {
+          enabled = false
+        }
+        if (op === 'bootstrap') {
+          loaded = true
+          running = true
+        }
+        if (op === 'kill') {
+          assert.equal(plan.args[1], 'SIGTERM')
+          running = false
+        }
+        if (op === 'kickstart') {
+          assert(loaded)
+          running = true
+        }
+        if (op === 'bootout') {
+          loaded = false
+          running = false
+        }
+        return { code: 0, stdout, stderr: '' }
+      }
+    })
+    const m = model('darwin')
+    const manager = new ServiceManager(backend, m.clock)
+    await manager.execute({ action: 'install', role: 'connector', spec })
+    await manager.execute({ action: 'start', role: 'connector' })
+    await manager.execute({ action: 'uninstall', role: 'connector' })
+    const before = operations.length
+    const result = await manager.execute({ action: 'restart', role: 'connector' })
+    assert.equal(result.state, 'running')
+    assert.equal(result.bootEnabled, false)
+    assert(operations.slice(before).includes('kill'))
+    assert(operations.slice(before).includes('kickstart'))
+    assert(!operations.slice(before).includes('enable'))
+    assert(!operations.slice(before).includes('bootout'))
+    assert.equal((await manager.execute({ action: 'stop', role: 'connector' })).state, 'absent')
   }
 )

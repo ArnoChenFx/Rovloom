@@ -1,7 +1,7 @@
 // 验证产品服务宿主的当前产物绑定、目标账户默认配置和只读预检；所有监管工具均为受控端口。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   assertServiceProduct,
@@ -13,7 +13,6 @@ import { configDocument, configTemplate } from '../../src/cli/config.js'
 import { parseServiceCommand } from '../../src/service/command.js'
 import { ServiceError } from '../../src/service/types.js'
 import { sampleSpec } from '../service/helpers.js'
-import type { CommandPlan } from '../../src/service/runner.js'
 
 test(
   '源码解释器不被识别为可安装的单文件产物',
@@ -138,101 +137,55 @@ test(
     const spec = sampleSpec()
     await assert.rejects(
       /* 明确模拟源码解释器上下文。 */ () =>
-        verifyProductServiceRuntime(
-          spec,
-          { platform: 'linux', arch: 'x64', executable: spec.executable, standalone: false },
-          /* 不得调用任何系统工具。 */ async () => assert.fail()
-        ),
+        verifyProductServiceRuntime(spec, {
+          platform: 'linux',
+          arch: 'x64',
+          executable: spec.executable,
+          standalone: false
+        }),
       { code: 'backend_unavailable' }
     )
   }
 )
 
-if (process.platform === 'linux' && process.getuid?.() !== 0) {
-  test(
-    '服务配置预检保留原字节，以目标账户只读校验同一角色且不创建缺失配置',
-    /* 仅使用自有工作区 fixture，无实际切换身份。 */ async () => {
-      const root = mkdtempSync(join(process.cwd(), '.service-fixture-'))
-      const state = join(root, 'state')
-      mkdirSync(state, { mode: 0o700 })
-      const config = join(root, 'gateway.json')
-      const spec = { ...sampleSpec(), role: 'gateway' as const, config }
-      const environment = { platform: 'linux', arch: 'x64', executable: spec.executable, standalone: true }
-      const bytes = JSON.stringify(configDocument({ ...configTemplate('gateway'), state_dir: state }))
-      const plans: CommandPlan[] = []
-      // 云环境根目录并非 root 所有；隔离路径端口只核对参数，不把它称为真实安装权限证明。
-      const verifyStatePath = async (path: string, owner: number, privateLeaf: boolean) => {
-        assert.equal(path, state)
-        assert.equal(owner, process.getuid!())
-        assert.equal(privateLeaf, true)
-      }
-      try {
-        writeFileSync(config, bytes, { mode: 0o600 })
-        await verifyProductServiceRuntime(
-          spec,
-          environment,
-          /* 仅记录 runuser 计划，不在测试中切换系统身份。 */ async (plan) => {
-            plans.push(plan)
-            return { code: 0, stdout: '', stderr: 'runtime_config_valid\n' }
-          },
-          verifyStatePath
-        )
-        assert.equal(readFileSync(config, 'utf8'), bytes)
-        assert.deepEqual(plans[0], {
-          executable: '/usr/sbin/runuser',
-          args: [
-            '--user',
-            'rovloom',
-            '--',
-            spec.executable,
-            'config',
-            'check-runtime',
-            '--role',
-            'gateway',
-            '--config',
-            config
-          ],
-          timeout: 10000
-        })
-        await assert.rejects(
-          /* 错配角色不能进入系统自检计划。 */ () =>
-            verifyProductServiceRuntime(
-              { ...spec, role: 'connector' },
-              environment,
-              /* 不应执行。 */ async () => assert.fail()
-            ),
-          { code: 'unsafe_installation' }
-        )
-        await assert.rejects(
-          /* 子进程的未知输出不能冒充只读检查成功。 */ () =>
-            verifyProductServiceRuntime(
-              spec,
-              environment,
-              /* 合成未脱敏失败正文只能被拒绝。 */ async () => ({
-                code: 0,
-                stdout: 'SYNTHETIC_SECRET',
-                stderr: ''
-              }),
-              verifyStatePath
-            ),
-          { code: 'unsafe_installation' }
-        )
-        await assert.rejects(
-          /* 缺少文件不创建、不启动、也不继续工具计划。 */ () =>
-            verifyProductServiceRuntime(
-              { ...spec, config: join(root, 'missing.json') },
-              environment,
-              /* 不应执行。 */ async () => assert.fail()
-            ),
-          { code: 'ENOENT' }
-        )
-        assert.equal(plans.length, 1)
-      } finally {
-        rmSync(root, { recursive: true, force: true })
-      }
+test(
+  '已有普通配置保留原字节，检查角色与JSON；缺失配置留给正常首次启动',
+  /* 只用普通文件API，不要求私有mode、UID、状态目录或运行目标账户命令。 */ async () => {
+    const root = mkdtempSync(join(process.cwd(), '.service-fixture-'))
+    const work = join(root, 'work')
+    mkdirSync(work)
+    const state = join(root, 'state-not-created')
+    const config = join(root, 'gateway.json')
+    const spec = { ...sampleSpec(), role: 'gateway' as const, config, directory: work }
+    const environment = { platform: 'linux', arch: 'x64', executable: spec.executable, standalone: true }
+    const bytes = JSON.stringify(configDocument({ ...configTemplate('gateway'), state_dir: state }))
+    try {
+      writeFileSync(config, bytes, { mode: 0o644 })
+      await verifyProductServiceRuntime(spec, environment)
+      assert.equal(readFileSync(config, 'utf8'), bytes)
+      assert.equal(existsSync(state), false)
+      await assert.rejects(
+        /* 角色不匹配仍属于真实配置错误。 */ () =>
+          verifyProductServiceRuntime({ ...spec, role: 'connector' }, environment),
+        { code: 'invalid_arguments' }
+      )
+      writeFileSync(config, '{broken-json')
+      await assert.rejects(/* 格式错误不能登记后伪报成功。 */ () => verifyProductServiceRuntime(spec, environment), {
+        code: 'invalid_arguments'
+      })
+      const missing = join(root, 'missing.json')
+      await verifyProductServiceRuntime({ ...spec, config: missing }, environment)
+      assert.equal(existsSync(missing), false)
+      await assert.rejects(
+        /* 工作目录必须是目录，不能把普通配置文件当成chdir目标。 */ () =>
+          verifyProductServiceRuntime({ ...spec, directory: config }, environment),
+        { code: 'invalid_arguments' }
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
-  )
-}
+  }
+)
 
 test(
   '无法提供平台账户数据库时保留 backend_unavailable',

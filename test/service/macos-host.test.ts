@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { userInfo } from 'node:os'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { serviceAccountConfig, assertServiceProduct, verifyProductServiceRuntime } from '../../src/cli/service-host.js'
 import { configDocument, configTemplate } from '../../src/cli/config.js'
@@ -45,66 +45,40 @@ test(
 )
 
 test(
-  'Darwin已撤自启的restart在停止前拒绝，原实例保持运行',
-  /* launchctl disable覆盖不能在bootout后bootstrap。 */ async () => {
+  'Darwin撤自启后仍可重启，且不暗中恢复开机策略',
+  /* loaded job的正常restart保留禁用自启状态，不先bootout。 */ async () => {
     const m = model('darwin')
     m.set({ spec: sampleSpec('darwin'), enabled: false, loaded: true, state: 'running' })
-    await assert.rejects(
-      /* 不能先破坏当前实例才发现重载不可行。 */ () =>
-        new ServiceManager(m.backend, m.clock).execute({ action: 'restart', role: 'connector' }),
-      { code: 'service_busy' }
-    )
-    assert.equal(m.get()?.state, 'running')
-    assert(!m.calls.includes('stop'))
-    assert(!m.calls.includes('start'))
+    const result = await new ServiceManager(m.backend, m.clock).execute({ action: 'restart', role: 'connector' })
+    assert.equal(result.state, 'running')
+    assert.equal(result.bootEnabled, false)
+    assert(m.calls.includes('stop'))
+    assert(m.calls.includes('start'))
+    assert(!m.calls.includes('enable'))
   }
 )
 
-if (process.platform !== 'win32' && process.getuid?.() !== 0) {
-  test(
-    'Darwin自检以固定非交互sudo降为目标账户，只读同一产物且不开业务宿主',
-    /* 仅观察受控命令计划；当前平台的fd ACL检查仍实际执行。 */ async () => {
-      const root = mkdtempSync(join(process.cwd(), '.service-macos-'))
-      const state = join(root, 'state')
-      mkdirSync(state, { mode: 0o700 })
-      const config = join(root, 'gateway.json')
-      const spec = { ...sampleSpec('darwin'), role: 'gateway' as const, config, directory: root }
-      const bytes = JSON.stringify(configDocument({ ...configTemplate('gateway'), state_dir: state }))
-      writeFileSync(config, bytes, { mode: 0o600 })
-      let called = 0
-      try {
-        await verifyProductServiceRuntime(
-          spec,
-          { platform: 'darwin', arch: 'arm64', executable: spec.executable, standalone: true },
-          /* 不运行sudo或任何服务工具。 */ async (plan) => {
-            called++
-            assert.equal(plan.executable, '/usr/bin/sudo')
-            assert.deepEqual(plan.args, [
-              '-n',
-              '-H',
-              '-u',
-              'rovloom',
-              '--',
-              spec.executable,
-              'config',
-              'check-runtime',
-              '--role',
-              'gateway',
-              '--config',
-              config
-            ])
-            assert.equal(plan.input, undefined)
-            return { code: 0, stdout: '', stderr: 'runtime_config_valid\n' }
-          },
-          /* 模型仅跳过root拥有路径的生产前提，不改真实文件权限。 */ async () => {}
-        )
-        assert.equal(called, 1)
-      } finally {
-        rmSync(root, { recursive: true, force: true })
-      }
+test(
+  'Darwin服务普通检查保留配置并允许缺失状态目录，不运行sudo或ACL验证',
+  /* 仅验证普通JSON/角色读取，不创建业务宿主或提前初始化数据。 */ async () => {
+    const root = mkdtempSync(join(process.cwd(), '.service-macos-'))
+    const state = join(root, 'state-not-created')
+    const config = join(root, 'gateway.json')
+    const spec = { ...sampleSpec('darwin'), role: 'gateway' as const, config, directory: root }
+    const bytes = JSON.stringify(configDocument({ ...configTemplate('gateway'), state_dir: state }))
+    writeFileSync(config, bytes, { mode: 0o644 })
+    try {
+      await verifyProductServiceRuntime(spec, {
+        platform: 'darwin',
+        arch: 'arm64',
+        executable: spec.executable,
+        standalone: true
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
-  )
-}
+  }
+)
 
 if (process.platform === 'darwin') {
   test(

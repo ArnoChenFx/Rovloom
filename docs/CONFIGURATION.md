@@ -78,7 +78,7 @@ override. `--config` takes an absolute file path and overrides only that file's
 location. Generated data still defaults to the role user's home. Existing explicit
 files do not need home resolution. Missing files need home to generate defaults.
 
-First-file creation and pure Gateway runtime support Linux/macOS. Protected role-file
+First-file creation and runtime currently require Linux. Protected role-file
 checks support POSIX and reject Windows with `config_platform_unsupported`.
 Templates have platform-appropriate path separators. Keep files private `0600`
 and their immediate directory private `0700`, owned by the process user. Newly
@@ -231,7 +231,7 @@ and returns nonzero if either fails. Neither check creates a missing file.
 
 Explicit paths take priority; there is no fallback from an invalid explicit path.
 The selected file must have the matching role. A missing file is generated on
-Linux/macOS at the selected path; an existing file is never overwritten. Defaults are
+Linux at the selected path; an existing file is never overwritten. Defaults are
 resolved for the process user. Stop a foreground
 role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
 Network ports are JSON fields, not flags. Provider initialization is limited to
@@ -240,12 +240,11 @@ the first local-terminal Luvus flow described above; Agent/model login is separa
 ### Service command syntax and current availability
 
 `rovloom service --help` is available offline. The product entry connects Gateway to Linux systemd and macOS system LaunchDaemons. Installation requires the current standalone Rovloom
-binary, root authorization, an existing non-root service account and prepared
-protected configuration, data and working directories. The backend does not
-provision these resources or change permissions. Windows product service
-actions still return `backend_unavailable` (3); local native Connector remains Linux x64.
-macOS uses the selected system account and a noninteractive target-user check. Re-install before
-restarting a macOS job after uninstall; restart refuses before stopping the retained instance. Native definition parsing does not establish lifecycle acceptance.
+binary, normal system-service authorization, an existing non-root account and an
+existing working directory. Existing JSON/role errors are checked; missing config
+is left for normal first startup. No UID/mode/ACL or ancestor proof is required,
+and existing permissions are not changed. Windows awaits ordinary role-file/startup wiring. Native definition
+parsing does not establish actual lifecycle acceptance.
 See [service prerequisites and platform limits](SERVICE.md).
 
 | Command form | Required arguments | Meaning of the action | Linux syntax example |
@@ -269,11 +268,11 @@ role. There is no default role, `all` role, `--now`, `--force`, `--purge` or
 | `--user` | Install-only, required account string; no default | Existing non-root account on Linux/macOS. Windows accepts only LocalService SID `S-1-5-19`, without a password. |
 
 Service path values are fixed at install time; later boot/start/restart uses the
-recorded absolute role configuration, rather than resolving a new home. POSIX
-installation requires a root-owned protected executable and configuration/work
-directories belonging to the chosen non-root account; it does not create accounts
-or relax permissions. Windows requires its own protected installation and
-LocalService access. The Linux host reads the target account from the system passwd database, then runs the same binary's read-only `config check-runtime --role ROLE --config ABS` under that account via `/usr/sbin/runuser`. It does not start a role during installation. Configured Connector requires a nonempty Gateway URL; registration does not prove native readiness. The chosen data directory must already be private and account-owned. Linux working directories cannot end in whitespace or a backslash.
+recorded absolute role configuration, rather than resolving a new home. The installer
+checks normal product, account, working-directory and existing JSON/role inputs;
+it does not impose ownership/permission or ACL rules. Missing state/config files
+are handled by normal role startup. Linux uses the selected system account's home,
+not the controller HOME. Linux working directories cannot end in whitespace or a backslash.
 
 The service action semantics keep installation and running state separate:
 install then start would request both boot startup and immediate running;
@@ -288,8 +287,8 @@ stop/restart may terminate the task directly; do not treat it as native rollback
 |---|---|---|---|
 | Help/version/template output | Available | Available | Available |
 | `config check` | Protected POSIX reader | Protected POSIX reader | Rejected: `config_platform_unsupported` |
-| `config check-runtime`, real role startup | Gateway on Linux; local Connector x64 only | Pure Gateway supported; local Connector rejected | Runtime loader rejects this platform |
-| Service actions | Production systemd backend connected; Gateway on Linux, Connector native owner on x64; lifecycle/boot acceptance still required | Product rejects before system access; runtime unsupported | Product rejects before system access; runtime/configuration and installation ACL support incomplete |
+| `config check-runtime`, real role startup | Current deployment guide covers Linux x64 | Runtime loader rejects this platform | Runtime loader rejects this platform |
+| Service actions | Production systemd backend connected; Gateway on Linux, Connector native owner on x64; lifecycle/boot acceptance still required | Gateway system LaunchDaemon; local Connector rejected | Product rejects before system access; ordinary role-file/startup wiring incomplete |
 | `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
 
 There is no working Rovloom service-status query in this preview.

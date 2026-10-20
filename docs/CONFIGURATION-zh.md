@@ -69,7 +69,7 @@ Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、
 绝对文件路径，仅覆盖该文件位置；新生成数据目录仍按角色用户 home 选择。已有显式
 文件不要求解析 home，缺失文件生成默认值时需要 home。
 
-首次文件创建与纯Gateway runtime支持Linux/macOS。受保护角色文件检查支持 POSIX，在 Windows
+首次文件创建和 runtime 目前要求 Linux。受保护角色文件检查支持 POSIX，在 Windows
 返回 `config_platform_unsupported`。模板使用目标平台路径分隔符。文件保持 `0600`，
 所在私有目录保持 `0700`，属于进程用户；新建时使用这些权限，不自动修复已有权限或
 损坏文件。用户 JSON 上限 16 KiB，不支持注释，拒绝非法编码和重复键。
@@ -190,18 +190,17 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对�
 | `rovloom gateway [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/gateway.json`，启动前台 Gateway。 | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
 | `rovloom connector [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/connector.json`，启动前台 Connector。 | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
 
-显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS在所选位置生成缺失文件，不覆盖已有文件；
+显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
 上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd和macOS系统LaunchDaemon；安装要求当前
-Rovloom 单文件、root 授权、既有非 root 服务账户，以及准备好的受保护配置、数据与工作目录。
-后端不创建这些资源或修改权限。本机Connector仍限Linux x64；Windows服务仍返回`backend_unavailable`（3）。
-macOS只读查系统账户并用非交互目标身份检查；撤自启后须先install再restart，避免先停止后不能重载。
-原生格式解析不能代替真实安装、开机和生命周期验收。
+`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
+Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
+缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
+Windows等待普通角色启动接口；原生格式解析不等于生命周期验收。
 见[服务前提与平台限制](SERVICE.md)。
 
 | 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
@@ -224,11 +223,10 @@ macOS只读查系统账户并用非交互目标身份检查；撤自启后须先
 | `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
-POSIX 安装要求 root 持有的受保护程序，以及属于所选非 root 账户的配置/工作目录；
-不会创建账户或放宽权限。Windows 要求独立的受保护安装和 LocalService 访问权限。
-Linux 宿主读取系统 passwd 数据库，再通过 `/usr/sbin/runuser` 以目标账户执行同一产物的
-只读 `config check-runtime --role ROLE --config ABS`，安装期间不启动角色。Connector 要求
-非空 Gateway URL；注册不证明 native 就绪。数据目录须已存在并由该账户私有持有。
+安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
+不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
+Linux宿主从系统账户记录选择默认配置路径，不读取安装管理员HOME。安装不启动角色，
+不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
 Linux 工作目录不得以空白或反斜杠结尾。
 
 服务动作将安装和运行状态分开：install 后再 start 才分别请求开机自启和立即运行；
@@ -242,8 +240,8 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 |---|---|---|---|
 | 帮助/版本/模板输出 | 可用 | 可用 | 可用 |
 | `config check` | 受保护 POSIX 读取器 | 受保护 POSIX 读取器 | 拒绝：`config_platform_unsupported` |
-| `config check-runtime`、真实角色启动 | Gateway支持Linux；本机Connector限x64 | 纯Gateway支持；本机Connector拒绝 | runtime加载器拒绝该平台 |
-| Service动作 | Gateway systemd；本机Connector限x64；仍需实装/开机验收 | Gateway系统LaunchDaemon；账户/fd ACL/非交互预检已接线，仍需实装/开机验收 | 系统访问前拒绝；runtime/配置与安装ACL未完成 |
+| `config check-runtime`、真实角色启动 | 当前部署指引覆盖 Linux x64 | runtime 加载器拒绝该平台 | runtime 加载器拒绝该平台 |
+| Service 动作 | 生产 systemd 后端已连接；Gateway 限 Linux，Connector 本机 owner 限 x64；仍需生命周期/开机验收 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品在系统访问前拒绝；普通角色文件与启动接线未完成 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，

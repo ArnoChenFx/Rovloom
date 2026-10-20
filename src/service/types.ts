@@ -26,7 +26,7 @@ export type ServiceResult = {
   changed: boolean
   state: ServiceState | 'absent'
   bootEnabled: boolean
-  // 自启撤销后可保留受保护控制记录，供显式 stop 与同清单重新安装使用。
+  // 自启撤销后可保留控制记录，供显式 stop 与同清单重新安装使用。
   controlRetained: boolean
   // 系统监管状态不证明业务就绪；Windows 停止可能直接终止进程。
   readiness: 'not_checked'
@@ -64,7 +64,7 @@ export type ServiceBackend = {
   lock<T>(role: ServiceRole, operation: () => Promise<T>): Promise<T>
   // 检查提权与系统设施；不自行提权或静默退回登录启动。
   authorize(role?: ServiceRole): Promise<void>
-  // 重新核对运行账户、固定路径及宿主支持的后台角色，不扩大文件 ACL。
+  // 核对所选账户、配置格式与产品后台能力，不分析本机ACL或所有权。
   preflight(spec: ServiceSpec): Promise<void>
   // 仅返回完全属于本项目的注册；同名异物、重定向或附加覆盖必须拒绝。
   inspect(role: ServiceRole): Promise<ServiceSnapshot | undefined>
@@ -75,7 +75,7 @@ export type ServiceBackend = {
   // 仅向已核验的本项目角色发送启动请求。
   start(spec: ServiceSpec): Promise<void>
   // 请求停止本项目实例，不按进程名或任意 PID 杀进程。
-  stop(spec: ServiceSpec): Promise<void>
+  stop(spec: ServiceSpec, forRestart?: boolean): Promise<void>
   // 只在禁用自启且监管记录可安全释放时清理；保留则返回 false，绝不停止进程或 bootout。
   remove(spec: ServiceSpec): Promise<boolean>
 }
