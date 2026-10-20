@@ -82,7 +82,7 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
   }
   const plan = await checkForUpdate(network, oldVersion, platform)
   const snapshots = new Map<ServiceRole, ServiceSnapshot>()
-  const children = new Map<ServiceRole, ChildProcess>()
+  const children = new Map<ServiceRole, { child: ChildProcess; closed: Promise<void> }>()
   const versions = new Map<ServiceRole, string>()
   const calls: string[] = []
   let clock = 0
@@ -133,40 +133,72 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
         throw new ServiceError('service_start_failed')
       }
       const child = spawn(executable, ['--fixture-service'], { cwd: root, env: {}, stdio: ['ignore', 'pipe', 'pipe'] })
-      children.set(spec.role, child)
-      await new Promise<void>(
-        /* 有界等待此直接子进程的固定就绪标记。 */ (resolve, reject) => {
-          const timer = setTimeout(
-            /* 只终止当前自有 child 句柄。 */ () => {
-              child.kill('SIGKILL')
-              reject(new Error('fixture readiness timeout'))
-            },
-            5000
-          )
-          child.once(
-            'error',
-            /* 固定 fixture 失败，不输出子进程原文。 */ () => {
-              clearTimeout(timer)
-              reject(new Error('fixture spawn failed'))
-            }
-          )
-          child.stdout!.once(
-            'data',
-            /* 样例只发送一行固定版本标记。 */ (chunk: Buffer) => {
-              clearTimeout(timer)
-              const match = /^fixture-ready:([^\n]+)\n$/u.exec(chunk.toString())
-              if (!match) {
-                reject(new Error('fixture readiness invalid'))
-                return
-              }
-              versions.set(spec.role, match[1]!)
-              snapshots.get(spec.role)!.state = 'running'
-              snapshots.get(spec.role)!.loaded = process.platform === 'darwin'
-              resolve()
-            }
-          )
-        }
+      const closed = new Promise<void>(
+        /* 即使先观察到退出状态，也必须等管道和直接 child 真正 close。 */ (resolve) =>
+          child.once('close', /* 只记录本次 spawn 的真实关闭。 */ () => resolve())
       )
+      children.set(spec.role, { child, closed })
+      let stderr = ''
+      const capture = /* 读取启动错误，保留有界尾部而不让 stderr 管道堵住 child。 */ (chunk: Buffer) => {
+        stderr = (stderr + chunk.toString()).slice(-2048)
+      }
+      child.stderr!.on('data', capture)
+      const failure = /* 原期限和真实退出原因分开；超时后的自有 KILL 不能冒充提前退出原因。 */ (message: string) =>
+        Object.assign(
+          new Error(
+            `${message} (exit=${child.exitCode}, signal=${child.signalCode}, stderr=${JSON.stringify(stderr)})`
+          ),
+          { exitCode: child.exitCode, signal: child.signalCode, stderr }
+        )
+      try {
+        await new Promise<void>(
+          /* 有界等待此直接子进程的固定就绪标记。 */ (resolve, reject) => {
+            const earlyClose = /* 已关闭且没有标记时立即报告真实原因，不继续等到超时。 */ () => {
+              clearTimeout(timer)
+              reject(failure('fixture exited before readiness'))
+            }
+            const timer = setTimeout(
+              /* 保持原五秒期限；后续 catch 负责终止并等待真实 close。 */ () =>
+                reject(failure('fixture readiness timeout')),
+              5000
+            )
+            child.once('close', earlyClose)
+            child.once(
+              'error',
+              /* spawn 失败与提前退出分开报告，stderr 只附带已捕获的有界启动输出。 */ () => {
+                clearTimeout(timer)
+                child.removeListener('close', earlyClose)
+                reject(failure('fixture spawn failed'))
+              }
+            )
+            child.stdout!.once(
+              'data',
+              /* 样例只发送一行固定版本标记。 */ (chunk: Buffer) => {
+                clearTimeout(timer)
+                child.removeListener('close', earlyClose)
+                const match = /^fixture-ready:([^\n]+)\n$/u.exec(chunk.toString())
+                if (!match) {
+                  reject(new Error('fixture readiness invalid'))
+                  return
+                }
+                versions.set(spec.role, match[1]!)
+                snapshots.get(spec.role)!.state = 'running'
+                snapshots.get(spec.role)!.loaded = process.platform === 'darwin'
+                resolve()
+              }
+            )
+          }
+        )
+      } catch (error) {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL')
+        }
+        await closed
+        children.delete(spec.role)
+        throw error
+      } finally {
+        child.stderr!.removeListener('data', capture)
+      }
     },
     // 等到自己启动的进程真正 close，不按名字/任意 PID 杀进程。
     stop: async (spec) => {
@@ -175,14 +207,12 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
         stopFailure = undefined
         throw new ServiceError('system_command_failed')
       }
-      const child = children.get(spec.role)
-      if (child && child.exitCode === null && child.signalCode === null) {
-        const closed = new Promise<void>(
-          /* 真实 close 才代表本 fixture 进程退出。 */ (resolve) =>
-            child.once('close', /* 接收直接 child 的关闭事件。 */ () => resolve())
-        )
-        child.kill('SIGTERM')
-        await closed
+      const owned = children.get(spec.role)
+      if (owned) {
+        if (owned.child.exitCode === null && owned.child.signalCode === null) {
+          owned.child.kill('SIGTERM')
+        }
+        await owned.closed
       }
       children.delete(spec.role)
       snapshots.get(spec.role)!.state = 'stopped'
@@ -195,8 +225,16 @@ export async function setup(running: readonly ServiceRole[] = ['gateway']) {
       clock += ms
     }
   })
-  for (const role of running) {
-    await backend.start(snapshots.get(role)!.spec)
+  try {
+    for (const role of running) {
+      await backend.start(snapshots.get(role)!.spec)
+    }
+  } catch (error) {
+    for (const role of children.keys()) {
+      await backend.stop(snapshots.get(role)!.spec)
+    }
+    await fs.rm(root, { recursive: true, force: true })
+    throw error
   }
   calls.length = 0
   return {
