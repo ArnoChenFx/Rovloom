@@ -55,8 +55,9 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `management.port` | integer 1–65535，关闭时也必填 | `9445`；监听地址固定 `127.0.0.1`。 |
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
-| Connector `native` | object，可选 | 默认省略，只接受以下两个安装目录字段，在首次 Luvus 初始化时应用。 |
-| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找 `luvus`；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
+| Connector `native` | object，可选 | 默认省略，只接受以下来源选择及安装目录字段，在首次原生初始化时应用。 |
+| `native.provider` | string enum，可选 | 省略时为 `luvus`；`herdr` 仅选 Herdr，`mixed` 选择各一个。须在首次设置前选定；已初始化选择的变更仍需未来的重配置流程。 |
+| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找所选 `luvus`/`herdr` 程序；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
 | `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
 
 Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、runtime/ref 选择、TLS/CA
@@ -90,18 +91,21 @@ Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、
   n/                  隔离Luvus状态；该完整路径最多52个UTF-8字节
   h/                  隔离HOME及config/data/cache/runtime XDG子目录
   w/                  隔离原生工作目录
+  hr/                 所选Herdr的私有h/c/s/k/t/w/control目录
 ```
 
 数据库可有 WAL/锁/控制附属文件，保留整个目录。不要编辑记录、编造凭据或重建缺失
 账本。原生 runtime 自有状态及安装目录不属于用户配置；首次本地终端批准会准备上述
-Luvus 资源，尚未接通 Herdr/混合首次引导。部分创建和不确定交付保留原非秘密 attempt
+所选 Luvus/Herdr 资源。Herdr 的 `hr/control/` 保存原 schema、claims 和 receipt 账本，
+`managed/herdr-setup.json` 保留原 attempt；Gateway 原 schema 路径由本机程序选择。
+这些路径和摘要都不由用户填写。部分创建和不确定交付保留原非秘密 attempt
 记录，不为启动成功而重建缺失账本；引导恢复尚不可用。
 旧 `runtime.json` 和 `refs/` 不再加载，未发布预览不保留旧格式迁移。
 已移除自管证书/CA 路径。
 
 没有 caller 状态的 Gateway 以**待配对**状态运行，MCP 返回 401，管理页不创建管理员
 会话。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
-首次原生批准为精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
+首次原生批准为全部精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
 原值保留于私有 `managed/mcp-client.json`（0600）；复制到 MCP 客户端秘密存储。
 有效期30天，本预览没有续期引导。`managed/mcp-callers.json` 保存摘要和期限。设备凭据、
 MCP Bearer 与独立管理证明互不替代。既有管理认证仍使用独立 principal/proof，
@@ -157,9 +161,54 @@ schema 输出保留原字节。已知预编译摘要只用于缓存命中，未�
 这是完整 Connector 文档中的可选片段。安装目录应由机器所有者控制；不要修改 managed
 root 记录或摘要来更换已初始化的安装。
 
-Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对话可保持本地
+Agent/模型访问配置位于 runtime 私有 HOME/XDG，按下列步骤配置。普通严格文本对话可保持本地
 `allow_terminal_execution:false`，不要用任意 argv/env 或终端输入绕过缺失 PATH。
 终端开关不会沙箱化 Agent 自身工具；binary/schema 校验或 `ready` 不证明模型已回复。
+
+### 在原生私有环境中登录 Agent
+
+首次原生设置完成后停止 Connector，由相同角色用户亲自登录；Rovloom 不复制普通 home
+凭据，也不代替用户登录。现有原生安装检查要求 binary 归该用户所有、路径受保护且不是
+符号链接；可用 `native.runtime_bin_dir` 指向这样的安装目录。
+
+下表 `D` 表示 Connector 的绝对 `data.directory`：
+
+| Runtime | HOME | XDG_CONFIG_HOME | XDG_DATA_HOME | 其他私有目录 |
+|---|---|---|---|---|
+| Luvus | `D/h` | `D/h/config` | `D/h/data` | cache `D/h/cache`；runtime `D/h/runtime` |
+| Herdr | `D/hr/h` | `D/hr/c` | 不设置，回落到其私有 HOME | state `D/hr/s`；cache `D/hr/k`；temporary `D/hr/t` |
+
+以下是**用户亲自执行**的 Herdr 私有环境登录示例。将两个绝对占位路径换成自己的配置；
+Agent 目录应与 `native.agent_bin_dir` 一致，或使用包含它的固定系统目录。
+
+```sh
+rovloom_data='/absolute/connector/data'
+agent_bin='/absolute/approved/agent/bin'
+cd "$rovloom_data/hr/w"
+env -i HOME="$rovloom_data/hr/h" PATH="$agent_bin:/usr/bin:/bin" \
+  XDG_CONFIG_HOME="$rovloom_data/hr/c" XDG_STATE_HOME="$rovloom_data/hr/s" \
+  XDG_CACHE_HOME="$rovloom_data/hr/k" TMPDIR="$rovloom_data/hr/t" \
+  TERM=xterm-256color SHELL=/bin/sh LANG=C.UTF-8 \
+  "$agent_bin/opencode" auth login
+```
+
+同一前缀配合 `auth list` 可检查已配置 provider。Luvus 按表设置，包括 XDG_DATA_HOME，
+不设置 Herdr 的 state/TMPDIR。命令见 [OpenCode 登录说明](https://opencode.ai/docs/cli/#auth)。
+Luvus 工作目录使用 `D/w`。
+在选定 XDG_CONFIG_HOME 下的 `opencode/opencode.json` 合并自己的授权 provider/model，
+参数见[官方模型配置](https://opencode.ai/docs/config/#models)，例如：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "your-provider/your-model",
+  "small_model": "your-provider/your-model"
+}
+```
+
+这是 Agent 自己的配置，不是 Rovloom JSON 字段。其他 Agent 使用其支持的方式，在同一
+私有环境中完成认证。runtime 不继承 shell API key 或代理变量；需要额外进程环境的 Agent
+接入暂不能在此配置。完成后重启 Connector；认证检查和原生 ready 都不验证模型调用或聊天完成。
 
 ## 完整 CLI 参考
 
@@ -193,7 +242,7 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对�
 显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
-上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
+上述所选原生来源的本地终端流程，Agent/模型登录仍需独立准备。
 
 ### Service 命令语法与当前可用性
 

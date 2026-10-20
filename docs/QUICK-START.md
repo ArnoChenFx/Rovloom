@@ -12,11 +12,26 @@ This preview's runtime requires **Linux x64**. There is no published installatio
 package yet; obtain the approved standalone executable from your administrator
 and place it on your PATH. Check `rovloom --version` and `rovloom --help`.
 
-For the first-run flow below, install official **Luvus** on the Connector machine.
+For the first-run flow below, install official **Luvus**, **Herdr**, or both on the Connector machine.
+Use a protected installation owned by the Connector user, without symlinks.
 Rovloom searches `/usr/bin:/bin`, not your shell PATH. If it is elsewhere, first run
 `rovloom connector` to create its role file, then set optional
 `native.runtime_bin_dir` to the single absolute installation directory and rerun.
-For an Agent installed elsewhere, also set `native.agent_bin_dir` before native
+The default `native.provider` is `luvus`. Before first setup, set it to `herdr` for
+Herdr alone or `mixed` for one of each. Keep the other fields in the same Connector
+file. This optional fragment is not a complete replacement file:
+
+```json
+{
+  "native": {
+    "provider": "mixed",
+    "runtime_bin_dir": "/home/your-user/.local/bin"
+  }
+}
+```
+
+If the file is new, Ctrl-C at the address question before editing and rerun the
+Connector afterwards. For an Agent installed elsewhere, also set `native.agent_bin_dir` before native
 initialization. See the [directory settings](CONFIGURATION.md#agent-installation-directory).
 Agent installation and model authentication are separate prerequisites for conversation.
 
@@ -43,17 +58,18 @@ The Connector creates `~/.config/rovloom/connector.json` if missing. Enter the
 Gateway address (`ws://127.0.0.1:9443` for the same machine), paste the one-time
 code without echo, and confirm trust in that Gateway. It saves its device identity
 before acknowledging delivery. Then confirm discovery and isolated initialization
-of the installed Luvus. Return to the Gateway terminal and approve that device's
-measured installation and reviewed workspace/Agent permissions.
+of each selected installation. Return to the Gateway terminal and approve that
+device's measured installations, complete Targets and reviewed workspace/Agent permissions.
 
 The Gateway privately displays the MCP Bearer and complete Target, then reopens
 its providers. Wait for its **`connector_ready`** message: this comes from the
-actual authenticated connection and live native provider. It proves neither model
+actual authenticated connection and every selected live native provider. It proves neither model
 authentication nor an Agent reply. Do not construct hashes, bindings or credentials.
 
-This first-run flow initializes **one Luvus provider**. Herdr/mixed first-run
-initialization and guided recovery/renewal are still missing. Existing provisioned
-Herdr installations use the remaining client steps. If pairing delivery or native
+The flow initializes at most **one provider of each selected kind**, with private
+native state and no adoption of an ordinary user session. It cannot add a second
+kind to an already initialized Connector; guided reconfiguration, recovery and
+renewal are still missing. If pairing delivery or native
 creation has an uncertain outcome, preserve the original data and seek owner
 review; do not delete ledgers, register another identity or assume a retry is safe.
 Non-TTY input never waits for stdin; missing setup returns `configuration_required`
@@ -82,6 +98,7 @@ no user `runtime.json`, ref list, CA or certificate file to prepare.
 For first Luvus initialization, `<data.directory>/n` must fit within **52 UTF-8
 bytes** because of the native Unix socket path limit. Choose a shorter data
 directory before pairing if required; the CLI rejects a longer path before redemption.
+Herdr uses `<data.directory>/hr/c/herdr/herdr.sock` (at most 107 UTF-8 bytes).
 
 For another device, set Gateway `devices.hostname` to an appropriate listener and
 Connector `gateway.url` to its reachable `ws://host:port` or `wss://host:port` origin,
@@ -112,11 +129,12 @@ Install the approved official Luvus or Herdr and the Agent you intend to use.
 Compatibility uses actual protocols and interfaces; version labels are diagnostic.
 Actual installation identity and controlled PATH are described in
 [native installation](CONFIGURATION.md#native-installation-and-pins).
-Rovloom discovers and initializes the installed Luvus after explicit first-run
+Rovloom discovers and initializes the selected installations after explicit first-run
 approvals. It does not install binaries or configure Agent/model access. Its native
 process uses a fresh private HOME/XDG; a login in your ordinary home is not copied.
-This preview has no guided model-login step: arrange that private Agent setup
-with the machine owner before expecting conversation. Native readiness alone does
+After first setup, stop the Connector and follow the explicit
+[private Agent login steps](CONFIGURATION.md#agent-login-in-the-private-runtime),
+then restart it before expecting conversation. Native readiness alone does
 not prove this prerequisite is met.
 
 ## 4. Connect your AI Agent's MCP client
@@ -207,9 +225,9 @@ not connected.
 
 | Problem | Next action |
 |---|---|
-| `pairing_required` / `configuration_required` | Complete the local-terminal address/code flow, Luvus installation and both owner approvals. Address JSON alone grants no identity. Preserve uncertain attempts instead of registering again or deleting state. |
+| `pairing_required` / `configuration_required` | Complete the local-terminal address/code flow, selected native installations and both owner approvals. Set `native.provider` before first setup. Address JSON alone grants no identity. Preserve uncertain attempts instead of registering again or deleting state. |
 | `config_changed` | The role file changed during a prompt. Your edits are preserved; restart the role to load them before continuing setup. |
-| `native_state_path_too_long` | Choose a shorter `data.directory` before pairing; `<data.directory>/n` must be ≤52 UTF-8 bytes. |
+| `native_state_path_too_long` | Choose a shorter `data.directory` before pairing; Luvus `n` must be ≤52 UTF-8 bytes and the Herdr socket path ≤107. |
 | Home/path/configuration/role error | Check process user, exact role file and absolute paths; use `--config` and configuration checks. Existing bad files are preserved. |
 | Configuration unreadable/not protected | Check owner, private directory and file permissions; avoid links. Existing permissions are not silently repaired. |
 | Listener failure | Check selected ports, address availability and data directory ownership. |

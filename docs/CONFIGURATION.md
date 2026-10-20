@@ -59,8 +59,9 @@ Setting an address does not establish pairing or install a native provider.
 | `management.port` | Integer 1–65535, required even when disabled | `9445`; listener hostname is fixed to `127.0.0.1`. |
 | Connector `gateway` | Object, required | Contains only `url`. |
 | `gateway.url` | String, required | `""` while setup is pending; otherwise WS/WSS origin, ≤2048 characters, e.g. `ws://192.0.2.10:9443` or `wss://gateway.example`. No credentials/query/fragment/path except optional trailing `/`. Product selects `/connector`. |
-| Connector `native` | Object, optional | Absent by default. Contains only the two installation-directory settings below; applied at first Luvus initialization. |
-| `native.runtime_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: search `/usr/bin:/bin` for `luvus`. When set, search this directory first, then those fixed system directories. No PATH lists, shell expansion or executable argv. |
+| Connector `native` | Object, optional | Absent by default. Contains only the selection and directory settings below; applied at first native initialization. |
+| `native.provider` | String enum, optional | `luvus` when absent; `herdr` selects only Herdr, `mixed` selects one Luvus and one Herdr. Choose before first setup; changing an initialized selection requires a future reconfiguration workflow. |
+| `native.runtime_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: search `/usr/bin:/bin` for each selected `luvus`/`herdr` binary. When set, search this directory first, then those fixed system directories. No PATH lists, shell expansion or executable argv. |
 | `native.agent_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: native/Agent PATH is `/usr/bin:/bin`. When set, prepend this one directory to that fixed PATH. It does not install or authenticate an Agent. |
 
 Enabled Gateway listeners must use different ports. Unknown fields, old flat
@@ -103,13 +104,17 @@ layout is shown for identification, not as a list of files to prepare:
   n/                  isolated Luvus state; this full path must be ≤52 UTF-8 bytes
   h/                  isolated HOME with config/data/cache/runtime XDG children
   w/                  isolated native working directory
+  hr/                 private Herdr h/c/s/k/t/w/control directories, when selected
 ```
 
 Databases may have WAL/lock/control companions. Preserve the directory as a whole;
 do not edit records, fabricate credentials or reconstruct missing ledgers. Native
 runtime-owned state and installation directories are not user configuration.
-First-run local terminal approval prepares those Luvus resources. The first-run
-Herdr/mixed flow is not implemented. Partial creation and uncertain delivery retain
+First-run local terminal approval prepares the selected Luvus and/or Herdr resources.
+Herdr's `hr/control/` contains the original schema, claims and receipt ledgers;
+`managed/herdr-setup.json` retains its attempt. Gateway saves received schema bytes
+at its own program-selected managed path. Users never supply these paths or hashes.
+Partial creation and uncertain delivery retain
 their original non-secret attempt journal; missing ledgers are never recreated
 to make a restart succeed. Guided recovery is not yet available.
 Old `runtime.json` and `refs/` are not loaded; there is no legacy-format migration
@@ -119,7 +124,7 @@ A Gateway with no caller state runs in a **pairing required** state. MCP returns
 401 and the management page does not create an administrator session. Existing
 MCP access still comes from a caller's already issued Bearer for the exact
 `http://<MCP-host>:<port>/mcp` resource. First native approval creates one local
-caller for the exact reviewed Target; its Bearer is displayed only to the verified
+caller restricted to the exact reviewed Targets; its Bearer is displayed only to the verified
 local terminal and kept in private `managed/mcp-client.json` (0600). Copy it into
 the MCP client's secret storage. It expires after 30 days; this preview has no
 renewal wizard. Gateway's `managed/mcp-callers.json` holds its digest/expiry. Device
@@ -191,11 +196,62 @@ This is an optional fragment of the complete Connector document. Keep the select
 installation directories under the owner's control. Do not edit a managed root
 record or its digest to change an initialized installation.
 
-Configure Agent/model access in the runtime's private HOME/XDG locations.
+Configure Agent/model access in the runtime's private HOME/XDG locations using the steps below.
 Ordinary strict text conversation can keep local `allow_terminal_execution:false`.
 Do not use arbitrary argv/env or terminal input to work around missing PATH.
 The terminal switch does not sandbox an Agent's own tools. Binary/schema validation
 or `ready` alone is not evidence that a model replied.
+
+### Agent login in the private runtime
+
+Complete first native setup, then stop the Connector. Run login yourself as the
+same role user; Rovloom does not copy ordinary-home credentials or perform login.
+The existing local installation checks require native binaries owned by that user
+in protected paths without symlinks. Use `native.runtime_bin_dir` for such an installation.
+
+Let `D` denote the absolute Connector `data.directory`:
+
+| Runtime | HOME | XDG_CONFIG_HOME | XDG_DATA_HOME | Other private directories |
+|---|---|---|---|---|
+| Luvus | `D/h` | `D/h/config` | `D/h/data` | cache `D/h/cache`; runtime `D/h/runtime` |
+| Herdr | `D/hr/h` | `D/hr/c` | unset, defaults inside its private HOME | state `D/hr/s`; cache `D/hr/k`; temporary `D/hr/t` |
+
+For example, the following **user-run login** uses Herdr's exact private environment.
+Replace both absolute placeholders with your own settings. The Agent directory
+must match `native.agent_bin_dir`, or the fixed system directory containing it.
+
+```sh
+rovloom_data='/absolute/connector/data'
+agent_bin='/absolute/approved/agent/bin'
+cd "$rovloom_data/hr/w"
+env -i HOME="$rovloom_data/hr/h" PATH="$agent_bin:/usr/bin:/bin" \
+  XDG_CONFIG_HOME="$rovloom_data/hr/c" XDG_STATE_HOME="$rovloom_data/hr/s" \
+  XDG_CACHE_HOME="$rovloom_data/hr/k" TMPDIR="$rovloom_data/hr/t" \
+  TERM=xterm-256color SHELL=/bin/sh LANG=C.UTF-8 \
+  "$agent_bin/opencode" auth login
+```
+
+Use the same prefix with `auth list` to inspect configured providers. For Luvus,
+use its table row, including XDG_DATA_HOME, and omit Herdr's state/TMPDIR settings.
+Use `D/w` as its working directory.
+OpenCode documents these [login commands](https://opencode.ai/docs/cli/#auth).
+Choose your authorized provider/model in its [configuration](https://opencode.ai/docs/config/#models),
+stored under the selected XDG_CONFIG_HOME in `opencode/opencode.json`, for example:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "your-provider/your-model",
+  "small_model": "your-provider/your-model"
+}
+```
+
+Merge those settings into the Agent's own file; they are not Rovloom JSON fields.
+Other Agents use their own supported login/configuration in the same private
+environment. Shell API keys and proxy variables are not inherited by the runtime;
+Agent integration requiring extra process environment is not configurable here.
+Restart the Connector afterwards. Authentication checks and native readiness
+do not test a model call or prove a conversation completed.
 
 ## Complete CLI reference
 
@@ -235,7 +291,7 @@ Linux at the selected path; an existing file is never overwritten. Defaults are
 resolved for the process user. Stop a foreground
 role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
 Network ports are JSON fields, not flags. Provider initialization is limited to
-the first local-terminal Luvus flow described above; Agent/model login is separate.
+the selected local-terminal native flow described above; Agent/model login is separate.
 
 ### Service command syntax and current availability
 

@@ -2,14 +2,12 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { openGatewayState } from '../runtime/state.js'
 import type { RuntimeCliGateway } from './runtime.js'
-import { checkedRemoteLuvusConfig, createPinnedRemoteLuvus } from '../runtime/remote-luvus.js'
-import { LUVUS_OPERATION_METHODS } from '../runtime/luvus-operations.js'
-import { boundedJson, fields, hash, object } from '../wire/index.js'
+import { boundedJson, fields, object } from '../wire/index.js'
 import { CliError, type GatewayConfig } from './config.js'
 import { SetupApproval } from './setup-approval.js'
 import { GatewayPairingHttp, type SetupNativeRequest } from './pairing-http.js'
 import { SetupTerminal } from './setup-terminal.js'
-import { setupPolicies, setupReference, setupTarget } from './setup-policy.js'
+import { publishSetupSchemas, reviewSetupManifest } from './setup-manifest.js'
 import { readSetupJson, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
 import { readRuntimeConfig } from './runtime-config.js'
@@ -104,12 +102,15 @@ export class GatewaySetup {
             if (
               device?.authenticated &&
               device.ready &&
-              device.providers.some(
-                /* 只认本次已定义的Luvus provider。 */ (entry) => entry.provider_id === 'luvus' && entry.ready
+              (plan.providers ?? ['luvus']).every(
+                /* 所选来源必须分别实际ready；单一健康来源不能代替混合配置全部就绪。 */ (kind) =>
+                  device.providers.some(
+                    /* 只核对原machine上的精确provider。 */ (entry) => entry.provider_id === kind && entry.ready
+                  )
               )
             ) {
               this.approval.finishReady(plan.attempt_id)
-              this.terminal.show('connector_ready / Connector 已通过真实认证且 Luvus provider 就绪。\n')
+              this.terminal.show('connector_ready / Connector 已通过真实认证且全部所选原生 provider 就绪。\n')
               clearInterval(this.#timer)
               this.#timer = undefined
             }
@@ -126,66 +127,61 @@ export class GatewaySetup {
 
   // 配对设备交付原schema字节和测量身份，Gateway自己编译核验；仅本机明确批准后创建同一完整路由权限。
   private async native(state: State, request: SetupNativeRequest): Promise<unknown> {
-    const input = object(request.input)
-    fields(input, ['reference', 'value'])
-    const reference = setupReference(request.plan.attempt_id)
-    if (input.reference !== reference) {
-      throw new CliError('configuration_required')
-    }
-    const remote = checkedRemoteLuvusConfig(reference, input.value)
-    const target = setupTarget(request.credential.machine_id)
-    const authorization = setupPolicies(request.plan, target)
-    if (
-      [...remote.contract.binary_version].some(
-        /* 远端诊断标签不能向本机确认终端注入控制序列。 */ (character) =>
-          character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
-      ) ||
-      boundedJson(remote.target) !== boundedJson(target) ||
-      remote.binding.binding_revision !== 1 ||
-      !remote.binding.enabled ||
-      remote.peer_policy_revision !== authorization.policies.local.revision ||
-      boundedJson(remote.raw_grant) !==
-        boundedJson({ principal_id: authorization.principal_id, methods: [...LUVUS_OPERATION_METHODS] })
-    ) {
-      throw new CliError('configuration_required')
-    }
-    const fingerprint = hash(boundedJson({ reference, value: remote }))
+    const { reviewed, kinds, authorization, fingerprint } = await reviewSetupManifest(
+      request.input,
+      request.plan,
+      request.credential.machine_id,
+      this.config.state_dir,
+      request.signal
+    )
     if (request.plan.phase === 'configured') {
       if (request.plan.native_fingerprint !== fingerprint) {
         throw new CliError('configuration_required')
       }
       return { state: 'configured', fingerprint }
     }
-    const verified = await createPinnedRemoteLuvus(remote)
-    verified.close()
     if (request.signal.aborted) {
       throw new CliError('configuration_required')
     }
-    // 此首个闭环只初始化一份来源；已有不同registry或caller不能被便捷引导扩大权限或覆盖。
+    // 已有不同registry或caller不能被首次引导扩大权限或覆盖；每个来源都必须属于同一批准清单。
     const providers = readRuntimeConfig(this.config).providers
     if (
       providers.some(
         /* 恢复时只允许原attempt完全相同的条目。 */ (entry) =>
-          entry.reference !== reference || boundedJson(entry.value) !== boundedJson(remote)
+          !reviewed.some(
+            /* 仅同一原条目的完全相同配置可继续。 */ (expected) =>
+              expected.reference === entry.reference &&
+              boundedJson(entry.value, 1_048_576) === boundedJson(expected.value, 1_048_576)
+          )
       )
     ) {
       throw new CliError('configuration_required')
     }
     await this.approval.approveNative(
       request.plan.attempt_id,
-      'luvus',
+      kinds,
       fingerprint,
-      "Allow this paired device's measured Luvus (" +
-        remote.contract.binary_version +
-        ', binary SHA-256 ' +
-        remote.contract.binary_sha256 +
-        ') for reviewed workspace/Agent operations and one local MCP caller? Terminal execution stays disabled. / 批准这台设备的实测 Luvus、普通窗口/Agent 操作及一个本机 MCP caller（终端执行关闭）？',
+      "Allow this paired device's measured native installations (" +
+        reviewed
+          .map(
+            /* 显示实际来源、完整Target及安装摘要，所有者能核对每份独立权限范围。 */ (entry) =>
+              entry.kind +
+              ' ' +
+              entry.label +
+              ', Target ' +
+              boundedJson(entry.target) +
+              ', binary SHA-256 ' +
+              entry.binary_sha256
+          )
+          .join('; ') +
+        ') for reviewed workspace/Agent operations and one local MCP caller? Terminal execution stays disabled. / 批准这些实测原生来源、各自窗口/Agent 操作及一个本机 MCP caller（终端执行关闭）？',
       request.signal
     )
     this.terminal.assertOwner()
     if (request.signal.aborted) {
       throw new CliError('configuration_required')
     }
+    await publishSetupSchemas(reviewed, request.signal)
     const hostname = this.config.mcp_hostname === '::1' ? '[::1]' : this.config.mcp_hostname
     const resource = new URL('http://' + hostname + ':' + this.config.mcp_port + '/mcp').href
     const clientPath = runtimeReference(this.config.state_dir, 'mcp-client')
@@ -246,14 +242,25 @@ export class GatewaySetup {
     })
     publish(
       runtimeReference(this.config.state_dir, 'providers'),
-      { schema_version: 1, role: 'gateway', providers: [{ reference, value: remote }] },
+      {
+        schema_version: 1,
+        role: 'gateway',
+        providers: reviewed.map(
+          /* 只保存已核验清单的程序配置；Gateway文件路径始终由本机程序选择。 */ (entry) => ({
+            reference: entry.reference,
+            value: entry.value
+          })
+        )
+      },
       1_048_576
     )
-    const binding = state.store.provider(target.machine_id, target.provider_id)
-    if (!binding) {
-      state.store.defineProvider(remote.binding)
-    } else if (boundedJson(binding) !== boundedJson(remote.binding)) {
-      throw new CliError('configuration_required')
+    for (const entry of reviewed) {
+      const binding = state.store.provider(entry.target.machine_id, entry.target.provider_id)
+      if (!binding) {
+        state.store.defineProvider(entry.binding)
+      } else if (boundedJson(binding) !== boundedJson(entry.binding)) {
+        throw new CliError('configuration_required')
+      }
     }
     this.approval.finishNative(request.plan.attempt_id, fingerprint)
     this.terminal.show(
@@ -261,8 +268,8 @@ export class GatewaySetup {
         clientPath +
         '\nMCP URL: ' +
         resource +
-        '\nTarget: ' +
-        boundedJson(target) +
+        '\nTargets: ' +
+        boundedJson(reviewed.map(/* 显示每个完整目标，不能合并成provider或session通配符。 */ (entry) => entry.target)) +
         '\nBinding revision: 1' +
         '\nBearer (private): ' +
         client.token +

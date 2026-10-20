@@ -10,9 +10,23 @@
 当前预览的 runtime 要求 **Linux x64**。尚无公开安装包，请从管理员取得已批准的
 单文件程序并放入 PATH。先运行 `rovloom --version` 和 `rovloom --help` 检查程序。
 
-以下首次引导需在 Connector 机器安装官方 **Luvus**。程序只搜索 `/usr/bin:/bin`，
+以下首次引导需在 Connector 机器安装官方 **Luvus**、**Herdr** 或两者。程序只搜索 `/usr/bin:/bin`，
+原生程序须安装在路径受保护、归 Connector 用户所有且不含符号链接的位置。
 不继承 shell PATH。安装在其它目录时，先运行一次 `rovloom connector` 生成角色文件，
-把可选 `native.runtime_bin_dir` 设为单个绝对安装目录，再运行。Agent 安装在其它目录时，
+把可选 `native.runtime_bin_dir` 设为单个绝对安装目录，再运行。
+`native.provider` 默认 `luvus`；首次初始化前可改为 `herdr`（仅 Herdr）或 `mixed`（各一个）。
+保留同一 Connector 文件中的其他字段。以下只是可选片段，不能替换完整角色文件：
+
+```json
+{
+  "native": {
+    "provider": "mixed",
+    "runtime_bin_dir": "/home/your-user/.local/bin"
+  }
+}
+```
+
+新文件生成后可在地址问题处 Ctrl-C，编辑后重新运行 Connector。Agent 安装在其它目录时，
 原生初始化前也需设置 `native.agent_bin_dir`，见[安装目录设置](CONFIGURATION-zh.md#agent-安装目录)。
 安装 Agent 和完成模型认证是对话的独立前提。
 
@@ -36,15 +50,16 @@ rovloom connector
 
 Connector 创建缺失的 `~/.config/rovloom/connector.json` 后，输入 Gateway 地址
 （同机为 `ws://127.0.0.1:9443`）、粘贴不回显的一次性码，并确认信任该 Gateway。
-程序先持久保存设备身份，再确认交付。随后确认发现本机 Luvus 并初始化隔离状态；
-回到 Gateway 终端，批准这台设备的实测安装及已审核的普通窗口/Agent 权限。
+程序先持久保存设备身份，再确认交付。随后逐项确认发现所选安装并初始化隔离状态；
+回到 Gateway 终端，批准这台设备的各份实测安装、完整 Target 及已审核的普通窗口/Agent 权限。
 
 Gateway 私下显示 MCP Bearer 与完整 Target，然后重开 provider。等待 Gateway 输出
-**`connector_ready`**；它来自实际认证连接和在线原生 provider，不表示模型已认证或
+**`connector_ready`**；它要求实际认证连接及全部所选原生 provider 在线，不表示模型已认证或
 Agent 已回复。不要手工构造摘要、绑定或凭据。
 
-此首次引导只初始化**一个 Luvus provider**。Herdr/混合首次初始化、引导恢复和续期仍缺失；
-已准备好的 Herdr 安装可使用后续客户端步骤。配对交付或原生创建结果不确定时，保留
+此首次引导为**每种所选来源最多初始化一个 provider**，使用独立私有原生状态，不接管普通用户会话。
+已初始化 Connector 还不支持追加另一种来源；引导式重配置、恢复和续期仍缺失。
+配对交付或原生创建结果不确定时，保留
 原始数据并由所有者核查，不删除账本、不另注册身份，也不假定可安全重试。
 非 TTY 输入始终不等待 stdin；缺少初始化返回 `configuration_required`（2）。
 产品没有 `init` 或 `pair` 命令，service 安装仍不可用。
@@ -67,6 +82,7 @@ JSON 内路径必须是规范绝对路径，不展开 `~`、变量或相对配�
 无需准备用户 `runtime.json`、ref 清单、CA 或证书文件。
 Luvus 首次初始化要求 `<data.directory>/n` 最多 **52 个 UTF-8 字节**，以适配原生
 Unix socket 路径。需要时在配对前选择较短数据目录；程序会在兑换身份之前拒绝过长路径。
+Herdr 使用 `<data.directory>/hr/c/herdr/herdr.sock`，该完整路径最多107个UTF-8字节。
 
 另一台设备接入时，为 Gateway 的 `devices.hostname` 设置合适的监听地址，并把
 Connector 的 `gateway.url` 设为可达的 `ws://host:port` 或 `wss://host:port` origin，
@@ -91,9 +107,10 @@ Connector 机器使用 `--role connector`。无选项检查读取两份默认用
 安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。兼容性按实际协议和接口能力判断，
 版本仅用于诊断。本机安装身份与
 受控 PATH 见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。Rovloom 经首次明确
-批准后会发现并初始化已安装的 Luvus，不安装 binary 或配置 Agent/模型访问。
-原生进程使用全新的私有 HOME/XDG，不复制普通 home 中的登录。本预览还没有模型登录
-引导；预期对话前需由机器所有者准备该私有 Agent 环境。原生 ready 不证明此前提已满足。
+批准后会发现并初始化所选安装，不安装 binary 或配置 Agent/模型访问。
+原生进程使用全新的私有 HOME/XDG，不复制普通 home 中的登录。首次准备完成后，停止 Connector，
+按[私有环境登录步骤](CONFIGURATION-zh.md#在原生私有环境中登录-agent)由用户完成 Agent 认证，再重启。
+原生 ready 不证明此前提已满足。
 
 ## 4. 配置 AI Agent 的 MCP 客户端
 
@@ -165,9 +182,9 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 
 | 问题 | 处理 |
 |---|---|
-| `pairing_required` / `configuration_required` | 在真实本地终端完成地址、一次性码、Luvus 安装和两次所有者批准；只填写地址不建立身份。结果不确定时保留原 attempt，不另注册或删除状态。 |
+| `pairing_required` / `configuration_required` | 在真实本地终端完成地址、一次性码、所选原生安装和两次所有者批准；首次设置前选好 `native.provider`，只填写地址不建立身份。结果不确定时保留原 attempt，不另注册或删除状态。 |
 | `config_changed` | 问答期间角色文件发生修改，程序保留用户修改并拒绝旧快照写回；重新启动角色加载新配置后再继续。 |
-| `native_state_path_too_long` | 配对前选择较短 `data.directory`；`<data.directory>/n` 须≤52个UTF-8字节。 |
+| `native_state_path_too_long` | 配对前选择较短 `data.directory`；Luvus `n` 须≤52个UTF-8字节，Herdr socket 须≤107。 |
 | home/路径/配置/角色错误 | 检查进程用户、精确角色文件和绝对路径，使用 `--config` 与配置检查；已有坏文件会保留。 |
 | 不可读或权限不安全 | 检查所有者、私有目录与文件权限，避免链接；产品不会静默修复已有权限。 |
 | 监听失败 | 检查端口、地址可用性和数据目录所有者。 |

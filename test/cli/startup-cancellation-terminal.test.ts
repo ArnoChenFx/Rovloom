@@ -20,6 +20,7 @@ import { runCli } from ${JSON.stringify(fileURLToPath(new URL('../../src/cli/run
 import { CliSetup } from ${JSON.stringify(fileURLToPath(new URL('../../src/cli/setup-runtime.ts', import.meta.url)))}
 import { createProductionCliRuntime } from ${JSON.stringify(fileURLToPath(new URL('../../src/cli/production.ts', import.meta.url)))}
 import { LuvusProductionStartupError } from ${JSON.stringify(fileURLToPath(new URL('../../src/runtime/production-luvus.ts', import.meta.url)))}
+import { HerdrProductionStartupError } from ${JSON.stringify(fileURLToPath(new URL('../../src/cli/production-herdr.ts', import.meta.url)))}
 import { LuvusAdapterError } from ${JSON.stringify(fileURLToPath(new URL('../../src/connector/luvus/types.ts', import.meta.url)))}
 const [path, kind, cancellation, fault] = process.argv.slice(1)
 const stop = new AbortController()
@@ -29,9 +30,10 @@ const setup = new CliSetup()
 let releaseCalls = 0
 const startup = new Error(${JSON.stringify(marker)})
 const cleanup = new Error(${JSON.stringify(marker)})
-const shutdown = { release: async () => { releaseCalls++ } }
+const shutdown = { release: async () => { releaseCalls++ }, status: () => ({ launch_uncertain: false, exit_confirmed: false, owner_held: true }) }
 const original = kind === 'startup'
   ? new LuvusProductionStartupError(startup, shutdown, cleanup)
+  : kind === 'herdr' ? new HerdrProductionStartupError(startup, shutdown, cleanup)
   : kind === 'adapter' ? new LuvusAdapterError('synthetic_startup_failed') : startup
 let preserved = false
 const runtime = createProductionCliRuntime({
@@ -58,7 +60,7 @@ try {
   process.exitCode = exit
   process.stdout.write(JSON.stringify({
     exit, preserved, releaseCalls, cancelled: stop.signal.aborted,
-    owner_preserved: kind !== 'startup' ||
+    owner_preserved: (kind !== 'startup' && kind !== 'herdr') ||
       (original.shutdown === shutdown && original.startupError === startup && original.cleanupError === cleanup)
   }))
 } finally {
@@ -112,6 +114,9 @@ for (const [kind, cancellation, fault] of [
   ['ordinary', 'sigterm', 'none'],
   ['startup', 'sigterm', 'none'],
   ['adapter', 'sigterm', 'none'],
+  ['herdr', 'none', 'none'],
+  ['herdr', 'sigterm', 'none'],
+  ['herdr', 'none', 'owner'],
   ['startup', 'none', 'owner']
 ]) {
   test(

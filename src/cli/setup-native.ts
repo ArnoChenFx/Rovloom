@@ -13,7 +13,7 @@ import { ConnectorAdmissionReceipts } from '../transport/admission-receipts.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import { boundedJson, fields, hash, id, object, validatePolicies } from '../wire/index.js'
 import type { ProviderPolicies } from '../wire/types.js'
-import { CliError, type ConnectorConfig } from './config.js'
+import { CliError, selectedNativeProviders, type ConnectorConfig, type NativeProviderKind } from './config.js'
 import { privateDirectory } from './first-config.js'
 import { readSetupJson, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
@@ -33,22 +33,31 @@ export type PreparedSetupNative = Readonly<{
 
 // 首次兑换前即可核对Unix socket所需短路径，不先创建身份再要求用户迁移内部状态。
 export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTerminal): void {
-  if (Buffer.byteLength(join(config.state_dir, 'n')) > 52) {
+  if (selectedNativeProviders(config).includes('luvus') && Buffer.byteLength(join(config.state_dir, 'n')) > 52) {
     terminal.show(
       'native_state_path_too_long: choose a shorter data.directory before initialization (Luvus state path maximum 52 UTF-8 bytes). / 初始化前请缩短 data.directory（Luvus 状态路径最多52个UTF-8字节）。\n'
+    )
+    throw new CliError('configuration_required')
+  }
+  if (
+    selectedNativeProviders(config).includes('herdr') &&
+    Buffer.byteLength(join(config.state_dir, 'hr/c/herdr/herdr.sock')) > 107
+  ) {
+    terminal.show(
+      'native_state_path_too_long: choose a shorter data.directory for the private Herdr socket. / 请缩短 data.directory 以容纳隔离 Herdr socket。\n'
     )
     throw new CliError('configuration_required')
   }
 }
 
 // 仅搜索受控系统目录及所有者显式业务配置的单目录，不继承shell PATH、argv或请求环境。
-function luvusBinary(config: ConnectorConfig): string {
+export function setupBinary(config: ConnectorConfig, kind: NativeProviderKind = 'luvus'): string {
   for (const directory of [
     ...(config.native?.runtime_bin_dir ? [config.native.runtime_bin_dir] : []),
     '/usr/bin',
     '/bin'
   ]) {
-    const path = join(directory, 'luvus')
+    const path = join(directory, kind)
     if (existsSync(path)) {
       return path
     }
@@ -91,7 +100,7 @@ export async function prepareSetupNative(
   if (existing !== undefined) {
     return prepared(existing, attempt, credential.machine_id, config)
   }
-  const binary = luvusBinary(config)
+  const binary = setupBinary(config)
   if (
     !(await terminal.confirm(
       'Discover this Luvus installation and create its isolated local state (terminal execution disabled)? / 发现 Luvus 并创建隔离状态（关闭终端执行）？'
