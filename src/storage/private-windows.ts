@@ -144,12 +144,11 @@ function stamp(handle: bigint, path: string, directory: boolean, privateLeaf: bo
   }
   const final = Buffer.alloc(32768 * 2)
   const units = k.GetFinalPathNameByHandleW(handle, final, 32768, 0)
-  if (
-    units < 1 ||
-    units >= 32768 ||
-    final.toString('utf16le', 0, units * 2).toLowerCase() !== ('\\\\?\\' + path).toLowerCase()
-  ) {
-    throw new GatewayError('unsafe_storage_path')
+  if (units < 1 || units >= 32768) {
+    throw new GatewayError('storage_path_query_failed')
+  }
+  if (final.toString('utf16le', 0, units * 2).toLowerCase() !== ('\\\\?\\' + path).toLowerCase()) {
+    throw new GatewayError(path === win32.parse(path).root ? 'unsafe_storage_volume_path' : 'unsafe_storage_path_alias')
   }
   const size = Number((BigInt(info.readUInt32LE(32)) << 32n) | BigInt(info.readUInt32LE(36)))
   if (!Number.isSafeInteger(size)) {

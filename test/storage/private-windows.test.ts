@@ -7,6 +7,7 @@ import {
   existsSync,
   linkSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -33,7 +34,7 @@ import { windowsCurrentSid } from '../../src/update/windows/security.js'
 
 // 根目录由待测原生 API 直接新建私有 DACL，不能将默认继承的 mkdtemp 目录修复成成功fixture。
 function temporary(check: (root: string) => void): void {
-  const root = join(tmpdir(), 'rovloom-win-private-' + randomUUID())
+  const root = join(realpathSync(tmpdir()), 'rovloom-win-private-' + randomUUID())
   ensureWindowsPrivateDirectory(root)
   try {
     check(root)
