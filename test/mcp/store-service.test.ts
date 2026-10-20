@@ -13,6 +13,7 @@ import {
   type ServiceContext
 } from '../../src/mcp/index.js'
 import { policy, secondTarget, storeFixture, syntheticCredential, syntheticSecret, target } from './store-fixture.js'
+import { clockWrites } from '../storage/clock-write-helpers.js'
 
 // 生成受信宿主context，既不来自MCP参数，也不携带设备凭据或管理员会话。
 function context(principal = 'alice', signal = new AbortController().signal): ServiceContext {
@@ -26,6 +27,86 @@ function adminContext(): AdminContext {
 function code(expected: string) {
   return /* 严格匹配受控服务异常和代码，不接纳SQLite路径或其它异常。 */ (error: unknown) =>
     error instanceof FacadeServiceError && error.code === expected
+}
+
+test(
+  'call_get 每轮只由 Store.call 写一次最新持久时钟，后续回退仍被拒绝',
+  /** 在真实文件库上计数实际 UPDATE，并从第二连接确认高水位没有取消或延迟持久化。 */ async () => {
+    const f = storeFixture()
+    const inspect = new DatabaseSync(f.path, { readOnly: true })
+    try {
+      f.advance(1)
+      const measured = clockWrites(
+        f.store,
+        /** 无等待读取的首轮同步完成 Store 门禁，返回的 Promise 仍由测试等待。 */ () =>
+          f.service.execute('runtime_call_get', { call_id: 'call_fixture' }, context())
+      )
+      assert.equal((await measured.result).data.state, 'responded')
+      assert.equal(measured.updates, 1)
+      assert.equal(inspect.prepare('SELECT clock FROM metadata').get()!.clock, 1_000_001)
+      f.advance(-1)
+      await assert.rejects(
+        f.service.execute('runtime_call_get', { call_id: 'call_fixture' }, context()),
+        code('storage_degraded')
+      )
+    } finally {
+      inspect.close()
+      f.close()
+    }
+  }
+)
+
+for (const change of ['clock', 'recovery', 'owner'] as const) {
+  test(
+    'call_get 短等下一轮重新核验 ' + change,
+    /** 第二轮身份读取时交错改变真实存储事实，不能跨轮沿用入口的时钟或归属快照。 */ async () => {
+      const f = storeFixture()
+      f.store.connect('machine_a', syntheticCredential)
+      const call = new Router(f.store, f.localPolicies).create(
+        f.current(),
+        target,
+        { method: 'pane.read' },
+        { binding_revision: 1, contract_ref: 'a'.repeat(64) }
+      )
+      let snapshots = 0
+      const service = new StoreGatewayService({
+        store: f.store,
+        localPolicies: f.localPolicies,
+        identities: {
+          ...f.identities,
+          /** 第三次身份快照是等待后的第二轮，之后仍由原 Store/Router 完成实际拒绝。 */ principal(caller) {
+            const value = f.identities.principal(caller)
+            if (++snapshots === 3) {
+              if (change === 'clock') {
+                f.advance(-1)
+              } else {
+                const update = new DatabaseSync(f.path)
+                try {
+                  if (change === 'recovery') {
+                    update.exec("UPDATE metadata SET mode='recovery_quarantined'")
+                  } else {
+                    update.prepare("UPDATE calls SET principal='bob' WHERE call_id=?").run(call.call_id)
+                  }
+                } finally {
+                  update.close()
+                }
+              }
+            }
+            return value
+          }
+        }
+      })
+      try {
+        await assert.rejects(
+          service.execute('runtime_call_get', { call_id: call.call_id, wait_ms: 5000 }, context()),
+          code(change === 'clock' ? 'storage_degraded' : change === 'recovery' ? 'recovery_quarantined' : 'not_found')
+        )
+        assert.equal(snapshots, 3)
+      } finally {
+        f.close()
+      }
+    }
+  )
 }
 
 test(

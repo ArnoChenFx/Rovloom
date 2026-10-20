@@ -1588,6 +1588,23 @@ export class Store {
       false
     )
   }
+  // 按当前归属、内容和期限读取已有句柄元数据，不进入签发事务，不续期或创建句柄。
+  findResult(
+    principal: string,
+    callId: string
+  ): Pick<ResultPage, 'result_id' | 'bytes' | 'hash' | 'expires'> | undefined {
+    if (this.transactionTime !== undefined) {
+      throw new GatewayError('transaction_in_progress')
+    }
+    this.active()
+    const call = this.call(principal, callId)
+    if (call.state !== 'responded' || call.content_status !== 'available' || !call.response) {
+      throw new GatewayError('result_not_ready')
+    }
+    return this.db
+      .prepare('SELECT result_id,bytes,hash,expires FROM results WHERE call_id=? AND expires>?')
+      .get(callId, this.time()) as Pick<ResultPage, 'result_id' | 'bytes' | 'hash' | 'expires'> | undefined
+  }
   // 只为已提交且当前可见的响应创建有界结果句柄，拒绝过期、删除或超配额内容。
   saveResult(
     principal: string,
@@ -1672,8 +1689,8 @@ export class Store {
     }
     return call
   }
-  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标、原内容摘要及实际句柄截止时间，不创建或续期句柄。
-  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): ResultPage {
+  // 共用原归属、参数及末次句柄查询，返回仅供本次同步操作使用的读取事实，不构造正文页。
+  private resultRead(principal: string, resultId: string, cursor: number, maxBytes: number) {
     const call = this.resultCall(principal, resultId)
     if (
       !Number.isSafeInteger(cursor) ||
@@ -1694,6 +1711,15 @@ export class Store {
     if (cursor > row.bytes) {
       throw new GatewayError('invalid_result_cursor')
     }
+    return { call, row }
+  }
+  // 执行与实际分页相同的归属、期限和参数检查；成功只表示本次预检通过，不授予后续交付权。
+  checkResultRead(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): void {
+    this.resultRead(principal, resultId, cursor, maxBytes)
+  }
+  // 以 UTF-8 字节偏移截取有界响应片段，返回 base64、下一游标、原内容摘要及实际句柄截止时间，不创建或续期句柄。
+  readResult(principal: string, resultId: string, cursor = 0, maxBytes = 65_536): ResultPage {
+    const { call, row } = this.resultRead(principal, resultId, cursor, maxBytes)
     const data = Buffer.from(call.response!).subarray(cursor, cursor + maxBytes)
     return {
       result_id: resultId,

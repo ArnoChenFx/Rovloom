@@ -299,7 +299,7 @@ export class StoreGatewayService implements GatewayService {
   private async callGet(args: ToolArguments['runtime_call_get'], context: ServiceContext): Promise<CallView> {
     const until = performance.now() + (args.wait_ms ?? 0)
     while (true) {
-      this.now()
+      // Router.get 经 Store.call 取得本轮最新持久时钟，并核验归属、恢复与当前 ACL。
       const call = this.router.get(this.principal(context), args.call_id)
       if (!['created', 'dispatching', 'connector_accepted'].includes(call.state) || performance.now() >= until) {
         return publicCallView(call)
@@ -339,8 +339,10 @@ export class StoreGatewayService implements GatewayService {
         throw new FacadeServiceError('invalid_arguments')
       }
       const principal = this.principal(context)
-      const now = this.now()
-      const data = await this.run(request, principal, context, now)
+      const data =
+        request.name === 'runtime_call_get'
+          ? await this.callGet(request.args, context)
+          : await this.run(request, principal, context, this.now())
       return { data: data as ReplyData[K] }
     } catch (error) {
       throw serviceError(error)
@@ -354,9 +356,6 @@ export class StoreGatewayService implements GatewayService {
     context: ServiceContext,
     now: number
   ): Promise<ReplyData[ToolName]> {
-    if (request.name === 'runtime_call_get') {
-      return this.callGet(request.args, context)
-    }
     if (request.name === 'runtime_response_discard') {
       this.router.discardResponse(principal, request.args.call_id)
       return { call_id: request.args.call_id, content_status: 'discarded' }

@@ -288,7 +288,7 @@ export function createProviderResultAccess(options: ProviderResultAccessOptions)
           id(resultId)
           const owned = store.resultCall(principal.id, resultId)
           call(principal, owned.call_id)
-          router(principal).readResult(principal, resultId, cursor, maxBytes)
+          router(principal).checkResultRead(principal, resultId, cursor, maxBytes)
           const current = readable(principal, owned.call_id)
           // 最后一道策略回调可能已使实际句柄失效；授权结束后重新读页，禁止交付回调前准备的副本。
           const page = store.readResult(principal.id, resultId, cursor, maxBytes)
