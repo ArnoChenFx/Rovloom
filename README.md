@@ -77,8 +77,8 @@ Follow the [Quick Start](docs/QUICK-START.md) for installation prerequisites,
 Gateway/Connector configuration paths, startup, HTTP MCP access and Agent use.
 The [configuration reference](docs/CONFIGURATION.md) lists the exact settings
 and complete non-secret templates. Local terminal setup can pair one Connector
-and initialize an installed Luvus; Agent/model setup and Herdr first-run guidance
-remain prerequisites outside this flow.
+and initialize installed Luvus, Herdr or both; Agent/model setup remains a
+separate prerequisite.
 
 ```sh
 rovloom --version

@@ -4,8 +4,9 @@ import { PairingAdmin } from '../transport/pairing.js'
 import type { IdentityApproval, IdentityIntent } from '../transport/identity-store.js'
 import type { ManagementRequest } from '../storage/model.js'
 import type { openGatewayState } from '../runtime/state.js'
-import { fields, id, object, sha } from '../wire/index.js'
-import { CliError } from './config.js'
+import { boundedJson, fields, id, object, sha } from '../wire/index.js'
+import { CliError, type NativeProviderKind } from './config.js'
+import { setupProviderKinds } from './setup-policy.js'
 import { runtimeReference } from './runtime-files.js'
 import { readSetupJson, writeSetupJson } from './setup-files.js'
 import { SetupTerminal } from './setup-terminal.js'
@@ -34,6 +35,7 @@ export type PairingPlan = Readonly<{
   enrollment_sha256?: string
   identity_confirmation: string
   native_fingerprint?: string
+  providers?: readonly NativeProviderKind[]
 }>
 const phases = new Set([
   'registering',
@@ -65,7 +67,7 @@ function plan(value: unknown): PairingPlan {
         'phase',
         'identity_confirmation'
       ],
-      ['machine_id', 'enrollment_sha256', 'native_fingerprint']
+      ['machine_id', 'enrollment_sha256', 'native_fingerprint', 'providers']
     )
     for (const key of [
       'attempt_id',
@@ -94,10 +96,16 @@ function plan(value: unknown): PairingPlan {
     if (row.native_fingerprint !== undefined) {
       sha(row.native_fingerprint)
     }
+    if (row.providers !== undefined) {
+      setupProviderKinds(row.providers)
+    }
     if (!['registering', 'reserved'].includes(String(row.phase)) && (!row.machine_id || !row.enrollment_sha256)) {
       throw new CliError('invalid_config')
     }
-    return Object.freeze({ ...row }) as PairingPlan
+    return Object.freeze({
+      ...row,
+      ...(row.providers ? { providers: setupProviderKinds(row.providers) } : {})
+    }) as PairingPlan
   } catch {
     throw new CliError('invalid_config')
   }
@@ -291,19 +299,22 @@ export class SetupApproval {
   // 配对不代表原生权限；实际安装信息经本地所有者再次明确批准后才准备provider管理确认。
   async approveNative(
     attempt: string,
-    provider: string,
+    provider: string | readonly NativeProviderKind[],
     fingerprint: string,
     description: string,
     signal = this.terminal.io.signal
   ): Promise<PairingPlan> {
     const state = this.state()
     const current = this.read(attempt)
-    id(provider)
+    const providers = setupProviderKinds(typeof provider === 'string' ? [provider] : provider)
     sha(fingerprint)
     if (!['paired', 'native_approved'].includes(current.phase)) {
       throw new CliError('configuration_required')
     }
     if (current.phase === 'native_approved' && current.native_fingerprint !== fingerprint) {
+      throw new CliError('configuration_required')
+    }
+    if (current.providers && boundedJson(current.providers) !== boundedJson(providers)) {
       throw new CliError('configuration_required')
     }
     if (!(await this.terminal.confirm(description, signal))) {
@@ -317,12 +328,14 @@ export class SetupApproval {
     ) {
       throw new CliError('configuration_required')
     }
-    this.#providers.set(current.machine_id + '/' + provider, {
-      confirmation: randomUUID(),
-      expires: Date.now() + 300_000,
-      generation: current.generation
-    })
-    return this.save({ ...current, phase: 'native_approved', native_fingerprint: fingerprint }, true)
+    for (const kind of providers) {
+      this.#providers.set(current.machine_id + '/' + kind, {
+        confirmation: randomUUID(),
+        expires: Date.now() + 300_000,
+        generation: current.generation
+      })
+    }
+    return this.save({ ...current, phase: 'native_approved', native_fingerprint: fingerprint, providers }, true)
   }
 
   // 交给Store的既有management端口，每份批准仅限一个provider初次定义且严格消费一次。

@@ -73,8 +73,8 @@ flowchart TB
 
 从[快速开始](docs/QUICK-START-zh.md)了解安装前提、Gateway/Connector 配置路径、启动、
 HTTP MCP 接入与 Agent 使用。[配置参考](docs/CONFIGURATION-zh.md)列出精确参数和完整无秘密模板。
-本地终端引导可配对一个 Connector 并初始化已安装的 Luvus；Agent/模型准备及 Herdr
-首次引导尚未接入此流程。
+本地终端引导可配对一个 Connector 并初始化已安装的 Luvus、Herdr 或两者；
+Agent/模型仍需独立准备。
 
 ```sh
 rovloom --version

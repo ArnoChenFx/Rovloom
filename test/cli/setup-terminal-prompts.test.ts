@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { configDocument, configTemplate, parseConfig } from '../../src/cli/config.js'
 import { connectorNativePrompt, gatewayNativePrompt } from '../../src/cli/setup-prompts.js'
-import { setupPolicies, setupTarget } from '../../src/cli/setup-policy.js'
+import { selectedSetupPolicies } from '../../src/cli/setup-policy.js'
 
 for (const enabled of [undefined, false, true]) {
   test(
@@ -17,13 +17,19 @@ for (const enabled of [undefined, false, true]) {
         ...(enabled === undefined ? {} : { allow_terminal_execution: enabled })
       })
       assert(connector.role === 'connector')
-      const local = connectorNativePrompt(connector.allow_terminal_execution)
-      assert.match(
-        local,
-        enabled === true ? /terminal execution ENABLED.*已开启终端执行/ : /terminal execution disabled.*关闭终端执行/
-      )
-      const target = setupTarget('synthetic_machine')
-      const policies = setupPolicies({ attempt_id: 'synthetic_attempt', actor: 'synthetic_actor' }, target).policies
+      for (const kind of ['Luvus', 'Herdr'] as const) {
+        const local = connectorNativePrompt(connector.allow_terminal_execution, kind)
+        assert.match(
+          local,
+          enabled === true ? /terminal execution ENABLED.*已开启终端执行/ : /terminal execution disabled.*关闭终端执行/
+        )
+        assert(local.includes(kind))
+      }
+      const policies = selectedSetupPolicies(
+        { attempt_id: 'synthetic_attempt', actor: 'synthetic_actor' },
+        'synthetic_machine',
+        ['luvus', 'herdr']
+      ).policies
       assert(policies.caller.grants[0]!.methods.includes('pane.run'))
       assert(policies.local.grants[0]!.methods.includes('pane.run'))
       const gateway = gatewayNativePrompt('synthetic-version', 'a'.repeat(64))

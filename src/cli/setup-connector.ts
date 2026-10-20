@@ -4,13 +4,21 @@ import type { DeviceCredential } from '../transport/identity.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { boundedJson, fields, id, object, uint, hash } from '../wire/index.js'
 import type { ProviderPolicies } from '../wire/types.js'
-import { CliError, configDocument, parseConfig, readConfig, type ConnectorConfig } from './config.js'
+import {
+  CliError,
+  configDocument,
+  parseConfig,
+  readConfig,
+  selectedNativeProviders,
+  type ConnectorConfig
+} from './config.js'
 import { privateDirectory } from './first-config.js'
 import { SetupTerminal } from './setup-terminal.js'
 import { readSetupJson, setupFileStamp, writeSetupFile, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
 import { prepareSetupNative, assertSetupNativePath } from './setup-native.js'
-import { setupPolicies, setupTarget } from './setup-policy.js'
+import { selectedSetupPolicies } from './setup-policy.js'
+import { prepareSetupHerdr } from './setup-herdr.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import { join } from 'node:path'
 
@@ -63,7 +71,7 @@ async function post(config: ConnectorConfig, path: string, value: unknown, signa
       method: 'POST',
       redirect: 'error',
       headers: { 'content-type': 'application/json' },
-      body: boundedJson(value),
+      body: boundedJson(value, path === '/pairing/native' ? 1_048_576 : 16_384),
       signal: AbortSignal.any([signal, AbortSignal.timeout(timeout)])
     })
   )
@@ -205,7 +213,7 @@ async function pair(
   const status = await post(
     config,
     '/pairing/status',
-    { attempt_id: current.attempt_id, authentication: credential },
+    { attempt_id: current.attempt_id, authentication: credential, providers: selectedNativeProviders(config) },
     terminal.io.signal
   )
   fields(status, ['attempt_id', 'machine_id', 'recovery_generation', 'phase', 'authorization'])
@@ -220,9 +228,10 @@ async function pair(
   const authorization = object(status.authorization)
   fields(authorization, ['principal_id', 'policies'])
   id(authorization.principal_id)
-  const expected = setupPolicies(
+  const expected = selectedSetupPolicies(
     { attempt_id: current.attempt_id, actor: authorization.principal_id },
-    setupTarget(credential.machine_id)
+    credential.machine_id,
+    selectedNativeProviders(config)
   )
   if (boundedJson(authorization) !== boundedJson(expected)) {
     throw new CliError('configuration_required')
@@ -251,16 +260,28 @@ export async function setupConnector(config: ConnectorConfig, terminal: SetupTer
   privateDirectory(config.state_dir)
   privateDirectory(join(config.state_dir, 'managed'))
   const paired = await pair(config, terminal)
-  terminal.show('pairing_completed / 设备身份已持久配对；接下来发现实际 Luvus。\n')
-  const native = await prepareSetupNative(
-    config,
-    terminal,
-    paired.credential,
-    paired.current.attempt_id,
-    paired.authorization
+  terminal.show('pairing_completed / 设备身份已持久配对；接下来发现所选原生安装。\n')
+  const prepared = []
+  for (const kind of selectedNativeProviders(config)) {
+    prepared.push(
+      await (kind === 'luvus' ? prepareSetupNative : prepareSetupHerdr)(
+        config,
+        terminal,
+        paired.credential,
+        paired.current.attempt_id,
+        paired.authorization
+      )
+    )
+  }
+  const installations = prepared.map(
+    /* 每份清单只包含原生来源和公开schema，不包含Connector的本地路径或凭据。 */ (native) => ({
+      reference: native.reference,
+      value: native.remote
+    })
   )
-  const installation = { reference: native.reference, value: native.remote }
-  const expected = hash(boundedJson(installation))
+  const installation =
+    installations.length === 1 && selectedNativeProviders(config)[0] === 'luvus' ? installations[0]! : { installations }
+  const expected = hash(boundedJson(installation, 1_048_576))
   try {
     const applied = await post(
       config,
@@ -282,7 +303,16 @@ export async function setupConnector(config: ConnectorConfig, terminal: SetupTer
   }
   writeSetupJson(
     runtimeReference(config.state_dir, 'providers'),
-    { schema_version: 1, role: 'connector', providers: [{ reference: native.reference, value: native.local }] },
+    {
+      schema_version: 1,
+      role: 'connector',
+      providers: prepared.map(
+        /* 程序自己的私有本地配置沿用既有生产工厂。 */ (native) => ({
+          reference: native.reference,
+          value: native.local
+        })
+      )
+    },
     false,
     1_048_576
   )

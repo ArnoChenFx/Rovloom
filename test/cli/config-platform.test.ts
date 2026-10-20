@@ -2,7 +2,7 @@
 import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { configTemplate, parseConfig } from '../../src/cli/config.js'
+import { configTemplate, parseConfig, selectedNativeProviders } from '../../src/cli/config.js'
 
 test(
   '双角色模板在各平台生成本机规范绝对占位路径并经过同一严格解析',
@@ -51,6 +51,27 @@ test(
           /* 未声明的能力或多目录PATH输入均在角色parser前置拒绝。 */ () => parseConfig({ ...value, native }, platform)
         )
       }
+    }
+  }
+)
+
+test(
+  '首次native选择只接受Luvus、Herdr或固定混合，省略时保留原Luvus路径',
+  /* 业务选择不能变成动态模块、路径、空列表或任意provider注册接口。 */ () => {
+    const value = configDocument(configTemplate('connector'))
+    assert.deepEqual(selectedNativeProviders(parseConfig(value) as import('../../src/cli/config.js').ConnectorConfig), [
+      'luvus'
+    ])
+    for (const provider of ['luvus', 'herdr', 'mixed'] as const) {
+      const selected = parseConfig({
+        ...value,
+        native: { provider }
+      }) as import('../../src/cli/config.js').ConnectorConfig
+      assert.deepEqual(selectedNativeProviders(selected), provider === 'mixed' ? ['luvus', 'herdr'] : [provider])
+      assert.deepEqual(configDocument(selected).native, { provider })
+    }
+    for (const provider of ['', 'custom', '/bin/herdr', ['luvus', 'herdr'], {}, null, 1]) {
+      assert.throws(/* 无效选择在任何配对或原生进程之前拒绝。 */ () => parseConfig({ ...value, native: { provider } }))
     }
   }
 )

@@ -6,7 +6,7 @@
 运行一个 **Connector**，由它主动连接 Gateway。两个角色也可以运行在同一台机器上。
 
 Gateway 支持 Linux/macOS/Windows，下面的首次配对和原生 Connector 引导要求 Linux x64。
-Herdr/混合首次引导和 Agent/模型登录引导尚不可用；全新安装目前还不能只靠 Rovloom
+Agent/模型登录引导尚不可用；全新安装目前还不能只靠 Rovloom
 完成模型设置。
 
 ## 1. 准备程序
@@ -18,11 +18,13 @@ rovloom --version
 rovloom --help
 ```
 
-按下面的引导使用时，请在 Connector 机器安装官方 [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest)。
+按下面的引导使用时，请在 Connector 机器安装官方 [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest)、
+[latest Herdr](https://github.com/herdrdev/herdr/releases/latest) 或两者。
 需要对话时还应单独安装所选 Agent。Rovloom 不安装这些程序，也不会登录模型提供商。
 
-默认在 `/usr/bin:/bin` 查找 Luvus 和 Agent。安装在其他目录时，在**批准原生初始化前**，
+默认在 `/usr/bin:/bin` 查找所选原生程序和 Agent。安装在其他目录时，在**批准原生初始化前**，
 将 `native.runtime_bin_dir` 和/或 `native.agent_bin_dir` 写入 Connector 的唯一配置文件。
+选择 Herdr 或两者时，在原生批准前将 `native.provider` 设为 `herdr` 或 `mixed`；省略时选 Luvus。
 参见[安装目录设置](CONFIGURATION-zh.md#agent-安装目录)。普通 home 中的 Agent 登录
 不会被沿用；请由机器所有者在 Rovloom 隔离的 Agent 环境准备模型访问。
 该环境的登录引导目前仍缺失。
@@ -38,7 +40,7 @@ rovloom --help
 1. 在 Gateway 终端同意配对，获取有效期五分钟的私密一次性码。
 2. 在 Connector 终端输入 Gateway 地址。同机使用 `ws://127.0.0.1:9443`。
    粘贴一次性码，并确认信任这个 Gateway。
-3. 在 Connector 同意发现并初始化已安装的 Luvus。然后回到 Gateway 终端，
+3. 在 Connector 依次同意发现并初始化所选已安装程序。然后回到 Gateway 终端，
    批准显示的安装和工作区/Agent 访问范围。
 4. 将 Gateway 私密显示的 MCP 接入信息保存到 MCP 客户端的秘密存储。
    等待 **`connector_ready`** 后再尝试调用。

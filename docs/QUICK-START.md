@@ -7,8 +7,7 @@ on each machine where Luvus or Herdr runs; it connects out to the Gateway.
 Both roles can run on the same machine.
 
 Gateway runs on Linux/macOS/Windows. The guided first-pairing and native Connector
-flow below requires Linux x64. Guided Herdr/mixed setup and Agent/model login are
-not available yet. A new installation cannot complete model setup through Rovloom alone.
+flow below requires Linux x64. Guided Agent/model login is not available yet. A new installation cannot complete model setup through Rovloom alone.
 
 ## 1. Prepare the programs
 
@@ -20,14 +19,16 @@ rovloom --version
 rovloom --help
 ```
 
-For the guided setup below, install the official [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest)
-on the Connector machine. Install your chosen Agent separately if you want a
+For the guided setup below, install official [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest),
+[latest Herdr](https://github.com/herdrdev/herdr/releases/latest), or both on the Connector machine. Install your chosen Agent separately if you want a
 conversation. Rovloom does not install these programs or sign in to a model provider.
 
-By default, Rovloom looks for Luvus and the Agent in `/usr/bin:/bin`.
+By default, Rovloom looks for the selected native programs and the Agent in `/usr/bin:/bin`.
 For another installation directory, set `native.runtime_bin_dir` and/or
 `native.agent_bin_dir` in the Connector's single configuration **before approving
 native setup**. See the [installation settings](CONFIGURATION.md#agent-installation-directory).
+To select Herdr or both programs, set `native.provider` to `herdr` or `mixed`
+before native approval; omitting it selects Luvus.
 An Agent login in your ordinary home is not reused; ask the machine owner to
 prepare model access in Rovloom's isolated Agent environment. The login guide
 for that environment is still missing.
@@ -44,7 +45,7 @@ Run these commands in two real local terminals, keeping both open:
    valid for five minutes.
 2. In the Connector terminal, enter the Gateway address. For the same machine,
    use `ws://127.0.0.1:9443`. Paste the code and confirm that you trust this Gateway.
-3. Approve discovery and initialization of the installed Luvus on the Connector.
+3. Approve discovery and initialization of each selected installation on the Connector.
    Then return to the Gateway terminal and approve the displayed installation
    and workspace/Agent access.
 4. Save the MCP connection details displayed privately by the Gateway in your

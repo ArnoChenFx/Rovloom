@@ -1,0 +1,184 @@
+// Gateway从配对设备的实际schema字节核对固定首次来源清单；不接受设备选择Gateway文件路径或重建可信句柄。
+import { compileHerdrSchemas } from '../connector/herdr/compiler-api.js'
+import { parseHerdrProviderRefConfig, createHerdrGatewayResources } from '../connector/herdr/provider.js'
+import { createHerdrCodec } from '../connector/herdr/readonly.js'
+import { checkedRemoteLuvusConfig, createPinnedRemoteLuvus } from '../runtime/remote-luvus.js'
+import { boundedJson, fields, hash, object } from '../wire/index.js'
+import type { ProviderBinding, V2Target } from '../wire/types.js'
+import { CliError, type NativeProviderKind } from './config.js'
+import type { PairingPlan } from './setup-approval.js'
+import { selectedSetupPolicies, setupProviderKinds, setupReference, setupTarget } from './setup-policy.js'
+import { readRuntimeFile, runtimeReference } from './runtime-files.js'
+import { writeSetupFile } from './setup-files.js'
+
+export type ReviewedSetupInstallation = Readonly<{
+  kind: NativeProviderKind
+  reference: string
+  target: V2Target
+  binding: ProviderBinding
+  value: unknown
+  label: string
+  binary_sha256: string
+  schema?: Readonly<{ path: string; bytes: Buffer }>
+}>
+
+// 诊断标签须为有界单行文本，不能向所有者确认注入TTY控制序列。
+function label(value: string | null): string {
+  if (value === null) {
+    return 'unavailable'
+  }
+  if (
+    !value.length ||
+    value.length > 128 ||
+    [...value].some(
+      /* 保留普通可见字符，拒绝C0/DEL。 */ (character) =>
+        character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
+    )
+  ) {
+    throw new CliError('configuration_required')
+  }
+  return value
+}
+
+// 兼容既有单Luvus封套；新清单只接纳一个Herdr或固定顺序的Luvus+Herdr，没有任意provider注册入口。
+export async function reviewSetupManifest(
+  input: unknown,
+  plan: PairingPlan,
+  machine: string,
+  directory: string,
+  signal: AbortSignal
+) {
+  const row = object(input)
+  let entries: unknown[]
+  if (Object.hasOwn(row, 'installations')) {
+    fields(row, ['installations'])
+    if (!Array.isArray(row.installations)) {
+      throw new CliError('configuration_required')
+    }
+    entries = row.installations
+  } else {
+    fields(row, ['reference', 'value'])
+    entries = [row]
+  }
+  const kinds = setupProviderKinds(
+    entries.map(
+      /* kind只供选择已有静态核验器；完整封套随后继续严格解析。 */ (entry) => object(object(entry).value).kind
+    )
+  )
+  if (plan.providers && boundedJson(plan.providers) !== boundedJson(kinds)) {
+    throw new CliError('configuration_required')
+  }
+  const authorization = selectedSetupPolicies(plan, machine, kinds)
+  const reviewed: ReviewedSetupInstallation[] = []
+  for (let index = 0; index < entries.length; index++) {
+    const kind = kinds[index]!
+    const entry = object(entries[index])
+    fields(entry, ['reference', 'value'])
+    const reference = setupReference(plan.attempt_id, kind)
+    const target = setupTarget(machine, kind)
+    if (entry.reference !== reference) {
+      throw new CliError('configuration_required')
+    }
+    if (kind === 'luvus') {
+      const remote = checkedRemoteLuvusConfig(reference, entry.value)
+      const expectedGrant = authorization.policies.caller.grants.find(
+        /* 每份native只获得本来源Target对应的方法。 */ (grant) => boundedJson(grant.target) === boundedJson(target)
+      )!
+      if (
+        boundedJson(remote.target) !== boundedJson(target) ||
+        remote.binding.binding_revision !== 1 ||
+        !remote.binding.enabled ||
+        remote.peer_policy_revision !== authorization.policies.local.revision ||
+        boundedJson(remote.raw_grant) !==
+          boundedJson({ principal_id: authorization.principal_id, methods: expectedGrant.methods })
+      ) {
+        throw new CliError('configuration_required')
+      }
+      const verified = await createPinnedRemoteLuvus(remote)
+      verified.close()
+      reviewed.push({
+        kind,
+        reference,
+        target,
+        binding: remote.binding,
+        value: remote,
+        label: label(remote.contract.binary_version),
+        binary_sha256: remote.contract.binary_sha256
+      })
+    } else {
+      const remote = object(entry.value)
+      fields(remote, ['kind', 'config', 'schema_bundle'])
+      const config = object(remote.config)
+      fields(config, ['version', 'target', 'binding_revision', 'config_ref', 'expected_source', 'peer_policy_revision'])
+      if (
+        remote.kind !== 'herdr' ||
+        typeof remote.schema_bundle !== 'string' ||
+        Buffer.byteLength(remote.schema_bundle) > 524_288
+      ) {
+        throw new CliError('configuration_required')
+      }
+      const path = runtimeReference(directory, 'herdr-schema_' + plan.attempt_id)
+      const parsed = parseHerdrProviderRefConfig({ ...config, schema_path: path })
+      const bytes = Buffer.from(remote.schema_bundle, 'utf8')
+      if (
+        parsed.config_ref !== reference ||
+        parsed.binding_revision !== 1 ||
+        boundedJson(parsed.target) !== boundedJson(target) ||
+        parsed.peer_policy_revision !== authorization.policies.local.revision ||
+        hash(bytes) !== parsed.expected_source.schema_sha256
+      ) {
+        throw new CliError('configuration_required')
+      }
+      const compiled = await compileHerdrSchemas(bytes, signal)
+      createHerdrCodec(parsed.expected_source, compiled)
+      const binding: ProviderBinding = {
+        machine_id: machine,
+        provider_id: kind,
+        kind,
+        config_ref: reference,
+        binding_revision: 1,
+        enabled: true
+      }
+      reviewed.push({
+        kind,
+        reference,
+        target,
+        binding,
+        value: { kind, config: parsed },
+        label: label(parsed.expected_source.binary_version),
+        binary_sha256: parsed.expected_source.binary_sha256,
+        schema: { path, bytes }
+      })
+    }
+  }
+  return { kinds, reviewed, authorization, fingerprint: hash(boundedJson(input, 1_048_576)) }
+}
+
+// 获准后才落盘Gateway自己的原始schema；已有不同字节不能被重入或设备输入覆盖。
+export async function publishSetupSchemas(
+  entries: readonly ReviewedSetupInstallation[],
+  signal: AbortSignal
+): Promise<void> {
+  for (const entry of entries) {
+    if (!entry.schema) {
+      continue
+    }
+    const { path, bytes } = entry.schema
+    let previous: Buffer | undefined
+    try {
+      previous = readRuntimeFile(path, 524_288)
+    } catch (error) {
+      if (!(error instanceof CliError && error.code === 'backend_unavailable')) {
+        throw error
+      }
+    }
+    if (previous === undefined) {
+      writeSetupFile(path, bytes)
+    } else if (!previous.equals(bytes)) {
+      throw new CliError('configuration_required')
+    }
+    const value = entry.value as { config: unknown }
+    const verified = await createHerdrGatewayResources({ config: value.config, signal })
+    await verified.release()
+  }
+}

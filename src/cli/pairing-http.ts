@@ -5,9 +5,9 @@ import type { CredentialDeliveryAck, CredentialDeliveryContext } from '../transp
 import type { DeviceCredential } from '../transport/identity.js'
 import type { openGatewayState } from '../runtime/state.js'
 import { parseNativeJson } from '../native-contract/json.js'
-import { fields, id, object } from '../wire/index.js'
+import { boundedJson, fields, id, object } from '../wire/index.js'
 import { SetupApproval, type PairingPlan } from './setup-approval.js'
-import { setupPolicies, setupTarget } from './setup-policy.js'
+import { selectedSetupPolicies, setupProviderKinds } from './setup-policy.js'
 
 type State = ReturnType<typeof openGatewayState>
 type Receipt = { machine_id: string; delivery_id: string; state: 'delivered' }
@@ -183,13 +183,17 @@ export class GatewayPairingHttp {
             return await this.acknowledge(input.attempt_id as string, credential, input.acknowledgement)
           }
           if (path === '/pairing/status') {
-            fields(input, ['attempt_id', 'authentication'])
+            fields(input, ['attempt_id', 'authentication'], ['providers'])
+            const providers = setupProviderKinds(input.providers ?? ['luvus'])
+            if (plan.providers && boundedJson(plan.providers) !== boundedJson(providers)) {
+              throw new Error('setup_provider_selection_changed')
+            }
             return setupReply({
               attempt_id: plan.attempt_id,
               machine_id: plan.machine_id,
               recovery_generation: plan.generation,
               phase: plan.phase,
-              authorization: setupPolicies(plan, setupTarget(credential.machine_id))
+              authorization: selectedSetupPolicies(plan, credential.machine_id, providers)
             })
           }
           fields(input, ['attempt_id', 'authentication', 'installation'])

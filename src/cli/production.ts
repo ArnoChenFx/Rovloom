@@ -13,7 +13,8 @@ import type { VersionOffer } from '../wire/types.js'
 import type { GatewayIdentitySource } from '../mcp/management.js'
 import type { ManagementWriteHttpOptions } from '../admin/index.js'
 import { loadCredential } from '../transport/index.js'
-import { CliError, type ConnectorConfig, type GatewayConfig } from './config.js'
+import { CliError, selectedNativeProviders, type ConnectorConfig, type GatewayConfig } from './config.js'
+import { readSetupJson } from './setup-files.js'
 import { openCallerSource } from './caller-source.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { createRuntimeCliRuntime } from './runtime.js'
@@ -376,46 +377,76 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
       credential()
       const control = join(config.state_dir, 'control')
       const managedRoot = join(control, 'luvus-root.json')
-      const isolated =
-        settings.providers.length === 1 &&
-        settings.providers.every(
-          /* 只对首次引导的固定控制记录选择独立账本目录，native仍由既有root工厂逐项复验。 */ (entry) =>
-            !!entry.value &&
-            typeof entry.value === 'object' &&
-            'native' in entry.value &&
-            !!entry.value.native &&
-            typeof entry.value.native === 'object' &&
-            'root_record' in entry.value.native &&
-            entry.value.native.root_record === managedRoot
-        )
-      if (isolated) {
-        const paired = object(readRuntimeJson(runtimeReference(config.state_dir, 'pairing')))
+      const isolated = settings.providers.some(
+        /* 只对首次引导的固定控制记录选择独立账本目录，native仍由既有root工厂逐项复验。 */ (entry) =>
+          !!entry.value &&
+          typeof entry.value === 'object' &&
+          'native' in entry.value &&
+          !!entry.value.native &&
+          typeof entry.value.native === 'object' &&
+          'root_record' in entry.value.native &&
+          entry.value.native.root_record === managedRoot
+      )
+      const pairing = readSetupJson(runtimeReference(config.state_dir, 'pairing'))
+      if (isolated || pairing !== undefined) {
+        const paired = object(pairing)
         fields(paired, ['schema_version', 'attempt_id', 'machine_id', 'gateway_url', 'phase'])
-        const prepared = object(readRuntimeJson(runtimeReference(config.state_dir, 'native-setup'), 1_048_576))
-        fields(prepared, [
-          'schema_version',
-          'attempt_id',
-          'machine_id',
-          'phase',
-          'settings',
-          'reference',
-          'local',
-          'remote'
-        ])
         const device = credential()
         // 已保管的设备secret不得因修改业务URL发送给另一origin；安装设置变更也不能静默忽略或重建root。
         if (
           paired.schema_version !== 1 ||
           paired.phase !== 'configured' ||
           paired.gateway_url !== config.gateway_url ||
-          paired.machine_id !== device.machine_id ||
-          prepared.schema_version !== 1 ||
-          prepared.phase !== 'prepared' ||
-          prepared.attempt_id !== paired.attempt_id ||
-          prepared.machine_id !== paired.machine_id ||
-          boundedJson(prepared.settings) !== boundedJson(config.native ?? {})
+          paired.machine_id !== device.machine_id
         ) {
           throw new CliError('configuration_required')
+        }
+        const kinds = selectedNativeProviders(config)
+        if (
+          settings.providers.length !== kinds.length ||
+          kinds.some(
+            /* 选择变化应先给明确待配置错误，不读取另一种来源的不存在journal。 */ (kind) =>
+              !settings.providers.some(
+                /* 每个kind恰有原准备条目；重复或缺失不得按相同总数通过。 */ (entry) =>
+                  object(entry.value).kind === kind
+              )
+          )
+        ) {
+          throw new CliError('configuration_required')
+        }
+        for (const kind of kinds) {
+          const prepared = object(
+            readRuntimeJson(
+              runtimeReference(config.state_dir, kind === 'luvus' ? 'native-setup' : 'herdr-setup'),
+              1_048_576
+            )
+          )
+          fields(prepared, [
+            'schema_version',
+            'attempt_id',
+            'machine_id',
+            'phase',
+            'settings',
+            'reference',
+            'local',
+            'remote'
+          ])
+          const entry = settings.providers.find(
+            /* 每个准备记录必须对应当前registry的原条目，不能只比较相同条目总数。 */ (value) =>
+              value.reference === prepared.reference
+          )
+          if (
+            prepared.schema_version !== 1 ||
+            prepared.phase !== 'prepared' ||
+            prepared.attempt_id !== paired.attempt_id ||
+            prepared.machine_id !== paired.machine_id ||
+            boundedJson(prepared.settings) !== boundedJson(config.native ?? {}) ||
+            !entry ||
+            object(entry.value).kind !== kind ||
+            boundedJson(entry.value, 1_048_576) !== boundedJson(prepared.local, 1_048_576)
+          ) {
+            throw new CliError('configuration_required')
+          }
         }
       }
       let resource: ProductionConnectorResources

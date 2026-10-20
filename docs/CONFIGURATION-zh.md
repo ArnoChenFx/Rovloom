@@ -59,8 +59,9 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
 | Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |
-| Connector `native` | object，可选 | 默认省略，只接受以下两个安装目录字段，在首次 Luvus 初始化时应用。 |
-| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找 `luvus`；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
+| Connector `native` | object，可选 | 默认省略，只接受以下来源选择及安装目录字段，在首次原生初始化时应用。 |
+| `native.provider` | string enum，可选 | 省略时为 `luvus`；`herdr` 仅选 Herdr，`mixed` 各选一个。首次初始化前选定；已初始化选择的变更仍需未来的重配置流程。 |
+| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找所选 `luvus`/`herdr` 程序；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
 | `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
 
 Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、runtime/ref 选择、TLS/CA
@@ -89,7 +90,8 @@ Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用
 格式不再加载或迁移。
 
 保留整个数据目录，包括数据库附属文件。不要修改内部记录，也不要为重试不确定的
-初始化而删除数据。引导恢复和 Herdr/混合首次设置尚不可用。
+初始化而删除数据。Herdr 在 `<data.directory>/hr/` 管理隔离的 `h/c/s/k/t/w/control` 目录及原 schema、claims、receipts；
+这些不是额外用户配置。引导恢复尚不可用。
 首次 Luvus 设置要求 `data.directory` 路径加 `/n` 不超过52个 UTF-8 字节，
 如有需要，请在配对前选择更短的目录。
 
@@ -153,8 +155,8 @@ schema 输出保留原字节。已知预编译摘要只用于缓存命中，未�
 这是完整 Connector 文档中的可选片段。安装目录应由机器所有者控制；不要修改 managed
 root 记录或摘要来更换已初始化的安装。
 
-Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 HOME 为
-`<data.directory>/h`，不会复制普通 home 中的登录。本预览没有这个隔离环境的模型
+Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次设置的 HOME 为
+`<data.directory>/h`（Luvus）或 `<data.directory>/hr/h`（Herdr），不会复制普通 home 中的登录。本预览没有这个隔离环境的模型
 登录引导，因此全新模型设置仍需机器所有者准备。普通严格文本对话可保持本地
 `allow_terminal_execution:false`，不要用任意 argv/env 或终端输入绕过缺失 PATH。
 终端开关不会沙箱化 Agent 自身工具；binary/schema 校验或 `ready` 不证明模型已回复。
@@ -197,7 +199,7 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS/Windows 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
-上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
+上述所选 Luvus/Herdr 的本地终端流程，Agent/模型登录仍需独立准备。
 
 ### Service 命令语法与当前可用性
 
