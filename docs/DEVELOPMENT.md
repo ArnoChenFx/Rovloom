@@ -110,17 +110,19 @@ fixture内兑换仅作用于自建临时设备，不是实际用户设备操作�
 
 ## 隔离验收
 
-Linux 需 Python 3、strace 和固定 Bun，在 checkout 外指定尚不存在的输出目录：
+Linux 需 Python 3 和固定 Bun，在 checkout 外指定尚不存在的输出目录：
 
 ```sh
 python3 scripts/bun/verify.py --bun /absolute/path/to/bun --output /tmp/rovloom-verification-new
 ```
 
-验证器在新项目、新 HOME、空缓存与最小环境中冻结安装，审计实装依赖，运行
+验证器在新项目、新 HOME、空缓存中冻结安装，核对实装依赖，运行
 strict 类型检查及故意错误反例、验收器自身回归、递归发现的全部主测试、
 P0 JS/Python 测试、Bun 兼容测试、fixture 审计、clean build 与产物 smoke。
-Node/npm/npx 阻断探针必须返回 99，项目 execve/execveat 追踪不得出现 Node
-回退。GitHub Actions 的 checkout 宿主不属于项目运行时。
+命令直接执行，固定 Bun 位于普通 PATH 前；报告保存真实子进程退出码、日志摘要、
+JUnit 与实际用例数。预期非零的类型反例仍须按真实退出码和诊断接纳。
+超时终止并回收本次进程组，保留有界日志且标记验证未完成；失败、跳过、待办、
+禁用或未执行测试仍使门禁失败。
 
 ## 代码注释约定
 
@@ -179,10 +181,10 @@ JUnit 报告，核对当前完整测试文件集合均有实际执行的 case，
 所有主测试、脚本测试与 Python 测试文件的执行证据。执行输出和验收结果放 CI/PR，
 不向仓库提交逐轮报告。
 
-完整 Bun 套件的外层 watchdog 为 300 秒，其它验证命令仍为 180 秒；产品编译预算、
+完整 Bun 套件的外层 watchdog 为 600 秒，其它验证命令仍为 180 秒；产品编译预算、
 业务期限和各用例时限独立保留。验证器打印套件实际耗时、用例摘要与 watchdog。
 命令超时后仍非零退出，在既有 `--output` 目录留下标记 `complete: false` 的阶段诊断、
-最近观察到的测试，以及脱敏的日志/追踪尾部（分别最多 128 KiB / 1 MiB）。这些不完整
+最近观察到的测试，以及脱敏的日志尾部（最多 128 KiB）。这些不完整
 记录不能替代完整 JUnit、成功构建或执行覆盖证明，也不纳入 Git。
 
 ## 固定输入与维护用途
@@ -245,8 +247,8 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 采集器在 `/workspace` 创建自己的 0700 状态根、named session 和合成终端输入，
 不继承用户 HOME/session；这不是 OS 文件沙箱。流、server、临时根在 finally
 清理，SIGKILL/机器崩溃仍需外部回收。升级先评审契约/分类，再重新采集、审计。
-主采集完整回放与两组补充原生交换持续维护协议断言，无 Node 约束由当前 verifier 的
-阻断探针和 strace 执行追踪验证；不以历史压缩采集包的重复回放代替当前检查。
+主采集完整回放与两组补充原生交换持续维护协议断言，当前 verifier 直接用固定 Bun
+执行这些回归并报告实际结果；历史采集保留其原始运行时和证据范围。
 
 ## Herdr 离线输入
 
