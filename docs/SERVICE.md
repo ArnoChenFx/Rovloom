@@ -71,8 +71,9 @@ receive one fixed stop request over a local named pipe, entering the existing Ab
 cleanup before Scheduler exit is checked. The endpoint binds the full registered
 declaration and current executable/role/config; ordinary foreground startup does
 not create it. It uses normal OS access without changing ACLs or adding config/PID
-files. Pipe failure does not fall back to killing the process. Queued tasks use
-Scheduler cancellation. Unknown command cleanup retains the role lock and
+files. Pipe failure does not fall back to killing the process. Queued tasks or a
+startup race return `service_busy`; cancellation must not terminate an instance
+that started after the earlier query. Unknown command cleanup retains the role lock and
 returns a failure rather than silently retrying. Cross-process role locks prevent
 duplicate controller operations; stale locks require explicit inspection.
 
@@ -124,7 +125,8 @@ Windows自动传入`--non-interactive`，即使Task Scheduler非交互桌面提�
 覆盖。保留普通排他创建、fsync、数据库事务和必要互斥，防止重复操作与误删数据。
 Windows运行实例经本地命名管道接收唯一固定停止请求，进入既有Abort清理，再核对Scheduler实例退出。
 端点绑定整份登记清单与当前二进制/角色/配置；普通前台启动不创建端点，不新增配置或PID文件、不设置ACL。
-请求失败不回退强杀；排队任务仍由Scheduler取消。控制台SIGHUP也接入原关停，不应称为原生工作的回滚。
+请求失败不回退强杀；排队或启动状态竞态返回`service_busy`，不能通过Scheduler取消时误强停刚开始运行的实例。
+控制台SIGHUP也接入原关停，不应称为原生工作的回滚。
 
 命令时间/输出和监管等待均有界；未知回收返回失败并保留角色锁，不静默重试。
 `service --help` 可离线使用。云端原生生命周期回归只在显式启用的 GitHub-hosted 临时 VM

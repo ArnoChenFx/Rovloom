@@ -95,7 +95,6 @@ try {
       $t = $folder.RegisterTaskDefinition($p.name, $definition, 52, $expected.Principal.UserId, $null, 2, $security)
     }
     'start' { $null = $t.Run($null) }
-    'stop' { $t.Stop(0) }
     'remove' {
       if ([int]$t.State -notin @(1,3) -or $t.GetInstances(0).Count -ne 0) { emit @{retained=$true}; exit 0 }
       if ($t.Definition.Triggers.Item(1).Enabled) { throw 'service_conflict' }

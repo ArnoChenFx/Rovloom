@@ -3,17 +3,19 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ServiceManager } from '../../src/service/manager.js'
 import { createNativeServiceBackend } from '../../src/service/native.js'
-import { manifest } from '../../src/service/spec.js'
+import { manifest, serviceControlId } from '../../src/service/spec.js'
 import type { RegistrationFiles } from '../../src/service/files.js'
 import type { CommandRunner } from '../../src/service/runner.js'
 import { model, sampleSpec } from './helpers.js'
 import { inspectTask } from '../../src/service/windows.js'
 import { renderDefinition } from '../../src/service/render.js'
+import { productServiceBackend } from '../../src/cli/service-host.js'
+import { windowsStopPipe } from '../../src/service/windows-control.js'
 
 test(
   'Windows uninstall updates boot only, reinstall preserves instance, explicit stop cleans up later',
   /* 用真实 manager 与 native 后端组合核对操作序列，不把模型作为 Windows 实测。 */ async () => {
-    const spec = sampleSpec('win32')
+    const spec = { ...sampleSpec('win32'), role: 'gateway' as const }
     let present = true
     let boot = true
     let instances = 1
@@ -37,9 +39,7 @@ test(
         if (data.op === 'enable') {
           boot = data.enabled
         }
-        if (data.op === 'stop') {
-          instances = 0
-        }
+        assert.notEqual(data.op, 'stop', 'Scheduler must never forcibly terminate the running instance')
         if (data.op === 'remove') {
           assert.equal(instances, 0)
           assert.equal(boot, false)
@@ -55,23 +55,36 @@ test(
       runner,
       verifyRuntime: /* 模拟已核验后台宿主。 */ async () => {}
     })
-    const manager = new ServiceManager(backend)
-    const removed = await manager.execute({ action: 'uninstall', role: 'connector' })
+    const product = productServiceBackend(
+      backend,
+      { platform: 'win32', arch: 'x64', executable: spec.executable, standalone: true },
+      /* 仅模拟OS管道交付及角色退出；真实产品绑定/原生查询/enable/remove仍完整运行。 */ async (path) => {
+        assert.equal(path, windowsStopPipe(spec.role, spec.executable, spec.config, serviceControlId(spec)))
+        assert.equal(instances, 1)
+        operations.push('pipe_stop')
+        instances = 0
+      }
+    )
+    const manager = new ServiceManager(product)
+    const removed = await manager.execute({ action: 'uninstall', role: 'gateway' })
     assert.equal(removed.state, 'running')
     assert.equal(removed.bootEnabled, false)
     assert.equal(removed.controlRetained, true)
     assert.equal(removed.stopMode, 'not_requested')
     assert.equal(instances, 1)
     assert(!operations.includes('stop') && !operations.includes('remove'))
-    assert.equal((await manager.execute({ action: 'uninstall', role: 'connector' })).changed, false)
-    await manager.execute({ action: 'install', role: 'connector', spec })
+    assert.equal((await manager.execute({ action: 'uninstall', role: 'gateway' })).changed, false)
+    await manager.execute({ action: 'install', role: 'gateway', spec })
     assert.equal(boot, true)
     assert.equal(instances, 1)
     assert(!operations.includes('start') && !operations.includes('stop'))
-    await manager.execute({ action: 'uninstall', role: 'connector' })
-    assert.equal((await manager.execute({ action: 'stop', role: 'connector' })).state, 'absent')
-    assert.equal(operations.filter(/* 全程只有用户明确发出的一次 stop。 */ (op) => op === 'stop').length, 1)
-    assert.equal((await manager.execute({ action: 'uninstall', role: 'connector' })).changed, false)
+    await manager.execute({ action: 'uninstall', role: 'gateway' })
+    const stopped = await manager.execute({ action: 'stop', role: 'gateway' })
+    assert.equal(stopped.state, 'absent')
+    assert.equal(stopped.stopMode, 'graceful_request')
+    assert.equal(operations.filter(/* 全程只有用户明确发出的一次 stop。 */ (op) => op === 'pipe_stop').length, 1)
+    assert(!operations.includes('stop'))
+    assert.equal((await manager.execute({ action: 'uninstall', role: 'gateway' })).changed, false)
   }
 )
 

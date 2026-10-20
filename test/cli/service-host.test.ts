@@ -1,4 +1,4 @@
-// 验证产品服务宿主的当前产物绑定、目标账户默认配置和只读预检；所有监管工具均为受控端口。
+// 验证产品服务宿主的当前产物绑定、单份角色配置和只读预检；所有监管工具均为受控端口。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   assertServiceProduct,
   productServiceEnvironment,
+  productServiceBackend,
   createProductServiceHost,
   verifyProductServiceRuntime
 } from '../../src/cli/service-host.js'
@@ -13,6 +14,71 @@ import { configDocument, configTemplate } from '../../src/cli/config.js'
 import { parseServiceCommand } from '../../src/service/command.js'
 import { parseCommand } from '../../src/cli/run.js'
 import { sampleSpec } from '../service/helpers.js'
+import { createNativeServiceBackend } from '../../src/service/native.js'
+import { ServiceManager } from '../../src/service/manager.js'
+import { manifest } from '../../src/service/spec.js'
+import type { RegistrationFiles } from '../../src/service/files.js'
+import { ServiceError } from '../../src/service/types.js'
+
+test(
+  'Windows排队取消前已变成running时明确失败，不能绕过正常Abort强停',
+  /* 真实产品组合器、原生后端及状态机参与，只有系统命令/文件端口为隔离内存模型。 */ async () => {
+    for (const becomesRunning of [true, false]) {
+      const spec = { ...sampleSpec('win32'), role: 'gateway' as const }
+      const operations: string[] = []
+      let inspections = 0
+      let forcedWhileRunning = 0
+      const files: RegistrationFiles = {
+        verify: /* 模型不触碰系统控制目录。 */ async () => {},
+        lock: /* 本回归只需包围单次状态转换，不创建真实锁。 */ async (_role, operation) => operation(),
+        read: /* Windows登记来自受控COM端口。 */ async () => assert.fail('unexpected file read'),
+        create: /* 停止不能创建登记文件。 */ async () => assert.fail('unexpected file create'),
+        remove: /* 自启仍启用，停止不得清理登记。 */ async () => assert.fail('unexpected file remove')
+      }
+      const native = createNativeServiceBackend({
+        platform: 'win32',
+        files,
+        verifyRuntime: /* 本例不启动角色，也不读业务配置。 */ async () => assert.fail('unexpected preflight'),
+        runner: /* 前两次观察排队，原生取消边界已运行；旧代码将在这里对运行实例强停。 */ async (plan) => {
+          const request = JSON.parse(plan.input!)
+          operations.push(request.op)
+          if (request.op === 'authorize') {
+            return { code: 0, stdout: '{"ok":true}', stderr: '' }
+          }
+          if (request.op === 'read') {
+            return { code: 0, stdout: JSON.stringify({ marker: manifest(spec) }), stderr: '' }
+          }
+          if (request.op === 'inspect') {
+            inspections++
+            const state = inspections <= 2 || !becomesRunning ? 2 : forcedWhileRunning ? 3 : 4
+            return {
+              code: 0,
+              stdout: JSON.stringify({ state, instances: state === 4 ? 1 : 0, enabled: true, exitCode: 0 }),
+              stderr: ''
+            }
+          }
+          assert.equal(request.op, 'stop')
+          forcedWhileRunning++
+          return { code: 0, stdout: '{"state":3,"instances":0,"enabled":true,"exitCode":0}', stderr: '' }
+        }
+      })
+      const backend = productServiceBackend(native, {
+        platform: 'win32',
+        arch: 'arm64',
+        executable: spec.executable,
+        standalone: true
+      })
+      const outcome = await new ServiceManager(backend)
+        .execute({ action: 'stop', role: 'gateway' })
+        .catch(/* 保留真实返回或错误，先断言没有强停，再核对明确失败。 */ (error: unknown) => error)
+      assert.equal(inspections, 3)
+      assert.equal(forcedWhileRunning, 0)
+      assert(outcome instanceof ServiceError)
+      assert.equal(outcome.code, 'service_busy')
+      assert(!operations.includes('stop'))
+    }
+  }
+)
 
 test(
   '源码解释器不被识别为可安装的单文件产物',

@@ -317,9 +317,13 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
     },
     // 仅停止所选实例；Darwin重启保留loaded job，避免撤自启后bootout导致无法重载。
     async stop(spec, forRestart = false) {
-      await owned(spec)
+      const current = await owned(spec)
       if (platform === 'win32') {
-        await taskCall(run, 'stop', spec.role, spec)
+        // Scheduler没有原子的“仅取消排队”操作；查询后可能立刻运行，因此绝不调用会强停的Task.Stop。
+        // 产品已运行路径使用登记专属管道；尚在排队或此处才变成running时明确失败，让调用者观察真实状态。
+        if (!['stopped', 'failed'].includes(current.state)) {
+          throw new ServiceError('service_busy')
+        }
       } else if (platform === 'darwin') {
         if ((await launchInfo(spec.role)).loaded) {
           await launchctl(

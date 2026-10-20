@@ -2,7 +2,7 @@
 import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs'
 import { createNativeServiceBackend } from '../service/native.js'
 import { ServiceManager } from '../service/manager.js'
-import { ServiceError, type ServiceRole, type ServiceSpec } from '../service/types.js'
+import { ServiceError, type ServiceBackend, type ServiceRole, type ServiceSpec } from '../service/types.js'
 import { manifest, serviceControlId } from '../service/spec.js'
 import { requestStopPipe, windowsStopPipe } from '../service/windows-control.js'
 import { parseNativeJson } from '../native-contract/json.js'
@@ -99,17 +99,15 @@ export async function verifyProductServiceRuntime(
   }
 }
 
-// 构造无副作用；仅 service 动作会 authorize/lock，help/version 也不会触碰系统设施。
-export function createProductServiceHost(): CliServiceHost {
-  const environment = productServiceEnvironment()
-  const native = createNativeServiceBackend({
-    platform: environment.platform,
-    verifyRuntime: /* 安装和每次启动均验证当前精确产物，不能接管另一安装。 */ async (spec) =>
-      verifyProductServiceRuntime(spec, environment)
-  })
-  const backend = {
+// 将既有原生后端绑定当前产品及正常停止路径；受信端口便于隔离复现跨两次查询的状态竞态。
+export function productServiceBackend(
+  native: ServiceBackend,
+  environment: ProductServiceEnvironment,
+  stopDelivery: (path: string) => Promise<void> = requestStopPipe
+): ServiceBackend {
+  return {
     ...native,
-    // 运行中Windows角色先正常释放资源；尚未运行的排队任务仍由Scheduler取消，不对运行实例强杀。
+    // 运行中Windows角色先正常释放资源；排队和启动竞态明确失败，不向Scheduler请求可能强停的取消。
     async stop(spec: ServiceSpec, forRestart?: boolean): Promise<'graceful_request' | void> {
       if (environment.platform === 'win32') {
         assertServiceProduct(spec, environment)
@@ -118,7 +116,7 @@ export function createProductServiceHost(): CliServiceHost {
           throw new ServiceError('service_conflict')
         }
         if (current.state === 'running') {
-          await requestStopPipe(windowsStopPipe(spec.role, spec.executable, spec.config, serviceControlId(spec)))
+          await stopDelivery(windowsStopPipe(spec.role, spec.executable, spec.config, serviceControlId(spec)))
           return 'graceful_request'
         }
       }
@@ -136,6 +134,17 @@ export function createProductServiceHost(): CliServiceHost {
       await native.authorize()
     }
   }
+}
+
+// 构造无副作用；仅 service 动作会 authorize/lock，help/version 也不会触碰系统设施。
+export function createProductServiceHost(): CliServiceHost {
+  const environment = productServiceEnvironment()
+  const native = createNativeServiceBackend({
+    platform: environment.platform,
+    verifyRuntime: /* 安装和每次启动均验证当前精确产物，不能接管另一安装。 */ async (spec) =>
+      verifyProductServiceRuntime(spec, environment)
+  })
+  const backend = productServiceBackend(native, environment)
   return {
     platform: environment.platform,
     executable: environment.executable,

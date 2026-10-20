@@ -264,7 +264,7 @@ test(
       TASK_SCRIPT.includes('RegisterTaskDefinition($p.name, $definition, 2, $definition.Principal.UserId, $null, 2')
     )
     assert.equal(JSON.parse(plans.at(-1)!.input!).account, spec.account)
-    assert(TASK_SCRIPT.includes('$t.Stop(0)'))
+    assert(!TASK_SCRIPT.includes('$t.Stop(0)'))
     assert(!TASK_SCRIPT.includes('sc.exe'))
     const backend = createNativeServiceBackend({
       platform: 'win32',
