@@ -16,7 +16,13 @@ export function runSystemCommand(plan: CommandPlan): Promise<CommandResult> {
         stdio: ['pipe', 'pipe', 'pipe'],
         env:
           process.platform === 'win32'
-            ? { SystemRoot: process.env.SystemRoot, WINDIR: process.env.SystemRoot }
+            ? {
+                SystemRoot: process.env.SystemRoot,
+                WINDIR: process.env.SystemRoot,
+                // 固定系统模块目录避免 PowerShell 从缺失的用户环境发现模块；不继承可注入的用户 PSModulePath。
+                PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
+                PATH: 'C:\\Windows\\System32;C:\\Windows'
+              }
             : { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
       })
       const chunks: { stdout: Buffer[]; stderr: Buffer[] } = { stdout: [], stderr: [] }

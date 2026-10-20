@@ -27,6 +27,8 @@ $ErrorActionPreference='Stop'
 [IO.File]::WriteAllText($PhasePath,'encoding_set')
 $xml=[IO.File]::ReadAllText($XmlPath,[Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText($PhasePath,'xml_read')
+$null=New-Object -TypeName System.Object
+[IO.File]::WriteAllText($PhasePath,'cmdlet_ready')
 $s=New-Object -ComObject 'Schedule.Service'
 [IO.File]::WriteAllText($PhasePath,'connecting')
 $s.Connect()
@@ -73,6 +75,7 @@ if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t
                   'script_started',
                   'encoding_set',
                   'xml_read',
+                  'cmdlet_ready',
                   'connecting',
                   'connected',
                   'definition_created',
