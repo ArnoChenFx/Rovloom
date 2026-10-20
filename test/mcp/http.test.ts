@@ -8,7 +8,7 @@ import { PassThrough } from 'node:stream'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { CallToolResultSchema, type CallToolResult, type JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
-import { configTemplate } from '../../src/cli/config.js'
+import { configDocument, configTemplate } from '../../src/cli/config.js'
 import { runCli } from '../../src/cli/run.js'
 import { startHttpFacade } from '../../src/mcp/http.js'
 import { MAX_MCP_BYTES, PRODUCT_VERSION, toolNames } from '../../src/mcp/schema.js'
@@ -51,9 +51,13 @@ async function isolated(
     const port = Number(new URL(reservation.url).port)
     await reservation.close()
     const path = join(directory, 'gateway.json')
-    writeFileSync(path, JSON.stringify({ ...configTemplate('gateway'), state_dir: directory, mcp_port: port }), {
-      mode: 0o600
-    })
+    writeFileSync(
+      path,
+      JSON.stringify(configDocument({ ...configTemplate('gateway'), state_dir: directory, mcp_port: port })),
+      {
+        mode: 0o600
+      }
+    )
     let ready!: (url: string) => void
     const listening = new Promise<string>(
       /* 只由runCli实际创建listener后的回调完成。 */ (resolve) => {
