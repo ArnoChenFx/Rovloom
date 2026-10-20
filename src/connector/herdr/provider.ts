@@ -178,7 +178,7 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
       'temporary_home',
       'cwd'
     ],
-    ['allow_terminal_execution']
+    ['allow_terminal_execution', 'agent_bin_dir']
   )
   if (
     boundedJson(local.target) !== boundedJson(target) ||
@@ -200,7 +200,8 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
     cwd: path(local.cwd),
     ...(Object.hasOwn(local, 'allow_terminal_execution')
       ? { allow_terminal_execution: local.allow_terminal_execution as boolean }
-      : {})
+      : {}),
+    ...(Object.hasOwn(local, 'agent_bin_dir') ? { agent_bin_dir: local.agent_bin_dir as string } : {})
   })
   const receipts = ledgerRef(connector.receipts, 1024)
   const claims = ledgerRef(connector.claims, 4096)

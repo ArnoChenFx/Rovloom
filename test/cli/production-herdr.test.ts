@@ -98,6 +98,49 @@ function fixture() {
 }
 
 test(
+  'Herdr CLI loads the local Agent directory without opening terminal execution',
+  /** 正式 factory 经过本地目录解析后继续拒绝假安装；外层与非法路径均不能成为替代配置。 */ async () => {
+    const f = fixture()
+    try {
+      const source = createHerdrProductionSources()
+      const local = {
+        ...f.value.config.connector.local,
+        agent_bin_dir: join(f.root, 'Agent Tools'),
+        allow_terminal_execution: false
+      }
+      const value = { ...f.value, config: { ...f.value.config, connector: { ...f.value.config.connector, local } } }
+      await assert.rejects(
+        source.connector!(f.config, [{ reference: 'herdr_fixture', value }]),
+        /herdr_binary_identity_changed/
+      )
+      await assert.rejects(
+        source.connector!(f.config, [
+          { reference: 'herdr_fixture', value: { ...value, agent_bin_dir: local.agent_bin_dir } }
+        ]),
+        { code: 'invalid_config' }
+      )
+      await assert.rejects(
+        source.connector!(f.config, [
+          {
+            reference: 'herdr_fixture',
+            value: {
+              ...value,
+              config: {
+                ...value.config,
+                connector: { ...value.config.connector, local: { ...local, agent_bin_dir: 'relative/bin' } }
+              }
+            }
+          }
+        ]),
+        { code: 'invalid_config' }
+      )
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
   'Connector 在任何文件或原生副作用前拒绝缺失、多引用、attach、别名与不完整政策',
   /** 只调用真实解析器，所有候选均在 schema/binary 读取前失败。 */ async () => {
     const f = fixture()
