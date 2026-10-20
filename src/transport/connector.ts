@@ -1,5 +1,6 @@
 // 实现主动出站的 Connector 通道，隔离连接 epoch、原生执行与退避重连，禁止自动重放。
 import { randomUUID } from 'node:crypto'
+import { GatewayError } from '../contracts.js'
 import {
   assertBinding,
   boundedJson,
@@ -125,6 +126,7 @@ export function createConnector(options: ConnectorOptions) {
   let session: Session | ConnectorWireSession | undefined
   let stopped = false
   let phase = 'disconnected'
+  let failure: string | undefined
   let next = 0
   let retries = 0
   let opened = 0
@@ -581,7 +583,9 @@ export function createConnector(options: ConnectorOptions) {
             { phase: 'preauth', direction: 'connector_to_gateway' }
           )
           current.send(budget(raw, limits.frame_bytes))
-        } catch {
+        } catch (error) {
+          failure =
+            error instanceof GatewayError && /^[a-z_]{1,80}$/.test(error.code) ? error.code : 'connection_failed'
           close()
         }
       }
@@ -665,6 +669,7 @@ export function createConnector(options: ConnectorOptions) {
               fail('connection_unavailable')
             }
             phase = 'authenticated'
+            failure = undefined
             last = now
             return
           }
@@ -779,7 +784,10 @@ export function createConnector(options: ConnectorOptions) {
           } else {
             fail('transport_feature_unavailable')
           }
-        } catch {
+        } catch (error) {
+          // 只保存原本固定的Wire错误码；远端正文、凭据、路径和异常文本均不进入观测。
+          failure =
+            error instanceof GatewayError && /^[a-z_]{1,80}$/.test(error.code) ? error.code : 'connection_failed'
           close()
         }
       }
@@ -856,6 +864,7 @@ export function createConnector(options: ConnectorOptions) {
     /** 返回有界连接与 provider 健康观测，不包含凭据或原生内容。 */
     status() {
       return {
+        ...(failure ? { failure } : {}),
         phase,
         running: running.size,
         reconnects: retries,

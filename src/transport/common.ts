@@ -230,7 +230,7 @@ type ServeOptions<T> = {
       /** 把获准 HTTP 请求升级为绑定预留 peer 的 socket，返回是否升级成功。 */
       upgrade(request: Request, options: { data: T }): boolean
     }
-  ): Response | undefined
+  ): Response | undefined | Promise<Response | undefined>
   websocket: {
     maxPayloadLength: number
     backpressureLimit: number

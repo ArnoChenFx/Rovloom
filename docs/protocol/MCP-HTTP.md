@@ -2,7 +2,8 @@
 
 本文维护 `src/mcp`、`src/cli` 的接线边界；系统语义以 [DESIGN](../DESIGN.md#7-mcp-工具面)为准。
 模块属于内部技术预览。`StoreGatewayService` 与 `createStoreCliRuntime` 已接实际 Store/Router；
-独立 CLI 默认未装配受信身份、设备 transport 或原生 adapter，角色启动仍返回 `backend_unavailable`。
+独立 CLI 的 Gateway 打开真实双库和设备 transport；未配对时拒绝 MCP 身份。
+真实本地终端可完成一个 Connector 的一次性配对与已安装 Luvus 初始化；非 TTY 缺资源明确拒绝。
 工具发现、人工历史或服务 stub 的结果不能称为原生执行成功。
 
 ## 宿主接口
@@ -292,7 +293,22 @@ Connector地址来自`gateway.url`，固定端点为`/connector`；本机/可信
 既有配对凭据由`loadCredential`读取程序管理的`managed/device.json`，仍在provider准备前校验、
 准备后复验，并在后续每次连接重读；撤去凭据时释放本次资源。
 缺地址、provider或配对凭据返回`configuration_required`，非TTY不等待stdin。
-地址/配对码交互、一次性交付和自动原生初始化尚未接通，普通新用户仍不能完成全新部署。
+真实内核 TTY 与当前 UID/私有角色文件核对后才创建本机确认对象；网络 JSON、MCP Bearer、
+管理 cookie 或流对象自报 isTTY 不能创建本机批准。Gateway在取得唯一writer且监听成功后，
+经明确确认调用原PairingAdmin登记/签发；同一设备listener的固定POST `/pairing/redeem`、
+`/pairing/ack`、`/pairing/status`、`/pairing/native` 拒绝Origin/重定向地址字段/非JSON，
+不提供公开注册或签发接口；body读取限5秒/16个并发，退出中止读取和本机问答并等待原handler收尾。
+兑换沿原createPairingDelivery的5秒持久交付期限，设备先用原
+createFileCredentialSink落盘再回传完整ack。ACK/状态/native短请求使用原IdentityHost凭据与epoch，
+完成setup后关闭这些短认证路径，避免状态查询夺取已运行WS的epoch。结果不确定保留原attempt，
+不重新注册、重发secret、清除身份或删除账本。
+
+Luvus初始化只用实际安装测量/完整schema编译与原managed root/claims/receipt工厂；
+程序管理的control、n、h、w为互不重叠的私有目录。n完整路径超过52字节在兑换前拒绝，
+不放宽原endpoint归属门禁。Gateway另经本机批准为精确Target定义provider及一个普通MCP caller，
+不授予管理身份；Bearer仅交付本机TTY/私有mcp-client文件。静态配置提交只记configured，
+旧listener/唯一writer完整关闭后重开正式来源，只有transport观察到实际认证provider ready才记ready。
+Agent/模型认证、Herdr/混合首次引导及不确定状态恢复/续期仍未接通。
 
 `config check-runtime [--role gateway|connector] [--config ABS]`复用角色及现有provider registry校验，成功输出
 `runtime_config_valid`；不加载caller/设备凭据、验证native/Agent或打开数据库。
@@ -302,7 +318,8 @@ Connector地址来自`gateway.url`，固定端点为`/connector`；本机/可信
 非空provider引用须由静态链接的`ProductionCliSources.gateway/connector`解析为实际opaque来源，
 每个Gateway ref恰好对应其自身provider。唯一`main.ts`按需加载固定工厂表，Luvus使用runtime的
 `createLuvusProductionSources()`，其实际配置见[Luvus操作装配](../LUVUS-OPERATIONS.md)。Gateway attach
-已有本机实例，Connector持有明确managed child；既有root与持久资源仍须受信宿主交付，自动用户初始化尚未接通。
+已有本机实例，Connector持有明确managed child；首次本地Luvus引导可通过既有初始化API交付root和
+持久资源，后续只以open重开。已有root/账本不可因缺文件自动重建；用户JSON不能自报来源或pin。
 Herdr双角色静态注册`createHerdrProductionSources()`。单个Gateway引用采用
 `{ kind: 'herdr', config: <HerdrProviderRefConfig> }`封套，`config_ref`须与引用名一致；原工厂只接收
 `config`，不追加kind。Gateway直接复用`createHerdrGatewayResources`，不启动Herdr进程。
