@@ -18,6 +18,8 @@ import { createHerdrGatewayResources, createHerdrConnectorResources } from '../.
 import { HERDR_WORKFLOW_METHODS } from '../../../src/connector/herdr/methods.js'
 import { boundedJson, contractRef, fail, object } from '../../../src/wire/index.js'
 import type { JsonObject, ProviderPolicy } from '../../../src/wire/types.js'
+import type { GatewayIdentitySource } from '../../../src/mcp/management.js'
+import type { LocalPolicies } from '../../../src/router.js'
 import { management } from '../../storage/helpers.js'
 import { until } from '../../transport/helpers.js'
 import { createOwnedHerdrProcesses } from './owned-processes.js'
@@ -307,21 +309,23 @@ export async function createHerdrWorkflowHost(options: HerdrWorkflowHostOptions)
       capabilities: ['rpc', 'admission_receipt', 'admission_context', 'late_evidence'],
       required: ['rpc', 'admission_receipt', 'admission_context']
     }
+    const identities: GatewayIdentitySource = {
+      /** 本自有 fixture 唯一 caller，与设备凭据走独立生产作用域。 */
+      principal: (identity) => (identity.principal_id === callerId ? { id: callerId, policy: caller } : null),
+      /** 普通 caller 不获得生产管理员或会话管理权。 */ administrator: () => null
+    }
+    const localPolicies: LocalPolicies = /** 完整目标必须来自受保护固定配置。 */ (selected) => {
+      if (boundedJson(selected) !== boundedJson(target)) {
+        fail('provider_binding_mismatch')
+      }
+      return local
+    }
     runtime = await createProviderGatewayRuntime({
       ...gatewayOwned,
       lifecycle: opened.lifecycle,
       channels: opened.channels,
-      identities: {
-        /** 本自有 fixture 唯一 caller，与设备凭据走独立生产作用域。 */
-        principal: (identity) => (identity.principal_id === callerId ? { id: callerId, policy: caller } : null),
-        /** 普通 caller 不获得生产管理员或会话管理权。 */ administrator: () => null
-      },
-      localPolicies: /** 完整目标必须来自受保护固定配置。 */ (selected) => {
-        if (boundedJson(selected) !== boundedJson(target)) {
-          fail('provider_binding_mismatch')
-        }
-        return local
-      },
+      identities,
+      localPolicies,
       listener: {
         hostname: '127.0.0.1',
         port: 0,
@@ -404,6 +408,8 @@ export async function createHerdrWorkflowHost(options: HerdrWorkflowHostOptions)
       config,
       caller_identity: callerIdentity,
       provider_ref: providerRef,
+      // 统一MCP服务必须复用创建runtime时同一来源及原owner目录，不从describe重建权限或schema。
+      mcp: { runtime: activeRuntime, identities, localPolicies, catalog: gatewayOwned.catalog },
       describe: gatewayOwned.describe,
       connector: activeConnector,
       /** 仅统计 Connector 自己的真实发送墓碑，不读取 Gateway 请求或响应锚点。 */

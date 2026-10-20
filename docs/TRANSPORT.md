@@ -109,6 +109,9 @@ Gateway Store，也不保存请求正文或制造执行许可。缺回执、冲�
 显式 bootstrap 只建立至多五分钟的 cookie/CSRF 查询绑定，不创建账户、角色、身份数据库或
 长期凭据；同一宿主内 ref 的首次截止不滑动，重启使全部旧 cookie 失效。秘密只交给本次受信 bootstrap 调用者，宿主负责实际
 用户认证、cookie 属性和专用交付。没有既有有效管理员来源则拒绝。
+`bootstrap(lease, { signal, rotate: false })` 用于受保护页面的至多一次交付：已有引用立即拒绝，
+不旋转或撤销原秘密；提交前检查取消及来源回调重入。省略该选项的显式本机动作保持原旋转语义。
+生产页面交付和浏览器内存回调见[管理会话客户端](MANAGEMENT-SESSION-CLIENT.md)。
 
 其 `sessions.identities`与返回的 `identities`为同一对象；Gateway 和管理读写服务使用该对象，
 管理 HTTP 使用现有 `createManagementSessionAdapter`消费 `sessions`。查询和 writer 的

@@ -2,10 +2,12 @@
 import { GatewayError } from '../contracts.js'
 import { createConnector } from '../transport/index.js'
 import type { Connection, ConnectorWireSession, WireConnectorOptions } from '../transport/index.js'
-import { closeSession } from '../transport/common.js'
+import { closeSession, OFFER } from '../transport/common.js'
 
 export type ConnectorHostOptions = Readonly<{
   transport: Omit<WireConnectorOptions, 'session'>
+  // 只转发原provider真实、稳定的快照，不从readiness或配置重建。
+  provider_snapshot?: true
   // 每个认证 epoch 的 provider 自行交付已审 adapter、执行、readiness 和关闭资源。
   session(connection: Connection): ConnectorWireSession
   // 全部 epoch 停止后释放角色拥有的长期资源，不清除调用墓碑或宣称原生工作回滚。
@@ -270,6 +272,15 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
           cleanup([/** 只回收当前 provider 交付的会话所有者，不猜测其原生停止语义。 */ () => current.close()])
         }
       }
+      if (current.providerSnapshot) {
+        const snapshot = current.providerSnapshot.bind(current)
+        owned.providerSnapshot = /** 原getter每次重验来源和epoch，组合层不刷新快照。 */ () => {
+          assertOpen()
+          const result = snapshot()
+          assertOpen()
+          return result
+        }
+      }
       assertOpen()
       originalAdapter = current.adapter
       assertOpen()
@@ -296,7 +307,11 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
       }
       releaseTimeoutMs = configured
     }
-    transport = createConnector({ ...options.transport, session })
+    const offer = structuredClone(options.transport.offer ?? OFFER)
+    if (options.provider_snapshot && !offer.capabilities.includes('provider_snapshot')) {
+      offer.capabilities.push('provider_snapshot')
+    }
+    transport = createConnector({ ...options.transport, offer, session })
   } catch {
     await close().catch(/** 启动失败只等待有界逻辑结果，未确认物理释放继续由 shutdown 暴露。 */ () => {})
     throw new ConnectorHostStartupError(shutdown)

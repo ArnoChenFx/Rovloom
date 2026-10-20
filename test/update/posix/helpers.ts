@@ -56,8 +56,10 @@ export function compiled(): Promise<{ directory: string; old: string; next: stri
 
 // 明确回收本测试编译的 binary；调用者须先结束所有自己的 fixture 子进程。
 export async function cleanupBinaries(): Promise<void> {
-  if (binaries) {
-    await fs.rm((await binaries).directory, { recursive: true, force: true })
+  const owned = binaries
+  binaries = undefined
+  if (owned) {
+    await fs.rm((await owned).directory, { recursive: true, force: true })
   }
 }
 

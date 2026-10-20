@@ -2,6 +2,9 @@
 export {
   createManagementReadHandler,
   startManagementReadListener,
+  startManagementListener,
+  type ManagementListenerHandler,
+  type ManagementListenerOptions,
   type ManagementHttpIdentity,
   type ManagementHttpOptions,
   type ManagementHttpProblem,

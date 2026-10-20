@@ -20,9 +20,12 @@
 | `update --help` | 离线显示该接缝的用法和阻断边界 |
 | URL、路径、force、脚本、其它参数 | `invalid_arguments` / 2，不请求网络 |
 
-此表描述模块接缝；产品命令仍需要唯一 CLI 与后台宿主装配。
+唯一 CLI 已接入上述命令；帮助离线，检查使用构建版本、实际平台和受信运行时 libc 报告。
+当前预发行版本沿用规范 SemVer 比较，目标仍只接纳官方稳定发行。状态和固定错误仅写 stderr。
 POSIX 事务由 `createPosixUpdater({ executable, services, verifyRoleReady? })` 绑定已验证的安装路径和既有 `ServiceManager`，通过 `host.posixUpdater` 注入该唯一接缝；不接受裸 apply 回调或 argv 替换路径。
 源代码 Bun 的 `process.execPath` 不能代表 Rovloom 安装；原程序必须通过固定产品版本探针。Windows helper 未配置时保持拒绝。下载或暂存成功不能作为升级完成的结果。
+默认入口尚未装配可信安装、服务管理器和真实角色业务就绪探针，存在新版本时仍返回 `replacement_unavailable` / 5；不会自动把 Bun 路径或 supervisor running 当作证明。
+注入的现行事务保留 `settled()`、后台补偿及原服务恢复语义，CLI 取消同时传给网络和事务等待；返回非零不能作为底层 I/O 已结束的证明。
 
 退出码：0 完成检查或明确无更新；1 未分类宿主错误；2 参数/当前版本/平台错误；
 3 网络/元数据/大小/摘要/候选验证错误；4 权限、命名空间、锁、文件、清理或逻辑 I/O 等待失败；5 缺必要宿主/平台设施；6 已验证回滚到原版本和原服务运行态；7 恢复未能完成，旧版、记录与锁受到保护。

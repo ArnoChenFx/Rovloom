@@ -1,0 +1,746 @@
+// 将门面查询、调用元数据和独立清理接到实际 Store/Router；缺执行、管理审计或通道后端时拒绝写入。
+import { randomUUID } from 'node:crypto'
+import { canonical, digest, GatewayError } from '../contracts.js'
+import { Router, type LocalPolicies, type Principal } from '../router.js'
+import type { Store } from '../store.js'
+import { providerScopeAllowed, validatePolicies } from '../wire/index.js'
+import type { AttemptBinding, ProviderPolicy, V2Target } from '../wire/types.js'
+import { isToolName, parseToolArguments } from './schema.js'
+import { publicCallView } from './call-view.js'
+import { authorizedLuvusCatalog, type GatewayCatalog } from './native-catalog.js'
+import { authorizedProviderCatalog } from './provider-catalog.js'
+import {
+  FacadeServiceError,
+  type CallView,
+  type GatewayService,
+  type MachineView,
+  type Page,
+  type ProviderView,
+  type ReplyData,
+  type ServiceContext,
+  type ServiceErrorCode,
+  type ServiceReply,
+  type ToolArguments,
+  type ToolName
+} from './types.js'
+import type {
+  AdminContext,
+  Administrator,
+  DeviceSnapshot,
+  GatewayIdentitySource,
+  GatewayManagementService,
+  ManagementArguments,
+  ManagementOperation,
+  ManagementReply,
+  ManagementGrant,
+  ManagementPermission,
+  PermissionDecision,
+  PermissionSnapshot,
+  ProviderSnapshot
+} from './management.js'
+
+type ToolRequest = { [K in ToolName]: { name: K; args: ToolArguments[K] } }[ToolName]
+type Cursor = { scope: string; offset: number; expires: number }
+export type StoreGatewayOptions = {
+  store: Store
+  identities: GatewayIdentitySource
+  localPolicies: LocalPolicies
+  router?: Router
+  catalog?: GatewayCatalog
+  // 仅由实际组合器报告已装配的管理写能力；只读提示不得调用确认、签发或provider启用证明。
+  managementCapabilities?(target: { machine_id: string; provider_id?: string }): readonly ManagementPermission[]
+}
+const idPattern = /^[a-zA-Z0-9_-]{1,128}$/
+const persistedStates = new Set(['pending', 'offline', 'online', 'revoked'])
+const gatewayErrors: Record<string, ServiceErrorCode> = {
+  machine_not_found: 'not_found',
+  call_not_found: 'not_found',
+  result_not_found: 'not_found',
+  forbidden: 'forbidden',
+  discard_forbidden: 'forbidden',
+  clock_untrusted: 'storage_degraded',
+  provider_disabled: 'unavailable',
+  connection_unavailable: 'unavailable',
+  provider_binding_mismatch: 'binding_revision_conflict'
+}
+
+// 将已知存储拒绝转换为公共代码；任何未知异常只暴露固定内部错误。
+function serviceError(error: unknown): FacadeServiceError {
+  if (error instanceof FacadeServiceError) {
+    return error
+  }
+  if (error instanceof GatewayError) {
+    if (
+      error.code === 'recovery_quarantined' ||
+      error.code === 'storage_degraded' ||
+      error.code === 'storage_exhausted'
+    ) {
+      return new FacadeServiceError(error.code)
+    }
+    const code = Object.hasOwn(gatewayErrors, error.code) ? gatewayErrors[error.code] : undefined
+    if (code) {
+      return new FacadeServiceError(code)
+    }
+  }
+  return new FacadeServiceError('internal_error')
+}
+
+// 从游标绑定中去掉游标本身，保留完整查询范围和分页大小，避免产生不可编码的 undefined。
+function queryArguments(args: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(args).filter(/* 游标只引用既有分页关联，不参与该关联的查询摘要。 */ ([key]) => key !== 'cursor')
+  )
+}
+
+// 从同一身份来源复制当前Principal；仅受信宿主上下文可调用，工具JSON不能提供此来源。
+export function resolveGatewayPrincipal(
+  identities: GatewayIdentitySource,
+  caller: ServiceContext['caller']
+): Principal {
+  const principal = identities.principal(caller)
+  if (
+    !principal ||
+    typeof principal.id !== 'string' ||
+    principal.id !== caller.principal_id ||
+    !idPattern.test(principal.id)
+  ) {
+    throw new FacadeServiceError('unauthenticated')
+  }
+  const snapshot = JSON.parse(canonical(principal)) as Principal
+  validatePolicies({ caller: snapshot.policy, local: snapshot.policy })
+  return snapshot
+}
+
+// 验证独立管理只读参数的精确字段；尚未实现的写入不会解析或执行调用方意图。
+function adminArguments(value: unknown, required: string[], optional: string[] = []): Record<string, unknown> {
+  let args: Record<string, unknown>
+  try {
+    args = JSON.parse(canonical(value))
+  } catch {
+    throw new FacadeServiceError('invalid_arguments')
+  }
+  if (
+    !args ||
+    Array.isArray(args) ||
+    typeof args !== 'object' ||
+    Object.keys(args).some(/* 拒绝额外身份、秘密或命令字段。 */ (key) => ![...required, ...optional].includes(key)) ||
+    required.some(/* 所有必要目标都必须显式存在，不能依靠隐式 current 选择。 */ (key) => !(key in args))
+  ) {
+    throw new FacadeServiceError('invalid_arguments')
+  }
+  for (const [key, item] of Object.entries(args)) {
+    if (key === 'limit') {
+      if (!Number.isSafeInteger(item) || Number(item) < 1 || Number(item) > 200) {
+        throw new FacadeServiceError('invalid_arguments')
+      }
+    } else if (key === 'states') {
+      if (
+        !Array.isArray(item) ||
+        item.length < 1 ||
+        item.length > 4 ||
+        new Set(item).size !== item.length ||
+        item.some(
+          /* 只接受持久状态枚举，不能把未知现场状态或任意文本用于筛选。 */ (state) =>
+            typeof state !== 'string' || !persistedStates.has(state)
+        )
+      ) {
+        throw new FacadeServiceError('invalid_arguments')
+      }
+    } else if (key === 'cursor') {
+      if (typeof item !== 'string' || item.length < 1 || item.length > 1024) {
+        throw new FacadeServiceError('invalid_arguments')
+      }
+    } else if (typeof item !== 'string' || !idPattern.test(item)) {
+      throw new FacadeServiceError('invalid_arguments')
+    }
+  }
+  return args
+}
+
+export class StoreGatewayService implements GatewayService {
+  private readonly router: Router
+  private readonly cursors = new Map<string, Cursor>()
+  readonly management: GatewayManagementService
+
+  // 只组合现有 Store、Router 和同一身份政策来源；资源关闭及真实 transport/native 仍由宿主持有。
+  constructor(private readonly options: StoreGatewayOptions) {
+    this.router = options.router ?? new Router(options.store, options.localPolicies)
+    this.management = {
+      execute: /* 共享同一 Store 与身份服务；独立管理会话每次重新验证。 */ (name, args, context) =>
+        this.adminExecute(name, args, context)
+    }
+  }
+
+  // 复制当前 Principal 并核对受信 caller；不从工具参数创建身份或扩展 Router 权限。
+  private principal(context: ServiceContext | AdminContext): Principal {
+    if (context.wait_signal.aborted) {
+      throw new FacadeServiceError('unavailable')
+    }
+    return resolveGatewayPrincipal(this.options.identities, context.caller)
+  }
+
+  // 在每次读取前执行实际时钟与恢复门禁；降级下仍只允许 Store 支持的授权读取和清理。
+  private now(): number {
+    const now = this.options.store.clock()
+    if (this.options.store.health().mode === 'recovery_quarantined') {
+      throw new FacadeServiceError('recovery_quarantined')
+    }
+    return now
+  }
+
+  // 使用 Wire 的完整 tuple 求交，不把不同 grant 的 machine/provider/session/method 拼成新授权。
+  private visibleTargets(principal: Principal): { target: V2Target; local_revision: string }[] {
+    const targets = new Map<string, { target: V2Target; local_revision: string }>()
+    if (principal.policy.grants.length > 256) {
+      throw new FacadeServiceError('busy')
+    }
+    let evaluations = 0
+    for (const grant of principal.policy.grants) {
+      if (
+        !grant.actions.includes('read') ||
+        !this.options.store.provider(grant.target.machine_id, grant.target.provider_id)
+      ) {
+        continue
+      }
+      const local = JSON.parse(canonical(this.options.localPolicies(grant.target))) as ProviderPolicy
+      if (local.grants.length > 256) {
+        throw new FacadeServiceError('busy')
+      }
+      if (
+        grant.methods.some(
+          /* 仅有双方同一完整目标和精确方法的 read 授权时，才能展示该 route 的设备/provider 元数据。 */ (method) => {
+            if (++evaluations > 256) {
+              throw new FacadeServiceError('busy')
+            }
+            return providerScopeAllowed({ target: grant.target } as AttemptBinding, method, 'read', {
+              caller: principal.policy,
+              local
+            })
+          }
+        )
+      ) {
+        targets.set(canonical(grant.target), { target: grant.target, local_revision: local.revision })
+      }
+    }
+    return [...targets.values()]
+  }
+
+  // 投影持久设备状态；没有 live transport 证据时不将旧 online 行宣称为当前连接或认证成功。
+  private machine(machineId: string): MachineView {
+    const machine = this.options.store.machine(machineId)
+    if (!persistedStates.has(machine.status)) {
+      throw new FacadeServiceError('unavailable')
+    }
+    return {
+      machine_id: machine.machine_id,
+      name: machine.name,
+      status: machine.status === 'pending' ? 'pending' : machine.status === 'revoked' ? 'revoked' : 'active',
+      link: machine.status === 'pending' || machine.status === 'revoked' ? 'offline' : 'unverified'
+    }
+  }
+
+  // 只输出当前数据库 binding 的公开字段；没有 native adapter 时启用也不能报告 ready。
+  private provider(machine: string, provider: string): ProviderView {
+    const binding = this.options.store.provider(machine, provider)
+    if (!binding) {
+      throw new FacadeServiceError('not_found')
+    }
+    return {
+      machine_id: binding.machine_id,
+      provider_id: binding.provider_id,
+      kind: binding.kind,
+      binding_revision: binding.binding_revision,
+      enabled: binding.enabled,
+      readiness:
+        !binding.enabled || this.options.store.machine(machine).status === 'revoked' ? 'unavailable' : 'unverified'
+    }
+  }
+
+  // 对授权后的行分页；游标是有界短期关联，绑定身份、查询、政策和恢复代次，每页仍重新授权。
+  private page<T>(
+    items: T[],
+    args: { cursor?: string; limit?: number },
+    scope: unknown,
+    now: number,
+    expiresAt?: number
+  ): Page<T> {
+    const fingerprint = digest(canonical(scope))
+    for (const [token, cursor] of this.cursors) {
+      if (cursor.expires <= now) {
+        this.cursors.delete(token)
+      }
+    }
+    let offset = 0
+    let expires = Math.min(now + 30_000, expiresAt ?? Infinity)
+    if (args.cursor !== undefined) {
+      const prior = this.cursors.get(args.cursor)
+      if (!prior || prior.scope !== fingerprint) {
+        throw new FacadeServiceError('invalid_cursor')
+      }
+      offset = prior.offset
+      // 后续页只沿用原游标与当前目录的较早期限，不能借fresh resolve滑动续期。
+      expires = Math.min(expires, prior.expires)
+    }
+    const limit = args.limit ?? 50
+    const next = offset + limit
+    if (next >= items.length) {
+      return { items: items.slice(offset, next) }
+    }
+    if (this.cursors.size >= 128) {
+      throw new FacadeServiceError('busy')
+    }
+    // 此引用只关联分页位置，不是认证凭据或业务 history，重启后明确失效。
+    const token = 'page_' + randomUUID()
+    this.cursors.set(token, { scope: fingerprint, offset: next, expires })
+    return { items: items.slice(offset, next), next_cursor: token }
+  }
+
+  // 有界短等只轮询原调用，每轮重读当前身份/双方政策；终止等待不调用取消、派发或原生操作。
+  private async callGet(args: ToolArguments['runtime_call_get'], context: ServiceContext): Promise<CallView> {
+    const until = performance.now() + (args.wait_ms ?? 0)
+    while (true) {
+      this.now()
+      const call = this.router.get(this.principal(context), args.call_id)
+      if (!['created', 'dispatching', 'connector_accepted'].includes(call.state) || performance.now() >= until) {
+        return publicCallView(call)
+      }
+      await new Promise<void>(
+        /* 将 AbortSignal 接到当前短等 timer，释放监听器后统一回到门禁，不形成任何执行重试。 */ (resolve) => {
+          // 只唤醒本地轮询，既不变更账本也不取消 native 工作。
+          const wake = /* 在超时或取消时释放两种资源，避免等待结束后遗留监听器。 */ () => {
+            clearTimeout(timer)
+            context.wait_signal.removeEventListener('abort', wake)
+            resolve()
+          }
+          const timer = setTimeout(wake, Math.min(50, Math.max(1, until - performance.now())))
+          context.wait_signal.addEventListener('abort', wake, { once: true })
+          if (context.wait_signal.aborted) {
+            wake()
+          }
+        }
+      )
+    }
+  }
+
+  // 统一验证服务入口；参数、身份和存储拒绝均保持固定公共错误，原始 SQLite 异常不会外泄。
+  async execute<K extends ToolName>(
+    name: K,
+    args: ToolArguments[K],
+    context: ServiceContext
+  ): Promise<ServiceReply<K>> {
+    try {
+      if (!isToolName(name)) {
+        throw new FacadeServiceError('unsupported')
+      }
+      let request: ToolRequest
+      try {
+        request = { name, args: parseToolArguments(name, args) } as ToolRequest
+      } catch {
+        throw new FacadeServiceError('invalid_arguments')
+      }
+      const principal = this.principal(context)
+      const now = this.now()
+      const data = await this.run(request, principal, context, now)
+      return { data: data as ReplyData[K] }
+    } catch (error) {
+      throw serviceError(error)
+    }
+  }
+
+  // 用实际 Store/Router 完成已具备门禁的路径；未接线动作在产生账本、凭据或副作用前明确拒绝。
+  private async run(
+    request: ToolRequest,
+    principal: Principal,
+    context: ServiceContext,
+    now: number
+  ): Promise<ReplyData[ToolName]> {
+    if (request.name === 'runtime_call_get') {
+      return this.callGet(request.args, context)
+    }
+    if (request.name === 'runtime_response_discard') {
+      this.router.discardResponse(principal, request.args.call_id)
+      return { call_id: request.args.call_id, content_status: 'discarded' }
+    }
+    if (request.name === 'runtime_discover' || request.name === 'runtime_describe') {
+      const visible = this.visibleTargets(principal)
+      if (
+        !visible.some(
+          /* 目录只接纳已通过同一完整Target read交集的资源。 */ (row) =>
+            canonical(row.target) === canonical(request.args.target)
+        )
+      ) {
+        throw new FacadeServiceError('not_found')
+      }
+      if (!this.options.catalog) {
+        throw new FacadeServiceError('backend_unavailable')
+      }
+      const options = {
+        store: this.options.store,
+        principal,
+        currentPrincipal: /* 扫描和描述期间仍从同一受信身份来源复验，不借用旧principal。 */ () =>
+          this.principal(context),
+        localPolicies: this.options.localPolicies,
+        target: request.args.target,
+        expected_binding_revision: request.args.expected_binding_revision
+      }
+      const provider =
+        this.options.catalog.kind === 'mixed' ? this.options.catalog.select(request.args.target) : this.options.catalog
+      if (!provider) {
+        throw new FacadeServiceError('backend_unavailable')
+      }
+      const catalog =
+        provider.kind === 'provider'
+          ? authorizedProviderCatalog({ ...options, provider })
+          : authorizedLuvusCatalog({ ...options, provider })
+      if (request.name === 'runtime_describe') {
+        return catalog.describe(request.args.method)
+      }
+      return this.page(
+        catalog.methods,
+        request.args,
+        {
+          principal: principal.id,
+          policy: principal.policy,
+          target: request.args.target,
+          name: request.name,
+          catalog: catalog.scope,
+          args: queryArguments(request.args)
+        },
+        now,
+        'expires_at' in catalog ? catalog.expires_at : catalog.scope.expires_at
+      )
+    }
+    if (!['machines_list', 'machines_get', 'providers_list', 'providers_get'].includes(request.name)) {
+      throw new FacadeServiceError('backend_unavailable')
+    }
+    const visible = this.visibleTargets(principal)
+    const machines = [
+      ...new Set(visible.map(/* 提取授权目标中的稳定设备 ID，不建立第二份注册表。 */ (row) => row.target.machine_id))
+    ].sort()
+    const scope = {
+      principal: principal.id,
+      policy: principal.policy,
+      visible,
+      generation: this.options.store.generation(),
+      name: request.name,
+      args: queryArguments(request.args)
+    }
+    if (request.name === 'machines_get') {
+      const machineId =
+        request.args.machine_id ??
+        machines.find(
+          /* 精确名称查询只扫描当前授权候选，不向未授权设备名称提供探测入口。 */ (machine) =>
+            this.options.store.machine(machine).name === request.args.name
+        )
+      if (!machineId || !machines.includes(machineId)) {
+        throw new FacadeServiceError('not_found')
+      }
+      return this.machine(machineId)
+    }
+    if (request.name === 'machines_list') {
+      return this.page(
+        machines.map(/* 从真实 Store 读取每个当前授权设备的公开投影。 */ (machine) => this.machine(machine)),
+        request.args,
+        scope,
+        now
+      )
+    }
+    if (request.name === 'providers_list' || request.name === 'providers_get') {
+      const ids = [
+        ...new Set(
+          visible
+            .filter(
+              /* 仅保留请求显式设备下获授权的 provider。 */ (row) => row.target.machine_id === request.args.machine_id
+            )
+            .map(/* 提取同一 tuple 中的 provider，不复用其它实例授权。 */ (row) => row.target.provider_id)
+        )
+      ].sort()
+      if (!machines.includes(request.args.machine_id)) {
+        throw new FacadeServiceError('not_found')
+      }
+      if (request.name === 'providers_get') {
+        if (!ids.includes(request.args.provider_id)) {
+          throw new FacadeServiceError('not_found')
+        }
+        return this.provider(request.args.machine_id, request.args.provider_id)
+      }
+      return this.page(
+        ids.map(
+          /* 读取每个当前授权 binding，剔除其内部配置引用。 */ (provider) =>
+            this.provider(request.args.machine_id, provider)
+        ),
+        request.args,
+        scope,
+        now
+      )
+    }
+    throw new FacadeServiceError('backend_unavailable')
+  }
+
+  // 重新核验独立管理会话和同一 Principal；MCP/设备身份及过期会话不能获得管理读模型。
+  private administrator(context: AdminContext): { principal: Principal; admin: Administrator } {
+    const principal = this.principal(context)
+    if (typeof context.management_session_ref !== 'string' || !idPattern.test(context.management_session_ref)) {
+      throw new FacadeServiceError('unauthenticated')
+    }
+    const admin = this.options.identities.administrator(context.caller, context.management_session_ref)
+    if (
+      !admin ||
+      admin.principal_id !== principal.id ||
+      admin.session_ref !== context.management_session_ref ||
+      !['administrator', 'recovery_local'].includes(admin.assurance) ||
+      typeof admin.policy_revision !== 'string' ||
+      !idPattern.test(admin.policy_revision) ||
+      !Array.isArray(admin.grants) ||
+      admin.grants.length > 4096
+    ) {
+      throw new FacadeServiceError('unauthenticated')
+    }
+    return { principal, admin: JSON.parse(canonical(admin)) as Administrator }
+  }
+
+  // 管理 grant 逐项匹配完整资源范围，不把设备管理权扩展到 provider 管理权。
+  private allowed(
+    admin: Administrator,
+    action: ManagementGrant['action'],
+    machine?: string,
+    provider?: string
+  ): boolean {
+    return admin.grants.some(
+      /* 同一条当前 grant 必须同时包含该操作和确切资源。 */ (grant) =>
+        grant.action === action &&
+        ('machine_id' in grant ? grant.machine_id === machine : machine === undefined) &&
+        ('provider_id' in grant ? grant.provider_id === provider : provider === undefined)
+    )
+  }
+
+  // 构建真实持久设备状态与明确未核实的现场状态，避免从数据库状态推断心跳、认证或设备 revision。
+  private deviceSnapshot(machine: string, now: number): DeviceSnapshot {
+    const row = this.options.store.machine(machine)
+    if (!persistedStates.has(row.status)) {
+      throw new FacadeServiceError('unavailable')
+    }
+    return {
+      machine_id: row.machine_id,
+      name: row.name,
+      labels: null,
+      persisted_state: row.status as DeviceSnapshot['persisted_state'],
+      resource_revision: null,
+      observed_at: now,
+      connection: { verification: 'unverified', reason_code: 'backend_unavailable' },
+      authentication:
+        row.status === 'revoked' || row.status === 'pending'
+          ? {
+              verification: 'verified',
+              observed_at: now,
+              source: 'store',
+              value: { state: row.status, last_failure: null }
+            }
+          : { verification: 'unverified', reason_code: 'backend_unavailable' }
+    }
+  }
+
+  // 管理面只输出词法安全的非秘密配置引用，绝不展开路径、环境或未核实的 native 信息。
+  private providerSnapshot(machine: string, provider: string, now: number): ProviderSnapshot {
+    const binding = this.options.store.provider(machine, provider)!
+    return {
+      ...this.provider(machine, provider),
+      config_ref: idPattern.test(binding.config_ref) ? binding.config_ref : null,
+      observed_at: now,
+      runtime: { verification: 'unverified', reason_code: 'backend_unavailable' }
+    }
+  }
+
+  // 返回短期 UI 提示，已获权限但缺少真实写后端的动作保持不可用；该快照不作为执行许可。
+  private permissions(
+    principal: Principal,
+    admin: Administrator,
+    target: { machine_id: string; provider_id?: string },
+    now: number,
+    context: AdminContext
+  ): PermissionSnapshot {
+    const actions: ManagementGrant['action'][] = target.provider_id
+      ? ['providers_read', 'providers_manage']
+      : ['devices_read', 'devices_rename', 'devices_disconnect', 'devices_revoke', 'permissions_read']
+    const mode = this.options.store.health().mode
+    const capabilities = new Set(this.options.managementCapabilities?.(target) ?? [])
+    const current = this.administrator(context)
+    if (canonical(current.principal) !== canonical(principal) || canonical(current.admin) !== canonical(admin)) {
+      throw new FacadeServiceError('forbidden')
+    }
+    const decisions: PermissionDecision[] = actions.map(
+      /* 先判断当前权限，再说明真实后端或全局模式的阻断；不得把按钮状态用于后端授权。 */ (action) => {
+        const allowed = this.allowed(
+          admin,
+          action,
+          target.machine_id,
+          action.startsWith('providers_') ? target.provider_id : undefined
+        )
+        const reason = !allowed
+          ? 'forbidden'
+          : mode === 'recovery_quarantined'
+            ? 'recovery_quarantined'
+            : !['devices_read', 'providers_read', 'permissions_read'].includes(action)
+              ? mode === 'storage_degraded'
+                ? 'storage_degraded'
+                : capabilities.has(action)
+                  ? 'allowed'
+                  : 'backend_unavailable'
+              : 'allowed'
+        return { action, allowed: reason === 'allowed', reason_code: reason }
+      }
+    )
+    return {
+      target,
+      principal_id: principal.id,
+      policy_revision: admin.policy_revision,
+      caller_policy_revision: principal.policy.revision,
+      local_policy_revision: null,
+      recovery_generation: this.options.store.generation(),
+      observed_at: now,
+      expires_at: now + 5000,
+      decisions
+    }
+  }
+
+  // 实现独立管理只读查询，完整写契约在缺持久回执/确认和资源关闭后端时统一拒绝。
+  private async adminExecute<K extends ManagementOperation>(
+    name: K,
+    value: ManagementArguments[K],
+    context: AdminContext
+  ): Promise<ManagementReply[K]> {
+    try {
+      const { principal, admin } = this.administrator(context)
+      const now = this.options.store.clock()
+      const health = this.options.store.health()
+      if (name === 'status') {
+        adminArguments(value, [])
+        if (!this.allowed(admin, 'gateway_read')) {
+          throw new FacadeServiceError('forbidden')
+        }
+        if (health.mode === 'recovery_quarantined' && admin.assurance !== 'recovery_local') {
+          throw new FacadeServiceError('recovery_quarantined')
+        }
+        return {
+          server_time: now,
+          observed_at: now,
+          mode: health.mode,
+          recovery_generation: health.generation,
+          policy_revision: admin.policy_revision,
+          refresh_after_ms: 5000,
+          stale_after_ms: 15000,
+          history: null,
+          components: {
+            store:
+              health.mode === 'active' ? 'available' : health.mode === 'storage_degraded' ? 'degraded' : 'quarantined',
+            transport: 'unavailable',
+            native: 'unavailable'
+          }
+        } as ManagementReply[K]
+      }
+      this.now()
+      if (!['devices_list', 'devices_get', 'providers_list', 'providers_get', 'permissions_get'].includes(name)) {
+        throw new FacadeServiceError('backend_unavailable')
+      }
+      const required =
+        name === 'devices_list' ? [] : name === 'providers_get' ? ['machine_id', 'provider_id'] : ['machine_id']
+      const optional =
+        name === 'devices_list'
+          ? ['cursor', 'limit', 'states']
+          : name === 'providers_list'
+            ? ['cursor', 'limit']
+            : name === 'permissions_get'
+              ? ['provider_id']
+              : []
+      const args = adminArguments(value, required, optional)
+      const machine = args.machine_id as string | undefined
+      const provider = args.provider_id as string | undefined
+      const scope = {
+        principal: principal.id,
+        admin,
+        generation: health.generation,
+        name,
+        args: queryArguments(args)
+      }
+      let result: unknown
+      if (name === 'devices_list') {
+        const ids = [
+          ...new Set(
+            admin.grants
+              .filter(
+                /* 枚举当前明确授予devices_read的设备ID，不创建全局注册表。 */ (grant) =>
+                  grant.action === 'devices_read'
+              )
+              .map(/* 提取同一管理grant中的设备范围。 */ (grant) => (grant as { machine_id: string }).machine_id)
+          )
+        ].sort()
+        result = this.page(
+          ids
+            .map(/* 从实际Store读取授权设备，不在页面层构造状态。 */ (id) => this.deviceSnapshot(id, now))
+            .filter(
+              /* 先完成授权和真实状态校验，再按持久状态筛选，不推测现场连接状态。 */ (device) =>
+                !args.states || (args.states as string[]).includes(device.persisted_state)
+            ),
+          args as { cursor?: string; limit?: number },
+          scope,
+          now
+        )
+      } else if (name === 'devices_get') {
+        if (!this.allowed(admin, 'devices_read', machine)) {
+          throw new FacadeServiceError('not_found')
+        }
+        result = this.deviceSnapshot(machine!, now)
+      } else if (name === 'providers_list') {
+        if (!this.allowed(admin, 'devices_read', machine)) {
+          throw new FacadeServiceError('not_found')
+        }
+        this.options.store.machine(machine!)
+        const ids = [
+          ...new Set(
+            admin.grants
+              .filter(
+                /* 限定同设备下显式providers_read的实例，设备查看权不扩大为provider查看权。 */ (grant) =>
+                  grant.action === 'providers_read' && 'machine_id' in grant && grant.machine_id === machine
+              )
+              .map(/* 从单条完整范围中取provider ID。 */ (grant) => (grant as { provider_id: string }).provider_id)
+          )
+        ].sort()
+        result = this.page(
+          ids.map(
+            /* 读取当前binding和安全引用，现场运行状态保持未核实。 */ (id) => this.providerSnapshot(machine!, id, now)
+          ),
+          args as { cursor?: string; limit?: number },
+          scope,
+          now
+        )
+      } else if (name === 'providers_get') {
+        if (!this.allowed(admin, 'providers_read', machine, provider)) {
+          throw new FacadeServiceError('not_found')
+        }
+        result = this.providerSnapshot(machine!, provider!, now)
+      } else {
+        if (
+          !this.allowed(admin, 'permissions_read', machine) ||
+          !this.allowed(admin, provider ? 'providers_read' : 'devices_read', machine, provider)
+        ) {
+          throw new FacadeServiceError('not_found')
+        }
+        if (provider) {
+          this.provider(machine!, provider)
+        } else {
+          this.options.store.machine(machine!)
+        }
+        result = this.permissions(
+          principal,
+          admin,
+          { machine_id: machine!, ...(provider ? { provider_id: provider } : {}) },
+          now,
+          context
+        )
+      }
+      return result as ManagementReply[K]
+    } catch (error) {
+      throw serviceError(error)
+    }
+  }
+}

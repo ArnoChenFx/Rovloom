@@ -71,6 +71,8 @@ export type HerdrGatewayResources = Readonly<{
   release(): Promise<void>
 }>
 export type HerdrConnectorResources = Readonly<{
+  // 只交付原受保护配置路由，供runtime组合原session，不来自请求或广告。
+  providers: readonly Readonly<{ binding: ProviderBinding; target: V2Target }>[]
   kind: 'provider'
   admission_context: true
   session(connection: Connection): ConnectorWireSession
@@ -659,6 +661,7 @@ export async function createHerdrConnectorResources(
       admission_context: true,
       release,
       release_timeout_ms: releaseTimeout,
+      providers: Object.freeze([Object.freeze({ binding, target: config.target })]),
       /** 每个实际认证 epoch 独立准入正文，长期 receipt/book/claim 仍由同一资源所有者持有。 */
       session(connection) {
         if (closed) {

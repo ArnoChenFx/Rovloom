@@ -37,7 +37,7 @@ MCP、Rovloom Wire 和各原生协议独立版本化；所选 MCP revision 与 S
 
 ```text
 主 Agent / MCP Host
-        │ stdio 或 HTTPS Streamable HTTP
+        │ HTTPS Streamable HTTP
         ▼
 Gateway：MCP / 身份与策略 / provider registry / 账本与结果
         ▲                         ▲
@@ -59,14 +59,14 @@ Connector A                   Connector B
 
 Connector 仅执行管理员固定的 binary、状态根和 session 策略。caller 不能提交连接/安装的 binary 路径、环境、endpoint、状态根或 SSH 目标来选择或替换 adapter。已授权普通 RPC 的原生 `workspace.create`、`pane.split` 等参数仍保留官方 `env/cwd` 语义，不把这些业务参数当作 Connector 安装配置。设备广告不得创建、重绑或扩大 binding；双方受保护配置不一致即拒绝派发。
 
-### 4.1 两种 Gateway 部署
+### 4.1 持久 Gateway 服务
 
 Connector 的直接终端输入及自定义程序启动由机器所有者的本地布尔配置
 `allow_terminal_execution` 显式开启，默认关闭；目录与最终执行前检查使用同一能力判定。
 普通 Agent 对话保留独立授权，不能把该开关描述为限制 Agent 内部工具的 OS 沙箱。
 精确覆盖、cwd/PATH、写入与原生结果边界见[终端执行](TERMINAL-EXECUTION.md)。
 
-本地模式由 MCP Host 通过 stdio 启动 Gateway，stdout 仅承载 MCP，日志写 stderr；设备须可达其 WSS 地址。常驻模式由同一程序运行 Gateway，MCP 走 HTTPS Streamable HTTP，适合长期在线设备。两者共用业务核心，同一数据库仅一个 writer；多个 stdio Host 不能各自争用同一状态目录。
+Gateway由同一程序作为持久服务运行，唯一MCP入口为Streamable HTTP；本机默认仅监听回环，远程部署须使用HTTPS及兼容认证宿主。MCP客户端连接、断开或退出只影响其会话/请求等待，不隐式停止Gateway或取消native。stdout不承载MCP协议；同一数据库仅一个writer，CLI或后台服务共用角色入口和配置规则。
 
 ### 4.2 Gateway 内置管理 Web UI
 
@@ -322,7 +322,7 @@ Wire 单帧、整体对象、分片和 schema 编译的独立限额见各协议/
 
 observer、orchestrator、owner 是目标范围内的授权配置：observer 仅经分类的被动只读；orchestrator 仅明确授予的 agent/task/worktree 编排；owner 在指定范围内可获更广方法授权。三者都受 §8 交集约束，Owner 不默认获得 raw grant、Host admin、凭据管理、providers_manage 或 discard_response。agent prompt/终端可触达目标账号执行权限；session/path allowlist 不是 OS 沙箱，强隔离依赖专用账号/容器等外部边界。
 
-HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用兼容身份服务，不自造 OAuth 产品；MCP session ID 不充当身份。stdio 使用本地 OS 信任及受保护配置，不与设备凭据互用。固定 bearer 开发模式只适用 loopback/明确受限环境，不能据此通过正式公网授权门禁。
+HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用兼容身份服务，不自造 OAuth 产品；MCP session ID 不充当身份。逐HTTP请求映射既有principal，MCP身份、设备凭据与管理会话不互用。固定 bearer 开发模式只适用 loopback/明确受限环境，不能据此通过正式公网授权门禁。
 
 审计记录 caller、完整目标/provider/revision、method/action、契约/分类/策略 revision、call/attempt/epoch/恢复代次、适用原生 generation、时间/状态/大小与受保护摘要。prompt、原参数/输出、私人路径和 secret 默认不入日志/错误。参数摘要、hash 与历史证据也按受限元数据处理，不因不含原文而公开。
 

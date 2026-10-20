@@ -12,9 +12,11 @@
 | Native validator、handle、可信宿主与调用顺序 | [原生契约](protocol/NATIVE-CONTRACT.md)；准确签名见对应源码类型 |
 | SQLite 宿主接线、保留/预算、备份隔离恢复与 unknown 对账 | [存储运行指引](STORAGE.md) |
 | WSS/loopback 通道、ready、配对 custody、重连与 transport 限额 | [通道接线](TRANSPORT.md) |
+| MCP Streamable HTTP、受信 caller/服务接口、双角色 CLI 与预览限制 | [MCP Streamable HTTP 契约](protocol/MCP-HTTP.md) |
 | 通用 provider 角色、原 caller/锚点与结果预算接缝 | [Provider 角色](PROVIDER-RUNTIME.md) |
 | Connector 本地终端开关、替代输入入口、cwd/PATH 与原生结果边界 | [终端执行](TERMINAL-EXECUTION.md) |
 | Luvus 窗口、Agent、静态 CLI 工厂与同机 managed/attach | [Luvus 操作装配](LUVUS-OPERATIONS.md) |
+| 受管运行时的自有实例、来源与清理隔离验收方法 | [受管运行时隔离验收](MANAGED-RUNTIME-VERIFICATION.md) |
 | 共享管理写事务、确认/回执、窄 HTTP handler 与生产接线边界 | [管理写服务](MANAGEMENT-WRITES.md) |
 | 工具链、构建、隔离验证、固定原生输入和回放 | [开发指引](DEVELOPMENT.md) |
 | Bun 单文件、tag 门禁、发布资产/manifest、Worker/静态资源、Windows 图标及本机验收 | [发行构建](DISTRIBUTION.md) |

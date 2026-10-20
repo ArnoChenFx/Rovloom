@@ -5,7 +5,8 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { parseArgs } from 'node:util'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { createRuntimeMcpServer } from '../../../src/mcp/runtime.js'
+import { createMcpFacade, RuntimeGatewayService } from '../../../src/mcp/index.js'
+import { contractRef } from '../../../src/wire/index.js'
 import { herdrEnvironment } from '../../../src/connector/herdr/local.js'
 import { createHerdrWorkflowHost } from './workflow-host.js'
 
@@ -38,12 +39,36 @@ if (values.opencode) {
     throw new Error('owned_opencode_hook_install_failed')
   }
 }
-const server = createRuntimeMcpServer({
-  runtime: host.runtime,
-  caller: host.caller_identity,
-  /** 只描述本次合成 caller 的唯一受保护目标。 */
-  discover: () => [host.describe()]
+const service = new RuntimeGatewayService(host.mcp)
+const server = createMcpFacade({
+  service,
+  context: {
+    resolve: /** stdio只使用本fixture已绑定的caller，每次等待仍使用SDK原signal。 */ async (signal) => ({
+      caller: host.caller_identity,
+      wait_signal: signal
+    })
+  }
 })
+// 仅交付非秘密定位提示；真实目录与准入仍由统一服务按此caller重新授权，不增加bootstrap工具。
+try {
+  writeFileSync(
+    join(values.root!, 'mcp-target.json'),
+    JSON.stringify({
+      target: host.target,
+      binding_revision: host.binding_revision,
+      contract_ref: contractRef(host.provider_ref.expected_source)
+    }) + '\n',
+    { mode: 0o600, flag: 'wx' }
+  )
+} catch {
+  service.close()
+  try {
+    await host.close()
+  } finally {
+    await server.close()
+  }
+  throw new Error('owned_fixture_bootstrap_failed')
+}
 let finishing: Promise<void> | undefined
 
 /** fixture owner 显式结束，报告只写外部新文件；不是产品 MCP 管理或停止 Gateway 的工具。 */
@@ -51,6 +76,7 @@ function finish(): Promise<void> {
   finishing ??= /** 共享同一清理，避免 EOF 和结束通知同时释放资源。 */ (async () => {
     // 启动时已核验并固定的来源快照；结束时安装失效也不能阻断 owner 清理。
     const source = host.provider_ref.expected_source
+    service.close()
     const cleanup = await host.close()
     writeFileSync(
       values.report!,

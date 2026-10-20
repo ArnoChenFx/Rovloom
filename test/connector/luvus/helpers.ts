@@ -249,6 +249,9 @@ export async function fixture(
   const server = createServer(
     /* 登记自有连接并累积输入，在收到 LF 后交给当前测试响应器。 */ (socket) => {
       sockets.add(socket)
+      // transcript可合计多连接，是否收到完整请求必须按当前socket独立判断。
+      let request = ''
+      let handled = false
       socket.on('error', /* 消费故意中断测试连接产生的错误，避免 fixture 自身未处理事件。 */ () => {})
       socket.on(
         'close',
@@ -257,10 +260,13 @@ export async function fixture(
       socket.on(
         'data',
         /* 记录自建 listener 收到的原始请求，并在完整帧到达时计数和调用响应器。 */ (data) => {
-          received += data.toString()
-          if (received.includes('\n')) {
+          const part = data.toString()
+          received += part
+          request += part
+          if (!handled && request.includes('\n')) {
+            handled = true
             state.responses++
-            respond(socket, received)
+            respond(socket, request)
           }
         }
       )

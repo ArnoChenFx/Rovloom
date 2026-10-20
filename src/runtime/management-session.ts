@@ -14,6 +14,7 @@ export type ManagementSessionLease = Readonly<{
   expires_at: number
 }>
 export type ManagementSessionBootstrap = ManagementSessionLease & Readonly<{ cookie: string; csrf: string }>
+export type ManagementBootstrapOptions = Readonly<{ signal?: AbortSignal; rotate?: false }>
 export type CurrentManagementSession = Readonly<{
   principal: Principal
   administrator: Administrator
@@ -24,7 +25,7 @@ export type ManagementSessionAuthority = Readonly<{
   identities: GatewayIdentitySource
   sessions: ManagementSessionSource
   // 仅由受保护本机产品动作调用；普通 HTTP/MCP 参数不得接到此入口。
-  bootstrap(lease: ManagementSessionLease): ManagementSessionBootstrap
+  bootstrap(lease: ManagementSessionLease, options?: ManagementBootstrapOptions): ManagementSessionBootstrap
   revoke(caller: CallerIdentity, sessionRef: string): void
   runAuthenticated<T>(rawCookie: string, signal: AbortSignal, operation: () => T | Promise<T>): Promise<T>
   current(): CurrentManagementSession
@@ -251,10 +252,13 @@ export function createManagementSessionAuthority(
     identities,
     sessions,
     /** 显式本机用户动作先验证既有管理员，再只交付一次随机秘密；重入不会晚注册或续期。 */
-    bootstrap(input: ManagementSessionLease): ManagementSessionBootstrap {
+    bootstrap(input: ManagementSessionLease, options: ManagementBootstrapOptions = {}): ManagementSessionBootstrap {
       try {
+        const signal = options.signal
+        const rotate = options.rotate
         const at = time()
         if (
+          signal?.aborted ||
           !data(input, ['caller', 'management_session_ref', 'issued_at', 'expires_at']) ||
           !data(input.caller, ['principal_id']) ||
           !Number.isSafeInteger(input.issued_at) ||
@@ -269,8 +273,14 @@ export function createManagementSessionAuthority(
         const caller = Object.freeze({ principal_id: reference(input.caller.principal_id) })
         const sessionRef = reference(input.management_session_ref)
         const name = key(caller, sessionRef)
-        let lease = leases.get(name)
+        const existing = leases.get(name)
+        const previousCookie = existing?.cookie_sha256
+        let lease = existing
         if (lease) {
+          // 页面只交付首次结果，刷新或并发请求不能使仍有效的页面秘密失效。
+          if (rotate === false) {
+            throw new GatewayError('unauthenticated')
+          }
           resolve(lease)
           if (input.issued_at !== lease.session.issued_at || input.expires_at < lease.session.expires_at) {
             throw new GatewayError('unauthenticated')
@@ -297,7 +307,15 @@ export function createManagementSessionAuthority(
         }
         const cookie = randomBytes(32).toString('base64url')
         const csrf = randomBytes(32).toString('base64url')
-        if (time() >= lease.session.expires_at || lease.revoked) {
+        if (
+          time() >= lease.session.expires_at ||
+          lease.revoked ||
+          signal?.aborted ||
+          closed ||
+          leases.get(name) !== existing ||
+          (existing && existing.cookie_sha256 !== previousCookie) ||
+          (!existing && leases.size >= capacity)
+        ) {
           throw new GatewayError('unauthenticated')
         }
         if (lease.cookie_sha256) {

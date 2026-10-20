@@ -83,19 +83,22 @@ export type GatewayProviderServices = Readonly<{
   policies: NativeWireBackend['policies']
   currentPrincipal(): string | undefined
 }>
-export type ProviderGatewayRuntimeOptions = Omit<GatewayRuntimeOptions, 'lifecycle' | 'providers'> &
+export type ProviderGatewayRuntimeOptions = Omit<GatewayRuntimeOptions, 'lifecycle' | 'providers' | 'hosted'> &
   Readonly<{
     lifecycle: Pick<DeviceLifecycleWiring, 'store' | 'identityHost'>
     providers: readonly (RuntimeProviderBinding & { max_response_bytes: number })[]
     // 异步安装在宿主准备阶段完成；这里只交付当前认证 epoch 的实际 Wire 会话。
     session(connection: Connection, channel: SocketChannel, services: GatewayProviderServices): Session
   }>
+// 只交付原provider会话及其精确路由覆盖；Luvus原生注册表不放入此组。
+export type GatewayHostedProviders = Pick<ProviderGatewayRuntimeOptions, 'providers' | 'session'>
 export type GatewayRuntimeOptions = Readonly<{
   lifecycle: DeviceLifecycleWiring
   channels?: ChannelRegistry
   identities: GatewayIdentitySource
   localPolicies: LocalPolicies
   providers: readonly (RuntimeProvider | RemoteLuvusRuntimeProvider)[]
+  hosted?: readonly GatewayHostedProviders[]
   listener: Pick<GatewayOptions, 'hostname' | 'port' | 'tls' | 'developmentLoopback' | 'limits' | 'offer'>
   // 仅在显式关闭角色时释放所交付的 Store/身份库；HTTP 客户端断开不调用此端口。
   release(): Promise<void>

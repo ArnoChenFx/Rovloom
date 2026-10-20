@@ -11,6 +11,7 @@ import type { Call } from '../store.js'
 import type { ProviderBinding, ProviderSnapshot, V2Target } from '../wire/types.js'
 import { boundedJson, contractRef, fail, LIMITS, uint, validateProvider, validateTarget } from '../wire/index.js'
 import { createTrustedRequestScope } from './request-scope.js'
+import { composeGatewaySessions, type ProviderSessionGroup } from './provider-sessions.js'
 import type {
   GatewayRuntimeOptions,
   ProviderGatewayRuntimeOptions,
@@ -34,6 +35,18 @@ export async function createProviderGatewayRuntime(options: ProviderGatewayRunti
 /** 两种装配入口共用同一常驻生命周期；通用入口不解释 provider 原生协议。 */
 async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayRuntimeOptions) {
   const hostOptions = 'session' in options ? options : undefined
+  const nativeOptions = 'session' in options ? undefined : options
+  const hosted = hostOptions ? [hostOptions] : (nativeOptions!.hosted ?? [])
+  const hostedNames = new Set<string>()
+  const configured = [
+    ...(nativeOptions?.providers ?? []).map(
+      /** 原Luvus条目标记为原生注册表来源。 */ (provider) => ({ provider, hosted: false })
+    ),
+    ...hosted.flatMap(
+      /** 展开中性会话组，保留每个原provider条目。 */ (group) =>
+        group.providers.map(/** 只标记宿主归属，不重建条目的来源或预检。 */ (provider) => ({ provider, hosted: true }))
+    )
+  ]
   const store = options.lifecycle.store
   const scope = createTrustedRequestScope(options.identities)
   const router = new Router(store, localPolicies)
@@ -42,6 +55,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
   const remoteProviders = new Map<string, RemoteLuvusRuntimeProvider>()
   const machineModes = new Map<string, 'local' | 'remote'>()
   const contracts = new Map<string, RuntimeProvider['contract']>()
+  let sessionCleanupFailed = false
   let closing: Promise<void> | undefined
   let transport: ReturnType<typeof createGateway> | undefined
   let finish!: () => void
@@ -132,7 +146,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
             failed = true
           }
         }
-        if (failed) {
+        if (failed || sessionCleanupFailed) {
           rejectClosed(new GatewayError('gateway_runtime_close_failed'))
         } else {
           finish()
@@ -142,25 +156,25 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
     return closed
   }
   try {
-    for (const provider of options.providers) {
+    for (const { provider, hosted: isHosted } of configured) {
       const binding = structuredClone(provider.binding)
       validateProvider(binding)
       validateTarget(provider.target)
       if (provider.target.machine_id !== binding.machine_id || provider.target.provider_id !== binding.provider_id) {
         fail('provider_binding_mismatch')
       }
-      const responseBudget = hostOptions ? provider.max_response_bytes : DEFAULT_LIMITS.object_bytes
+      const responseBudget = isHosted ? provider.max_response_bytes : DEFAULT_LIMITS.object_bytes
       uint(responseBudget)
       if (!responseBudget || responseBudget > LIMITS.object_bytes) {
         fail('transport_limit')
       }
       const name = key(binding)
       const remote =
-        !hostOptions && 'remote_luvus' in provider && provider.remote_luvus === true
+        !isHosted && 'remote_luvus' in provider && provider.remote_luvus === true
           ? (provider as RemoteLuvusRuntimeProvider)
           : undefined
-      const native = hostOptions || remote ? undefined : (provider as RuntimeProvider)
-      if (!hostOptions) {
+      const native = isHosted || remote ? undefined : (provider as RuntimeProvider)
+      if (!isHosted) {
         const mode = remote ? 'remote' : 'local'
         const previousMode = machineModes.get(binding.machine_id)
         if (previousMode && previousMode !== mode) {
@@ -190,10 +204,13 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
         fail('runtime_provider_conflict')
       }
       if (
-        (!hostOptions && binding.kind !== 'luvus') ||
+        (!isHosted && binding.kind !== 'luvus') ||
         boundedJson(store.provider(binding.machine_id, binding.provider_id)) !== boundedJson(binding)
       ) {
         fail('provider_binding_mismatch')
+      }
+      if (isHosted) {
+        hostedNames.add(name)
       }
       providers.set(name, {
         ...provider,
@@ -243,8 +260,14 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
         >()
         /** 同一实际 socket 先失效，再移除该 epoch 的目录与契约；原调用不迁到新连接。 */
         function closeRemoteEpochs(): void {
+          let failed = false
           for (const [name, state] of remoteEpochs) {
-            state.epoch.close()
+            try {
+              state.epoch.close()
+            } catch {
+              failed = true
+              sessionCleanupFailed = true
+            }
             if (state.live && nativeProviders.get(name) === state.live) {
               nativeProviders.delete(name)
               const ref = contractRef(state.live.contract.wire.source)
@@ -259,6 +282,9 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
             }
           }
           remoteEpochs.clear()
+          if (failed) {
+            fail('runtime_session_close_failed')
+          }
         }
         /** 每个来源操作都回到当前 SocketChannel 与唯一 Store，不信任帧中的 authenticated 标志。 */
         function assertRemoteCurrent(provider: RemoteLuvusRuntimeProvider): void {
@@ -400,8 +426,33 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
               remoteEpochs.set(name, { epoch })
             }
           }
-          owned = hostOptions
-            ? hostOptions.session(connection, channel, {
+          const parts: ProviderSessionGroup[] = []
+          const selectedHosts = hosted.filter(
+            /** 只为实际认证机器打开其已配置原会话。 */ (group) =>
+              group.providers.some(
+                /** 只检查本认证机器是否属于该原会话组。 */ (provider) =>
+                  provider.binding.machine_id === connection.machine_id
+              )
+          )
+          let composed = false
+          try {
+            const nativeEntries = [...providers.values()].filter(
+              /** 原生与远端Luvus保持同一个原注册表和原adapter。 */ (provider) =>
+                provider.binding.machine_id === connection.machine_id && !hostedNames.has(key(provider.binding))
+            )
+            if (nativeOptions && (nativeEntries.length || !selectedHosts.length)) {
+              parts.push({
+                providers: nativeEntries,
+                session: {
+                  ...createDeviceLifecycleAdapter(nativeOptions.lifecycle, channel, services),
+                  readiness: nativeReadiness,
+                  acceptProviderSnapshot,
+                  /** 原Wire由transport关闭，远端epoch由同一外层owner清理。 */ close() {}
+                }
+              })
+            }
+            for (const group of selectedHosts) {
+              const session = group.session(connection, channel, {
                 store,
                 router,
                 localProvider,
@@ -409,17 +460,40 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
                 policies: services.policies,
                 currentPrincipal
               })
-            : {
-                ...createDeviceLifecycleAdapter(
-                  options.lifecycle as GatewayRuntimeOptions['lifecycle'],
-                  channel,
-                  services
+              parts.push({
+                providers: group.providers.filter(
+                  /** 原会话仅覆盖当前机器的精确provider集合。 */ (provider) =>
+                    provider.binding.machine_id === connection.machine_id
                 ),
-                /** Luvus 就绪仍由固定 provider 的真实来源提供。 */
-                readiness: configuredReadiness,
-                /** Wire 由 transport 关闭，此处没有额外独立会话资源。 */
-                close() {}
+                session
+              })
+              if (closing) {
+                throw new GatewayError('runtime_closed')
               }
+            }
+            if (!parts.length) {
+              fail('runtime_session_unavailable')
+            }
+            if (parts.length === 1) {
+              owned = parts[0]!.session
+            } else {
+              composed = true
+              owned = composeGatewaySessions(
+                connection,
+                parts,
+                /** 使用唯一Store的可信单调时间，不引入独立业务时钟。 */ () => store.clock()
+              )
+            }
+          } catch (error) {
+            for (const part of composed ? [] : parts.reverse()) {
+              try {
+                closeSession(part.session)
+              } catch {
+                /* 每个已交付owner都必须尝试关闭。 */
+              }
+            }
+            throw error
+          }
           if (closing) {
             throw new GatewayError('runtime_closed')
           }
@@ -432,6 +506,9 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           const adapter = new Proxy({} as Adapter, {
             /** 保持 provider 方法的真实 this；仅在原证据保留栈中交付原 caller。 */
             get(_target, property) {
+              if (property === 'close') {
+                return closeAdapter
+              }
               if (property === 'planEvidence') {
                 return planEvidence
               }
@@ -439,6 +516,19 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
               return typeof value === 'function' ? value.bind(originalWire) : value
             }
           })
+          /** 原adapter关闭失败必须进入角色最终结果，仍由原transport尝试其它资源。 */
+          function closeAdapter(): void {
+            try {
+              const value: unknown = originalWire.close()
+              if (value !== undefined) {
+                void Promise.resolve(value).catch(/** 消费违规异步关闭，不把它当作物理释放完成。 */ () => {})
+                fail('synchronous_channel_block_required')
+              }
+            } catch (error) {
+              sessionCleanupFailed = true
+              throw error
+            }
+          }
           /** 原文保留以原持久 caller 的当前权限独立评估，不借用最近 HTTP 身份。 */
           function planEvidence(frame: Parameters<typeof originalWire.planEvidence>[0]) {
             const attempt = store.attempt(frame.payload.attempt.call_id, frame.payload.attempt.attempt_id)
@@ -464,6 +554,33 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
               retaining = previous
             }
           }
+          /** Luvus原组只报告自己的来源，不递归读取组合会话或借用Herdr就绪。 */
+          function nativeReadiness(): Readiness {
+            const entries = [...providers.values()].filter(
+              /** 每个原adapter仅覆盖本机器上明确归属它的provider。 */ (provider) =>
+                provider.binding.machine_id === connection.machine_id && !hostedNames.has(key(provider.binding))
+            )
+            const revision = entries[0] ? localPolicies(entries[0].target).revision : ''
+            const peer = entries[0]?.peer_policy_revision ?? ''
+            return {
+              policy_revision: revision,
+              peer_policy_revision: peer,
+              providers: entries.map(
+                /** 原Luvus就绪逐项核对canonical配置和当前政策。 */ (provider) => ({
+                  expected:
+                    store.provider(provider.binding.machine_id, provider.binding.provider_id) ?? provider.binding,
+                  local: provider.binding,
+                  native_ready:
+                    provider.ready() === true &&
+                    !closing &&
+                    !!localProvider(provider.target) &&
+                    localPolicies(provider.target).revision === revision &&
+                    provider.peer_policy_revision === peer &&
+                    !closing
+                })
+              )
+            }
+          }
           /** 所有 provider 都同时核对当前配置、政策和独立原生来源。 */
           function configuredReadiness(): Readiness {
             const entries = [...providers.values()].filter(
@@ -484,7 +601,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
                   local: provider.binding,
                   native_ready:
                     provider.ready() === true &&
-                    (!hostOptions || ready(native, connection, provider.binding.provider_id)) &&
+                    (!selectedHosts.length || ready(native, connection, provider.binding.provider_id)) &&
                     !closing &&
                     !!localProvider(provider.target) &&
                     localPolicies(provider.target).revision === policyRevision &&
@@ -497,19 +614,18 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           return {
             adapter,
             readiness: configuredReadiness,
-            ...(!hostOptions
-              ? { acceptProviderSnapshot }
-              : native.acceptProviderSnapshot
-                ? {
-                    acceptProviderSnapshot: native.acceptProviderSnapshot.bind(native)
-                  }
-                : {}),
+            ...(native.acceptProviderSnapshot
+              ? { acceptProviderSnapshot: native.acceptProviderSnapshot.bind(native) }
+              : {}),
             /** 仅释放当前 epoch 的 provider 会话，不推断原生动作已停止。 */
             close() {
               try {
                 if (releaseSession.call(native) !== undefined) {
                   fail('synchronous_channel_block_required')
                 }
+              } catch (error) {
+                sessionCleanupFailed = true
+                throw error
               } finally {
                 closeRemoteEpochs()
               }

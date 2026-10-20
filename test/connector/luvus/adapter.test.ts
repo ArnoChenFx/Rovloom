@@ -463,29 +463,29 @@ test(
   }
 )
 
-test(
-  'CLI stdout/stderr overflow and unexpected exit are separate bounded failures',
-  /* 逐项制造 CLI stdout、stderr 超限及异常退出，验证各自安全错误和未知结果。 */ async (t) => {
-    for (const [mode, code] of [
-      ['overflow', 'native_stdout_limit'],
-      ['stderr', 'native_stderr_limit'],
-      ['raw', 'native_process_exit']
-    ] as const) {
+for (const [mode, code] of [
+  ['overflow', 'native_stdout_limit'],
+  ['stderr', 'native_stderr_limit'],
+  ['raw', 'native_process_exit']
+] as const) {
+  test(
+    'CLI stdout/stderr overflow and unexpected exit are separate bounded failures: ' + mode,
+    /* 每种失败独立创建和释放fixture，保留原断言及5秒期限，不把三次启动挤入一个用例。 */ async (t) => {
       const f = await fixture('cli')
       t.after(/* 清理本用例拥有的 adapter、连接和私有目录。 */ () => f.close())
       f.configure({ mode, raw: JSON.stringify(f.response) + '\n', exit_code: 9 })
       await assert.rejects(f.adapter.dispatch(f.input()), failure(code, 'outcome_unknown'))
     }
-  }
-)
+  )
+}
 
-test(
-  'IPC stdout overflow and missing final LF are rejected without partial content',
-  /* 验证自建 IPC 的超限输出和缺少最终 LF 均不能作为部分结果返回。 */ async (t) => {
-    for (const [reply, code] of [
-      ['x'.repeat(513), 'native_stdout_limit'],
-      [JSON.stringify({ id: 'native_1', result: {} }), 'native_framing_invalid']
-    ] as const) {
+for (const [reply, code] of [
+  ['x'.repeat(513), 'native_stdout_limit'],
+  [JSON.stringify({ id: 'native_1', result: {} }), 'native_framing_invalid']
+] as const) {
+  test(
+    'IPC stdout overflow and missing final LF are rejected without partial content: ' + code,
+    /* 每种IPC边界独立运行并清理fixture，不改变载荷、错误断言或5秒测试期限。 */ async (t) => {
       const f = await fixture()
       t.after(/* 清理本用例拥有的 adapter、连接和私有目录。 */ () => f.close())
       const adapter = new LuvusRpcAdapter({ ...f.config, limits: { response_bytes: 512 } }, f.host)
@@ -493,8 +493,8 @@ test(
       f.respond(/* 向自建 socket 写入当前边界用例的受控原始响应后结束连接。 */ (socket) => socket.end(reply))
       await assert.rejects(adapter.dispatch(f.input()), failure(code, 'outcome_unknown'))
     }
-  }
-)
+  )
+}
 
 test(
   'P0 CLI frames retain native IDs/errors; malformed and multi-frame outputs fail',

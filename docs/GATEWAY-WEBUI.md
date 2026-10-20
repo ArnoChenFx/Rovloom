@@ -1,6 +1,7 @@
 # Rovloom 管理 UI：最小管理面设计
 
-本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[实施计划](IMPLEMENTATION-PLAN.md)，文档职责见[导航](README.md)。以下是目标契约，不表示服务已交付。
+本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[实施计划](IMPLEMENTATION-PLAN.md)，文档职责见[导航](README.md)。以下是目标契约，不表示 HTTP 服务与页面已交付。当前共享服务类型见 [management.ts](../src/mcp/management.ts)，
+实际 Store 只读接线与尚未开放的写端口见 [MCP/管理宿主契约](protocol/MCP-HTTP.md#实际-store-服务与独立管理接口)。
 
 ## 可本地验证的展示模块
 
@@ -148,7 +149,7 @@ Web UI 展示产品名 **Rovloom**；页面标题为「Rovloom 管理」，登�
 
 Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动 UI。它管理设备与连接认证状态及其已配置 runtime providers，不另建外部网站，不增加多租户、通用终端、任意 shell、结果浏览或完整运维平台。provider 专指 Luvus/Herdr 实例，不是 LLM/model vendor；页面不管理 model API key。
 
-管理 UI/HTTP API 使用独立管理 listener 与认证/授权中间件；Connector WSS、MCP stdio/HTTP 维持各自协议与身份边界。可以复用实现模块及已选身份服务，但 MCP token、设备 credential、enrollment 或“已连接机器”身份不自动获得管理员会话/权限；管理 API 不能成为 native 通用调用旁路。
+管理 UI/HTTP API 使用独立管理 listener 与认证/授权中间件；Connector WSS、MCP Streamable HTTP 维持各自协议与身份边界。可以复用实现模块及已选身份服务，但 MCP token、设备 credential、enrollment 或“已连接机器”身份不自动获得管理员会话/权限；管理 API 不能成为 native 通用调用旁路。
 
 默认仅绑定 IPv4 loopback `127.0.0.1`，端口可配置；无管理员认证配置则不启动管理面，不能以 loopback 代替登录。IPv6 loopback 需明确配置；不自动绑定所有接口。远程管理必须另行启用并配置 TLS、反向代理信任边界、允许的 Host/Origin 和访问控制，不能为 UI 默认开放公网或关闭 TLS 校验。恢复隔离时仅允许独立可信的本机恢复管理认证，不从旧备份恢复远程管理开放状态。
 

@@ -1,10 +1,13 @@
-// 用独立 stdio 子进程探测固定 MCP SDK 的协商结果，记录报文及依赖版本。
+// 用真实回环Streamable HTTP探测固定MCP SDK协商，服务仅为空目录兼容性fixture。
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
 import { lockedDependencies } from '../../scripts/bun/lock.mjs'
 import { toolchain } from '../../scripts/bun/toolchain.mjs'
@@ -13,13 +16,13 @@ import { toolchain } from '../../scripts/bun/toolchain.mjs'
 export async function probeSdk() {
   const runtime = toolchain()
   const wire = []
-  class RecordingStdio extends StdioClientTransport {
-    // 包装入站回调以保留报文，再启动父类 stdio 传输。
+  class RecordingHttp extends StreamableHTTPClientTransport {
+    // 包装入站回调以保留报文，再启动官方HTTP传输。
     async start() {
       const onmessage = this.onmessage
-      this.onmessage = /* 记录服务端消息后继续调用原有接收处理器。 */ (message, extra) => {
+      this.onmessage = /* 记录服务端消息后继续调用原有接收处理器。 */ (message) => {
         wire.push({ direction: 'server_to_client', message })
-        onmessage?.(message, extra)
+        onmessage?.(message)
       }
       return super.start()
     }
@@ -29,26 +32,39 @@ export async function probeSdk() {
       return super.send(message)
     }
   }
-  const transport = new RecordingStdio({
-    command: process.execPath,
-    args: ['--no-env-file', fileURLToPath(new URL('./sdk-compatibility-server.mjs', import.meta.url))],
-    env: { PATH: process.env.PATH ?? '' },
-    stderr: 'pipe'
-  })
-  let stderr = ''
-  transport.stderr?.on(
-    'data',
-    /* 累积子进程错误输出，稍后断言兼容探针无额外诊断。 */ (bytes) => {
-      stderr += bytes
-    }
+  const server = new Server({ name: 'locked-sdk-http-fixture', version: '1' }, { capabilities: { tools: {} } })
+  server.setRequestHandler(
+    ListToolsRequestSchema,
+    /* 空目录仅验证协议协商，不替代业务工具断言。 */ async () => ({ tools: [] })
   )
+  const serverTransport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: /* 随机会话ID不充当认证。 */ () => crypto.randomUUID(),
+    enableJsonResponse: true
+  })
+  await server.connect(serverTransport)
+  const listener = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: /* 兼容探针只接受合成测试认证头，不接用户或公网流量。 */ (request) =>
+      request.headers.get('authorization') === 'Bearer SDK_PROBE_ONLY'
+        ? serverTransport.handleRequest(request)
+        : new Response(null, { status: 401 })
+  })
+  const transport = new RecordingHttp(new URL(`http://127.0.0.1:${listener.port}/mcp`), {
+    requestInit: { headers: { authorization: 'Bearer SDK_PROBE_ONLY' } }
+  })
   const client = new Client({ name: 'p0-sdk-client', version: '1.32.1' })
   try {
     await client.connect(transport, { timeout: 5000 })
     assert.deepEqual(await client.listTools({}, { timeout: 5000 }), { tools: [] })
     assert.deepEqual(await client.ping({ timeout: 5000 }), {})
   } finally {
-    await client.close()
+    try {
+      await client.close()
+    } finally {
+      await server.close()
+      listener.stop(true)
+    }
   }
   const initialize = wire.find(
     /* 定位客户端初始化请求以关联协商响应。 */ (r) => r.message.method === 'initialize'
@@ -60,7 +76,6 @@ export async function probeSdk() {
   assert(
     wire.some(/* 确认客户端完成初始化后发送了就绪通知。 */ (r) => r.message.method === 'notifications/initialized')
   )
-  assert.equal(stderr, '')
   const dependencies = lockedDependencies()
   for (const name of ['@modelcontextprotocol/sdk', 'ajv', 'ws']) {
     const installed = JSON.parse(readFileSync(new URL(`../../node_modules/${name}/package.json`, import.meta.url)))
@@ -73,14 +88,13 @@ export async function probeSdk() {
         /* 仅保留本次兼容性报告涉及的锁定依赖。 */ (name) => [name, dependencies[name]]
       )
     ),
-    childRuntime: 'same verified Bun executable with --no-env-file',
-    client: '@modelcontextprotocol/sdk Client over child-process stdio',
+    transport: 'WebStandardStreamableHTTPServerTransport on verified Bun loopback listener',
+    client: '@modelcontextprotocol/sdk Client over Streamable HTTP',
     sdk_latest_constant: LATEST_PROTOCOL_VERSION,
     sdk_supported_constants: SUPPORTED_PROTOCOL_VERSIONS,
     negotiated: result.protocolVersion,
-    stderr,
     wire,
-    scope: 'SDK compatibility probe only; no Gateway/UHP integration, commercial MCP Host, HTTP or OAuth claim'
+    scope: 'SDK compatibility probe only; no Gateway/UHP integration, commercial MCP Host or OAuth claim'
   }
 }
 

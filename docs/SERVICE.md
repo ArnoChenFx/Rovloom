@@ -67,10 +67,17 @@ must be rejected by the trusted host. There is no silent promotion to SYSTEM/roo
 Use [src/service/index.ts](../src/service/index.ts) as an importable Bun module. Before the existing
 CLI parses role commands, call `handleServiceCommand(args, host)` and use a defined numeric return
 as the command exit code; `undefined` leaves all unrelated commands to the existing parser.
-The service help is `service --help`. Send its diagnostics to stderr; Gateway stdout is not an MCP transport.
-This slice deliberately leaves the existing CLI files untouched until their owning change is integrated.
+The unique CLI performs this delegation through the optional `CliRuntime.service` host, containing
+`platform`, `manager` and optional `resolveDefaultConfig`. It owns diagnostics and sends them to stderr;
+Gateway stdout is not an MCP transport. `service --help` works without this host; all other service actions
+return `backend_unavailable` (exit 3) when no host is supplied. The standalone entry does not construct a
+native backend or approve runtime/ACL checks. A trusted composition may combine the role factory result
+with `{ service: serviceHost }`; it must provide the real runtime verification and platform ACL ports.
+The CLI validates diagnostic codes and the complete fixed supervision-result shape again at runtime;
+unknown codes/states fail without printing backend text. The shared path helper's unavailable-home error
+maps to `config_path_required`; other resolver failures retain their failure semantics.
 
-Supported parser forms (examples describe the host seam, not an available installed CLI):
+Supported parser forms (actions require the trusted host described above):
 
 ```text
 service install --role connector --executable /opt/rovloom/rovloom [--config /var/lib/rovloom/config.json] --workdir /var/lib/rovloom --user rovloom
@@ -167,7 +174,7 @@ UID、可执行文件/祖先不可被普通用户替换、目标账户私有配�
 明确拒绝。LocalService 对网络提供匿名凭据，依赖交互桌面、用户 native session 或更广泛权限的
 部署须由宿主拒绝；不能静默降级为登录启动或提升到 SYSTEM。
 
-接线点为 `handleServiceCommand(args, host)`：现有唯一 CLI 应在原 parser 之前调用，有数字返回
+接线点为 `handleServiceCommand(args, host)`：唯一 CLI 通过可选 `CliRuntime.service` 在原 parser 之前调用，有数字返回
 时直接作为退出码，`undefined` 表示交还原 parser；诊断只走 stderr。后台程序验证器
 `verifyRuntime` 必须核实真实单文件 Rovloom 产物、角色配置、固定状态根和无登录会话的后台能力，
 拒绝 Bun 解释器、任意第三方程序及缺后端角色。Gateway 必须核验唯一 CLI 注入的持久
@@ -184,7 +191,7 @@ MCP 服务或监听配置。未接线前不能注册。`--config` 可省略，�
 restart 可能直接终止任务，不能称为优雅关闭或原生工作的回滚**。uninstall 永不停止实例。未新增网络控制入口。
 
 验证仅包括三平台模型/命令计划、临时锁文件、独立 XML/plist 解析和受控 Bun 子进程；没有实装
-系统启动项或重启验收。完整可用功能仍依赖唯一 CLI 接线、真实后台角色、Windows 配置/ACL 接线，
+系统启动项或重启验收。完整可用功能仍依赖受信 CLI 宿主装配、真实后台角色、Windows 配置/ACL 接线，
 以及获授权可恢复的一次性 Linux/macOS/Windows 环境中的无登录开机及全生命周期实测。
 
 ## Official references / 官方依据

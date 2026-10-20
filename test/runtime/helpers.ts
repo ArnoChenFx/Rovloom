@@ -14,10 +14,21 @@ import { LuvusBoundDelegation, LuvusDispatchClaims, readLinuxLuvusPeer } from '.
 import { contractRef, assertBinding, fail } from '../../src/wire/index.js'
 import type { AttemptBinding, ProviderPolicy } from '../../src/wire/types.js'
 import type { NativeBinding, TrustedNativeContext } from '../../src/native-contract/index.js'
+import type { GatewayIdentitySource } from '../../src/mcp/management.js'
+import type { GatewayHostedProviders } from '../../src/runtime/types.js'
 import type { GatewayRuntimeOptions } from '../../src/runtime/types.js'
 
 /** Gateway 和 Connector 独立请求锚点仅经真实认证通道关联；native 来源仍为标明的测试 fixture。 */
-export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['limits'] = {}) {
+export async function runtimeFixture(
+  limits: GatewayRuntimeOptions['listener']['limits'] = {},
+  extend?: (context: {
+    state: ReturnType<typeof openGatewayState>
+    caller: ProviderPolicy
+    local: ProviderPolicy
+    target: import('../../src/wire/types.js').V2Target
+    root: string
+  }) => Promise<{ hosted: readonly GatewayHostedProviders[]; release(): Promise<void> }>
+) {
   const native = await localFixture()
   const stateDirectory = join(native.root, 'gateway')
   mkdirSync(stateDirectory, { mode: 0o700 })
@@ -76,21 +87,32 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
       recovery_generation: attempt.recovery_generation
     }
   }
+  const identities: GatewayIdentitySource = {
+    /** 测试开关可撤销合成 caller；设备凭据不等于 caller 身份。 */
+    principal: (identity) =>
+      authorized && identity.principal_id === 'synthetic' ? { id: 'synthetic', policy: caller } : null,
+    /** 本切片不注入管理会话，普通 caller 无法升级管理员。 */
+    administrator: () => null
+  }
+  /** 每次操作读取同一当前fixture策略；没有缓存或第二份caller。 */
+  const localPolicies = () => {
+    localPolicyRead?.()
+    return local
+  }
+  let extension: Awaited<ReturnType<NonNullable<typeof extend>>> | undefined
+  try {
+    extension = await extend?.({ state, caller, local, target, root: native.root })
+  } catch (error) {
+    state.close()
+    await native.close()
+    throw error
+  }
   const gateway = await createGatewayRuntime({
     lifecycle: state.lifecycle,
     channels: state.channels,
-    identities: {
-      /** 测试开关可撤销合成 caller；设备凭据不等于 caller 身份。 */
-      principal: (identity) =>
-        authorized && identity.principal_id === 'synthetic' ? { id: 'synthetic', policy: caller } : null,
-      /** 本切片不注入管理会话，普通 caller 无法升级管理员。 */
-      administrator: () => null
-    },
-    /** 固定本机受保护策略；可选测试回调只用于复现同步撤销，默认没有副作用。 */
-    localPolicies: () => {
-      localPolicyRead?.()
-      return local
-    },
+    identities,
+    localPolicies,
+    hosted: extension?.hosted,
     providers: [
       {
         binding,
@@ -120,7 +142,11 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
     },
     /** 角色显式关闭后释放唯一双库。 */
     async release() {
-      state.close()
+      try {
+        await extension?.release()
+      } finally {
+        state.close()
+      }
     }
   })
   const active = gateway
@@ -216,6 +242,7 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
   })
   return {
     gateway: active,
+    mcp: { runtime: active, identities, localPolicies },
     connector,
     state,
     native,
@@ -227,11 +254,15 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
       localPolicyRead = callback
     },
     /** 等待双方实际认证且完成 provider readiness。 */
-    async ready() {
+    async ready(signal?: AbortSignal) {
       await until(
-        /** 每端都须 ready，不以 TCP 打开代替。 */ () =>
-          connector.transport.status().phase === 'ready' &&
-          active.transport.status().devices.some(/** 当前设备应由真实认证连接建立。 */ (device) => device.ready),
+        /** 每端都须ready；所属测试已结束时停止轮询，不继续访问旧writer。 */ () => {
+          signal?.throwIfAborted()
+          return (
+            connector.transport.status().phase === 'ready' &&
+            active.transport.status().devices.some(/** 当前设备应由真实认证连接建立。 */ (device) => device.ready)
+          )
+        },
         30_000
       )
     },

@@ -18,7 +18,7 @@ MCP、Rovloom Wire、Luvus UHP 和 Herdr JSON 分别版本化。MCP 采用 SDK �
 
 固定 Luvus 版本的证据揭示了参数覆盖缺口、原生语义拒绝、endpoint 身份与终端 ack 边界，因此方法总数不能作为“全功能”或参数验证的替代指标。精确方法覆盖、版本/hash 和原始记录只维护在测试输入/来源说明，避免 ADR 与 fixture 漂移。
 
-MCP SDK stdio 兼容探针只能证明记录中的客户端和 revision，不证明商业 Host、HTTP/OAuth、其它 revision 或产品 Gateway 已接线。当前 CI 使用锁定 Bun 执行真实 SDK 协商，历史运行报告不作为持续验收输入。当前依赖精确版本以 package/lock 为准，类型包不代表执行运行时。
+MCP SDK Streamable HTTP 兼容探针只能证明记录中的客户端和 revision，不证明商业Host、OAuth、其它revision 或产品 Gateway 已接线。当前 CI 使用锁定 Bun 执行真实 SDK 协商，历史运行报告不作为持续验收输入。当前依赖精确版本以 package/lock 为准，类型包不代表执行运行时。
 
 ## 证据入口
 

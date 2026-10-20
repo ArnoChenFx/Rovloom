@@ -3,9 +3,14 @@ import { rmSync } from 'node:fs'
 import { toolchain } from './toolchain.mjs'
 import { compilerWorkerPlugin } from '../native-contract/worker-plugin.mjs'
 import { buildWebui } from './webui.mjs'
+import { resolve } from 'node:path'
+import { loadManagementAssets } from '../../src/admin/assets.ts'
+import { managementPlugin } from '../release/build.mjs'
 
 toolchain()
 rmSync(new URL('../../dist/', import.meta.url), { recursive: true, force: true })
+const browserFiles = await buildWebui('dist/webui')
+const webui = resolve('dist/webui')
 const result = await Bun.build({
   entrypoints: [
     'src/contracts.ts',
@@ -25,9 +30,11 @@ const result = await Bun.build({
     'src/connector/herdr/runtime.ts',
     'src/connector/herdr/discovery.ts',
     'src/connector/herdr/provider.ts',
-    'src/mcp/runtime.ts',
     'src/webui/index.ts',
     'src/admin/index.ts',
+    'src/mcp/index.ts',
+    'src/cli/index.ts',
+    'src/cli/main.ts',
     'src/service/index.ts',
     'src/update/index.ts'
   ],
@@ -38,12 +45,11 @@ const result = await Bun.build({
   packages: 'external',
   splitting: true,
   sourcemap: 'external',
-  plugins: [await compilerWorkerPlugin()]
+  plugins: [await compilerWorkerPlugin(), managementPlugin(webui, loadManagementAssets(webui), { inline: true })]
 })
 if (!result.success) {
   throw new AggregateError(result.logs, 'Bun build failed')
 }
-const browserFiles = await buildWebui('dist/webui')
 console.log(
-  `Built ${result.outputs.length} Bun ESM files/maps and ${browserFiles} browser files/maps; management listener requires host service and trusted session adapter`
+  `Built ${result.outputs.length} Bun ESM files/maps and ${browserFiles} browser files/maps; MCP/CLI and management listener require explicit host services and trusted identity/session adapters`
 )

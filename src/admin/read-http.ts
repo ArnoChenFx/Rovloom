@@ -14,6 +14,8 @@ export type ManagementHttpOptions = {
   /** 把共享服务的公共失败归类；省略时未知服务异常只返回 unavailable。 */
   publicError?(error: unknown): ManagementHttpProblem
   assets?: ManagementAssets
+  /** 仅初始化现有根HTML；仍受本handler的Origin、取消、五秒截止和在途额度约束。 */
+  initializePage?(request: Request, page: Response, signal: AbortSignal): Promise<Response>
 }
 
 const headers = {
@@ -142,6 +144,20 @@ function context(identity: ManagementHttpIdentity, signal: AbortSignal): AdminCo
   })
 }
 
+/** async边界捕获宿主同步异常，但立即调用初始化器，不改变既有API读取开始执行的时序。 */
+async function initialize(
+  implementation: NonNullable<ManagementHttpOptions['initializePage']>,
+  request: Request,
+  body: Uint8Array<ArrayBuffer>,
+  signal: AbortSignal
+): Promise<Response> {
+  return implementation(
+    request,
+    new Response(body.slice().buffer, { headers: { ...headers, 'content-type': managementAssetType('/')! } }),
+    signal
+  )
+}
+
 /** 配置缺失时先失败，保证 start 包装器还没有打开任何端口。 */
 function prepare(options: ManagementHttpOptions, origin: () => string) {
   if (!options || typeof options.authenticate !== 'function') {
@@ -150,7 +166,8 @@ function prepare(options: ManagementHttpOptions, origin: () => string) {
   if (
     !options.service ||
     typeof options.service.execute !== 'function' ||
-    (options.publicError !== undefined && typeof options.publicError !== 'function')
+    (options.publicError !== undefined && typeof options.publicError !== 'function') ||
+    (options.initializePage !== undefined && typeof options.initializePage !== 'function')
   ) {
     throw new Error('management_service_required')
   }
@@ -233,13 +250,17 @@ function prepare(options: ManagementHttpOptions, origin: () => string) {
     }
     const path = url.pathname + url.search
     const file = files.get(url.pathname)
+    const initializePage =
+      file && !url.search && (url.pathname === '/' || url.pathname === '/index.html') && options.initializePage
     if (file && !url.search) {
-      return new Response(file.slice().buffer, {
-        headers: { ...headers, 'content-type': managementAssetType(url.pathname)! }
-      })
+      if (!initializePage) {
+        return new Response(file.slice().buffer, {
+          headers: { ...headers, 'content-type': managementAssetType(url.pathname)! }
+        })
+      }
     }
     try {
-      if (!parseManagementReadPath(path)) {
+      if (!initializePage && !parseManagementReadPath(path)) {
         return failure('not_found', 404)
       }
     } catch {
@@ -295,7 +316,10 @@ function prepare(options: ManagementHttpOptions, origin: () => string) {
         )
         request.signal.addEventListener('abort', abort, { once: true })
         controller.signal.addEventListener('abort', cancelled, { once: true })
-        void execute(request, controller, path).then(
+        const work = initializePage
+          ? initialize(initializePage, request, file!, controller.signal)
+          : execute(request, controller, path)
+        void work.then(
           /** 真实任务结束才释放额度；已取消时不写回旧响应。 */
           (response) => {
             pending.delete(controller)
@@ -344,21 +368,52 @@ export function createManagementReadHandler(options: ManagementHttpOptions & { o
 
 /** 只在配置可信会话适配器与共享服务后打开独立 loopback listener；没有默认管理员或 token。 */
 export function startManagementReadListener(options: ManagementHttpOptions & { port: number; hostname?: '127.0.0.1' }) {
+  if (!options) {
+    throw new Error('management_listener_invalid')
+  }
+  let origin = ''
+  // 保留原只读入口的开端口前认证、服务及静态资源检查，真实origin仍只来自绑定结果。
+  const handler = prepare(options, /** 只有实际绑定后才消费来源，不根据请求Host扩大信任。 */ () => origin)
+  try {
+    return startManagementListener({
+      port: options.port,
+      hostname: options.hostname,
+      maxRequestBodySize: 1,
+      handler: /** 只读入口继续使用同一安全handler，不因共用listener打开写操作。 */ (actualOrigin) => {
+        origin = actualOrigin
+        return handler
+      }
+    })
+  } catch (error) {
+    handler.stop()
+    throw error
+  }
+}
+
+export type ManagementListenerHandler = { fetch(request: Request): Promise<Response>; stop(): void }
+export type ManagementListenerOptions = {
+  port: number
+  hostname?: '127.0.0.1'
+  maxRequestBodySize: 1 | 16_384
+  /** 实际绑定后交付规范origin，只有受信组合代码可选择现行读/写handler。 */
+  handler(origin: string): ManagementListenerHandler
+}
+
+/** 读写管理面共用唯一loopback绑定与关闭顺序；正文上限只允许现行只读或窄写契约。 */
+export function startManagementListener(options: ManagementListenerOptions) {
   if (
     !options ||
     !Number.isInteger(options.port) ||
     options.port < 0 ||
     options.port > 65535 ||
-    (options.hostname !== undefined && options.hostname !== '127.0.0.1')
+    (options.hostname !== undefined && options.hostname !== '127.0.0.1') ||
+    ![1, 16_384].includes(options.maxRequestBodySize) ||
+    typeof options.handler !== 'function'
   ) {
     throw new Error('management_listener_invalid')
   }
-  let port = options.port
-  const handler = prepare(
-    options,
-    /** 实际绑定端口由 Bun 返回，支持隔离测试的随机端口，不信任请求地址。 */
-    () => new URL(`http://127.0.0.1:${port}`).origin
-  )
+  let handler: ManagementListenerHandler | undefined
+  let stopped = false
   const bun = (
     globalThis as unknown as {
       Bun: {
@@ -367,7 +422,7 @@ export function startManagementReadListener(options: ManagementHttpOptions & { p
           port: number
           maxRequestBodySize: number
           idleTimeout: number
-          /** 将原生请求交给已配置的只读 handler。 */
+          /** 将原生请求交给已配置的管理handler。 */
           fetch(request: Request): Promise<Response>
           /** 原生 listener 的意外失败仍只返回固定公开错误。 */
           error(error: unknown): Response
@@ -377,20 +432,36 @@ export function startManagementReadListener(options: ManagementHttpOptions & { p
   ).Bun
   const server = bun.serve({
     hostname: '127.0.0.1',
-    port,
-    maxRequestBodySize: 1,
+    port: options.port,
+    maxRequestBodySize: options.maxRequestBodySize,
     idleTimeout: 10,
-    fetch: handler.fetch,
+    fetch: /** 创建handler前若发生重入请求仍拒绝，不使用未验证origin。 */ (request) =>
+      handler ? handler.fetch(request) : Promise.resolve(failure('unavailable', 503)),
     /** 不使用 Bun 默认错误页，防止堆栈或请求信息离开边界。 */
     error: () => failure('unavailable', 503)
   })
-  port = server.port
+  const url = new URL(`http://127.0.0.1:${server.port}`).origin
+  try {
+    handler = options.handler(url)
+    if (typeof handler?.fetch !== 'function' || typeof handler.stop !== 'function') {
+      throw new Error('management_listener_invalid')
+    }
+  } catch (error) {
+    server.stop(true)
+    throw error
+  }
   return {
-    url: new URL(`http://127.0.0.1:${port}`).origin,
-    /** 关闭本 listener 与只读观察，不关闭宿主的共享 Store 或其它 listener。 */
+    url,
+    /** 先停止组合handler，再关闭唯一listener；重复关闭不触发额外清理。 */
     stop(): void {
-      handler.stop()
-      server.stop(true)
+      if (!stopped) {
+        stopped = true
+        try {
+          handler!.stop()
+        } finally {
+          server.stop(true)
+        }
+      }
     }
   }
 }

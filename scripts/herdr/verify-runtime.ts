@@ -5,9 +5,12 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { object } from '../../src/wire/index.js'
+import { fields, object, sha, uint, validateTarget } from '../../src/wire/index.js'
+import { MAX_RESULT_BYTES, toolNames } from '../../src/mcp/index.js'
+import { HERDR_WORKFLOW_METHODS } from '../../src/connector/herdr/methods.js'
 import type { JsonObject } from '../../src/wire/types.js'
 import { privateFile, privatePath } from '../../src/storage/files.js'
 import { readOpenCodeTurn } from './conversation.js'
@@ -21,18 +24,19 @@ function failureCode(error: unknown): string {
   return error instanceof assert.AssertionError ? 'workflow_assertion_failed' : 'workflow_failed'
 }
 
-/** 从官方 SDK 唯一 text envelope 取 JSON；工具 error 与原生 error 各自保持边界。 */
-function toolBody(result: unknown): JsonObject {
+/** 统一envelope的结构化/text副本须相等；工具拒绝与结果字节中的原生error保持边界。 */
+export function toolBody(result: unknown): JsonObject {
   const envelope = object(result)
   const content = envelope.content
   if (!Array.isArray(content) || content.length !== 1 || object(content[0]).type !== 'text') {
     throw new Error('workflow_mcp_envelope_invalid')
   }
   const body = object(JSON.parse(String(object(content[0]).text)))
+  assert.deepEqual(body, envelope.structuredContent)
   if (envelope.isError) {
     throw new Error(String(object(body.gateway_error).code || 'workflow_gateway_error'))
   }
-  return body
+  return object(body.data)
 }
 
 /** 有界观察所属资源，不因短等到期重派发原调用。 */
@@ -47,6 +51,54 @@ async function waitFor(test: () => boolean | Promise<boolean>, milliseconds: num
   throw new Error('workflow_observation_timeout')
 }
 
+/** 分页只走真实结果权限端口；不直接读取 Store 正文或数据库。 */
+export async function readRuntimeResponse(client: Pick<Client, 'callTool'>, body: JsonObject): Promise<JsonObject> {
+  if (body.content_delivery !== 'result_handle') {
+    throw new Error('workflow_native_content_unavailable')
+  }
+  const handle = object(body.result)
+  let cursor: string | undefined
+  const cursors = new Set<string>()
+  const pages: Buffer[] = []
+  let bytes = 0
+  for (;;) {
+    const page = toolBody(
+      await client.callTool({
+        name: 'runtime_result_read',
+        arguments: {
+          result_id: handle.result_id,
+          ...(cursor ? { cursor } : {}),
+          max_bytes: MAX_RESULT_BYTES
+        }
+      })
+    )
+    assert.equal(page.result_id, handle.result_id)
+    assert.equal(page.encoding, 'base64')
+    assert.equal(page.total_bytes, handle.bytes)
+    assert.equal(page.sha256, handle.sha256)
+    assert.equal(page.expires_at, handle.expires_at)
+    const part = Buffer.from(String(page.chunk), 'base64')
+    assert(part.byteLength > 0 && part.byteLength <= MAX_RESULT_BYTES)
+    pages.push(part)
+    bytes += part.length
+    if (bytes > 1_048_576) {
+      throw new Error('workflow_native_result_too_large')
+    }
+    if (page.eof === true) {
+      const raw = Buffer.concat(pages)
+      assert.equal(raw.byteLength, handle.bytes)
+      assert.equal(createHash('sha256').update(raw).digest('hex'), handle.sha256)
+      assert.equal(page.next_cursor, undefined)
+      return object(JSON.parse(raw.toString('utf8')))
+    }
+    if (typeof page.next_cursor !== 'string' || cursors.has(page.next_cursor)) {
+      throw new Error('workflow_result_cursor_invalid')
+    }
+    cursor = page.next_cursor
+    cursors.add(cursor)
+  }
+}
+
 /** 所有原生参数都取自当前完整 Target 与真实创建结果，不猜测 workspace/pane/Agent 身份。 */
 async function main(): Promise<void> {
   const { values } = parseArgs({
@@ -58,7 +110,7 @@ async function main(): Promise<void> {
       model: { type: 'string' }
     }
   })
-  const checkout = resolve(import.meta.dir, '../..')
+  const checkout = resolve(fileURLToPath(new URL('../..', import.meta.url)))
   for (const value of [values.binary, values.report]) {
     if (!value || !isAbsolute(value)) {
       throw new Error('provide_absolute_binary_and_new_report')
@@ -126,49 +178,9 @@ async function main(): Promise<void> {
   let hostSummary: JsonObject | undefined
   let target: unknown
   let revision: unknown
+  let contract: unknown
   let conversations: unknown
   let twoTurnsVerified = false
-
-  /** 分页只走真实结果权限端口；不直接读取 Store 正文或数据库。 */
-  async function response(body: JsonObject): Promise<JsonObject> {
-    if (body.delivery === 'inline') {
-      return object(body.native_response)
-    }
-    if (body.delivery !== 'result_handle') {
-      throw new Error('workflow_native_content_unavailable')
-    }
-    const handle = object(body.result)
-    let cursor = 0
-    const pages: Buffer[] = []
-    let bytes = 0
-    for (;;) {
-      const page = object(
-        toolBody(
-          await client.callTool({
-            name: 'runtime_result_read',
-            arguments: {
-              result_id: handle.result_id,
-              cursor,
-              max_bytes: 47_000
-            }
-          })
-        ).result
-      )
-      const part = Buffer.from(String(page.data), 'base64')
-      pages.push(part)
-      bytes += part.length
-      if (bytes > 1_048_576) {
-        throw new Error('workflow_native_result_too_large')
-      }
-      if (page.eof === true) {
-        return object(JSON.parse(Buffer.concat(pages).toString('utf8')))
-      }
-      if (typeof page.next_cursor !== 'number' || page.next_cursor <= cursor) {
-        throw new Error('workflow_result_cursor_invalid')
-      }
-      cursor = page.next_cursor
-    }
-  }
 
   /** 前端短等和原截止分离；只按原 call_id 查询，保留真实原生 ID、结果和 error。 */
   async function native(method: string, params: JsonObject, timeout = 30_000): Promise<JsonObject> {
@@ -179,16 +191,17 @@ async function main(): Promise<void> {
         arguments: {
           target,
           expected_binding_revision: revision,
+          contract_ref: contract,
           native_request: request,
-          timeout_ms: timeout,
+          deadline: Date.now() + timeout,
           wait_ms: 1000,
           validation: 'strict'
         }
       })
     )
-    const callId = object(body.call).call_id
+    const callId = body.call_id
     const end = performance.now() + timeout + 3000
-    while (['created', 'dispatching', 'connector_accepted'].includes(String(object(body.call).state))) {
+    while (['created', 'dispatching', 'connector_accepted'].includes(String(body.state))) {
       if (performance.now() >= end) {
         throw new Error('workflow_call_observation_timeout')
       }
@@ -196,11 +209,11 @@ async function main(): Promise<void> {
         await client.callTool({ name: 'runtime_call_get', arguments: { call_id: callId, wait_ms: 1000 } })
       )
     }
-    if (object(body.call).state !== 'responded') {
+    if (body.state !== 'responded') {
       throw new Error('workflow_call_did_not_respond')
     }
-    const raw = await response(body)
-    calls.push({ request, call: body.call, native_response: raw })
+    const raw = await readRuntimeResponse(client, body)
+    calls.push({ request, call: body, native_response: raw })
     if (raw.error) {
       const code = object(raw.error).code
       throw new Error(typeof code === 'string' && /^[a-z][a-z0-9_]{0,95}$/.test(code) ? code : 'workflow_native_error')
@@ -211,18 +224,79 @@ async function main(): Promise<void> {
   try {
     await client.connect(transport)
     startupStage = 'sdk_tools'
-    assert.equal((await client.listTools()).tools.length, 6)
-    const discovered = toolBody(await client.callTool({ name: 'runtime_discover', arguments: {} }))
-    if (!Array.isArray(discovered.targets) || discovered.targets.length !== 1) {
-      throw new Error('workflow_target_discovery_invalid')
-    }
-    const descriptor = object(discovered.targets[0])
-    target = descriptor.target
-    revision = descriptor.binding_revision
-    assert.equal(descriptor.provider_kind, 'herdr')
-    const described = toolBody(
-      await client.callTool({ name: 'runtime_describe', arguments: { target, method: 'agent.prompt' } })
+    const names: string[] = []
+    let toolCursor: string | undefined
+    let toolPages = 0
+    do {
+      const page = await client.listTools(toolCursor ? { cursor: toolCursor } : undefined)
+      names.push(...page.tools.map(/** 目录只核对固定通用工具，不扩张为原生方法工具。 */ (tool) => tool.name))
+      toolCursor = page.nextCursor
+      toolPages++
+      assert(toolPages <= 3)
+    } while (toolCursor)
+    assert.deepEqual(names, toolNames())
+    assert.equal(toolPages, 3)
+    const bootstrapPath = join(instanceRoot, 'mcp-target.json')
+    privateFile(bootstrapPath)
+    const bootstrap = object(JSON.parse(readFileSync(bootstrapPath, 'utf8')))
+    fields(bootstrap, ['target', 'binding_revision', 'contract_ref'])
+    validateTarget(bootstrap.target)
+    uint(bootstrap.binding_revision, true)
+    sha(bootstrap.contract_ref)
+    target = bootstrap.target
+    revision = bootstrap.binding_revision
+    contract = bootstrap.contract_ref
+    const provider = toolBody(
+      await client.callTool({
+        name: 'providers_get',
+        arguments: { machine_id: object(target).machine_id, provider_id: object(target).provider_id }
+      })
     )
+    assert.equal(provider.kind, 'herdr')
+    assert.equal(provider.binding_revision, revision)
+    const methods: JsonObject[] = []
+    let methodCursor: string | undefined
+    const methodCursors = new Set<string>()
+    do {
+      const page = toolBody(
+        await client.callTool({
+          name: 'runtime_discover',
+          arguments: {
+            target,
+            expected_binding_revision: revision,
+            limit: 20,
+            ...(methodCursor ? { cursor: methodCursor } : {})
+          }
+        })
+      )
+      assert(Array.isArray(page.items))
+      for (const item of page.items) {
+        const summary = object(item)
+        assert(!Object.hasOwn(summary, 'params_schema'))
+        methods.push(summary)
+      }
+      methodCursor = page.next_cursor as string | undefined
+      if (methodCursor) {
+        assert(typeof methodCursor === 'string' && !methodCursors.has(methodCursor))
+        methodCursors.add(methodCursor)
+      }
+    } while (methodCursor)
+    assert.deepEqual(
+      methods.map(/** 只对照现行固定允许集，缺页或重复方法都不能通过验收。 */ (entry) => entry.method).sort(),
+      [...HERDR_WORKFLOW_METHODS].sort()
+    )
+    assert(
+      methods.some(
+        /** 真实目录须包含后续使用的原生方法，不猜测或补造描述。 */ (entry) => entry.method === 'agent.prompt'
+      )
+    )
+    const described = toolBody(
+      await client.callTool({
+        name: 'runtime_describe',
+        arguments: { target, expected_binding_revision: revision, method: 'agent.prompt' }
+      })
+    )
+    assert.equal(described.contract_ref, contract)
     checks.push({
       name: 'official_sdk_stdio_discovery_and_native_schema',
       passed: true,
@@ -465,4 +539,6 @@ async function main(): Promise<void> {
   }
 }
 
-await main()
+if (import.meta.main) {
+  await main()
+}

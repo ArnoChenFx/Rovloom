@@ -33,12 +33,15 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、Herdr、webui、admin、独立 service 与 update 十四个 Bun ESM 入口、共享 chunk 与外部
-source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
-原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
+native-contract、wire、integration、persistence、transport、runtime、Herdr、webui、admin、Luvus connector、mcp、cli、service、update 模块及 CLI main 的 Bun ESM 入口、共享 chunk 与外部
+source maps，依赖外置；准确入口清单由`scripts/bun/build.mjs`维护。共享 chunk 保持错误类型和内存 handle 身份。
+原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv 与精确绑定的完整预编译资产；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
-SQLite 文件重开及无副作用的 service 模块导入。开机服务模块及 CLI 接缝见 [SERVICE](SERVICE.md)；当前没有已装配的服务 CLI、Node target 或声明产物。
+SQLite 文件重开、无副作用的 service 模块导入，以及 CLI help 和配置模板解析。缺后端启动的退出码与输出由
+[CLI 测试](../test/cli/cli.test.ts)验证。CLI 预览及受信宿主接口见
+[MCP Streamable HTTP 契约](protocol/MCP-HTTP.md)，开机服务模块及受信 CLI 接缝见 [SERVICE](SERVICE.md)；
+当前没有已装配的生产服务宿主、Node target 或声明产物。
 
 产品分发使用独立的 [Bun 单文件构建与验收](DISTRIBUTION.md)，输出到 `dist/release/`。
 它复用真实 CLI 入口与 WebUI 构建；入口未合入或宿主未接通时明确保留待验状态。
@@ -198,7 +201,7 @@ JUnit 报告，核对当前完整测试文件集合均有实际执行的 case，
 `scripts/native-contract/audit-fixtures.py` 校验 manifest/hash、离线引用、映射和
 矩阵可物化性；它不执行 validator/授权/流/存储验收。`audit:luvus` 另核对必需文件、
 schema 闭包、请求/响应关联、退出码、endpoint/peer 身份与清理状态。它们均不启动
-原生实例、不联网。真实 SDK stdio 子进程协商位于 `test/mcp/`，每次检查当前锁定依赖；
+原生实例、不联网。真实SDK回环Streamable HTTP协商位于 `test/mcp/`，每次检查当前锁定依赖；
 SDK 运行报告打印到 stdout，不写回仓库快照。
 
 ### 维护目录与生成规则
@@ -213,6 +216,14 @@ SDK 运行报告打印到 stdout，不写回仓库快照。
 
 `coverage.json` 由 `bun scripts/luvus/audit-fixtures.mjs --write` 从固定原文生成；
 方法 TSV 由 `python3 scripts/native-contract/audit-fixtures.py --write-map` 生成。
+
+`src/native-contract/generated/` 保存完整 standalone 资产及独立摘要目录，
+审核输入位于 `scripts/native-contract/precompiled-inputs.json`。仅在来源、编译器或锁定依赖
+变更已审核后运行 `bun run native:generate`，并一起审查派生文件；不手改生成代码。
+`bun run native:check` 在独立 Worker 重新完整编译并逐字节比较，正式模块与单文件构建
+强制执行该检查，失败不会自动重建。原生 fixture 字节不规范化，生成器实现摘要只统一源码 LF。
+构建观察上限独立于产品 2 秒接纳期限；运行时完整检查和精确失配回退见
+[原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 更新输入时显式生成并审查差异；日常 CI 只重算比对，不修改版本化输入。
 `dist/`、Python 缓存、工具执行日志及逐轮验收报告不提交。所有采集和验证输出使用
 checkout 外的全新私有路径；SDK/工具链运行元数据也只进入 CI/PR 或临时目录。
@@ -323,7 +334,8 @@ python3 scripts/herdr/verify_readonly.py --binary /absolute/verified/herdr --out
 `createHerdrGatewayResources({config, signal?, now?})`返回 `providers/session/catalog/describe/release`，
 交给既有 `createProviderGatewayRuntime`，会话使用外部提供的唯一 Store。
 `createHerdrConnectorResources({config, installation, now, policies, releaseOwner, release_timeout_ms?})`
-返回 `session/release/release_timeout_ms`，交给 `createProviderConnectorRuntime`。
+返回 `providers/session/release/release_timeout_ms`，交给 `createProviderConnectorRuntime`；
+`providers`为原受保护路由描述，供同一runtime组合会话，不是来自广告的原生来源。
 受保护 ref 由 `readHerdrProviderRefConfig`读取，字段及精确返回类型以
 [`provider.ts`](../src/connector/herdr/provider.ts)为准；必须提供完整 Target、binding revision、
 config ref、固定 expected source、schema 路径及独立 peer policy revision。Connector 另需
@@ -334,6 +346,8 @@ config ref、固定 expected source、schema 路径及独立 peer policy revisio
 双端协商须包含 `rpc/admission_receipt/admission_context`。资源的 `providers[].preflightRequest`必须随原 providers 传入中性 runtime；它在唯一 Store 准入事务中使用本次真实 native request ID 和同一完整编译根预检，错误参数不登记 call/history key、不触碰共享设备连接。真正派发和原生写入前的来源、权限、schema 与持久 claims 复验继续保留。释放责任与预算见[通道接线](TRANSPORT.md)。
 
 可复用检查入口：
+
+MCP组件回归统一使用`createMcpFacade`与`RuntimeGatewayService`；没有单独的六工具构建入口。
 
 ```sh
 bun run typecheck
@@ -352,9 +366,25 @@ python3 -B scripts/herdr/audit_methods.py --source-tree /absolute/path/to/pinned
 [provenance](../test/fixtures/herdr/0.9.5/provenance.json)和[许可证说明](../test/fixtures/herdr/0.9.5/LICENSE)。
 独立原生与模型验收仍需在自有实例另行实测。
 `scripts/herdr/verify-runtime.ts`只在显式提供自有 binary 和新报告路径时验收管理工作流；
+其stdio宿主复用创建runtime时同一identities、localPolicies和原Herdr owner目录，遵循
+[统一MCP契约](protocol/MCP-HTTP.md)。SDK枚举三页通用工具；自有私有目录中的`mcp-target.json`
+只交付非秘密Target/revision/contract提示，目录与每次准入仍重新授权。调用使用绝对deadline，
+原生响应经原结果句柄和不透明游标分页还原，保留完整原生error及其data。
 可选 Agent/模型验收还需明确的 OpenCode binary、私有配置和 model，不继承用户凭据。
 启动或 `interactive_ready`不证明模型调用；同会话两轮须独立关联 user/assistant 消息与回答。
 局部组件、注释套件或构建通过均不能替代完整测试和实际宿主验收。
+
+`verify-workspace-metadata.ts`是独立的自有 workspace 元数据验收入口。需提供固定官方版本的绝对
+binary 路径，以及 checkout 外尚不存在的绝对报告路径；运行环境须允许在`/workspace`创建私有
+临时目录。它经既有安装、Wire、Store与唯一发送账本核对TTL实际过期、seq保留、no-op和clear，
+只在本次自有实例中创建合成workspace，不运行模型或继承用户会话。报告记录实际检查与清理结果；
+下列命令是运行方法，不表示已完成原生验收。
+
+```sh
+bun --no-env-file scripts/herdr/verify-workspace-metadata.ts \
+  --binary /absolute/verified/herdr \
+  --report /tmp/rovloom-herdr-metadata-new.json
+```
 
 ## 实现范围
 

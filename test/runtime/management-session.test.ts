@@ -203,6 +203,62 @@ test(
 )
 
 test(
+  '页面首次交付和取消fence不会旋转、撤销或晚注册旧租期',
+  /** 管理员回调同步取消时，提交前必须再次检查同一signal，旧cookie仍有效。 */ async () => {
+    const f = fixture()
+    const lease: ManagementSessionLease = {
+      caller,
+      management_session_ref: sessionRef,
+      issued_at: 1000,
+      expires_at: 601_000
+    }
+    try {
+      const cancelled = new AbortController()
+      cancelled.abort()
+      const calls = f.state.adminCalls
+      assert.throws(
+        /** 已取消初始化不得进入身份回调或登记租期。 */ () =>
+          f.authority.bootstrap(lease, { signal: cancelled.signal, rotate: false }),
+        /unauthenticated/
+      )
+      assert.equal(f.state.adminCalls, calls)
+      const pending = new AbortController()
+      f.state.afterAdmin = /** 原身份后端同步取消当前请求，模拟stop/断开重入。 */ () => pending.abort()
+      assert.throws(
+        /** 回调返回有效管理员也不能越过已取消提交。 */ () =>
+          f.authority.bootstrap(lease, { signal: pending.signal, rotate: false }),
+        /unauthenticated/
+      )
+      f.state.afterAdmin = undefined
+      const first = f.authority.bootstrap(lease, { rotate: false })
+      const previousCalls = f.state.adminCalls
+      assert.throws(
+        /** 同一会话的重复页面在resolve前拒绝，不触发源回调或旧租期撤销。 */ () =>
+          f.authority.bootstrap(lease, { rotate: false }),
+        /unauthenticated/
+      )
+      assert.equal(f.state.adminCalls, previousCalls)
+      const rotation = new AbortController()
+      f.state.afterAdmin = /** 显式旋转也服从同一个提交前取消fence。 */ () => rotation.abort()
+      assert.throws(
+        /** 取消的旋转既不能替换cookie也不能撤销旧值。 */ () =>
+          f.authority.bootstrap(lease, { signal: rotation.signal }),
+        /unauthenticated/
+      )
+      f.state.afterAdmin = undefined
+      assert(await f.authority.sessions.resolveCookie(first.cookie, signal()))
+      f.authority.revoke(caller, sessionRef)
+      assert.throws(
+        /** 已撤销记录保留墓碑，页面不能恢复旧引用。 */ () => f.authority.bootstrap(lease, { rotate: false }),
+        /unauthenticated/
+      )
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
   'bounded session anchors reject new refs without evicting live sessions or forgetting tombstones',
   /** 满额保持已有活会话；撤销和到期墓碑也不腾出可复用的首次期限。 */ async () => {
     const f = fixture(1)

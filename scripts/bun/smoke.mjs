@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { toolchain } from './toolchain.mjs'
 
 toolchain()
@@ -38,7 +39,6 @@ const herdrInstallation = await import('../../dist/src/connector/herdr/installat
 const herdrRuntime = await import('../../dist/src/connector/herdr/runtime.js')
 const herdrDiscovery = await import('../../dist/src/connector/herdr/discovery.js')
 const herdrProvider = await import('../../dist/src/connector/herdr/provider.js')
-const runtimeMcp = await import('../../dist/src/mcp/runtime.js')
 const providerRuntime = await import('../../dist/src/runtime/index.js')
 assert.equal(typeof herdrCompiler.compileHerdrSchemas, 'function')
 assert.equal(typeof herdrCompiler.isCompiledHerdrSchemas, 'function')
@@ -51,7 +51,6 @@ assert.equal(typeof herdrProvider.parseHerdrProviderRefConfig, 'function')
 assert.equal(typeof herdrProvider.readHerdrProviderRefConfig, 'function')
 assert.equal(typeof herdrProvider.createHerdrGatewayResources, 'function')
 assert.equal(typeof herdrProvider.createHerdrConnectorResources, 'function')
-assert.equal(typeof runtimeMcp.createRuntimeMcpServer, 'function')
 assert.equal(typeof providerRuntime.createProviderGatewayRuntime, 'function')
 assert.equal(typeof providerRuntime.createProviderConnectorRuntime, 'function')
 assert.equal(typeof providerRuntime.createConnectorAdmissionLedger, 'function')
@@ -132,6 +131,32 @@ assert(
 )
 assert.equal(typeof persistence.persistentBackend, 'function')
 assert.equal(typeof persistence.commitLuvusResponse, 'function')
+const mcp = await import('../../dist/src/mcp/index.js')
+assert.equal(typeof mcp.createMcpFacade, 'function')
+assert.equal(typeof mcp.RuntimeGatewayService, 'function')
+const cli = await import('../../dist/src/cli/index.js')
+const localLuvus = await import('../../dist/src/connector/luvus/index.js')
+assert.equal(typeof localLuvus.LuvusRpcAdapter, 'function')
+assert.equal(typeof localLuvus.createLuvusCatalog, 'function')
+assert.equal(typeof mcp.startHttpFacade, 'function')
+assert.equal(typeof cli.runCli, 'function')
+assert.equal(typeof cli.createTransportCliRuntime, 'function')
+assert.equal(typeof cli.resolveRoleConfigPath, 'function')
+assert.equal(typeof mcp.createHttpFacade, 'function')
+assert.equal(mcp.MCP_REVISION, '2025-11-25')
+assert.equal(cli.parseConfig(cli.configTemplate('gateway')).role, 'gateway')
+assert.equal(cli.parseConfig(cli.configTemplate('connector')).role, 'connector')
+// 从同一构建入口查询角色帮助；未注入后端时不启动任何真实服务。
+for (const role of ['gateway', 'connector']) {
+  const help = spawnSync(process.execPath, ['--no-env-file', 'dist/src/cli/main.js', role, '--help'], {
+    encoding: 'utf8',
+    timeout: 5000,
+    env: { PATH: process.env.PATH ?? '' }
+  })
+  assert.equal(help.status, 0, help.stderr)
+  assert.equal(help.stdout, '')
+  assert.match(help.stderr, /backend_unavailable/)
+}
 assert.deepEqual(
   Object.keys(contracts).sort(),
   ['GatewayError', 'authorize', 'canonical', 'digest', 'validateRequest', 'validateTarget'].sort()
