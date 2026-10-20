@@ -35,7 +35,7 @@ import { assertBudget } from './storage/budget.js'
 import { auditRecord } from './storage/audit.js'
 import { completionReservation } from './storage/completion.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
-import { createPrivate, privateFile, privatePath } from './storage/files.js'
+import { createPrivate, databasePath, privateFile, privatePath } from './storage/files.js'
 import { fixedHerdrSource } from './connector/herdr/review.js'
 import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
@@ -135,10 +135,8 @@ export class Store {
       throw new GatewayError('invalid_maintenance_interval')
     }
     if (path !== ':memory:') {
-      privatePath(path)
-      if (existsSync(path)) {
-        privateFile(path)
-      }
+      path = databasePath(path)
+      this.path = path
       createPrivate(path + '.lock')
       this.lock = openSync(path + '.lock', 'r')
     }

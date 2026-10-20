@@ -53,8 +53,7 @@ test(
       platform: 'win32',
       files,
       runner,
-      verifyRuntime: /* 模拟已核验后台宿主。 */ async () => {},
-      verifyWindowsInstallation: /* 模拟 ACL 证明端口，不修改真实 ACL。 */ async () => {}
+      verifyRuntime: /* 模拟已核验后台宿主。 */ async () => {}
     })
     const manager = new ServiceManager(backend)
     const removed = await manager.execute({ action: 'uninstall', role: 'connector' })

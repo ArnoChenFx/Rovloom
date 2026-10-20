@@ -16,6 +16,7 @@ import type {
   AuthenticatedEnvelope,
   ProviderBinding,
   ProviderSnapshot,
+  TerminalExecutionState,
   Direction,
   VersionOffer
 } from '../wire/types.js'
@@ -52,6 +53,8 @@ export type Session = {
   providerFences?(): readonly ProviderBinding[]
   /** Connector 返回稳定、深冻结的每 epoch 快照；getter 只轻量复核真实来源仍活，不重建或刷新 generation。 */
   providerSnapshot?(): readonly ProviderSnapshot[]
+  /** 当前本机开关的有效值，仅用于目录；不授予请求执行或替代最终 IO 检查。 */
+  terminalExecutionState?(): readonly TerminalExecutionState[]
   /** Gateway 同步接纳当前 session 收到的快照；可信 pin/能力核验和关闭时失效由该 epoch 宿主负责。 */
   acceptProviderSnapshot?(snapshot: ProviderSnapshot): void
   /** 从受保护宿主取得双端配置与原生健康，不由设备广告生成可信状态。 */

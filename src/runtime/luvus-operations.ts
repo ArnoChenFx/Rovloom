@@ -37,7 +37,8 @@ const writeMethods = {
     'pane.split',
     'pane.focus',
     'pane.rename',
-    'pane.close'
+    'pane.close',
+    'pane.run'
   ],
   agent: ['agent.start', 'agent.prompt', 'agent.send', 'agent.keys', 'agent.resume']
 } as const
@@ -67,7 +68,7 @@ for (const [access, groups] of [
 }
 export const LUVUS_OPERATION_METHODS = Object.freeze([...operations.keys()])
 
-/** 返回固定普通接口事实；未知方法、token/admin、集成伪状态上报和任意终端执行都不在此清单。 */
+/** 返回固定普通接口事实；未知方法、token/admin 和集成伪状态上报不在此清单；终端输入仍须本机显式开关。 */
 export function luvusOperationDescriptor(method: string): LuvusOperationDescriptor | undefined {
   return operations.get(method)
 }
@@ -237,6 +238,10 @@ export function validateLuvusOperationParams(method: string, input: unknown): vo
       if (method === 'pane.rename') {
         text(params.name, 256, true)
       }
+    } else if (method === 'pane.run') {
+      fields(params, ['pane', 'command'])
+      pane(params.pane)
+      text(params.command, 65_536)
     } else if (method === 'pane.split') {
       fields(params, ['pane'], ['direction'])
       pane(params.pane)

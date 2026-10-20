@@ -16,6 +16,7 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 | rpc | 普通 request/accepted/response/cancel |
 | dispatch_refusal | Connector 确定未写出的逐调用拒绝；同时要求 rpc |
 | provider_snapshot | Connector 实测 provider 来源快照；同时要求 rpc，不交付 schema 或 opaque handle |
+| terminal_execution_state | Connector 原本机终端开关的布尔观察；同时要求 rpc，仅供目录 |
 | provider_fence | 普通 RPC 的逐 provider 来源永久撤回；同时要求 rpc，当前不与 objects 组合 |
 | admission_receipt | Gateway 原去重截止和请求摘要的认证交付；同时要求 rpc |
 | admission_context | 在原 receipt 内交付完整登记上下文与有序失效；同时要求 admission_receipt 和 rpc |
@@ -170,6 +171,7 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | authenticate | Connector → Gateway，预认证 | machine_id, recovery_generation, connector_instance_id, device_credential, offer |
 | welcome | Gateway → Connector，预认证 | machine_id, recovery_generation, connection_epoch, in_reply_to, selected |
 | provider_snapshot | Connector → Gateway | binding, target, source, capabilities, capability_revision |
+| terminal_execution_state | Connector → Gateway | binding, enabled |
 | provider_fenced | 双向 | binding |
 | admission_receipt | Gateway → Connector | attempt, request_sha256, dedup_expires_at；协商 admission_context 后另需 context |
 | request | Gateway → Connector | attempt, expected_binding_revision, native_request, validation |
@@ -207,6 +209,16 @@ codec 成功仅证明消息边界。受保护配置先固定 schema 原字节及
 当前 SocketChannel/Store epoch，成功后才发布 live source。此流程不反序列化 native
 opaque，不代替 Connector 的实际 binary/socket/process 核验。schema_bundle 分片仍不
 是 provider 注册或任意 schema 信任入口。
+
+## 可选本机终端开关观察
+
+`terminal_execution_state` 只在双方协商此可选 RPC 能力后，由当前认证 Connector 发送。
+payload 严格只接受完整 `ProviderBinding` 与布尔 `enabled`，不接受原生请求、schema、
+环境、执行许可或凭据。原会话按完整受保护配置核对；每 epoch 最多 64 provider。
+Connector 首次报告及值变化时发送，不变值去重。Gateway 仅将当前 epoch/binding 的值
+用于目录过滤；未知状态、断连、来源撤回、配置变化均不沿用旧启用观察。迟到报告不能
+复活已失效 provider。它不修改 native capabilities、不授予派发许可，也不代替本机
+最终写前检查。旧客户端未协商时继续连接，但直接终端方法按未知状态隐藏。
 
 ## 可选逐 provider 来源撤回
 

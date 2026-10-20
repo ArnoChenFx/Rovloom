@@ -37,18 +37,19 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
 
 省略 --config 时分别读取 ~/.config/rovloom/gateway.json 或 connector.json；Windows 同样使用用户 home。
 当前受保护配置读取仅支持 POSIX；Windows 读取返回 config_platform_unsupported。
-显式 --config 优先。Linux角色首次缺失配置时生成单份默认配置，不覆盖已有文件；无法确定home返回config_home_unavailable。
+显式 --config 优先。Linux/macOS角色首次缺失配置时生成单份默认配置，不覆盖已有文件；无法确定home返回config_home_unavailable。
 配置文件及所在目录须由当前 POSIX 用户持有，权限分别为 0600/0700。
 各角色默认配置与用户配置是同一份文件；check省略路径时读取所选role的默认文件。
 check既无role也无路径时分别检查两份；检查始终只读，不为缺失文件生成默认值。
 模板只含分组业务参数；不接受 argv secret、URL 凭据、动态模块或任意 shell RPC。
 check-runtime核对单份角色配置及程序管理状态，不读取凭据或宣称原生Agent就绪。
 Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
-Linux Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文件，WSS客户端保持系统证书验证。
+Linux/macOS Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文件，WSS客户端保持系统证书验证。
 真实本地TTY可批准Gateway一次性配对，并由Connector输入地址/隐藏码、持久保存身份及发现初始化Luvus。
 首次引导仅接入一个Luvus provider；Herdr引导、Agent模型认证与已有配置恢复管理仍未接通。
 非TTY缺地址/身份/provider时返回configuration_required；不读取stdin，不假报Agent或模型就绪。
-service 操作须注入受信监管宿主；默认配置仅由其已验证身份 resolver 提供，不猜测提权前用户。
+service 已接原生监管宿主；install 使用当前单文件和目标服务账户配置，不猜测提权前用户。
+Gateway服务支持Linux/macOS；本机Connector限Linux x64，Windows服务仍拒绝，详见service --help。
 update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
 角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
 `
@@ -196,9 +197,9 @@ export async function runCli(
       const code = await handleServiceCommand(args, {
         ...host,
         resolveDefaultConfig: host.resolveDefaultConfig
-          ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role) => {
+          ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role, account) => {
               try {
-                return host.resolveDefaultConfig!(role)
+                return host.resolveDefaultConfig!(role, account)
               } catch (error) {
                 if (error instanceof CliError && error.code === 'config_home_unavailable') {
                   throw new ServiceError('config_path_required')

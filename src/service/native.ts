@@ -3,9 +3,8 @@ import { join } from 'node:path'
 import { registrationFiles, type RegistrationFiles } from './files.js'
 import { renderDefinition } from './render.js'
 import { checkedCommand, runSystemCommand, type CommandRunner } from './runner.js'
-import { macosPermissionPaths, verifyMacosAcl, verifyPosixInstallation } from './security.js'
 import { manifest, OWNER, parseManifest, serviceName, servicePlatform } from './spec.js'
-import { inspectTask, taskCall, verifyWindowsControlDirectory } from './windows.js'
+import { inspectTask, taskCall } from './windows.js'
 import {
   ServiceError,
   type ServiceBackend,
@@ -19,10 +18,6 @@ export type NativeServiceOptions = {
   platform: string
   // 核验唯一 CLI 单文件产物、角色/状态根及后台能力；Gateway 必须为持久 Streamable HTTP 宿主，不依赖 stdin EOF。
   verifyRuntime(spec: ServiceSpec): Promise<void>
-  // Windows 必须验证 executable/祖先不可被普通账户替换，以及 LocalService 对指定配置/状态目录的最小 ACL。
-  verifyWindowsInstallation?: (spec: ServiceSpec) => Promise<void>
-  // 显式宿主若允许扩展 ACL，必须核验传入全部路径的有效权限；缺省保守拒绝任何扩展 ACL。
-  verifyMacosPermissions?: (paths: readonly string[]) => Promise<void>
   runner?: CommandRunner
   files?: RegistrationFiles
 }
@@ -77,16 +72,7 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
       : platform === 'darwin'
         ? '/Library/LaunchDaemons'
         : 'C:\\ProgramData\\Rovloom\\ServiceControl'
-  // macOS 的 BSD mode 不足以证明权限，所有相关路径和祖先必须检查扩展 ACL。
-  async function macPermissions(paths: readonly string[]): Promise<void> {
-    if (options.verifyMacosPermissions) {
-      await options.verifyMacosPermissions(macosPermissionPaths(paths))
-    } else {
-      await verifyMacosAcl(paths, run)
-    }
-  }
-  const files =
-    options.files ?? registrationFiles(root, platform === 'win32', platform === 'darwin' ? macPermissions : undefined)
+  const files = options.files ?? registrationFiles(root)
   // 将项目角色映射为唯一注册文件名。
   function filename(role: ServiceRole): string {
     return serviceName(role, platform) + (platform === 'linux' ? '.service' : '.plist')
@@ -164,31 +150,23 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
     async authorize() {
       if (platform === 'win32') {
         await taskCall(run, 'authorize', 'connector')
-        if (!options.files) {
-          await verifyWindowsControlDirectory(run, root)
-        }
       } else if (!options.runner && process.getuid?.() !== 0) {
         throw new ServiceError('permission_denied')
       }
       await files.verify()
     },
-    // 真实宿主必须确认程序确为支持后台的本产物，Windows 缺少 ACL 验证器时不能注册。
+    // 宿主核对产品/配置，POSIX仅查所选账户确实存在；普通文件访问权限由系统自身处理。
     async preflight(spec) {
       if (typeof options.verifyRuntime !== 'function') {
         throw new ServiceError('backend_unavailable')
       }
-      await options.verifyRuntime(spec)
-      if (platform === 'win32') {
-        if (!options.verifyWindowsInstallation) {
-          throw new ServiceError('backend_unavailable')
-        }
-        await options.verifyWindowsInstallation(spec)
-      } else {
-        await verifyPosixInstallation(spec, run)
-        if (platform === 'darwin') {
-          await macPermissions([spec.executable, spec.config, spec.directory])
+      if (platform !== 'win32') {
+        const id = await checkedCommand(run, { executable: '/usr/bin/id', args: ['-u', spec.account], timeout: 5000 })
+        if (!/^[1-9]\d*$/u.test(id.stdout.trim()) || !Number.isSafeInteger(Number(id.stdout.trim()))) {
+          throw new ServiceError('invalid_arguments')
         }
       }
+      await options.verifyRuntime(spec)
     },
     // 同时验证磁盘声明与实际系统来源；未知覆盖、同名异物均作为冲突。
     async inspect(role) {
@@ -335,14 +313,18 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
         await systemctl(['start', '--', filename(spec.role)])
       }
     },
-    // 只停止受监管的项目实例；Windows 使用明确的任务终止语义。
-    async stop(spec) {
+    // 仅停止所选实例；Darwin重启保留loaded job，避免撤自启后bootout导致无法重载。
+    async stop(spec, forRestart = false) {
       await owned(spec)
       if (platform === 'win32') {
         await taskCall(run, 'stop', spec.role, spec)
       } else if (platform === 'darwin') {
         if ((await launchInfo(spec.role)).loaded) {
-          await launchctl(['bootout', `system/${serviceName(spec.role, platform)}`])
+          await launchctl(
+            forRestart
+              ? ['kill', 'SIGTERM', `system/${serviceName(spec.role, platform)}`]
+              : ['bootout', `system/${serviceName(spec.role, platform)}`]
+          )
         }
       } else {
         await systemctl(['stop', '--', filename(spec.role)])

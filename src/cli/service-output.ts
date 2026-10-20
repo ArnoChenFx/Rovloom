@@ -11,7 +11,8 @@ const errors = new Set([
   'service_timeout',
   'service_start_failed',
   'system_command_failed',
-  'backend_unavailable'
+  'backend_unavailable',
+  'service_recovery_required'
 ])
 const fields = ['action', 'role', 'changed', 'state', 'bootEnabled', 'controlRetained', 'readiness', 'stopMode']
 
