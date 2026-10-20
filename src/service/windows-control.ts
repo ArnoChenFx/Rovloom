@@ -14,7 +14,7 @@ function Test-ControlAcl([Security.AccessControl.RawSecurityDescriptor]$sd,[bool
     if ($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessDenied) { continue }
     if ($ace.SecurityIdentifier.Value -in $trusted) { continue }
     if ($leaf) { return $false }
-    if (($ace.AceFlags -band [Security.AccessControl.AceFlags]::InheritOnly) -ne 0) { continue }
+    if (([int]$ace.AceFlags -band 8) -ne 0) { continue }
     $mask=[int64]$ace.AccessMask -band 4294967295
     if (($mask -band 0x500d0152) -ne 0) { return $false }
   }
@@ -34,8 +34,8 @@ try {
   $leaf=$true
   while ($null -ne $current) {
     $attributes=[IO.File]::GetAttributes($current)
-    if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or ($attributes -band [IO.FileAttributes]::Directory) -eq 0) { exit 1 }
-    $acl=[IO.Directory]::GetAccessControl($current,[Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access)
+    if (([int]$attributes -band 1024) -ne 0 -or ([int]$attributes -band 16) -eq 0) { exit 1 }
+    $acl=[IO.Directory]::GetAccessControl($current,[Security.AccessControl.AccessControlSections]5)
     $raw=[Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
     if (!(Test-ControlAcl $raw $leaf)) { exit 1 }
     $parent=[IO.Directory]::GetParent($current)
