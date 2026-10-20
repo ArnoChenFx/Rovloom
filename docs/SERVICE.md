@@ -139,8 +139,9 @@ Windows additionally requires `verifyWindowsInstallation`: validate executable/a
 replacement by ordinary users, LocalService access to only the intended config/state resources, reparse
 points, effective permissions and fixed control-directory ancestors. The module refuses registration
 when this port is missing. Provision `C:\ProgramData\Rovloom\ServiceControl` separately with an
-administrator/SYSTEM-only owner and ACL; the module validates its leaf ACL but **does not claim that this
-alone proves effective ancestor/resource permissions**. Standard Windows system installation at
+administrator/SYSTEM-only owner and ACL; the module checks every directory up to the drive root, rejecting reparse points and
+untrusted owners or replacement rights. The leaf also rejects ordinary-user read/inherited grants.
+This read-only control-directory check **does not establish LocalService access to role resources**. Standard Windows system installation at
 `C:\Windows` is currently required. No Windows ACL grant is performed by this module.
 
 A fixed role lock spans the entire conversion and polling; unknown stale locks are not auto-deleted.
@@ -218,7 +219,9 @@ Gateway URL 必须非空；预检不证明 provider 就绪。
 `.config/rovloom/gateway.json` 或 `connector.json`，Windows 同样如此；显式路径优先。不能确定提升前
 真实用户时要求 `--config`，不盲信 HOME/SUDO_USER。解析后的绝对路径在安装时固化，开机/重启不会
 再按 root/LocalService 的 HOME 展开；不会为适配默认路径修改 ACL 或复制秘密。Windows 另需 `verifyWindowsInstallation` 及预先准备的管理员/SYSTEM 专有控制目录；
-本模块不把目录叶节点 ACL 检查冒充全部有效权限证明，也不自动设置 ACL。
+本模块以只读 CLR 接口核对控制目录至卷根的每一层，拒绝 reparse point、不可信 owner 与替换权限；
+叶目录还拒绝普通用户读取或向控制文件继承授权。控制目录检查不证明 LocalService 对角色资源的访问，
+也不自动设置 ACL。
 
 系统命令有独立超时和输出上限；失败后仅对本次直接工具进程进行最多一秒的有界回收，分别观察
 系统已接受启动、进程退出与输出流关闭。无法证明退出/关闭时返回 `service_recovery_required`，保留
