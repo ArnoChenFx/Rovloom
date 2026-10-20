@@ -2,7 +2,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -34,7 +43,11 @@ test(
     const executable = process.env.ROVLOOM_GATEWAY_EXECUTABLE ?? process.execPath
     const prefix = process.env.ROVLOOM_GATEWAY_EXECUTABLE ? [] : ['--no-env-file', main]
     const env = { HOME: home, PATH: process.env.PATH ?? '', NO_COLOR: '1' }
-    const configPath = join(home, 'gateway.json')
+    const search = join(home, 'search')
+    const directory = join(search, 'private')
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    chmodSync(search, 0o111)
+    const configPath = join(directory, 'gateway.json')
     try {
       const defaults = readOrCreateRoleConfig('gateway', configPath, { home, platform: process.platform })
       const mcp = await port()
@@ -42,7 +55,7 @@ test(
       while (devices === mcp) {
         devices = await port()
       }
-      const state = join(home, 'state')
+      const state = join(directory, 'state')
       writeFileSync(
         configPath,
         JSON.stringify(
@@ -134,6 +147,7 @@ test(
       assert.deepEqual(readFileSync(configPath), bytes)
       assert.equal(readConfig(configPath).state_dir, state)
     } finally {
+      chmodSync(search, 0o700)
       rmSync(home, { recursive: true, force: true })
     }
   }

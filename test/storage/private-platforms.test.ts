@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -106,6 +107,42 @@ test(
             readConfig(config)
           }
         )
+      }
+    )
+  }
+)
+
+test(
+  '可搜索但不可列举的0111祖先允许读取配置与打开私有SQLite，权限保持不变',
+  /* 真实权限负例不借助root、身份切换或mock；0700私有叶仍由原规则保护。 */ () => {
+    if (process.platform === 'win32') {
+      return
+    }
+    temporary(
+      /* 仅修改本例创建的中间目录，结束时恢复以清理自有fixture。 */ (root) => {
+        const search = join(root, 'search')
+        const directory = join(search, 'private')
+        ensurePrivateDirectory(directory)
+        const path = join(directory, 'gateway.json')
+        readOrCreateRoleConfig('gateway', path, { home: root, platform: process.platform })
+        createPrivate(join(directory, 'runtime.json'), '{"synthetic":true}')
+        chmodSync(search, 0o111)
+        try {
+          if (process.getuid?.() !== 0) {
+            assert.throws(/* 证明确实不能列出目录，但仍可按已知名字搜索。 */ () => readdirSync(search), {
+              code: 'EACCES'
+            })
+          }
+          assert.equal(readConfig(path).role, 'gateway')
+          assert.deepEqual(readRuntimeJson(join(directory, 'runtime.json')), { synthetic: true })
+          const store = new Store(join(directory, 'gateway.db'))
+          store.close()
+          assert.equal(statSync(search).mode & 0o777, 0o111)
+          assert.equal(statSync(directory).mode & 0o777, 0o700)
+          assert.equal(statSync(path).mode & 0o777, 0o600)
+        } finally {
+          chmodSync(search, 0o700)
+        }
       }
     )
   }

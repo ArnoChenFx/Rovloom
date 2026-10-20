@@ -33,7 +33,9 @@ function directory(path: string, privateLeaf: boolean, ownerOnly = false): void 
   if (!before.isDirectory() || before.isSymbolicLink()) {
     throw new GatewayError('unsafe_storage_path')
   }
-  const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+  // Linux O_PATH / Darwin O_SEARCH 只取目录身份，不额外索取列目录权限；nofollow/fstat 与 ACL 检查仍在。
+  const search = process.platform === 'linux' ? 0x00200000 : 0x40000000
+  const fd = openSync(path, search | constants.O_DIRECTORY | constants.O_NOFOLLOW)
   try {
     const stat = fstatSync(fd, { bigint: true })
     if (stat.dev !== before.dev || stat.ino !== before.ino || !stat.isDirectory()) {
