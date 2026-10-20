@@ -10,6 +10,7 @@ export type GatewayRuntimeConfig = {
   authentication_ref: string
   device_listener: { hostname: string; port: number; tls_ref: string }
   provider_config_refs: string[]
+  management_ref?: string
 }
 export type ConnectorRuntimeConfig = {
   schema_version: 1
@@ -36,7 +37,8 @@ export function parseRuntimeConfig(
       value,
       config.role === 'gateway'
         ? ['schema_version', 'role', 'authentication_ref', 'device_listener', 'provider_config_refs']
-        : ['schema_version', 'role', 'credential_ref', 'ca_ref', 'provider_config_refs']
+        : ['schema_version', 'role', 'credential_ref', 'ca_ref', 'provider_config_refs'],
+      config.role === 'gateway' ? ['management_ref'] : []
     )
     if (value.schema_version !== 1 || value.role !== config.role) {
       throw new Error('invalid_runtime_manifest')
@@ -62,6 +64,9 @@ export function parseRuntimeConfig(
         throw new Error('invalid_runtime_manifest')
       }
       runtimeReference(config.state_dir, listener.tls_ref)
+      if (value.management_ref !== undefined) {
+        runtimeReference(config.state_dir, value.management_ref)
+      }
       return value as unknown as GatewayRuntimeConfig
     }
     if (JSON.stringify(refs) !== JSON.stringify(config.provider_config_refs)) {

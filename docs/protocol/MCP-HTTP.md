@@ -297,6 +297,9 @@ state_dir 在这里仅作绝对规范路径校验，实际目录所有权、单 
 成功只在stderr输出`runtime_config_valid`，不读取caller、TLS、设备凭据或provider配置，也不打开数据库。
 它不表示端口可监听、设备已连接、原生窗口存在或Agent已经就绪；非Linux的私有runtime读取沿用
 `config_platform_unsupported`。`config check`仍只检查原角色配置。
+Gateway描述可增加非秘密`management_ref`，选择独立受保护管理员来源并挂载本次构建的真实WebUI。
+证明核验、固定租期、Cookie/CSRF、逐动作身份批准和资源加载契约见
+[管理来源与页面交付](../MANAGEMENT-SESSION-CLIENT.md#生产宿主与页面交付)。
 
 Connector的`state_dir/runtime.json`只含`schema_version: 1`、`role: 'connector'`、
 `credential_ref`、`ca_ref`和与角色配置逐项相同的`provider_config_refs`。

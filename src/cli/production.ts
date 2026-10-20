@@ -17,6 +17,7 @@ import { openCallerSource } from './caller-source.js'
 import { readRuntimeFile, readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { createRuntimeCliRuntime } from './runtime.js'
 import { readRuntimeConfig } from './runtime-config.js'
+import { openProtectedManagementSource } from './management-source.js'
 import {
   createManagementPageInitializer,
   MANAGEMENT_COOKIE_NAME,
@@ -37,6 +38,7 @@ export type ProductionGatewayManagement = Omit<RuntimeCliManagement, 'session' |
 export type ProductionManagementHost = ProductionGatewayManagement & {
   // 必须验证这一个Request的既有受保护管理员会话；null交付无秘密的只读页面。
   resolveLease: ManagementPageLeaseSource
+  bootstrap_challenge?: 'basic'
 }
 type ProductionGatewayCommon = Pick<RuntimeCliGatewayResources, 'catalog'> & {
   // 需要原caller/锚点的provider显式启用现行协商能力，不复制receipt或ledger实现。
@@ -142,13 +144,34 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
       if (sources.management && typeof sources.administrator !== 'function') {
         throw new CliError('backend_unavailable', 3)
       }
+      if (settings.management_ref && (sources.management || sources.administrator || sources.authorizeIdentity)) {
+        throw new CliError('invalid_config')
+      }
+      let protectedManagement: ReturnType<typeof openProtectedManagementSource> | undefined
       const hostname = config.mcp_hostname === '::1' ? '[::1]' : config.mcp_hostname
       const caller = openCallerSource(
         runtimeReference(config.state_dir, config.authentication_ref),
         new URL(`http://${hostname}:${config.mcp_port}/mcp`).href,
-        sources.administrator?.bind(sources)
+        settings.management_ref
+          ? /* 管理来源须在下方完整校验后才可返回现有管理员，启动窗口不提供默认身份。 */ (caller, session) =>
+              protectedManagement?.administrator(caller, session) ?? null
+          : sources.administrator?.bind(sources)
       )
-      const authority = createManagementSessionAuthority(caller.identities)
+      let authority: ManagementSessionAuthority
+      try {
+        if (settings.management_ref) {
+          protectedManagement = openProtectedManagementSource(config, settings.management_ref)
+          if (protectedManagement.management.port === settings.device_listener.port) {
+            throw new CliError('invalid_config')
+          }
+        }
+        authority = createManagementSessionAuthority(caller.identities)
+        protectedManagement?.bindAuthority(authority)
+      } catch (error) {
+        protectedManagement?.close()
+        caller.close()
+        throw error
+      }
       let provider: ProductionGatewayResources | undefined
       let state: ReturnType<typeof openGatewayState> | undefined
       let closing: Promise<void> | undefined
@@ -159,6 +182,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
               await provider?.release()
             } finally {
               authority.close()
+              protectedManagement?.close()
               caller.close()
               state?.close()
             }
@@ -204,6 +228,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
           state_directory: config.state_dir,
           identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
           authorizeIdentity:
+            protectedManagement?.authorizeIdentity ??
             sources.authorizeIdentity ??
             /* 缺独立动作级批准时不提供默认身份变更。 */ (() => {
               throw new CliError('backend_unavailable', 3)
@@ -215,10 +240,11 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
             gateway.transport.disconnect(machine)
           }
         })
-        if (sources.management && provider?.management) {
+        const configuredManagement = protectedManagement?.management ?? sources.management
+        if (configuredManagement && provider?.management) {
           throw new CliError('invalid_config')
         }
-        const managementHost = sources.management ?? provider?.management
+        const managementHost = configuredManagement ?? provider?.management
         const management = managementHost
           ? {
               port: managementHost.port,
@@ -228,8 +254,14 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
               http: {
                 assets: managementHost.http?.assets,
                 publicError: managementHost.http?.publicError?.bind(managementHost.http),
-                initializePage: sources.management
-                  ? createManagementPageInitializer(authority, sources.management.resolveLease.bind(sources.management))
+                initializePage: configuredManagement
+                  ? createManagementPageInitializer(
+                      authority,
+                      configuredManagement.resolveLease.bind(configuredManagement),
+                      {
+                        challenge: configuredManagement.bootstrap_challenge
+                      }
+                    )
                   : undefined
               },
               session: { sessions: authority.sessions, cookie_name: MANAGEMENT_COOKIE_NAME, authority }

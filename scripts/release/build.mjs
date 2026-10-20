@@ -16,25 +16,40 @@ export function sha256(bytes) {
 }
 
 /** 构建模块只暴露现有 HTTP 桥接受的内存白名单，没有磁盘或 cwd 回退分支。 */
-function managementPlugin(directory, resources) {
+export function managementPlugin(directory, resources, { inline = false } = {}) {
   const imports = []
   const entries = []
-  for (const [path] of resources) {
+  for (const [path, bytes] of resources) {
     const name = `asset${entries.length}`
-    imports.push(
-      `import ${name} from ${JSON.stringify(resolve(directory, path === '/' ? 'index.html' : path.slice(1)))} with { type: 'file' };`
-    )
-    entries.push(`[${JSON.stringify(path)}, new Uint8Array(readFileSync(${name}))]`)
+    if (inline) {
+      entries.push(
+        `[${JSON.stringify(path)}, new Uint8Array(Buffer.from(${JSON.stringify(Buffer.from(bytes).toString('base64'))}, 'base64'))]`
+      )
+    } else {
+      imports.push(
+        `import ${name} from ${JSON.stringify(resolve(directory, path === '/' ? 'index.html' : path.slice(1)))} with { type: 'file' };`
+      )
+      entries.push(`[${JSON.stringify(path)}, new Uint8Array(readFileSync(${name}))]`)
+    }
   }
   const contents = `${imports.join('\n')}
 import { readFileSync } from 'node:fs';
 // 克隆编译时固定资源，供既有管理桥注入；不从磁盘补包。
 export function loadEmbeddedManagementAssets() { return new Map([${entries.join(',')}]); }
+export const loadProductManagementAssets = loadEmbeddedManagementAssets;
 `
   return {
     name: 'rovloom-management-assets',
     /** 仅解析固定虚拟模块；每份 file import 由 Bun 显式嵌入。 */
     setup(build) {
+      build.onLoad(
+        { filter: /[/\\]cli[/\\]management-assets\.ts$/u },
+        /** 唯一CLI定位器复用同一静态清单；不会读取源码路径或外部目录。 */ () => ({
+          contents,
+          loader: 'js',
+          resolveDir: root
+        })
+      )
       build.onResolve(
         { filter: /^rovloom:management-assets$/u },
         /* 固定唯一资源模块命名空间。 */ () => ({ path: 'management-assets', namespace: 'rovloom' })

@@ -57,9 +57,39 @@ HTTP handler 原有的五秒等待、并发与正文边界仍然生效；不合�
 
 `ProductionCliSources.management` 接收非秘密 `port`、`http.assets/publicError`、可选 `listening`、
 原管理动作回调和 `resolveLease(request, signal): Promise<ManagementSessionLease | null>`。
-配置来源是静态受信宿主代码，不能放入 argv、URL 或 JSON 模板；必须同时提供原
+上述函数端口来自静态受信宿主代码，不能将回调放入 argv、URL 或 JSON 模板；必须同时提供原
 `ProductionCliSources.administrator`。原 provider 的 `management` 与该宿主配置不能同时使用。
 缺少管理员来源时启动拒绝，未配置管理面时保持关闭。
+
+唯一产品loader也可通过Gateway `runtime.json`中的可选`management_ref`选择角色私有
+`refs/<ref>.json`，装配现行文件来源适配器。它与静态administrator/management/authorizeIdentity
+端口互斥；监听固定127.0.0.1，管理端口不得与MCP或设备listener冲突。
+未配置该ref仍不开启管理面，配置缺失/不合法时在打开provider或writer前失败。
+
+来源精确字段为`schema_version: 1`、`kind: 'management-session-source'`、`port`、
+`sessions`、`pairing_policy_refs`，以及可选`identity_approvals_ref`。每条session只消费既有
+`ManagementSessionLease`、现行`Administrator`与独立`credential_sha256`。
+摘要对应原管理员后端交付的32..256字符base64url高熵证明，不用于人工短密码；不能与任何MCP
+凭据摘要重复。此适配器不创建账号、不签发该上游证明，也不从principal、文件权限或普通header
+自动授予管理员。无秘密runtime模板只选择ref，不包含证明、cookie或CSRF。
+
+根页面使用[HTTP Basic](https://www.rfc-editor.org/rfc/rfc7617.html)核验这一个请求携带的独立证明：
+用户名为既有principal引用，密码为该证明；只接受规范Base64封装及有界ASCII内容。
+未认证时返回固定401 challenge。只有实际证明、当前私有来源和原固定租期同时有效，才交给下述
+authority bootstrap；管理API仍只接受原Cookie/CSRF，不接受Basic、MCP Bearer或URL身份回退。
+证明原值不保存到配置、租期、页面、日志或CLI参数。来源变更、删除、权限丢失或时钟回拨会封锁
+本轮来源；恢复旧文件不能恢复已有cookie，须由真实上游来源重新交付后显式重启。
+
+`pairing_policy_refs`只标识原配置者已批准的策略引用；实际管理员grant、确认、Store和凭据交付仍由
+原模块核对。可选批准ref指向另一个受保护文件，精确字段为`schema_version: 1`、
+`kind: 'identity-approval-source'`和`approvals`。每条记录含`principal_id`、
+`management_session_ref`、现行完整`IdentityIntent`及`IdentityApproval`。读取须处于同一实际
+管理cookie作用域，逐字段匹配action/machine/recovery/revision/epoch及actor，期限不得超过
+原会话或五分钟。每次读取返回原confirmation_id，既不自动批准也不消费；持久一次性消费和审计
+仍由既有IdentityStore事务完成。批准文件可以由原配置者更新，不会重建会话或延长原批准。
+
+默认入口加载本次构建的实际WebUI资源。模块与standalone使用既有资源白名单插件内嵌相同产物；
+源码入口只读固定`dist/webui`，缺包明确不可用，没有cwd、请求路径或配置指定的网页目录回退。
 
 `resolveLease` 必须验证**这一个 Request** 已被原宿主保护，并返回原服务认可的
 `caller/management_session_ref/issued_at/expires_at`，或无会话时返回 `null`。

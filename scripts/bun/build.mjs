@@ -3,9 +3,14 @@ import { rmSync } from 'node:fs'
 import { toolchain } from './toolchain.mjs'
 import { compilerWorkerPlugin } from '../native-contract/worker-plugin.mjs'
 import { buildWebui } from './webui.mjs'
+import { resolve } from 'node:path'
+import { loadManagementAssets } from '../../src/admin/assets.ts'
+import { managementPlugin } from '../release/build.mjs'
 
 toolchain()
 rmSync(new URL('../../dist/', import.meta.url), { recursive: true, force: true })
+const browserFiles = await buildWebui('dist/webui')
+const webui = resolve('dist/webui')
 const result = await Bun.build({
   entrypoints: [
     'src/contracts.ts',
@@ -41,12 +46,11 @@ const result = await Bun.build({
   packages: 'external',
   splitting: true,
   sourcemap: 'external',
-  plugins: [await compilerWorkerPlugin()]
+  plugins: [await compilerWorkerPlugin(), managementPlugin(webui, loadManagementAssets(webui), { inline: true })]
 })
 if (!result.success) {
   throw new AggregateError(result.logs, 'Bun build failed')
 }
-const browserFiles = await buildWebui('dist/webui')
 console.log(
   `Built ${result.outputs.length} Bun ESM files/maps and ${browserFiles} browser files/maps; MCP/CLI and management listener require explicit host services and trusted identity/session adapters`
 )

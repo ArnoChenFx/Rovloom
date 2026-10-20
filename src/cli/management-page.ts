@@ -13,7 +13,8 @@ export type ManagementPageLeaseSource = (
 /** lease来源必须核验该页面请求的既有受保护会话；不得按本机UID、普通header或浏览器参数默认选管理员。 */
 export function createManagementPageInitializer(
   authority: ManagementSessionAuthority,
-  resolveLease: ManagementPageLeaseSource
+  resolveLease: ManagementPageLeaseSource,
+  options: Readonly<{ challenge?: 'basic' }> = {}
 ): NonNullable<ManagementHttpOptions['initializePage']> {
   if (typeof resolveLease !== 'function') {
     throw new Error('management_page_source_required')
@@ -36,6 +37,14 @@ export function createManagementPageInitializer(
         throw new ReadError('unavailable')
       }
       if (lease === null) {
+        if (options.challenge === 'basic') {
+          const headers = new Headers(page.headers)
+          headers.delete('content-length')
+          headers.set('cache-control', 'no-store')
+          headers.set('content-type', 'application/json; charset=utf-8')
+          headers.set('www-authenticate', 'Basic realm="Rovloom management", charset="UTF-8"')
+          return new Response('{"error":"unauthenticated"}', { status: 401, headers })
+        }
         return new Response(html, { status: page.status, headers: page.headers })
       }
       const bootstrap = authority.bootstrap(lease, { signal, rotate: false })
