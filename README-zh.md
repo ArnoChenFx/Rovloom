@@ -10,7 +10,8 @@
 Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构，
 让 runtime 留在各自机器上，AI Agent / AI Bot 通过同一入口访问。
 
-**当前可用范围：** Linux 源码构建预览，尚未提供可部署的 Gateway/Connector 服务或远程 runtime 执行。
+**当前可用范围：** 面向管理员已完成配置环境的 Linux x64 Gateway/Connector 技术预览。
+尚无公开安装包；全新设备设置和真实模型对话仍需部署验收。
 
 ## 核心能力
 
@@ -70,16 +71,13 @@ flowchart TB
 
 ## 快速开始
 
-使用 **Bun 1.4.3** 构建源码预览：
+从[快速开始](docs/QUICK-START-zh.md)了解安装前提、Gateway/Connector 配置路径、启动、
+HTTP MCP 接入与 Agent 使用。[配置参考](docs/CONFIGURATION-zh.md)列出精确参数和完整无秘密模板。
 
 ```sh
-git clone https://github.com/ArnoChenFx/Rovloom.git
-cd Rovloom
-bun install
-bun run build
+rovloom --version
+rovloom --help
 ```
-
-以上命令构建当前核心；服务启动、设备配对及端到端 runtime 访问将在后续预览中提供。
 
 ## 文档
 
@@ -87,7 +85,7 @@ bun run build
 - [Runtime 接口](docs/adr/0004-multi-runtime-provider.md)
 - [实施路线](docs/IMPLEMENTATION-PLAN.md)
 - [管理 UI 设计](docs/GATEWAY-WEBUI.md)
-- [开发与验证](docs/DEVELOPMENT.md)
+- [开发与验证（Bun 1.4.3）](docs/DEVELOPMENT.md)
 - [开机服务模块与接线边界](docs/SERVICE.md#简体中文)
 
 ## 许可证

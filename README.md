@@ -10,8 +10,9 @@ Connect your AI Agent / AI Bot to local Luvus and Herdr runtimes across devices 
 Rovloom is designed around one Gateway and one outbound Connector per device,
 so runtimes stay on their own machines with a common entry point for AI Agent / AI Bot.
 
-**Availability:** Linux source/build preview. A deployable Gateway/Connector service
-and remote runtime execution are not yet available.
+**Availability:** Linux x64 technical preview for administrator-provisioned
+Gateway/Connector installations. No public installation package is available yet;
+fresh-device setup and model-backed conversations still require deployment validation.
 
 ## Core capabilities
 
@@ -72,17 +73,15 @@ flowchart TB
 
 ## Quick start
 
-Use **Bun 1.4.3** to build the source preview:
+Follow the [Quick Start](docs/QUICK-START.md) for installation prerequisites,
+Gateway/Connector configuration paths, startup, HTTP MCP access and Agent use.
+The [configuration reference](docs/CONFIGURATION.md) lists the exact settings
+and complete non-secret templates.
 
 ```sh
-git clone https://github.com/ArnoChenFx/Rovloom.git
-cd Rovloom
-bun install
-bun run build
+rovloom --version
+rovloom --help
 ```
-
-This builds the current core; service startup, device pairing and end-to-end
-runtime access will be available in a later preview.
 
 ## Documentation
 
@@ -90,7 +89,7 @@ runtime access will be available in a later preview.
 - [Runtime interfaces](docs/adr/0004-multi-runtime-provider.md)
 - [Implementation roadmap](docs/IMPLEMENTATION-PLAN.md)
 - [Management UI design](docs/GATEWAY-WEBUI.md)
-- [Development and validation](docs/DEVELOPMENT.md)
+- [Development and validation (Bun 1.4.3)](docs/DEVELOPMENT.md)
 - [Boot service module and integration limits](docs/SERVICE.md)
 
 ## License
