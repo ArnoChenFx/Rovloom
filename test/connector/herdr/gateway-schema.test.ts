@@ -129,22 +129,23 @@ test(
   }
 )
 
-test(
-  'macOS Gateway schema rejects an actual ACL grant even when mode remains 0600',
-  { skip: process.platform !== 'darwin' },
-  /** 只给自有 fixture 添加读取 ACL；初读与后续来源复核都必须走实际 fd ACL。 */ async () => {
-    const fixture = schemaFixture()
-    let resources: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined
-    try {
-      resources = await createHerdrGatewayResources({ config: fixture.config })
-      const grant = spawnSync('/bin/chmod', ['+a', 'everyone allow read', fixture.schema], { encoding: 'utf8' })
-      assert.equal(grant.status, 0, grant.stderr)
-      assert.equal(statSync(fixture.schema).mode & 0o777, 0o600)
-      assert.throws(resources.providers[0]!.ready!, /unsafe_storage_acl/)
-      await assert.rejects(createHerdrGatewayResources({ config: fixture.config }), /unsafe_storage_acl/)
-    } finally {
-      await resources?.release()
-      rmSync(fixture.root, { recursive: true, force: true })
+if (process.platform === 'darwin') {
+  test(
+    'macOS Gateway schema rejects an actual ACL grant even when mode remains 0600',
+    /** 只给自有 fixture 添加读取 ACL；初读与后续来源复核都必须走实际 fd ACL。 */ async () => {
+      const fixture = schemaFixture()
+      let resources: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined
+      try {
+        resources = await createHerdrGatewayResources({ config: fixture.config })
+        const grant = spawnSync('/bin/chmod', ['+a', 'everyone allow read', fixture.schema], { encoding: 'utf8' })
+        assert.equal(grant.status, 0, grant.stderr)
+        assert.equal(statSync(fixture.schema).mode & 0o777, 0o600)
+        assert.throws(resources.providers[0]!.ready!, /unsafe_storage_acl/)
+        await assert.rejects(createHerdrGatewayResources({ config: fixture.config }), /unsafe_storage_acl/)
+      } finally {
+        await resources?.release()
+        rmSync(fixture.root, { recursive: true, force: true })
+      }
     }
-  }
-)
+  )
+}
