@@ -218,7 +218,7 @@ export class ServiceManager {
     if (!isRole(request.role) || !['install', 'uninstall', 'start', 'restart', 'stop'].includes(request.action)) {
       throw new ServiceError('invalid_arguments')
     }
-    await this.backend.authorize()
+    await this.backend.authorize(request.role)
     return this.backend.lock(
       request.role,
       /* 在角色锁内完成整个状态转换。 */ async () => {
@@ -274,6 +274,10 @@ export class ServiceManager {
               }
             }
           } else {
+            // Darwin的disable覆盖禁止重新bootstrap；撤自启后不能先bootout再发现无法恢复。
+            if (request.action === 'restart' && this.backend.platform === 'darwin' && !current.enabled) {
+              throw new ServiceError('service_busy')
+            }
             if (
               request.action !== 'start' &&
               (!['stopped', 'failed'].includes(current.state) ||

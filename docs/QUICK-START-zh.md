@@ -7,7 +7,7 @@
 
 ## 1. 安装并启动
 
-当前预览的 runtime 要求 **Linux x64**。尚无公开安装包，请从管理员取得已批准的
+本指南的本机native Connector要求**Linux x64**；纯Gateway支持Linux/macOS。尚无公开安装包，请从管理员取得已批准的
 单文件程序并放入 PATH。先运行 `rovloom --version` 和 `rovloom --help` 检查程序。
 
 以下首次引导需在 Connector 机器安装官方 **Luvus**。程序只搜索 `/usr/bin:/bin`，
@@ -160,7 +160,7 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 Linux 产品 CLI 已连接 systemd install/uninstall/start/restart/stop。
 使用当前单文件、root 授权和既有非 root 服务账户；先准备其受保护配置、数据与工作目录。
 `service --help` 说明选项。install 加入开机自启但不立即启动，uninstall 取消未来开机自启但不立即停止。
-macOS/Windows 产品服务动作仍不可用（`backend_unavailable`，3），尚不宣称开机/生命周期验收通过。
+Gateway服务支持Linux systemd和macOS系统LaunchDaemon；Windows仍不可用（`backend_unavailable`，3）。macOS撤自启后先install再restart，尚不宣称实装/开机验收通过。
 见[完整 CLI 参考](CONFIGURATION-zh.md#完整-cli-参考)和[服务前提](SERVICE.md)。
 `update --check` 通过网络检查官方稳定发行，无已发布版本时可能返回
 `release_unavailable`；实际替换升级后端尚未连接。

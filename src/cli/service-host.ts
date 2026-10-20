@@ -1,4 +1,7 @@
-// 为唯一产品入口组合真实开机监管器；只读预检当前产物和目标账户配置，不提权、不修复权限或启动角色。
+// 为唯一产品入口组合真实开机监管器；只读预检当前产物和目标账户配置，已授权root仅以目标非root身份只读检查，不修复权限或启动角色。
+import { dirname } from 'node:path'
+import { assertMacosDescriptorAcl } from '../storage/macos-acl.js'
+import { verifyMacosServicePaths } from '../service/macos-security.js'
 import { execFileSync } from 'node:child_process'
 import { constants, closeSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs'
 import { createNativeServiceBackend } from '../service/native.js'
@@ -36,8 +39,11 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
   if (spec.platform !== environment.platform || spec.executable !== environment.executable) {
     throw new ServiceError('unsafe_installation')
   }
-  // 受保护角色状态尚限 Linux，本机 native owner 另限 x64；不能以成功注册冒充运行时可用。
-  if (environment.platform !== 'linux' || (spec.role === 'connector' && environment.arch !== 'x64')) {
+  // Gateway受保护角色支持Linux/macOS，本机native owner仍限Linux x64；不能以成功注册冒充运行时可用。
+  if (
+    !['linux', 'darwin'].includes(environment.platform) ||
+    (spec.role === 'connector' && (environment.platform !== 'linux' || environment.arch !== 'x64'))
+  ) {
     throw new ServiceError('backend_unavailable')
   }
 }
@@ -46,59 +52,90 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
 export function serviceAccountConfig(
   role: ServiceRole,
   account: string,
-  lookup: (account: string) => string = accountRecord
+  lookup?: (account: string) => string,
+  platform: string = process.platform
 ): string {
   if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/u.test(account) || account === 'root') {
     throw new ServiceError('invalid_arguments')
   }
   let record: string
   try {
-    record = lookup(account).trimEnd()
+    record = (lookup ?? /* 平台由受信宿主选择，不从CLI传入。 */ ((name) => accountRecord(name, platform)))(
+      account
+    ).trimEnd()
   } catch (error) {
     if (error instanceof ServiceError && error.code === 'backend_unavailable') {
       throw error
     }
     throw new ServiceError('config_path_required')
   }
-  const fields = record.split(':')
-  if (
-    fields.length !== 7 ||
-    fields[0] !== account ||
-    !/^[1-9]\d*$/u.test(fields[2]!) ||
-    !Number.isSafeInteger(Number(fields[2])) ||
-    record.includes('\n')
-  ) {
+  let home: string | undefined
+  let uid: string | undefined
+  if (platform === 'darwin') {
+    const values = new Map<string, string>()
+    for (const line of record.split('\n').filter(Boolean)) {
+      const match = /^([a-z_]+): (.*)$/u.exec(line)
+      if (!match || values.has(match[1]!)) {
+        throw new ServiceError('config_path_required')
+      }
+      values.set(match[1]!, match[2]!)
+    }
+    if (values.get('name') !== account) {
+      throw new ServiceError('config_path_required')
+    }
+    uid = values.get('uid')
+    home = values.get('dir')
+  } else {
+    const fields = record.split(':')
+    if (fields.length !== 7 || fields[0] !== account || record.includes('\n')) {
+      throw new ServiceError('config_path_required')
+    }
+    uid = fields[2]
+    home = fields[5]
+  }
+  if (!uid || !/^[1-9]\d*$/u.test(uid) || !Number.isSafeInteger(Number(uid))) {
     throw new ServiceError('config_path_required')
   }
   try {
-    return resolveRoleConfigPath(role, undefined, { home: fields[5], platform: 'linux' })
+    return resolveRoleConfigPath(role, undefined, { home, platform: platform === 'darwin' ? 'darwin' : 'linux' })
   } catch {
     throw new ServiceError('config_path_required')
   }
 }
 
-// 同步 parser 只读取有界 passwd 记录；绝对程序、独立 argv 和固定环境阻止 shell/环境注入。
-function accountRecord(account: string): string {
-  if (process.platform !== 'linux') {
+// 同步parser只读取有界系统账户记录；绝对程序、独立 argv 和固定环境阻止 shell/环境注入。
+function accountRecord(account: string, platform: string): string {
+  if (!['linux', 'darwin'].includes(platform)) {
     throw new ServiceError('backend_unavailable')
   }
-  return execFileSync('/usr/bin/getent', ['passwd', account], {
-    encoding: 'utf8',
-    timeout: 5000,
-    maxBuffer: 16384,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
-  })
+  return execFileSync(
+    platform === 'darwin' ? '/usr/bin/dscacheutil' : '/usr/bin/getent',
+    platform === 'darwin' ? ['-q', 'user', '-a', 'name', account] : ['passwd', account],
+    {
+      encoding: 'utf8',
+      timeout: 5000,
+      maxBuffer: 16384,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
+    }
+  )
 }
 
 // 安装器以 root 只读目标账户的无密钥配置；描述符核验限制所有权、链接、大小和路径替换。
-async function serviceConfig(spec: ServiceSpec, verifyStatePath: typeof protectedPath): Promise<void> {
+async function serviceConfig(
+  spec: ServiceSpec,
+  verifyStatePath: typeof protectedPath,
+  platform: string
+): Promise<void> {
   const fd = openSync(spec.config, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   const bytes = Buffer.alloc(16385)
   try {
     const stat = fstatSync(fd)
     if (!stat.isFile() || stat.nlink !== 1 || stat.uid === 0 || (stat.mode & 0o777) !== 0o600 || stat.size > 16384) {
       throw new ServiceError('unsafe_installation')
+    }
+    if (platform === 'darwin') {
+      assertMacosDescriptorAcl(fd, true)
     }
     const length = readSync(fd, bytes, 0, bytes.length, 0)
     const parsed = parseNativeJson(bytes.subarray(0, length), {
@@ -114,6 +151,10 @@ async function serviceConfig(spec: ServiceSpec, verifyStatePath: typeof protecte
       throw new ServiceError('unsafe_installation')
     }
     await verifyStatePath(config.state_dir, stat.uid, true)
+    if (platform === 'darwin') {
+      const paths = [dirname(spec.config), spec.directory, config.state_dir]
+      await verifyMacosServicePaths(paths, paths)
+    }
   } finally {
     bytes.fill(0)
     closeSync(fd)
@@ -128,13 +169,11 @@ export async function verifyProductServiceRuntime(
   verifyStatePath: typeof protectedPath = protectedPath
 ): Promise<void> {
   assertServiceProduct(spec, environment)
-  await serviceConfig(spec, verifyStatePath)
+  await serviceConfig(spec, verifyStatePath, environment.platform)
   const check = await checkedCommand(run, {
-    executable: '/usr/sbin/runuser',
+    executable: environment.platform === 'darwin' ? '/usr/bin/sudo' : '/usr/sbin/runuser',
     args: [
-      '--user',
-      spec.account,
-      '--',
+      ...(environment.platform === 'darwin' ? ['-n', '-H', '-u', spec.account, '--'] : ['--user', spec.account, '--']),
       spec.executable,
       'config',
       'check-runtime',
@@ -155,14 +194,19 @@ export function createProductServiceHost(): CliServiceHost {
   const environment = productServiceEnvironment()
   const native = createNativeServiceBackend({
     platform: environment.platform,
+    ...(environment.platform === 'darwin' ? { verifyMacosPermissions: verifyMacosServicePaths } : {}),
     verifyRuntime: /* 安装和每次启动均验证当前精确产物，不能接管另一安装。 */ async (spec) =>
       verifyProductServiceRuntime(spec, environment)
   })
   const backend = {
     ...native,
     // 当前不能运行角色的平台在接触系统控制目录、权限或注册之前明确拒绝。
-    async authorize() {
-      if (environment.platform !== 'linux' || !environment.standalone) {
+    async authorize(role?: ServiceRole) {
+      if (
+        !['linux', 'darwin'].includes(environment.platform) ||
+        !environment.standalone ||
+        (role === 'connector' && (environment.platform !== 'linux' || environment.arch !== 'x64'))
+      ) {
         throw new ServiceError('backend_unavailable')
       }
       await native.authorize()

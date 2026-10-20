@@ -1,10 +1,10 @@
 # Boot service module / 开机服务模块
 
 The product CLI connects `install`, `uninstall`, `start`, `restart`, and `stop` to the
-Linux systemd backend. Installation uses the current standalone executable and an
-explicit existing non-root service account. macOS/Windows product actions fail with
-`backend_unavailable` before accessing system controls: their protected role runtime
-is unsupported, and Windows installation ACL validation remains incomplete.
+Linux systemd and macOS system LaunchDaemon backends for Gateway. Installation uses the current
+standalone executable and an explicit existing non-root service account. Local native Connector
+remains Linux x64. Windows product actions fail with `backend_unavailable` before system controls:
+its protected role runtime and installation resource/ACL validation remain incomplete.
 The reusable backend has all three native plans below. Native format parsing and
 isolated lifecycle models are distinct from actual install/boot/lifecycle acceptance;
 that acceptance has not been performed. No additional role executable is introduced.
@@ -89,8 +89,12 @@ the same binary's read-only `config check-runtime --role ROLE --config ABS` unde
 actual target account. No role starts during preflight and no missing configuration
 is generated. The target must have prepared configuration/data/work directories;
 Connector also needs a nonempty Gateway URL. Neither preflight nor registration
-proves provider readiness. Linux needs systemd, getent and runuser. macOS/Windows
-production authorization fails closed before accessing the native backend.
+proves provider readiness. Linux needs systemd, getent and runuser. macOS reads the selected account
+with dscacheutil and runs the same check through `/usr/bin/sudo -n -H -u ACCOUNT -- BINARY ...`
+from the already authorized root controller. It uses no shell/login profile or password prompt and
+does not preserve the administrator supplementary groups. Windows authorization still fails closed.
+After macOS uninstall, re-install before restart: a persistent disabled override prevents re-bootstrap;
+restart refuses with `service_busy` before stopping the retained instance. This does not re-enable boot implicitly.
 The CLI validates diagnostic codes and the complete fixed supervision-result shape again at runtime;
 unknown codes/states fail without printing backend text. The shared path helper's unavailable-home error
 maps to `config_path_required`; other resolver failures retain their failure semantics.
@@ -128,10 +132,11 @@ WorkingDirectory is a single raw systemd path, with percent specifiers escaped;
 it is not argv-quoted. Linux rejects trailing whitespace/backslash in this path.
 The native parser probe covers spaces and Unicode. Standard input is null for
 systemd and `/dev/null` for launchd; Task Scheduler uses noninteractive service-account logon. It creates no users
-and does not chmod/chown existing paths. macOS additionally inspects `ls -lde` for every relevant file,
-control declaration and ancestor. The conservative default rejects **all extended ACLs**, including benign
-deny entries; safe BSD mode alone is insufficient. A trusted host may provide `verifyMacosPermissions`
-to prove effective permissions for the complete expanded path/ancestor list. Missing/unknown inspection
+and does not chmod/chown existing paths. The product macOS host reuses the Gateway fd ACL validator
+for every relevant file, control declaration and ancestor; config/state/private directory leaves reject
+additional allow grants, and ancestors reject mutation grants. The reusable native backend without
+that host retains its conservative `ls -lde` check that rejects all extended ACLs. A trusted host may
+provide `verifyMacosPermissions` for the complete expanded path/ancestor list. Missing/unknown inspection
 results fail closed, and this module never edits an ACL. Environment-dependent native discovery must also be rejected
 or resolved by `verifyRuntime`; config paths alone do not prove native provider access.
 
@@ -171,9 +176,12 @@ install/boot-without-login/start/restart/stop/uninstall acceptance on every supp
 
 ## 简体中文
 
-产品唯一 CLI 已连接 Linux systemd 后端，五项操作不增加第二入口；安装绑定当前单文件、
-所选非 root 服务账户及单文件角色配置。macOS/Windows 产品动作在接触系统控制前返回
-`backend_unavailable`：受保护角色运行时尚不支持，Windows 安装有效 ACL 验证也未完成。
+产品唯一CLI的Gateway已连接Linux systemd和macOS系统LaunchDaemon；五项操作不增加第二入口，
+安装绑定当前单文件、所选非root账户与角色配置。本机native Connector仍限Linux x64；Windows
+在系统控制访问前返回`backend_unavailable`，其受保护运行时和安装资源/ACL验证仍未完成。
+macOS以dscacheutil查所选账户home，已获root授权的控制器仅用sudo -n -H -u降为目标账户只读检查；
+不执行登录shell、不保留管理员附加组、不请求密码。撤自启后的restart在停止前返回service_busy；
+须先install显式重新启用，不能暗中恢复开机自启。
 底层模块仍提供三平台原生计划，不能把模块或原生格式解析当作三平台运行验收。
 Linux 使用 systemd **系统**单元，
 macOS 使用 `/Library/LaunchDaemons` 的 **system** 域，Windows 使用原生 Task Scheduler 的
@@ -236,6 +244,8 @@ Task Scheduler COM 内存定义。探针不注册任务、不加载单元、不�
 
 ## Official references / 官方依据
 
+- [sudo non-interactive target identity](https://keith.github.io/xcode-man-pages/sudo.8.html)
+- [dscacheutil system account query](https://keith.github.io/xcode-man-pages/dscacheutil.1.html)
 - [systemd.service: execution prefixes and service lifecycle](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html)
 - [systemd.exec: execution environment and user identity](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html)
 - [systemctl: enable/disable versus start/stop](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)

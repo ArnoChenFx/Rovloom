@@ -8,7 +8,7 @@ separate data directory.
 
 ## 1. Install and start
 
-This preview's runtime requires **Linux x64**. There is no published installation
+This guide's local native Connector requires **Linux x64**; pure Gateway supports Linux/macOS. There is no published installation
 package yet; obtain the approved standalone executable from your administrator
 and place it on your PATH. Check `rovloom --version` and `rovloom --help`.
 
@@ -202,7 +202,7 @@ Use the current standalone binary with root authorization and an existing non-ro
 service account; prepare its protected configuration/data/work directories first.
 `service --help` documents the options. Install enables boot startup without
 starting now; uninstall removes future boot startup without stopping now.
-macOS/Windows product service actions remain unavailable (`backend_unavailable`, 3).
+Gateway service actions support Linux systemd and macOS system LaunchDaemons; Windows remains unavailable (`backend_unavailable`, 3). Re-install before restarting a macOS job after uninstall.
 No boot/lifecycle acceptance is claimed. See the [complete CLI reference](CONFIGURATION.md#complete-cli-reference)
 and [service prerequisites](SERVICE.md).
 `update --check` checks official stable releases over the network; no published

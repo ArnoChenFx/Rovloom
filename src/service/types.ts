@@ -63,7 +63,7 @@ export type ServiceBackend = {
   // 整个状态转换持有项目角色专用跨进程锁，不清除未知旧锁。
   lock<T>(role: ServiceRole, operation: () => Promise<T>): Promise<T>
   // 检查提权与系统设施；不自行提权或静默退回登录启动。
-  authorize(): Promise<void>
+  authorize(role?: ServiceRole): Promise<void>
   // 重新核对运行账户、固定路径及宿主支持的后台角色，不扩大文件 ACL。
   preflight(spec: ServiceSpec): Promise<void>
   // 仅返回完全属于本项目的注册；同名异物、重定向或附加覆盖必须拒绝。

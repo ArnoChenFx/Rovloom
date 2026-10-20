@@ -78,7 +78,7 @@ override. `--config` takes an absolute file path and overrides only that file's
 location. Generated data still defaults to the role user's home. Existing explicit
 files do not need home resolution. Missing files need home to generate defaults.
 
-First-file creation and runtime currently require Linux. Protected role-file
+First-file creation and pure Gateway runtime support Linux/macOS. Protected role-file
 checks support POSIX and reject Windows with `config_platform_unsupported`.
 Templates have platform-appropriate path separators. Keep files private `0600`
 and their immediate directory private `0700`, owned by the process user. Newly
@@ -231,7 +231,7 @@ and returns nonzero if either fails. Neither check creates a missing file.
 
 Explicit paths take priority; there is no fallback from an invalid explicit path.
 The selected file must have the matching role. A missing file is generated on
-Linux at the selected path; an existing file is never overwritten. Defaults are
+Linux/macOS at the selected path; an existing file is never overwritten. Defaults are
 resolved for the process user. Stop a foreground
 role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
 Network ports are JSON fields, not flags. Provider initialization is limited to
@@ -239,13 +239,13 @@ the first local-terminal Luvus flow described above; Agent/model login is separa
 
 ### Service command syntax and current availability
 
-`rovloom service --help` is available offline. The product entry connects the
-Linux systemd backend. Installation requires the current standalone Rovloom
+`rovloom service --help` is available offline. The product entry connects Gateway to Linux systemd and macOS system LaunchDaemons. Installation requires the current standalone Rovloom
 binary, root authorization, an existing non-root service account and prepared
 protected configuration, data and working directories. The backend does not
-provision these resources or change permissions. macOS/Windows product service
-actions still return `backend_unavailable` (3): their protected role runtime is
-not supported. Native definition parsing does not establish lifecycle acceptance.
+provision these resources or change permissions. Windows product service
+actions still return `backend_unavailable` (3); local native Connector remains Linux x64.
+macOS uses the selected system account and a noninteractive target-user check. Re-install before
+restarting a macOS job after uninstall; restart refuses before stopping the retained instance. Native definition parsing does not establish lifecycle acceptance.
 See [service prerequisites and platform limits](SERVICE.md).
 
 | Command form | Required arguments | Meaning of the action | Linux syntax example |
@@ -288,7 +288,7 @@ stop/restart may terminate the task directly; do not treat it as native rollback
 |---|---|---|---|
 | Help/version/template output | Available | Available | Available |
 | `config check` | Protected POSIX reader | Protected POSIX reader | Rejected: `config_platform_unsupported` |
-| `config check-runtime`, real role startup | Current deployment guide covers Linux x64 | Runtime loader rejects this platform | Runtime loader rejects this platform |
+| `config check-runtime`, real role startup | Gateway on Linux; local Connector x64 only | Pure Gateway supported; local Connector rejected | Runtime loader rejects this platform |
 | Service actions | Production systemd backend connected; Gateway on Linux, Connector native owner on x64; lifecycle/boot acceptance still required | Product rejects before system access; runtime unsupported | Product rejects before system access; runtime/configuration and installation ACL support incomplete |
 | `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
 

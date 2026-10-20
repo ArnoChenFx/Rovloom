@@ -43,7 +43,8 @@ test(
               assert.equal(requested, 'rovloom')
               lookup++
               return 'rovloom:x:1001:1001::/home/服务:/usr/sbin/nologin\n'
-            }
+            },
+            'linux'
           ),
         '/opt/rovloom/rovloom'
       )!
@@ -86,7 +87,7 @@ test(
     ]) {
       assert.throws(
         /* 单个目标账户必须有唯一有效系统记录。 */ () =>
-          serviceAccountConfig('gateway', 'rovloom', /* 固定畸形记录。 */ () => record),
+          serviceAccountConfig('gateway', 'rovloom', /* 固定畸形记录。 */ () => record, 'linux'),
         { code: 'config_path_required' }
       )
     }

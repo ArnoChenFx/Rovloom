@@ -69,7 +69,7 @@ Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、
 绝对文件路径，仅覆盖该文件位置；新生成数据目录仍按角色用户 home 选择。已有显式
 文件不要求解析 home，缺失文件生成默认值时需要 home。
 
-首次文件创建和 runtime 目前要求 Linux。受保护角色文件检查支持 POSIX，在 Windows
+首次文件创建与纯Gateway runtime支持Linux/macOS。受保护角色文件检查支持 POSIX，在 Windows
 返回 `config_platform_unsupported`。模板使用目标平台路径分隔符。文件保持 `0600`，
 所在私有目录保持 `0700`，属于进程用户；新建时使用这些权限，不自动修复已有权限或
 损坏文件。用户 JSON 上限 16 KiB，不支持注释，拒绝非法编码和重复键。
@@ -190,17 +190,18 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对�
 | `rovloom gateway [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/gateway.json`，启动前台 Gateway。 | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
 | `rovloom connector [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/connector.json`，启动前台 Connector。 | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
 
-显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux 在所选位置生成缺失文件，不覆盖已有文件；
+显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
 上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。产品入口已连接 Linux systemd 后端；安装要求当前
+`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd和macOS系统LaunchDaemon；安装要求当前
 Rovloom 单文件、root 授权、既有非 root 服务账户，以及准备好的受保护配置、数据与工作目录。
-后端不创建这些资源或修改权限。macOS/Windows 产品服务动作仍返回 `backend_unavailable`（3）：
-受保护角色运行时尚不支持；原生格式解析不能代替生命周期验收。
+后端不创建这些资源或修改权限。本机Connector仍限Linux x64；Windows服务仍返回`backend_unavailable`（3）。
+macOS只读查系统账户并用非交互目标身份检查；撤自启后须先install再restart，避免先停止后不能重载。
+原生格式解析不能代替真实安装、开机和生命周期验收。
 见[服务前提与平台限制](SERVICE.md)。
 
 | 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
@@ -241,8 +242,8 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 |---|---|---|---|
 | 帮助/版本/模板输出 | 可用 | 可用 | 可用 |
 | `config check` | 受保护 POSIX 读取器 | 受保护 POSIX 读取器 | 拒绝：`config_platform_unsupported` |
-| `config check-runtime`、真实角色启动 | 当前部署指引覆盖 Linux x64 | runtime 加载器拒绝该平台 | runtime 加载器拒绝该平台 |
-| Service 动作 | 生产 systemd 后端已连接；Gateway 限 Linux，Connector 本机 owner 限 x64；仍需生命周期/开机验收 | 产品在系统访问前拒绝；runtime 未支持 | 产品在系统访问前拒绝；runtime/配置及安装 ACL 未完成 |
+| `config check-runtime`、真实角色启动 | Gateway支持Linux；本机Connector限x64 | 纯Gateway支持；本机Connector拒绝 | runtime加载器拒绝该平台 |
+| Service动作 | Gateway systemd；本机Connector限x64；仍需实装/开机验收 | Gateway系统LaunchDaemon；账户/fd ACL/非交互预检已接线，仍需实装/开机验收 | 系统访问前拒绝；runtime/配置与安装ACL未完成 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，
