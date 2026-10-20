@@ -145,10 +145,10 @@ export class Router {
     })
     return JSON.parse(boundedJson(binding)) as typeof binding
   }
-  // 重新确认调用可读后创建或复用受固定内容期限约束的结果句柄。
+  // 重新确认调用可读后读取已有句柄元数据；缺失时才经原写事务签发，固定期限不刷新。
   saveResult(principal: Principal, callId: string) {
     this.get(principal, callId)
-    return this.store.saveResult(principal.id, callId)
+    return this.store.findResult(principal.id, callId) ?? this.store.saveResult(principal.id, callId)
   }
   // 同时要求当前读取授权与独立丢弃权限，再删除结果句柄和调用原文。
   discardResponse(principal: Principal, callId: string): void {
@@ -163,6 +163,12 @@ export class Router {
     const call = this.store.resultCall(principal.id, resultId)
     this.get(principal, call.call_id)
     return this.store.readResult(principal.id, resultId, cursor, maxBytes)
+  }
+  // 预检沿用分页的归属、当前双端 ACL、期限和参数门禁，不准备或缓存正文页。
+  checkResultRead(principal: Principal, resultId: string, cursor = 0, maxBytes = 65_536): void {
+    const call = this.store.resultCall(principal.id, resultId)
+    this.get(principal, call.call_id)
+    this.store.checkResultRead(principal.id, resultId, cursor, maxBytes)
   }
   // 重新核对取消权限后持久停止调用，返回未派发或结果未知等实际状态。
   cancel(principal: Principal, callId: string) {
