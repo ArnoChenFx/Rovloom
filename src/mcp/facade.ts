@@ -19,6 +19,7 @@ import {
 } from './schema.js'
 import {
   FacadeServiceError,
+  NativeRequestNotDispatchedError,
   SERVICE_ERROR_CODES,
   type GatewayService,
   type McpContextProvider,
@@ -43,8 +44,8 @@ function result(payload: Record<string, unknown>, isError = false): CallToolResu
 }
 
 // 将稳定网关拒绝码包装为工具错误，不透传服务异常文本。
-function failed(code: string): CallToolResult {
-  return result({ gateway_error: { code } }, true)
+function failed(code: string, outcome?: 'not_dispatched'): CallToolResult {
+  return result({ gateway_error: { code, ...(outcome ? { outcome } : {}) } }, true)
 }
 
 // 仅投影公开字段，剔除服务误带的本机配置或凭据字段。
@@ -226,7 +227,7 @@ export function createMcpFacade(options: FacadeOptions): Server {
         return boundedResult(data, reply.is_error === true)
       } catch (error) {
         if (error instanceof FacadeServiceError && SERVICE_ERROR_CODES.includes(error.code)) {
-          return failed(error.code)
+          return failed(error.code, error instanceof NativeRequestNotDispatchedError ? error.outcome : undefined)
         }
         // 不透传服务异常、路径、原参数或 SDK 诊断文本。
         diagnostic('mcp_service_error')
