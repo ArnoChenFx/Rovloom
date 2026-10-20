@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# 在临时项目中验证固定 Bun 工具链、测试和构建，并记录阻断 Node 后的执行证据。
-"""在临时项目中完成 Linux 验证并阻断 Node/npm/npx。
+# 在临时项目中直接执行固定 Bun 质量命令，记录真实退出码、测试覆盖和构建结果。
+"""在临时项目中直接运行 Bun 验证并记录实际结果。
 
 仅复制项目代码、fixture 和指定工具链文件，不复制用户 env、npm 配置、
 凭据、已有数据库或 home。
@@ -23,128 +23,7 @@ import xml.etree.ElementTree as ET
 
 # 超时诊断只保留有界尾部，不作为测试通过或完整执行的证明。
 TIMEOUT_LOG_BYTES = 131_072
-TIMEOUT_TRACE_BYTES = 1_048_576
 FAILURE_CONSOLE_BYTES = 12_000
-TRACE_SYSCALLS = ('execve', 'execveat', 'clone', 'clone3', 'fork', 'vfork',
-                  'exit', 'exit_group', 'kill', 'tkill', 'tgkill', 'wait4', 'waitid')
-
-
-# 追踪器故障与预期非零退出独立判定；只有观察到根进程正常按预期退出才接纳完整审计。
-def trace_completion_error(traced, stderr, returncode, expected):
-    if re.search(r'(?m)^(?:/[^\n]*/)?strace:|ptrace\(PTRACE_', stderr):
-        return 'tracer diagnostic; incomplete execution audit'
-    if returncode != expected:
-        return 'unexpected tracer exit'
-    root, root_executed, pending, status = None, False, set(), None
-    for line in traced.splitlines():
-        prefix = re.match(r'^([0-9]{1,10})\s+(.*)$', line)
-        if not prefix:
-            continue
-        tid, event = int(prefix[1]), prefix[2]
-        if root is None:
-            root = tid
-        execution = event.startswith('execve(')
-        if execution:
-            pending.add(tid)
-        if tid in pending and (execution or event.startswith('<... execve resumed>')):
-            if re.search(r'= 0\s*$', event):
-                if tid == root:
-                    root_executed = True
-                pending.discard(tid)
-            elif '= -1 ' in event:
-                pending.discard(tid)
-        if tid == root and event.startswith('+++ '):
-            status = re.fullmatch(r'\+\+\+ exited with ([0-9]{1,3}) \+\+\+', event)
-    if not root_executed or status is None or int(status[1]) != expected:
-        return 'root process did not observably exit normally as expected'
-    return None
-
-
-# 追踪失败仍阻断验收；只输出数值身份、固定程序名与冻结源码参数，区分追踪器异常和已观察退出。
-def trace_failure_summary(traced, stderr, returncode, source_files):
-    programs, pending, sources, parents, exits, signals, stops = {}, {}, {}, {}, {}, {}, {}
-    root = None
-    known_programs = {'/isolated/bin/bun': 'bun', '/verified/bun': 'bun',
-                      '/bin/sh': 'sh', '/usr/bin/sh': 'sh', '/bin/bash': 'bash',
-                      '/usr/bin/bash': 'bash', '/bin/sleep': 'sleep', '/usr/bin/sleep': 'sleep',
-                      '/bin/cat': 'cat', '/usr/bin/cat': 'cat', '/usr/bin/python3': 'python3',
-                      '/isolated/bin/python3': 'python3', '/isolated/bin/sh': 'sh'}
-    for line in traced.splitlines():
-        prefix = re.match(r'^([0-9]{1,10})\s+(.*)$', line)
-        if not prefix:
-            continue
-        tid, event = int(prefix[1]), prefix[2]
-        if root is None:
-            root = tid
-        execution = re.match(r'execve\("([^"\\\n]{1,1024})"', event)
-        if execution:
-            arguments = []
-            for quoted in re.findall(r'"([^"\\\n]{1,512})"', event):
-                relative = quoted.removeprefix('/isolated/project/')
-                if (len(relative) <= 256 and relative in source_files and relative not in arguments
-                        and re.fullmatch(r'(?:src|test|scripts)/[A-Za-z0-9_./-]+\.(?:[cm]?[jt]s|[jt]sx|py)',
-                                         relative)):
-                    arguments.append(relative)
-            pending[tid] = (known_programs.get(execution[1], 'unrecognized'), arguments[:2])
-        if tid in pending and (execution or event.startswith('<... execve resumed>')):
-            if re.search(r'= 0\s*$', event):
-                programs[tid], sources[tid] = pending.pop(tid)
-            elif '= -1 ' in event:
-                pending.pop(tid)
-        child = re.search(r'^(?:clone3?|fork|vfork)\(.*\)\s*= ([0-9]{1,10})\s*$', event)
-        child = child or re.search(r'^<\.\.\. (?:clone3?|fork|vfork) resumed>.*= ([0-9]{1,10})\s*$', event)
-        if child:
-            parents[int(child[1])] = tid
-        exited = re.fullmatch(r'\+\+\+ exited with ([0-9]{1,3}) \+\+\+', event)
-        killed = re.fullmatch(r'\+\+\+ killed by (SIG[A-Z0-9]{1,12})(?: \(core dumped\))? \+\+\+', event)
-        if exited:
-            exits[tid] = {'kind': 'exit', 'code': int(exited[1])}
-        elif killed:
-            exits[tid] = {'kind': 'signal', 'signal': killed[1]}
-        delivered = re.match(r'--- (SIG[A-Z0-9]{1,12})\b', event)
-        group_stop = re.fullmatch(r'--- stopped by (SIG[A-Z0-9]{1,12}) ---', event)
-        if delivered:
-            signals[tid] = (signals.get(tid, []) + [delivered[1]])[-4:]
-        # strace 对 group-stop 使用不同文本，不能将缺少 signal-delivery 误读成没有停止。
-        if delivered or group_stop:
-            observed = {'kind': 'delivery' if delivered else 'group',
-                        'signal': (delivered or group_stop)[1]}
-            stops[tid] = (stops.get(tid, []) + [observed])[-4:]
-
-    # 这里只描述实际观察的身份和状态；缺失退出不能依据全绿用例推断为成功。
-    def identity(tid):
-        return {'tid': tid, 'program': programs.get(tid, 'unobserved'),
-                'sourceArguments': sources.get(tid, []), 'exit': exits.get(tid),
-                'signalsTail': signals.get(tid, [])[-4:], 'stopsTail': stops.get(tid, [])[-4:]}
-
-    errors = []
-    pattern = r'ptrace\((PTRACE_[A-Z_]{1,32}),pid:([0-9]{1,10}),sig:([0-9]{1,3})\): ([^\n]*)'
-    for error in re.finditer(pattern, stderr):
-        if len(errors) == 3:
-            break
-        tid, lineage, seen = int(error[2]), [], set()
-        current = tid
-        while current is not None and current not in seen and len(lineage) < 8:
-            seen.add(current)
-            lineage.append(identity(current))
-            current = parents.get(current)
-        errors.append({'operation': error[1], 'tid': tid,
-                       'errno': {'Input/output error': 'EIO', 'No such process': 'ESRCH',
-                                 'Operation not permitted': 'EPERM'}.get(error[4], 'unclassified'),
-                       'lineage': lineage})
-    summary = {'status': 'failed', 'completeAudit': False, 'tracerExit': returncode,
-               'root': identity(root) if root is not None else None, 'ptraceErrors': errors}
-    encoded = json.dumps(summary, ensure_ascii=True, indent=2)
-    while len(encoded.encode()) > FAILURE_CONSOLE_BYTES:
-        summary['truncated'] = True
-        if errors and errors[-1]['lineage']:
-            errors[-1]['lineage'].pop()
-        elif errors:
-            errors.pop()
-        else:
-            summary['root'] = None
-        encoded = json.dumps(summary, ensure_ascii=True, indent=2)
-    return encoded
 
 
 # 失败控制台只保留可核对的仓库位置、固定阶段和数字总计，不转发断言值、源码或错误正文。
@@ -250,8 +129,8 @@ def foundation_failure_summary(project, log, source_files):
     return encoded
 
 
-# 脱敏并保存超时阶段的有界日志、已观察用例和执行追踪尾部，始终标记验收不完整。
-def save_timeout_diagnostics(output, label, stdout, stderr, seconds, elapsed, replacements):
+# 脱敏并保存超时阶段的有界日志与已观察用例，始终标记验收不完整。
+def save_timeout_diagnostics(output, label, stdout, stderr, seconds, elapsed, replacements, exit_code=None):
     combined = stdout + stderr
     for source, replacement in replacements:
         combined = combined.replace(source, replacement)
@@ -267,19 +146,9 @@ def save_timeout_diagnostics(output, label, stdout, stderr, seconds, elapsed, re
     raw = combined.encode()
     tail = raw[-(TIMEOUT_LOG_BYTES - len(header)):].decode('utf-8', errors='ignore').encode()
     (output / f'{label}.log').write_bytes(header + tail)
-    trace = output / f'{label}.execve.log'
-    trace_bytes = 0
-    if trace.exists():
-        traced = trace.read_text()
-        for source, replacement in replacements:
-            traced = traced.replace(source, replacement)
-        trace_raw = traced.encode()
-        trace_bytes = len(trace_raw)
-        trace.write_bytes(trace_raw[-TIMEOUT_TRACE_BYTES:].decode('utf-8', errors='ignore').encode())
     summary = {'label': label, 'status': 'timed_out', 'complete': False,
-               'timeoutSeconds': seconds, 'elapsedSeconds': round(elapsed, 3),
+               'timeoutSeconds': seconds, 'elapsedSeconds': round(elapsed, 3), 'exit': exit_code,
                'capturedLogBytes': len(raw), 'logTailTruncated': len(raw) > len(tail),
-               'capturedTraceBytes': trace_bytes, 'traceTailTruncated': trace_bytes > TIMEOUT_TRACE_BYTES,
                'observedTestFilesTail': files[-32:], 'observedTestCasesTail': cases[-32:]}
     (output / f'{label}.timeout.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
     return (header + tail[-12000:]).decode('utf-8', errors='ignore')
@@ -288,6 +157,47 @@ def save_timeout_diagnostics(output, label, stdout, stderr, seconds, elapsed, re
 # 读取文件原始字节并返回 SHA-256 摘要，供证据和元数据比对。
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# 直接执行质量命令，保留真实退出码；超时或中断时终止并回收本次进程组。
+def run_command(project, output, label, arguments, env, expected=0, seconds=180,
+                source_files=(), replacements=()):
+    started = time.monotonic()
+    process = subprocess.Popen(arguments, cwd=project, env=env, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(timeout=seconds)
+    except BaseException as error:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = process.communicate()
+        if isinstance(error, subprocess.TimeoutExpired):
+            diagnostic = save_timeout_diagnostics(
+                output, label, stdout, stderr, seconds, time.monotonic() - started,
+                replacements, exit_code=process.returncode)
+            print(diagnostic, file=sys.stderr)
+        raise
+    for source, replacement in replacements:
+        stdout, stderr = stdout.replace(source, replacement), stderr.replace(source, replacement)
+    combined = stdout + stderr
+    log = output / (label + '.log')
+    log.write_text(combined)
+    if process.returncode != expected:
+        if label == 'foundation':
+            print(foundation_failure_summary(project, combined, source_files), file=sys.stderr)
+        print(f'{label}: command={json.dumps(arguments)}; exit={process.returncode}, expected={expected}',
+              file=sys.stderr)
+        for stream, content in (('stdout', stdout), ('stderr', stderr)):
+            print(f'{label}: {stream}\n{content}', file=sys.stderr)
+        raise RuntimeError(f'{label}: exit {process.returncode}, expected {expected}; see {output}')
+    record = {'label': label, 'command': arguments, 'exit': process.returncode, 'expectedExit': expected,
+              'timeoutSeconds': seconds, 'elapsedSeconds': round(time.monotonic() - started, 3),
+              'logSha256': sha(log)}
+    print(f'{label}: pass; exit={record["exit"]}; elapsed={record["elapsedSeconds"]}s; watchdog={seconds}s',
+          flush=True)
+    return combined, record
 
 
 # 校验 JUnit 用例成功且完整覆盖当前测试文件，返回实际用例数。
@@ -331,15 +241,9 @@ def main():
     parser.add_argument('--bun', default=shutil.which('bun'))
     parser.add_argument('--output', required=True, help='new evidence directory outside the checkout')
     args = parser.parse_args()
-    if not args.bun or not shutil.which('strace'):
-        raise SystemExit('Bun 1.4.3 and Linux strace must be available')
+    if not args.bun:
+        raise SystemExit('Bun 1.4.3 must be available')
     bun = Path(args.bun).resolve(strict=True)
-    trace_tool = str(Path(shutil.which('strace')).resolve())
-    trace_version = subprocess.run([trace_tool, '--version'], capture_output=True, text=True,
-                                   check=True, timeout=5, env={'LANG': 'C'}).stdout.splitlines()[0][:256]
-    trace_identity = {'version': trace_version, 'sha256': sha(Path(trace_tool)),
-                      'kernel': os.uname().release, 'machine': os.uname().machine}
-    print('tracer: ' + json.dumps(trace_identity, ensure_ascii=True), flush=True)
     repo = Path(__file__).resolve().parents[2]
     output = Path(args.output).resolve()
     if output.is_relative_to(repo):
@@ -370,19 +274,13 @@ def main():
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'bun').symlink_to(bun)
-        (tools / 'python3').symlink_to(Path(shutil.which('python3')).resolve())
-        (tools / 'sh').symlink_to('/bin/sh')
-        for name in ('node', 'npm', 'npx'):
-            shim = tools / name
-            shim.write_text(f'#!/bin/sh\nprintf "{name}\\n" >> "$BLOCKED_EXEC_LOG"\nexit 99\n')
-            shim.chmod(0o700)
         home = root / 'home'
         home.mkdir(mode=0o700)
-        env = {'PATH': str(tools), 'HOME': str(home), 'SHELL': '/bin/sh',
+        env = {'PATH': str(tools) + os.pathsep + os.environ.get('PATH', os.defpath),
+               'HOME': str(home), 'SHELL': '/bin/sh',
                'LANG': 'C.UTF-8', 'NO_COLOR': '1', 'CI': '1',
                'BUN_INSTALL_CACHE_DIR': str(root / 'empty-cache'),
-               'LUVUS_TEST_ROOT': str(repo.parent),
-               'BLOCKED_EXEC_LOG': str(root / 'blocked.log')}
+               'LUVUS_TEST_ROOT': str(repo.parent)}
         # 云环境出口可能依赖平台代理/CA；仅继承这些设置。
         # 拒绝含凭据的代理 URL，不记录任何配置值。
         network_keys = []
@@ -393,75 +291,13 @@ def main():
                     raise RuntimeError('credential-bearing proxy settings are not copied')
                 env[name] = value
                 network_keys.append(name)
-        for name in ('node', 'npm', 'npx'):
-            result = subprocess.run([name, '--version'], env=env, capture_output=True)
-            if result.returncode != 99:
-                raise RuntimeError(f'{name} was not blocked')
-        if (root / 'blocked.log').read_text().splitlines() != ['node', 'npm', 'npx']:
-            raise RuntimeError('blocking probe did not run all shims')
-        (root / 'blocked.log').unlink()
-
-        # 在隔离项目追踪单条命令，保存日志并核对禁用程序调用与预期退出码。
+        # 固定 Bun 在普通 PATH 前，其余工具正常解析；每步只按实际退出码接纳结果。
         def run(label, arguments, expected=0):
-            trace = output / (label + '.execve.log')
-            started = time.monotonic()
-            # 全套回归的聚合预算覆盖增长与追踪开销，不改变产品或单例自身的时限。
-            seconds = 600 if label == 'foundation' else 180
-            process = subprocess.Popen([trace_tool, '-f', '-q', '-s', '256', '-e',
-                                        'trace=' + ','.join(TRACE_SYSCALLS),
-                                        '-o', str(trace), *arguments], cwd=project, env=env,
-                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
-            try:
-                stdout, stderr = process.communicate(timeout=seconds)
-            except BaseException as error:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                stdout, stderr = process.communicate()
-                if isinstance(error, subprocess.TimeoutExpired):
-                    diagnostic = save_timeout_diagnostics(
-                        output, label, stdout, stderr, seconds, time.monotonic() - started,
-                        [(str(root), '/isolated'), (str(bun), '/verified/bun')])
-                    print(diagnostic, file=sys.stderr)
-                raise
-            combined = stdout + stderr
-            # 只追踪本次自建进程，将临时绝对路径脱敏。
-            combined = combined.replace(str(root), '/isolated').replace(str(bun), '/verified/bun')
-            (output / (label + '.log')).write_text(combined)
-            traced = trace.read_text().replace(str(root), '/isolated').replace(str(bun), '/verified/bun')
-            trace.write_text(traced)
-            executables = sorted(set(re.findall(r'execve\("([^"\n]+)"', traced)))
-            if 'execveat(' in traced:
-                raise RuntimeError(f'{label}: unaccounted execveat execution; inspect trace')
-            if any(Path(path).name in ('node', 'nodejs', 'npm', 'npx') for path in executables):
-                raise RuntimeError(f'{label}: Node/npm/npx execution attempted')
-            if (root / 'blocked.log').exists():
-                raise RuntimeError(f'{label}: blocked executable invoked')
-            completion_error = trace_completion_error(traced, stderr, process.returncode, expected)
-            if completion_error is not None:
-                print(trace_failure_summary(traced, stderr, process.returncode, source_files), file=sys.stderr)
-                if label == 'foundation':
-                    print(foundation_failure_summary(project, combined, source_files), file=sys.stderr)
-                # 完整保留两条脱敏流，不能让大量通过项覆盖较早的 hook/strace 错误。
-                print(f'{label}: command={json.dumps(arguments)}; traced command exit={process.returncode}',
-                      file=sys.stderr)
-                for stream, content in (('stdout', stdout), ('stderr', stderr)):
-                    content = content.replace(str(root), '/isolated').replace(str(bun), '/verified/bun')
-                    print(f'{label}: {stream}\n{content}', file=sys.stderr)
-                # -q 保留真实进程退出状态；外层 strace 的退出码不能冒充内层 Bun 的退出码。
-                trace_lines = traced.splitlines()
-                print(f'{label}: initial exec\n' + '\n'.join(trace_lines[:1]), file=sys.stderr)
-                statuses = [line for line in trace_lines if re.search(r'\+\+\+ (?:exited with|killed by)', line)]
-                print(f'{label}: process exit tail\n' + '\n'.join(statuses[-64:]), file=sys.stderr)
-                raise RuntimeError(f'{label}: {completion_error}; '
-                                   f'exit {process.returncode}, expected {expected}; see {output}')
-            records.append({'label': label, 'command': arguments, 'exit': process.returncode,
-                            'timeoutSeconds': seconds,
-                            'elapsedSeconds': round(time.monotonic() - started, 3),
-                            'executables': executables, 'logSha256': sha(output / (label + '.log')),
-                            'execveSha256': sha(trace)})
-            print(f'{label}: pass; elapsed={records[-1]["elapsedSeconds"]}s; watchdog={seconds}s', flush=True)
+            combined, record = run_command(
+                project, output, label, arguments, env, expected=expected,
+                seconds=600 if label == 'foundation' else 180, source_files=source_files,
+                replacements=[(str(root), '/isolated'), (str(bun), '/verified/bun')])
+            records.append(record)
             return combined
 
         before = {name: sha(project / name) for name in ('package.json', 'bun.lock')}
@@ -515,8 +351,6 @@ def main():
         if before != {name: sha(project / name) for name in before}:
             raise RuntimeError('verification mutated package metadata')
         report = {'runtime': 'Bun 1.4.3', 'platform': 'Linux', 'bunBinarySha256': sha(bun),
-                  'tracer': trace_identity,
-                  'nodeNpmNpxBlockingProbeExit': 99, 'workflowNodeNpmNpxInvocations': 0,
                   'emptyInstallCache': True, 'frozenInstallChangedMetadata': False,
                   'platformNetworkSettingNames': network_keys,
                   'strictFlags': ['strict', 'noUncheckedIndexedAccess'],

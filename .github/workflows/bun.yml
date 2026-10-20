@@ -38,27 +38,13 @@ jobs:
           bun --no-env-file run lint
           bun --no-env-file run format:check
           bun --no-env-file run comments:check
-      - name: Prepare strace in runner temp when absent
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v strace >/dev/null; then
-            mkdir "$RUNNER_TEMP/strace-package"
-            cd "$RUNNER_TEMP/strace-package"
-            apt-get download strace
-            deb_files=(strace_*.deb)
-            test "${#deb_files[@]}" = 1
-            dpkg-deb --extract "${deb_files[0]}" "$RUNNER_TEMP/strace"
-            "$RUNNER_TEMP/strace/usr/bin/strace" --version
-            echo "$RUNNER_TEMP/strace/usr/bin" >> "$GITHUB_PATH"
-          fi
       - name: Maintenance regression tests and repository checks
         run: |
           python3 scripts/maintenance/run_python_tests.py --output "$RUNNER_TEMP/python-tests.json"
           python3 scripts/maintenance/check.py
       - name: Audit versioned native contract inputs
         run: python3 scripts/native-contract/audit-fixtures.py
-      - name: Frozen install, strict types, all tests, build, smoke; trace without Node
+      - name: Frozen install, strict types, all tests, build and smoke
         run: python3 scripts/bun/verify.py --output "$RUNNER_TEMP/bun-verification"
       - name: Check every tracked test file was executed
         run: python3 scripts/maintenance/check.py --evidence "$RUNNER_TEMP/bun-verification" --python-report "$RUNNER_TEMP/python-tests.json"

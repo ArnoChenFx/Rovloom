@@ -10,7 +10,7 @@ Connect your AI Agent / AI Bot to local Luvus and Herdr runtimes across devices 
 Rovloom is designed around one Gateway and one outbound Connector per device,
 so runtimes stay on their own machines with a common entry point for AI Agent / AI Bot.
 
-**Availability:** Technical preview with a Linux/macOS Gateway and Linux x64
+**Availability:** Technical preview with a Linux/macOS/Windows Gateway and Linux x64
 Connector setup. First-pairing approval requires Linux. No public installation
 package or guided Agent/model login is available yet; see the [Quick Start](docs/QUICK-START.md).
 

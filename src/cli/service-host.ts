@@ -1,5 +1,4 @@
 // 为唯一产品入口组合正常系统服务；检查当前产物与配置格式，不修改权限或自动提权。
-import { execFileSync } from 'node:child_process'
 import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs'
 import { createNativeServiceBackend } from '../service/native.js'
 import { ServiceManager } from '../service/manager.js'
@@ -41,79 +40,6 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
   ) {
     throw new ServiceError('backend_unavailable')
   }
-}
-
-// 查目标服务账户的系统数据库记录，不读取 HOME、SUDO_USER 或提权前用户自报；未知来源要求显式配置。
-export function serviceAccountConfig(
-  role: ServiceRole,
-  account: string,
-  lookup?: (account: string) => string,
-  platform: string = process.platform
-): string {
-  if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/u.test(account) || account === 'root') {
-    throw new ServiceError('invalid_arguments')
-  }
-  let record: string
-  try {
-    record = (lookup ?? /* 平台由受信宿主选择，不从CLI传入。 */ ((name) => accountRecord(name, platform)))(
-      account
-    ).trimEnd()
-  } catch (error) {
-    if (error instanceof ServiceError && error.code === 'backend_unavailable') {
-      throw error
-    }
-    throw new ServiceError('config_path_required')
-  }
-  let home: string | undefined
-  let uid: string | undefined
-  if (platform === 'darwin') {
-    const values = new Map<string, string>()
-    for (const line of record.split('\n').filter(Boolean)) {
-      const match = /^([a-z_]+): (.*)$/u.exec(line)
-      if (!match || values.has(match[1]!)) {
-        throw new ServiceError('config_path_required')
-      }
-      values.set(match[1]!, match[2]!)
-    }
-    if (values.get('name') !== account) {
-      throw new ServiceError('config_path_required')
-    }
-    uid = values.get('uid')
-    home = values.get('dir')
-  } else {
-    const fields = record.split(':')
-    if (fields.length !== 7 || fields[0] !== account || record.includes('\n')) {
-      throw new ServiceError('config_path_required')
-    }
-    uid = fields[2]
-    home = fields[5]
-  }
-  if (!uid || !/^[1-9]\d*$/u.test(uid) || !Number.isSafeInteger(Number(uid))) {
-    throw new ServiceError('config_path_required')
-  }
-  try {
-    return resolveRoleConfigPath(role, undefined, { home, platform: platform === 'darwin' ? 'darwin' : 'linux' })
-  } catch {
-    throw new ServiceError('config_path_required')
-  }
-}
-
-// 同步parser只读取有界系统账户记录；绝对程序、独立 argv 和固定环境阻止 shell/环境注入。
-function accountRecord(account: string, platform: string): string {
-  if (!['linux', 'darwin'].includes(platform)) {
-    throw new ServiceError('backend_unavailable')
-  }
-  return execFileSync(
-    platform === 'darwin' ? '/usr/bin/dscacheutil' : '/usr/bin/getent',
-    platform === 'darwin' ? ['-q', 'user', '-a', 'name', account] : ['passwd', account],
-    {
-      encoding: 'utf8',
-      timeout: 5000,
-      maxBuffer: 16384,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
-    }
-  )
 }
 
 // 已有配置只做普通文件/JSON/角色检查；缺失配置留给角色正常首次启动生成，不核对UID/mode/ACL或状态目录。
@@ -197,7 +123,7 @@ export function createProductServiceHost(): CliServiceHost {
     platform: environment.platform,
     executable: environment.executable,
     manager: new ServiceManager(backend),
-    resolveDefaultConfig: /* 仅目标账户系统记录决定缺省路径；显式配置由 parser 优先采用。 */ (role, account) =>
-      serviceAccountConfig(role, account)
+    resolveDefaultConfig: /* 与前台共用当前用户的唯一角色文件；安装后只使用保存的绝对路径。 */ (role) =>
+      resolveRoleConfigPath(role)
   }
 }

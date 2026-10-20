@@ -6,12 +6,12 @@ import { join } from 'node:path'
 import {
   assertServiceProduct,
   productServiceEnvironment,
-  serviceAccountConfig,
+  createProductServiceHost,
   verifyProductServiceRuntime
 } from '../../src/cli/service-host.js'
 import { configDocument, configTemplate } from '../../src/cli/config.js'
 import { parseServiceCommand } from '../../src/service/command.js'
-import { ServiceError } from '../../src/service/types.js'
+import { parseCommand } from '../../src/cli/run.js'
 import { sampleSpec } from '../service/helpers.js'
 
 test(
@@ -27,75 +27,45 @@ test(
 )
 
 test(
-  '安装默认绑定当前二进制，角色和目标账户分别进入共享配置路径规则',
-  /* 受控 passwd 记录忽略环境 home。 */ () => {
+  '服务安装与前台使用同一默认角色文件，运行账户不会切换配置目录',
+  /* 调用真实产品宿主的路径接缝；构造不授权、不查询系统账户、不创建文件。 */ () => {
+    const host = createProductServiceHost()
     for (const role of ['gateway', 'connector'] as const) {
-      let lookup = 0
-      const parsed = parseServiceCommand(
-        ['service', 'install', '--role', role, '--user', 'rovloom', '--workdir', '/home/服务'],
-        'linux',
-        /* resolver 获得所选账户，不能误用安装管理员的 home。 */ (selected, account) =>
-          serviceAccountConfig(
-            selected,
-            account,
-            /* 只返回本例合成系统记录。 */ (requested) => {
-              assert.equal(requested, 'rovloom')
-              lookup++
-              return 'rovloom:x:1001:1001::/home/服务:/usr/sbin/nologin\n'
-            },
-            'linux'
-          ),
-        '/opt/rovloom/rovloom'
-      )!
-      assert.equal(parsed.spec?.executable, '/opt/rovloom/rovloom')
-      assert.equal(parsed.spec?.config, `/home/服务/.config/rovloom/${role}.json`)
-      assert.equal(lookup, 1)
-      assert.equal(
-        parseServiceCommand(
-          [
-            'service',
-            'install',
-            '--role',
-            role,
-            '--user',
-            'rovloom',
-            '--workdir',
-            '/home/服务',
-            '--config',
-            '/explicit/config.json'
-          ],
-          'linux',
-          /* 显式路径完全绕过缺省身份查询。 */ () => assert.fail(),
-          '/opt/rovloom/rovloom'
-        )!.spec?.config,
-        '/explicit/config.json'
-      )
+      const foreground = parseCommand([role])
+      assert('path' in foreground)
+      assert.equal(host.resolveDefaultConfig!(role, 'rovloom'), foreground.path)
+      assert.equal(host.resolveDefaultConfig!(role, 'another-runtime-account'), foreground.path)
     }
   }
 )
 
 test(
-  '目标账户、缺失或歧义 home 不能回退管理员或环境默认值',
-  /* 每条失败均只返回固定错误码。 */ () => {
-    for (const record of [
-      '',
-      'other:x:1001:1001::/home/other:/bin/sh',
-      'rovloom:x:0:0::/root:/bin/sh',
-      'rovloom:x:1001:1001::relative:/bin/sh',
-      'rovloom:x:1001:1001::/home/服务:/bin/sh\nother:x:1002:1002::/home/other:/bin/sh'
-    ]) {
-      assert.throws(
-        /* 单个目标账户必须有唯一有效系统记录。 */ () =>
-          serviceAccountConfig('gateway', 'rovloom', /* 固定畸形记录。 */ () => record, 'linux'),
-        { code: 'config_path_required' }
-      )
-    }
-    for (const account of ['root', '../operator', '--root', 'A B']) {
-      assert.throws(
-        /* 非法账户在任何系统查询之前拒绝。 */ () =>
-          serviceAccountConfig('gateway', account, /* 不应查询非法账户。 */ () => assert.fail()),
-        { code: 'invalid_arguments' }
-      )
+  '安装固化显式配置绝对路径，后台命令不再解析用户home',
+  /* parser保存同一现有角色文件；显式路径不调用默认解析器。 */ () => {
+    const platform = process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'darwin' : 'linux'
+    const spec = sampleSpec(platform)
+    for (const role of ['gateway', 'connector'] as const) {
+      const foreground = parseCommand([role])
+      assert('path' in foreground)
+      const request = parseServiceCommand(
+        [
+          'service',
+          'install',
+          '--role',
+          role,
+          '--user',
+          spec.account,
+          '--workdir',
+          spec.directory,
+          '--config',
+          foreground.path
+        ],
+        platform,
+        /* 显式用户文件优先，不能另查服务账户目录。 */ () => assert.fail(),
+        spec.executable
+      )!
+      assert.equal(request.spec?.config, foreground.path)
+      assert.equal(request.spec?.executable, spec.executable)
     }
   }
 )
@@ -184,22 +154,5 @@ test(
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  }
-)
-
-test(
-  '无法提供平台账户数据库时保留 backend_unavailable',
-  /* 未实现的账户查询不得伪装成另一身份。 */ () => {
-    assert.throws(
-      /* 模拟宿主平台明确不可用。 */ () =>
-        serviceAccountConfig(
-          'gateway',
-          'rovloom',
-          /* 固定受控错误。 */ () => {
-            throw new ServiceError('backend_unavailable')
-          }
-        ),
-      { code: 'backend_unavailable' }
-    )
   }
 )
