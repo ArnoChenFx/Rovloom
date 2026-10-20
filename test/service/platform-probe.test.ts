@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { renderDefinition } from '../../src/service/render.js'
 import { runSystemCommand } from '../../src/service/runner.js'
 import { sampleSpec } from './helpers.js'
-import { taskCall } from '../../src/service/windows.js'
+import { taskCall, TASK_DEFINITION_FUNCTIONS } from '../../src/service/windows.js'
 
 test(
   '实际宿主原生解析器接受开机声明且不执行注册或启动',
@@ -28,6 +28,9 @@ test(
 param([string]$XmlPath,[string]$PhasePath)
 $ErrorActionPreference='Stop'
 [IO.File]::WriteAllText($PhasePath,'script_started')
+${TASK_DEFINITION_FUNCTIONS}
+[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$json=[System.Web.Script.Serialization.JavaScriptSerializer]::new()
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText($PhasePath,'encoding_set')
 $xml=[IO.File]::ReadAllText($XmlPath,[Text.UTF8Encoding]::new($false))
@@ -47,6 +50,24 @@ $sid=$t.Principal.UserId
 if ($sid -notmatch '^S-1-') { $sid=([Security.Principal.NTAccount]::new($sid)).Translate([Security.Principal.SecurityIdentifier]).Value }
 if ($t.Triggers.Count -ne 1 -or $t.Triggers.Item(1).Type -ne 8 -or $sid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -or $t.Principal.LogonType -ne 2) { exit 1 }
 if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t.Settings.AllowDemandStart) { exit 1 }
+# 系统登记的子项顺序和缺省值不改变执行；不同参数、提权及额外动作仍必须拒绝。
+$reference=declaration $t
+[xml]$reordered=$t.XmlText
+$ns=[Xml.XmlNamespaceManager]::new($reordered.NameTable)
+$ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+foreach ($node in @($reordered.SelectNodes('/t:Task/t:Principals/t:Principal/t:RunLevel | /t:Task/t:Triggers/t:BootTrigger/t:Enabled',$ns))) { $null=$node.ParentNode.RemoveChild($node) }
+$root=$reordered.DocumentElement
+$null=$root.AppendChild($root.SelectSingleNode('t:Triggers',$ns))
+$copy=$s.NewTask(0)
+$copy.XmlText=$reordered.OuterXml
+if ((declaration $copy) -cne $reference) { exit 1 }
+$copy.Principal.RunLevel=1
+if ((declaration $copy) -ceq $reference) { exit 1 }
+$copy.Principal.RunLevel=0
+$copy.Actions.Item(1).Arguments += ' --foreign'
+if ((declaration $copy) -ceq $reference) { exit 1 }
+$null=$copy.Actions.Create(0)
+try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 'service_conflict') { throw } }
 [Console]::Write('native_format_valid')
 [IO.File]::WriteAllText($PhasePath,'validated')
 `

@@ -4,15 +4,8 @@ import { renderTask } from './render.js'
 import { type CommandRunner } from './runner.js'
 import { ServiceError, type ServiceRole, type ServiceSnapshot, type ServiceSpec } from './types.js'
 
-// 脚本只接受固定项目角色与动作；TASK_CREATE 防止检查后竞态覆盖其它任务。
-export const TASK_SCRIPT = `
-$ErrorActionPreference = 'Stop'
-[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
-$json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
-# 固定CLR序列化器绕开cmdlet自动加载；JSON始终为数据，不执行表达式。
-function emit($value) { [Console]::Write($json.Serialize($value)) }
+// 生产和只读原生探针共用账户与执行声明比较，测试无需复制验证逻辑。
+export const TASK_DEFINITION_FUNCTIONS = `
 # 正常解析既有用户身份，不读取profile、密码、ACL或额外账户配置。
 function userSid($account) {
   try {
@@ -26,6 +19,38 @@ function userSid($account) {
     return $sid
   } catch { throw 'invalid_arguments' }
 }
+# COM属性读取包含系统默认值；只比较实际执行声明，不把节点顺序和调度引擎默认选择误判为异物。
+function declaration($definition) {
+  if ($definition.Actions.Count -ne 1 -or $definition.Actions.Item(1).Type -ne 0 -or $definition.Triggers.Count -ne 1 -or $definition.Triggers.Item(1).Type -ne 8) { throw 'service_conflict' }
+  $action = $definition.Actions.Item(1)
+  $boot = $definition.Triggers.Item(1)
+  $settings = $definition.Settings
+  return $json.Serialize(@(
+    (userSid $definition.Principal.UserId), [int]$definition.Principal.LogonType, [int]$definition.Principal.RunLevel,
+    $action.Path, $action.Arguments, $action.WorkingDirectory,
+    $boot.Delay, $boot.StartBoundary, $boot.EndBoundary, $boot.ExecutionTimeLimit,
+    $boot.Repetition.Interval, $boot.Repetition.Duration, [bool]$boot.Repetition.StopAtDurationEnd,
+    [int]$settings.MultipleInstances, [bool]$settings.DisallowStartIfOnBatteries, [bool]$settings.StopIfGoingOnBatteries,
+    [bool]$settings.AllowHardTerminate, [bool]$settings.StartWhenAvailable, [bool]$settings.RunOnlyIfNetworkAvailable,
+    [bool]$settings.AllowDemandStart, [bool]$settings.Enabled, [bool]$settings.RunOnlyIfIdle, $settings.ExecutionTimeLimit,
+    [bool]$settings.IdleSettings.StopOnIdleEnd, [bool]$settings.IdleSettings.RestartOnIdle,
+    $settings.RestartCount, $settings.RestartInterval, $settings.DeleteExpiredTaskAfter,
+    [bool]$settings.WakeToRun, $definition.RegistrationInfo.Description
+  ))
+}
+`
+
+// 脚本只接受固定项目角色与动作；TASK_CREATE 防止检查后竞态覆盖其它任务。
+export const TASK_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+# 固定CLR序列化器绕开cmdlet自动加载；JSON始终为数据，不执行表达式。
+function emit($value) { [Console]::Write($json.Serialize($value)) }
+${TASK_DEFINITION_FUNCTIONS}
+
 try {
   $p = $json.DeserializeObject([Console]::In.ReadToEnd())
   if ($p.name -notmatch '^rovloom-(gateway|connector)$') { throw 'service_conflict' }
@@ -58,19 +83,7 @@ try {
   $expected.XmlText = $p.xml
   $expected.Principal.UserId = userSid $p.account
   $expected.Principal.LogonType = 2
-  $registered = $s.NewTask(0)
-  $registered.XmlText = $t.Xml
-  $registered.Principal.UserId = userSid $registered.Principal.UserId
-  [xml]$a = $registered.XmlText
-  [xml]$b = $expected.XmlText
-  foreach ($doc in @($a,$b)) {
-    $ns = [Xml.XmlNamespaceManager]::new($doc.NameTable)
-    $ns.AddNamespace('t', 'http://schemas.microsoft.com/windows/2004/02/mit/task')
-    foreach ($node in @($doc.SelectNodes('/t:Task/t:RegistrationInfo/t:URI | /t:Task/t:RegistrationInfo/t:Date', $ns))) { $null = $node.ParentNode.RemoveChild($node) }
-    $enabled = $doc.SelectSingleNode('/t:Task/t:Triggers/t:BootTrigger/t:Enabled', $ns)
-    if ($null -ne $enabled) { $enabled.InnerText = 'true' }
-  }
-  if ($a.DocumentElement.OuterXml -cne $b.DocumentElement.OuterXml -or $t.Definition.RegistrationInfo.Description -cne $p.marker) { throw 'service_conflict' }
+  if ((declaration $t.Definition) -cne (declaration $expected) -or $t.Definition.RegistrationInfo.Description -cne $p.marker) { throw 'service_conflict' }
   if ([int]$t.State -notin @(1,2,3,4)) { throw 'system_command_failed' }
   switch ($p.op) {
     'inspect' { }
