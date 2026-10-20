@@ -73,11 +73,10 @@ Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、
 绝对文件路径，仅覆盖该文件位置；新生成数据目录仍按角色用户 home 选择。已有显式
 文件不要求解析 home，缺失文件生成默认值时需要 home。
 
-首次文件创建和受保护角色文件检查支持 Linux/macOS；Windows 返回
-`config_platform_unsupported`。Gateway 启动支持 Linux/macOS，但首次配对审批和原生
+首次文件创建、角色文件检查和 Gateway 启动支持 Linux/macOS/Windows；首次配对审批和原生
 Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用性与状态检查)。
-模板使用目标平台路径分隔符。文件保持 `0600`，
-所在私有目录保持 `0700`，属于进程用户；新建时使用这些权限，不自动修复已有权限或
+模板使用目标平台路径分隔符，文件访问沿用操作系统权限。新建文件/目录在支持的平台
+请求 `0600`/`0700`，这是默认值，不是对已有文件的校验要求；不自动修复已有权限或
 损坏文件。用户 JSON 上限 16 KiB，不支持注释，拒绝非法编码和重复键。
 
 ## 程序管理的数据与认证
@@ -195,7 +194,7 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 | `rovloom gateway [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/gateway.json`，启动前台 Gateway。 | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
 | `rovloom connector [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/connector.json`，启动前台 Connector。 | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
 
-显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS 在所选位置生成缺失文件，不覆盖已有文件；
+显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS/Windows 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
 上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
@@ -205,7 +204,7 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 `rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
 Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
 缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
-Windows等待普通角色启动接口；原生格式解析不等于生命周期验收。
+Windows产品服务生命周期仍不可用；原生格式解析不等于生命周期验收。
 见[服务前提与平台限制](SERVICE.md)。
 
 | 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
@@ -223,14 +222,14 @@ Windows等待普通角色启动接口；原生格式解析不等于生命周期�
 |---|---|---|
 | `--role` | 必填 enum `gateway` 或 `connector`，无默认 | 选择要管理其自启/实例的角色。 |
 | `--executable` | 仅 install，可选绝对路径 string，≤4096 字符，默认当前单文件程序 | 必须等于当前规范可执行路径；拒绝另一安装、shell 或解释器。Windows 路径须以 `.exe` 结尾。 |
-| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 显式角色配置。省略时从所选 `--user` 服务账户的系统记录取得 home，再复用共享的 `~/.config/rovloom/gateway.json` 或 `connector.json` 规则；无法验证身份时必须显式传入（`config_path_required`），不根据环境变量猜测提权前 home。 |
+| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 省略时与前台使用当前用户同一份角色文件。安装固定其绝对路径，后台不另选home；通过sudo执行时显式传原用户文件的绝对路径。 |
 | `--workdir` | 仅 install，必填绝对目录 string，≤4096 字符，无默认 | 服务工作目录，不设置或替代 JSON 的 `data.directory`。 |
 | `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
 安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
 不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
-Linux宿主从系统账户记录选择默认配置路径，不读取安装管理员HOME。安装不启动角色，
+运行账户不决定第二套配置目录。安装不启动角色，
 不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
 Linux 工作目录不得以空白或反斜杠结尾。
 
@@ -244,12 +243,12 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | 命令类别 | Linux | macOS | Windows |
 |---|---|---|---|
 | 帮助/版本/模板输出 | 可用 | 可用 | 可用 |
-| `config check` | 受保护 POSIX 读取器 | 受保护 POSIX 读取器 | 拒绝：`config_platform_unsupported` |
-| 缺失角色文件创建 | 可用 | 可用 | 拒绝：`config_platform_unsupported` |
-| Gateway 启动 / `config check-runtime` | 可用 | Gateway 私有文件层可用 | runtime 加载器拒绝该平台 |
+| `config check` | 普通操作系统文件访问 | 普通操作系统文件访问 | 普通操作系统文件访问 |
+| 缺失角色文件创建 | 可用 | 可用 | 可用 |
+| Gateway 启动 / `config check-runtime` | 可用 | 可用 | 可用 |
 | 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
 | 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
-| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品在系统访问前拒绝；普通角色文件与启动接线未完成 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品服务生命周期不可用；在系统访问前拒绝 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，

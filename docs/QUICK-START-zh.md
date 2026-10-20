@@ -5,9 +5,9 @@
 运行一个 **Gateway**，作为 AI 客户端的 MCP 入口。在每台运行 Luvus 或 Herdr 的机器上
 运行一个 **Connector**，由它主动连接 Gateway。两个角色也可以运行在同一台机器上。
 
-本预览可在 Linux x64 引导配对和首次 Luvus 设置。Gateway 也支持 Linux/macOS，
-但首次配对审批仍要求 Linux。Windows runtime、Herdr/混合首次引导和 Agent/模型登录
-引导尚不可用；全新安装目前还不能只靠 Rovloom 完成模型设置。
+Gateway 支持 Linux/macOS/Windows，下面的首次配对和原生 Connector 引导要求 Linux x64。
+Herdr/混合首次引导和 Agent/模型登录引导尚不可用；全新安装目前还不能只靠 Rovloom
+完成模型设置。
 
 ## 1. 准备程序
 
@@ -104,7 +104,7 @@ Windows产品服务和自动替换程序更新仍不可用。
 | 问题 | 处理方法 |
 |---|---|
 | `configuration_required` / `pairing_required` | 完成 Linux 本地终端的提问和批准。仅保存 Gateway 地址不会完成设备配对。 |
-| 配置或权限错误 | 检查角色文件与绝对路径。文件应属于当前用户，权限 `0600`，所在目录 `0700`。已有错误不会被自动修复。 |
+| 配置或权限错误 | 检查角色文件、绝对路径，以及当前账户能否按操作系统权限访问文件和数据目录。已有文件不会被自动重置。 |
 | `native_state_path_too_long` | 配对前选择更短的 `data.directory`；其路径加 `/n` 不得超过52个 UTF-8 字节。 |
 | 地址占用或连接失败 | 检查端口、Gateway 监听地址和网络可达性。 |
 | HTTP 401 | 检查 `/mcp` URL、Bearer 和有效期；配对必须已完成。 |

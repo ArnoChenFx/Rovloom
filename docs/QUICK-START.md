@@ -6,10 +6,9 @@ Use one **Gateway** as your AI client's MCP entry point. Run one **Connector**
 on each machine where Luvus or Herdr runs; it connects out to the Gateway.
 Both roles can run on the same machine.
 
-This preview guides pairing and first Luvus setup on Linux x64. Gateway also
-supports Linux/macOS, but its first-pairing approval still requires Linux.
-Windows runtime, guided Herdr/mixed setup and guided Agent/model login are not
-available yet. A new installation cannot complete model setup through Rovloom alone.
+Gateway runs on Linux/macOS/Windows. The guided first-pairing and native Connector
+flow below requires Linux x64. Guided Herdr/mixed setup and Agent/model login are
+not available yet. A new installation cannot complete model setup through Rovloom alone.
 
 ## 1. Prepare the programs
 
@@ -121,7 +120,7 @@ services and automatic update replacement remain unavailable in this preview.
 | Problem | What to do |
 |---|---|
 | `configuration_required` / `pairing_required` | Complete the Linux local-terminal prompts and approvals. A saved Gateway address alone does not pair the device. |
-| Configuration or permission error | Check the role file and absolute paths. The file must belong to your user with mode `0600`, its directory `0700`. Existing errors are not repaired automatically. |
+| Configuration or permission error | Check the role file, absolute paths and whether your account can access the file and data directory through normal OS permissions. Existing files are not reset automatically. |
 | `native_state_path_too_long` | Before pairing, choose a shorter `data.directory`; its path plus `/n` must fit within 52 UTF-8 bytes. |
 | Address in use / cannot connect | Check the configured ports, Gateway listener address and network reachability. |
 | HTTP 401 | Check the `/mcp` URL, Bearer and expiry; pairing must be complete. |
