@@ -197,6 +197,8 @@ export type ResultAuthorization = Readonly<{
 }>
 
 export interface NativeValidator {
+  // 已知方法检查完整根、未知方法只检查 raw 最小信封；不创建能力视图、候选、来源或许可。
+  checkRequestShape(request: unknown): Check<void>
   // 只校验能力响应、目录和预期目标身份，不认证来源或创建能力/响应句柄。
   checkCapabilitiesShape(input: unknown, expected: Pick<NativeBinding, 'target' | 'server_generation'>): Check<void>
   // 把独立验证的原生来源与能力广告绑定为当前契约的内存视图。

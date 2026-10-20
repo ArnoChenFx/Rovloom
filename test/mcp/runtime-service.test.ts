@@ -6,6 +6,45 @@ import { StoreGatewayService } from '../../src/mcp/store-service.js'
 import type { ManagementPermission } from '../../src/mcp/management.js'
 import { storeFixture, target } from './store-fixture.js'
 import { projectionFixture } from './runtime-service-fixture.js'
+import { LuvusAdapterError } from '../../src/connector/luvus/types.js'
+import { NativeRequestPreflightError } from '../../src/runtime/request-preflight.js'
+import { FacadeServiceError, NativeRequestNotDispatchedError } from '../../src/mcp/types.js'
+import { RuntimeGatewayService } from '../../src/mcp/runtime-service.js'
+
+test(
+  '只有登记前的明确 schema 拒绝投影为 not_dispatched，普通相同错误码不获得此语义',
+  /** 原生调用端口均为明确拒绝 stub；不从 code/outcome 自报重建未派发证明。 */ async () => {
+    for (const preflight of [false, true]) {
+      const f = projectionFixture()
+      const service = new RuntimeGatewayService({
+        runtime: {
+          ...f.runtime,
+          /** 精确控制本次准入端口异常，不模拟调用已执行或成功。 */ admit() {
+            throw preflight
+              ? new NativeRequestPreflightError()
+              : new LuvusAdapterError('native_request_invalid', 'outcome_unknown')
+          }
+        },
+        identities: f.identities,
+        localPolicies: f.localPolicies
+      })
+      try {
+        await assert.rejects(
+          /** 每个请求只调用一次原服务，不重试错误意图。 */ () => service.execute('runtime_call', f.args, f.context),
+          /** 固定公共码相同，只有明确登记前拒绝类携带未派发语义。 */ (error: unknown) => {
+            assert(error instanceof FacadeServiceError)
+            assert.equal(error.code, 'native_request_invalid')
+            assert.equal(error instanceof NativeRequestNotDispatchedError, preflight)
+            return true
+          }
+        )
+      } finally {
+        service.close()
+        f.close()
+      }
+    }
+  }
+)
 
 test(
   '原attempt连接失效仍返回重新授权后的unknown元数据，不交付旧结果且不重派',

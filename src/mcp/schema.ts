@@ -130,7 +130,7 @@ export function toolDefinition(name: ToolName): Tool {
       type: 'object',
       properties: {
         data: { type: 'object' },
-        gateway_error: object({ code: { type: 'string' } }, ['code']),
+        gateway_error: object({ code: { type: 'string' }, outcome: { const: 'not_dispatched' } }, ['code']),
         delivery: { type: 'object' }
       },
       additionalProperties: false,
