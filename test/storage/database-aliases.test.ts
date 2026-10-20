@@ -61,7 +61,7 @@ for (const aliasKind of ['hardlink', 'symlink'] as const) {
             const script = `import {Store} from ${JSON.stringify(entry)};
     try {const s=new Store(${JSON.stringify(alias)});s.close();process.stdout.write('opened');process.exitCode=9}
     catch(error){if(error?.code==='EEXIST'||error?.code==='database_hardlink_unsupported')process.stdout.write('blocked');else throw error}`
-            const child = spawnSync(process.execPath, ['--no-env-file', '-e', script], {
+            const childOptions = {
               cwd: root,
               env: {
                 PATH: process.env.PATH ?? '',
@@ -71,26 +71,48 @@ for (const aliasKind of ['hardlink', 'symlink'] as const) {
                 TMP: root,
                 ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {})
               },
-              encoding: 'utf8',
+              encoding: 'utf8' as const,
               timeout: 5000
-            })
+            }
+            const child = spawnSync(process.execPath, ['--no-env-file', '-e', script], childOptions)
             if (aliasKind === 'hardlink') {
               // SQLite不支持多名称数据库；先移除测试别名，再核对原连接和持久业务状态。
               rmSync(alias)
             }
             // 必须先检查业务未被另一个构造器恢复；只拒绝后续写入不足以修复这个问题。
-            assert.equal(store.machine(device.machine_id).status, 'online')
-            assert.equal(store.call('alice', call.call_id).state, 'dispatching')
-            store.assertConnection({
-              machine_id: binding.machine_id,
-              recovery_generation: binding.recovery_generation,
-              connection_epoch: binding.connection_epoch
+            if (aliasKind !== 'hardlink' || process.platform !== 'darwin') {
+              assert.equal(store.machine(device.machine_id).status, 'online')
+              assert.equal(store.call('alice', call.call_id).state, 'dispatching')
+              store.assertConnection({
+                machine_id: binding.machine_id,
+                recovery_generation: binding.recovery_generation,
+                connection_epoch: binding.connection_epoch
+              })
+            }
+            assert.equal(existsSync(alias + '.lock'), false)
+            assert.equal(existsSync(path + '.lock'), true)
+            // macOS在活跃库出现硬链接后保留VNODE拒绝；关闭后由全新只读进程核对落盘事实。
+            // 不使用Store构造器读回，因为它本来就会恢复在线设备和在途调用。
+            store.close()
+            const readbackScript = `import {DatabaseSync} from 'node:sqlite';
+              const db=new DatabaseSync(${JSON.stringify(path)},{readOnly:true});
+              try {
+                const m=db.prepare('SELECT status,epoch FROM machines WHERE machine_id=?').get(${JSON.stringify(device.machine_id)});
+                const c=db.prepare('SELECT state FROM calls WHERE call_id=?').get(${JSON.stringify(call.call_id)});
+                process.stdout.write(JSON.stringify({status:m.status,epoch:m.epoch,call_state:c.state}));
+              } finally {db.close()}`
+            const readback = spawnSync(process.execPath, ['--no-env-file', '-e', readbackScript], childOptions)
+            assert.equal(readback.error, undefined)
+            assert.equal(readback.status, 0, readback.stderr)
+            assert.deepEqual(JSON.parse(readback.stdout), {
+              status: 'online',
+              epoch: binding.connection_epoch,
+              call_state: 'dispatching'
             })
             assert.equal(child.error, undefined)
             assert.equal(child.status, 0, child.stderr)
             assert.equal(child.stdout, 'blocked')
-            assert.equal(existsSync(alias + '.lock'), false)
-            assert.equal(existsSync(path + '.lock'), true)
+            assert.equal(existsSync(path + '.lock'), false)
           } finally {
             store.close()
           }
