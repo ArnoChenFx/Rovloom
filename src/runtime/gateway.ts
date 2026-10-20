@@ -657,7 +657,8 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
       store,
       localPolicies,
       principal,
-      resolveOriginalRead: active.resolveOriginalRead,
+      /** 本结果层在策略回调前后分别执行带正文的原 Wire 门禁；解析只取当前 peer/ACL/期限核对后的引用。 */
+      resolveOriginalRead: (callId) => active.resolveOriginalRead(callId, false),
       /** 每次读取重新核对当前受保护配置；所有 provider 共用 Store 的内容和 handle 总预算。 */
       provider(target) {
         const configured = providers.get(key(target))
