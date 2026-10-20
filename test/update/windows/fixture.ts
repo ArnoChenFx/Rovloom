@@ -1,6 +1,7 @@
 // 隔离 Windows 闭环样例；固定测试分支不作为产品 CLI、服务后端或发行入口。
 import * as fs from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { userInfo } from 'node:os'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes, createHash } from 'node:crypto'
 import { setTimeout as pause } from 'node:timers/promises'
@@ -88,7 +89,7 @@ async function services(root: string, executable: string) {
         executable,
         config: join(root, `${role}.json`),
         directory: root,
-        account: 'S-1-5-19'
+        account: userInfo().username
       },
       state: 'stopped',
       enabled: role === 'connector'
