@@ -105,6 +105,8 @@ export type GatewayOptions = {
   offer?: VersionOffer
   /** 受信静态远端机器名单；提供后只为名单内机器强制协商快照，空名单关闭所有机器的可选快照能力。 */
   providerSnapshotMachines?: readonly string[]
+  /** 静态产品入口的专用配对HTTP handler；不由JSON配置加载，不改变设备WebSocket认证。 */
+  setupRequest?(request: Request): Promise<Response> | undefined
   limits?: Partial<{
     connections: number
     unauthenticated: number
@@ -942,6 +944,12 @@ export function createGateway(options: GatewayOptions) {
     /** 限制升级路径、Origin、总连接和未认证额度，仅为允许的请求建立有界 peer 状态。 */
     fetch(request, server) {
       const url = new URL(request.url)
+      if (!stopped && url.pathname !== '/connector') {
+        const setup = options.setupRequest?.(request)
+        if (setup) {
+          return setup
+        }
+      }
       if (
         stopped ||
         request.method !== 'GET' ||

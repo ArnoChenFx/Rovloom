@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { assertMacosAclEntry } from '../../src/storage/macos-acl.js'
+import { assertMacosAclEntry, assertMacosDescriptorAcl } from '../../src/storage/macos-acl.js'
 import { createPrivate, ensurePrivateDirectory, privatePath, readPrivateBytes } from '../../src/storage/files.js'
 import { readOrCreateRoleConfig } from '../../src/cli/first-config.js'
 import { readConfig } from '../../src/cli/config.js'
@@ -153,6 +153,7 @@ test(
     if (process.platform !== 'darwin') {
       return
     }
+    assert.throws(/* 无效 fd 的 EBADF 不能被当作 ACL 不存在。 */ () => assertMacosDescriptorAcl(-1, true))
     temporary(
       /* chmod 仅用于构造新 fixture 的不安全 ACL，不修改既有系统对象。 */ (directory) => {
         const path = join(directory, 'private.json')

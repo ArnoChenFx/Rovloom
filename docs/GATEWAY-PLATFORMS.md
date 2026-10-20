@@ -17,6 +17,10 @@ macOS 通过固定系统库的 `acl_get_fd_np` 检查实际 fd 的扩展 ACL。�
 使用的 ABI 和返回值依据 Apple 的
 [acl_entry.c](https://github.com/apple-oss-distributions/Libc/blob/main/posix1e/acl_entry.c)
 及 [sys/acl.h](https://github.com/apple-oss-distributions/Libc/blob/main/include/sys/acl.h)。
+有效 fd 没有扩展 ACL 时的 NULL/ENOENT 依据 Apple 的
+[acl_file.c](https://github.com/apple-oss-distributions/Libc/blob/main/posix1e/acl_file.c)
+及 [filesec.c](https://github.com/apple-oss-distributions/Libc/blob/main/gen/filesec.c)；
+EBADF、EACCES、不支持的文件系统等错误不会被当作 ACL 缺省放行。
 这是一条保守边界；已有共享目录或额外授权不会被自动修复。
 
 独立原生任务在 Linux/macOS x64/arm64 上构建实际单文件产品，运行私有文件、

@@ -35,6 +35,15 @@ function api(): AclApi {
   return library!.symbols
 }
 
+// errno 只从当前线程的原生槽读取；未知地址不能被当作“没有 ACL”。
+function nativeErrno(a: AclApi): number {
+  const pointer = a.__error()
+  if (pointer <= 0 || !Number.isSafeInteger(pointer)) {
+    throw new GatewayError('unsafe_storage_acl')
+  }
+  return Buffer.from(memory!.toArrayBuffer(pointer, 0, 4)).readInt32LE()
+}
+
 // 私有叶节点不接受扩展 allow；祖先只允许不授予写入/删除/改权限的已知读取权限。
 export function assertMacosAclEntry(tag: number, permissions: bigint, privateLeaf: boolean): void {
   const known = 0x103ffen
@@ -56,10 +65,15 @@ export function assertMacosDescriptorAcl(fd: number, privateLeaf: boolean): void
   }
   const a = api()
   const acl = a.acl_get_fd_np(fd, 0x100)
-  if (!acl || a.acl_valid(acl) !== 0) {
-    if (acl) {
-      a.acl_free(acl)
+  if (!acl) {
+    // Darwin 对有效 fd 缺少 FILESEC_ACL 属性返回 NULL/ENOENT；其它读取失败仍拒绝。
+    if (nativeErrno(a) === 2) {
+      return
     }
+    throw new GatewayError('unsafe_storage_acl')
+  }
+  if (a.acl_valid(acl) !== 0) {
+    a.acl_free(acl)
     throw new GatewayError('unsafe_storage_acl')
   }
   let failure: unknown
@@ -68,8 +82,7 @@ export function assertMacosDescriptorAcl(fd: number, privateLeaf: boolean): void
     for (let index = 0; index <= 128; index++) {
       const entry = Buffer.alloc(8)
       if (a.acl_get_entry(acl, index, entry) !== 0) {
-        const pointer = a.__error()
-        if (pointer > 0 && Buffer.from(memory!.toArrayBuffer(pointer, 0, 4)).readInt32LE() === 22) {
+        if (nativeErrno(a) === 22) {
           complete = true
           break
         }
