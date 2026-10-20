@@ -38,9 +38,8 @@
   call/get只返回同次已授权元数据及可用的真实结果句柄，结果页逐次通过原Wire读取/保留门禁。
   Luvus Connector资源的provider_snapshot声明穿过production/runtime两层CLI交给原角色工厂，
   由runtime协商并交付原generation的实际快照；未声明的资源不添加该能力。
-  远端Luvus的16KiB配置可用`contract.schema_bundle_ref`选择同一角色`refs/<ref>.json`中的
-  受保护原始schema（原2MiB bundle预算）；CLI只把UTF-8原字节交给现有工厂校验固定pin。
-  该字段与`schema_bundle`互斥，拒绝路径/URL，解码不剥BOM、不修改schema或其摘要。
+  程序管理的provider条目把实际schema交给现有工厂核验，不从用户角色JSON选择schema/ref/pin。
+  原始schema内容不剥BOM、不修改其摘要；用户初始化层不生成固定版本或pin。
   原attempt查询失败时，重新授权后只返回最新调用元数据和content_reason_code，不恢复旧Wire或正文；
   错误回调中的同步撤权也必须拒绝交付调用ID。
   结果cursor绑定caller、result_id、max_bytes及固定期限；不接受客户端任意字节偏移。
@@ -56,10 +55,10 @@
   解析原请求并调用 checkResult，创建句柄前另调用 checkResultRetention，不将已取得的引用当永久授权。
   dispatch 只接受所属服务请求的异步 caller 作用域，并重新解析当前身份；没有请求作用域即拒绝。
   Connector 宿主交付受保护凭据及逐 epoch 会话；支持原生 JSON 回调或实际 executeWire hook 的互斥
-  transport 类型，工厂不剥原帧或重注入 auth，固定使用 WSS origin 的 `/connector` 端点。
+  transport 类型，工厂不剥原帧或重注入 auth，固定使用 WS/WSS origin 的 `/connector` 端点。
   两角色关闭均先停止实际 transport 再释放宿主资源，重复关闭共用同一 Promise；启动失败也清理。
   独立 `main.ts`按需加载[生产资源加载器](../../src/cli/production.ts)，从固定私有文件绑定实际
-  `openGatewayState`、TLS、caller摘要及PR71管理authority。缺少角色来源不会创建默认身份、设备或native服务。
+  `openGatewayState`、HTTP/WS监听、caller摘要及PR71管理authority。缺少角色来源不会创建默认身份、设备或native服务。
   原生opaque实例及跨进程来源仍由静态链接的受信resolver负责，不能从ref JSON重建；
   Store当前不公开已打开文件路径，CLI不读取私有字段，也不把配置自报路径当作验证事实。
 
@@ -253,76 +252,50 @@ bun --no-env-file build src/cli/main.ts --target=bun --outfile /tmp/rovloom-prev
 bun --no-env-file /tmp/rovloom-preview.js --help
 ```
 
-两种角色使用相同入口和版本。模板只包含固定绝对 state_dir 与非秘密引用；
-Gateway使用固定回环HTTP地址、端口与authentication_ref，Connector 使用 provider_config_refs 和无凭据 WSS origin。
-URL 禁止 userinfo/query/fragment/自定义路径，endpoint 路径由受信 transport 宿主固定。
-不接受 argv secret、enrollment、配对、账号注册或任意 shell 命令。
+两种角色使用相同入口和版本。每个角色只有一份分组用户JSON，完整字段、默认值和平台限制见
+[配置参考](../CONFIGURATION-zh.md)。默认路径分别为当前用户home下的
+`.config/rovloom/gateway.json`、`connector.json`；显式`--config`覆盖精确文件位置。
+Linux角色启动在文件缺失时独占创建0600文件及0700目录，已有文件（包括坏文件）永不覆盖。
+`config check`和`check-runtime`保持只读，不创建文件。已有显式文件不依赖home，生成缺失文件
+需要home以选择默认数据目录。Windows沿用同样路径约定，实际受保护读取仍未支持。
+角色解析拒绝未知字段、旧扁平格式、用户ref/TLS/CA路径、secret、identity和pin。
 
-将模板保存到当前用户持有的 0700 目录中，配置文件设为 0600，替换为受信绝对路径后，
-使用 `config check --config /absolute/protected/config.json` 只读验证。
-`gateway` 默认读取 `~/.config/rovloom/gateway.json`，`connector` 默认读取
-`~/.config/rovloom/connector.json`；Windows 同样使用用户 home 下的 `.config/rovloom`，不改用 AppData。
-当前受保护配置读取仅支持 POSIX；Windows 只定义上述路径规则，实际读取返回 `config_platform_unsupported`。
-模板按当前平台生成规范绝对占位路径：POSIX 使用 `/absolute/protected/rovloom/{role}`，
-Windows 使用 `C:\absolute\protected\rovloom\{role}`。模板经过同一严格路径校验；生成模板不证明Windows文件读取或角色启动可用。
-显式 `--config` 优先且不依赖 home。`resolveRoleConfigPath` 是 CLI 和服务宿主共用的路径选择接口；
-选择后仍核对配置 role 与子命令，不回退另一角色文件，不自动创建目录、配置或秘密。
-所选文件或目录缺失时返回固定 `config_not_found`；缺省路径无法取得有效 home 时返回
-`config_home_unavailable`。这些诊断不输出实际路径。
-配置不允许未知字段；读取拒绝 symlink、非 regular file、宽松权限和超过 16 KiB 的文件。
-state_dir 在这里仅作绝对规范路径校验，实际目录所有权、单 writer、锁和可信引用解析由宿主负责。
-配置解析不创建数据库、真实凭据或连接；受信角色工厂只在显式启动时取得资源所有权。
+用户业务参数来自唯一角色文件；程序管理资源位于`data.directory`中的私有`managed/`，
+不加载旧`runtime.json`或`refs/`。provider registry为`providers.json`，只接收同角色、至多32条
+`{reference,value}`条目，总JSON上限1MiB，原生来源继续由静态工厂验证，不因JSON自报可信而放行。
+该条目是内部发现/装配结果，不是用户准备清单，初始化层不会写死native版本或摘要。
 
-公开入口的生产加载器目前支持Linux既有caller摘要、设备TLS和实际Gateway双库。
-它不创建目录、配置、账户、设备、凭据或原生custody；正常启动只打开明确交付的资源。
-在`state_dir/runtime.json`放置以下无秘密Gateway描述，`refs`目录及全部文件仍须为当前用户持有的0700/0600：
-
-```json
-{
-  "schema_version": 1,
-  "role": "gateway",
-  "authentication_ref": "mcp-http",
-  "device_listener": { "hostname": "127.0.0.1", "port": 9443, "tls_ref": "device-tls" },
-  "provider_config_refs": []
-}
-```
-
-`authentication_ref`必须与角色配置完全相同；它固定读取`refs/mcp-http.json`。
-该只读来源的精确字段为`schema_version: 1`、`kind: 'mcp-caller-source'`、canonical完整`resource`、
+公开生产加载器创建缺失的私有数据目录，打开唯一Gateway双库和普通HTTP/WS监听。
+未建立caller状态时Gateway真实运行并提示`pairing_required`，认证与管理员均返回空身份。
+程序管理的既有caller来源固定为`managed/mcp-callers.json`，其精确字段为
+`schema_version: 1`、`kind: 'mcp-caller-source'`、canonical完整`resource`、
 现行`ProviderPolicy`形状的`local_policy`及1..64条`callers`。
 每条caller只含`principal: { id, policy }`、`token_sha256`、`issued_at`、`expires_at`；
-主体和凭据摘要均唯一，摘要为既有高熵bearer凭据的SHA-256，绝不保存原值。
-此格式消费独立配置者已交付的身份，不是账户创建、登录或凭据发行接口。
-`resource`须等于配置得到的canonical MCP URL，包括`/mcp`，默认端口按URL规则省略。
-认证只接受有界`Authorization: Bearer ...`，每次主体/策略/认证读取重新核对同一私有配置代次和时间。
-文件丢失、权限丢失、内容变更或时间回拨使本轮拒绝至重启；不能靠恢复旧文件或重试滑动续期。
+主体和凭据摘要均唯一，绝不保存原Bearer。它消费既有身份，不是登录或凭据发行接口。
+`resource`须等于canonical MCP URL（包括`/mcp`）；每次主体/策略/认证仍复核同一文件代次及期限。
+损坏、权限变化、内容变化或时钟回拨继续拒绝，不能靠恢复旧文件续期。
 
-设备TLS固定从`refs/device-tls.cert.pem`与`refs/device-tls.key.pem`读取，分别有界64KiB；
-不会加载文件指定的模块、脚本或任意动态路径。状态目录直接传给`openGatewayState`，
-不再由外部配置自报“已打开Store路径”；只开一个业务writer及同一hash-only设备身份库。
-空provider配置可通过真实MCP查询已有账本；不能因此调用未接通的native。
-
-唯一CLI提供`config template runtime gateway|connector`离线输出对应的无秘密runtime模板。
-`config check-runtime --config /absolute/protected/role.json`共用启动时的角色及runtime字段校验，
-成功只在stderr输出`runtime_config_valid`，不读取caller、TLS、设备凭据或provider配置，也不打开数据库。
-它不表示端口可监听、设备已连接、原生窗口存在或Agent已经就绪；非Linux的私有runtime读取沿用
-`config_platform_unsupported`。`config check`仍只检查原角色配置。
-Gateway描述可增加非秘密`management_ref`，选择独立受保护管理员来源并挂载本次构建的真实WebUI。
-证明核验、固定租期、Cookie/CSRF、逐动作身份批准和资源加载契约见
+管理监听由角色JSON的`management`分组控制；缺独立管理状态时仅交付无会话页面，不能默认管理员。
+既有独立管理来源为程序管理的`management.json`，其监听端口须与用户分组一致。
+证明、固定租期、Cookie/CSRF与逐动作身份批准仍复用
 [管理来源与页面交付](../MANAGEMENT-SESSION-CLIENT.md#生产宿主与页面交付)。
 
-Connector的`state_dir/runtime.json`只含`schema_version: 1`、`role: 'connector'`、
-`credential_ref`、`ca_ref`和与角色配置逐项相同的`provider_config_refs`。
-凭据由既有`loadCredential`读取`refs/<credential_ref>.json`，CA读取`refs/<ca_ref>.ca.pem`；
-WSS origin固定取角色配置，实际transport仍强制证书及hostname核验。
-启动先校验受保护CA的PEM证书及既有设备凭据，再准备provider/native资源；缺失、非法或权限错误
-以固定诊断退出。资源准备期间撤去凭据也释放本次资源；后续每次连接仍重新读取凭据。
+Connector地址来自`gateway.url`，固定端点为`/connector`；本机/可信网络可用WS，公网WSS由
+外部标准TLS反向代理终止。出站WSS使用系统信任与强制hostname/证书校验，无CA或跳过验证选项。
+既有配对凭据由`loadCredential`读取程序管理的`managed/device.json`，仍在provider准备前校验、
+准备后复验，并在后续每次连接重读；撤去凭据时释放本次资源。
+缺地址、provider或配对凭据返回`configuration_required`，非TTY不等待stdin。
+地址/配对码交互、一次性交付和自动原生初始化尚未接通，普通新用户仍不能完成全新部署。
+
+`config check-runtime --config ABS`复用角色及现有provider registry校验，成功输出
+`runtime_config_valid`；不加载caller/设备凭据、验证native/Agent或打开数据库。
+它不表示端口可监听、设备已连接或模型已回复；私有runtime读取仍要求Linux。
 生产两端将`admission_receipt`列入required，真实session所有者必须交付同一认证原截止接收端及持久claims。
 
 非空provider引用须由静态链接的`ProductionCliSources.gateway/connector`解析为实际opaque来源，
 每个Gateway ref恰好对应其自身provider。唯一`main.ts`按需加载固定工厂表，Luvus使用runtime的
 `createLuvusProductionSources()`，其实际配置见[Luvus操作装配](../LUVUS-OPERATIONS.md)。Gateway attach
-已有本机实例，Connector持有明确managed child；用户须先显式准备原root及所选持久文件。
+已有本机实例，Connector持有明确managed child；既有root与持久资源仍须受信宿主交付，自动用户初始化尚未接通。
 Herdr双角色静态注册`createHerdrProductionSources()`。单个Gateway引用采用
 `{ kind: 'herdr', config: <HerdrProviderRefConfig> }`封套，`config_ref`须与引用名一致；原工厂只接收
 `config`，不追加kind。Gateway直接复用`createHerdrGatewayResources`，不启动Herdr进程。
@@ -381,14 +354,14 @@ Gateway运行期stdout不承载MCP或身份材料。退出码为 0 正常、2 �
 大小/编码/JSON、容量/过期/deadline、falsey ID、重复关联及等待隔离。
 [SDK契约探针](../../test/mcp/sdk-compatibility.test.mjs)用同一锁定版本真实协商2025-11-25。
 [CLI测试](../../test/cli/cli.test.ts)验证双角色、配置拒绝、同一bundle、stdin EOF持久运行和缺后端行为；
-[默认路径测试](../../test/cli/config-path.test.ts)验证显式优先、角色隔离、home、空格Unicode和无创建。
+[默认路径测试](../../test/cli/config-path.test.ts)验证显式优先、角色隔离、home、空格Unicode及首次缺失文件生成。
 [Store业务](../../test/mcp/store-service.test.ts)、[Store HTTP SDK](../../test/mcp/store-sdk.test.ts)、
 [CLI writer](../../test/cli/store-runtime.test.ts)使用真实隔离数据库与合成身份，保留授权、元数据和清理断言。
-[公开生产CLI测试](../../test/cli/production.test.ts)直接运行`main.ts`子进程，以私有合成caller摘要和TLS
+[公开生产CLI测试](../../test/cli/production.test.ts)直接运行`main.ts`子进程，以私有合成caller摘要和本地WS
 接正式HTTP SDK及实际双库，覆盖EOF、撤权、退出释放和缺native来源明确拒绝，不注入业务service。
 [管理作用域测试](../../test/cli/management-scope.test.ts)使用真实PR69/PR71认证与作用域；业务计数stub
 只验证原CSRF/关闭预算和单次委托，不作为实际管理写入或custody证明。
-[transport CLI](../../test/cli/transport-runtime.test.ts)实际经过listener/TLS拒绝认证、EOF持续运行、信号清理，
+[transport CLI](../../test/cli/transport-runtime.test.ts)实际经过listener/WS拒绝认证、EOF持续运行、信号清理，
 并验证交错异步caller隔离和身份撤销；认证/native回调仍是明确fixture。
 [catalog业务](../../test/mcp/catalog.test.ts)与[HTTP SDK](../../test/mcp/catalog-sdk.test.ts)使用真实
 Luvus catalog/NativeValidator及Store，身份、在线能力及来源为人工fixture，不执行原生RPC。

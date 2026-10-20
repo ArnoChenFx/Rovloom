@@ -174,11 +174,11 @@ opaque 实例不能经 JSON 序列化成为跨进程归属证明。OS 服务的 
 
 ## 通道与可信宿主
 
-`createGateway` 监听 `/connector`，`createConnector` 主动出站。默认必须 WSS；
-Connector 强制 `rejectUnauthorized: true`，可从受保护配置传入 CA，仍核对 hostname。
-开发 WS 必须显式开启 `developmentLoopback`，且 listener / URL 使用数字 loopback 地址。
-不接受 URL 用户信息、查询或 fragment；设备 listener 拒绝浏览器 Origin 和其它路径。
-本模块不配置系统信任、TLS 反代或公网入口。
+`createGateway` 监听普通WS `/connector`，`createConnector`主动出站到WS/WSS origin。
+本机或可信网络使用HTTP/WS；公网TLS由外部标准HTTPS/WSS反向代理终止。
+Connector WSS使用系统信任并强制`rejectUnauthorized: true`及hostname验证，不接受CA覆盖或跳过验证。
+不接受URL用户信息、查询或fragment；设备listener拒绝浏览器Origin和其它路径。
+本模块不安装系统信任、不创建证书，也不配置反向代理。用户参数见[配置参考](CONFIGURATION-zh.md)。
 
 宿主分别注入设备 `IdentityHost`、当前 caller principal、双端固定 binding / policy、
 契约、原生来源和 native adapter。设备自报名称、connector_instance_id、JSON 或 welcome
@@ -462,9 +462,9 @@ provider 不可用时停止其响应交付/观察，设备撤销或断线关闭�
 所有重连都不迁入旧工作。宿主 stop 必须停止 timer、listener、session 和观察资源。
 
 `bun run test` 自动发现 test/transport；它使用两个本地模拟 Connector、临时 SQLite/凭据目录、
-一日自签 mock TLS 证书和合成原生来源。Wire 接缝另组合实际 LuvusRpcAdapter、临时唯一
-claim 库和自建 Unix listener，验证原始帧、原生错误、分片、读取失效与提交故障。TLS 负例在独立 loopback listener 验证未知 CA
-及错误 hostname；证书生成只调用 Linux `/usr/bin/openssl`，不导入系统信任。
+普通WS和合成原生来源。Wire 接缝另组合实际 LuvusRpcAdapter、临时唯一
+claim 库和自建 Unix listener，验证原始帧、原生错误、分片、读取失效与提交故障。TLS负例在独立loopback HTTPS listener验证系统信任拒绝自签证书，旧CA/关闭验证输入不能绕过；
+合成证书仅使用Linux `/usr/bin/openssl`生成，不导入系统信任。
 RPC 的 seen 上限独立于 transport；标准回归收紧至 2 验证满额及 fresh epoch，新意图不可自动重放。
 默认 128 的扩展回归使用同一真实 adapter/IPC harness，执行 128 次成功、第 129 次拒绝及第 130 个新意图：
 
@@ -474,7 +474,7 @@ bun --no-env-file -e 'import { verifyRpcCapacity } from "./test/transport/wire-c
 
 日志负例用 stdin 交付随机 mock secret，并扫描子进程 stdout/stderr、普通审计和业务帧。
 基础生命周期单测保留明确 mock 扩展的失败窗口；真实组合测试另使用实际 Store 两个桥方法、
-磁盘双库和双 Connector，覆盖 WSS、精确重配/同 ID、新凭据/撤销、主库失败后公开恢复、
+磁盘双库和双 Connector，覆盖 WS、精确重配/同 ID、新凭据/撤销、主库失败后公开恢复、
 旧 backend 封锁、重启、epoch 不重放及 adapter 关闭后释放监听容量。未用第二张模拟身份表替代
 IdentityStore；Store/Wire 核心协议没有增加 transport 表或私有 SQL，响应对象只增加原 Wire
 adapter 的受控封装入口。
