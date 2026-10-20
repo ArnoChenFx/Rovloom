@@ -185,13 +185,13 @@ def main():
         page, devices = open_page(context, base)
         control(context, base, mode='prepare_error')
         page.locator('[data-device-action="device_rename"]').click()
-        page.locator('input').fill('owned_recovered')
+        page.locator('input[name="device-name"]').fill('owned_recovered')
         page.locator('.operation-form button').click()
         page.locator('dialog[data-phase="failed"]').wait_for()
         assert writes(context, base) == []
         control(context, base, mode='normal')
         page.get_by_role('button', name='Prepare again', exact=True).click()
-        assert page.locator('input').input_value() == 'owned_recovered'
+        assert page.locator('input[name="device-name"]').input_value() == 'owned_recovered'
         page.locator('.operation-form button').click()
         page.locator('dialog[data-phase="awaiting_confirmation"]').wait_for()
         close_dialog(page)
@@ -238,10 +238,10 @@ def main():
 
         page, devices = open_page(context, base)
         page.locator('[data-device-action="device_rename"]').click()
-        page.locator('input').fill('owned_language_kept')
+        page.locator('input[name="device-name"]').fill('owned_language_kept')
         page.evaluate("Object.defineProperty(navigator,'languages',{configurable:true,value:['zh-CN']});window.dispatchEvent(new Event('languagechange'))")
-        expect(page.locator('input')).to_be_focused()
-        assert page.locator('input').input_value() == 'owned_language_kept'
+        expect(page.locator('input[name="device-name"]')).to_be_focused()
+        assert page.locator('input[name="device-name"]').input_value() == 'owned_language_kept'
         assert page.get_by_role('button', name='准备确认', exact=True).count() == 1
         page.emulate_media(color_scheme='dark')
         expect(page.locator('html')).to_have_attribute('data-theme', 'dark')
@@ -263,7 +263,7 @@ def main():
         page.locator('.operation-confirm').click()
         expect(page.locator('dialog')).not_to_be_visible()
         expect(page.locator('main .device-detail')).to_have_count(0)
-        assert page.locator('input').input_value() == ''
+        assert page.locator('input[name="device-name"]').input_value() == ''
         assert writes(context, base) == []
         assert page.evaluate('sessionStorage.length') == 0
         checks.append('session loss clears detail and confirmation input; no identity/operation persistence')

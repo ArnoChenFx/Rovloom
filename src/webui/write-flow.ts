@@ -4,8 +4,7 @@ import type {
   ConfirmationView,
   ManagementArguments,
   ManagementIntent,
-  ManagementWrite,
-  OperationReceipt
+  ManagementWrite
 } from '../mcp/management.js'
 import {
   checkDeviceIntent,
@@ -15,6 +14,7 @@ import {
   ManagementClientError,
   type DeviceManagementIntent,
   type DeviceWriteOperation,
+  type BrowserReceipt,
   type ManagementClientOperation,
   type ManagementClientProblem,
   type ManagementWriteTransport
@@ -26,8 +26,8 @@ export type DeviceManagementState =
   | { phase: 'preparing'; intent: DeviceManagementIntent }
   | { phase: 'awaiting_confirmation' | 'confirming' | 'submitting'; review: ConfirmationView }
   | { phase: 'checking' | 'unconfirmed'; operation: ManagementOperationKey; problem?: ManagementClientProblem }
-  | { phase: 'committed'; receipt: OperationReceipt }
-  | { phase: 'not_committed'; receipt: OperationReceipt }
+  | { phase: 'committed'; receipt: BrowserReceipt }
+  | { phase: 'not_committed'; receipt: BrowserReceipt }
   | { phase: 'failed'; problem: ManagementClientProblem }
   | { phase: 'cancelled' }
 
@@ -110,7 +110,7 @@ export function createDeviceManagementFlow(options: { transport: ManagementWrite
     state = { phase: 'unconfirmed', operation: original, ...(problem ? { problem } : {}) }
   }
   /** 仅接受匹配原意图与确认摘要的当前持久回执。 */
-  function accept(receipt: OperationReceipt): void {
+  function accept(receipt: BrowserReceipt): void {
     if (
       !original ||
       !intent ||
@@ -119,7 +119,8 @@ export function createDeviceManagementFlow(options: { transport: ManagementWrite
       receipt.history_epoch !== original.history_epoch ||
       receipt.recovery_generation !== original.recovery_generation ||
       !('machine_id' in receipt.target) ||
-      receipt.target.machine_id !== intent.machine_id ||
+      ('machine_id' in intent && receipt.target.machine_id !== intent.machine_id) ||
+      (intent.action === 'provider_disable' && receipt.target.provider_id !== intent.provider_id) ||
       receipt.action !== intent.action ||
       receipt.operation_digest !== review.operation_digest
     ) {
@@ -169,23 +170,48 @@ export function createDeviceManagementFlow(options: { transport: ManagementWrite
         if (!pending.current()) {
           return snapshot(state)
         }
-        const resource = await execute('write_state_get', { machine_id: intent.machine_id }, pending.controller.signal)
+        const resource =
+          'machine_id' in intent
+            ? await execute(
+                'write_state_get',
+                {
+                  machine_id: intent.machine_id,
+                  ...(intent.action === 'provider_disable' ? { provider_id: intent.provider_id } : {})
+                },
+                pending.controller.signal
+              )
+            : {
+                resource_revision: 0,
+                recovery_generation: history.recovery_generation,
+                connection_epoch: null,
+                binding_revision: null
+              }
         if (!pending.current()) {
           return snapshot(state)
+        }
+        if (intent.action === 'provider_disable' && intent.expected_binding_revision !== resource.binding_revision) {
+          throw new ManagementClientError('conflict')
         }
         if (history.recovery_generation !== resource.recovery_generation) {
           throw new ManagementClientError('conflict')
         }
+        const { action, ...target } = intent
         const operation: ManagementIntent =
-          intent.action === 'device_rename'
-            ? { action: intent.action, target: { machine_id: intent.machine_id }, name: intent.name }
-            : intent.action === 'device_disconnect'
+          action === 'device_rename' && intent.action === 'device_rename'
+            ? { action, target: { machine_id: intent.machine_id }, name: intent.name }
+            : action === 'device_disconnect' && intent.action === 'device_disconnect'
               ? {
-                  action: intent.action,
+                  action,
                   target: { machine_id: intent.machine_id },
                   expected_connection_epoch: resource.connection_epoch!
                 }
-              : { action: intent.action, target: { machine_id: intent.machine_id } }
+              : action === 'provider_disable' && intent.action === 'provider_disable'
+                ? {
+                    action,
+                    target: { machine_id: intent.machine_id, provider_id: intent.provider_id, kind: intent.kind },
+                    expected_binding_revision: resource.binding_revision!
+                  }
+                : ({ action, target } as ManagementIntent)
         if (intent.action === 'device_disconnect' && resource.connection_epoch === null) {
           throw new ManagementClientError('conflict')
         }
@@ -263,20 +289,29 @@ export function createDeviceManagementFlow(options: { transport: ManagementWrite
             ? 'devices_rename'
             : intent.action === 'device_disconnect'
               ? 'devices_disconnect'
-              : 'devices_revoke'
-        const args =
-          intent.action === 'device_rename'
-            ? { ...write, machine_id: intent.machine_id, name: intent.name }
-            : intent.action === 'device_disconnect'
-              ? {
-                  ...write,
-                  machine_id: intent.machine_id,
-                  expected_connection_epoch:
-                    confirmed.summary.action === 'device_disconnect' ? confirmed.summary.expected_connection_epoch : ''
-                }
-              : { ...write, machine_id: intent.machine_id }
+              : intent.action === 'device_revoke'
+                ? 'devices_revoke'
+                : intent.action === 'provider_disable'
+                  ? 'providers_disable'
+                  : intent.action === 'pairing_create'
+                    ? 'pairings_create'
+                    : 'pairings_cancel'
+        const { action: _action, ...target } = intent
+        const args = {
+          ...write,
+          ...target,
+          ...(confirmed.summary.action === 'device_disconnect'
+            ? { expected_connection_epoch: confirmed.summary.expected_connection_epoch }
+            : confirmed.summary.action === 'provider_disable'
+              ? { expected_binding_revision: confirmed.summary.expected_binding_revision }
+              : {})
+        }
         state = { phase: 'submitting', review }
-        const receipt = await execute(operation, args, pending.controller.signal)
+        const receipt = await execute(
+          operation,
+          args as ManagementArguments[typeof operation],
+          pending.controller.signal
+        )
         if (pending.current()) {
           accept(receipt)
         }

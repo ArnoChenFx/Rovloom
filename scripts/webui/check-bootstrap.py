@@ -36,12 +36,15 @@ def main():
             assert reset.ok
             device = reset.json()['devices'][0]['machine_id']
 
+            delivered = {'expires_at': 0}
+
             def deliver(route):
                 """在显式测试 HTML 上模拟既定 meta 的缺失/无效情形，不定义新产品入口。"""
                 response = route.fetch()
                 assert response.headers['cache-control'] == 'no-store'
                 body = response.text()
                 tag = re.search(r'<meta name="rovloom-management-bootstrap"[^>]*>', body).group()
+                delivered['expires_at'] = int(re.search(r'data-expires-at="([0-9]+)"', tag).group(1))
                 replacement = tag
                 if variant == 'missing':
                     replacement = ''
@@ -83,10 +86,9 @@ def main():
                     assert page.locator('#rovloom-management').inner_html() == ''
                 else:
                     if variant == 'live_expiry':
-                        page.evaluate('''/* 只推进浏览器墙钟，验证原 meta 截止而非服务端撤权。 */ () => {
-                            const advanced = Date.now() + 360000;
-                            Date.now = () => advanced;
-                        }''')
+                        page.evaluate('''/* 使用实际交付截止推进浏览器墙钟，不假定fixture租期。 */ deadline => {
+                            Date.now = () => deadline + 1;
+                        }''', delivered['expires_at'])
                     entry.click()
                     page.locator('input[name="device-name"]').fill('owned_production_entry')
                     page.locator('.operation-form button').click()

@@ -40,11 +40,19 @@ export function createActionsHostFixture(origin: string) {
       { action: 'devices_read', machine_id: device.machine_id },
       { action: 'permissions_read', machine_id: device.machine_id },
       { action: 'providers_read', machine_id: device.machine_id, provider_id: 'fixture-provider' },
+      { action: 'providers_manage', machine_id: device.machine_id, provider_id: 'fixture-provider' },
       ...(['devices_rename', 'devices_disconnect', 'devices_revoke'] as const).map(
         /** 精确授予本次临时设备操作。 */ (action) => ({ action, machine_id: device.machine_id })
       )
     )
   }
+  const pending = f.store.register('owned_pending')
+  f.grant(
+    { action: 'devices_read', machine_id: pending.machine_id },
+    { action: 'devices_revoke', machine_id: pending.machine_id },
+    { action: 'permissions_read', machine_id: pending.machine_id }
+  )
+  devices.push(pending)
   f.grant({ action: 'gateway_read' })
   let time = 1000
   let offset = 0
@@ -55,7 +63,15 @@ export function createActionsHostFixture(origin: string) {
     OperationReceipt,
     'request_id' | 'history_epoch' | 'recovery_generation' | 'evidence' | 'operation_state' | 'observed_at'
   > & { operation: string })[] = []
-  const correlated = new Set(['devices_rename', 'devices_disconnect', 'devices_revoke', 'operations_get'])
+  const correlated = new Set([
+    'devices_rename',
+    'devices_disconnect',
+    'devices_revoke',
+    'providers_disable',
+    'pairings_create',
+    'pairings_cancel',
+    'operations_get'
+  ])
   let confirmationExpiresAt: number | undefined
   let release: (() => void) | undefined
   /** 合成后端使用同一单调推进的时钟，过期只由明确测试命令提前推进。 */
@@ -65,7 +81,7 @@ export function createActionsHostFixture(origin: string) {
     time = next
   }
   sync()
-  const expiry = time + 300_000
+  const expiry = time + 900_000
   const adapter = createManagementSessionAdapter({
     identities: f.identities,
     origin,
@@ -116,7 +132,20 @@ export function createActionsHostFixture(origin: string) {
         return (await device((args as { machine_id: string }).machine_id)) as never
       }
       if (operation === 'providers_list') {
-        return { items: [] } as never
+        const machine = (args as { machine_id: string }).machine_id
+        const binding = f.store.provider(machine, 'fixture-provider')
+        return {
+          items: binding
+            ? [
+                {
+                  ...binding,
+                  observed_at: time,
+                  readiness: 'unverified',
+                  runtime: { verification: 'unverified', reason_code: 'backend_unavailable' }
+                }
+              ]
+            : []
+        } as never
       }
       if (operation === 'permissions_get') {
         return {
@@ -136,6 +165,8 @@ export function createActionsHostFixture(origin: string) {
     store: f.store,
     identities: adapter.identities,
     reads,
+    /** 测试策略仅允许fixture_policy，不签发真实凭据或补devices_read。 */
+    pairingPolicy: (ref) => ref === 'fixture_policy',
     transport: { /** 没有真实socket，回执必须保守保留物理效果未确认。 */ refresh() {} }
   })
   const handler = createManagementHandler({
@@ -169,7 +200,11 @@ export function createActionsHostFixture(origin: string) {
       }
       if (
         (mode === 'hold_confirm' && operation === 'confirmations_confirm') ||
-        (mode === 'hold_write' && operation.startsWith('devices_'))
+        (mode === 'hold_write' &&
+          (operation.startsWith('devices_') ||
+            operation === 'providers_disable' ||
+            operation === 'pairings_create' ||
+            operation === 'pairings_cancel'))
       ) {
         await new Promise<void>(
           /** 迟到交付由测试明确释放。 */ (resolve) => {
@@ -202,7 +237,11 @@ export function createActionsHostFixture(origin: string) {
         )
       }
       if (
-        (mode === 'hold_reply' && operation.startsWith('devices_')) ||
+        (mode === 'hold_reply' &&
+          (operation.startsWith('devices_') ||
+            operation === 'providers_disable' ||
+            operation === 'pairings_create' ||
+            operation === 'pairings_cancel')) ||
         (mode === 'hold_lookup' && operation === 'operations_get')
       ) {
         await new Promise<void>(
@@ -211,7 +250,13 @@ export function createActionsHostFixture(origin: string) {
           }
         )
       }
-      if (mode === 'lost_reply' && operation.startsWith('devices_')) {
+      if (
+        mode === 'lost_reply' &&
+        (operation.startsWith('devices_') ||
+          operation === 'providers_disable' ||
+          operation === 'pairings_create' ||
+          operation === 'pairings_cancel')
+      ) {
         return new Response('lost', { status: 503 })
       }
       return response
@@ -222,9 +267,14 @@ export function createActionsHostFixture(origin: string) {
         if (request.headers.get('origin') !== origin) {
           return new Response('forbidden', { status: 403 })
         }
-        const value = (await request.json()) as { mode?: string; advance?: number }
+        const value = (await request.json()) as { mode?: string; advance?: number; pairing_id?: string }
         if (value.mode) {
           mode = value.mode
+          if (mode === 'complete_pairing') {
+            // 仅兑换自建临时pending设备的合成证明，原值不离开fixture。
+            f.store.redeem(f.store.issuePairingEnrollment(pending.machine_id, value.pairing_id!, 'fixture_policy'))
+            mode = 'normal'
+          }
         }
         if (value.advance) {
           offset += value.advance
@@ -241,6 +291,12 @@ export function createActionsHostFixture(origin: string) {
           /** 只输出公开字段，凭据及其摘要也不进入测试页面。 */ (d) => {
             const row = f.store.machine(d.machine_id)
             return { machine_id: row.machine_id, name: row.name, status: row.status }
+          }
+        ),
+        providers: devices.flatMap(
+          /** 只输出自有fixture实例的公开状态。 */ (d) => {
+            const p = f.store.provider(d.machine_id, 'fixture-provider')
+            return p ? [p] : []
           }
         ),
         calls,

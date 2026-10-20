@@ -16,6 +16,8 @@ export type LuvusLocalConfig = Readonly<{
   transport: 'ipc' | 'cli'
   // 本机所有者显式开启直接终端执行；省略时关闭，不影响独立授权的普通 Agent 对话。
   allow_terminal_execution?: boolean
+  // 仅由本机所有者配置的 Agent 安装目录，前置于固定 PATH；不开放 RPC 环境覆盖。
+  agent_bin_dir?: string
   limits?: Partial<LuvusLocalLimits>
 }>
 export type LuvusLocalLimits = Readonly<{

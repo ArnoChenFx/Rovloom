@@ -70,6 +70,23 @@ test(
   /** 配置归一化不启动进程或新 writer，也不把配置字符串变成来源证明。 */ () => {
     const input = config('/workspace/synthetic-herdr-ref')
     const parsed = parseHerdrProviderRefConfig(input)
+    const local = {
+      ...input.connector.local,
+      agent_bin_dir: '/home/synthetic/Agent Tools/bin',
+      allow_terminal_execution: false
+    }
+    const installed = parseHerdrProviderRefConfig({ ...input, connector: { ...input.connector, local } }).connector!
+      .local
+    assert.equal(installed.agent_bin_dir, local.agent_bin_dir)
+    assert.equal(installed.allow_terminal_execution, false)
+    assert.throws(
+      /** 受保护 ref 不能把非规范安装目录传入 native 环境。 */ () =>
+        parseHerdrProviderRefConfig({
+          ...input,
+          connector: { ...input.connector, local: { ...local, agent_bin_dir: 'relative/bin' } }
+        }),
+      /agent_bin_dir_invalid/
+    )
     for (const enabled of [true, false]) {
       const local = { ...input.connector.local, allow_terminal_execution: enabled }
       assert.equal(
