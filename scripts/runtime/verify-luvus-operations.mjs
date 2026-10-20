@@ -16,9 +16,11 @@ import {
   createLuvusProductionSources,
   LUVUS_OPERATION_METHODS,
   luvusOperationValidation,
+  MANAGED_LUVUS_REVISION,
+  MANAGED_LUVUS_CLASSIFICATION,
   DEVELOPMENT_LUVUS_SHA256
 } from '../../dist/src/runtime/index.js'
-import { contractRef } from '../../dist/src/wire/index.js'
+import { contractRef, hash } from '../../dist/src/wire/index.js'
 
 /** 只接受明确的官方 binary 与受保护临时父目录，不读取产品配置或现有用户 HOME。 */
 function argumentsForSmoke() {
@@ -27,6 +29,8 @@ function argumentsForSmoke() {
       binary: { type: 'string' },
       'opencode-binary': { type: 'string' },
       'stable-selection': { type: 'boolean' },
+      'remote-gateway': { type: 'boolean' },
+      'gateway-schema-bundle': { type: 'string' },
       'temporary-parent': { type: 'string' },
       'acknowledge-nonproduction': { type: 'boolean' }
     }
@@ -37,10 +41,14 @@ function argumentsForSmoke() {
   if (values['stable-selection'] && values['opencode-binary']) {
     throw new Error('stable_selection_cannot_start_agent')
   }
+  if (!!values['remote-gateway'] !== !!values['gateway-schema-bundle']) {
+    throw new Error('remote_gateway_schema_required')
+  }
   for (const path of [
     values.binary,
     values['temporary-parent'],
-    ...(values['opencode-binary'] ? [values['opencode-binary']] : [])
+    ...(values['opencode-binary'] ? [values['opencode-binary']] : []),
+    ...(values['gateway-schema-bundle'] ? [values['gateway-schema-bundle']] : [])
   ]) {
     if (!path || !isAbsolute(path) || normalize(path) !== path) {
       throw new Error('canonical_absolute_path_required')
@@ -225,7 +233,37 @@ try {
   stage = 'gateway_production_attach'
   const attachReference = structuredClone(ownerReference)
   attachReference.value.native.mode = 'attach'
-  gatewayResources = await sources.gateway({ state_dir: join(root, 'gateway') }, [attachReference])
+  let gatewayReference = attachReference
+  if (paths['remote-gateway']) {
+    const schema = readFileSync(paths['gateway-schema-bundle'], 'utf8')
+    gatewayReference = {
+      reference: config.config_ref,
+      value: {
+        kind: 'luvus',
+        authentication: 'remote_connector',
+        binding: {
+          machine_id: target.machine_id,
+          provider_id: target.provider_id,
+          kind: 'luvus',
+          config_ref: config.config_ref,
+          binding_revision: config.binding_revision,
+          enabled: true
+        },
+        target,
+        peer_policy_revision: local.revision,
+        contract: {
+          binary_version: '0.14.3',
+          binary_sha256: config.binary_sha256,
+          schema_sha256: hash(schema),
+          adapter_revision: MANAGED_LUVUS_REVISION,
+          classification_revision: MANAGED_LUVUS_CLASSIFICATION,
+          schema_bundle: schema
+        },
+        raw_grant: { principal_id: caller.id, methods: [...LUVUS_OPERATION_METHODS] }
+      }
+    }
+  }
+  gatewayResources = await sources.gateway({ state_dir: join(root, 'gateway') }, [gatewayReference])
   const provider = gatewayResources.providers[0]
   state.store.defineProvider(provider.binding)
   checks.push('concrete_production_factories')
@@ -276,7 +314,6 @@ try {
       }
     }
   })
-  const reference = contractRef(provider.contract.wire.source)
   connector = await createConnectorRuntime({
     ...connectorResources,
     session: /** 真实认证 epoch 仍由原工厂构建；稳定选择模式只附加本轮资源观察。 */ (connection) => {
@@ -308,8 +345,9 @@ try {
     /* 使用同一当前主体和实际 epoch，不从展示状态生成来源。 */ () => gateway.catalog.resolve(target, caller)
   )
   assert(catalog)
+  const reference = contractRef(catalog.record.wire.source)
   assert.equal(catalog.source.binding.connection_epoch, connection.connection_epoch)
-  assert.equal(catalog.source.binding.server_generation, provider.contract.wire.source.runtime_generation)
+  assert.equal(catalog.source.binding.server_generation, catalog.record.wire.source.runtime_generation)
   checks.push('catalog_uses_actual_authenticated_epoch')
   /** 每次原参数经唯一 Router/Wire/native/result 门禁，保留原生 result/error 不改写。 */
   async function rpc(method, params) {
@@ -498,6 +536,8 @@ try {
   checks.push('disconnect_invalidates_catalog_and_native_source')
   report = {
     kind: 'official_luvus_operations_wss',
+    gateway_source: paths['remote-gateway'] ? 'pinned_remote_authenticated_epoch' : 'local_attach',
+    deployment: 'same_host_isolated_regression',
     passed: true,
     checks,
     timings,

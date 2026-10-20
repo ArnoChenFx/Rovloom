@@ -5,6 +5,7 @@ import type { Router, Principal } from '../router.js'
 import { commitNativeResponse } from '../integration/persistence.js'
 import {
   boundedJson,
+  hash,
   admissionRequestDigest,
   admissionRegisteredRequestDigest,
   assertBinding,
@@ -12,6 +13,7 @@ import {
   encodeWireFrame,
   negotiate,
   fail,
+  id,
   LIMITS,
   uint,
   validateOffer,
@@ -66,6 +68,8 @@ type Peer = {
   ws?: ServerSocket<Peer>
   closed: boolean
   received: ReceiveWindow
+  providerSnapshots: Map<string, string>
+  providerSnapshotBytes: number
   epochReference?: string
   lastHeartbeatAt?: number
 }
@@ -85,6 +89,8 @@ export type GatewayOptions = {
   /** 显式按 read_contexts 预算保留完成后的原 Wire 读取状态；默认完成即释放，不延长内容期限。 */
   retainOriginalRead?: boolean
   offer?: VersionOffer
+  /** 受信静态远端机器名单；提供后只为名单内机器强制协商快照，空名单关闭所有机器的可选快照能力。 */
+  providerSnapshotMachines?: readonly string[]
   limits?: Partial<{
     connections: number
     unauthenticated: number
@@ -125,6 +131,38 @@ export function createGateway(options: GatewayOptions) {
   positive(limits.read_contexts, LIMITS.dedup_entries)
   const offer = structuredClone(options.offer ?? OFFER)
   validateOffer(offer)
+  let snapshotMachines: ReadonlySet<string> | undefined
+  if (options.providerSnapshotMachines !== undefined) {
+    const machines = options.providerSnapshotMachines
+    if (!Array.isArray(machines) || machines.length > 64 || new Set(machines).size !== machines.length) {
+      fail('invalid_provider_snapshot_machines')
+    }
+    for (const machine of machines) {
+      id(machine)
+    }
+    snapshotMachines = new Set(machines)
+    if (snapshotMachines.size && !offer.capabilities.includes('provider_snapshot')) {
+      fail('required_capability_unsupported')
+    }
+  }
+  /** 只按启动时复制的静态名单选广告；随后仍须原凭据认证同一机器，不能借帧字段取得来源信任。 */
+  function machineOffer(machine: string): VersionOffer {
+    if (!snapshotMachines) {
+      return offer
+    }
+    if (snapshotMachines.has(machine)) {
+      return { ...offer, required: [...new Set([...offer.required, 'provider_snapshot'])] }
+    }
+    if (offer.required.includes('provider_snapshot')) {
+      fail('required_capability_unsupported')
+    }
+    return {
+      ...offer,
+      capabilities: offer.capabilities.filter(
+        /** 本机路径不接纳或要求远端快照。 */ (capability) => capability !== 'provider_snapshot'
+      )
+    }
+  }
   const peers = new Set<Peer>()
   const channels = options.channels ?? new ChannelRegistry()
   const machines = new Map<string, Peer>()
@@ -173,6 +211,8 @@ export function createGateway(options: GatewayOptions) {
       return
     }
     peer.closed = true
+    peer.providerSnapshots.clear()
+    peer.providerSnapshotBytes = 0
     peers.delete(peer)
     for (const [call, admission] of admissions) {
       if (admission.peer === peer) {
@@ -591,7 +631,7 @@ export function createGateway(options: GatewayOptions) {
         if (frame.type !== 'authenticate') {
           fail('protected_pairing_required')
         }
-        const selected = negotiate(offer, frame.payload.offer)
+        const selected = negotiate(machineOffer(frame.payload.machine_id), frame.payload.offer)
         if (machines.has(frame.payload.machine_id)) {
           fail('duplicate_device_connection')
         }
@@ -625,6 +665,12 @@ export function createGateway(options: GatewayOptions) {
         }
         peer.channel.bind(connection)
         peer.session = options.session(structuredClone(connection), peer.channel)
+        if (
+          connection.negotiated.capabilities.includes('provider_snapshot') &&
+          typeof peer.session.acceptProviderSnapshot !== 'function'
+        ) {
+          fail('provider_snapshot_receiver_required')
+        }
         peer.channel.attach(peer.session)
         machines.set(connection.machine_id, peer)
         const welcome = encodeWireFrame(
@@ -671,6 +717,40 @@ export function createGateway(options: GatewayOptions) {
         decoded = completed.envelope
       }
       if (peer.session.adapter.observeMessage(decoded, 'connector_to_gateway') === 'duplicate') {
+        return
+      }
+      if (decoded.type === 'provider_snapshot') {
+        const current = peer.session
+        const active = peer.connection
+        const accept = current.acceptProviderSnapshot
+        if (typeof accept !== 'function') {
+          fail('provider_snapshot_receiver_required')
+        }
+        const provider = decoded.payload.binding.provider_id
+        const raw = boundedJson(decoded.payload)
+        const fingerprint = hash(raw)
+        const previous = peer.providerSnapshots.get(provider)
+        if (previous !== undefined) {
+          if (previous !== fingerprint) {
+            fail('provider_snapshot_conflict')
+          }
+          return
+        }
+        const bytes = Buffer.byteLength(raw)
+        if (peer.providerSnapshots.size >= 64 || peer.providerSnapshotBytes + bytes > LIMITS.buffered_bytes) {
+          fail('provider_snapshot_limit')
+        }
+        peer.providerSnapshots.set(provider, fingerprint)
+        peer.providerSnapshotBytes += bytes
+        const accepted = accept.call(current, structuredClone(decoded.payload))
+        if (accepted !== undefined) {
+          void Promise.resolve(accepted).catch(/** 消费违规异步接收端的晚到拒绝，不发布假 ready。 */ () => {})
+          fail('synchronous_provider_snapshot_required')
+        }
+        assertPeer(peer)
+        if (peer.closed || peer.session !== current || peer.connection !== active) {
+          fail('connection_unavailable')
+        }
         return
       }
       if (decoded.type === 'heartbeat') {
@@ -749,7 +829,9 @@ export function createGateway(options: GatewayOptions) {
         messages: 0,
         window: now,
         closed: false,
-        received: new ReceiveWindow()
+        received: new ReceiveWindow(),
+        providerSnapshots: new Map(),
+        providerSnapshotBytes: 0
       }
       peers.add(peer)
       if (server.upgrade(request, { data: peer })) {

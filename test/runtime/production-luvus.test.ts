@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LuvusDispatchClaims } from '../../src/connector/luvus/index.js'
 import type { LuvusLocalConfig } from '../../src/connector/luvus/index.js'
-import { FIXED_LUVUS_SHA256 } from '../../src/runtime/native-control.js'
+import { FIXED_LUVUS_SHA256, FIXED_LUVUS_SCHEMA_SHA256 } from '../../src/runtime/native-control.js'
+import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from '../../src/runtime/native-source.js'
 import { createNativeRecord } from '../../src/runtime/native-record-files.js'
 import { ownedPathStamp } from '../../src/runtime/native-process.js'
 import { createLuvusProductionSources } from '../../src/runtime/production-luvus.js'
@@ -16,6 +17,51 @@ import { ConnectorAdmissionReceipts } from '../../src/transport/index.js'
 import { boundedJson, hash } from '../../src/wire/index.js'
 
 type MutableOwnerConfig = { -readonly [K in keyof LuvusProductionOwnerConfig]: LuvusProductionOwnerConfig[K] }
+
+test(
+  'production Gateway rejects mixed native source modes for one machine before attach or compile',
+  /** 同一设备不能混合本机观察与远端快照模式，避免一个设备级能力错误覆盖另一个 provider。 */ async () => {
+    const f = fixture()
+    try {
+      f.value.native = { ...f.value.native, mode: 'attach' }
+      const remote = {
+        kind: 'luvus',
+        authentication: 'remote_connector',
+        binding: {
+          machine_id: f.config.target.machine_id,
+          provider_id: 'remote_provider',
+          kind: 'luvus',
+          config_ref: 'remote',
+          binding_revision: 1,
+          enabled: true
+        },
+        target: { ...f.config.target, provider_id: 'remote_provider' },
+        peer_policy_revision: 'gateway_policy',
+        contract: {
+          binary_version: '0.14.3',
+          binary_sha256: FIXED_LUVUS_SHA256,
+          schema_sha256: FIXED_LUVUS_SCHEMA_SHA256,
+          adapter_revision: MANAGED_LUVUS_REVISION,
+          classification_revision: MANAGED_LUVUS_CLASSIFICATION,
+          schema_bundle: readFileSync(
+            new URL('../fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url),
+            'utf8'
+          )
+        }
+      }
+      await assert.rejects(
+        createLuvusProductionSources().gateway({ state_dir: f.state }, [
+          ...f.refs(),
+          { reference: 'remote', value: remote }
+        ]),
+        /production_machine_source_conflict/
+      )
+      assert.equal(existsSync(f.marker), false)
+    } finally {
+      f.close()
+    }
+  }
+)
 
 /** 建立真实受保护目录与合成 root 记录；假 binary 的真实摘要不符，必须在任何 child 启动前拒绝。 */
 function fixture() {

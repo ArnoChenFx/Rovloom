@@ -49,6 +49,14 @@ Connector A                   Connector B
 
 三条边界独立认证：caller → Gateway；设备 Connector → Gateway；Connector → 本地原生实例。machine_id 不由 hostname/name 自报产生，epoch 或 welcome 也不能自行证明通道已认证。原生来源必须由本机受保护配置、endpoint 归属及平台身份核验建立；收到的消息、设备广告和 caller 参数不能自证 `authenticated/source_verified`。
 
+原生 binary/socket/进程核验属于 Connector。独立 Gateway 可只持受保护的完整 binding/Target
+与固定 binary/schema/adapter/classification pin，本地编译已审安装版 schema 原字节；不要求
+本机 Luvus、HOME 或 native root。经既有认证 WSS 的同 epoch 实测快照与 canonical binding
+共同建立 Gateway 侧来源，信任范围是配置指定的 Connector 测量职责，不把远端报告称为本机
+内核测量。静态 pin 初始不就绪；断连、撤权、重绑或关闭使 live source 失效，新 epoch
+独立交付，契约/generation 不在原 epoch 内更新。原生 opaque 仍由各端本地校验器生成，
+快照不能导入 Owner、compiled/view/permit；准确协议见 Wire 的 provider_snapshot。
+
 Connector 仅执行管理员固定的 binary、状态根和 session 策略。caller 不能提交连接/安装的 binary 路径、环境、endpoint、状态根或 SSH 目标来选择或替换 adapter。已授权普通 RPC 的原生 `workspace.create`、`pane.split` 等参数仍保留官方 `env/cwd` 语义，不把这些业务参数当作 Connector 安装配置。设备广告不得创建、重绑或扩大 binding；双方受保护配置不一致即拒绝派发。
 
 ### 4.1 两种 Gateway 部署
@@ -159,7 +167,7 @@ Luvus 安装 schema 与 session/Host 在线能力分别核对；Herdr 安装 sch
 
 strict 必须应用完整根、条件和离线引用闭包，并有方法参数约束；generic/unavailable 不能标完整。Owner 显式选择 raw-contract 且有绑定 principal、完整目标、精确方法、版本/revisions/期限的独立 grant 时，只可放宽明确的参数覆盖缺口。保留所有已有约束、有界 envelope、保留字段、来源、传输、安全分类、权限和结果边界；已知参数不合法不能降格放行。整个 bundle 不可用且没有独立受信最小 request/response 契约时仍拒绝；完全无 bundle 的 raw 路径待另行设计。
 
-schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。首版 Luvus 只编译已审核的本地安装 schema：完整预检、Ajv 编译与官方 standalone 生成在同版本 Bun Worker 内执行，宿主只加载受控生成函数，不重编译 schema。编译接纳期限为 2 秒，覆盖启动、生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
+schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。首版 Luvus 只接纳已审核并精确 pin 的安装版 schema 原字节：每次在同版本 Bun Worker 内完整预检后，精确 binary/schema SHA 可复用经独立摘要核对的内嵌官方资产，其余继续完整 Ajv 编译与 standalone 生成。固定资产由独立构建 Worker 全量编译产生，每次构建重新生成核对，不通过现有资产自证；宿主只加载受控生成函数，不重编译 schema，并逐次登记独立 opaque handle。编译接纳期限为 2 秒，覆盖启动、预检、资产核对或生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
 派发与流输入前核对当前双端 binding、策略、分类、能力、epoch、generation 及 deadline；任一失效拒绝，不能透明降级。缓存按完整来源和上下文失效。发现、安全分类、参数覆盖、传输与支持状态分别呈现，不合成一个“支持”标记。
 
