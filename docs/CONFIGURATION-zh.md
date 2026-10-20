@@ -223,8 +223,8 @@ macOS产品接线单独交付，Windows等待普通角色启动接口；原生�
 | `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
-POSIX 安装要求 root 持有的受保护程序，以及属于所选非 root 账户的配置/工作目录；
-不会创建账户或放宽权限。Windows 要求独立的受保护安装和 LocalService 访问权限。
+安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
+不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
 Linux宿主从系统账户记录选择默认配置路径，不读取安装管理员HOME。安装不启动角色，
 不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
 Linux 工作目录不得以空白或反斜杠结尾。
