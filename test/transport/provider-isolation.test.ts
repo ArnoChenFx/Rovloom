@@ -149,6 +149,71 @@ for (const failure of ['readiness', 'snapshot_replaced', 'snapshot_readiness'] a
   )
 }
 
+for (const late of [false, true]) {
+  test(
+    `dispatch_refused 与 provider 隔离共同协商：来源失效后的迟到拒绝=${late}`,
+    /** 执行是明确拒绝 stub，原 Store、认证 socket、Wire 和其它 provider 的响应仍保持真实。 */ async () => {
+      const w = providerIsolationFixture()
+      const { f, state, work, targets } = w
+      const client = w.connect()
+      try {
+        await ready(w, client)
+        const epoch = client.status().connection_epoch
+        const refused = f.call(targets[0]!)
+        const healthy = f.call(targets[1]!)
+        f.gateway.dispatch(refused.call_id)
+        f.gateway.dispatch(healthy.call_id)
+        await until(
+          /** 两个原请求均已被真实 Connector 接收，不能用未到达帧冒充在途交叉。 */ () =>
+            work.has(refused.call_id) &&
+            work.has(healthy.call_id) &&
+            f.store.call(f.principal.id, refused.call_id).state === 'connector_accepted' &&
+            f.store.call(f.principal.id, healthy.call_id).state === 'connector_accepted'
+        )
+        if (late) {
+          state.beforeRefusalSend = /** 原 encoder 已验证完毕，接收端此刻才丢失该来源。 */ () => {
+            state.beforeRefusalSend = undefined
+            state.gateway.set(targets[0]!.provider_id, false)
+          }
+        }
+        work.get(refused.call_id)!.refuse()
+        await until(
+          /** 证明实际迟到帧已抵达，而非只在 stub 内生成或被发送端丢弃。 */ () =>
+            state.received.some(
+              /** 精确核对原 call 和真实拒绝类型。 */ (frame) =>
+                frame.side === 'gateway' && frame.call === refused.call_id && frame.type === 'dispatch_refused'
+            ) && f.store.call(f.principal.id, refused.call_id).state === (late ? 'outcome_unknown' : 'not_dispatched')
+        )
+        assert.equal(work.get(healthy.call_id)!.signal.aborted, false)
+        assert.equal(f.gateway.status().connections, 1)
+        assert.equal(client.status().connection_epoch, epoch)
+        assert.equal(client.status().reconnects, 0)
+        assert.equal(f.store.call(f.principal.id, refused.call_id).response, null)
+        work.get(healthy.call_id)!.finish()
+        await until(
+          /** 健康 provider 的原在途调用继续完成。 */ () =>
+            f.store.call(f.principal.id, healthy.call_id).state === 'responded'
+        )
+        const next = f.call(targets[1]!)
+        f.gateway.dispatch(next.call_id)
+        await until(/** 后续健康意图也不需要重连。 */ () => work.has(next.call_id))
+        work.get(next.call_id)!.finish()
+        await until(
+          /** 原 epoch 的后续响应同样经过原证据事务。 */ () =>
+            f.store.call(f.principal.id, next.call_id).state === 'responded'
+        )
+        assert.equal(f.store.call(f.principal.id, refused.call_id).state, late ? 'outcome_unknown' : 'not_dispatched')
+        assert.equal(f.gateway.resolveOriginalRead(refused.call_id), undefined)
+        assert(f.gateway.resolveOriginalRead(healthy.call_id))
+        assert(f.gateway.resolveOriginalRead(next.call_id))
+        assert.equal(client.status().connection_epoch, epoch)
+      } finally {
+        w.stop()
+      }
+    }
+  )
+}
+
 test(
   'Gateway 单 provider 来源丢失时丢弃在途迟到响应，健康 provider 的原调用与后续调用继续工作',
   /** 客户端尚未收到撤回时已发出的合成响应，不能复活失效来源或关闭健康通道。 */ async () => {

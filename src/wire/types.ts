@@ -34,6 +34,7 @@ export type ContractRecord = { source: ContractSource; support_status: 'candidat
 export type Capability =
   | 'rpc'
   | 'provider_fence'
+  | 'dispatch_refusal'
   | 'provider_snapshot'
   | 'admission_receipt'
   | 'admission_context'
@@ -121,6 +122,7 @@ export type RequestPayload = {
   native_request: JsonObject
   validation: ValidationMode
 }
+export type DispatchRefusalCode = 'terminal_execution_disabled'
 export type Payloads = {
   provider_fenced: { binding: ProviderBinding }
   provider_snapshot: {
@@ -138,6 +140,7 @@ export type Payloads = {
   }
   request: RequestPayload
   accepted: { attempt: AttemptIdentity }
+  dispatch_refused: { attempt: AttemptIdentity; code: DispatchRefusalCode }
   response: { attempt: AttemptIdentity; native_response: JsonObject }
   cancel: { attempt: AttemptIdentity; reason: 'caller_cancelled' | 'deadline_exceeded' }
   heartbeat: { sequence: number }

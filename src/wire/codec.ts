@@ -46,6 +46,7 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   request: ['gateway_to_connector'],
   admission_receipt: ['gateway_to_connector'],
   accepted: ['connector_to_gateway'],
+  dispatch_refused: ['connector_to_gateway'],
   response: ['connector_to_gateway'],
   cancel: ['gateway_to_connector'],
   heartbeat: ['gateway_to_connector', 'connector_to_gateway'],
@@ -566,6 +567,14 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
       fields(p, ['attempt'])
       anchored(frame, p, context)
       break
+    case 'dispatch_refused':
+      capability(context, 'dispatch_refusal')
+      fields(p, ['attempt', 'code'])
+      oneOf(p.code, ['terminal_execution_disabled'])
+      if (anchored(frame, p, context).transport !== 'rpc') {
+        fail('attempt_transport_mismatch')
+      }
+      break
     case 'cancel': {
       fields(p, ['attempt', 'reason'])
       oneOf(p.reason, ['caller_cancelled', 'deadline_exceeded'])
@@ -684,7 +693,11 @@ export function discardFencedWireFrame(
         boundedJson(binding) === boundedJson(p.binding)
     )
   }
-  if (!['request', 'accepted', 'response', 'cancel', 'admission_receipt'].includes(frame.type as string)) {
+  if (
+    !['request', 'accepted', 'dispatch_refused', 'response', 'cancel', 'admission_receipt'].includes(
+      frame.type as string
+    )
+  ) {
     return false
   }
   const binding = bind(frame, p.attempt)
@@ -708,6 +721,11 @@ export function discardFencedWireFrame(
       break
     case 'accepted':
       fields(p, ['attempt'])
+      break
+    case 'dispatch_refused':
+      capability(context, 'dispatch_refusal')
+      fields(p, ['attempt', 'code'])
+      oneOf(p.code, ['terminal_execution_disabled'])
       break
     case 'response':
       fields(p, ['attempt', 'native_response'])

@@ -14,6 +14,7 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 | 可选 feature | 用途 |
 |---|---|
 | rpc | 普通 request/accepted/response/cancel |
+| dispatch_refusal | Connector 确定未写出的逐调用拒绝；同时要求 rpc |
 | provider_snapshot | Connector 实测 provider 来源快照；同时要求 rpc，不交付 schema 或 opaque handle |
 | provider_fence | 普通 RPC 的逐 provider 来源永久撤回；同时要求 rpc，当前不与 objects 组合 |
 | admission_receipt | Gateway 原去重截止和请求摘要的认证交付；同时要求 rpc |
@@ -173,6 +174,7 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | admission_receipt | Gateway → Connector | attempt, request_sha256, dedup_expires_at；协商 admission_context 后另需 context |
 | request | Gateway → Connector | attempt, expected_binding_revision, native_request, validation |
 | accepted | Connector → Gateway | attempt |
+| dispatch_refused | Connector → Gateway | attempt, code |
 | response | Connector → Gateway | attempt, native_response |
 | cancel | Gateway → Connector | attempt, reason |
 | heartbeat | 双向 | sequence |
@@ -221,7 +223,9 @@ adapter、快照 pin、接纳证明和结果读取上下文。已锚定但未有
 撤回后恢复底层服务不复活旧来源，也不再次调用旧来源 getter。只在显式配置与重新认证后为
 新 epoch 建立独立来源；旧 unknown 意图不迁移或重放。已撤回来源的迟到普通 RPC/快照可在原
 业务 decoder 拒绝后丢弃：仍核验当前认证 envelope、固定外层形状和原 binding/revision，仅返回
-丢弃判断，不解码 native 正文、不重建原 attempt/permit，也不生成响应。错误 epoch、其它来源
+丢弃判断，不解码 native 正文、不重建原 attempt/permit，也不生成响应。已协商 `dispatch_refusal`
+的迟到 `dispatch_refused` 同样只丢弃，仍核验固定拒绝码，不将原 unknown 倒退为 not_dispatched。
+错误 epoch、其它来源
 或非白名单消息仍按原协议拒绝。此扩展当前拒绝与 `objects` 同时协商，因为分片没有独立 provider
 归属；它不提供原生事件、终端流或对象分片的逐实例隔离承诺。
 
@@ -280,7 +284,7 @@ Connector 接受或打开含 context 的持久记录时，必须已有受保护�
 首次 context 的 sequence 必须为 1，state 必须为 dispatching，fenced 必须为 false；失效消息不能凭空创建上下文。
 后续更新只沿原认证连接发送同一 receipt 帧，不发送原请求正文。每次更新 sequence 必须精确递增 1；
 同 sequence 只允许整个 source 记录完全相同的幂等重复，旧 sequence、跳号或固定事实变化均拒绝并关闭通道。
-状态只允许 dispatching → connector_accepted/outcome_unknown/responded、connector_accepted → outcome_unknown/responded、
+状态只允许 dispatching → connector_accepted/not_dispatched/outcome_unknown/responded、connector_accepted → not_dispatched/outcome_unknown/responded、
 outcome_unknown → responded，以及原状态不变。内容只允许 available → expired/discarded/unavailable、
 expired → discarded/unavailable、discarded → unavailable，以及原状态不变；不可恢复 available。
 responded 必须带真实首次追加的原 evidence；已有 evidence 不能改写或删除。fenced 只能从 false 变 true。
@@ -306,6 +310,21 @@ fenced 快照可供消费者销毁旧上下文，不能继续执行或读取原�
 不允许直接执行该版本的业务帧。
 网关错误 source 仅 gateway/transport，code 不含原文；原生 error/data 原样保留在 native_response，不伪装成网关 error。
 accepted 不是远端执行/消费成功；cancel 不等于回滚；stream_close 不生成关闭 pane 的原生请求。
+
+`dispatch_refused` 仅在双方明确协商 `dispatch_refusal` 后由 Connector 发送，且须经当前认证连接和
+独立登记的完整 attempt 校验。当前 `code` 仅允许 `terminal_execution_disabled`，不承载原生响应、
+异常正文或任意字符串；它只接受对应 provider 的真实本机 adapter 明确报告 `not_dispatched` 的
+终端最终门禁拒绝。`accepted` 后仍可确证未写出，但普通异常、原生 error、超时和
+`outcome_unknown` 都不能生成此证明；Connector 最终写入门禁继续生效。
+
+Gateway 先在原账本事务核对原 tuple、当前 provider/epoch、固定 deadline 并提交拒绝及必要审计，
+才清理本 call 的在途/读取上下文。只有尚未到期的 dispatching/connector_accepted 可变为
+not_dispatched；已 unknown、已响应或已拒绝保持原态，不续期、不重派。合法拒绝不关闭连接，
+不取消其他在途调用。未协商、认证/锚点错误或存储提交失败继续保守拒绝，不发布虚假终态。
+宿主的原 Store 须实现 `DispatchRefusalLedger.commitDispatchRefusal`；缺少该事务接口时 Gateway
+不广告可选能力，若配置要求此能力则以 `dispatch_refusal_backend_unavailable` 拒绝启动。
+事务仅在真正提交 not_dispatched 时返回 true；对 unknown、responded 或已拒绝的 no-op 返回 false。
+Gateway 仅在 true 时释放本 call 的上下文；response 后到达的原 tuple 拒绝不得驱逐仍有效的结果读取许可。
 
 ## 可信 context 与原生薄适配
 

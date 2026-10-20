@@ -91,6 +91,7 @@ function offer(context: true | undefined): VersionOffer {
     capabilities: [
       'rpc',
       'provider_fence',
+      'dispatch_refusal',
       'history_scope',
       'admission_receipt',
       ...(context ? ['admission_context'] : [])

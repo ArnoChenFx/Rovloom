@@ -10,6 +10,7 @@ function authenticated() {
   ctx.connection.negotiated.capabilities = [
     'rpc',
     'provider_fence',
+    'dispatch_refusal',
     'provider_snapshot',
     'admission_receipt',
     'admission_context'
@@ -55,6 +56,43 @@ test(
           authenticated()
         ),
       'invalid_frame_fields'
+    )
+  }
+)
+
+test(
+  '已失效 provider 的迟到 dispatch_refused 只作丢弃，不生成确定拒绝或恢复原请求许可',
+  /** 固定拒绝仍须实际协商，不能接受任意错误码、跨 epoch 帧或其它来源。 */ () => {
+    const ctx = authenticated()
+    ctx.resolveAttempt = /** 丢弃路径不得重新建立原锚点或 permit。 */ () => {
+      throw new Error('native_context_must_not_run')
+    }
+    const refusal = frame('dispatch_refused', { attempt, code: 'terminal_execution_disabled' })
+    assert.equal(discardFencedWireFrame(JSON.stringify(refusal), ctx, [provider]), true)
+    assert.equal(discardFencedWireFrame(JSON.stringify(refusal), ctx, [{ ...provider, provider_id: 'other' }]), false)
+    rejects(
+      /** 不协商确定拒绝能力时仍拒绝消息。 */ () => {
+        const other = authenticated()
+        other.connection.negotiated.capabilities = other.connection.negotiated.capabilities.filter(
+          /** 去掉独立能力而保留隔离。 */ (capability) => capability !== 'dispatch_refusal'
+        )
+        discardFencedWireFrame(JSON.stringify(refusal), other, [provider])
+      },
+      'unsupported_capability'
+    )
+    rejects(
+      /** 已失效也不放宽固定拒绝枚举。 */ () =>
+        discardFencedWireFrame(
+          JSON.stringify({ ...refusal, payload: { ...refusal.payload, code: 'arbitrary_error' } }),
+          ctx,
+          [provider]
+        ),
+      'invalid_enum'
+    )
+    rejects(
+      /** 旧连接的迟到拒绝不能用于当前连接。 */ () =>
+        discardFencedWireFrame(JSON.stringify({ ...refusal, connection_epoch: 'old_epoch' }), ctx, [provider]),
+      'connection_binding_mismatch'
     )
   }
 )

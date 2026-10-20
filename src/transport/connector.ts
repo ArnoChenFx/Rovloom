@@ -24,6 +24,7 @@ import type {
 import type { DeviceCredential } from './identity.js'
 import { authenticateAdmissionReceipt } from './admission-proof.js'
 import type { AdmissionReceiptSink } from './admission-proof.js'
+import { dispatchRefusal } from './dispatch-refusal.js'
 import {
   budget,
   closeSession,
@@ -511,6 +512,20 @@ export function createConnector(options: ConnectorOptions) {
       if (!controller.signal.aborted) {
         reconcileProviders(active, current)
         if (providerFences.has(binding.target.provider_id)) {
+          return
+        }
+        const code = dispatchRefusal(error, binding.provider_kind)
+        if (
+          code &&
+          active.negotiated.capabilities.includes('dispatch_refusal') &&
+          connection === active &&
+          session === current &&
+          !stopped
+        ) {
+          // 迟到的确定拒绝不能倒退已到期账本；只结束本地等待，由原 deadline 收敛该 call。
+          if (trustedTime() < binding.registration.deadline) {
+            write(envelope(active, 'dispatch_refused', { attempt: frame.payload.attempt, code }))
+          }
           return
         }
         throw error

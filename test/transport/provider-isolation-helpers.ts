@@ -9,6 +9,7 @@ import type { AttemptBinding, ProviderBinding, ProviderSnapshot, V2Target } from
 import { fixture } from './helpers.js'
 import { source } from '../wire/helpers.js'
 import { G } from '../native-contract/helpers.js'
+import { LuvusAdapterError } from '../../src/connector/luvus/types.js'
 
 /** 只冻结合成纯数据，不冻结任何产品 owner、schema handle 或原生许可。 */
 function freeze<T>(value: T): T {
@@ -26,8 +27,8 @@ export function providerIsolationFixture() {
   const offer = {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'provider_snapshot', 'provider_fence'],
-    required: ['rpc', 'provider_snapshot', 'provider_fence']
+    capabilities: ['rpc', 'provider_snapshot', 'provider_fence', 'dispatch_refusal'],
+    required: ['rpc', 'provider_snapshot', 'provider_fence', 'dispatch_refusal']
   }
   const state = {
     connector: new Map<string, boolean>(),
@@ -45,9 +46,10 @@ export function providerIsolationFixture() {
     responses: [] as { side: 'gateway' | 'connector'; provider: string; call: string }[],
     executions: [] as AttemptBinding[],
     heartbeats: { gateway: 0, connector: 0 },
-    received: [] as { side: 'gateway' | 'connector'; call: string }[]
+    received: [] as { side: 'gateway' | 'connector'; call: string; type: 'response' | 'dispatch_refused' }[],
+    beforeRefusalSend: undefined as undefined | (() => void)
   }
-  const work = new Map<string, { signal: AbortSignal; finish(): void }>()
+  const work = new Map<string, { signal: AbortSignal; finish(): void; refuse(): void }>()
   const clients: ReturnType<typeof createConnector>[] = []
   const f = fixture({
     offer,
@@ -88,12 +90,15 @@ export function providerIsolationFixture() {
         if (frame.type === 'heartbeat') {
           state.heartbeats[side]++
         }
+        if (frame.type === 'dispatch_refused') {
+          state.beforeRefusalSend?.()
+        }
         return raw
       },
       /** 记录实际收到的合成响应，再完整交原 decoder 决定接受或丢弃。 */ decode(raw, direction) {
         const hint = JSON.parse(typeof raw === 'string' ? raw : Buffer.from(raw).toString())
-        if (hint.type === 'response') {
-          state.received.push({ side, call: hint.payload.attempt.call_id })
+        if (hint.type === 'response' || hint.type === 'dispatch_refused') {
+          state.received.push({ side, call: hint.payload.attempt.call_id, type: hint.type })
         }
         return original.decode(raw, direction)
       }
@@ -218,7 +223,7 @@ export function providerIsolationFixture() {
             }
             state.executions.push(execution)
             return new Promise(
-              /** 故意忽略 abort，模拟本地停止观察不能证明原生工作停止。 */ (resolve) => {
+              /** 故意忽略 abort，模拟本地停止观察不能证明原生工作停止。 */ (resolve, reject) => {
                 work.set(execution.call_id, {
                   signal,
                   /** 返回固定合成回包，仍须经过原响应校验和真实 Store 提交。 */ finish() {
@@ -226,6 +231,9 @@ export function providerIsolationFixture() {
                       binding: execution,
                       native_response: { id: execution.native_request_id, result: { id: 'synthetic_task' } }
                     })
+                  },
+                  /** 仅模拟固定确定未写出异常，不声称实际原生终端门禁已经执行。 */ refuse() {
+                    reject(new LuvusAdapterError('terminal_execution_disabled', 'not_dispatched'))
                   }
                 })
               }

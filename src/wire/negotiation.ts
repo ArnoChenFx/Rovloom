@@ -8,6 +8,7 @@ export const WIRE_MINOR = 0
 const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   rpc: 0,
   provider_fence: 0,
+  dispatch_refusal: 0,
   provider_snapshot: 0,
   admission_receipt: 0,
   admission_context: 0,
@@ -123,6 +124,9 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
   // 当前对象分片没有 provider 归属字段；不能广告无法逐实例隔离的组合。
   if (v.capabilities.includes('provider_fence') && v.capabilities.includes('objects')) {
     fail('unsupported_capability_combination')
+  }
+  if (v.capabilities.includes('dispatch_refusal') && !v.capabilities.includes('rpc')) {
+    fail('invalid_capabilities')
   }
   // 该依赖也约束 welcome 的选定结果，不能只在本地 offer 一侧检查。
   if (v.capabilities.includes('terminal_control') && !v.capabilities.includes('terminal_observe')) {
