@@ -24,7 +24,9 @@ param([string]$XmlPath,[string]$PhasePath)
 $ErrorActionPreference='Stop'
 [IO.File]::WriteAllText($PhasePath,'script_started')
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+[IO.File]::WriteAllText($PhasePath,'encoding_set')
 $xml=[IO.File]::ReadAllText($XmlPath,[Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($PhasePath,'xml_read')
 $s=New-Object -ComObject 'Schedule.Service'
 [IO.File]::WriteAllText($PhasePath,'connecting')
 $s.Connect()
@@ -67,9 +69,16 @@ if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t
             try {
               const value = readFileSync(phaseFile, 'utf8')
               if (
-                ['script_started', 'connecting', 'connected', 'definition_created', 'xml_parsed', 'validated'].includes(
-                  value
-                )
+                [
+                  'script_started',
+                  'encoding_set',
+                  'xml_read',
+                  'connecting',
+                  'connected',
+                  'definition_created',
+                  'xml_parsed',
+                  'validated'
+                ].includes(value)
               ) {
                 phase = value
               }
