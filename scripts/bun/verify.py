@@ -24,6 +24,108 @@ import xml.etree.ElementTree as ET
 # 超时诊断只保留有界尾部，不作为测试通过或完整执行的证明。
 TIMEOUT_LOG_BYTES = 131_072
 TIMEOUT_TRACE_BYTES = 1_048_576
+FAILURE_CONSOLE_BYTES = 12_000
+
+
+# 失败控制台只保留可核对的仓库位置、固定阶段和数字总计，不转发断言值、源码或错误正文。
+def foundation_failure_summary(project, log, source_files):
+    root = project.resolve()
+    phases = {'connect', 'start', 'both_running', 'client_cancel', 'server_cancel', 'client_close',
+              'bob_reply', 'ping', 'listener_auth', 'fixture_import', 'fixture_open', 'ready',
+              'http_connect', 'call', 'duplicate', 'result_page', 'changed_cursor', 'cancel',
+              'revoked_read', 'complete'}
+    cleanups = {'not_started', 'clients', 'listener', 'http', 'service', 'runtime', 'complete'}
+    failures, totals, block, current, ordinal, delimiters = [], [], [], None, 0, None
+
+    # 绝对临时路径和已脱敏路径均只映射到确实存在的仓库源文件，不输出外部文件或任意错误片段。
+    def source_path(value):
+        if value.startswith('/isolated/project/'):
+            value = value[len('/isolated/project/'):]
+        path = Path(value)
+        if not path.is_absolute():
+            path = root / path
+        try:
+            relative = str(path.resolve().relative_to(root))
+        except (ValueError, OSError):
+            return None
+        if (len(relative) > 256 or relative not in source_files
+                or not re.fullmatch(r'(?:src|test|scripts)/[A-Za-z0-9_./-]+\.(?:[cm]?[jt]s|[jt]sx|py)', relative)
+                or not path.is_file()):
+            return None
+        return relative
+
+    # 用文件及该文件内用例序号定位首个失败；测试名、动态参数及异常 message 都可能包含秘密。
+    def record(kind):
+        if len(failures) >= 3:
+            return
+        entry = {'kind': kind, 'file': current, 'caseOrdinal': ordinal if kind == 'test' else None,
+                 'error': 'test_failure', 'stack': [], 'progress': []}
+        for line in block:
+            error = re.match(r'^(AssertionError|TypeError|RangeError|SyntaxError|McpError|StreamableHTTPError):', line)
+            if error:
+                entry['error'] = error[1]
+            timeout = re.search(r'test timed out after ([0-9]{1,9})ms', line)
+            if timeout:
+                entry['error'] = 'test_timeout'
+                entry['timeoutMs'] = int(timeout[1])
+            compiler = re.search(r'"reason":"(compiler_(?:timeout|unavailable|busy|failed|closed|cancelled))"', line)
+            if compiler:
+                entry['compiler'] = compiler[1]
+            progress = re.fullmatch(r'\[mcp-http-failure\] case=(runtime-sdk|http-sessions) '
+                                    r'phase=([a-z_]+) cleanup=([a-z_]+)', line)
+            if progress and progress[2] in phases and progress[3] in cleanups and len(entry['progress']) < 3:
+                entry['progress'].append({'case': progress[1], 'phase': progress[2], 'cleanup': progress[3]})
+            if line.lstrip().startswith('at ') and len(entry['stack']) < 8:
+                location = line.strip()[3:].rsplit('(', 1)[-1].rstrip(')')
+                parts = location.rsplit(':', 2)
+                if len(parts) == 3 and all(re.fullmatch(r'[0-9]{1,9}', number) for number in parts[1:]):
+                    source = source_path(parts[0])
+                    if source:
+                        frame = f'{source}:{parts[1]}:{parts[2]}'
+                        if frame not in entry['stack']:
+                            entry['stack'].append(frame)
+        failures.append(entry)
+
+    for line in log.splitlines():
+        header = re.fullmatch(r'(.+[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)):(?: \(run #\d+\))?', line)
+        source = source_path(header[1]) if header else None
+        if source:
+            current, ordinal, block, delimiters = source, 0, [], None
+            continue
+        if re.fullmatch(r'\d+ tests? failed:', line):
+            break  # Bun随后重复失败名称；不能把重复汇总误算成首次断言。
+        block.append(line)
+        if line == '# Unhandled error between tests':
+            delimiters = 0
+        elif delimiters is not None and re.fullmatch(r'-{5,}', line):
+            delimiters += 1
+            if delimiters == 2:
+                record('between_tests')
+                block, delimiters = [], None
+        elif re.match(r'^\((?:pass|fail|skip|todo)\) ', line):
+            ordinal += 1
+            if line.startswith('(fail) '):
+                record('test')
+            block = []
+    for line in log.splitlines():
+        value = line.strip()
+        if (re.fullmatch(r'[0-9]{1,9} (?:pass|fail|errors?|skip|todo)', value)
+                or re.fullmatch(r'Ran [0-9]{1,9} tests? across [0-9]{1,9} files?\. '
+                                r'\[[0-9]{1,9}(?:\.[0-9]{1,6})?m?s\]', value)):
+            totals.append(value)
+    summary = {'status': 'failed', 'firstFailures': failures, 'totals': totals[-8:],
+               'details': 'assertion values, messages, source text and test names omitted'}
+    encoded = json.dumps(summary, ensure_ascii=True, indent=2)
+    while len(encoded.encode()) > FAILURE_CONSOLE_BYTES:
+        summary['truncated'] = True
+        if failures and failures[-1]['stack']:
+            failures[-1]['stack'].pop()
+        elif failures:
+            failures.pop()
+        else:
+            summary['totals'] = []
+        encoded = json.dumps(summary, ensure_ascii=True, indent=2)
+    return encoded
 
 
 # 脱敏并保存超时阶段的有界日志、已观察用例和执行追踪尾部，始终标记验收不完整。
@@ -135,6 +237,9 @@ def main():
             brand = Path('docs/assets/brand') / name
             (project / brand).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(repo / brand, project / brand)
+        # 在执行任何测试前冻结源码位置清单；测试临时创建的秘密命名文件不得进入控制台栈。
+        source_files = frozenset(str(path.relative_to(project)) for folder in ('src', 'test', 'scripts')
+                                 for path in (project / folder).rglob('*') if path.is_file())
         tools = root / 'bin'
         tools.mkdir()
         (tools / 'bun').symlink_to(bun)
@@ -174,8 +279,8 @@ def main():
             trace = output / (label + '.execve.log')
             started = time.monotonic()
             # 全套回归的聚合预算覆盖增长与追踪开销，不改变产品或单例自身的时限。
-            seconds = 300 if label == 'foundation' else 180
-            process = subprocess.Popen([trace_tool, '-f', '-qq', '-s', '256', '-e', 'trace=execve,execveat',
+            seconds = 600 if label == 'foundation' else 180
+            process = subprocess.Popen([trace_tool, '-f', '-q', '-s', '256', '-e', 'trace=execve,execveat',
                                         '-o', str(trace), *arguments], cwd=project, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             try:
@@ -206,7 +311,19 @@ def main():
             if (root / 'blocked.log').exists():
                 raise RuntimeError(f'{label}: blocked executable invoked')
             if process.returncode != expected:
-                print(combined[-12000:], file=sys.stderr)
+                if label == 'foundation':
+                    print(foundation_failure_summary(project, combined, source_files), file=sys.stderr)
+                # 完整保留两条脱敏流，不能让大量通过项覆盖较早的 hook/strace 错误。
+                print(f'{label}: command={json.dumps(arguments)}; traced command exit={process.returncode}',
+                      file=sys.stderr)
+                for stream, content in (('stdout', stdout), ('stderr', stderr)):
+                    content = content.replace(str(root), '/isolated').replace(str(bun), '/verified/bun')
+                    print(f'{label}: {stream}\n{content}', file=sys.stderr)
+                # -q 保留真实进程退出状态；外层 strace 的退出码不能冒充内层 Bun 的退出码。
+                trace_lines = traced.splitlines()
+                print(f'{label}: initial exec\n' + '\n'.join(trace_lines[:1]), file=sys.stderr)
+                statuses = [line for line in trace_lines if re.search(r'\+\+\+ (?:exited with|killed by)', line)]
+                print(f'{label}: process exit tail\n' + '\n'.join(statuses[-64:]), file=sys.stderr)
                 raise RuntimeError(f'{label}: exit {process.returncode}, expected {expected}; see {output}')
             records.append({'label': label, 'command': arguments, 'exit': process.returncode,
                             'timeoutSeconds': seconds,

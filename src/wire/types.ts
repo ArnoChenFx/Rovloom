@@ -33,6 +33,9 @@ export type ContractSource = {
 export type ContractRecord = { source: ContractSource; support_status: 'candidate' | 'validated' }
 export type Capability =
   | 'rpc'
+  | 'provider_snapshot'
+  | 'admission_receipt'
+  | 'admission_context'
   | 'history_scope'
   | 'late_evidence'
   | 'objects'
@@ -118,6 +121,19 @@ export type RequestPayload = {
   validation: ValidationMode
 }
 export type Payloads = {
+  provider_snapshot: {
+    binding: ProviderBinding
+    target: V2Target
+    source: ContractSource
+    capabilities: JsonObject
+    capability_revision: string
+  }
+  admission_receipt: {
+    attempt: AttemptIdentity
+    request_sha256: string
+    dedup_expires_at: number
+    context?: import('./admission.js').AdmissionReceiptContext
+  }
   request: RequestPayload
   accepted: { attempt: AttemptIdentity }
   response: { attempt: AttemptIdentity; native_response: JsonObject }
@@ -154,6 +170,8 @@ export type Payloads = {
   }
   error: WireErrorPayload
 }
+/** 同一认证 epoch 的单 provider 来源快照；不包含 schema、原生凭据或任何执行许可。 */
+export type ProviderSnapshot = Payloads['provider_snapshot']
 export type WireErrorPayload = {
   source: 'gateway' | 'transport'
   code: string

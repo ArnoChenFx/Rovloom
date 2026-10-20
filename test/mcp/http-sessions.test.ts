@@ -19,7 +19,16 @@ function gate() {
 
 test(
   '同一Gateway的两会话并发复用SDK请求ID，A取消/退出不影响B等待或持久listener',
-  /* 服务明确为阻塞探针，不执行native或创建真实凭据。 */ async () => {
+  /* 服务明确为阻塞探针，不执行native或创建真实凭据。 */ async (testContext) => {
+    let phase = 'connect'
+    let cleanup = 'not_started'
+    testContext.after(
+      /* Bun超时也执行结束钩子；只输出本例固定阶段，不输出身份、请求或异常值。 */ () => {
+        if (phase !== 'complete' || cleanup !== 'complete') {
+          console.error(`[mcp-http-failure] case=http-sessions phase=${phase} cleanup=${cleanup}`)
+        }
+      }
+    )
     const ready = gate()
     const stopped = gate()
     const release = { alice: gate(), bob: gate() }
@@ -68,6 +77,7 @@ test(
       ])
       assert(transportA.sessionId && transportB.sessionId)
       assert.notEqual(transportA.sessionId, transportB.sessionId)
+      phase = 'start'
       const stop = new AbortController()
       const first = clientA
         .callTool({ name: 'machines_list', arguments: {} }, undefined, { signal: stop.signal, timeout: 5000 })
@@ -80,26 +90,37 @@ test(
         /* 提前观察B成功路径，防止测试清理窗口留下未处理拒绝。 */ (reply) => ({ reply }),
         /* B的意外失败保留为失败结果，不能被清理隐藏。 */ (error: unknown) => ({ error })
       )
+      phase = 'both_running'
       await ready.promise
+      phase = 'client_cancel'
       stop.abort()
       assert.equal(await first, true)
+      phase = 'server_cancel'
       await stopped.promise
       assert.equal(contexts.get('alice')!.wait_signal.aborted, true)
       assert.equal(contexts.get('bob')!.wait_signal.aborted, false)
+      phase = 'client_close'
       await clientA.close()
       release.alice.resolve()
       release.bob.resolve()
+      phase = 'bob_reply'
       const result = await secondObserved
       assert('reply' in result)
       assert.equal(result.reply.isError, true)
+      phase = 'ping'
       assert.deepEqual(await clientB.ping({ timeout: 5000 }), {})
       assert.deepEqual(operations, ['machines_list', 'machines_list'])
+      phase = 'listener_auth'
       assert.equal((await fetch(running.url)).status, 401)
+      phase = 'complete'
     } finally {
       release.alice.resolve()
       release.bob.resolve()
+      cleanup = 'clients'
       await Promise.allSettled([clientA.close(), clientB.close()])
+      cleanup = 'listener'
       await running.close()
+      cleanup = 'complete'
     }
   }
 )

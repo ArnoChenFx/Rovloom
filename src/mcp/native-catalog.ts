@@ -23,9 +23,25 @@ export type GatewayCatalogSource = Readonly<{
   expires_at: number
 }>
 export interface GatewayCatalogProvider {
+  kind?: 'luvus'
   // 从受保护registry返回独立认证的在线能力与安装契约，不从工具参数或session listing构造source。
   resolve(target: V2Target, principal: Principal): GatewayCatalogSource | undefined
 }
+export type ProviderCatalogSource = Readonly<{
+  target: V2Target
+  local_provider: ProviderBinding
+  contract_ref: string
+  capability_revision: string
+  expires_at: number
+  methods: readonly JsonObject[]
+  describe(method: string): JsonObject
+}>
+export interface ProviderCatalogProvider {
+  kind: 'provider'
+  // owner从当前原生安装/能力提供目录；目录元数据不建立Wire执行许可。
+  resolve(target: V2Target, principal: Principal): ProviderCatalogSource | undefined
+}
+export type GatewayCatalog = GatewayCatalogProvider | ProviderCatalogProvider
 type CatalogOptions = {
   store: Store
   principal: Principal

@@ -7,12 +7,25 @@ const onSignal = /* 将进程终止信号转换为前端关闭请求，不直接
 process.once('SIGINT', onSignal)
 process.once('SIGTERM', onSignal)
 try {
-  process.exitCode = await runCli(process.argv.slice(2), {
-    stdin: process.stdin,
-    stdout: process.stdout,
-    stderr: process.stderr,
-    signal: stop.signal
-  })
+  process.exitCode = await runCli(
+    process.argv.slice(2),
+    {
+      stdin: process.stdin,
+      stdout: process.stdout,
+      stderr: process.stderr,
+      signal: stop.signal
+    },
+    {
+      gateway: /* 只有角色启动才加载静态工厂；help/version/template保持离线且不打开状态。 */ async (config) => {
+        const { createProductSources } = await import('./product-sources.js')
+        return (await import('./production.js')).createProductionCliRuntime(createProductSources()).gateway!(config)
+      },
+      connector: /* 真实provider负责既有配置与资源，CLI不提供native成功替身。 */ async (config) => {
+        const { createProductSources } = await import('./product-sources.js')
+        return (await import('./production.js')).createProductionCliRuntime(createProductSources()).connector!(config)
+      }
+    }
+  )
 } finally {
   process.off('SIGINT', onSignal)
   process.off('SIGTERM', onSignal)

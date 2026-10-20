@@ -1,8 +1,20 @@
 // 唯一CLI组合实际角色工厂；受保护身份、策略、凭据和native来源由宿主解析，不从argv补造。
-import { createGatewayRuntime, createConnectorRuntime } from '../runtime/index.js'
-import type { GatewayRuntimeOptions, ConnectorRuntimeOptions } from '../runtime/index.js'
+import {
+  createGatewayRuntime,
+  createProviderGatewayRuntime,
+  createConnectorRuntime,
+  createProviderConnectorRuntime
+} from '../runtime/index.js'
+import type {
+  GatewayRuntimeOptions,
+  ProviderGatewayRuntimeOptions,
+  ConnectorRuntimeOptions,
+  ConnectorHostOptions,
+  ManagementSessionAuthority
+} from '../runtime/index.js'
+import { scopeManagementService } from './management-scope.js'
 import { RuntimeGatewayService } from '../mcp/runtime-service.js'
-import type { GatewayCatalogProvider } from '../mcp/native-catalog.js'
+import type { GatewayCatalog } from '../mcp/native-catalog.js'
 import type { HttpAuthenticationProvider } from '../mcp/http.js'
 import {
   StoreManagementWriteService,
@@ -24,7 +36,7 @@ export type RuntimeCliManagement = Pick<ManagementWriteOptions, 'pairingPolicy' 
 } & (
     | {
         // 直接消费现有受保护会话源；同一identities和实际Origin由唯一组合点绑定。
-        session: { sessions: ManagementSessionSource; cookie_name: string }
+        session: { sessions: ManagementSessionSource; cookie_name: string; authority?: ManagementSessionAuthority }
         http?: Omit<ManagementWriteHttpOptions, 'service' | 'origin' | 'authenticate' | 'verifyCsrf'>
       }
     | {
@@ -32,14 +44,29 @@ export type RuntimeCliManagement = Pick<ManagementWriteOptions, 'pairingPolicy' 
         http: Omit<ManagementWriteHttpOptions, 'service' | 'origin'>
       }
   )
+export type RuntimeCliGateway =
+  | Awaited<ReturnType<typeof createGatewayRuntime>>
+  | Awaited<ReturnType<typeof createProviderGatewayRuntime>>
+type GatewayResources = {
+  authentication: HttpAuthenticationProvider
+  catalog?: GatewayCatalog
+  management?: RuntimeCliManagement
+  // 资源所有者在唯一工厂建立后绑定已提交身份变更通知，不能创建第二个Gateway。
+  started?(gateway: RuntimeCliGateway): void
+}
+export type RuntimeCliGatewayResources = GatewayResources &
+  ({ kind?: 'luvus'; options: GatewayRuntimeOptions } | { kind: 'provider'; options: ProviderGatewayRuntimeOptions })
+export type RuntimeCliConnectorResources = Omit<ConnectorRuntimeOptions, 'transport'> & {
+  kind?: 'luvus'
+  transport: Omit<ConnectorRuntimeOptions['transport'], 'url'>
+}
+export type RuntimeCliProviderResources = Omit<ConnectorHostOptions, 'transport'> & {
+  kind: 'provider'
+  transport: Omit<ConnectorHostOptions['transport'], 'url'>
+}
 export type RuntimeCliHost = {
-  gateway?(config: GatewayConfig): Promise<{
-    options: GatewayRuntimeOptions
-    authentication: HttpAuthenticationProvider
-    catalog?: GatewayCatalogProvider
-    management?: RuntimeCliManagement
-  }>
-  connector?(config: ConnectorConfig): Promise<ConnectorRuntimeOptions>
+  gateway?(config: GatewayConfig): Promise<RuntimeCliGatewayResources>
+  connector?(config: ConnectorConfig): Promise<RuntimeCliConnectorResources | RuntimeCliProviderResources>
   service?: CliServiceHost
   update?: CliUpdateHost
 }
@@ -51,7 +78,10 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
     runtime.gateway = /* 先建立唯一常驻宿主，再装配MCP及独立管理面；失败时释放已交付资源。 */ async (config) => {
       const resource = await host.gateway!(config)
       const managementOptions = resource.management ? { ...resource.management } : undefined
-      const gateway = await createGatewayRuntime(resource.options)
+      const gateway =
+        resource.kind === 'provider'
+          ? await createProviderGatewayRuntime(resource.options)
+          : await createGatewayRuntime(resource.options)
       let service: RuntimeGatewayService | undefined
       let management: ReturnType<typeof startManagementListener> | undefined
       let closing: Promise<void> | undefined
@@ -70,11 +100,12 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
         return closing
       }
       try {
+        resource.started?.(gateway)
         service = new RuntimeGatewayService({
           runtime: gateway,
           identities: resource.options.identities,
           localPolicies: resource.options.localPolicies,
-          catalog: resource.catalog,
+          catalog: resource.catalog ?? gateway.catalog,
           managementCapabilities: managementOptions
             ? /* 只观察已装配端口及当前持久状态，不在提示读取时执行启用证明或确认。 */ (target) => {
                 const capabilities = ['devices_rename', 'devices_disconnect', 'devices_revoke'] as const
@@ -108,13 +139,25 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
                     origin
                   })
                 : options.http
-              return createManagementHandler({
+              const authority = options.session?.authority
+              if (
+                authority &&
+                (authority.sessions !== options.session!.sessions ||
+                  authority.identities !== resource.options.identities)
+              ) {
+                throw new Error('management_identity_source_mismatch')
+              }
+              const scoped = authority
+                ? scopeManagementService(writes, authority, options.session!.cookie_name)
+                : undefined
+              const handler = createManagementHandler({
                 ...options.http,
                 authenticate: authentication.authenticate,
                 verifyCsrf: authentication.verifyCsrf,
-                service: writes,
+                service: scoped?.service ?? writes,
                 origin
               })
+              return scoped ? scoped.handler(handler) : handler
             }
           })
           options.listening?.(management.url)
@@ -127,8 +170,40 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
     }
   }
   if (host.connector) {
-    runtime.connector = /* 既有工厂接真实Wire/native session与持久claims，不使用第二份transport。 */ async (config) =>
-      createConnectorRuntime(await host.connector!(config))
+    runtime.connector = /* 唯一配置固定出站端点；宿主只交付凭据、Wire/native session与持久claims。 */ async (
+      config
+    ) => {
+      const url = new URL('/connector', config.gateway_url).href
+      const resource = await host.connector!(config)
+      try {
+        const transport = resource.transport
+        // 兼容结构类型交付的旧options，但类型外夹带的冲突地址必须在任何连接/凭据读取前拒绝。
+        if ('url' in transport && transport.url !== url) {
+          throw new Error('runtime_connector_target_mismatch')
+        }
+        const options = {
+          transport: { ...transport, url },
+          session: resource.session.bind(resource),
+          release: resource.release.bind(resource)
+        }
+        // provider中性宿主消费其真实Wire会话；不能把Herdr或空后端伪装成Luvus IPC。
+        if (resource.kind === 'provider') {
+          return createProviderConnectorRuntime({
+            ...options,
+            session: resource.session.bind(resource),
+            release_timeout_ms: resource.release_timeout_ms
+          })
+        }
+        return createConnectorRuntime({
+          ...options,
+          ...(resource.provider_snapshot === true ? { provider_snapshot: true as const } : {}),
+          session: resource.session.bind(resource)
+        })
+      } catch (error) {
+        await resource.release()
+        throw error
+      }
+    }
   }
   return runtime
 }

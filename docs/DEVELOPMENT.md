@@ -35,7 +35,7 @@ bun run smoke
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
 native-contract、wire、integration、persistence、transport、runtime、Herdr、webui、admin、Luvus connector、mcp、cli、service、update 模块及 CLI main 共十九个 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
-原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
+原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv 与精确绑定的完整预编译资产；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开、无副作用的 service 模块导入，以及 CLI help 和配置模板解析。缺后端启动的退出码与输出由
@@ -70,17 +70,40 @@ bun --no-env-file scripts/webui/preview.mjs
 python3 scripts/webui/check-browser.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-browser-new
 ```
 
-语言/主题另有覆盖两语两主题、系统变化、偏好存储失败及认证失效的浏览器检查：
+语言/主题另有覆盖图标按钮的键盘/外部关闭、八种屏宽、两语两主题、系统变化、偏好存储失败及认证失效的浏览器检查：
 
 ```sh
 python3 scripts/webui/check-preferences.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-preferences-new
 ```
 
+控制台布局检查另外核对桌面行列对齐、首屏设备可见、详情分区、320px 命中尺寸，
+以及原生诊断折叠区在年龄/语言重绘后的键盘焦点，并记录两语两主题及主要空/错/过期状态：
+
+```sh
+python3 scripts/webui/check-layout.py --url http://127.0.0.1:PORT --output /tmp/rovloom-webui-layout-new
+```
+
 将 `PORT` 替换为本次预览端口；输出目录必须全新且位于 checkout 外。
-原展示检查固定使用中文，语言/主题检查覆盖中文与 English 及320px布局；两者生成截图与 JSON 断言结果。
+原展示检查固定使用中文，语言/主题及布局检查覆盖中文与 English 及320px布局；均生成截图与 JSON 断言结果。
 它们验证真实 Chromium 上的合成 UI 数据、转义、
 焦点、导航、取消、部分失败及会话失效展示，不验证真实管理后端或安全认证。
 浏览器检查需显式运行，不从工具链通过推导浏览器或跨平台验收。
+
+三项设备操作可独立使用临时 Store、现有会话/CSRF handler 和页面状态机验收：
+
+```sh
+bun --no-env-file scripts/webui/preview.mjs 33231 --actions
+python3 scripts/webui/check-actions.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-actions-new
+python3 scripts/webui/check-bootstrap.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-bootstrap-new
+python3 scripts/webui/check-retry-deadline.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-retry-deadline-new
+```
+
+该服务只在显式 `/fixtures/` 让生产 `browser.js` 消费 CLI 同式 meta，拒绝根入口，所有设备和会话均为本次内存 fixture。
+检查包括两语两主题、桌面/320px、实际改名/断开/撤销、一次确认、重复点击、错误恢复、
+取消/导航与迟到、丢响应后原回执核对及原确认截止。bootstrap 检查额外覆盖实际 DOM 消费、
+重复/无效交付、在页过期及永久卸载；不验证真实管理员、宿主秘密交付或用户设备。
+跨截止检查在真实临时 Store 提交后延迟回执，验证提交中、未确认及查询中的重试事件均保留原关联，
+直接交付或查询原回执只对应一次设备提交；覆盖英文桌面与中文深色320px。
 
 ## 隔离验收
 
@@ -193,6 +216,14 @@ SDK 运行报告打印到 stdout，不写回仓库快照。
 
 `coverage.json` 由 `bun scripts/luvus/audit-fixtures.mjs --write` 从固定原文生成；
 方法 TSV 由 `python3 scripts/native-contract/audit-fixtures.py --write-map` 生成。
+
+`src/native-contract/generated/` 保存完整 standalone 资产及独立摘要目录，
+审核输入位于 `scripts/native-contract/precompiled-inputs.json`。仅在来源、编译器或锁定依赖
+变更已审核后运行 `bun run native:generate`，并一起审查派生文件；不手改生成代码。
+`bun run native:check` 在独立 Worker 重新完整编译并逐字节比较，正式模块与单文件构建
+强制执行该检查，失败不会自动重建。原生 fixture 字节不规范化，生成器实现摘要只统一源码 LF。
+构建观察上限独立于产品 2 秒接纳期限；运行时完整检查和精确失配回退见
+[原生契约](protocol/NATIVE-CONTRACT.md#受信预编译资产)。
 更新输入时显式生成并审查差异；日常 CI 只重算比对，不修改版本化输入。
 `dist/`、Python 缓存、工具执行日志及逐轮验收报告不提交。所有采集和验证输出使用
 checkout 外的全新私有路径；SDK/工具链运行元数据也只进入 CI/PR 或临时目录。
@@ -211,9 +242,10 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 
 ## Herdr 离线输入
 
-[方法门禁](../test/fixtures/herdr/0.9.5/method-policy.json)的生产允许集为空；`ping {}` 和
-`session.snapshot {}` 仅是固定官方来源中的研究候选，任意其它参数、读取变体、
-订阅和写入均不获产品许可。离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
+[方法表](../src/connector/herdr/methods.ts)实现固定来源的 65 个普通 RPC，参数由安装 schema 完整根验证。
+[静态 policy](../test/fixtures/herdr/0.9.5/method-policy.json)已覆盖这 65 个方法，记录条件与风险，保持 `authorizes_dispatch: false`，不发行派发权限。
+离线回放仍只接纳 `ping {}` 和 `session.snapshot {}`，且 `authorizes_dispatch:false`。
+离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
 
 ```sh
@@ -293,39 +325,47 @@ python3 scripts/herdr/verify_readonly.py --binary /absolute/verified/herdr --out
 脏刷新和整体替换；另用合成 OSC 标题/输出观察元数据变化，不向 PTY 发送输入。
 原生日志与失败轮次继续只留在临时输出和 PR/CI。
 
-### 只读 adapter 接缝
+### Herdr 普通 RPC 与资源工厂
 
-[原生组件](../src/connector/herdr/readonly.ts)复用 Wire 的 `AttemptBinding`、`ContractRecord`、
-双端策略与 Store attempt，不创建第二套设备/provider 身份。协议回放限
-`ping {}` 和 `session.snapshot {}` 的 RPC，保留原生 result/error；adapter 执行候选
-进一步限 `ping {}`，snapshot 仍因副作用覆盖不足而拒绝。流、raw、Host、其它参数、
-终端和写入均拒绝。共享 provider 的 Herdr candidate 硬门禁仍保持关闭。
+`HerdrInstallation.open(config, processBinding, signal?)`核对实际安装版本、原始 schema hash、
+独立异步 Worker 编译和同一受监管 child 的 socket peer。`launchHerdrProcess`只负责显式启动；
+发现、Gateway 工厂与方法描述均不自动启动或认领已有实例。宿主等待 endpoint 就绪并持有原 child。
 
-[安装 schema 原文](../test/fixtures/herdr/0.9.5/schema.json)的 hash 对应固定 provenance，
-[脱敏原生回放](../test/fixtures/herdr/0.9.5/readonly.json)仅替换路径和请求 ID；上游许可见
-[LICENSE.herdr](../test/fixtures/herdr/0.9.5/LICENSE)。测试从完整 request/success/error 根编译，
-不把 method envelope 检查冒充完整 schema 校验。
+`createHerdrGatewayResources({config, signal?, now?})`返回 `providers/session/catalog/describe/release`，
+交给既有 `createProviderGatewayRuntime`，会话使用外部提供的唯一 Store。
+`createHerdrConnectorResources({config, installation, now, policies, releaseOwner, release_timeout_ms?})`
+返回 `session/release/release_timeout_ms`，交给 `createProviderConnectorRuntime`。
+受保护 ref 由 `readHerdrProviderRefConfig`读取，字段及精确返回类型以
+[`provider.ts`](../src/connector/herdr/provider.ts)为准；必须提供完整 Target、binding revision、
+config ref、固定 expected source、schema 路径及独立 peer policy revision。Connector 另需
+固定本机路径、principal、独立 receipts/claims 账本；正常重启使用 `open`，不重建丢失墓碑。
 
-宿主须实现源码中的 `HerdrReadonlyBackend`：从现有 Store 取原 attempt/内容状态，
-重新解析当前连接、registry、双端完整 Target grants；独立核对安装契约和本机
-endpoint/peer 后持有不可序列化来源 token。实例或连接改变时替换 token，旧句柄失效。
-同一完整 binding 的重复解析复用私有句柄和原 permit；换 epoch/恢复代次不得复用。
-原生响应证据验证不依赖当前内容读者、read grant 或原策略 revision 仍生效；它始终
-核对原锚点/permit、当前有效连接/provider 与独立来源。读取撤权、过期或 discard
-只能进入 Store 的最小证据分流，原文保存和交付仍须另查当前权限及原期限。
-完整 schema 编译仍须满足 DESIGN 的可终止 worker 与硬资源预算；测试中的直接
-编译不能满足这个生产门禁。原生传输、共享 provider 支持切换、Store 证据提交及
-实际 Gateway/Connector 接线未由这个组件交付。
+唯一 CLI owner 负责资源解析和角色装配，复用现有 HTTP MCP/管理会话。Luvus 专用工厂与目录类型
+不能强制转换成 Herdr 类型；目录须接通 provider 分支、当前 Store binding 和双方策略。
+双端协商须包含 `rpc/admission_receipt/admission_context`。资源的 `providers[].preflightRequest`必须随原 providers 传入中性 runtime；它在唯一 Store 准入事务中使用本次真实 native request ID 和同一完整编译根预检，错误参数不登记 call/history key、不触碰共享设备连接。真正派发和原生写入前的来源、权限、schema 与持久 claims 复验继续保留。释放责任与预算见[通道接线](TRANSPORT.md)。
 
-当前证据测试由合成 backend 保留原 attempt；它不证明真实 Store 清理请求后的迟到路径。
-Herdr 尚未接入共享的 `responseAnchor`、`subscribeInvalidation`、失效关闭及最小仅响应
-上下文，不能直接充当现行 transport 的完整 adapter。宿主原 attempt 回收后仍需补齐
-这些接口及事务接线，不能从保留状态反例推导生产 metadata-only 已可用。
+可复用检查入口：
 
-`ping` 足以核对存活和版本，不能提供当前 session 状态。`session.snapshot` 经过公共
-请求前置的待处理终端标题同步，可能更新标题缓存并发布 pane 元数据事件；它不是
-冻结状态读取。只测静态 pane、合成输出和并发重命名，不证明活动 UI、真实 agent
-或通知路径无副作用，不能据此默认给 observer 开放。生产允许集继续为空。
+```sh
+bun run typecheck
+bun run build
+bun run smoke
+bun run comments:check
+bun test ./test/connector/herdr ./test/mcp/runtime.test.ts
+python3 -B scripts/herdr/audit_methods.py --source-tree /absolute/path/to/pinned-herdr-source
+```
+
+静态方法矩阵可由固定官方源码和现有 `build()/audit()`确定性重建；policy 没有整文件生成器。
+矩阵、policy 与[启动输入](../test/fixtures/herdr/0.9.5/agent-startup.json)、
+[工作流输入](../test/fixtures/herdr/0.9.5/workflow.json)均已在库，用于静态/合成回归、离线结构校验和回放。
+输入中的 capture、native 或 Store-verified provenance 声明尚未经独立原生验收，不能据此报告
+真实管理、模型请求或同会话多轮成功。固定协议来源、摘要与许可证见
+[provenance](../test/fixtures/herdr/0.9.5/provenance.json)和[许可证说明](../test/fixtures/herdr/0.9.5/LICENSE)。
+独立原生与模型验收仍需在自有实例另行实测。
+`scripts/herdr/verify-runtime.ts`只在显式提供自有 binary 和新报告路径时验收管理工作流；
+可选 Agent/模型验收还需明确的 OpenCode binary、私有配置和 model，不继承用户凭据。
+启动或 `interactive_ready`不证明模型调用；同会话两轮须独立关联 user/assistant 消息与回答。
+局部组件、注释套件或构建通过均不能替代完整测试和实际宿主验收。
 
 ## 实现范围
 
@@ -342,4 +382,4 @@ Store/Router 已提供 provider/binding、固定原文期限、持久 history、
 文件、真实 SQLITE_FULL 与异常退出，不触及真实库。WSS/loopback 模块与独立宿主接线见
 [通道接线](TRANSPORT.md)，测试证书另需 Linux `/usr/bin/openssl`。生产持久身份服务、跨平台存储和重启后的原生
 响应上下文恢复仍待接线；unknown 不重放，取消不代表回滚，逻辑删除不保证物理擦除。
-Herdr 未通过独立 P0-H，仍不可执行。
+Herdr 普通 RPC 模块的实现范围与剩余原生、CLI/HTTP MCP、同会话两轮及跨平台验收分别记录，不以模块通过宣称产品已完整接入。

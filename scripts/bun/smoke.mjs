@@ -32,7 +32,64 @@ assert.equal(typeof transport.createDeviceLifecycleAdapter, 'function')
 // Herdr 产物复用共享 Wire 错误身份；导入本身不启动或连接原生实例。
 const herdr = await import('../../dist/src/connector/herdr/readonly.js')
 assert.equal(typeof herdr.createHerdrReadonlyAdapter, 'function')
-assert.deepEqual(herdr.HERDR_READONLY_REVIEW.methods, ['ping'])
+assert.equal(typeof herdr.persistentHerdrBackend, 'function')
+assert.equal(typeof herdr.commitHerdrResponse, 'function')
+const herdrCompiler = await import('../../dist/src/connector/herdr/compiler-api.js')
+const herdrInstallation = await import('../../dist/src/connector/herdr/installation.js')
+const herdrRuntime = await import('../../dist/src/connector/herdr/runtime.js')
+const herdrDiscovery = await import('../../dist/src/connector/herdr/discovery.js')
+const herdrProvider = await import('../../dist/src/connector/herdr/provider.js')
+const runtimeMcp = await import('../../dist/src/mcp/runtime.js')
+const providerRuntime = await import('../../dist/src/runtime/index.js')
+assert.equal(typeof herdrCompiler.compileHerdrSchemas, 'function')
+assert.equal(typeof herdrCompiler.isCompiledHerdrSchemas, 'function')
+assert.equal(typeof herdrInstallation.HerdrInstallation, 'function')
+assert.equal(typeof herdrRuntime.createHerdrRuntime, 'function')
+assert.equal(typeof herdrDiscovery.describeHerdrParams, 'function')
+assert.equal(typeof herdrDiscovery.describeHerdrTarget, 'function')
+assert.equal(typeof herdrDiscovery.describeHerdrContract, 'function')
+assert.equal(typeof herdrProvider.parseHerdrProviderRefConfig, 'function')
+assert.equal(typeof herdrProvider.readHerdrProviderRefConfig, 'function')
+assert.equal(typeof herdrProvider.createHerdrGatewayResources, 'function')
+assert.equal(typeof herdrProvider.createHerdrConnectorResources, 'function')
+assert.equal(typeof runtimeMcp.createRuntimeMcpServer, 'function')
+assert.equal(typeof providerRuntime.createProviderGatewayRuntime, 'function')
+assert.equal(typeof providerRuntime.createProviderConnectorRuntime, 'function')
+assert.equal(typeof providerRuntime.createConnectorAdmissionLedger, 'function')
+assert.equal(typeof providerRuntime.createProviderResultAccess, 'function')
+// 官方 schema 在产物内通过固定 Worker 编译；这些离线值不构造真实安装或原生身份。
+await assert.rejects(herdrCompiler.compileHerdrSchemas('{}'), /herdr_schema_schema_digest_mismatch/u)
+const herdrSchemaBytes = readFileSync(new URL('../../test/fixtures/herdr/0.9.5/schema.json', import.meta.url))
+const herdrSchemaDocument = JSON.parse(herdrSchemaBytes.toString('utf8'))
+const herdrWorkflowBranches = herdrSchemaDocument.schemas.request.oneOf.filter(
+  /** 完整原生工作流按官方方法族核对，不能只保留早期 ping/metadata 两项。 */ (branch) => {
+    const method = branch.properties.method.const
+    return ['ping', 'session.snapshot'].includes(method) || /^(?:workspace|tab|pane|agent)\./u.test(method)
+  }
+)
+assert.deepEqual(
+  herdr.HERDR_READONLY_REVIEW.methods,
+  herdrWorkflowBranches.map(/** 使用固定 schema 的原始顺序。 */ (branch) => branch.properties.method.const)
+)
+for (const branch of herdrWorkflowBranches) {
+  const described = herdrDiscovery.describeHerdrParams(herdrSchemaDocument, branch.properties.method.const)
+  assert.equal(described.$schema, herdrSchemaDocument.$schema)
+  assert.equal(described.$ref, branch.properties.params.$ref.replace('#/schemas/request/$defs/', '#/$defs/'))
+  assert(Object.hasOwn(described.$defs, described.$ref.slice('#/$defs/'.length)))
+  assert(!JSON.stringify(described).includes('#/schemas/request/'))
+}
+assert.deepEqual(herdrSchemaDocument, JSON.parse(herdrSchemaBytes.toString('utf8')))
+const herdrSchemas = await herdrCompiler.compileHerdrSchemas(herdrSchemaBytes)
+assert(herdrCompiler.isCompiledHerdrSchemas(herdrSchemas))
+assert(!herdrCompiler.isCompiledHerdrSchemas({ ...herdrSchemas }))
+for (const exchange of JSON.parse(
+  readFileSync(new URL('../../test/fixtures/herdr/0.9.5/readonly.json', import.meta.url), 'utf8')
+)) {
+  assert.equal(herdrSchemas.request(exchange.request), true)
+  assert.equal(herdrSchemas.response(exchange.response), true)
+}
+assert.equal(herdrSchemas.request({ id: 'built', method: 'future.method', params: {} }), false)
+assert.equal(herdrSchemas.response({ id: 'built', result: {} }), false)
 assert.throws(
   /** 用未受信来源触发产物错误，核对跨入口共享 GatewayError 身份。 */
   () => herdr.createHerdrCodec({}, {}),
@@ -43,6 +100,8 @@ assert.equal(typeof webui.mountWebUi, 'function')
 assert.equal(typeof webui.createManagementHttpRead, 'function')
 const admin = await import('../../dist/src/admin/index.js')
 assert.equal(typeof admin.startManagementReadListener, 'function')
+assert.equal(typeof admin.StoreManagementWriteService, 'function')
+assert.equal(typeof admin.createManagementHandler, 'function')
 assert.throws(
   /** 产物没有默认身份，缺少可信会话适配器时不能开端口。 */
   () => admin.startManagementReadListener({ service: { /** 未配置认证时此服务不应被调用。 */ execute() {} }, port: 0 }),
@@ -373,6 +432,8 @@ try {
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }
+const update = await import('../../dist/src/update/index.js')
+assert.equal(typeof update.handleUpdateCommand, 'function')
 const service = await import('../../dist/src/service/index.js')
 assert.equal(typeof service.createNativeServiceBackend, 'function')
 assert.equal(service.parseServiceCommand(['gateway', '--config', '/untouched'], 'linux'), undefined)
@@ -382,5 +443,5 @@ assert.deepEqual(service.parseServiceCommand(['service', 'stop', '--role', 'conn
 })
 
 console.log(
-  'Built ESM foundation/native/wire/integration, 29 schema documents, native error, v2 boundaries SQLite reopen and service seam: pass'
+  `Built ESM foundation/native/wire/integration/Herdr runtime, 29 UHP documents, ${herdrWorkflowBranches.length} Herdr methods with original roots/description closures, generic runtime/MCP imports, v2 boundaries, SQLite reopen and service/update/admin seams: pass`
 )

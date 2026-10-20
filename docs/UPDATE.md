@@ -1,6 +1,6 @@
 # 自更新模块与接线边界
 
-`src/update/index.ts` 提供版本检查、受限下载和隔离暂存模块。
+`src/update/index.ts` 提供版本检查、受限下载、隔离暂存、受控 POSIX 原子更新事务和 Windows 固定 helper 事务接缝。
 `handleUpdateCommand(args, host)` 供唯一 CLI 调用：返回数字为该命令退出码，
 `undefined` 表示交还原 parser。宿主传入原 CLI 的版本常量、运行平台、libc 证明、`fetch` 和 stderr writer。Linux 必须明确传入 `libc: glibc`；可由受信 Bun `process.report.getReport().header.glibcVersionRuntime` 证明，缺失或 musl 拒绝，不能读环境变量猜测。
 检查不读取安装路径、配置、数据库或 service 注册，不调用文件系统或执行器。
@@ -14,17 +14,22 @@
 | `update --check` | 只读官方最新稳定 Release、manifest 与有界 tag 提交元数据，报告 current、target、status；不下载二进制、不写文件 |
 | `update`，相同版本 | `up_to_date`，退出 0，不下载 |
 | `update`，当前新于官方版本 | `newer_than_release`，退出 0，不降级、不下载 |
-| `update`，存在新版本 | 先报告版本；返回 `replacement_unavailable` / 5，不下载、不替换、不停服务 |
+| `update`，存在新版本且配置 `PosixUpdater` | 核验安装与最新资产，下载/验证候选，静止已登记角色，原子替换并验证恢复；全部完成退出 0 |
+| `update`，Windows 且配置 `WindowsUpdater` | 父端准备固定 helper，返回 `handoff_pending` / 4 与回执路径后退出；最终结果由 helper 实际退出码和持久回执确认 |
+| `update`，缺事务宿主或 Windows helper | 先报告版本；返回 `replacement_unavailable` / 5，不下载、不替换、不停服务 |
 | `update --help` | 离线显示该接缝的用法和阻断边界 |
 | URL、路径、force、脚本、其它参数 | `invalid_arguments` / 2，不请求网络 |
 
 唯一 CLI 已接入上述命令；帮助离线，检查使用构建版本、实际平台和受信运行时 libc 报告。
 当前预发行版本沿用规范 SemVer 比较，目标仍只接纳官方稳定发行。状态和固定错误仅写 stderr。
-原地替换尚未实现，下载或暂存成功不能作为升级完成的结果。
-缺少下文 service/runtime 事务前，`update` 的可用新版本路径始终返回非零。
+POSIX 事务由 `createPosixUpdater({ executable, services, verifyRoleReady? })` 绑定已验证的安装路径和既有 `ServiceManager`，通过 `host.posixUpdater` 注入该唯一接缝；不接受裸 apply 回调或 argv 替换路径。
+源代码 Bun 的 `process.execPath` 不能代表 Rovloom 安装；原程序必须通过固定产品版本探针。Windows helper 未配置时保持拒绝。下载或暂存成功不能作为升级完成的结果。
+默认入口尚未装配可信安装、服务管理器和真实角色业务就绪探针，存在新版本时仍返回 `replacement_unavailable` / 5；不会自动把 Bun 路径或 supervisor running 当作证明。
+注入的现行事务保留 `settled()`、后台补偿及原服务恢复语义，CLI 取消同时传给网络和事务等待；返回非零不能作为底层 I/O 已结束的证明。
 
 退出码：0 完成检查或明确无更新；1 未分类宿主错误；2 参数/当前版本/平台错误；
-3 网络/超时/元数据/大小/摘要错误；4 暂存权限/命名空间/锁/文件失败或 `staging_io_pending`；5 缺安全替换宿主。
+3 网络/元数据/大小/摘要/候选验证错误；4 权限、命名空间、锁、文件、清理或逻辑 I/O 等待失败；5 缺必要宿主/平台设施；6 已验证回滚到原版本和原服务运行态；7 恢复未能完成，旧版、记录与锁受到保护。
+`update_io_pending` / 4 只表示调用方停止等待；真实事务可能在后台补偿或完成已提交清理，不能据此假定取消或失败已经完成。
 原始响应、底层异常、签名 URL、用户路径和 argv 不进入公开错误信息。
 
 ## 发行资产契约
@@ -83,55 +88,96 @@ sink 签名为 `(chunk, signal) => Promise<void>`，取消会传播到该 signal
   永久 pending 时后台清理与锁释放没有有限完成保证；进程崩溃后也不自动清旧锁。这是有界逻辑返回与隔离保证，不是 OS I/O 强退保证，不得凭超时/PID/锁年龄手动假定已静止。
 - macOS/Windows 缺有效 ACL 证明接口，原生暂存明确拒绝；这些平台的内存下载与计划处理不等于写盘或替换能力。
 
-文件系统通过注入端口提供，适配器必须保留短写、权限及清理失败语义。暂存锁只控制该暂存事务；
-本模块没有安装路径定位、chmod/chown/ACL 修改、sudo、可执行文件 rename 或服务操作。
+文件系统通过注入端口提供，适配器必须保留短写、权限及清理失败语义。此独立暂存锁只控制暂存事务；安装替换和服务协调由以下 POSIX 状态机负责。
 
-## 更新事务与 service/runtime 接口
+## POSIX 原子更新事务
 
-现有 service 后端按角色控制生命周期，跨角色更新事务尚未接入。
-原地替换需要以下事务保证，不能用 `uninstall` 代替停止会话或重建系统服务后端：
+`PosixUpdater` 只支持当前本机 OS/arch，Linux 还需运行时 glibc 证明。可信宿主选定安装路径与既有服务管理器；存在原本运行的角色时，必须提供 `verifyRoleReady(spec, expectedVersion, signal)`，缺失时在停止或下载候选前拒绝。
+业务探针必须证明该指定版本的实际角色就绪，不能以 supervisor running、固定 true 或版本字符串替代。
 
-1. **全局更新租约与已注册角色快照**：按可信安装身份取得安装级锁，同时与 gateway/connector 的注册操作互斥；
-   核对每个角色的可执行路径、配置、账户、状态、bootEnabled 与 controlRetained。
-   查询失败或同名异物不能视为无服务。固定 root、权限、运行时产品身份必须由宿主证明。
-2. **停止与恢复会话**：只停止快照中使用该 binary 且原本运行的本项目实例，等待有界、可靠的静止证明；
-   不按名字或任意 PID 杀进程。恢复精确的原角色与 boot/control 状态，失败保留恢复证据。
-   不调用 install/uninstall 清空注册，不改配置、数据库、凭据、日志或任何用户数据。
-3. **POSIX 替换事务**：验证真实可执行路径和全部祖先的所有权/权限/有效 ACL，明确处理符号链接，
-   同文件系统私有暂存、原 mode/UID/GID 保持、可恢复旧版本、原子替换与目录持久化。
-   先验证目标二进制的产品/版本/平台，再验证恢复后业务就绪，之后才允许清理旧版本。
-   每一步失败必须回滚或明确报告未恢复状态；权限不足报错，不自动提权或修改 ACL。
-4. **Windows 受控退出后替换宿主**：使用随产品审查的固定 helper/原生实现及可验证进程身份，
-   等待当前 exe 句柄释放后执行受限文件事务，保留旧版、有效 ACL 和可恢复状态；
-   新版验证失败恢复旧版及原服务。不能执行下载脚本、临时任意 PowerShell、按进程名/任意 PID 杀进程。
-   主 CLI 进程何时返回成功、helper 如何报告失败/中断，必须有持久且可核验的交付协议。
+### 安装边界
 
-在这些端口和实机验收完成前，不能添加一个不检查上述事实的 `apply()` 回调来放行产品 `update`。
+- 拒绝非规范绝对路径、控制字符、任意符号链接、额外硬链接、非当前 UID 持有的目标、组/其它用户可写文件及 setuid/setgid/sticky 特殊模式。
+- 校验叶文件与全部祖先的真实路径和权限，信任 root、文件系统根拥有者及当前 UID；共享可写祖先只允许管理员拥有的 sticky 目录。具有这些身份的恶意程序及不遵守锁的外部管理员不在隔离假设内，检测到其变更后仍不盲目覆盖。
+- Linux 使用固定 `/bin/ls` 的 GNU 权限标记和 `/usr/sbin/getcap`，拒绝扩展 ACL、安全 context、能力等无法保持的叶访问元数据；工具缺失或查询失败明确非零，不安装依赖、不 sudo、不降低验证。
+- macOS 复用 service 的完整祖先 ACL 检查；祖先 xattr 保持原样，需替换的叶文件带未知 xattr 时拒绝。不会修改既有 ACL。
+- 原程序和候选均须为对应架构的 ELF64 或薄 Mach-O64；不执行 shebang/脚本。固定 `--version` 必须退出 0、stdout 为空、stderr 恰为 `Rovloom <version>\n`。
+- 持有原程序和父目录句柄，以无损 inode/dev、UID/GID、mode、大小和 SHA256 核对身份；候选只设置为与原文件完全相同的 UID/GID/mode。每次破坏性替换前重新检查旧身份与访问边界。
 
-### 最小事务接口
+GNU 扩展访问标记的语义依据 [GNU ls 文档](https://www.gnu.org/software/coreutils/manual/coreutils.html#What-information-is-listed)；无法识别的标记不能被忽略。
 
-下表定义更新事务需要的 service/runtime 端口及其职责。这些端口尚未实现，检查、下载和暂存模块不代表完整原地更新能力。
+### 文件与服务状态机
 
-| 所有者 | 最小端口 | 必须提供的事实 |
+1. 下载前和下载后、停止服务前分别重新核对官方最新稳定发行与所选 tag/commit/资产，拒绝缓存或篡改的计划。
+2. 在同盘父目录独占创建固定安装锁，配合 `ServiceManager.withBinaryUpdate` 同时取得 gateway、connector 原角色锁。所有正常 install/uninstall/start/stop/restart 都与该范围互斥；只处理指向本安装的已登记角色。
+3. 在私有 0700 事务目录中创建 0600 候选，验证原生头并通过持有句柄独立校验实际落盘大小/SHA256，通过后才执行产品版本检查；网络流摘要不能代替落盘摘要。保留旧程序硬链接 `previous`。恢复记录、事务目录及其父目录入口 fsync 完成后才允许停止或 rename。
+4. 保持声明、自启、账户、配置和数据引用不变，复用受控后端停止角色并重新确认 PID/Job 静止。未识别注册或 starting/stopping/failed 初态拒绝；macOS 已加载但停止的 job，以及撤自启后仍在运行的 job，均无法等价恢复，亦在变更前拒绝。更新不通过偷偷 enable 绕过 disabled override。
+5. 对旧句柄/路径、父目录和备份重新核验，在同一文件系统以 rename 原子替换并 fsync 父目录。只恢复原本运行的角色；保留原 boot/control 状态，分别验证监管稳定和指定版本的业务就绪。全部业务探针结束后再次核对每个原角色的运行/停止状态，探针后退出也会失败并进入回滚。
+6. 最终产品版本和所有恢复证明通过、提交记录持久化后，才清理旧版、候选和记录，并精确释放自有 inode 的锁。清理失败仍非零，不能把已下载或已换文件当作完整成功。
+
+角色恢复、候选或替换失败时，先使可能运行的新版角色静止，核对目标仍是已知原/候选 inode，再用旧版备份原子回滚、fsync、验证原版本并恢复原运行意图；成功回滚退出 6。
+外部未知 inode 不会被覆盖。恢复失败退出 7，并保留旧版、恢复记录、安装锁和两个角色锁；真实 I/O 静止后显式关闭句柄，持久锁文件继续阻止误启动和并发注册。恢复保护错误不能被内层 close/lstat 清理错误覆盖，必须传到外层角色锁，使两个角色均保持阻断。
+
+记录包含 phase、安装身份、旧/新版本、候选身份及原角色快照，只含配置和账户引用、不复制配置内容；文件为 0600，父目录为 0700。
+阶段包括 backing_up、prepared、quiescing、quiesced、replacing、replaced、restoring、committed、rolling_back、rolled_back 和 recovery_required。
+进程崩溃或未知旧锁不会通过 PID、年龄或进程名被自动清除；跨进程的自动崩溃恢复入口尚未提供，必须先独立证明旧副作用静止及记录/备份完整，不能盲目删锁。
+
+### 期限与后台所有权
+
+调用方逻辑总等待至多 180 秒，可由 `timeoutMs` 收紧；网络、consumer 和系统命令仍有各自更短期限。取消信号只阻止向前推进，回滚和原服务恢复使用独立安全路径。
+`update_io_pending` / 4 返回后，真实事务仍受强所有权保护，安装和角色锁不会随 Promise 等待结束或垃圾回收而释放；只有真实 I/O 结算后才能补偿和清理。
+`updater.settled()` 只观察已启动事务何时真正退出，不能强制解锁；永久 pending 没有有限物理完成保证。已进入持久恢复保护的事务通过锁文件保留阻断，不依赖泄漏的句柄保持互斥。
+
+## 服务与运行时接口
+
+| 组件 | 端口 | 职责 |
 | --- | --- | --- |
-| service | `beginInstallationUpdate(verifiedInstallation, signal) -> lease` | 与该安装两个角色的注册和全部 lifecycle 操作互斥；opaque lease 与不可变原始角色快照，含 config/account 引用、运行态、bootEnabled、controlRetained |
-| service lease | `quiesce(signal) -> receipt` | 仅停止快照中原本运行且使用该 binary 的本项目实例；可靠静止证明，无任意 PID/进程名输入 |
-| service lease | `restoreOriginalState(verifiedBinary, signal) -> health` | 恢复原本运行的角色并核验版本/业务就绪；原 boot/control/config 状态保留，恢复失败保留可恢复记录 |
-| service lease | `finish(committed | rolled_back)` | 只有旧/新版状态已核验才结束事务；未恢复或未静止时保留保护，不把注销注册当解锁 |
-| runtime | `inspectInstallation(execPath) -> verifiedInstallation` | 真实文件身份、OS/arch/libc、路径/所有权/有效 ACL/符号链接策略及受保护状态根；不从不可信配置自报 |
-| runtime | `verifyCandidate(path, expectedIdentity, signal) -> verifiedBinary` | 固定维护的产品版本/平台/启动探针，不能接受远端命令、脚本或 URL；逻辑取消和真实静止分别证明 |
+| service | `withBinaryUpdate(executable, operation)` | 固定顺序同时取两个既有角色锁，冻结匹配本安装的 spec、运行态与 boot/control 状态；作用域外的 session 无效 |
+| session | `quiesce()` / `assertQuiescent()` | 不注销或 enable/disable，复用既有后端停止本项目角色并逐次核验静止及原声明 |
+| session | `restore(version, ready, signal?)` | 只恢复原本运行的角色，尝试恢复全部匹配角色，再汇总失败；分别核验监管与业务就绪 |
+| runtime | `verifyRoleReady(spec, version, signal)` | 证明指定版本的真实角色就绪；Promise 静止前不得遗留未声明的副作用 |
 
-### 平台替换约束
+`service install/uninstall` 仍只控制未来开机启动；更新不调用这两个操作清空或重建注册。
+配置、数据库、凭据、日志和用户数据不属于事务删除或替换范围。
 
-POSIX 替换器必须在上述租约下验证目标路径、有效 ACL 和符号链接策略，使用同文件系统私有候选，保留可恢复旧版，完成原子替换、目录持久化和失败回滚。
-候选验证与原角色恢复就绪均通过后，才允许清理旧版。每个阶段都必须能处理失败、进程中断与并发注册；Linux 与 macOS 分别需要实机验收。
+## Windows 固定 helper 事务
 
-Windows helper 必须随产品构建并受固定入口控制，通过受保护事务 ID、IPC/句柄与已验证主进程身份交付，不接受任意 PID。
-它须在运行 exe 句柄释放后执行受限文件事务，并持久报告成功、回滚或未恢复状态。
-exe 占用、有效 ACL、中断/断电恢复及原服务状态恢复均属于该平台的验收条件，不能用下载脚本或任意 PowerShell 代替。
+`createWindowsUpdater({ executable })` 只接受可信宿主选定的安装；执行时必须与内核报告的当前映像逐字相同。
+唯一 CLI 在普通 parser 和角色启动之前调用 `handleWindowsUpdateHelperCommand(args, host)`，不匹配时返回 `undefined`；仅匹配固定隐藏命令且参数数量正确时才读取继承 stdin。该接缝不是第二 CLI，不接受路径、PID、URL、脚本或自定义 helper 参数。
+helper host 提供既有 `ServiceManager`、官方网络适配器、真正的 `verifyRoleReady(spec, version, signal)` 和 stdin/stdout/诊断流。构造 manager 应无副作用；原生后端仍要求管理员权限、预先存在且受保护的 ServiceControl 目录及既有安装/运行时验证器，缺失时明确非零，不创建或修复 ACL。
+未配置 `windowsUpdater` 的产品命令继续返回 5。接缝实现和隔离样例通过不代表唯一产品入口或真实 Task Scheduler 已验收。
 
-## 能力边界
+### 父退出与结果语义
 
-原地替换、服务状态恢复与 Windows helper 尚未实现；存在新版本时，命令接缝返回 `replacement_unavailable` / 5。
-该模块不修改安装 binary、服务注册、配置、数据库或用户数据，不自动提权或修改 ACL。
-纯逻辑、注入模型及打包/Worker 探针不能证明真实平台的替换、回滚、所有权保留或服务恢复就绪。
+1. 父端先核验原生 PE、当前严格版本和原文件卷/ID/大小/SHA256/owner/group/DACL。在已核验父目录下新建私有事务目录，复制当前已安装程序为固定 `helper.exe` 并重新核验字节和权限；不会执行尚未验证的下载载荷。
+2. 封存官方稳定版计划、父映像/出生时间、原文件身份及私有目录卷/ID/安全摘要。一次性 secret 只通过自有 stdin 交付，不进 argv、日志或持久 journal。本地 HMAC 只绑定本次 IPC 字节，不认证 GitHub 发行者。
+3. helper 以 detached 子进程启动，自行从内核派生直接父对象并持有 QUERY_LIMITED_INFORMATION | SYNCHRONIZE 句柄；核对自身映像/字节和封存目录身份。固定安装锁由 helper 独占创建，既有 gateway、connector 锁也由同一 helper 固定顺序取得并持有到补偿结束，不转交锁或按 PID/锁年龄清锁。
+4. helper 在持锁范围重新查询官方发行，下载自有候选、核对真实落盘大小/SHA256/PE/严格版本及最新发行，写入 prepared journal/回执后，才用本次 MAC 返回 ready。父端关闭其目录能力并写入固定 commit，报告 `handoff_pending` / 4、事务 ID、回执路径后退出；这个非零结果不是“更新成功”。
+5. commit、stdin EOF、父端逻辑 exit 事件都不能授予替换许可。helper 最多等待内核父对象退出 30 秒，成功后再次复核最新发行、原文件和候选，才停止原角色并进入文件替换。安装、角色声明、自启、账户、配置和数据引用保持原样。
+
+最终回执是私有事务目录内的 `receipt.json`，含 schemaVersion、transactionId、jobSha256、sequence、state、固定 code 与 exitCode。回执只能表示最后一次成功持久化的状态；若之后清理或回写失败，可能仍保留较早的回执，helper 的非零退出/诊断优先，不能仅凭旧回执断言它已经退出。中间态 exitCode 为 null，不能据此报告完成；`windowsReceiptExit` 对未验证替换态返回 7，其它待完成态返回 4。
+
+| 最终状态 | helper 实际退出码 | 含义 |
+| --- | --- | --- |
+| updated | 0 | 文件、版本、原运行意图及真实角色就绪均已验证 |
+| rolled_back | 6 | 已验证恢复旧文件、旧版本与原运行意图 |
+| recovery_required | 7 | 未知目标或恢复失败；保留旧版、journal、安装锁与两个角色锁 |
+| aborted | 1–5 | 替换前拒绝或失败；回执保存具体退出类别，不把通用待完成码冒充最终码 |
+| cleanup_required | 4 | 已验证文件结果后仍存在清理问题，不能报告完整成功 |
+
+### 文件、服务与失败边界
+
+- 仅支持固定本机 NTFS 卷；拒绝 reparse、额外硬链接、所有 ADS（包括下载来源标记）、未知属性、不可信写权限和非对应架构 PE。持有祖先目录句柄；不修改既有安装或目录 ACL，不提权或回退 shell 下载脚本。
+- 候选先复制原文件，其 owner/group/DACL 的严格摘要必须完全相同；再独占打开这个已知对象，仅截断/写入自有候选默认流。同步短写循环与 flush/close 完成后，独立重开核对实际大小、摘要、原生头和权限，通过后才执行候选 `--version`。
+- 不使用会合并 ACE 的 ReplaceFileW，不忽略继承标志或新增显式 ACE。固定 preserve/install/reject/restore 仅使用同盘 MoveFileExW，拒绝覆盖、跨卷复制及重启延迟；每步前持久记录阶段。两个移动之间目标路径暂缺，不具备 POSIX 单次 rename 的原子可见性，也不宣称断电恢复。
+- 复用 `withBinaryUpdate` 的快照、quiesce、assertQuiescent 和 restore。只恢复原本运行的角色，分开验证监管稳定与指定版本业务就绪，并在全部探针后重新检查原运行/停止状态；不调用 install/uninstall 或 enable/remove。
+- 新版健康或文件步骤失败时，即使回滚记录写入失败也先尽力使每个可能运行的新版角色静止；单个角色停止失败不能跳过其它角色。记录写失败后不继续未记录的文件移动，保留恢复保护。随后再核对已知原/候选文件 ID、字节和权限，拒绝覆盖未知目标。已知候选移到 rejected，原 previous 移回原路径并验证旧版本和原角色；无法证明时保留恢复保护并退出 7。
+- 总前进期限 180 秒；取消或逻辑超时不证明底层 syscall/回调已静止。helper 维持真实事务所有权，不因事件循环暂空以默认零退出；原生操作/探针未结算时，不能提前解锁。安全回滚用独立路径，不受前进取消中断。
+- 成功或已验证回滚后释放自有安装/角色锁，保留本次目录中的备份、helper、journal 和最终回执。尚未实现自动修剪及跨进程崩溃恢复；未知残留锁不自动回收。保留记录不是配置/数据库副本，不删除用户数据。
+
+### 验收范围
+
+Windows x64/arm64 的自有临时 PE 验收覆盖实际父仍存活时不替换、内核父退出后替换、真实新旧版本进程、两角色恢复模型、健康失败回滚、未知目标保留旧版与全部锁，以及严格 owner/group/DACL、文件 ID、回执与实际 helper 退出码 0/6/7。测试只读打开自己启动的 helper，核对其映像/出生时间并等内核对象真正退出后才清理目录，不杀进程、不放宽清理重试。
+
+Task Scheduler 监管、角色声明和 boot 状态在该样例中仍是模型；实际角色子进程、文件、父退出及 helper 退出码是原生验收。真实 Task Scheduler 生命周期、任意安装 ACL、SACL、断电/崩溃后恢复与唯一产品 CLI 接线尚未验收。SACL 不属于当前严格摘要的认证范围，不能据此宣称支持任意 Windows 安装；生产接线前须完成这些安装元数据及系统服务边界的验收。
+Linux 上的模型、单文件打包与 Worker 探针不能代替以上原生验收；POSIX 的真实 systemd/launchd 生命周期亦尚未验收。

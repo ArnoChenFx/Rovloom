@@ -6,6 +6,20 @@ import type {
   OriginalReadResolver,
   WireConnectorOptions
 } from '../../src/transport/index.js'
+import type { RuntimeCliConnectorResources } from '../../src/cli/index.js'
+
+// 正式来源交付真实原生/凭据端口，不能在资源声明里另设出站URL。
+export function runtimeResourceTypeChecks(resources: RuntimeCliConnectorResources) {
+  const conflicting: RuntimeCliConnectorResources = {
+    ...resources,
+    transport: {
+      ...resources.transport,
+      // @ts-expect-error 运行宿主资源不能覆盖唯一角色配置的固定端点。
+      url: 'wss://different.invalid/connector'
+    }
+  }
+  return conflicting
+}
 
 // 只供独立类型检查执行正反契约；运行时不会调用这些宿主或创建任何凭据。
 export function cliTransportTypeChecks(

@@ -14,6 +14,8 @@ export type ManagementHttpOptions = {
   /** 把共享服务的公共失败归类；省略时未知服务异常只返回 unavailable。 */
   publicError?(error: unknown): ManagementHttpProblem
   assets?: ManagementAssets
+  /** 仅初始化现有根HTML；仍受本handler的Origin、取消、五秒截止和在途额度约束。 */
+  initializePage?(request: Request, page: Response, signal: AbortSignal): Promise<Response>
 }
 
 const headers = {
@@ -142,6 +144,20 @@ function context(identity: ManagementHttpIdentity, signal: AbortSignal): AdminCo
   })
 }
 
+/** async边界捕获宿主同步异常，但立即调用初始化器，不改变既有API读取开始执行的时序。 */
+async function initialize(
+  implementation: NonNullable<ManagementHttpOptions['initializePage']>,
+  request: Request,
+  body: Uint8Array<ArrayBuffer>,
+  signal: AbortSignal
+): Promise<Response> {
+  return implementation(
+    request,
+    new Response(body.slice().buffer, { headers: { ...headers, 'content-type': managementAssetType('/')! } }),
+    signal
+  )
+}
+
 /** 配置缺失时先失败，保证 start 包装器还没有打开任何端口。 */
 function prepare(options: ManagementHttpOptions, origin: () => string) {
   if (!options || typeof options.authenticate !== 'function') {
@@ -150,7 +166,8 @@ function prepare(options: ManagementHttpOptions, origin: () => string) {
   if (
     !options.service ||
     typeof options.service.execute !== 'function' ||
-    (options.publicError !== undefined && typeof options.publicError !== 'function')
+    (options.publicError !== undefined && typeof options.publicError !== 'function') ||
+    (options.initializePage !== undefined && typeof options.initializePage !== 'function')
   ) {
     throw new Error('management_service_required')
   }
@@ -233,13 +250,17 @@ function prepare(options: ManagementHttpOptions, origin: () => string) {
     }
     const path = url.pathname + url.search
     const file = files.get(url.pathname)
+    const initializePage =
+      file && !url.search && (url.pathname === '/' || url.pathname === '/index.html') && options.initializePage
     if (file && !url.search) {
-      return new Response(file.slice().buffer, {
-        headers: { ...headers, 'content-type': managementAssetType(url.pathname)! }
-      })
+      if (!initializePage) {
+        return new Response(file.slice().buffer, {
+          headers: { ...headers, 'content-type': managementAssetType(url.pathname)! }
+        })
+      }
     }
     try {
-      if (!parseManagementReadPath(path)) {
+      if (!initializePage && !parseManagementReadPath(path)) {
         return failure('not_found', 404)
       }
     } catch {
@@ -295,7 +316,10 @@ function prepare(options: ManagementHttpOptions, origin: () => string) {
         )
         request.signal.addEventListener('abort', abort, { once: true })
         controller.signal.addEventListener('abort', cancelled, { once: true })
-        void execute(request, controller, path).then(
+        const work = initializePage
+          ? initialize(initializePage, request, file!, controller.signal)
+          : execute(request, controller, path)
+        void work.then(
           /** 真实任务结束才释放额度；已取消时不写回旧响应。 */
           (response) => {
             pending.delete(controller)

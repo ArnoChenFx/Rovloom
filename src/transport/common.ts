@@ -1,11 +1,32 @@
 // 定义通道宿主契约、严格连接地址与帧预算，并提供 provider 健康和有界接收去重。
 import { randomUUID } from 'node:crypto'
 import { boundedJson, fail, hash, id, LIMITS, object, parseJson, validateProvider } from '../wire/index.js'
-import type { AuthenticatedContext, AuthenticatedEnvelope, ProviderBinding, VersionOffer } from '../wire/types.js'
+import type {
+  AuthenticatedContext,
+  AuthenticatedEnvelope,
+  ProviderBinding,
+  ProviderSnapshot,
+  VersionOffer
+} from '../wire/types.js'
 import type { createLuvusWireAdapter } from '../integration/luvus-wire.js'
 
 export type Connection = AuthenticatedContext['connection']
-export type Adapter = ReturnType<typeof createLuvusWireAdapter>
+export type Adapter = Pick<
+  ReturnType<typeof createLuvusWireAdapter>,
+  | 'encode'
+  | 'decode'
+  | 'checkResult'
+  | 'checkResultRetention'
+  | 'encodeResponseObject'
+  | 'acceptChunk'
+  | 'observeMessage'
+  | 'planEvidence'
+  | 'release'
+  | 'close'
+> & {
+  /** 共享桥接只观察关闭及执行/响应上下文计数，不要求 provider 暴露协议专有状态。 */
+  stats(): { closed: boolean; executions: number; responses: number }
+}
 export type Readiness = {
   policy_revision: string
   peer_policy_revision: string
@@ -13,6 +34,10 @@ export type Readiness = {
 }
 export type Session = {
   adapter: Adapter
+  /** Connector 返回稳定、深冻结的每 epoch 快照；getter 只轻量复核真实来源仍活，不重建或刷新 generation。 */
+  providerSnapshot?(): readonly ProviderSnapshot[]
+  /** Gateway 同步接纳当前 session 收到的快照；可信 pin/能力核验和关闭时失效由该 epoch 宿主负责。 */
+  acceptProviderSnapshot?(snapshot: ProviderSnapshot): void
   /** 从受保护宿主取得双端配置与原生健康，不由设备广告生成可信状态。 */
   readiness(): Readiness
   /** 关闭所属传输或会话资源，不宣称原生动作已停止或回滚。 */

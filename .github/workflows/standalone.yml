@@ -39,6 +39,16 @@ jobs:
           target: ${{ matrix.target }}
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Check exact precompiled assets and corruption/provenance regressions
+        run: |
+          bun --no-env-file run native:check
+          bun --no-env-file test ./test/native-contract/precompiled.test.mjs
+      - name: Exercise Windows helper parent exit, replacement, rollback and read-only process binding
+        if: runner.os == 'Windows'
+        run: bun --no-env-file test ./test/update/windows
+      - name: Exercise native POSIX replacement and rollback with private fixture binaries only
+        if: runner.os != 'Windows'
+        run: bun --no-env-file test ./test/update/posix/transaction.test.ts
       - name: Compile and run isolated packaging probe, including omitted-Worker rejection
         run: bun --no-env-file test ./test/release/executable.test.mjs
       - name: Verify actual Windows PE icon and console subsystem

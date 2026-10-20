@@ -1,4 +1,5 @@
 // 校验并编解码 Wire v2 握手、认证消息、原生载荷及有界逻辑对象。
+import { validateAdmissionReceipt } from './admission.js'
 import type {
   AttemptBinding,
   AttemptIdentity,
@@ -7,11 +8,19 @@ import type {
   JsonObject,
   NativeValidationContext,
   RequestGate,
+  ProviderSnapshot,
   WireEnvelope
 } from './types.js'
 import { boundedJson, fields, object, id, uint, sha, text, oneOf, fail, parseJson, LIMITS } from './validation.js'
 import { validateNegotiated, validateOffer, WIRE_MAJOR } from './negotiation.js'
-import { assertProviderAccess, providerFor, validateTarget, validatorFor } from './provider.js'
+import {
+  assertProviderAccess,
+  providerFor,
+  validateContractSource,
+  validateProvider,
+  validateTarget,
+  validatorFor
+} from './provider.js'
 
 const BASE = ['protocol_major', 'protocol_minor', 'type', 'message_id', 'payload']
 const CONNECTION = ['machine_id', 'recovery_generation', 'connection_epoch']
@@ -31,7 +40,9 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   enroll: ['connector_to_gateway'],
   authenticate: ['connector_to_gateway'],
   welcome: ['gateway_to_connector'],
+  provider_snapshot: ['connector_to_gateway'],
   request: ['gateway_to_connector'],
+  admission_receipt: ['gateway_to_connector'],
   accepted: ['connector_to_gateway'],
   response: ['connector_to_gateway'],
   cancel: ['gateway_to_connector'],
@@ -49,6 +60,40 @@ function connection(v: JsonObject): void {
   for (const k of CONNECTION) {
     id(v[k])
   }
+}
+
+/** 只校验单 provider 快照的严格数据形状；静态 pin、真实能力和来源的可信接纳仍由当前宿主完成。 */
+export function validateProviderSnapshot(value: unknown): asserts value is ProviderSnapshot {
+  const snapshot = object(value)
+  fields(snapshot, ['binding', 'target', 'source', 'capabilities', 'capability_revision'])
+  validateProvider(snapshot.binding)
+  validateTarget(snapshot.target)
+  validateContractSource(snapshot.source)
+  const binding = snapshot.binding
+  const target = snapshot.target
+  const source = snapshot.source
+  if (
+    binding.kind !== 'luvus' ||
+    target.profile !== 'session' ||
+    binding.machine_id !== target.machine_id ||
+    binding.provider_id !== target.provider_id
+  ) {
+    fail('provider_snapshot_binding_mismatch')
+  }
+  if (
+    source.provider_kind !== 'luvus' ||
+    source.protocol_family !== 'uhp' ||
+    source.schema_command !== 'luvus uhp schema' ||
+    source.support_basis !== 'live_catalog' ||
+    source.server_version === null ||
+    source.native_protocol_version === null ||
+    source.runtime_generation === null ||
+    source.classification_revision === null
+  ) {
+    fail('provider_snapshot_source_invalid')
+  }
+  boundedJson(object(snapshot.capabilities))
+  sha(snapshot.capability_revision)
 }
 
 // 严格校验调用身份、目标和登记条件，拒绝缺失字段或非法取值。
@@ -440,6 +485,45 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   }
 
   switch (frame.type) {
+    case 'provider_snapshot':
+      capability(context, 'provider_snapshot')
+      validateProviderSnapshot(p)
+      if (p.binding.machine_id !== frame.machine_id) {
+        fail('target_machine_mismatch')
+      }
+      break
+    case 'admission_receipt': {
+      capability(context, 'admission_receipt')
+      fields(p, ['attempt', 'request_sha256', 'dedup_expires_at'], ['context'])
+      const binding = bind(frame, p.attempt)
+      const contextual = context.connection.negotiated.capabilities.includes('admission_context')
+      if (contextual && p.context === undefined) {
+        fail('admission_context_required')
+      }
+      if (!contextual && p.context !== undefined) {
+        fail('unsupported_capability')
+      }
+      const record = {
+        binding,
+        request_sha256: p.request_sha256,
+        dedup_expires_at: p.dedup_expires_at,
+        ...(p.context === undefined ? {} : { context: p.context })
+      }
+      validateAdmissionReceipt(record)
+      // 已提交 fence 必须能封锁已禁用或已删除的 provider；它只收窄能力，不能生成执行许可。
+      if (record.context?.fenced !== true) {
+        providerFor(binding, context)
+      }
+      if (binding.registration.history !== null) {
+        capability(context, 'history_scope')
+      }
+      sha(p.request_sha256)
+      uint(p.dedup_expires_at, true)
+      if (p.dedup_expires_at < binding.registration.deadline) {
+        fail('admission_receipt_deadline_invalid')
+      }
+      break
+    }
     case 'request':
       capability(context, 'rpc')
       validateRequestPayload(frame, p, context, false)

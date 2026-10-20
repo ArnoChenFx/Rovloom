@@ -8,6 +8,7 @@ import { ServiceError } from '../service/types.js'
 import { PRODUCT_VERSION } from '../mcp/version.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import { serviceDiagnostic } from './service-output.js'
+import { readRuntimeConfig, runtimeConfigTemplate } from './runtime-config.js'
 import {
   CLI_ERROR_CODES,
   CliError,
@@ -23,7 +24,9 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom --help
   rovloom --version
   rovloom config template gateway|connector
+  rovloom config template runtime gateway|connector
   rovloom config check --config /absolute/protected/config.json
+  rovloom config check-runtime --config /absolute/protected/config.json
   rovloom gateway [--config /absolute/protected/config.json]
   rovloom connector [--config /absolute/protected/config.json]
   rovloom service --help
@@ -35,8 +38,11 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
 显式 --config 优先。配置缺失返回 config_not_found，无法确定 home 返回 config_home_unavailable。
 配置文件及所在目录须由当前 POSIX 用户持有，权限分别为 0600/0700。
 模板只含非秘密引用；不接受 argv secret、URL 凭据、动态模块或任意 shell RPC。
+check-runtime只核对角色配置与runtime.json结构，不读取凭据或宣称原生Agent就绪。
 Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
-宿主须注入已验证服务与 HTTP 认证；缺后端返回 backend_unavailable，不开放配对或凭据签发命令。
+Linux Gateway从state_dir/runtime.json及refs加载既有caller摘要、TLS和唯一双库；配置不创建账户或凭据。
+Luvus引用交给静态真实工厂：Gateway attach，Connector managed；用户须显式准备原生root与持久文件。
+未链接provider或混合kind会话组合缺失时返回backend_unavailable，不开放凭据签发命令。
 service 操作须注入受信监管宿主；默认配置仅由其已验证身份 resolver 提供，不猜测提权前用户。
 update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
 角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
@@ -70,8 +76,8 @@ export type CliRuntime = {
 export type CliIo = { stdin: Readable; stdout: Writable; stderr: Writable; signal: AbortSignal }
 type Command =
   | { action: 'help' | 'version' }
-  | { action: 'template'; role: 'gateway' | 'connector' }
-  | { action: 'check' | 'gateway' | 'connector'; path: string }
+  | { action: 'template' | 'runtime-template'; role: 'gateway' | 'connector' }
+  | { action: 'check' | 'check-runtime' | 'gateway' | 'connector'; path: string }
 
 // 解析固定命令形状，未知参数只返回稳定错误，不回显 argv。
 export function parseCommand(args: readonly string[], environment?: ConfigPathEnvironment): Command {
@@ -83,6 +89,18 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
   }
   if (args.length === 2 && ['gateway', 'connector'].includes(args[0]!) && args[1] === '--help') {
     return { action: 'help' }
+  }
+  if (
+    args.length === 4 &&
+    args[0] === 'config' &&
+    args[1] === 'template' &&
+    args[2] === 'runtime' &&
+    (args[3] === 'gateway' || args[3] === 'connector')
+  ) {
+    return { action: 'runtime-template', role: args[3] }
+  }
+  if (args.length === 4 && args[0] === 'config' && args[1] === 'check-runtime' && args[2] === '--config') {
+    return { action: 'check-runtime', path: args[3]! }
   }
   if (
     args.length === 3 &&
@@ -181,8 +199,10 @@ export async function runCli(
       io.stderr.write(`Rovloom ${PRODUCT_VERSION}\n`)
       return 0
     }
-    if (command.action === 'template') {
-      io.stdout.write(JSON.stringify(configTemplate(command.role), null, 2) + '\n')
+    if (command.action === 'template' || command.action === 'runtime-template') {
+      const template =
+        command.action === 'template' ? configTemplate(command.role) : runtimeConfigTemplate(command.role)
+      io.stdout.write(JSON.stringify(template, null, 2) + '\n')
       return 0
     }
     if (!('path' in command)) {
@@ -191,6 +211,11 @@ export async function runCli(
     const config = readConfig(command.path)
     if (command.action === 'check') {
       io.stderr.write('config_valid\n')
+      return 0
+    }
+    if (command.action === 'check-runtime') {
+      readRuntimeConfig(config)
+      io.stderr.write('runtime_config_valid\n')
       return 0
     }
     if (config.role !== command.action) {

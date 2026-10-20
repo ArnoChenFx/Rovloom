@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { GatewayError } from '../contracts.js'
 import { WireError } from '../wire/index.js'
 import { LuvusAdapterError } from '../connector/luvus/index.js'
-import type { createGatewayRuntime } from '../runtime/index.js'
+import type { createGatewayRuntime, createProviderGatewayRuntime } from '../runtime/index.js'
 import type { Store } from '../store.js'
 import { StoreGatewayService, type StoreGatewayOptions } from './store-service.js'
 import { isToolName, parseToolArguments } from './schema.js'
@@ -21,7 +21,9 @@ import {
   type ToolName
 } from './types.js'
 
-export type RuntimeGateway = Awaited<ReturnType<typeof createGatewayRuntime>>
+export type RuntimeGateway =
+  | Awaited<ReturnType<typeof createGatewayRuntime>>
+  | Awaited<ReturnType<typeof createProviderGatewayRuntime>>
 export type RuntimeGatewayPort = Pick<
   RuntimeGateway,
   'router' | 'principal' | 'runAuthenticated' | 'admit' | 'get' | 'cancel' | 'results' | 'originalAttempt'
@@ -33,6 +35,7 @@ type Request = { [K in ToolName]: { name: K; args: ToolArguments[K] } }[ToolName
 type Cursor = { caller: string; result: string; offset: number; bytes: number; expires: number }
 const errors: Record<string, ServiceErrorCode> = {
   runtime_closed: 'unavailable',
+  connection_unavailable: 'unavailable',
   provider_binding_mismatch: 'binding_revision_conflict',
   call_not_found: 'not_found',
   result_not_found: 'content_unavailable',
@@ -97,7 +100,18 @@ export class RuntimeGatewayService implements GatewayService {
     const runtime = this.options.runtime
     const call = runtime.get(callId)
     let view = publicCallView(call)
-    const original = call.attempt_id ? runtime.originalAttempt(callId, call.attempt_id) : undefined
+    let original: ReturnType<RuntimeGatewayPort['originalAttempt']>
+    try {
+      original = call.attempt_id ? runtime.originalAttempt(callId, call.attempt_id) : undefined
+    } catch (error) {
+      // 原连接/上下文失效不抹掉调用登记；再次授权后只交付最新元数据，绝不恢复旧许可或正文。
+      await this.reads.execute('runtime_call_get', { call_id: callId }, context)
+      this.current(context)
+      view = publicCallView(runtime.get(callId))
+      view.content_reason_code = publicError(error).code
+      this.current(context)
+      return view
+    }
     view.contract_ref = original?.binding.contract_ref ?? null
     if (call.state === 'responded' && call.content_status === 'available') {
       try {

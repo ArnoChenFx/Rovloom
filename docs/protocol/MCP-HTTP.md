@@ -27,11 +27,22 @@
   CLI拥有MCP listener；宿主不重复创建入口。Connector仍返回closed/close，具体transport由宿主建立。
   stdin EOF及客户端退出不停止持久Gateway；角色终止信号或真实角色closed触发listener及宿主资源清理。
 - `createRuntimeCliRuntime(host)` 消费 `src/runtime/index.ts` 的实际角色工厂。
-  `host.gateway(config)` 交付 `{options: GatewayRuntimeOptions, authentication, catalog?, management?}`；
-  `host.connector(config)` 交付 `ConnectorRuntimeOptions`。工厂复用原Store/Router、原子admit、
+  `host.gateway(config)` 交付 `RuntimeCliGatewayResources`，即
+  `{options: GatewayRuntimeOptions, authentication, catalog?, management?, started?}`；`started`只绑定该唯一runtime的身份提交通知。
+  `host.connector(config)`交付Luvus的`RuntimeCliConnectorResources`，或`kind: 'provider'`的
+  `RuntimeCliProviderResources`给PR71中性宿主；保留原session/release，transport省略url。
+  CLI从所选gateway_url固定`/connector`；结构类型旧资源若夹带不同url，在连接或凭据读取前拒绝并release。
+  工厂复用原Store/Router、原子admit、
   显式cancel及results.open/read/discard，不复制runtime或凭据/原生来源实现。
   `RuntimeGatewayService` 将每次MCP请求置于runtime.runAuthenticated的当前caller作用域；
   call/get只返回同次已授权元数据及可用的真实结果句柄，结果页逐次通过原Wire读取/保留门禁。
+  Luvus Connector资源的provider_snapshot声明穿过production/runtime两层CLI交给原角色工厂，
+  由runtime协商并交付原generation的实际快照；未声明的资源不添加该能力。
+  远端Luvus的16KiB配置可用`contract.schema_bundle_ref`选择同一角色`refs/<ref>.json`中的
+  受保护原始schema（原2MiB bundle预算）；CLI只把UTF-8原字节交给现有工厂校验固定pin。
+  该字段与`schema_bundle`互斥，拒绝路径/URL，解码不剥BOM、不修改schema或其摘要。
+  原attempt查询失败时，重新授权后只返回最新调用元数据和content_reason_code，不恢复旧Wire或正文；
+  错误回调中的同步撤权也必须拒绝交付调用ID。
   结果cursor绑定caller、result_id、max_bytes及固定期限；不接受客户端任意字节偏移。
   close入口同步封锁新MCP请求，再关闭管理listener、设备通道和资源；已经送达native的工作可能继续。
 - `createTransportCliRuntime(host)` 复用已合入的 `createGateway/createConnector`，不实现第二套通道。
@@ -47,7 +58,10 @@
   Connector 宿主交付受保护凭据及逐 epoch 会话；支持原生 JSON 回调或实际 executeWire hook 的互斥
   transport 类型，工厂不剥原帧或重注入 auth，固定使用 WSS origin 的 `/connector` 端点。
   两角色关闭均先停止实际 transport 再释放宿主资源，重复关闭共用同一 Promise；启动失败也清理。
-  缺少角色宿主不会创建默认身份、设备或 native 服务，独立 `main.ts` 尚未装配生产宿主。
+  独立 `main.ts`按需加载[生产资源加载器](../../src/cli/production.ts)，从固定私有文件绑定实际
+  `openGatewayState`、TLS、caller摘要及PR71管理authority。缺少角色来源不会创建默认身份、设备或native服务。
+  原生opaque实例及跨进程来源仍由静态链接的受信resolver负责，不能从ref JSON重建；
+  Store当前不公开已打开文件路径，CLI不读取私有字段，也不把配置自报路径当作验证事实。
 
 Facade 与 CLI 不实现 #5 的存储/审计、#6 的设备认证/transport 或 #7 的原生来源/执行。
 服务用固定 `FacadeServiceError` 代码报告网关拒绝；其它异常仅输出 `internal_error`。
@@ -128,7 +142,9 @@ revision、现场连接/心跳、native 来源保持 null/unverified；持久 pe
 宿主交付非秘密port及可选assets；认证可提供独立authenticate/verifyCsrf，或提供
 `session: { sessions, cookie_name }`交由既有`createManagementSessionAdapter`组合。
 session来源的identities必须与runtime完全同一对象；适配器在实际listener Origin下逐请求验证cookie和CSRF，
-不同来源在启动时拒绝并释放已打开角色。不能用MCP身份代替管理员会话，也不创建登录/bootstrap。
+不同来源在启动时拒绝并释放已打开角色。不能用MCP身份代替管理员会话，不创建登录或新的管理员来源。
+生产宿主可通过`ProductionCliSources.management.resolveLease`交付原受保护页面请求的既有lease，
+同一authority至多一次设置短期管理cookie并将CSRF放入页面内存回调；默认无宿主仍禁用。
 受保护会话源与浏览器确认/回执客户端契约见[MANAGEMENT-SESSION-CLIENT](../MANAGEMENT-SESSION-CLIENT.md)。
 pairingPolicy、providerEnable缺失时对应写操作拒绝；权限提示仅观察已装配能力与当前grant/Store模式，
 不调用确认、签发或provider启用证明，也不构成执行许可。
@@ -247,16 +263,84 @@ Windows 使用 `C:\absolute\protected\rovloom\{role}`。模板经过同一严格
 state_dir 在这里仅作绝对规范路径校验，实际目录所有权、单 writer、锁和可信引用解析由宿主负责。
 配置解析不创建数据库、真实凭据或连接；受信角色工厂只在显式启动时取得资源所有权。
 
-`gateway [--config ...]` / `connector [--config ...]` 在没有相应宿主时退出 3；
-注入宿主后持续监听HTTP；stdin EOF与客户端退出不停止Gateway，SIGINT或SIGTERM关闭本地资源，失败退出1。
+公开入口的生产加载器目前支持Linux既有caller摘要、设备TLS和实际Gateway双库。
+它不创建目录、配置、账户、设备、凭据或原生custody；正常启动只打开明确交付的资源。
+在`state_dir/runtime.json`放置以下无秘密Gateway描述，`refs`目录及全部文件仍须为当前用户持有的0700/0600：
+
+```json
+{
+  "schema_version": 1,
+  "role": "gateway",
+  "authentication_ref": "mcp-http",
+  "device_listener": { "hostname": "127.0.0.1", "port": 9443, "tls_ref": "device-tls" },
+  "provider_config_refs": []
+}
+```
+
+`authentication_ref`必须与角色配置完全相同；它固定读取`refs/mcp-http.json`。
+该只读来源的精确字段为`schema_version: 1`、`kind: 'mcp-caller-source'`、canonical完整`resource`、
+现行`ProviderPolicy`形状的`local_policy`及1..64条`callers`。
+每条caller只含`principal: { id, policy }`、`token_sha256`、`issued_at`、`expires_at`；
+主体和凭据摘要均唯一，摘要为既有高熵bearer凭据的SHA-256，绝不保存原值。
+此格式消费独立配置者已交付的身份，不是账户创建、登录或凭据发行接口。
+`resource`须等于配置得到的canonical MCP URL，包括`/mcp`，默认端口按URL规则省略。
+认证只接受有界`Authorization: Bearer ...`，每次主体/策略/认证读取重新核对同一私有配置代次和时间。
+文件丢失、权限丢失、内容变更或时间回拨使本轮拒绝至重启；不能靠恢复旧文件或重试滑动续期。
+
+设备TLS固定从`refs/device-tls.cert.pem`与`refs/device-tls.key.pem`读取，分别有界64KiB；
+不会加载文件指定的模块、脚本或任意动态路径。状态目录直接传给`openGatewayState`，
+不再由外部配置自报“已打开Store路径”；只开一个业务writer及同一hash-only设备身份库。
+空provider配置可通过真实MCP查询已有账本；不能因此调用未接通的native。
+
+唯一CLI提供`config template runtime gateway|connector`离线输出对应的无秘密runtime模板。
+`config check-runtime --config /absolute/protected/role.json`共用启动时的角色及runtime字段校验，
+成功只在stderr输出`runtime_config_valid`，不读取caller、TLS、设备凭据或provider配置，也不打开数据库。
+它不表示端口可监听、设备已连接、原生窗口存在或Agent已经就绪；非Linux的私有runtime读取沿用
+`config_platform_unsupported`。`config check`仍只检查原角色配置。
+
+Connector的`state_dir/runtime.json`只含`schema_version: 1`、`role: 'connector'`、
+`credential_ref`、`ca_ref`和与角色配置逐项相同的`provider_config_refs`。
+凭据由既有`loadCredential`读取`refs/<credential_ref>.json`，CA读取`refs/<ca_ref>.ca.pem`；
+WSS origin固定取角色配置，实际transport仍强制证书及hostname核验。
+生产两端将`admission_receipt`列入required，真实session所有者必须交付同一认证原截止接收端及持久claims。
+
+非空provider引用须由静态链接的`ProductionCliSources.gateway/connector`解析为实际opaque来源，
+每个Gateway ref恰好对应其自身provider。唯一`main.ts`按需加载固定工厂表，Luvus使用runtime的
+`createLuvusProductionSources()`，其实际配置见[Luvus操作装配](../LUVUS-OPERATIONS.md)。Gateway attach
+已有本机实例，Connector持有明确managed child；用户须先显式准备原root及所选持久文件。
+未注册kind、空Connector引用或缺少混合kind会话组合时返回`backend_unavailable`；不会创建native成功stub。
+外部supervisor实例交付和跨进程native来源仍遵循[TRANSPORT](../TRANSPORT.md#生产来源边界)的未完成边界。
+受信embedding可交付现有管理员来源；加载器使用PR71同一authority的identities/sessions，
+PR69 handler完成认证、CSRF及原预算准入后，才在service委托处建立该cookie的管理作用域。
+默认入口不bootstrap管理cookie，也不因MCP bearer或`providers_manage`取得native-custody批准。
+
+Gateway资源采用明确联合：旧`kind?: 'luvus'`交付现行`GatewayRuntimeOptions.providers`；
+中性`kind: 'provider'`交付`ProviderGatewayRuntimeOptions.providers/session`，CLI直接调用
+同一runtime模块的`createProviderGatewayRuntime`。中性provider显式给出`max_response_bytes`，
+不要求Luvus contract/source/authority；`session(connection, channel, services)`只交付当前真实epoch的
+原provider Session，异步安装须在resolver返回前完成。CLI保留session原对象的this，不复制其协议或生命周期。
+需要原caller与锚点时，两端资源显式提供`admission_context: true`，使既有能力加入offer及required；
+默认旧分支仍只强制原rpc/admission_receipt。原receipt/ledger及失效清理由各provider和runtime现行实现负责。
+
+中性目录用`catalog: { kind: 'provider', resolve(target, principal) }`。resolve从当前原生安装/能力返回
+`ProviderCatalogSource`：完整target、当前local_provider、contract_ref、capability_revision、固定expires_at、
+原生methods描述列表及`describe(method)`。同一Store服务沿用完整Target/read交集、当前主体和绑定校验，
+分页继续绑定目录快照；它不会把目录或schema变成执行许可。实际调用仍走同一runtime准入、原Wire和原生backend。
+旧Luvus catalog结构与校验路径保持兼容；CLI使用`resource.catalog ?? gateway.catalog`消费同一真实
+连接上的目录，Herdr无需填造UHP schema或Luvus可信来源。每个角色的引用当前选择同一静态kind工厂；
+跨kind会话组合须由实际runtime宿主交付，CLI不会为此另建Router或adapter。
+
+`gateway [--config ...]` / `connector [--config ...]`缺真实来源时退出3；
+Gateway持续监听HTTP，stdin EOF与客户端退出不停止它，SIGINT或SIGTERM关闭本地资源，失败退出1。
 `CliRuntime.service` 可注入 `platform`、真实 `ServiceManager` 及受信 `resolveDefaultConfig(role)`；
 唯一CLI在读取角色配置前委托服务模块，诊断统一写入stderr。`service --help` 独立可用，其余动作
 缺宿主返回 `backend_unavailable`。默认路径只接受宿主已验证身份的共享helper结果；详见 [SERVICE](../SERVICE.md)。
 
 `update --help`离线可用；`update --check`复用固定官方来源和现行更新预算，只读版本、manifest与tag元数据。
 CLI使用构建版本和实际平台，Linux只接受运行时报告的glibc证明；版本状态和固定错误仅写stderr。
-当前预发行版本按规范SemVer比较，目标限官方稳定发行。存在新版本时，`update`返回
-`replacement_unavailable`/5，不下载、不替换或声称升级成功；详见[UPDATE](../UPDATE.md)。
+当前预发行版本按规范SemVer比较，目标限官方稳定发行。默认入口缺可信安装及服务事务，存在新版本时
+`update`返回`replacement_unavailable`/5，不下载或替换；受信embedding可注入现行POSIX事务，
+CLI保留其完成、回滚、恢复和后台等待结果；详见[UPDATE](../UPDATE.md)。
 help、版本、检查结果和错误写 stderr；只有显式 config template 输出非秘密 JSON 到 stdout，
 Gateway运行期stdout不承载MCP或身份材料。退出码为 0 正常、2 参数/配置错误、3 缺后端、1 运行失败。
 
@@ -272,9 +356,68 @@ Gateway运行期stdout不承载MCP或身份材料。退出码为 0 正常、2 �
 [默认路径测试](../../test/cli/config-path.test.ts)验证显式优先、角色隔离、home、空格Unicode和无创建。
 [Store业务](../../test/mcp/store-service.test.ts)、[Store HTTP SDK](../../test/mcp/store-sdk.test.ts)、
 [CLI writer](../../test/cli/store-runtime.test.ts)使用真实隔离数据库与合成身份，保留授权、元数据和清理断言。
+[公开生产CLI测试](../../test/cli/production.test.ts)直接运行`main.ts`子进程，以私有合成caller摘要和TLS
+接正式HTTP SDK及实际双库，覆盖EOF、撤权、退出释放和缺native来源明确拒绝，不注入业务service。
+[管理作用域测试](../../test/cli/management-scope.test.ts)使用真实PR69/PR71认证与作用域；业务计数stub
+只验证原CSRF/关闭预算和单次委托，不作为实际管理写入或custody证明。
 [transport CLI](../../test/cli/transport-runtime.test.ts)实际经过listener/TLS拒绝认证、EOF持续运行、信号清理，
 并验证交错异步caller隔离和身份撤销；认证/native回调仍是明确fixture。
 [catalog业务](../../test/mcp/catalog.test.ts)与[HTTP SDK](../../test/mcp/catalog-sdk.test.ts)使用真实
 Luvus catalog/NativeValidator及Store，身份、在线能力及来源为人工fixture，不执行原生RPC。
 生产host装配、真实HTTP认证、native执行/结果交付和管理写入必须另以实际环境验收；
 缺后端动作继续明确拒绝，不能以模块测试、工具发现或stub成功代替。
+
+[真实会话驱动](../../test/mcp/native-conversation.ts)的`runNativeConversation(plan)`接收已经连接的
+正式SDK客户端、固定绝对deadline和provider原生字段映射。provider宿主负责受控真实实例及既有凭据，
+映射仅构造官方请求或投影原生响应，不返回业务成功替身。流程从原生发现结果选择窗口/session，执行并
+验证官方管理请求，读取原生Agent状态，再在同一session连续发送两轮提示并读取实际回复。
+第二轮提示不携带第一轮的随机marker，必须从上下文准确回忆；回复的原生prompt关联键、不同message_id、
+session_id和agent_id均核对，前后状态也核对同一Agent。状态来源为inferred/unknown不能通过此原生状态验收。
+原生异步回复由`replyRequest(sent, selected)`读取，`reply(response, sent)`保留当前发送的原生关联；
+不重发prompt。每次`runtime_call`仅准入一次，等待只查询原call_id，结果分页校验原大小与摘要。
+驱动不自行启动用户实例、输出提示/回复或登记通过；须由各provider真实环境测试调用并保留原生证据。
+
+Luvus 的唯一 CLI 隔离入口先构建同一 `main.ts`，再启动其 Gateway/Connector 子进程：
+
+```sh
+bun --no-env-file run build
+bun --no-env-file scripts/mcp/verify-luvus-cli.mjs \
+  --built-cli \
+  --binary /absolute/protected/luvus \
+  --opencode-binary /absolute/protected/opencode \
+  --temporary-parent /absolute/protected/parent \
+  --acknowledge-nonproduction
+```
+
+`--opencode-binary` 可省略；提供时复用固定官方 binary 摘要及隔离 OpenCode 配置，
+只操作本轮新建 root、短期合成身份和原代理环境。省略 `--built-cli` 使用源码入口；
+`--standalone-cli` 使用现有 `release:build` 生成的 Linux x64 候选，两种产物选项互斥。
+三者均进入同一产品 main，不提供另一套 parser、native adapter 或成功后端。
+
+此脚本的 Gateway、Connector 与 Luvus 位于同一机器，WSS 使用loopback；默认Gateway在本机
+attach既有Luvus。加`--remote-gateway`时，Gateway配置只含固定pin与受保护schema引用，
+目录来自实际认证Connector快照，不交付本机native引用。两种模式均不构成跨机验收；
+Connector位于另一台机器且不共享runtime文件系统的部署仍须单独验证。
+该验收的临时远端配置仅为本轮合成caller与实际用到的已审raw方法显式设置`raw_grant`；
+产品配置的raw批准仍由受保护宿主独立提供。
+
+加 `--minimum-native` 时仅核对真实 provider/分页目录、describe、单次 `pane.list` 和原结果分页摘要，
+再验收 SDK 断开、角色关闭与自有目录回收；报告范围为 `verification_scope: native_rpc_minimum`。
+该选项与 `--opencode-binary` 互斥，不执行窗口变更、Agent 输入或模型请求，也不表示完整会话验收。
+
+正式 SDK 流程位于 [luvus-sdk-flow.mjs](../../scripts/mcp/luvus-sdk-flow.mjs)：核对当前 provider
+绑定与分页目录，从实际 pane 选择稳定 workspace/tab ID 并回读，显式选中 pane/Agent 后
+只提交一次输入，再读取同一 terminal 的原生输出。未知状态与 null Agent session 原样保留；
+输入 submitted、TUI 输出及进程存活不表示模型回复，报告始终区分模型/两轮未验证。
+schema、启动、目录或原生请求失败都会使整个 CLI 验收非零退出，不跳过编译守卫或手写 artifact。
+
+每个新原生意图最多30秒，SDK单请求服从该意图剩余deadline；查询使用零短等并间隔100ms，只读取原call_id。
+结果已responded后，读取另有最多30秒固定交付窗口，同时受原句柄expires_at与整个流程截止约束；
+交付窗口只建立一次，结果分页不能刷新它、句柄TTL或已准入意图的deadline。
+总流程按最小1次、窗口读取6次、含Agent输入11次
+原生意图分别封顶；`budgets`报告保留各层预算，最多256条诊断只含固定阶段、状态、序号及耗时。
+每次结果大小与摘要核验完成后输出一条脱敏进度，不输出原生正文、路径、句柄或提示。
+
+[SDK 流程测试](../../test/mcp/luvus-cli-flow.test.mjs)独立使用明确服务 stub，覆盖分页、原 call
+轮询、未派发 created 的 null 契约、已绑定契约倒退、稳定 ID、单次输入、结果摘要及 terminal/Target
+漂移拒绝。它只证明协议和流程断言可执行，不能代替上述真实 CLI/native 验收。

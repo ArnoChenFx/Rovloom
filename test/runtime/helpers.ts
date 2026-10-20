@@ -14,9 +14,10 @@ import { LuvusBoundDelegation, LuvusDispatchClaims, readLinuxLuvusPeer } from '.
 import { contractRef, assertBinding, fail } from '../../src/wire/index.js'
 import type { AttemptBinding, ProviderPolicy } from '../../src/wire/types.js'
 import type { NativeBinding, TrustedNativeContext } from '../../src/native-contract/index.js'
+import type { GatewayRuntimeOptions } from '../../src/runtime/types.js'
 
 /** Gateway 和 Connector 独立请求锚点仅经真实认证通道关联；native 来源仍为标明的测试 fixture。 */
-export async function runtimeFixture() {
+export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['limits'] = {}) {
   const native = await localFixture()
   const stateDirectory = join(native.root, 'gateway')
   mkdirSync(stateDirectory, { mode: 0o700 })
@@ -53,6 +54,7 @@ export async function runtimeFixture() {
   }
   const local: ProviderPolicy = { ...structuredClone(caller), revision: 'local1' }
   let authorized = true
+  let localPolicyRead: (() => void) | undefined
   const contract = {
     wire: { source: native.origin, support_status: 'validated' as const },
     compiled: native.compiled,
@@ -84,8 +86,11 @@ export async function runtimeFixture() {
       /** 本切片不注入管理会话，普通 caller 无法升级管理员。 */
       administrator: () => null
     },
-    /** 固定本机受保护策略，按完整 tuple 校验。 */
-    localPolicies: () => local,
+    /** 固定本机受保护策略；可选测试回调只用于复现同步撤销，默认没有副作用。 */
+    localPolicies: () => {
+      localPolicyRead?.()
+      return local
+    },
     providers: [
       {
         binding,
@@ -93,6 +98,14 @@ export async function runtimeFixture() {
         peer_policy_revision: local.revision,
         contract,
         source,
+        /** 目录来源只投影已认证连接及当前双方政策，不编造 attempt 或发行真实原生权限。 */
+        catalogSource(connection, policies) {
+          return {
+            authenticated: true,
+            source_verified: native.state.trusted,
+            binding: { ...nativeBinding(connection), ...policies }
+          }
+        },
         authority: native.host.backend.authority,
         ready: /** 仅代表此自建 listener 的测试健康。 */ () => native.state.active
       }
@@ -103,7 +116,7 @@ export async function runtimeFixture() {
       developmentLoopback: true,
       offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] },
       // 组合双持久身份库时使用产品默认心跳，避免追踪测试制造每秒十次持久校验/心跳写入。
-      limits: { heartbeat_ms: 5000, idle_ms: 20_000 }
+      limits: { heartbeat_ms: 5000, idle_ms: 20_000, ...limits }
     },
     /** 角色显式关闭后释放唯一双库。 */
     async release() {
@@ -209,6 +222,10 @@ export async function runtimeFixture() {
     target,
     reference,
     caller: { principal_id: 'synthetic' },
+    /** 为目录最终复核设置同步策略回调，测试结束须清除；不能用于产品宿主。 */
+    onLocalPolicyRead(callback?: () => void) {
+      localPolicyRead = callback
+    },
     /** 等待双方实际认证且完成 provider readiness。 */
     async ready() {
       await until(
@@ -230,6 +247,14 @@ export async function runtimeFixture() {
     /** 切换当前测试主体有效性，结果读取必须即时重新核验。 */
     authorize(value: boolean) {
       authorized = value
+    },
+    /** 独立撤销当前 caller 的读取权限，派发权限与身份仍保持有效。 */
+    allowRead(value: boolean) {
+      const grant = caller.grants[0]!
+      grant.actions = grant.actions.filter(/** 不重复追加或保留已撤销 read。 */ (action) => action !== 'read')
+      if (value) {
+        grant.actions.push('read')
+      }
     },
     /** 有界等待真实 Gateway 账本回应；回调不授予读取原文权限。 */
     async responded(call: string) {

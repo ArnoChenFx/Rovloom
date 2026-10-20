@@ -26,14 +26,16 @@
     "comments:check": "bun --no-env-file scripts/maintenance/comments.mjs",
     "comments:equivalence": "bun --no-env-file scripts/maintenance/comment_equivalence.mjs",
     "audit:luvus": "bun --no-env-file scripts/luvus/audit-fixtures.mjs",
+    "native:check": "bun --no-env-file scripts/native-contract/precompile.mjs",
+    "native:generate": "bun --no-env-file scripts/native-contract/precompile.mjs --write",
     "test:protocol": "bun --no-env-file test ./test/luvus ./test/mcp/sdk-compatibility.test.mjs",
     "test:toolchain": "bun --no-env-file test ./test/toolchain/compatibility.test.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "ajv": "8.20.0"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "26.6.5",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",

@@ -13,6 +13,7 @@ export interface PageView {
   providersProblem: 'forbidden' | 'unavailable' | null
 }
 export type PageRoute = { machineId: string | null; cursor: string | null; providerCursor: string | null }
+type PageSection = { heading: HTMLElement; body: HTMLElement }
 
 const connectionNames = {
   connecting: 'connection.connecting',
@@ -72,10 +73,12 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
 }
 
 /** 渲染只含文本的键值信息。 */
-function facts(rows: [string, string][]): HTMLElement {
-  const result = node('dl', '', 'facts')
+function facts(rows: [string, string][], variant = ''): HTMLElement {
+  const result = node('dl', '', `facts ${variant}`)
   for (const [label, value] of rows) {
-    result.append(node('dt', label), node('dd', value))
+    const item = node('div', '', 'fact')
+    item.append(node('dt', label), node('dd', value))
+    result.append(item)
   }
   return result
 }
@@ -146,6 +149,22 @@ function observationTime(observedAt: number | null, freshness: Freshness): strin
     age: i18n.age(observedAt, freshness.now),
     expired: current(observedAt, freshness) ? '' : t('time.expiredSuffix')
   })
+}
+
+/** 列表用真实年龄紧凑对齐，过期/未知常驻；绝对时刻保留在标题及设备详情，不续期观测。 */
+function listObservation(
+  key: 'devices.observed' | 'devices.connectionObserved' | 'devices.authObserved',
+  observedAt: number | null,
+  freshness: Freshness
+): HTMLElement {
+  const { i18n } = freshness
+  const time =
+    observedAt === null
+      ? i18n.t('time.noObservation')
+      : `${i18n.age(observedAt, freshness.now)}${current(observedAt, freshness) ? '' : i18n.t('time.expiredSuffix')}`
+  const result = node('p', i18n.t(key, { time }), 'muted')
+  result.title = i18n.t(key, { time: observationTime(observedAt, freshness) })
+  return result
 }
 
 /** Provider 的绿色就绪提示还要求当前设备、连接与认证观测均有效。 */
@@ -262,26 +281,69 @@ function unavailableActions(kind: 'device' | 'provider' | 'list', i18n: Localize
   return section
 }
 
+/** 只按当前可信展示范围启用三个入口；权限提示不代替写服务的每次授权。 */
+function deviceActions(page: PageView, freshness: Freshness, connected: boolean): HTMLElement {
+  const section = unavailableActions('device', freshness.i18n)
+  if (!connected) {
+    return section
+  }
+  section.querySelector('p')!.textContent = freshness.i18n.t('actions.available')
+  const permission = page.permissions
+  const allowed =
+    permission &&
+    page.device &&
+    current(page.device.observed_at, freshness) &&
+    current(permission.observed_at, freshness) &&
+    freshness.now < permission.expires_at
+  const actions = ['device_rename', null, 'device_disconnect', 'device_revoke'] as const
+  const grants = ['devices_rename', '', 'devices_disconnect', 'devices_revoke']
+  const buttons = section.querySelectorAll('button')
+  for (let index = 0; index < actions.length; index++) {
+    const action = actions[index]
+    if (!action) {
+      continue
+    }
+    const button = buttons[index]!
+    button.dataset.deviceAction = action
+    button.disabled =
+      !allowed ||
+      !permission.decisions.some(
+        /** 权限仅作入口提示，服务端逐请求重验。 */ (decision) =>
+          decision.action === grants[index] && decision.allowed && decision.reason_code === 'allowed'
+      )
+  }
+  return section
+}
+
 /** 列表只展示后端返回的授权页，不将页长宣称为设备总数。 */
-function deviceList(page: PageView, freshness: Freshness): HTMLElement {
+function deviceList(page: PageView, freshness: Freshness): PageSection {
   const { i18n } = freshness
   const { t } = i18n
-  const section = node('section')
-  section.append(
-    node('h1', t('devices.heading')),
-    node('p', t('devices.description'), 'muted'),
-    unavailableActions('list', i18n)
-  )
+  const heading = node('header', '', 'page-heading')
+  heading.append(node('h1', t('devices.heading')), node('p', t('devices.description'), 'muted'))
+  const section = node('section', '', 'devices-section')
   if (page.devices.items.length === 0) {
-    section.append(node('div', t('devices.empty'), 'empty'))
+    const empty = node('div', '', 'empty')
+    empty.append(node('h2', t('devices.emptyHeading')), node('p', t('devices.empty'), 'muted'))
+    section.append(empty)
+  }
+  const columns = node('div', '', 'device-columns')
+  columns.setAttribute('aria-hidden', 'true')
+  for (const key of ['devices.identity', 'devices.health', 'devices.activity', 'devices.observations'] as const) {
+    columns.append(node('span', t(key)))
+  }
+  if (page.devices.items.length) {
+    section.append(columns)
   }
   const list = node('ul', '', 'device-list')
+  list.setAttribute('aria-label', t('devices.heading'))
   for (const device of page.devices.items) {
     const row = node('li', '', 'device-card')
+    const identity = node('div', '', 'device-identity')
     const link = node('a', device.name, 'device-name')
     link.href = routeHref({ machineId: device.machine_id, cursor: null, providerCursor: null })
-    row.append(link, node('code', device.machine_id), deviceBadges(device, freshness))
-    row.append(
+    identity.append(link, node('code', device.machine_id))
+    identity.append(
       node(
         'p',
         device.labels === null
@@ -292,55 +354,50 @@ function deviceList(page: PageView, freshness: Freshness): HTMLElement {
         'muted'
       )
     )
+    const health = node('div', '', 'device-health')
+    health.append(node('span', t('devices.health'), 'cell-label'), deviceBadges(device, freshness))
     const heartbeat = device.connection.verification === 'verified' ? device.connection.value.last_heartbeat_at : null
-    row.append(
-      node(
-        'p',
-        t('devices.heartbeat', { age: i18n.age(heartbeat, freshness.now), time: i18n.timestamp(heartbeat) }),
-        'muted'
+    const activity = node('div', '', 'device-activity')
+    activity.append(node('span', t('devices.activity'), 'cell-label'))
+    activity.append(
+      node('strong', heartbeat === null ? t('time.noHeartbeat') : i18n.age(heartbeat, freshness.now), 'activity-age')
+    )
+    activity.append(node('p', t('devices.received', { time: i18n.timestamp(heartbeat) }), 'muted'))
+    const observations = node('div', '', 'device-observations')
+    observations.append(node('span', t('devices.observations'), 'cell-label'))
+    observations.append(listObservation('devices.observed', device.observed_at, freshness))
+    observations.append(
+      listObservation(
+        'devices.connectionObserved',
+        device.connection.verification === 'verified' ? device.connection.observed_at : null,
+        freshness
       )
     )
-    row.append(node('p', t('devices.observed', { time: observationTime(device.observed_at, freshness) }), 'muted'))
-    row.append(
-      node(
-        'p',
-        t('devices.connectionObserved', {
-          time: observationTime(
-            device.connection.verification === 'verified' ? device.connection.observed_at : null,
-            freshness
-          )
-        }),
-        'muted'
+    observations.append(
+      listObservation(
+        'devices.authObserved',
+        device.authentication.verification === 'verified' ? device.authentication.observed_at : null,
+        freshness
       )
     )
-    row.append(
-      node(
-        'p',
-        t('devices.authObserved', {
-          time: observationTime(
-            device.authentication.verification === 'verified' ? device.authentication.observed_at : null,
-            freshness
-          )
-        }),
-        'muted'
-      )
-    )
+    row.append(identity, health, activity, observations)
     list.append(row)
   }
   section.append(list)
+  section.append(unavailableActions('list', i18n))
   if (page.devices.next_cursor !== undefined) {
     const next = node('a', t('devices.next'), 'button-link')
     next.href = routeHref({ machineId: null, cursor: page.devices.next_cursor, providerCursor: null })
     section.append(next)
   }
-  return section
+  return { heading, body: section }
 }
 
 /** 已配置 provider 的启停、readiness 与原生观测分别来自共享 DTO。 */
 function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshness): HTMLElement {
   const { i18n } = freshness
   const { t } = i18n
-  const section = node('section')
+  const section = node('section', '', 'providers-section')
   section.append(node('h2', t('providers.heading')), node('p', t('providers.description'), 'muted'))
   if (page.providersProblem) {
     section.append(
@@ -357,7 +414,9 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
   }
   for (const provider of page.providers.items) {
     const row = node('article', '', 'provider-card')
-    row.append(node('h3', `${provider.kind === 'luvus' ? 'Luvus' : 'Herdr'} · ${provider.provider_id}`))
+    const header = node('header', '', 'provider-heading')
+    header.append(node('h3', `${provider.kind === 'luvus' ? 'Luvus' : 'Herdr'} · ${provider.provider_id}`))
+    const states = node('div', '', 'provider-states')
     const registryCurrent = current(provider.observed_at, freshness)
     const runtime = provider.runtime.verification === 'verified' ? provider.runtime : null
     const runtimeCurrent = runtime !== null && current(runtime.observed_at, freshness)
@@ -368,7 +427,7 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
       runtimeCurrent &&
       runtime.value.state === 'ready' &&
       currentDeviceLink(device, freshness)
-    row.append(
+    states.append(
       badge(
         registryCurrent
           ? provider.enabled
@@ -378,7 +437,7 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
         registryCurrent ? 'neutral' : 'warning'
       )
     )
-    row.append(
+    states.append(
       badge(
         provider.readiness === 'ready' && !ready
           ? t('providers.readyUnknown')
@@ -388,7 +447,7 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
         ready ? 'good' : 'warning'
       )
     )
-    row.append(
+    states.append(
       runtime
         ? badge(
             runtimeCurrent
@@ -405,29 +464,34 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
             'warning'
           )
     )
+    header.append(states)
+    row.append(header)
     row.append(
-      facts([
-        [t('providers.bindingRevision'), String(provider.binding_revision)],
-        [t('providers.configRef'), provider.config_ref ?? t('value.unverified')],
+      facts(
         [
-          runtimeCurrent ? t('providers.contractRef') : t('providers.contractHistory'),
-          runtime?.value.contract_ref ?? t('value.noExecutionPermission')
+          [t('providers.bindingRevision'), String(provider.binding_revision)],
+          [t('providers.configRef'), provider.config_ref ?? t('value.unverified')],
+          [
+            runtimeCurrent ? t('providers.contractRef') : t('providers.contractHistory'),
+            runtime?.value.contract_ref ?? t('value.noExecutionPermission')
+          ],
+          [
+            t('providers.digests'),
+            runtime
+              ? `${runtime.value.binary_sha256 ?? t('value.unverified')} / ${runtime.value.schema_sha256 ?? t('value.unverified')}`
+              : t('value.unverified')
+          ],
+          [t('providers.classification'), runtime?.value.classification_revision ?? t('value.unverified')],
+          [
+            runtimeCurrent ? t('providers.transports') : t('providers.transportsHistory'),
+            runtime?.value.supported_transports.join(' · ') || t('value.unverified')
+          ],
+          [t('providers.source'), runtime?.source ?? t('value.unverified')],
+          [t('providers.observed'), observationTime(provider.observed_at, freshness)],
+          [t('providers.nativeObserved'), observationTime(runtime?.observed_at ?? null, freshness)]
         ],
-        [
-          t('providers.digests'),
-          runtime
-            ? `${runtime.value.binary_sha256 ?? t('value.unverified')} / ${runtime.value.schema_sha256 ?? t('value.unverified')}`
-            : t('value.unverified')
-        ],
-        [t('providers.classification'), runtime?.value.classification_revision ?? t('value.unverified')],
-        [
-          runtimeCurrent ? t('providers.transports') : t('providers.transportsHistory'),
-          runtime?.value.supported_transports.join(' · ') || t('value.unverified')
-        ],
-        [t('providers.source'), runtime?.source ?? t('value.unverified')],
-        [t('providers.observed'), observationTime(provider.observed_at, freshness)],
-        [t('providers.nativeObserved'), observationTime(runtime?.observed_at ?? null, freshness)]
-      ])
+        'provider-facts'
+      )
     )
     section.append(row)
   }
@@ -441,22 +505,27 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
 }
 
 /** 详情只使用该 machine_id 的共享快照，未提供的配对/ready/重连信息明确未知。 */
-function deviceDetail(page: PageView, freshness: Freshness): HTMLElement {
+function deviceDetail(page: PageView, freshness: Freshness, management = false): PageSection {
   const { i18n } = freshness
   const { t } = i18n
-  const section = node('section')
+  const section = node('section', '', 'device-detail')
+  const heading = node('header', '', 'page-heading')
   const back = node('a', t('detail.back'), 'back-link')
   back.href = '#'
-  section.append(back)
+  heading.append(back)
   const device = page.device
   if (!device) {
-    section.append(node('h1', t('detail.unavailable')), node('p', t('detail.invisible')))
-    return section
+    heading.append(node('h1', t('detail.unavailable')))
+    section.append(node('p', t('detail.invisible'), 'empty'))
+    return { heading, body: section }
   }
   const connection = device.connection.verification === 'verified' ? device.connection : null
   const authentication = device.authentication.verification === 'verified' ? device.authentication : null
-  section.append(node('h1', device.name), node('code', device.machine_id), deviceBadges(device, freshness))
-  section.append(
+  heading.append(node('h1', device.name), node('code', device.machine_id))
+  const layout = node('div', '', 'detail-layout')
+  const registration = node('section', '', 'detail-registration')
+  registration.append(node('h2', t('detail.identityHeading')))
+  registration.append(
     facts([
       [t('detail.persisted'), t(persistedNames[device.persisted_state])],
       [
@@ -466,17 +535,18 @@ function deviceDetail(page: PageView, freshness: Freshness): HTMLElement {
       [
         t('detail.revision'),
         device.resource_revision === null ? t('value.notProvided') : String(device.resource_revision)
-      ],
+      ]
+    ])
+  )
+  const connectionSection = node('section', '', 'detail-connection')
+  connectionSection.append(node('h2', t('detail.connectionHeading')), deviceBadges(device, freshness))
+  connectionSection.append(
+    facts([
       [t('detail.epoch'), connection?.value.connection_epoch_ref ?? t('value.noConnection')],
       [
         t('detail.heartbeat'),
         `${i18n.timestamp(connection?.value.last_heartbeat_at ?? null)} · ${i18n.age(connection?.value.last_heartbeat_at ?? null, freshness.now)}`
       ],
-      [t('detail.observed'), observationTime(device.observed_at, freshness)],
-      [t('detail.connectionObserved'), observationTime(connection?.observed_at ?? null, freshness)],
-      [t('detail.authObserved'), observationTime(authentication?.observed_at ?? null, freshness)],
-      [t('detail.connectionSource'), connection?.source ?? t('value.unverified')],
-      [t('detail.authSource'), authentication?.source ?? t('value.unverified')],
       [
         t('detail.failure'),
         authentication?.value.last_failure
@@ -485,7 +555,19 @@ function deviceDetail(page: PageView, freshness: Freshness): HTMLElement {
       ]
     ])
   )
-  section.append(node('p', t('detail.missing'), 'muted'))
+  const observations = node('section', '', 'detail-observation')
+  observations.append(node('h2', t('detail.observationHeading')))
+  observations.append(
+    facts([
+      [t('detail.observed'), observationTime(device.observed_at, freshness)],
+      [t('detail.connectionObserved'), observationTime(connection?.observed_at ?? null, freshness)],
+      [t('detail.authObserved'), observationTime(authentication?.observed_at ?? null, freshness)],
+      [t('detail.connectionSource'), connection?.source ?? t('value.unverified')],
+      [t('detail.authSource'), authentication?.source ?? t('value.unverified')]
+    ])
+  )
+  layout.append(connectionSection, registration, observations)
+  section.append(layout, node('p', t('detail.missing'), 'context-note'))
   if (page.permissions) {
     const expired = !current(page.permissions.observed_at, freshness) || freshness.now >= page.permissions.expires_at
     section.append(
@@ -498,22 +580,64 @@ function deviceDetail(page: PageView, freshness: Freshness): HTMLElement {
       )
     )
   }
-  section.append(unavailableActions('device', i18n), providerList(page, device, freshness))
-  return section
+  section.append(providerList(page, device, freshness), deviceActions(page, freshness, management))
+  return { heading, body: section }
 }
 
-/** 渲染页面主体，并在年龄刷新时保留当前链接的键盘焦点。 */
+/** 同一路由按结构同步安全构造的节点，年龄更新不替换正在点击或聚焦的控件。 */
+function syncChildren(parent: Node, desired: Node): void {
+  const children = Array.from(desired.childNodes)
+  for (let index = 0; index < children.length; index++) {
+    const next = children[index]!
+    const current = parent.childNodes[index]
+    if (!current) {
+      parent.appendChild(next)
+    } else if (current.nodeType === Node.TEXT_NODE && next.nodeType === Node.TEXT_NODE) {
+      if (current.nodeValue !== next.nodeValue) {
+        current.nodeValue = next.nodeValue
+      }
+    } else if (
+      current instanceof Element &&
+      next instanceof Element &&
+      current.tagName === next.tagName &&
+      (current.tagName !== 'A' || current.getAttribute('href') === next.getAttribute('href'))
+    ) {
+      for (const attribute of Array.from(current.attributes)) {
+        if (!next.hasAttribute(attribute.name)) {
+          current.removeAttribute(attribute.name)
+        }
+      }
+      for (const attribute of Array.from(next.attributes)) {
+        if (current.getAttribute(attribute.name) !== attribute.value) {
+          current.setAttribute(attribute.name, attribute.value)
+        }
+      }
+      syncChildren(current, next)
+    } else {
+      parent.replaceChild(next, current)
+    }
+  }
+  while (parent.childNodes.length > children.length) {
+    parent.removeChild(parent.lastChild!)
+  }
+}
+
+/** 渲染页面主体；同一路由保留交互节点，换目标时清除旧节点与焦点关联。 */
 export function renderPage(
   content: HTMLElement,
   state: ReaderState<PageView>,
   route: PageRoute,
-  i18n: Localizer = createLocalizer('zh-CN')
+  i18n: Localizer = createLocalizer('zh-CN'),
+  management = false
 ): void {
   const { t } = i18n
   const focused =
     content.contains(document.activeElement) && document.activeElement instanceof HTMLAnchorElement
       ? document.activeElement.getAttribute('href')
       : null
+  const metadataWasOpen = content.querySelector<HTMLDetailsElement>('.gateway-metadata')?.open ?? false
+  const metadataHadFocus =
+    content.contains(document.activeElement) && document.activeElement?.matches('.gateway-metadata > summary')
   const view = document.createDocumentFragment()
   if (state.problem) {
     const message = node('p', t(problemNames[state.problem]), 'notice warning')
@@ -521,8 +645,12 @@ export function renderPage(
     view.append(message)
   }
   if (!state.snapshot) {
-    view.append(node('h1', state.pending ? t('gateway.pending') : t('gateway.unavailable')))
-    view.append(node('p', t('gateway.authorization'), 'muted'))
+    const empty = node('section', '', `state-panel ${state.pending ? 'loading' : 'unavailable'}`)
+    const symbol = node('span', state.pending ? '' : '!', 'state-symbol')
+    symbol.setAttribute('aria-hidden', 'true')
+    empty.append(symbol, node('h1', state.pending ? t('gateway.pending') : t('gateway.unavailable')))
+    empty.append(node('p', t('gateway.authorization'), 'muted'))
+    view.append(empty)
   } else {
     const snapshot = state.snapshot
     const page = snapshot.value
@@ -534,8 +662,9 @@ export function renderPage(
       i18n
     }
     const gateway = node('section', '', 'gateway')
-    gateway.append(node('h2', t('gateway.heading')))
-    gateway.append(
+    const gatewayHeading = node('div', '', 'gateway-heading')
+    gatewayHeading.append(node('h2', t('gateway.heading')))
+    gatewayHeading.append(
       badge(
         status.mode === 'active'
           ? state.stale
@@ -547,32 +676,46 @@ export function renderPage(
         status.mode === 'active' && !state.stale ? 'good' : 'warning'
       )
     )
-    gateway.append(badge(state.stale ? t('reader.stale') : t('gateway.fresh'), state.stale ? 'warning' : 'neutral'))
+    gatewayHeading.append(
+      badge(state.stale ? t('reader.stale') : t('gateway.fresh'), state.stale ? 'warning' : 'neutral')
+    )
+    gateway.append(gatewayHeading)
     gateway.append(
+      facts(
+        [
+          [t('gateway.listener'), t('gateway.listenerUnknown')],
+          [
+            t('gateway.authentication'),
+            snapshot.sessionExpiresAt === null
+              ? t('gateway.sessionUnknown')
+              : t('gateway.sessionUntil', { time: i18n.timestamp(snapshot.sessionExpiresAt) })
+          ],
+          [
+            t('gateway.components'),
+            `${t(componentNames[status.components.store])} / ${t(componentNames[status.components.transport])} / ${t(componentNames[status.components.native])}`
+          ],
+          [
+            t('gateway.observed'),
+            t('time.observed', {
+              time: i18n.timestamp(snapshot.observedAt),
+              age: i18n.age(snapshot.observedAt, snapshot.observedAt + state.ageMs),
+              expired: ''
+            })
+          ]
+        ],
+        'gateway-facts'
+      )
+    )
+    const metadata = node('details', '', 'gateway-metadata')
+    metadata.open = metadataWasOpen
+    metadata.append(node('summary', t('gateway.metadata')))
+    metadata.append(
       facts([
-        [t('gateway.listener'), t('gateway.listenerUnknown')],
-        [
-          t('gateway.authentication'),
-          snapshot.sessionExpiresAt === null
-            ? t('gateway.sessionUnknown')
-            : t('gateway.sessionUntil', { time: i18n.timestamp(snapshot.sessionExpiresAt) })
-        ],
         [t('gateway.generation'), status.recovery_generation],
-        [t('gateway.policy'), status.policy_revision],
-        [
-          t('gateway.components'),
-          `${t(componentNames[status.components.store])} / ${t(componentNames[status.components.transport])} / ${t(componentNames[status.components.native])}`
-        ],
-        [
-          t('gateway.observed'),
-          t('time.observed', {
-            time: i18n.timestamp(snapshot.observedAt),
-            age: i18n.age(snapshot.observedAt, snapshot.observedAt + state.ageMs),
-            expired: ''
-          })
-        ]
+        [t('gateway.policy'), status.policy_revision]
       ])
     )
+    gateway.append(metadata)
     if (status.mode !== 'active') {
       gateway.append(
         node(
@@ -582,12 +725,23 @@ export function renderPage(
         )
       )
     }
-    view.append(gateway)
     if (status.mode !== 'recovery_quarantined') {
-      view.append(route.machineId === null ? deviceList(page, freshness) : deviceDetail(page, freshness))
+      const section =
+        route.machineId === null
+          ? deviceList(page, freshness)
+          : deviceDetail(page, freshness, management && status.mode === 'active' && !state.stale)
+      view.append(section.heading, gateway, section.body)
+    } else {
+      view.append(node('h1', t('gateway.heading')), gateway)
     }
   }
-  content.replaceChildren(view)
+  const identity = routeHref(route)
+  if (content.dataset.route === identity) {
+    syncChildren(content, view)
+  } else {
+    content.replaceChildren(view)
+    content.dataset.route = identity
+  }
   if (focused !== null) {
     for (const link of content.querySelectorAll('a')) {
       if (link.getAttribute('href') === focused) {
@@ -595,5 +749,7 @@ export function renderPage(
         break
       }
     }
+  } else if (metadataHadFocus) {
+    content.querySelector<HTMLElement>('.gateway-metadata > summary')?.focus({ preventScroll: true })
   }
 }

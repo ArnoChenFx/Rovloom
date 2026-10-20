@@ -33,6 +33,12 @@ export type {
 export { StoreGatewayService } from './store-service.js'
 export type { StoreGatewayOptions } from './store-service.js'
 export type * from './management.js'
-export type { GatewayCatalogProvider, GatewayCatalogSource } from './native-catalog.js'
+export type {
+  GatewayCatalogProvider,
+  GatewayCatalogSource,
+  GatewayCatalog,
+  ProviderCatalogProvider,
+  ProviderCatalogSource
+} from './native-catalog.js'
 export { RuntimeGatewayService } from './runtime-service.js'
 export type { RuntimeGateway, RuntimeGatewayPort, RuntimeGatewayServiceOptions } from './runtime-service.js'

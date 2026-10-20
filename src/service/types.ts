@@ -13,7 +13,13 @@ export type ServiceSpec = {
 }
 export type ServiceRequest = { action: ServiceAction; role: ServiceRole; spec?: ServiceSpec }
 export type ServiceState = 'running' | 'stopped' | 'starting' | 'stopping' | 'failed'
-export type ServiceSnapshot = { spec: ServiceSpec; state: ServiceState; enabled: boolean; exitCode?: number }
+export type ServiceSnapshot = {
+  spec: ServiceSpec
+  state: ServiceState
+  enabled: boolean
+  exitCode?: number
+  loaded?: boolean
+}
 export type ServiceResult = {
   action: ServiceAction
   role: ServiceRole
@@ -40,6 +46,7 @@ export type ServiceErrorCode =
   | 'service_start_failed'
   | 'system_command_failed'
   | 'backend_unavailable'
+  | 'service_recovery_required'
 
 export class ServiceError extends Error {
   // 固定公共错误及可选底层退出码，不把命令输出或敏感路径放入公开诊断。

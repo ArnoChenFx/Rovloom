@@ -18,8 +18,18 @@ function data(value: unknown): Record<string, unknown> {
 test(
   '真实HTTP SDK接实际runtime准入、去重、原Wire结果分页、显式取消及撤权',
   { timeout: 30_000 },
-  /* 动态加载真实native fixture；其编译失败照常报告，不用stub或缓存替代。 */ async () => {
+  /* 动态加载真实native fixture；其编译失败照常报告，不用stub或缓存替代。 */ async (testContext) => {
+    let phase = 'fixture_import'
+    let cleanup = 'not_started'
+    testContext.after(
+      /* 超时和断言失败都保留固定阶段；原始native/HTTP输入和错误值不进入诊断。 */ () => {
+        if (phase !== 'complete' || cleanup !== 'complete') {
+          console.error(`[mcp-http-failure] case=runtime-sdk phase=${phase} cleanup=${cleanup}`)
+        }
+      }
+    )
     const { runtimeFixture } = await import('../runtime/helpers.js')
+    phase = 'fixture_open'
     const f = await runtimeFixture()
     const service = new RuntimeGatewayService({
       runtime: f.gateway,
@@ -41,7 +51,9 @@ test(
       }
     })
     try {
+      phase = 'ready'
       await f.ready()
+      phase = 'http_connect'
       await http.client.connect(http.transport)
       const history = f.state.store.openHistory('synthetic', f.target, 1)
       const args = {
@@ -57,7 +69,9 @@ test(
           recovery_generation: f.state.store.generation()
         }
       }
+      phase = 'call'
       const call = data(await http.client.callTool({ name: 'runtime_call', arguments: args }, CallToolResultSchema))
+      phase = 'duplicate'
       const duplicate = data(
         await http.client.callTool({ name: 'runtime_call', arguments: args }, CallToolResultSchema)
       )
@@ -72,6 +86,7 @@ test(
       let cursor: string | undefined
       let firstNext: string | undefined
       do {
+        phase = 'result_page'
         const page = data(
           await http.client.callTool(
             {
@@ -92,6 +107,7 @@ test(
       assert.equal(Buffer.concat(chunks).byteLength, result.bytes)
       assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()).error, f.native.response.error)
       assert(firstNext)
+      phase = 'changed_cursor'
       const changedPage = await http.client.callTool(
         {
           name: 'runtime_result_read',
@@ -100,6 +116,7 @@ test(
         CallToolResultSchema
       )
       assert.deepEqual(changedPage.structuredContent, { gateway_error: { code: 'invalid_cursor' } })
+      phase = 'cancel'
       const cancelled = data(
         await http.client.callTool(
           {
@@ -112,6 +129,7 @@ test(
       assert.equal(cancelled.cancellation, 'unsupported')
       assert.equal(f.native.state.responses, 1)
       f.authorize(false)
+      phase = 'revoked_read'
       const denied = await http.client.callTool(
         {
           name: 'runtime_result_read',
@@ -120,13 +138,19 @@ test(
         CallToolResultSchema
       )
       assert.deepEqual(denied.structuredContent, { gateway_error: { code: 'unauthenticated' } })
+      phase = 'client_close'
       await http.client.close()
       assert.equal(f.gateway.transport.status().stopped, false)
       assert.equal(f.state.store.health().mode, 'active')
+      phase = 'complete'
     } finally {
+      cleanup = 'http'
       await http.close()
+      cleanup = 'service'
       service.close()
+      cleanup = 'runtime'
       await f.close()
+      cleanup = 'complete'
     }
   }
 )

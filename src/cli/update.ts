@@ -24,6 +24,13 @@ const errors = new Set([
   'staging_failed',
   'staging_io_pending',
   'replacement_unavailable',
+  'unsafe_installation',
+  'target_changed',
+  'candidate_unusable',
+  'update_rolled_back',
+  'update_recovery_required',
+  'update_io_pending',
+  'update_cleanup_failed',
   'update_failed'
 ])
 
@@ -66,10 +73,14 @@ function diagnostic(message: string): string {
     parseReleaseVersion(status[1]!)
     return message
   }
+  const updated = message.length <= 128 ? /^status=updated version=([^ ]+)\n$/.exec(message) : null
+  if (updated && stableVersion(updated[1])) {
+    return message
+  }
   throw new Error('invalid_update_output')
 }
 
-// 帮助完全离线；真实检查只使用固定官方端点，实际替换仍由现有模块明确拒绝。
+// 帮助完全离线；只有受信宿主明确提供现行POSIX事务时才允许替换。
 export async function runUpdateCommand(
   args: readonly string[],
   write: (message: string) => void,
@@ -88,10 +99,14 @@ export async function runUpdateCommand(
     fetch: /* 只由现行更新模块构造固定官方URL，逐跳和字节预算仍使用其原实现。 */ (url: string, init: RequestInit) =>
       fetch(url, init)
   }
+  const callerSignal = signal ? AbortSignal.any(trusted.signal ? [signal, trusted.signal] : [signal]) : trusted.signal
   const code = await handleUpdateCommand(args, {
     ...trusted,
+    signal: callerSignal,
     fetch: /* 角色入口同样捕获进程信号；实际fetch必须收到CLI取消及原更新预算的共同signal。 */ (url, init) => {
-      const requestSignal = signal ? AbortSignal.any(init.signal ? [signal, init.signal] : [signal]) : init.signal
+      const requestSignal = callerSignal
+        ? AbortSignal.any(init.signal ? [callerSignal, init.signal] : [callerSignal])
+        : init.signal
       if (requestSignal?.aborted) {
         return Promise.reject(new UpdateError('network_failed'))
       }

@@ -14,7 +14,104 @@ import xml.etree.ElementTree as ET
 # 从当前仓库显式载入被测维护工具，隔离不同测试文件的导入状态。
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/bun'))
 
-from verify import save_timeout_diagnostics, TIMEOUT_LOG_BYTES, TIMEOUT_TRACE_BYTES, validate_tests
+from verify import (foundation_failure_summary, FAILURE_CONSOLE_BYTES, save_timeout_diagnostics,
+                    TIMEOUT_LOG_BYTES, TIMEOUT_TRACE_BYTES, validate_tests)
+
+
+class FailureSummary(unittest.TestCase):
+    # 真实Bun断言带合成秘密且被后续日志淹没时，仍保留首次失败位置和总计而不反射错误值。
+    def test_real_bun_first_failure_survives_long_tail_without_secret_values(self):
+        with tempfile.TemporaryDirectory(prefix='rovloom-failure-test-') as temp:
+            project = Path(temp)
+            (project / 'test').mkdir()
+            source = project / 'test/assertion.test.ts'
+            source.write_text("import { test } from 'node:test'\nimport assert from 'node:assert/strict'\n"
+                              "function compareSecret() { assert.equal('SYNTHETIC_SECRET', 'different') }\n"
+                              "test('SYNTHETIC_PRIVATE_NAME', compareSecret)\n")
+            process = subprocess.run([shutil.which('bun'), '--no-env-file', 'test', './test'], cwd=project,
+                                     capture_output=True, text=True, timeout=20)
+            self.assertNotEqual(process.returncode, 0)
+            raw = process.stdout + process.stderr
+            self.assertIn('SYNTHETIC_SECRET', raw)
+            raw += '\n' + 'later-output\n' * 4000
+            console = foundation_failure_summary(project, raw, {'test/assertion.test.ts'})
+            summary = json.loads(console)
+            first = summary['firstFailures'][0]
+            self.assertEqual(first['file'], 'test/assertion.test.ts')
+            self.assertEqual(first['caseOrdinal'], 1)
+            self.assertEqual(first['error'], 'AssertionError')
+            self.assertTrue(any(frame.startswith('test/assertion.test.ts:3:') for frame in first['stack']))
+            self.assertIn('1 fail', summary['totals'])
+            for private in ('SYNTHETIC_SECRET', 'SYNTHETIC_PRIVATE_NAME', str(project), 'later-output'):
+                self.assertNotIn(private, console)
+            self.assertLessEqual(len(console.encode()), FAILURE_CONSOLE_BYTES)
+
+    # 导入错误和后续超时分别定位；固定进度在外层超时时仍可见，任意栈路径或阶段均不输出。
+    def test_import_and_timeout_keep_only_verified_locations_and_fixed_progress(self):
+        with tempfile.TemporaryDirectory(prefix='rovloom-failure-boundary-') as temp:
+            project = Path(temp)
+            (project / 'test').mkdir()
+            (project / 'test/example.test.ts').write_text('export {}\n')
+            raw = ('test/example.test.ts:\n\n# Unhandled error between tests\n---------------------\n'
+                   'AssertionError: Bearer SYNTHETIC_SECRET\n'
+                   ' at compile (/isolated/project/test/example.test.ts:1:2)\n'
+                   ' at private (/private/SYNTHETIC_SECRET.ts:1:2)\n'
+                   '---------------------\n\n'
+                   '[mcp-http-failure] case=http-sessions phase=server_cancel cleanup=not_started\n'
+                   '[mcp-http-failure] case=runtime-sdk phase=secret_value cleanup=complete\n'
+                   'error: test timed out after 5000ms\n(fail) SYNTHETIC_SECRET\n'
+                   '\n2 tests failed:\n(fail) SYNTHETIC_SECRET\n\n 0 pass\n 2 fail\n 1 errors\n'
+                   'Ran 2 tests across 1 file. [5.01s]\n')
+            console = foundation_failure_summary(project, raw, {'test/example.test.ts'})
+            summary = json.loads(console)
+            self.assertEqual(len(summary['firstFailures']), 2)
+            first, second = summary['firstFailures']
+            self.assertEqual(first['kind'], 'between_tests')
+            self.assertEqual(first['stack'], ['test/example.test.ts:1:2'])
+            self.assertEqual(second['caseOrdinal'], 1)
+            self.assertEqual(second['timeoutMs'], 5000)
+            self.assertEqual(second['progress'], [{'case': 'http-sessions', 'phase': 'server_cancel',
+                                                  'cleanup': 'not_started'}])
+            self.assertEqual(summary['totals'], ['0 pass', '2 fail', '1 errors',
+                                                  'Ran 2 tests across 1 file. [5.01s]'])
+            for private in ('SYNTHETIC_SECRET', '/private', 'secret_value', 'Bearer'):
+                self.assertNotIn(private, console)
+
+    # 没有完整Bun报告时仍提供固定失败状态；大量异常、深栈和恶意路径不能放大控制台预算。
+    def test_missing_report_and_many_failures_remain_bounded(self):
+        with tempfile.TemporaryDirectory(prefix='rovloom-failure-size-') as temp:
+            project = Path(temp)
+            raw = ('test/../private.test.ts:\nAssertionError: ' + '汉' * 10000 + '\n'
+                   ' at injected (/private/secret.ts:1:2)\n(fail) private\n') * 500
+            raw += '\n' + '9' * FAILURE_CONSOLE_BYTES + ' pass\n' + '９' * FAILURE_CONSOLE_BYTES + ' fail\n'
+            console = foundation_failure_summary(project, raw, set())
+            summary = json.loads(console)
+            self.assertEqual(summary['status'], 'failed')
+            self.assertEqual(len(summary['firstFailures']), 3)
+            self.assertTrue(all(item['file'] is None and item['stack'] == []
+                                for item in summary['firstFailures']))
+            self.assertLessEqual(len(console.encode()), FAILURE_CONSOLE_BYTES)
+            self.assertNotIn('汉', console)
+            self.assertEqual(summary['totals'], [])
+            self.assertEqual(json.loads(foundation_failure_summary(project, '', set()))['firstFailures'], [])
+
+    # 只承认执行前冻结的源码清单，测试途中创建的有效源文件也不能借伪造栈泄漏其秘密文件名。
+    def test_new_source_file_is_not_a_verified_repository_frame(self):
+        with tempfile.TemporaryDirectory(prefix='rovloom-failure-path-') as temp:
+            project = Path(temp)
+            (project / 'test').mkdir()
+            (project / 'test/example.test.ts').write_text('export {}\n')
+            sources = frozenset({'test/example.test.ts'})
+            (project / 'test/SYNTHETIC_SECRET.test.ts').write_text('export {}\n')
+            raw = ('test/example.test.ts:\nAssertionError: synthetic\n'
+                   ' at verified (/isolated/project/test/example.test.ts:1:2)\n'
+                   'test/SYNTHETIC_SECRET.test.ts:\n'
+                   ' at forged (/isolated/project/test/SYNTHETIC_SECRET.test.ts:1:2)\n(fail) hidden\n')
+            console = foundation_failure_summary(project, raw, sources)
+            self.assertNotIn('SYNTHETIC_SECRET', console)
+            first = json.loads(console)['firstFailures'][0]
+            self.assertEqual(first['file'], 'test/example.test.ts')
+            self.assertEqual(first['stack'], ['test/example.test.ts:1:2'])
 
 
 class TimeoutDiagnostics(unittest.TestCase):

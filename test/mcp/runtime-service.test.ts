@@ -20,6 +20,7 @@ function projectionFixture() {
   let override: Partial<ReturnType<RuntimeGateway['get']>> = {}
   let readFailure: Error | undefined
   let openFailure: (() => Error) | undefined
+  let originalFailure: (() => Error) | undefined
   const runtime: RuntimeGatewayPort = {
     store: f.store,
     router,
@@ -39,7 +40,12 @@ function projectionFixture() {
       cancelled++
       return { ...router.cancel(scope.principal(), id), ...override }
     },
-    originalAttempt: /* 本投影stub没有原Wire许可，不从人工历史补造attempt。 */ () => undefined,
+    originalAttempt: /* 本投影stub没有原Wire许可，不从人工历史补造attempt。 */ () => {
+      if (originalFailure) {
+        throw originalFailure()
+      }
+      return undefined
+    },
     results: {
       open: /* 人工历史的Store句柄仅供分页投影，不代表真实原生读取许可。 */ (id: string) => {
         if (openFailure) {
@@ -87,6 +93,9 @@ function projectionFixture() {
     openFailure: /* 模拟正文句柄失败而不改动真实Store准入/状态机。 */ (failure: () => Error) => {
       openFailure = failure
     },
+    originalFailure: /* 模拟原连接查找失败，保留只读runtime端口的实际契约。 */ (failure: () => Error) => {
+      originalFailure = failure
+    },
     close: /* 回收门面、作用域及本例真实临时库。 */ () => {
       service.close()
       scope.close()
@@ -94,6 +103,39 @@ function projectionFixture() {
     }
   }
 }
+
+test(
+  '原attempt连接失效仍返回重新授权后的unknown元数据，不交付旧结果且不重派',
+  /* 真实Store/Router，只有原Wire查找明确为失效stub。 */ async () => {
+    const f = projectionFixture()
+    try {
+      f.override({ attempt_id: 'old_attempt', state: 'outcome_unknown' })
+      f.originalFailure(/* 失去原连接不能借持久记录重建许可。 */ () => new GatewayError('connection_unavailable'))
+      const view = (await f.service.execute('runtime_call_get', { call_id: 'call_fixture' }, f.context)).data
+      assert.equal(view.call_id, 'call_fixture')
+      assert.equal(view.state, 'outcome_unknown')
+      assert.equal(view.content_delivery, 'unavailable')
+      assert.equal(view.content_reason_code, 'unavailable')
+      assert.equal(view.contract_ref, null)
+      assert.equal(view.result, undefined)
+      assert.equal(f.calls.length, 0)
+      assert.equal(f.cancelled(), 0)
+      f.originalFailure(
+        /* 错误回调中同步撤权，不能把先前查到的ID交付出去。 */ () => {
+          f.setCaller(null)
+          return new GatewayError('connection_unavailable')
+        }
+      )
+      await assert.rejects(
+        /* 错误分支必须重新授权，不能回传撤权前的元数据。 */ () =>
+          f.service.execute('runtime_call_get', { call_id: 'call_fixture' }, f.context),
+        { code: 'unauthenticated' }
+      )
+    } finally {
+      f.close()
+    }
+  }
+)
 
 test(
   'runtime投影保持原参数/期限，分页绑定主体与大小并逐页重新验权',

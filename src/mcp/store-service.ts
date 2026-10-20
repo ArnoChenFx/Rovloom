@@ -7,7 +7,8 @@ import { providerScopeAllowed, validatePolicies } from '../wire/index.js'
 import type { AttemptBinding, ProviderPolicy, V2Target } from '../wire/types.js'
 import { isToolName, parseToolArguments } from './schema.js'
 import { publicCallView } from './call-view.js'
-import { authorizedLuvusCatalog, type GatewayCatalogProvider } from './native-catalog.js'
+import { authorizedLuvusCatalog, type GatewayCatalog } from './native-catalog.js'
+import { authorizedProviderCatalog } from './provider-catalog.js'
 import {
   FacadeServiceError,
   type CallView,
@@ -45,7 +46,7 @@ export type StoreGatewayOptions = {
   identities: GatewayIdentitySource
   localPolicies: LocalPolicies
   router?: Router
-  catalog?: GatewayCatalogProvider
+  catalog?: GatewayCatalog
   // 仅由实际组合器报告已装配的管理写能力；只读提示不得调用确认、签发或provider启用证明。
   managementCapabilities?(target: { machine_id: string; provider_id?: string }): readonly ManagementPermission[]
 }
@@ -364,16 +365,19 @@ export class StoreGatewayService implements GatewayService {
       if (!this.options.catalog) {
         throw new FacadeServiceError('backend_unavailable')
       }
-      const catalog = authorizedLuvusCatalog({
+      const options = {
         store: this.options.store,
         principal,
         currentPrincipal: /* 扫描和描述期间仍从同一受信身份来源复验，不借用旧principal。 */ () =>
           this.principal(context),
         localPolicies: this.options.localPolicies,
-        provider: this.options.catalog,
         target: request.args.target,
         expected_binding_revision: request.args.expected_binding_revision
-      })
+      }
+      const catalog =
+        this.options.catalog.kind === 'provider'
+          ? authorizedProviderCatalog({ ...options, provider: this.options.catalog })
+          : authorizedLuvusCatalog({ ...options, provider: this.options.catalog })
       if (request.name === 'runtime_describe') {
         return catalog.describe(request.args.method)
       }

@@ -3,11 +3,22 @@ import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { lstatSync, readFileSync, readlinkSync, statSync } from 'node:fs'
-import { dirname, sep } from 'node:path'
+import { dirname, isAbsolute, resolve, sep } from 'node:path'
 import { getSystemErrorName } from 'node:util'
 import { childEnvironment } from '../connector/luvus/local.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import type { LuvusLocalConfig } from '../connector/luvus/types.js'
+import type { PeerIdentity } from '../connector/luvus/types.js'
+import type { Socket } from 'node:net'
+import { readLinuxLuvusPeer } from '../connector/luvus/linux-peer.js'
+
+export interface ReadonlyNativeProcess {
+  assertLive(): void
+  identity(): PeerIdentity
+}
+export interface ObservedNativeProcess extends ReadonlyNativeProcess {
+  close(): void
+}
 
 type Libc = {
   symbols: {
@@ -170,9 +181,16 @@ export async function stopOwnedProcess(
 
 /** 对路径链逐层检查归属与可写性；目录 ctime 的正常内容变化不改变其身份。 */
 export function ownedPathStamp(path: string, kind: 'directory' | 'binary' | 'socket'): string {
+  if (typeof path !== 'string' || !isAbsolute(path) || resolve(path) !== path || path.includes('\0')) {
+    throw new LuvusAdapterError('owned_path_untrusted')
+  }
   const paths = [path]
   while (paths[0] !== sep) {
-    paths.unshift(dirname(paths[0]!))
+    const parent = dirname(paths[0]!)
+    if (parent === paths[0]) {
+      throw new LuvusAdapterError('owned_path_untrusted')
+    }
+    paths.unshift(parent)
   }
   const rootOwner = lstatSync(sep, { bigint: true }).uid
   const uid = BigInt(process.geteuid!())
@@ -210,6 +228,9 @@ export function ownedPathStamp(path: string, kind: 'directory' | 'binary' | 'soc
 
 /** 读取内核启动时钟与完整 argv/env/cwd/exe；不从 session discovery 中采信 PID。 */
 function processStamp(pid: number, config: LuvusLocalConfig): string {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    throw new LuvusAdapterError('owned_process_identity_changed')
+  }
   const prefix = '/proc/' + pid
   const line = readFileSync(prefix + '/stat', 'utf8')
   const fields = line
@@ -223,11 +244,6 @@ function processStamp(pid: number, config: LuvusLocalConfig): string {
     .map(/* 固定环境只接受本模块列明的键和值，不继承宿主凭据。 */ ([key, value]) => key + '=' + value)
     .sort()
     .join('\0')
-  const actualEnv = readFileSync(prefix + '/environ', 'utf8')
-    .split('\0')
-    .filter(Boolean)
-    .sort()
-    .join('\0')
   const binary = lstatSync(config.binary, { bigint: true })
   const executable = statSync(prefix + '/exe', { bigint: true })
   if (
@@ -237,14 +253,122 @@ function processStamp(pid: number, config: LuvusLocalConfig): string {
     readlinkSync(prefix + '/exe') !== config.binary ||
     readlinkSync(prefix + '/cwd') !== config.cwd ||
     readFileSync(prefix + '/cmdline', 'utf8') !== expectedArgs ||
-    actualEnv !== expectedEnv ||
     executable.dev !== binary.dev ||
     executable.ino !== binary.ino ||
     executable.uid !== binary.uid
   ) {
     throw new LuvusAdapterError('owned_process_identity_changed')
   }
+  // 先确认固定 exe/argv/cwd，避免把同 uid 的无关进程当作环境读取目标。
+  const actualEnv = readFileSync(prefix + '/environ', 'utf8')
+    .split('\0')
+    .filter(Boolean)
+    .sort()
+    .join('\0')
+  if (actualEnv !== expectedEnv) {
+    throw new LuvusAdapterError('owned_process_identity_changed')
+  }
   return start
+}
+
+/** 仅观察真实 socket peer 的固定实例；持有 pidfd 防 PID 重用，绝不发送信号或取得 child 所有权。 */
+class LinuxLuvusObservation implements ObservedNativeProcess {
+  readonly #peer: PeerIdentity
+  readonly #config: LuvusLocalConfig
+  readonly #start: string
+  readonly #binary: string
+  readonly #directories: readonly [string, string][]
+  readonly #ffi: Ffi
+  readonly #libc: Libc
+  #pidfd: number
+
+  /** 私有类只由下方同 socket 测量入口创建，不接受公开 JSON PID。 */
+  constructor(socket: Socket, config: LuvusLocalConfig) {
+    const peer = readLinuxLuvusPeer(socket)
+    if (peer.uid !== process.geteuid!() || peer.gid !== process.getegid!()) {
+      throw new LuvusAdapterError('attached_peer_mismatch')
+    }
+    const { ffi, libc } = kernel()
+    this.#ffi = ffi
+    this.#libc = libc
+    this.#peer = peer
+    this.#config = config
+    this.#pidfd = libc.symbols.pidfd_open(peer.pid, 0)
+    if (this.#pidfd < 0) {
+      throw new LuvusAdapterError('attached_process_observation_unavailable')
+    }
+    try {
+      this.#binary = ownedPathStamp(config.binary, 'binary')
+      this.#directories = [
+        config.state_root,
+        config.home,
+        config.cwd,
+        ...['config', 'data', 'cache', 'runtime'].map(
+          /* 固定环境引用的 XDG 目录同样绑定实际 inode。 */ (name) => config.home + '/' + name
+        )
+      ].map(
+        /* 只读取明确配置的自有根目录身份，不枚举或读取其它用户会话。 */ (path) => [
+          path,
+          ownedPathStamp(path, 'directory')
+        ]
+      )
+      this.#start = processStamp(peer.pid, config)
+      this.assertLive()
+      if (JSON.stringify(readLinuxLuvusPeer(socket)) !== JSON.stringify(peer)) {
+        throw new LuvusAdapterError('attached_peer_mismatch')
+      }
+    } catch (error) {
+      this.close()
+      throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('attached_process_unavailable')
+    }
+  }
+
+  /** 非阻塞核对原 pidfd、完整启动身份与路径；旧 PID 或同 uid 不能替代原进程。 */
+  assertLive(): void {
+    try {
+      if (this.#pidfd < 0) {
+        throw new LuvusAdapterError('attached_process_unavailable')
+      }
+      const poll = Buffer.alloc(8)
+      poll.writeInt32LE(this.#pidfd)
+      poll.writeInt16LE(1, 4)
+      if (
+        this.#libc.symbols.poll(this.#ffi.ptr(poll), 1, 0) !== 0 ||
+        poll.readInt16LE(6) !== 0 ||
+        processStamp(this.#peer.pid, this.#config) !== this.#start ||
+        ownedPathStamp(this.#config.binary, 'binary') !== this.#binary
+      ) {
+        throw new LuvusAdapterError('attached_process_identity_changed')
+      }
+      for (const [path, stamp] of this.#directories) {
+        if (ownedPathStamp(path, 'directory') !== stamp) {
+          throw new LuvusAdapterError('attached_process_identity_changed')
+        }
+      }
+    } catch (error) {
+      throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('attached_process_unavailable')
+    }
+  }
+
+  /** 身份只能来自原 socket 的内核观测，使用时再次复验对应进程。 */
+  identity(): PeerIdentity {
+    this.assertLive()
+    return this.#peer
+  }
+
+  /** 仅关闭本观察者持有的 pidfd；从不停止被观察的外部实例。 */
+  close(): void {
+    if (this.#pidfd >= 0) {
+      const fd = this.#pidfd
+      this.#pidfd = -1
+      this.#libc.symbols.close(fd)
+    }
+  }
+}
+
+/** 从实际已连接 socket 建立只读进程观察，不提供按 PID 认领入口。 */
+export function observeLinuxLuvusProcess(socket: Socket, config: LuvusLocalConfig): ObservedNativeProcess {
+  return new LinuxLuvusObservation(socket, config)
 }
 
 /** 受控 child/pidfd 的内部所有者；构造失败也不向调用方交付可伪造的进程快照。 */
