@@ -33,6 +33,7 @@ test(
     for (const role of ['gateway', 'connector'] as const) {
       const foreground = parseCommand([role])
       assert('path' in foreground)
+      assert.deepEqual(parseCommand([role, '--non-interactive']), { ...foreground, nonInteractive: true })
       assert.equal(host.resolveDefaultConfig!(role, 'rovloom'), foreground.path)
       assert.equal(host.resolveDefaultConfig!(role, 'another-runtime-account'), foreground.path)
     }

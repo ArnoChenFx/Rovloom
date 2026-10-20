@@ -59,7 +59,9 @@ explicitly run the command with the required OS authorization.
 
 Services receive no interactive input and do not enter CLI pairing/setup prompts.
 Systemd uses null stdin, launchd uses `/dev/null`, and Windows runs under its
-service account. Local native Connector capability remains Linux x64.
+selected user with `--non-interactive`. Task Scheduler can supply TTY handles on a
+non-interactive desktop, so this explicit flag disables local setup even then.
+It still validates the same configuration and role backend. Local native Connector capability remains Linux x64.
 Starting a configured service is distinct from native-provider or Agent readiness.
 
 System requests have bounded output/time; state observation is bounded and requires
@@ -108,7 +110,9 @@ CLI 不自动提权、不创建账户、不修改已有系统权限。
 登记引用当前单文件及与前台相同的角色配置绝对路径；后台不再按运行账户另选home。
 通过sudo安装时显式传入原用户配置绝对路径。`--user`只选择运行账户，不另建配置目录。
 工作目录应存在。已有文件检查 JSON/角色错误，缺失配置由正常首次启动生成。安装器不以
-UID/mode、ACL、祖先防替换或文件 ID 作为前提。服务不进入交互配对/初始化；stdin 为空。
+UID/mode、ACL、祖先防替换或文件 ID 作为前提。服务不进入交互配对/初始化；Linux/macOS的stdin为空。
+Windows自动传入`--non-interactive`，即使Task Scheduler非交互桌面提供TTY句柄也不进入本地引导；
+仍核对同一配置及角色后端，不授予默认身份。
 本机 native Connector 仍限 Linux x64，监管 running 不证明 provider/Agent 就绪。
 
 卸载不删除用户配置、数据库、日志、凭据或目录。仅清理所选角色的精确登记；同名异物拒绝

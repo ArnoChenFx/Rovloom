@@ -124,5 +124,6 @@ export function serviceName(role: ServiceRole, platform: ServicePlatform): strin
 
 // 固定复用现有角色命令；后台能力须由 CLI 宿主在 preflight 中确认。
 export function launchArguments(spec: ServiceSpec): string[] {
-  return [spec.role, '--config', spec.config]
+  // Task Scheduler的非交互桌面也可能提供TTY句柄，必须显式关闭本地交互引导。
+  return [spec.role, '--config', spec.config, ...(spec.platform === 'win32' ? ['--non-interactive'] : [])]
 }

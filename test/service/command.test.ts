@@ -150,7 +150,7 @@ assert b.find('t:Actions/t:Exec/t:Arguments',n).text==p['args']
           account: win.account,
           exe: win.executable,
           cwd: win.directory,
-          args: ['connector', '--config', win.config].map(windowsQuote).join(' ')
+          args: ['connector', '--config', win.config, '--non-interactive'].map(windowsQuote).join(' ')
         }),
         encoding: 'utf8'
       }

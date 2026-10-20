@@ -11,7 +11,7 @@ import { CLI_ERROR_CODES, configDocument, configTemplate } from '../../src/cli/c
 import { renderDefinition, windowsQuote } from '../../src/service/render.ts'
 import { fileURLToPath } from 'node:url'
 import { createNativeServiceBackend } from '../../src/service/native.ts'
-import { manifest } from '../../src/service/spec.ts'
+import { launchArguments, manifest } from '../../src/service/spec.ts'
 import { runSystemCommand } from '../../src/service/runner.ts'
 
 if (
@@ -198,7 +198,7 @@ async function startDiagnostic() {
     }
   })
   assert.equal(argvBuild.success, true)
-  const argumentsText = ['gateway', '--config', config].map(windowsQuote).join(' ')
+  const argumentsText = launchArguments(spec).map(windowsQuote).join(' ')
   writeFileSync(
     requestFile,
     JSON.stringify({

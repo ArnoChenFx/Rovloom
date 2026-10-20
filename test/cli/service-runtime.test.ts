@@ -2,11 +2,63 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { runCli, resolveRoleConfigPath, type CliRuntime } from '../../src/cli/index.js'
+import { CliError, configDocument, configTemplate } from '../../src/cli/config.js'
 import { ServiceManager, ServiceError } from '../../src/service/index.js'
 import { model, sampleSpec } from '../service/helpers.js'
 
 const marker = 'SYNTHETIC_SECRET_DO_NOT_PRINT'
+
+test(
+  '非交互角色仍核验配置并调用后端，但不进入可能由系统控制台误触发的TTY准备',
+  /* 显式prepare失败模拟被误识别的控制台；后端仍真实返回不可用，不能被标记为就绪。 */ async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'rovloom-service-no-prompt-'))
+    try {
+      for (const role of ['gateway', 'connector'] as const) {
+        const path = join(directory, role + '.json')
+        const template =
+          role === 'connector'
+            ? { ...configTemplate('connector'), gateway_url: 'ws://localhost:9443' }
+            : configTemplate('gateway')
+        const bytes = JSON.stringify(configDocument({ ...template, state_dir: join(directory, role) }))
+        writeFileSync(path, bytes, 'utf8')
+        let prepared = 0
+        let started = 0
+        const runtime: CliRuntime = {
+          prepare: /* 本地交互在非交互模式不得进入。 */ async () => {
+            prepared++
+            throw new CliError('configuration_required')
+          },
+          [role]: /* 配置正确也必须继续检查真实后端能力，不授予任何默认身份。 */ async () => {
+            started++
+            throw new CliError('backend_unavailable', 3)
+          }
+        }
+        assert.deepEqual(await capture([role, '--config', path, '--non-interactive'], runtime), {
+          code: 3,
+          stdout: '',
+          stderr: 'backend_unavailable\n'
+        })
+        assert.equal(prepared, 0)
+        assert.equal(started, 1)
+        assert.equal((await capture([role, '--config', path], runtime)).code, 2)
+        assert.equal(prepared, 1)
+        assert.equal(started, 1)
+        writeFileSync(path, '{}', 'utf8')
+        assert.equal((await capture([role, '--config', path, '--non-interactive'], runtime)).code, 2)
+        assert.equal(prepared, 1)
+        assert.equal(started, 1)
+        writeFileSync(path, bytes, 'utf8')
+        assert.equal(readFileSync(path, 'utf8'), bytes)
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
+)
 
 // 收集唯一CLI的真实退出码及两个输出通道，不接触角色配置文件或系统监管器。
 async function capture(args: string[], runtime?: CliRuntime) {
