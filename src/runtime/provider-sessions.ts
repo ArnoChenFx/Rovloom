@@ -188,11 +188,21 @@ function compose(
     return route.group
   }
 
-  /** 无attempt的治理帧仍由一个原 codec 完整核验连接；对象只交给唯一Luvus原组装器。 */
+  /** 快照按原binding选择codec；其它治理帧仍完整核验连接，对象只交唯一原Luvus组装器。 */
   function frameOwner(frame: unknown): ProviderSessionGroup {
     const value = object(frame)
     if (value.type === 'heartbeat' || value.type === 'error') {
       return groups[0]!
+    }
+    if (value.type === 'provider_snapshot') {
+      const payload = object(value.payload)
+      const binding = object(payload.binding)
+      const route = routes.get(boundedJson(payload.target))
+      if (!route || binding.kind !== route.binding.kind || boundedJson(binding) !== boundedJson(route.binding)) {
+        fail('provider_binding_mismatch')
+      }
+      // 这里只选择原端口；原codec继续核验快照、协商能力、header身份和实际epoch。
+      return route.group
     }
     if (value.type === 'object_chunk') {
       const native = groups.filter(

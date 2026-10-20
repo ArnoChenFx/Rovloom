@@ -9,16 +9,28 @@ import { createLuvusCatalog } from '../../src/connector/luvus/index.js'
 import { createLuvusProductionSources } from '../../src/runtime/production-luvus.js'
 import type { LuvusProductionRemoteConfig } from '../../src/runtime/remote-luvus.js'
 import { createGatewayRuntime } from '../../src/runtime/gateway.js'
+import { createHerdrGatewayResources } from '../../src/connector/herdr/provider.js'
+import { fixedHerdrSource } from '../../src/connector/herdr/review.js'
+import { createProviderConnectorRuntime } from '../../src/runtime/connector-host.js'
+import { composeConnectorSessions } from '../../src/runtime/provider-sessions.js'
 import { openGatewayState } from '../../src/runtime/state.js'
 import { FIXED_LUVUS_SHA256, FIXED_LUVUS_SCHEMA_SHA256 } from '../../src/runtime/native-control.js'
 import { MANAGED_LUVUS_REVISION, MANAGED_LUVUS_CLASSIFICATION } from '../../src/runtime/native-source.js'
-import { boundedJson, contractRef, hash } from '../../src/wire/index.js'
-import type { AuthenticatedEnvelope, ProviderSnapshot, ProviderPolicy } from '../../src/wire/types.js'
-import type { Connection } from '../../src/transport/index.js'
+import {
+  boundedJson,
+  contractRef,
+  hash,
+  encodeWireFrame,
+  decodeWireFrame,
+  MessageWindow
+} from '../../src/wire/index.js'
+import type { AuthenticatedEnvelope, ProviderSnapshot, ProviderPolicy, Direction } from '../../src/wire/types.js'
+import type { Adapter, Connection, ConnectorWireSession } from '../../src/transport/index.js'
+import { envelope } from '../../src/transport/common.js'
 import { until } from '../transport/helpers.js'
 
 /** Gateway 只建立自身状态目录；没有 binary、HOME、native root 或 socket 输入。 */
-async function fixture() {
+async function fixture(mixed = false) {
   const root = mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.remote-gateway-'))
   const directory = join(root, 'gateway')
   mkdirSync(directory, { mode: 0o700 })
@@ -84,6 +96,39 @@ async function fixture() {
   const resources = await createLuvusProductionSources().gateway({ state_dir: directory }, [
     { reference: binding.config_ref, value: config }
   ])
+  let herdr: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined
+  if (mixed) {
+    try {
+      const herdrTarget = { ...target, provider_id: 'herdr_snapshot' }
+      herdr = await createHerdrGatewayResources({
+        config: {
+          version: 1,
+          target: herdrTarget,
+          binding_revision: 1,
+          config_ref: 'herdr_snapshot',
+          expected_source: fixedHerdrSource(),
+          schema_path: fileURLToPath(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url)),
+          peer_policy_revision: local.revision
+        }
+      })
+      state.store.defineProvider(herdr.providers[0]!.binding)
+      for (const policy of [caller, local]) {
+        policy.grants.push({ target: herdrTarget, methods: ['ping'], actions: ['dispatch', 'read'] })
+      }
+    } catch (error) {
+      try {
+        await herdr?.release()
+      } finally {
+        try {
+          await resources.release()
+        } finally {
+          state.close()
+          rmSync(root, { recursive: true, force: true })
+        }
+      }
+      throw error
+    }
+  }
   const caps = JSON.parse(
     readFileSync(new URL('../fixtures/luvus/0.14.3/linux/session-capabilities.json', import.meta.url), 'utf8')
   )
@@ -120,9 +165,11 @@ async function fixture() {
     },
     localPolicies: /** 每次门禁读取当前完整目标策略。 */ () => local,
     providers: resources.providers,
+    ...(herdr ? { hosted: [herdr] } : {}),
     listener: { hostname: '127.0.0.1', port: 0, developmentLoopback: true },
     release: /** listener 停止后释放来源和唯一状态 writer。 */ async () => {
       await resources.release()
+      await herdr?.release()
       state.close()
     }
   })
@@ -203,6 +250,8 @@ async function fixture() {
     caller,
     peer,
     snapshot,
+    credential,
+    herdr,
     writes: /** 仅统计合成 peer 收到的 Wire request，不宣称 native 已执行。 */ () => writes,
     hold: /** 允许制造真实断连后的可能执行未知状态。 */ () => {
       hold = true
@@ -216,6 +265,200 @@ async function fixture() {
     }
   }
 }
+
+/** 非空快照只使用真实Wire治理codec；所有native端口是明确拒绝执行的测试stub。 */
+function snapshotSession(
+  connection: Connection,
+  route: Pick<ProviderSnapshot, 'binding' | 'target'>,
+  policy: string
+): ConnectorWireSession {
+  let closed = false
+  const windows = new Map<Direction, MessageWindow>()
+  const context = /** 原codec独立核对真实welcome及完整canonical provider，不接纳其它组。 */ (direction: Direction) => ({
+    phase: 'authenticated' as const,
+    direction,
+    connection,
+    resolveProvider: /** 完整目标匹配，不能只按kind或provider名称授权。 */ (target: ProviderSnapshot['target']) =>
+      boundedJson(target) === boundedJson(route.target) ? route.binding : undefined
+  })
+  const native = /** 此测试没有native backend，意外业务调用始终失败。 */ () => {
+    throw new Error('snapshot_test_native_unavailable')
+  }
+  const adapter: Adapter = {
+    encode: /** 原encoder核对快照完整形状、协商能力与epoch。 */ (frame, direction) =>
+      encodeWireFrame(frame, context(direction)),
+    decode: /** 原decoder收到真实通道字节后再次验证全部原字段。 */ (raw, direction) =>
+      decodeWireFrame(raw, context(direction)),
+    observeMessage: /** 原组保持真实Wire消息窗口，组合窗口不能替代它。 */ (frame, direction) => {
+      let window = windows.get(direction)
+      if (!window) {
+        window = new MessageWindow()
+        windows.set(direction, window)
+      }
+      return window.observe(frame, context(direction), Date.now())
+    },
+    checkResult: native,
+    checkResultRetention: native,
+    encodeResponseObject: native,
+    acceptChunk: native,
+    planEvidence: native,
+    release: native,
+    stats: /** 没有native上下文，关闭状态只属于本测试端口。 */ () => ({ closed, executions: 0, responses: 0 }),
+    close: /** 原codec所有者记录实际关闭，组合层仍负责全部组。 */ () => {
+      closed = true
+    }
+  }
+  return {
+    adapter,
+    admissions: {
+      accept: native,
+      assertRequest: native,
+      closeEpoch: /** 本例不接收准入证明，没有需要落盘的receipt；不能由此放行业务。 */ () => {}
+    },
+    readiness: /** 只有本组的受保护配置；不宣称原生执行就绪。 */ () => ({
+      policy_revision: policy,
+      peer_policy_revision: policy,
+      providers: [{ expected: route.binding, local: route.binding, native_ready: true }]
+    }),
+    executeWire: /** 该合成Connector仅发布快照，没有业务成功stub。 */ async () => native(),
+    close: /** 本例没有额外原生owner，adapter关闭由原角色执行。 */ () => {}
+  }
+}
+
+test(
+  'mixed Connector publishes a nonempty original snapshot through one channel and Gateway accepts its exact source',
+  { timeout: 45_000 },
+  /** 实际角色transport、组合codec和远端pin接纳均执行；不配对真实设备或调用native/model。 */ async () => {
+    const f = await fixture(true)
+    let connector: Awaited<ReturnType<typeof createProviderConnectorRuntime>> | undefined
+    let combined: ConnectorWireSession | undefined
+    let connected: Connection | undefined
+    let publicationFailure: unknown
+    let snapshotEncodes = 0
+    let releases = 0
+    try {
+      const nativeSnapshots = structuredClone([f.snapshot])
+      /** 原transport要求稳定深冻结快照，测试不通过空数组绕过实际编码。 */
+      function freeze(value: unknown): void {
+        if (value && typeof value === 'object') {
+          for (const child of Object.values(value)) {
+            freeze(child)
+          }
+          Object.freeze(value)
+        }
+      }
+      freeze(nativeSnapshots)
+      connector = await createProviderConnectorRuntime({
+        provider_snapshot: true,
+        transport: {
+          url: f.runtime.transport.url,
+          developmentLoopback: true,
+          credential: /** 仅使用本fixture原有的短期合成身份，不读取用户凭据。 */ () => f.credential
+        },
+        session: /** 原host在实际认证welcome后建立一个组合会话。 */ (connection) => {
+          connected = connection
+          const luvus = snapshotSession(connection, f.snapshot, f.local.revision)
+          luvus.providerSnapshot = /** 交付同一份非空原始快照，不复制或刷新generation。 */ () => nativeSnapshots
+          const hosted = f.herdr!.providers[0]!
+          const herdr = snapshotSession(connection, hosted, f.local.revision)
+          combined = composeConnectorSessions(
+            connection,
+            [
+              { providers: [f.snapshot], session: luvus },
+              { providers: [hosted], session: herdr }
+            ],
+            Date.now
+          )
+          const original = combined
+          return {
+            ...original,
+            adapter: {
+              ...original.adapter,
+              encode: /** 仅观察实际transport发布失败，仍调用原组合encoder且保留其拒绝。 */ (frame, direction) => {
+                try {
+                  const bytes = original.adapter.encode(frame, direction)
+                  if (frame.type === 'provider_snapshot') {
+                    snapshotEncodes++
+                  }
+                  return bytes
+                } catch (error) {
+                  if (frame.type === 'provider_snapshot') {
+                    publicationFailure = error
+                  }
+                  throw error
+                }
+              }
+            }
+          }
+        },
+        release: /** 原Connector关闭后只释放本例长期资源一次。 */ async () => {
+          releases++
+        }
+      })
+      await until(
+        /** Gateway原remote owner接纳非空快照后，原provider健康才会变ready。 */ () =>
+          f.runtime.transport
+            .status()
+            .devices.some(
+              /** Herdr单独ready不能代替Luvus实际快照已接纳。 */ (device) =>
+                device.providers.some(
+                  /** 指定原Luvus provider，避免把任一其它组就绪当成通过。 */ (provider) =>
+                    provider.provider_id === f.target.provider_id && provider.ready
+                )
+            )
+      )
+      assert.equal(f.runtime.transport.status().devices.length, 1)
+      assert(['authenticated', 'ready'].includes(connector.transport.status().phase))
+      assert.equal(combined!.providerSnapshot!().length, 1)
+      assert.equal(publicationFailure, undefined)
+      assert.equal(snapshotEncodes, 1)
+      await f.runtime.runAuthenticated(
+        { principal_id: 'remote_reader' },
+        /** Gateway组合decoder、observe和accept均已执行，目录来源必须与原快照完全一致。 */ () => {
+          const resolved = f.runtime.catalog.resolve(f.target, f.runtime.principal())!
+          assert(resolved)
+          assert.deepEqual(resolved.record.wire.source, f.snapshot.source)
+          assert.deepEqual(resolved.record.capabilities, f.snapshot.capabilities)
+          assert(f.herdr!.catalog.resolve(f.herdr!.providers[0]!.target, f.runtime.principal()))
+        }
+      )
+      const frame = envelope(connected!, 'provider_snapshot', f.snapshot)
+      assert.equal(Object.hasOwn(frame.payload, 'attempt'), false)
+      assert.throws(
+        /** 错kind不能选择其它组的原codec。 */ () =>
+          combined!.adapter.encode(
+            { ...frame, payload: { ...f.snapshot, binding: { ...f.snapshot.binding, kind: 'herdr' } } },
+            'connector_to_gateway'
+          )
+      )
+      assert.throws(
+        /** 同名provider的其它session没有受保护路由。 */ () =>
+          combined!.adapter.encode(
+            { ...frame, payload: { ...f.snapshot, target: { ...f.target, session: 'foreign' } } },
+            'connector_to_gateway'
+          )
+      )
+      assert.throws(
+        /** 同一路由的陈旧binding仍拒绝，不能只比较kind。 */ () =>
+          combined!.adapter.encode(
+            { ...frame, payload: { ...f.snapshot, binding: { ...f.snapshot.binding, binding_revision: 2 } } },
+            'connector_to_gateway'
+          )
+      )
+      assert.throws(
+        /** 选中正确组以后，原codec仍拒绝错误连接epoch。 */ () =>
+          combined!.adapter.encode({ ...frame, connection_epoch: 'foreign_epoch' }, 'connector_to_gateway')
+      )
+      assert.equal(f.writes(), 0)
+    } catch (error) {
+      throw publicationFailure ?? error
+    } finally {
+      await connector?.close()
+      await f.close()
+    }
+    assert.equal(releases, 1)
+  }
+)
 
 test(
   'remote Gateway starts without Luvus paths, waits for authenticated snapshot, and reads original Wire result',

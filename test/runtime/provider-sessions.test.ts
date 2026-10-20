@@ -1,7 +1,7 @@
 // 组合端口组件回归：治理帧使用真实Wire/receipt writer，native端口是明确拒绝执行的stub。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { composeConnectorSessions, composeGatewaySessions } from '../../src/runtime/provider-sessions.js'
@@ -11,7 +11,15 @@ import type { Adapter, Connection, ConnectorWireSession } from '../../src/transp
 import { authenticateAdmissionReceipt } from '../../src/transport/admission-proof.js'
 import { boundedJson, decodeWireFrame, encodeWireFrame, MessageWindow } from '../../src/wire/index.js'
 import type { AdmissionReceiptRecord } from '../../src/wire/admission.js'
-import type { AttemptBinding, AuthenticatedEnvelope, Direction, ProviderKind, V2Target } from '../../src/wire/types.js'
+import type {
+  AttemptBinding,
+  AuthenticatedEnvelope,
+  Direction,
+  ProviderKind,
+  ProviderSnapshot,
+  V2Target
+} from '../../src/wire/types.js'
+import { envelope } from '../../src/transport/common.js'
 
 const connection: Connection = {
   machine_id: 'component_machine',
@@ -19,8 +27,78 @@ const connection: Connection = {
   connection_epoch: 'component_epoch',
   authenticated: true,
   active: true,
-  negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'admission_receipt', 'admission_context'] }
+  negotiated: {
+    major: 2,
+    minor: 0,
+    capabilities: ['rpc', 'admission_receipt', 'admission_context', 'provider_snapshot']
+  }
 }
+
+test(
+  '非空provider_snapshot没有attempt，按完整target/binding经原codec编码解码',
+  /** 使用官方能力原值和真实Wire治理codec；不构造native许可或安装成功。 */ () => {
+    const a = group('luvus')
+    const b = group('herdr')
+    const c = group('luvus')
+    const d = group('herdr')
+    const capabilities = JSON.parse(
+      readFileSync(new URL('../fixtures/luvus/0.14.3/linux/session-capabilities.json', import.meta.url), 'utf8')
+    )
+    capabilities.result.session = a.target.session
+    capabilities.result.server_generation = 'a'.repeat(32)
+    const snapshot: ProviderSnapshot = {
+      binding: a.binding,
+      target: a.target,
+      source: {
+        provider_kind: 'luvus',
+        protocol_family: 'uhp',
+        binary_version: '0.14.3',
+        binary_sha256: '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9',
+        schema_sha256: '00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6',
+        schema_origin: 'installed_cli',
+        schema_command: 'luvus uhp schema',
+        server_version: '0.14.3',
+        native_protocol_version: '1.0',
+        runtime_generation: capabilities.result.server_generation,
+        adapter_revision: 'managed-owned-luvus-0.14.3-1',
+        classification_revision: 'managed-owned-rpc-1',
+        support_basis: 'live_catalog'
+      },
+      capabilities,
+      capability_revision: 'a'.repeat(64)
+    }
+    const noAdmission = /** 治理帧测试不交付任何proof；意外准入始终失败。 */ () => {
+      throw new Error('snapshot_test_admission_unavailable')
+    }
+    for (const part of [a, b]) {
+      part.session.admissions = { accept: noAdmission, assertRequest: noAdmission }
+    }
+    const connector = composeConnectorSessions(connection, [a.descriptor, b.descriptor], Date.now)
+    const gateway = composeGatewaySessions(connection, [c.descriptor, d.descriptor], Date.now)
+    try {
+      const frame = envelope(connection, 'provider_snapshot', snapshot)
+      assert.equal(Object.hasOwn(frame.payload, 'attempt'), false)
+      const bytes = connector.adapter.encode(frame, 'connector_to_gateway')
+      const decoded = gateway.adapter.decode(bytes, 'connector_to_gateway')
+      assert.deepEqual(decoded, frame)
+      assert.equal(gateway.adapter.observeMessage(decoded, 'connector_to_gateway'), 'new')
+      assert.throws(
+        /** 错kind不能借同一个provider名称选择另一原组。 */ () =>
+          connector.adapter.encode(
+            { ...frame, payload: { ...snapshot, binding: { ...a.binding, kind: 'herdr' } } },
+            'connector_to_gateway'
+          )
+      )
+      assert.throws(
+        /** 选中原codec后，实际epoch校验继续有效。 */ () =>
+          connector.adapter.encode({ ...frame, connection_epoch: 'foreign_epoch' }, 'connector_to_gateway')
+      )
+    } finally {
+      connector.close()
+      gateway.close()
+    }
+  }
+)
 
 /** 两个明确synthetic provider的路由描述；native执行端口始终抛固定错误，不能充当CLI成功后端。 */
 function group(kind: ProviderKind) {
