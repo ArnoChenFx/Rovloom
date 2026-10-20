@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { renderDefinition } from '../../src/service/render.js'
 import { runSystemCommand } from '../../src/service/runner.js'
 import { sampleSpec } from './helpers.js'
+import { taskCall } from '../../src/service/windows.js'
 
 test(
   '实际宿主原生解析器接受开机声明且不执行注册或启动',
@@ -27,9 +28,9 @@ $ErrorActionPreference='Stop'
 [IO.File]::WriteAllText($PhasePath,'encoding_set')
 $xml=[IO.File]::ReadAllText($XmlPath,[Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText($PhasePath,'xml_read')
-$null=New-Object -TypeName System.Object
-[IO.File]::WriteAllText($PhasePath,'cmdlet_ready')
-$s=New-Object -ComObject 'Schedule.Service'
+$null=[object]::new()
+[IO.File]::WriteAllText($PhasePath,'clr_ready')
+$s=[Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service',$true))
 [IO.File]::WriteAllText($PhasePath,'connecting')
 $s.Connect()
 [IO.File]::WriteAllText($PhasePath,'connected')
@@ -57,6 +58,7 @@ if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t
             '-NoLogo',
             '-NoProfile',
             '-NonInteractive',
+            '-STA',
             '-File',
             scriptFile,
             '-XmlPath',
@@ -75,7 +77,7 @@ if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t
                   'script_started',
                   'encoding_set',
                   'xml_read',
-                  'cmdlet_ready',
+                  'clr_ready',
                   'connecting',
                   'connected',
                   'definition_created',
@@ -93,6 +95,7 @@ if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t
         )
         assert.equal(result.code, 0, result.stderr)
         assert.equal(result.stdout, 'native_format_valid')
+        assert.deepEqual(await taskCall(runSystemCommand, 'authorize', 'gateway'), { ok: true })
       } else {
         const file = join(directory, platform === 'linux' ? 'rovloom-connector.service' : 'io.rovloom.connector.plist')
         writeFileSync(file, renderDefinition(spec))

@@ -9,27 +9,31 @@ export const TASK_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+# 固定CLR序列化器绕开cmdlet自动加载；JSON始终为数据，不执行表达式。
+function emit($value) { [Console]::Write($json.Serialize($value)) }
 try {
-  $p = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  $p = $json.DeserializeObject([Console]::In.ReadToEnd())
   if ($p.name -notmatch '^rovloom-(gateway|connector)$') { throw 'service_conflict' }
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = [Security.Principal.WindowsPrincipal]::new($identity)
   if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'permission_denied' }
-  $s = New-Object -ComObject 'Schedule.Service'
+  $s = [Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service', $true))
   $s.Connect()
   $folder = $s.GetFolder('\\')
-  if ($p.op -eq 'authorize') { @{ok=$true} | ConvertTo-Json -Compress; exit 0 }
+  if ($p.op -eq 'authorize') { emit @{ok=$true}; exit 0 }
   $t = $null
   try { $t = $folder.GetTask($p.name) }
   catch { if ($_.Exception.HResult -ne -2147024894) { throw } }
   if ($p.op -eq 'read') {
-    if ($null -eq $t) { @{absent=$true} | ConvertTo-Json -Compress; exit 0 }
-    @{marker=$t.Definition.RegistrationInfo.Description} | ConvertTo-Json -Compress; exit 0
+    if ($null -eq $t) { emit @{absent=$true}; exit 0 }
+    emit @{marker=$t.Definition.RegistrationInfo.Description}; exit 0
   }
   if ($p.op -eq 'create') {
     if ($null -ne $t) { throw 'service_conflict' }
     $null = $folder.RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5, 'D:P(A;;FA;;;SY)(A;;FA;;;BA)')
-    @{ok=$true} | ConvertTo-Json -Compress; exit 0
+    emit @{ok=$true}; exit 0
   }
   if ($null -eq $t) { throw 'service_conflict' }
   $expected = $s.NewTask(0)
@@ -58,19 +62,19 @@ try {
     'start' { $null = $t.Run($null) }
     'stop' { $t.Stop(0) }
     'remove' {
-      if ([int]$t.State -notin @(1,3) -or $t.GetInstances(0).Count -ne 0) { @{retained=$true} | ConvertTo-Json -Compress; exit 0 }
+      if ([int]$t.State -notin @(1,3) -or $t.GetInstances(0).Count -ne 0) { emit @{retained=$true}; exit 0 }
       if ($t.Definition.Triggers.Item(1).Enabled) { throw 'service_conflict' }
       $folder.DeleteTask($p.name, 0)
-      @{absent=$true} | ConvertTo-Json -Compress; exit 0
+      emit @{absent=$true}; exit 0
     }
     default { throw 'invalid_arguments' }
   }
-  @{state=[int]$t.State; instances=[int]$t.GetInstances(0).Count; enabled=[bool]$t.Definition.Triggers.Item(1).Enabled; exitCode=[long]$t.LastTaskResult} | ConvertTo-Json -Compress
+  emit @{state=[int]$t.State; instances=[int]$t.GetInstances(0).Count; enabled=[bool]$t.Definition.Triggers.Item(1).Enabled; exitCode=[long]$t.LastTaskResult}
 } catch {
   $code = 'system_command_failed'
   if ($_.Exception.Message -in @('permission_denied','service_conflict','service_busy','invalid_arguments')) { $code = $_.Exception.Message }
   elseif ($_.Exception.HResult -eq -2147024891) { $code = 'permission_denied' }
-  @{error=$code} | ConvertTo-Json -Compress
+  emit @{error=$code}
   exit 1
 }
 `
@@ -89,6 +93,7 @@ export async function taskCall(
       '-NoLogo',
       '-NoProfile',
       '-NonInteractive',
+      '-STA',
       '-EncodedCommand',
       Buffer.from(TASK_SCRIPT, 'utf16le').toString('base64')
     ],
