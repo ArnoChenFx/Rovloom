@@ -62,7 +62,7 @@ def trace_completion_error(traced, stderr, returncode, expected):
 
 # 追踪失败仍阻断验收；只输出数值身份、固定程序名与冻结源码参数，区分追踪器异常和已观察退出。
 def trace_failure_summary(traced, stderr, returncode, source_files):
-    programs, pending, sources, parents, exits, signals = {}, {}, {}, {}, {}, {}
+    programs, pending, sources, parents, exits, signals, stops = {}, {}, {}, {}, {}, {}, {}
     root = None
     known_programs = {'/isolated/bin/bun': 'bun', '/verified/bun': 'bun',
                       '/bin/sh': 'sh', '/usr/bin/sh': 'sh', '/bin/bash': 'bash',
@@ -101,15 +101,21 @@ def trace_failure_summary(traced, stderr, returncode, source_files):
             exits[tid] = {'kind': 'exit', 'code': int(exited[1])}
         elif killed:
             exits[tid] = {'kind': 'signal', 'signal': killed[1]}
-        stopped = re.match(r'--- (SIG[A-Z0-9]{1,12})\b', event)
-        if stopped:
-            signals[tid] = (signals.get(tid, []) + [stopped[1]])[-4:]
+        delivered = re.match(r'--- (SIG[A-Z0-9]{1,12})\b', event)
+        group_stop = re.fullmatch(r'--- stopped by (SIG[A-Z0-9]{1,12}) ---', event)
+        if delivered:
+            signals[tid] = (signals.get(tid, []) + [delivered[1]])[-4:]
+        # strace 对 group-stop 使用不同文本，不能将缺少 signal-delivery 误读成没有停止。
+        if delivered or group_stop:
+            observed = {'kind': 'delivery' if delivered else 'group',
+                        'signal': (delivered or group_stop)[1]}
+            stops[tid] = (stops.get(tid, []) + [observed])[-4:]
 
     # 这里只描述实际观察的身份和状态；缺失退出不能依据全绿用例推断为成功。
     def identity(tid):
         return {'tid': tid, 'program': programs.get(tid, 'unobserved'),
                 'sourceArguments': sources.get(tid, []), 'exit': exits.get(tid),
-                'signalsTail': signals.get(tid, [])[-4:]}
+                'signalsTail': signals.get(tid, [])[-4:], 'stopsTail': stops.get(tid, [])[-4:]}
 
     errors = []
     pattern = r'ptrace\((PTRACE_[A-Z_]{1,32}),pid:([0-9]{1,10}),sig:([0-9]{1,3})\): ([^\n]*)'
