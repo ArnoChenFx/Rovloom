@@ -1,8 +1,10 @@
 /** 交付现有通用角色所需 Herdr 资源；不启动 Gateway、Connector、原生进程或建立身份。 */
 import { constants, closeSync, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
+import type { BigIntStats } from 'node:fs'
 import { dirname, isAbsolute, normalize } from 'node:path'
 import { GatewayError } from '../../contracts.js'
 import { privateFile } from '../../storage/files.js'
+import { assertPrivateDescriptor } from '../../storage/private-posix.js'
 import { ConnectorAttemptBook } from '../../runtime/connector-attempts.js'
 import { createConnectorAdmissionLedger } from '../../runtime/connector-admission-ledger.js'
 import type { GatewayProviderServices, RuntimeProviderBinding } from '../../runtime/types.js'
@@ -226,15 +228,18 @@ function fileOperation<T>(operation: () => T): T {
   }
 }
 
-/** 从同一不跟随链接的私有 fd 有界读取并固定身份，原文和路径不进入公共错误。 */
-function protectedFile(file: string, maximum: number) {
+/** 两个角色共用有界读取和来源快照；路径及同 fd 校验由各自边界显式提供。 */
+function pinnedFile(
+  file: string,
+  maximum: number,
+  boundary: Readonly<{ inspect(): void; descriptor(fd: number): BigIntStats; flags: number }>
+) {
   return fileOperation(
     /** 读取前后的完整身份必须属于同一文件。 */ () => {
-      inspectHerdrPath(dirname(file), 'directory')
-      privateFile(file)
-      const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW)
+      boundary.inspect()
+      const fd = openSync(file, boundary.flags)
       try {
-        const before = fstatSync(fd, { bigint: true })
+        const before = boundary.descriptor(fd)
         if (before.size < 1n || before.size > BigInt(maximum)) {
           fail('herdr_provider_file_invalid')
         }
@@ -255,7 +260,7 @@ function protectedFile(file: string, maximum: number) {
           [entry.dev, entry.ino, entry.uid, entry.mode, entry.nlink, entry.ctimeNs, entry.size].join(':')
         const identity = stamp(before)
         if (
-          stamp(fstatSync(fd, { bigint: true })) !== identity ||
+          stamp(boundary.descriptor(fd)) !== identity ||
           stamp(lstatSync(file, { bigint: true })) !== identity ||
           bytes.length !== Number(before.size)
         ) {
@@ -266,8 +271,7 @@ function protectedFile(file: string, maximum: number) {
           assertCurrent: /** 逐次复核原配置文件身份；不从新文件补建旧来源。 */ () => {
             fileOperation(
               /** 已关闭或被替换的配置不能恢复旧来源。 */ () => {
-                inspectHerdrPath(dirname(file), 'directory')
-                privateFile(file)
+                boundary.inspect()
                 if (stamp(lstatSync(file, { bigint: true })) !== identity) {
                   fail('herdr_provider_file_changed')
                 }
@@ -280,6 +284,27 @@ function protectedFile(file: string, maximum: number) {
       }
     }
   )
+}
+
+/** 本机 ref 与 Connector 保留原 Linux 安装路径门禁，不因 Gateway 支持 macOS 而放宽。 */
+function protectedFile(file: string, maximum: number) {
+  return pinnedFile(file, maximum, {
+    inspect: /** 本机配置继续要求安装边界与私有文件同时有效。 */ () => {
+      inspectHerdrPath(dirname(file), 'directory')
+      privateFile(file)
+    },
+    descriptor: /** 本机读取保留原同 fd 元数据快照。 */ (fd) => fstatSync(fd, { bigint: true }),
+    flags: constants.O_RDONLY | constants.O_NOFOLLOW
+  })
+}
+
+/** Gateway schema 属于通用私有存储；实际读取 fd 前后都核权限、ACL 与身份，不要求本机安装。 */
+function gatewaySchemaFile(file: string, maximum: number) {
+  return pinnedFile(file, maximum, {
+    inspect: /** 初读及后续来源复核均重验 Gateway 私有路径、文件和实际 ACL。 */ () => privateFile(file),
+    descriptor: /** 读取的同一 fd 必须是当前用户独占的 0600 普通文件。 */ (fd) => assertPrivateDescriptor(fd, false),
+    flags: constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+  })
 }
 
 /** #8 的显式 ref loader 可直接调用；不解释 executable module 或在导入配置时启动服务。 */
@@ -307,7 +332,7 @@ export async function createHerdrGatewayResources(
   input: Readonly<{ config: unknown; signal?: AbortSignal; now?: () => number }>
 ): Promise<HerdrGatewayResources> {
   const config = parseHerdrProviderRefConfig(input.config)
-  const document = protectedFile(config.schema_path, 16_777_216)
+  const document = gatewaySchemaFile(config.schema_path, 16_777_216)
   if (hash(document.bytes) !== config.expected_source.schema_sha256) {
     fail('herdr_schema_unreviewed')
   }

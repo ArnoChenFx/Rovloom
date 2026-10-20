@@ -1,7 +1,7 @@
 # Linux Docker Engine：产品监听保持宿主回环；不将管理/MCP端口转成公网监听。
 services:
   gateway:
-    image: ghcr.io/arnochenfx/rovloom:${ROVLOOM_VERSION:-0.1.0}
+    image: ghcr.io/arnochenfx/rovloom:${ROVLOOM_VERSION:-latest}
     command: [gateway]
     network_mode: host
     user: "10001:10001"

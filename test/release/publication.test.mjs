@@ -263,7 +263,7 @@ test(
   /** 无产品接线时必须阻断。 */ () => {
     const specification = {
       entrypoint: 'src/cli/main.ts',
-      workers: ['src/native-contract/compiler-worker.ts'],
+      workers: ['src/native-contract/compiler-worker.ts', 'src/connector/herdr/compiler-herdr-worker.ts'],
       releaseSmoke: null
     }
     assert.throws(/** 当前未接线产品不能发行。 */ () => productSmokePath(specification), /preview cannot release/u)
@@ -272,9 +272,20 @@ test(
     )
     assert.throws(/** 禁止省略真实 schema Worker。 */ () => productSmokePath({ ...specification, workers: [] }))
     assert.throws(
-      /** 验收脚本必须属于维护的发行工具目录。 */ () =>
-        productSmokePath({ ...specification, releaseSmoke: 'test/release/probe.mjs' })
+      /** 只带Luvus工厂不能交付真实Herdr双角色验收。 */ () =>
+        productSmokePath({
+          ...specification,
+          workers: ['src/native-contract/compiler-worker.ts'],
+          releaseSmoke: 'scripts/release/product-smoke.mjs'
+        }),
+      /Real Herdr schema Worker is required/u
     )
+    assert.throws(
+      /** 验收脚本必须属于维护的发行工具目录。 */ () =>
+        productSmokePath({ ...specification, releaseSmoke: 'test/release/probe.mjs' }),
+      /Expected maintained product smoke script/u
+    )
+    assert.equal(productSmokePath(), resolve('scripts/release/product-smoke.mjs'))
   }
 )
 
