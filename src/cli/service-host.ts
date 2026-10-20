@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { constants, closeSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs'
 import { createNativeServiceBackend } from '../service/native.js'
+import { windowsServiceHome } from '../service/windows-profile.js'
 import { ServiceManager } from '../service/manager.js'
 import { protectedPath } from '../service/security.js'
 import { checkedCommand, runSystemCommand, type CommandRunner } from '../service/runner.js'
@@ -46,14 +47,28 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
 export function serviceAccountConfig(
   role: ServiceRole,
   account: string,
-  lookup: (account: string) => string = accountRecord
+  lookup?: (account: string) => string,
+  platform: string = process.platform
 ): string {
+  if (platform === 'win32') {
+    if (account !== 'S-1-5-19') {
+      throw new ServiceError('invalid_arguments')
+    }
+    try {
+      return resolveRoleConfigPath(role, undefined, {
+        home: lookup ? lookup(account) : windowsServiceHome(),
+        platform: 'win32'
+      })
+    } catch {
+      throw new ServiceError('config_path_required')
+    }
+  }
   if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/u.test(account) || account === 'root') {
     throw new ServiceError('invalid_arguments')
   }
   let record: string
   try {
-    record = lookup(account).trimEnd()
+    record = (lookup ?? accountRecord)(account).trimEnd()
   } catch (error) {
     if (error instanceof ServiceError && error.code === 'backend_unavailable') {
       throw error

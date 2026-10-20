@@ -135,7 +135,10 @@ to prove effective permissions for the complete expanded path/ancestor list. Mis
 results fail closed, and this module never edits an ACL. Environment-dependent native discovery must also be rejected
 or resolved by `verifyRuntime`; config paths alone do not prove native provider access.
 
-Windows additionally requires `verifyWindowsInstallation`: validate executable/ancestor ACLs against
+Windows resolves the fixed LocalService profile from its 64-bit HKLM ProfileList record, never the
+controller HOME. Only the SystemRoot placeholder is expanded using GetWindowsDirectoryW, and
+profile path resolution does not establish owner/ACL access. Missing/unknown records require an
+explicit config path. Windows additionally requires `verifyWindowsInstallation`: validate executable/ancestor ACLs against
 replacement by ordinary users, LocalService access to only the intended config/state resources, reparse
 points, effective permissions and fixed control-directory ancestors. The module refuses registration
 when this port is missing. Provision `C:\ProgramData\Rovloom\ServiceControl` separately with an
@@ -218,7 +221,8 @@ Gateway URL 必须非空；预检不证明 provider 就绪。
 `--config` 可省略，但须复用唯一 CLI 的目标服务账户身份/默认路径 resolver，默认是该账户已验证 home 下
 `.config/rovloom/gateway.json` 或 `connector.json`，Windows 同样如此；显式路径优先。不能确定提升前
 真实用户时要求 `--config`，不盲信 HOME/SUDO_USER。解析后的绝对路径在安装时固化，开机/重启不会
-再按 root/LocalService 的 HOME 展开；不会为适配默认路径修改 ACL 或复制秘密。Windows 另需 `verifyWindowsInstallation` 及预先准备的管理员/SYSTEM 专有控制目录；
+再按 root/LocalService 的 HOME 展开；不会为适配默认路径修改 ACL 或复制秘密。Windows缺省home只读固定LocalService SID的64位系统profile记录；不读管理员HOME，
+仅以系统API事实展开SystemRoot，路径解析不证明owner/ACL可用。Windows另需`verifyWindowsInstallation` 及预先准备的管理员/SYSTEM 专有控制目录；
 本模块以只读 CLR 接口核对控制目录至卷根的每一层，拒绝 reparse point、不可信 owner 与替换权限；
 叶目录还拒绝普通用户读取或向控制文件继承授权。控制目录检查不证明 LocalService 对角色资源的访问，
 也不自动设置 ACL。
@@ -239,6 +243,8 @@ Task Scheduler COM 内存定义。探针不注册任务、不加载单元、不�
 
 ## Official references / 官方依据
 
+- [RegGetValueW read-only registry lookup](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-reggetvaluew)
+- [GetWindowsDirectoryW](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getwindowsdirectoryw)
 - [systemd.service: execution prefixes and service lifecycle](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html)
 - [systemd.exec: execution environment and user identity](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html)
 - [systemctl: enable/disable versus start/stop](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)
