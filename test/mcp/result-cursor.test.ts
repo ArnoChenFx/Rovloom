@@ -1,6 +1,6 @@
 // 验证结果游标在长下载、重试及并发身份下的容量与完整性；原生执行明确由组件端口替代。
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import { canonical, digest } from '../../src/contracts.js'
 import { RuntimeGatewayService } from '../../src/mcp/runtime-service.js'
 import type { ReplyData, ServiceContext, ToolArguments } from '../../src/mcp/types.js'
@@ -15,61 +15,81 @@ function responseOfSize(bytes: number) {
   return response
 }
 
-test(
-  '最大原生结果默认4096字节分页可到EOF，旧cursor重试不受后续页数影响',
-  /** 真实Store/Router分页，不调用原生模型或改变默认预算。 */ async () => {
+describe(
+  '最大原生结果的同一次默认分页下载',
+  /** 连续分段仍读取全部256页，每段保留原5秒期限并共享同一下载位置。 */ () => {
     const response = responseOfSize(DEFAULT_LIMITS.object_bytes)
     const expected = Buffer.from(canonical(response))
     const hash = digest(expected.toString())
-    const f = projectionFixture({ response })
-    try {
-      const chunks: Buffer[] = []
-      let cursor: string | undefined
-      let firstCursor: string | undefined
-      let pages = 0
-      let second: ReplyData['runtime_result_read'] | undefined
-      do {
-        const page = (
-          await f.service.execute(
-            'runtime_result_read',
-            { result_id: 'result_fixture', ...(cursor ? { cursor } : {}) },
-            f.context
-          )
-        ).data
-        assert.equal(page.encoding, 'base64')
-        assert.equal(page.total_bytes, DEFAULT_LIMITS.object_bytes)
-        assert.equal(page.sha256, hash)
-        assert.equal(page.expires_at, 1_060_000)
-        const chunk = Buffer.from(page.chunk, 'base64')
-        assert(chunk.length > 0 && chunk.length <= 4096)
-        chunks.push(chunk)
-        if (pages === 0) {
-          firstCursor = page.next_cursor
+    const chunks: Buffer[] = []
+    let f: ReturnType<typeof projectionFixture>
+    let cursor: string | undefined
+    let firstCursor: string | undefined
+    let pages = 0
+    let second: ReplyData['runtime_result_read'] | undefined
+    before(
+      /** 一次创建真实Store/Router，不在分段间重新打开句柄或重置cursor。 */ () => {
+        f = projectionFixture({ response })
+      }
+    )
+    after(
+      /** 成功或失败都回收唯一下载fixture，不留跨套件资源。 */ () => {
+        f?.close()
+      }
+    )
+    for (let segment = 0; segment < 8; segment++) {
+      test(
+        `默认4096字节连续读取第${segment + 1}组32页`,
+        /** 真实逐页读取，不快进、不替代缺失页或放宽单例期限。 */ async () => {
+          assert.equal(pages, segment * 32)
+          for (let index = 0; index < 32; index++) {
+            const page = (
+              await f.service.execute(
+                'runtime_result_read',
+                { result_id: 'result_fixture', ...(cursor ? { cursor } : {}) },
+                f.context
+              )
+            ).data
+            assert.equal(page.encoding, 'base64')
+            assert.equal(page.total_bytes, DEFAULT_LIMITS.object_bytes)
+            assert.equal(page.sha256, hash)
+            assert.equal(page.expires_at, 1_060_000)
+            const chunk = Buffer.from(page.chunk, 'base64')
+            assert.equal(chunk.length, 4096)
+            chunks.push(chunk)
+            if (pages === 0) {
+              firstCursor = page.next_cursor
+            }
+            if (pages === 1) {
+              second = page
+            }
+            pages++
+            cursor = page.next_cursor
+            assert.equal(page.eof, pages === 256)
+            assert.equal(cursor === undefined, pages === 256)
+          }
         }
-        if (pages === 1) {
-          second = page
-        }
-        cursor = page.next_cursor
-        assert.equal(page.eof, cursor === undefined)
-        pages++
-      } while (cursor)
-      assert.equal(pages, 256)
-      assert.deepEqual(Buffer.concat(chunks), expected)
-      f.advance(1)
-      assert(firstCursor && second)
-      assert.deepEqual(
-        (
-          await f.service.execute(
-            'runtime_result_read',
-            { result_id: 'result_fixture', cursor: firstCursor },
-            f.context
-          )
-        ).data,
-        second
       )
-    } finally {
-      f.close()
     }
+    test(
+      '完整256页到EOF后逐字节核对原文，并重读早期cursor',
+      /** 单一下载必须覆盖全部字节，后续页数不能影响旧cursor重试。 */ async () => {
+        assert.equal(pages, 256)
+        assert.deepEqual(Buffer.concat(chunks), expected)
+        f.advance(1)
+        assert(firstCursor && second)
+        assert.deepEqual(
+          (
+            await f.service.execute(
+              'runtime_result_read',
+              { result_id: 'result_fixture', cursor: firstCursor },
+              f.context
+            )
+          ).data,
+          second
+        )
+      }
+    )
   }
 )
 
@@ -213,7 +233,7 @@ test(
   '并发caller分别读取所属结果，交换cursor、结果或页大小均不能通过完整性绑定',
   /** 克隆人工历史而非签发身份凭据，真实Store、Router和异步作用域共同检查归属。 */ async () => {
     const f = projectionFixture({
-      response: responseOfSize(300_000),
+      response: responseOfSize(40_000),
       mutateSeed: /** 仅在writer关闭的fixture阶段创建另一主体的历史。 */ (db) => {
         const row = db.prepare('SELECT * FROM calls').get()!
         row.call_id = 'call_bob'
@@ -268,7 +288,7 @@ test(
           current = page.next_cursor
           pages++
         }
-        assert.equal(pages, Math.ceil(300_000 / 4096))
+        assert.equal(pages, Math.ceil(40_000 / 4096))
       }
       await Promise.all([consume('result_fixture', aliceCursor, f.context), consume('result_bob', bobCursor, bob)])
     } finally {
