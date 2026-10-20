@@ -6,6 +6,7 @@
 |---|---|
 | 安装前提、角色配置路径、启动连接、HTTP MCP 与 Agent 使用 | [Quick Start](QUICK-START.md) · [快速开始](QUICK-START-zh.md) |
 | 用户可配置参数、完整无秘密模板、runtime/refs 布局与原生安装要求 | [Configuration](CONFIGURATION.md) · [配置参考](CONFIGURATION-zh.md) |
+| 全部 CLI 子命令/选项、服务动作语法、默认值、退出码与平台限制 | [CLI reference](CONFIGURATION.md#complete-cli-reference) · [完整 CLI 参考](CONFIGURATION-zh.md#完整-cli-参考) |
 | 开机注册、服务启停、账户/路径权限与 CLI 接缝 | [SERVICE](SERVICE.md) |
 | 系统目标、角色、Target/provider、授权、结果、去重、恢复和默认预算 | [DESIGN](DESIGN.md) |
 | 尚需交付的能力、依赖和联合验收 | [IMPLEMENTATION-PLAN](IMPLEMENTATION-PLAN.md) |

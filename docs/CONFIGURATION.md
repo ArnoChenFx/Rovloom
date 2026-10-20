@@ -327,3 +327,133 @@ Herdr's default session socket is `<config_home>/herdr/herdr.sock`; other sessio
 use `<config_home>/herdr/sessions/<session>/herdr.sock`. Production refuses to
 take over an existing endpoint and tracks its own managed child. It does not
 promise prompt completion, native cancellation, event recovery or terminal fencing.
+
+## Complete CLI reference
+
+These are all command forms accepted by the current product. `ROLE` means
+`gateway` or `connector`; `ABS` means a normalized absolute path supplied as a
+separate argument. Replace example paths with your own. Commands and option
+names are case-sensitive. No `--option=value` syntax, combined short flags or
+unspecified extra arguments are supported. Only top-level help has a short flag.
+
+### Help, version and configuration
+
+| Command | Arguments / options | Default / effect | Valid example |
+|---|---|---|---|
+| `rovloom` | None | Prints top-level help; does not start a role. | `rovloom` |
+| `rovloom --help`, `rovloom -h`, `rovloom help` | No additional arguments | Equivalent offline help. | `rovloom -h` |
+| `rovloom --version` | No additional arguments | Prints product version. No `-v` alias. | `rovloom --version` |
+| `rovloom gateway --help`, `rovloom connector --help` | Exactly one `--help` flag | Prints top-level help; cannot combine with `--config`. | `rovloom connector --help` |
+| `rovloom config template ROLE` | Required positional enum `ROLE`; no options | Prints complete non-secret role JSON; writes no file. | `rovloom config template gateway` |
+| `rovloom config template runtime ROLE` | Required positional enum `ROLE`; no options | Prints complete non-secret runtime JSON; writes no file. | `rovloom config template runtime connector` |
+| `rovloom config check --config ABS` | `--config`: required path string | No default for this command; checks the selected role JSON. | `rovloom config check --config /home/rovloom/.config/rovloom/gateway.json` |
+| `rovloom config check-runtime --config ABS` | `--config`: required path string | Checks role JSON and `state_dir/runtime.json`; does not load credentials or verify Agent readiness. | `rovloom config check-runtime --config /home/rovloom/.config/rovloom/connector.json` |
+
+### Run a role
+
+| Command | Arguments / options | Default / effect | Valid example |
+|---|---|---|---|
+| `rovloom gateway [--config ABS]` | `--config`: optional path string | Defaults to the current user's `~/.config/rovloom/gateway.json`; starts the foreground Gateway. | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
+| `rovloom connector [--config ABS]` | `--config`: optional path string | Defaults to the current user's `~/.config/rovloom/connector.json`; starts the foreground Connector. | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
+
+Explicit paths take priority; there is no fallback from an invalid explicit path.
+The selected file must have the matching role. `--config` selects the role JSON,
+not `runtime.json`. Defaults are resolved for the process user. Stop a foreground
+role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
+Network ports, provider selection and Agent settings are JSON fields, not flags.
+
+### Service command syntax and current availability
+
+`rovloom service --help` is available offline. The five action forms below are
+recognized by the service interface, but **the current product has no connected
+service backend**: they return `backend_unavailable` and exit **3** without
+installing or managing a system service. The examples document syntax; they are
+not a working installation procedure for this preview. Administrator privilege
+does not remove this limitation.
+
+| Command form | Required arguments | Meaning of the action | Syntax example (currently unavailable) |
+|---|---|---|---|
+| `rovloom service install` | `--role`, `--executable`, `--workdir`, `--user`; optional `--config` | Add/enable startup at boot; **does not start now**. | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
+| `rovloom service start` | `--role` only | Start an installed role now; does not create its installation. | `rovloom service start --role gateway` |
+| `rovloom service restart` | `--role` only | Stop the installed instance, then start it. | `rovloom service restart --role connector` |
+| `rovloom service stop` | `--role` only | Stop now; retain startup at the next boot. | `rovloom service stop --role connector` |
+| `rovloom service uninstall` | `--role` only | Remove startup at future boots; **does not stop** a running instance or delete user data. | `rovloom service uninstall --role gateway` |
+
+Every service action selects exactly one role; repeat separately for the other
+role. There is no default role, `all` role, `--now`, `--force`, `--purge` or
+`service status` command. Other actions cannot take install-only options.
+
+| Service option | Type / required / default | Purpose |
+|---|---|---|
+| `--role` | Required enum `gateway` or `connector`; no default | Select the role whose startup/instance is managed. |
+| `--executable` | Install-only, required absolute path string, at most 4096 characters; no default | Standalone Rovloom program, not a shell command or interpreter. Windows path must end in `.exe`. |
+| `--config` | Install-only, optional absolute path string, at most 4096 characters | Explicit role configuration. If omitted, requires the verified user's `~/.config/rovloom/gateway.json` or `connector.json`; an unavailable verified identity requires an explicit path (`config_path_required`). Do not infer a pre-elevation home from environment variables. |
+| `--workdir` | Install-only, required absolute directory string, at most 4096 characters; no default | Working directory of the service; does not set or replace JSON `state_dir`. |
+| `--user` | Install-only, required account string; no default | Existing non-root account on Linux/macOS. Windows accepts only LocalService SID `S-1-5-19`, without a password. |
+
+Service path values are fixed at install time; later boot/start/restart uses the
+recorded absolute role configuration, rather than resolving a new home. POSIX
+installation requires a root-owned protected executable and configuration/work
+directories belonging to the chosen non-root account; it does not create accounts
+or relax permissions. Windows requires its own protected installation and
+LocalService access. Those checks do not make the unconnected product backend usable.
+
+The service action semantics keep installation and running state separate:
+install then start would request both boot startup and immediate running;
+uninstall then stop would request both no future boot startup and stopping now.
+Repeated start must not duplicate a running instance; start/restart requires an
+installed registration. Stopping does not itself remove boot startup. Windows
+stop/restart may terminate the task directly; do not treat it as native rollback.
+
+### Platform availability and checking state
+
+| Command group | Linux | macOS | Windows |
+|---|---|---|---|
+| Help/version/template output | Available | Available | Available |
+| `config check` | Protected POSIX reader | Protected POSIX reader | Rejected: `config_platform_unsupported` |
+| `config check-runtime`, real role startup | Current deployment guide covers Linux x64 | Runtime loader rejects this platform | Runtime loader rejects this platform |
+| Service actions | Unavailable in current product CLI | Unavailable; runtime also unsupported | Unavailable; runtime/configuration and installation ACL support also incomplete |
+| `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
+
+There is no working Rovloom service-status query in this preview.
+Use the foreground process and the management/MCP checks in the Quick Start to
+check current runtime readiness. A running process alone does not prove MCP or
+Agent readiness; an HTTP client disconnect does not stop Gateway.
+
+### Update commands
+
+| Command | Arguments / options | Effect and current limitation | Valid example |
+|---|---|---|---|
+| `rovloom update --help` | No extra arguments | Offline update help. | `rovloom update --help` |
+| `rovloom update --check` | `--check`: optional boolean switch selecting check-only mode; no value | Reads official stable release metadata over the network; does not replace the program. | `rovloom update --check` |
+| `rovloom update` | No arguments | Checks first. No newer release means no replacement and exit 0; if a newer release exists, the missing replacement backend causes `replacement_unavailable` (5). | `rovloom update` |
+
+No public release is currently available, so a network check can return
+`release_unavailable`. Exit 0 from `update` does not mean a new binary was
+installed. No URL, mirror, version selector, download path, script or confirmation
+flag is accepted. The release matrix describes update metadata targets, not full
+Gateway/Connector runtime support.
+
+### Output and exit codes
+
+Help, version, check diagnostics, service diagnostics and update status go to
+**stderr**. Template JSON goes to **stdout**. Stdout is not an MCP transport.
+No command accepts Bearers, TLS secrets, model secrets or arbitrary environment
+variables as CLI options. Commands such as `init`, `pair`, `status`, `--token`,
+`--port`, `--env` and `--agent-bin-dir` are not part of this CLI.
+
+| Exit code | Role/configuration/service meaning | Update meaning |
+|---|---|---|
+| `0` | Help/template/check success, normal role shutdown; service help succeeds | Check succeeded or no replacement needed; actual replacement is not currently connected. |
+| `1` | Runtime/shutdown failure; service operation failure with a connected backend | Unexpected update failure. |
+| `2` | Invalid arguments/configuration; with a connected service backend, invalid options or missing verified default config | Invalid arguments/current version or unsupported platform. |
+| `3` | Backend unavailable; every current product service action returns this | Network/release/manifest/download verification failure. |
+| `4` | Not a role/configuration/service success code | Permission/staging/lock/installation or incomplete-I/O/cleanup condition; not success. |
+| `5` | Not used for these commands | Replacement backend unavailable. |
+| `6` | Not used for these commands | Update rolled back (replacement module outcome). |
+| `7` | Not used for these commands | Recovery required (replacement module outcome). |
+
+The unconnected service backend is checked before its action arguments are
+parsed: even a malformed service action currently reports `backend_unavailable`.
+Do not interpret that as proof that its options were valid. Keep error codes
+when asking for help; do not upload real configuration or secrets.

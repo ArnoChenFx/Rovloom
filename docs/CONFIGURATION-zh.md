@@ -298,3 +298,114 @@ Gateway ref 封套准确为 `{kind:"herdr",config:{...}}`；Connector 封套准�
 Herdr 默认 session socket 是 `<config_home>/herdr/herdr.sock`；其他 session 使用
 `<config_home>/herdr/sessions/<session>/herdr.sock`。生产入口拒绝接管已有端点，
 只跟踪自己管理的 child，不保证 prompt completion、原生取消、事件恢复或 terminal fencing。
+
+## 完整 CLI 参考
+
+以下覆盖当前产品的全部命令形状。`ROLE` 表示 `gateway` 或 `connector`，`ABS` 表示
+单独作为参数传入的规范绝对路径；请将示例路径换成自己的实际位置。命令及选项名区分大小写，
+不支持 `--option=value`、组合短选项或未声明的额外参数。只有顶层帮助提供短选项。
+
+### 帮助、版本与配置
+
+| 命令 | 参数 / 选项 | 默认值 / 作用 | 合法示例 |
+|---|---|---|---|
+| `rovloom` | 无 | 输出顶层帮助，不启动角色。 | `rovloom` |
+| `rovloom --help`、`rovloom -h`、`rovloom help` | 不接受额外参数 | 等价的离线帮助。 | `rovloom -h` |
+| `rovloom --version` | 不接受额外参数 | 输出产品版本，没有 `-v` 别名。 | `rovloom --version` |
+| `rovloom gateway --help`、`rovloom connector --help` | 仅一个 `--help` | 输出顶层帮助，不能与 `--config` 同用。 | `rovloom connector --help` |
+| `rovloom config template ROLE` | 必填位置 enum `ROLE`，无选项 | 输出完整无秘密角色 JSON，不写文件。 | `rovloom config template gateway` |
+| `rovloom config template runtime ROLE` | 必填位置 enum `ROLE`，无选项 | 输出完整无秘密 runtime JSON，不写文件。 | `rovloom config template runtime connector` |
+| `rovloom config check --config ABS` | `--config`：必填路径 string | 此命令没有默认路径，检查所选角色 JSON。 | `rovloom config check --config /home/rovloom/.config/rovloom/gateway.json` |
+| `rovloom config check-runtime --config ABS` | `--config`：必填路径 string | 检查角色 JSON 和 `state_dir/runtime.json`，不加载凭据或确认 Agent 就绪。 | `rovloom config check-runtime --config /home/rovloom/.config/rovloom/connector.json` |
+
+### 运行角色
+
+| 命令 | 参数 / 选项 | 默认值 / 作用 | 合法示例 |
+|---|---|---|---|
+| `rovloom gateway [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/gateway.json`，启动前台 Gateway。 | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
+| `rovloom connector [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/connector.json`，启动前台 Connector。 | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
+
+显式路径优先，无效时不会回退。所选文件必须匹配角色。`--config` 指向角色 JSON，
+不是 `runtime.json`；默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
+`start`、`stop` 或 `restart`。端口、provider 选择和 Agent 设置是 JSON 字段，不是 CLI 选项。
+
+### Service 命令语法与当前可用性
+
+`rovloom service --help` 可离线使用。服务接口识别下列五种动作，但**当前产品未连接
+服务后端**，均返回 `backend_unavailable`、退出码 **3**，不会安装或管理系统服务。
+下列示例用于说明语法，不是本预览可成功执行的安装教程；管理员权限也不能消除此限制。
+
+| 命令形状 | 必填参数 | 动作含义 | 语法示例（当前不可用） |
+|---|---|---|---|
+| `rovloom service install` | `--role`、`--executable`、`--workdir`、`--user`；`--config` 可选 | 加入/启用开机自动启动，**不会立即启动**。 | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
+| `rovloom service start` | 仅 `--role` | 立即启动已安装角色，不自动安装。 | `rovloom service start --role gateway` |
+| `rovloom service restart` | 仅 `--role` | 停止已安装实例，再启动。 | `rovloom service restart --role connector` |
+| `rovloom service stop` | 仅 `--role` | 立即停止，保留下次开机自动启动。 | `rovloom service stop --role connector` |
+| `rovloom service uninstall` | 仅 `--role` | 删除未来开机自动启动，**不会停止**正在运行的实例，也不删除用户数据。 | `rovloom service uninstall --role gateway` |
+
+每个服务动作只选择一个角色，另一角色需单独操作。没有默认角色、`all` 角色、`--now`、
+`--force`、`--purge` 或 `service status` 命令；其他动作不接受仅安装适用的选项。
+
+| 服务选项 | 类型 / 必需性 / 默认 | 用途 |
+|---|---|---|
+| `--role` | 必填 enum `gateway` 或 `connector`，无默认 | 选择要管理其自启/实例的角色。 |
+| `--executable` | 仅 install，必填绝对路径 string，≤4096 字符，无默认 | Rovloom 单文件程序，不是 shell 命令或解释器；Windows 路径须以 `.exe` 结尾。 |
+| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 显式角色配置。省略时需要已验证用户的 `~/.config/rovloom/gateway.json` 或 `connector.json`；无法验证身份时必须显式传入（`config_path_required`），不根据环境变量猜测提权前 home。 |
+| `--workdir` | 仅 install，必填绝对目录 string，≤4096 字符，无默认 | 服务工作目录，不设置或替代 JSON 的 `state_dir`。 |
+| `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
+
+服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
+POSIX 安装要求 root 持有的受保护程序，以及属于所选非 root 账户的配置/工作目录；
+不会创建账户或放宽权限。Windows 要求独立的受保护安装和 LocalService 访问权限。
+这些检查不会使尚未连接的产品服务后端变为可用。
+
+服务动作将安装和运行状态分开：install 后再 start 才分别请求开机自启和立即运行；
+uninstall 后再 stop 才分别请求不再开机自启和立即停止。重复 start 不应产生重复实例，
+start/restart 要求已有安装记录。stop 本身不删除开机自启。Windows stop/restart
+可能直接终止任务，不能当作原生工作回滚。
+
+### 平台可用性与状态检查
+
+| 命令类别 | Linux | macOS | Windows |
+|---|---|---|---|
+| 帮助/版本/模板输出 | 可用 | 可用 | 可用 |
+| `config check` | 受保护 POSIX 读取器 | 受保护 POSIX 读取器 | 拒绝：`config_platform_unsupported` |
+| `config check-runtime`、真实角色启动 | 当前部署指引覆盖 Linux x64 | runtime 加载器拒绝该平台 | runtime 加载器拒绝该平台 |
+| Service 动作 | 当前产品 CLI 不可用 | 不可用，runtime 也未支持 | 不可用，runtime/配置及安装 ACL 支持也未完成 |
+| `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
+
+本预览没有可用的 Rovloom 服务状态查询，
+请通过前台进程及 Quick Start 中的管理页/MCP 检查当前 runtime 就绪状态。
+进程运行本身不证明 MCP 或 Agent 就绪，HTTP 客户端断开也不会停止 Gateway。
+
+### Update 命令
+
+| 命令 | 参数 / 选项 | 作用与当前限制 | 合法示例 |
+|---|---|---|---|
+| `rovloom update --help` | 无额外参数 | 离线更新帮助。 | `rovloom update --help` |
+| `rovloom update --check` | `--check`：可选的仅检查 boolean 开关，不带值 | 经网络读取官方稳定发行元数据，不替换程序。 | `rovloom update --check` |
+| `rovloom update` | 无参数 | 先检查；没有新版本时不替换并返回 0，存在新版本时因缺少替换后端返回 `replacement_unavailable`（5）。 | `rovloom update` |
+
+目前没有公开发行，网络检查可能返回 `release_unavailable`。`update` 返回 0 不等于
+安装了新程序。不接受 URL、镜像、版本选择器、下载路径、脚本或确认选项。
+发行矩阵表示更新元数据目标，不代表完整 Gateway/Connector runtime 支持。
+
+### 输出与退出码
+
+帮助、版本、检查诊断、服务诊断和更新状态写入 **stderr**，模板 JSON 写入 **stdout**。
+stdout 不是 MCP 传输。任何命令都不接受 Bearer、TLS 秘密、模型秘密或任意环境变量选项。
+`init`、`pair`、`status`、`--token`、`--port`、`--env`、`--agent-bin-dir` 不属于此 CLI。
+
+| 退出码 | 角色/配置/服务含义 | Update 含义 |
+|---|---|---|
+| `0` | 帮助/模板/检查成功、角色正常关闭；服务帮助可成功 | 检查成功或无需替换，实际替换目前未接通。 |
+| `1` | 运行/关闭失败；已接后端时的服务操作失败 | 未预期的更新失败。 |
+| `2` | 参数/配置错误；已接服务后端时的选项错误或缺少可信默认配置 | 参数/当前版本无效或平台不支持。 |
+| `3` | 后端不可用，当前产品的服务动作均返回此码 | 网络/发行/manifest/下载核验失败。 |
+| `4` | 不是角色/配置/服务成功码 | 权限/暂存/锁/安装或 IO/清理未完成，不是成功。 |
+| `5` | 这些命令不使用 | 替换后端不可用。 |
+| `6` | 这些命令不使用 | 更新已回滚（替换模块结果）。 |
+| `7` | 这些命令不使用 | 需要恢复（替换模块结果）。 |
+
+未接通服务后端的检查发生在动作参数解析之前，所以当前即使传入畸形 service 动作也会返回
+`backend_unavailable`，不能据此认为选项合法。求助时保留错误码，不上传真实配置或秘密。

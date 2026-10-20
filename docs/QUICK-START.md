@@ -1,6 +1,6 @@
 # Rovloom Quick Start
 
-**English** · [简体中文](QUICK-START-zh.md) · [Configuration reference](CONFIGURATION.md)
+**English** · [简体中文](QUICK-START-zh.md) · [Configuration reference](CONFIGURATION.md) · [All CLI commands and options](CONFIGURATION.md#complete-cli-reference)
 
 Use one **Gateway** as the MCP entry point and one outbound **Connector** on each
 device running Luvus or Herdr. They can share a machine, with separate state directories.
@@ -96,6 +96,40 @@ management session expires, refresh and authenticate again; refresh does not
 extend the upstream login expiry. A pending registration still needs completed
 pairing before Connector can connect.
 
+### Service installation and running
+
+Boot startup and immediate running are separate operations. Select one role with
+`--role gateway` or `--role connector`; repeat for the other role when needed.
+
+**Current availability:** `rovloom service --help` works, but every service action
+below currently returns `backend_unavailable` (exit 3) on Linux, macOS and Windows.
+Use the foreground commands above for this preview. The following describes the
+command meanings, not a successfully available boot-installation procedure.
+
+| Need | Service command | Effect |
+|---|---|---|
+| Add startup at boot | `rovloom service install --role gateway --executable ABS --config ABS --workdir ABS --user ACCOUNT` | Records boot startup; **does not start immediately**. Supply the standalone program, role JSON, work directory and existing account. |
+| Start now | `rovloom service start --role gateway` | Starts an already installed Gateway. Use `--role connector` for Connector. |
+| Restart | `rovloom service restart --role connector` | Stops the installed instance before starting it again. |
+| Stop now | `rovloom service stop --role connector` | Stops this instance; leaves future boot startup enabled. |
+| Remove boot startup | `rovloom service uninstall --role gateway` | Removes future automatic startup; **does not stop** a running instance or delete user data. |
+
+`ABS` means a real normalized absolute path. `--config` is optional only when the
+installation can resolve a verified user's default role file; otherwise provide
+it explicitly. It is saved as an absolute path, so subsequent boot/start uses
+that file, not a privileged account's newly resolved home. `ACCOUNT` must be an
+existing non-root user on Linux/macOS; Windows accepts only LocalService SID
+`S-1-5-19`. Other service actions take only `--role`.
+
+To request both boot startup and immediate running, the service interface needs
+install followed by start. To request both no future startup and stopping now,
+it needs uninstall followed by stop. Windows stop/restart may terminate the task
+directly. There is currently no `rovloom service status` or working product
+service-state query: inspect the foreground process, then verify the actual
+device/provider through the management page or MCP as below. Process running
+alone is not application readiness. See [all service options and platform
+limits](CONFIGURATION.md#service-command-syntax-and-current-availability).
+
 ## 4. Connect your AI Agent's MCP client
 
 In a client supporting **Streamable HTTP**, enter:
@@ -176,9 +210,9 @@ Stop Connector with Ctrl-C, wait for exit, then stop Gateway with Ctrl-C.
 Disconnecting the MCP client leaves Gateway running. Shutdown does not promise
 native rollback. Preserve state and ownership records if shutdown fails.
 
-Use foreground roles in this preview: service install/uninstall/start/restart/stop
-are unavailable in the product CLI (`backend_unavailable`), even though
-`service --help` exists. `update --check` checks official stable releases and
+For boot startup and the separate service actions, see
+[service installation and running](#service-installation-and-running).
+`update --check` checks official stable releases and
 requires network; with no published release it may return `release_unavailable`.
 `update` does not currently provide an operational replacement/upgrade flow.
 

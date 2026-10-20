@@ -1,6 +1,6 @@
 # Rovloom 快速开始
 
-[English](QUICK-START.md) · **简体中文** · [配置参考](CONFIGURATION-zh.md)
+[English](QUICK-START.md) · **简体中文** · [配置参考](CONFIGURATION-zh.md) · [全部 CLI 命令与选项](CONFIGURATION-zh.md#完整-cli-参考)
 
 用一个 **Gateway** 提供 MCP 入口，在每台运行 Luvus 或 Herdr 的设备上运行一个主动出站
 **Connector**。两个角色可以共用一台机器，但须使用独立状态目录。
@@ -83,6 +83,34 @@ Connector 的 `gateway_url` 是 `wss://gateway.example:9443` 这样的 origin，
 有权限时可以禁用所选 provider，当前暂不能重新启用。管理会话过期后刷新并重新认证；
 刷新不会延长上游登录有效期。pending 注册仍需完成配对，Connector 才能连接。
 
+### 服务安装与运行
+
+开机自启和立即运行是两个独立操作。通过 `--role gateway` 或 `--role connector`
+选择一个角色，需要时对另一角色单独操作。
+
+**当前可用范围：** `rovloom service --help` 可用，但下列服务动作目前在 Linux、macOS、
+Windows 均返回 `backend_unavailable`（退出码 3）。本预览仍使用上面的前台命令。
+下表说明命令含义，不代表当前已有可成功完成的开机安装流程。
+
+| 需要 | 服务命令 | 作用 |
+|---|---|---|
+| 加入开机启动 | `rovloom service install --role gateway --executable ABS --config ABS --workdir ABS --user ACCOUNT` | 登记开机自启，**不会立即启动**。需要单文件程序、角色 JSON、工作目录和既有账户。 |
+| 立即启动 | `rovloom service start --role gateway` | 启动已安装 Gateway，Connector 使用 `--role connector`。 |
+| 重启 | `rovloom service restart --role connector` | 停止已安装实例，再启动。 |
+| 立即停止 | `rovloom service stop --role connector` | 停止该实例，保留下次开机自启。 |
+| 删除开机自启 | `rovloom service uninstall --role gateway` | 删除未来自动启动，**不会停止**运行中实例或删除用户数据。 |
+
+`ABS` 表示真实的规范绝对路径。只有安装流程能解析已验证用户的默认角色文件时才能省略
+`--config`，否则请显式提供。它会保存为绝对路径，后续开机/start 使用该文件，不按提权账户
+重新解析 home。`ACCOUNT` 在 Linux/macOS 必须为既有非 root 用户，Windows 仅接受
+LocalService SID `S-1-5-19`。其他服务动作只接收 `--role`。
+
+若需开机自启且立即运行，服务接口分别需要 install、start；若需不再开机启动且立即停止，
+分别需要 uninstall、stop。Windows stop/restart 可能直接终止任务。当前没有
+`rovloom service status` 或可用的产品服务状态查询：先检查前台进程，再按下文通过管理页
+或 MCP 核对真实设备/provider。进程运行本身不等于应用就绪。
+完整选项及平台限制见 [Service 命令参考](CONFIGURATION-zh.md#service-命令语法与当前可用性)。
+
 ## 4. 配置 AI Agent 的 MCP 客户端
 
 在支持 **Streamable HTTP** 的客户端中填写：
@@ -145,8 +173,7 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 用 Ctrl-C 停止 Connector，等待退出，再停止 Gateway。断开 MCP 客户端不会停止 Gateway。
 关闭不保证原生回滚；关闭失败时保留状态和归属记录。
 
-本预览使用前台角色：产品 CLI 暂不提供 service install/uninstall/start/restart/stop，
-即使存在 `service --help`，操作仍返回 `backend_unavailable`。
+开机自启和独立服务动作见[服务安装与运行](#服务安装与运行)。
 `update --check` 检查官方稳定发行，需要网络；没有已发布版本时可能返回 `release_unavailable`。
 `update` 当前没有可用的替换/升级流程。
 
