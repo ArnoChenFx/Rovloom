@@ -93,11 +93,12 @@ test(
 )
 
 test(
-  '默认Herdr Gateway路由消费精确owner封套，缺配置在读取schema前拒绝',
+  '默认Herdr双角色路由消费精确owner封套，缺配置在读取schema前拒绝',
   /** 缺配置反例必须进入已注册的真实解析器；不提供安装或会话成功stub。 */ async () => {
     const gateway = configTemplate('gateway')
-    if (gateway.role !== 'gateway') {
-      assert.fail('gateway template required')
+    const connector = configTemplate('connector')
+    if (gateway.role !== 'gateway' || connector.role !== 'connector') {
+      assert.fail('role template required')
     }
     const authority = createManagementSessionAuthority({
       principal: /** 本例从不建立身份或cookie。 */ () => null,
@@ -106,6 +107,10 @@ test(
     try {
       await assert.rejects(
         createProductSources().gateway!(gateway, [{ reference: 'herdr_one', value: { kind: 'herdr' } }], authority),
+        { code: 'invalid_config' }
+      )
+      await assert.rejects(
+        createProductSources().connector!(connector, [{ reference: 'herdr_one', value: { kind: 'herdr' } }]),
         { code: 'invalid_config' }
       )
     } finally {

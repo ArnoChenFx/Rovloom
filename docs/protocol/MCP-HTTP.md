@@ -313,10 +313,13 @@ WSS origin固定取角色配置，实际transport仍强制证书及hostname核�
 每个Gateway ref恰好对应其自身provider。唯一`main.ts`按需加载固定工厂表，Luvus使用runtime的
 `createLuvusProductionSources()`，其实际配置见[Luvus操作装配](../LUVUS-OPERATIONS.md)。Gateway attach
 已有本机实例，Connector持有明确managed child；用户须先显式准备原root及所选持久文件。
-单个Herdr Gateway引用采用`{ kind: 'herdr', config: <HerdrProviderRefConfig> }`封套，`config_ref`须与
-引用名一致；原Herdr工厂只接收`config`，不向其精确配置追加kind。当前直接复用
-`createHerdrGatewayResources`，不启动Herdr进程。Connector仍须取得真实installation、当前policies及
-releaseOwner；默认入口缺该所有者时明确不可用。
+Herdr双角色静态注册`createHerdrProductionSources()`。单个Gateway引用采用
+`{ kind: 'herdr', config: <HerdrProviderRefConfig> }`封套，`config_ref`须与引用名一致；原工厂只接收
+`config`，不追加kind。Gateway直接复用`createHerdrGatewayResources`，不启动Herdr进程。
+Connector封套另含`native: { mode: 'managed' }`、完整`ProviderPolicies`的`policies`，且原`config`
+须含`connector`。只接受单个明确managed引用，不支持attach。原所有者先校验schema/binary，再持有
+本次真实child及installation，复用`createHerdrConnectorResources`的当前policies、now与releaseOwner；
+不创建身份凭据。关闭确认本次child退出后才移除自己的同inode排他标记，未确认退出保持失败。
 未注册kind、空Connector引用或缺少混合kind会话组合时返回`backend_unavailable`；不会创建native成功stub。
 外部supervisor实例交付和跨进程native来源仍遵循[TRANSPORT](../TRANSPORT.md#生产来源边界)的未完成边界。
 受信embedding可交付现有管理员来源；加载器使用PR71同一authority的identities/sessions，
