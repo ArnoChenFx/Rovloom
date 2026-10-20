@@ -450,8 +450,8 @@ test(
 )
 
 test(
-  '生命周期 backend 每次连接观察只持久校验一次身份门禁和一次 Store fence，期限仍逐次生效',
-  /** 真实双库和具体 socket 统计时钟 SQL；随后在同一 backend 跨凭据期限，禁止借去重缓存权限。 */
+  '生命周期 backend 每次连接观察都校验身份和 Store fence，只在时间推进时写时钟，期限仍逐次生效',
+  /** 真实双库和具体 socket 分别计量门禁与时钟 SQL；同毫秒和到期都不得借去重缓存权限。 */
   async () => {
     const f = realFixture()
     try {
@@ -459,23 +459,52 @@ test(
       const client = f.connector(device)
       await f.ready(client)
       const record = f.records[0]!
+      let identities = 0
+      let fences = 0
+      const committed = f.db.committed.bind(f.db)
+      f.db.committed = /** 每次都读取真实独立已提交身份，只记录本轮门禁次数。 */ (...args) => {
+        identities++
+        return committed(...args)
+      }
+      const assertConnection = f.f.store.assertConnection.bind(f.f.store)
+      f.f.store.assertConnection = /** 每次仍核对当前 Store 代次、状态与 epoch。 */ (connection) => {
+        fences++
+        return assertConnection(connection)
+      }
+      f.f.now++
       const first = clockWrites(
         f.f.store,
         /** 原 backend 完整执行身份、代次和 epoch 校验。 */ () => record.native.backend.connection()
       )
-      assert.equal(first.updates, 2)
+      assert.equal(first.updates, 1)
       assert.deepEqual(first.result, record.connection)
+      assert.equal(identities, 1)
+      assert.equal(fences, 1)
+      const repeated = clockWrites(
+        f.f.store,
+        /** 同毫秒也必须重新执行身份与 fence 门禁，只有相同 clock UPDATE 可省略。 */ () =>
+          record.native.backend.connection()
+      )
+      assert.equal(repeated.updates, 0)
+      assert.deepEqual(repeated.result, record.connection)
+      assert.equal(identities, 2)
+      assert.equal(fences, 2)
       f.f.now++
       const next = clockWrites(
         f.f.store,
         /** 下一轮重新推进时钟，不能沿用上轮连接许可。 */ () => record.native.backend.connection()
       )
-      assert.equal(next.updates, 2)
+      assert.equal(next.updates, 1)
+      assert.deepEqual(next.result, record.connection)
+      assert.equal(identities, 3)
+      assert.equal(fences, 3)
       f.f.now += 24 * 3_600_000
       assert.throws(
         /** 到期时独立身份快照拒绝，即使具体 socket 仍保存相同连接上下文。 */ () => record.native.backend.connection(),
         /authentication_required/
       )
+      assert.equal(identities, 4)
+      assert.equal(fences, 3)
     } finally {
       f.close()
     }

@@ -89,6 +89,7 @@ export class RuntimeGatewayService implements GatewayService {
   close(): void {
     this.closed = true
     this.cursorKey.fill(0)
+    this.reads.close()
   }
 
   // 每次操作核对等待和真实身份；终止等待不能进入runtime.cancel。

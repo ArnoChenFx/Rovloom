@@ -1,29 +1,22 @@
 # Rovloom 实施计划
 
-当前管理页面补充（2026-10-20）：基于 `ff06840ac9520bf83f6ed7fdf28f33c0c4260ba9`，
-#85 R2-4支持重新认证后的页面恢复及受原上游截止约束的本地到期轮换；
-#14页面复用既有确认/回执接入provider禁用、pending注册/配对/取消和精确进度。
-provider重新启用证明、offline/revoked重配重置和真实双Connector联合验收仍未完成。
-无真实身份创建、凭据签发、自动增权、部署或用户设备操作。
-
 [DESIGN](DESIGN.md)定义最终有效的系统语义；本计划只维护能力差距、交付依赖与验收门禁，不重复定义 Target、授权、Wire 字段或保留默认值。文档入口见 [导航](README.md)。测试命令与可复现输入分别由开发/协议指引维护；具体提交、执行日志、测试批次和评审进度留在 CI/PR。
 
 ## 1. 可复用能力与实现差距
 
 | 边界 | 可复用能力 | 尚须交付 |
 |---|---|---|
-| 原生证据 | 固定 Luvus Linux 契约、RPC/Host/事件/终端输入及离线回放 | 各目标版本/平台、实际客户端、HTTP/OAuth、Herdr 独立证据 |
-| 工具链 | Bun、独立严格类型检查、冻结依赖、模块 build/smoke、隔离验证入口 | 各发行平台验证、服务可执行入口与发行配置 |
-| Native validator | Bun Worker 完整预检、精确匹配构建期完整 standalone 资产与未命中完整编译、期限/取消/迟到拒绝、同步完整根/引用/条件校验、多轴分类/权限、raw 范围 grant、opaque permit、响应/事件/控制校验 | 受信生产分类与安装来源提供方；任意外部 schema 自动接纳及硬 CPU/heap 隔离不在首版范围 |
-| Wire 2 | 严格 codec/协商、显式 provider/context、内存去重、对象重组、流状态、历史准入/晚到证据计划 | 真认证/WSS、持久化事务、实际发送/重复抑制/资源释放的宿主接线 |
-| Luvus 集成 | Wire 接真实 NativeValidator，独立 input permit/ack、frame 读取与原文保留门禁、有界 RPC 仅响应上下文及生命周期回收 | 生产 backend；安全接收、准入、发送、账本提交的端到端联动 |
-| Store/Router | 规范 v5 SQLite、完整 provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、同 epoch 的 metadata-only 事务晚到接线 | 生产管理/认证来源、跨平台验证及服务运维入口 |
-| 设备通道 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector | 原生 adapter 与 CLI 联合接线、生产宿主 |
-| 产品服务 | 双角色 CLI、MCP Streamable HTTP、实际 Store/Router 查询及清理、逐请求HTTP认证接缝、transport 宿主工厂、受信 Luvus catalog、共享管理 DTO、管理六读及受保护写服务/handler、WebUI 展示/快照生命周期模块 | 生产管理session/CSRF/custody、原子准入的角色装配、唯一持久 claim、生产身份/原生来源及五方法族验收和部署发行 |
-| 开机服务 | systemd 系统单元、系统域 LaunchDaemon、Windows BootTrigger 计划任务的独立状态机、原生后端及唯一 CLI 可选宿主接缝；受控测试，不修改系统启动项 | 生产后台角色宿主、Windows 有效 ACL 与运行配置验证、三平台真实开机及全生命周期验收；见 [SERVICE](SERVICE.md) |
-| Herdr | 固定来源的 65 个普通 RPC、安装/异步 Worker、独立原生来源、Store/Wire/结果锚点与两个 provider 资源工厂，完整 policy 及两份静态/合成回归输入 | 唯一 CLI loader/HTTP MCP 目录联合接线、独立原生证据、同会话真实两轮及模型出口、其余 37 方法、跨平台和实际部署验收 |
-| 直接终端执行 | 单一本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派回归、单文件 CLI 开关、当前认证连接的目录状态；见[终端执行](TERMINAL-EXECUTION.md) | 隔离原生命令与真实输出验证；逐命令退出证据和独立双向控制仍未交付 |
-
+| 原生证据 | 固定 Luvus Linux 契约、RPC/Host/事件/终端输入及离线回放；Linux x64 同机双角色 Herdr `ping` 产品 smoke | 各目标版本/平台、实际客户端、HTTP/OAuth、真实双机及 Herdr 模型对话验收 |
+| 工具链 | Bun、严格类型检查、冻结依赖、模块 build/smoke、单文件 CLI、六目标编译/Gateway 产品 smoke 工作流及 tag 发行配置 | 各次发行仍须通过实际目标门禁，见 [发行指引](DISTRIBUTION.md) |
+| Native validator | Bun Worker 完整预检、standalone 资产复用与完整编译、期限/取消/迟到拒绝、完整 schema 校验、多轴分类/权限、raw 范围 grant、opaque permit；Luvus/Herdr 来源工厂已接产品宿主 | 各目标原生来源验证；任意外部 schema 自动接纳及硬 CPU/heap 隔离不在首版范围 |
+| Wire 2 | 严格 codec/协商、provider/context、重复抑制、对象重组、流状态、持久 history/晚到事务、Herdr 普通拒绝消息 codec，以及认证 WSS RPC 宿主接线 | 剩余流能力的产品接线、真实多机故障验收 |
+| Luvus 集成 | 生产原生来源与远端 Gateway 接线、真实 NativeValidator、准入/发送/账本提交、独立 input permit/ack、frame 读取门禁、有界响应上下文及回收 | 真实跨网络双机、各目标原生环境与完整事件/终端工作流验收 |
+| Store/Router | 规范 v5 SQLite、provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、事务晚到接线；产品身份/管理来源与跨平台普通文件接入；列表与结果无状态分页 | 列表查询和完整结果读取成本；备份/隔离恢复的服务级运维入口 |
+| 设备通道 | 生产 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效、原生 adapter/CLI 接线及 Linux x64 所选 Luvus/Herdr 来源的首次配对与初始化 | offline/revoked 重配重置、凭据轮换的完整产品流程与真实多机验收 |
+| 产品服务 | 双角色 CLI、MCP Streamable HTTP、Store/Router 查询及清理、请求认证、生产管理 session/CSRF/custody、原子准入与持久 claim、Luvus/Herdr catalog、WebUI 确认/回执及认证后恢复 | provider 重新启用证明、所选实际 MCP Host/OAuth、完整工作流与发行部署验收 |
+| 开机服务 | Linux systemd、macOS 系统域 LaunchDaemon 与 Windows 既有用户 BootTrigger 的 Gateway 生产宿主；Linux x64 Connector 服务；前后台共用角色配置；见 [SERVICE](SERVICE.md) | 三平台重启开机实测及部署环境验收 |
+| Herdr | 最多 65 个普通 RPC、独立原生来源/Worker、Store/Wire/结果锚点与持久 claim；唯一 CLI loader、mixed runtime、HTTP MCP 目录及 Herdr/mixed 首次配置向导 | 同会话真实两轮及模型出口、其余 37 方法、原生跨平台和实际双机部署验收 |
+| 直接终端执行 | 本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派、单文件 CLI 开关、通用宿主目录状态转发及 Herdr 普通拒绝闭环；见[终端执行](TERMINAL-EXECUTION.md) | 隔离原生命令、逐命令退出证据和独立双向控制验收 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -36,8 +29,8 @@ profile Target，provider fence 独立核对。生产宿主必须注入真实认
 
 产品名统一为 Rovloom。`package.json` 的实际包标识仍为 `luvus-mcp`；其迁移需要同步 package/lock、消费者与构建验证，作为独立代码交付项，不能通过文档替换伪装完成。该标识只用于解释现存技术兼容，不作为产品或拟议命令名。
 
-已有同一预览入口的 Gateway/Connector 参数、help、无密钥配置校验及 MCP facade，
-但独立 CLI 缺少生产宿主时明确返回 backend_unavailable；不能把 SDK 服务 stub 当作原生垂直切片。
+唯一 CLI 已装配 Gateway/Connector 生产宿主、角色配置与 MCP facade；
+不支持的宿主环境或缺少必需来源仍明确拒绝。支持平台和后台入口以发行/服务指引为准。
 本地命令及宿主接口见 [MCP Streamable HTTP 契约](protocol/MCP-HTTP.md)。
 原生 `luvus`、`herdr` 命令及 UHP/原生字段保留原义；`luvus_*` 若交付，只能是 DESIGN 规定的受限 Luvus 兼容别名。
 
@@ -60,6 +53,9 @@ Herdr 固定契约/普通 RPC → 独立来源与共享 Store/Wire → 唯一 CL
 
 ## 3. 长期交付项
 
+以下保留最终实现约束与联合验收要求；其中已有能力的当前状态以第 1 节为准，
+不能把每项要求都解释为尚未实现。
+
 ### 3.1 统一模型、原生契约与宿主接口
 
 - 将业务 registry、Store、Router、策略、摘要及句柄统一到 DESIGN 的 provider/binding/contract 模型；保留 Wire/native 显式接缝，避免给旧类型加 optional provider 默认值。
@@ -80,18 +76,18 @@ Herdr 固定契约/普通 RPC → 独立来源与共享 Store/Wire → 唯一 CL
 - 实现同一有效 attempt 的事务晚到补证、重复幂等与冲突隔离；丢失原生上下文、旧 epoch/恢复代次、provider 禁用等不能补写或重新派发。
 - RPC 原文清理后只保留从真实 permit 密封的最小响应约束，独立计量与按期释放；SQLite 清理失败也不依赖后续访问回收内存原文。证据提交失败仅允许原有效上下文恢复对账，不恢复派发能力。
 
-交付：规范 SQLite schema、fake clock/真实磁盘故障测试、本机受保护恢复接口与运维说明。服务级运维入口仍待交付；不提供跨重启的响应上下文恢复或重放。
+交付：规范 SQLite schema、fake clock/真实磁盘故障测试、本机受保护恢复接口与运维说明。备份/隔离恢复的服务级运维入口仍待交付；不提供跨重启的响应上下文恢复或重放。
 
 ### 3.3 设备身份、配对与 WSS
 
 当前模块及隔离验证范围见[通道接线](TRANSPORT.md)。listener / 出站连接已复用现有 Wire 和
 持久账本；独立 hash-only 身份库、一次性证明、配对/轮换专用 custody 和精确 socket 封锁已与受保护
-Store 身份桥完成隔离组合验证。生产管理员/配置来源、全局预算分配、流接线及真实多机
-仍须完成以下门禁。
+Store 身份桥完成隔离组合验证，并已接入生产 CLI 的管理员与配置来源。
+剩余流接线、重配/轮换产品流程及真实多机仍须完成以下门禁。
 
 Gateway 已提供独立的[可信只读观测端口](TRANSPORT.md#可信只读观测)：实际认证连接、
 接收心跳和逐 provider 派发门禁由内部事件及当前 fence 复验，持久 online 不补作实时事实。
-管理快照的授权组合、HTTP 接线及原生 runtime 证明仍由各自服务交付，缺来源保持未知。
+管理快照的授权组合及 HTTP 已接产品服务；原生 runtime 状态仍须来自实际连接与来源证明，缺来源保持未知。
 
 - 实现一次性 enrollment 签发/受保护交付、原子兑换、独立设备认证、撤销/轮换、重复连接拒绝与授权 takeover；凭据不入模型、URL、argv 或日志。
 - Store 提供受保护的 verified 连接及同 ID 重配桥：注入独立一次性凭据校验证明、管理确认与 epoch fence；重配提交后按设备作用域释放执行/仅响应上下文和分片，跨库失败保留外部 blocked，不宣称双库原子提交。接口与失败顺序见[存储运行指引](STORAGE.md#独立身份库的设备生命周期桥)，身份/WSS 宿主仍须实现证明消费、同步通道阻断及新配对完成后的解锁。
@@ -129,11 +125,11 @@ claim、公共发现/结果分页或真实HTTP/MCP 联合验收；各层继续�
 普通 RPC、原始完整 schema 校验、当前双端策略与完整 Target、原 Store 内容/响应锚点、
 独立 Connector 准入记录及持久唯一 claims。模块不添加第二套设备、CLI、provider registry 或 Store。
 
-- 待唯一 CLI owner 接入两个资源工厂和 provider 目录，复用现有 MCP/管理宿主；联合验证单设备多 provider。
-- 完整 65 方法静态 policy 及启动/工作流回归输入已在库；确定性方法矩阵只证明源码/schema 覆盖，不授予执行。输入中的原生采集声明尚待独立验收，真实启动/管理流程仍须实测。
+- 唯一 CLI 已接入两个资源工厂和 provider 目录，复用现有 MCP/管理宿主；Linux x64 首次配置支持 Herdr/mixed，继续以实际原生环境联合验证单设备多 provider。
+- 完整 65 方法静态 policy 及启动/工作流回归输入已在库；确定性方法矩阵只证明源码/schema 覆盖，不授予执行。输入中的原生采集声明与完整管理工作流仍须逐项实测。
 - 待在允许的模型出口完成同一真实会话两轮；Agent 启动、prompt 提交、状态等待与真实回答分别验收。
 - 待其余 37 方法及独立事件/流、Host、raw 能力的设计和交付；不以名称猜测开放。
-- 待跨平台、实际双机、完整 loader/HTTP MCP 与发行部署验收；保留未通过的完整回归结论，局部通过不替代。
+- 待原生跨平台、实际双机与发行部署验收；保留未通过的完整回归结论，局部通过不替代。
 
 observer 被动读、原生 cancel、原子 terminal fence、共同事件序号/replay 和 per-turn receipt
 继续保持未提供，不能由静态盘点、schema 成功或 `agent.wait`状态补造。

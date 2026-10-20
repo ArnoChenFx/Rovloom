@@ -281,22 +281,25 @@ export class Store {
   clock(): number {
     return this.time()
   }
-  // 固定事务时钟；检测到时间回退或时钟持久化失败时降级，无效时间值直接拒绝。
+  // 固定事务时钟；事务外逐次核对宿主与持久高水位，仅在推进时写入，回退或必要写入失败仍降级。
   private time(): number {
     if (this.transactionTime !== undefined) {
       return this.transactionTime
     }
     const value = this.rawTime()
-    if (value < Math.max(this.observed, this.meta().clock)) {
+    const persisted = this.meta().clock
+    if (value < Math.max(this.observed, persisted)) {
       this.markDegraded()
       throw new GatewayError('clock_untrusted')
     }
     this.observed = value
-    try {
-      this.db.prepare('UPDATE metadata SET clock=?').run(value)
-    } catch {
-      this.markDegraded()
-      throw new GatewayError('storage_degraded')
+    if (value > persisted) {
+      try {
+        this.db.prepare('UPDATE metadata SET clock=?').run(value)
+      } catch {
+        this.markDegraded()
+        throw new GatewayError('storage_degraded')
+      }
     }
     return value
   }
@@ -1325,7 +1328,7 @@ export class Store {
     const row = this.responseAnchorRow(binding)
     return this.responseAnchorAt(row, this.time())
   }
-  /** 有界纯数据批观察：先持久一次可信时钟，再于私有只读事务读取；不运行宿主闭包、预算或写入通知。 */
+  /** 有界纯数据批观察：核对并按需持久可信时钟，再于私有只读事务读取；不运行宿主闭包、预算或写入通知。 */
   responseAnchors(bindings: readonly AttemptBinding[]): ResponseAnchorObservation {
     if (this.transactionTime !== undefined) {
       throw new GatewayError('transaction_in_progress')
