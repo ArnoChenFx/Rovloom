@@ -1,7 +1,19 @@
 // 在一个认证 epoch 内按完整受保护路由委托原会话，不创建 Wire、许可、账本或第二条设备连接。
 import type { Adapter, Connection, ConnectorWireSession, Session } from '../transport/index.js'
+import type { Readiness } from '../transport/common.js'
 import { closeSession, ReceiveWindow } from '../transport/common.js'
-import { boundedJson, fail, hash, LIMITS, object, parseJson, validateProvider, validateTarget } from '../wire/index.js'
+import {
+  boundedJson,
+  decodeWireFrame,
+  encodeWireFrame,
+  fail,
+  hash,
+  LIMITS,
+  object,
+  parseJson,
+  validateProvider,
+  validateTarget
+} from '../wire/index.js'
 import type { AttemptIdentity, Direction, ProviderBinding, V2Target } from '../wire/types.js'
 
 export type ProviderSessionGroup<T extends Session = Session> = Readonly<{
@@ -71,6 +83,97 @@ function compose(
   let pendingReceipt: ProviderSessionGroup | undefined
   let snapshots: readonly import('../wire/types.js').ProviderSnapshot[] | undefined
   const snapshotSources = new Map<ProviderSessionGroup, readonly import('../wire/types.js').ProviderSnapshot[]>()
+  const isolated = connection.negotiated.capabilities.includes('provider_fence')
+  const fenced = new Set<ProviderSessionGroup>()
+  const adapterReleased = new Set<ProviderSessionGroup>()
+  const ownerReleased = new Set<ProviderSessionGroup>()
+  const epochReleased = new Set<ProviderSessionGroup>()
+  const observed = new Map<ProviderSessionGroup, Readiness>()
+  const wasReady = new Set<ProviderSessionGroup>()
+
+  /** 每个原 adapter 只关闭一次，先登记关闭 fence 再调用可能重入的原端口。 */
+  function releaseAdapter(group: ProviderSessionGroup): void {
+    if (adapterReleased.has(group)) {
+      return
+    }
+    adapterReleased.add(group)
+    const value: unknown = group.session.adapter.close()
+    if (value !== undefined) {
+      void Promise.resolve(value).catch(/** 违规异步关闭的晚拒绝仍被消费。 */ () => {})
+      fail('synchronous_channel_block_required')
+    }
+  }
+  /** provider 原 owner 与 adapter 分别幂等释放，不把其它 provider 纳入其故障域。 */
+  function releaseOwner(group: ProviderSessionGroup): void {
+    if (ownerReleased.has(group)) {
+      return
+    }
+    ownerReleased.add(group)
+    const value: unknown = group.session.close()
+    if (value !== undefined) {
+      void Promise.resolve(value).catch(/** 消费清理晚拒绝，不冒充同步完成。 */ () => {})
+      fail('synchronous_channel_block_required')
+    }
+  }
+  /** 本 epoch 永久撤去一个原 owner 的全部来源；底层恢复不会重新调用其 getter 或恢复许可。 */
+  function fenceGroup(group: ProviderSessionGroup): void {
+    if (fenced.has(group)) {
+      return
+    }
+    fenced.add(group)
+    snapshotSources.delete(group)
+    snapshots = undefined
+    if (pendingReceipt === group) {
+      pendingReceipt = undefined
+    }
+    if (connector && !epochReleased.has(group)) {
+      epochReleased.add(group)
+      try {
+        const value: unknown = (group.session as ConnectorWireSession).admissions?.closeEpoch?.(connection)
+        if (value !== undefined) {
+          void Promise.resolve(value).catch(/** 原持久 fence 的异步拒绝不复活已封锁来源。 */ () => {})
+          cleanupFailed = true
+        }
+      } catch {
+        cleanupFailed = true
+      }
+    }
+    for (const release of [releaseAdapter, releaseOwner]) {
+      try {
+        release(group)
+      } catch {
+        cleanupFailed = true
+      }
+    }
+  }
+
+  /** 治理帧只复用既有 Wire header codec，不取得任一原生 validator、状态或 permit。 */
+  function controlContext(direction: Direction) {
+    return { phase: 'authenticated' as const, direction, connection }
+  }
+  /** 失效声明必须精确对应本 epoch 原受保护配置，不能借治理帧替换 revision。 */
+  function protectedProvider(binding: ProviderBinding): ProviderSessionGroup {
+    validateProvider(binding)
+    const route = [...routes.values()].find(
+      /** provider ID 在同机器内唯一，仍逐字段比较完整原 binding。 */ (entry) =>
+        boundedJson(entry.binding) === boundedJson(binding)
+    )
+    if (!route) {
+      fail('provider_binding_mismatch')
+    }
+    return route.group
+  }
+  /** 只让已协商的连接使用不依赖原生来源的有界治理消息。 */
+  function control(frame: unknown): boolean {
+    const value = object(frame)
+    if (!isolated || !['heartbeat', 'error', 'provider_fenced'].includes(value.type as string)) {
+      return false
+    }
+    if (value.type === 'provider_fenced') {
+      protectedProvider(object(value.payload).binding as ProviderBinding)
+    }
+    return true
+  }
 
   /** 关闭所有原端口，即使某一项失败也不跳过其它 owner；重入和重复关闭不重复释放。 */
   function closeAdapters(): void {
@@ -87,11 +190,7 @@ function compose(
     let failed = false
     for (const group of [...groups].reverse()) {
       try {
-        const value: unknown = group.session.adapter.close()
-        if (value !== undefined) {
-          failed = true
-          void Promise.resolve(value).catch(/** 消费违规异步关闭的晚到拒绝，原关闭仍报告失败。 */ () => {})
-        }
+        releaseAdapter(group)
       } catch {
         failed = true
       }
@@ -115,11 +214,7 @@ function compose(
       ownersClosed = true
       for (const group of [...groups].reverse()) {
         try {
-          const value: unknown = group.session.close()
-          if (value !== undefined) {
-            failed = true
-            void Promise.resolve(value).catch(/** 消费违规异步owner清理拒绝，不冒充同步完成。 */ () => {})
-          }
+          releaseOwner(group)
         } catch {
           failed = true
         }
@@ -139,8 +234,24 @@ function compose(
     let contexts = 0
     let bytes = 0
     for (const group of groups) {
-      const stats = group.session.adapter.stats()
+      if (fenced.has(group)) {
+        continue
+      }
+      let stats
+      try {
+        stats = group.session.adapter.stats()
+      } catch (error) {
+        if (!isolated) {
+          throw error
+        }
+        fenceGroup(group)
+        continue
+      }
       if (ended || stats.closed) {
+        if (isolated && !ended) {
+          fenceGroup(group)
+          continue
+        }
         fail('adapter_closed')
       }
       contexts += stats.executions + stats.responses
@@ -180,10 +291,13 @@ function compose(
   }
 
   /** target和kind都来自受保护注册组；帧中的提示只用于选原校验器，不能建立任何可信状态。 */
-  function select(attempt: AttemptIdentity): ProviderSessionGroup {
+  function select(attempt: AttemptIdentity, cleanup = false): ProviderSessionGroup {
     const route = routes.get(boundedJson(attempt.target))
     if (!route || attempt.provider_kind !== route.binding.kind) {
       fail('provider_binding_mismatch')
+    }
+    if (!cleanup && fenced.has(route.group)) {
+      fail('provider_not_ready')
     }
     return route.group
   }
@@ -224,7 +338,7 @@ function compose(
       fail('runtime_session_unavailable')
     }
     for (const group of groups) {
-      if (!group.providers.length) {
+      if (!group.providers.length || (isolated && group.providers.length !== 1)) {
         fail('provider_binding_mismatch')
       }
       for (const provider of group.providers) {
@@ -261,13 +375,17 @@ function compose(
   const adapter: Adapter = {
     decode: /** 提示解析有界，返回值始终取原adapter完整解码，不重包帧。 */ (raw, direction) =>
       invoke(
-        /** 原始字节只进入选中的原decoder，随后重验关闭fence。 */ () =>
-          frameOwner(parseJson(raw)).session.adapter.decode(raw, direction)
+        /** 失效治理帧不读取已关闭原生端口；业务原字节仍只进入原decoder。 */ () =>
+          control(parseJson(raw))
+            ? decodeWireFrame(raw, controlContext(direction))
+            : frameOwner(parseJson(raw)).session.adapter.decode(raw, direction)
       ),
     encode: /** 原对象原样交给对应原codec，保留完整请求和原生预算。 */ (frame, direction) =>
       invoke(
         /** 原帧交给原encoder，组合层不修改字段或权限。 */ () =>
-          frameOwner(frame).session.adapter.encode(frame, direction)
+          control(frame)
+            ? encodeWireFrame(frame, controlContext(direction))
+            : frameOwner(frame).session.adapter.encode(frame, direction)
       ),
     checkResult: /** 原始响应仍用本provider的原请求permit复验。 */ (binding, response) =>
       invoke(
@@ -301,8 +419,11 @@ function compose(
           if (pendingReceipt) {
             fail('admission_receipt_delivery_pending')
           }
-          const group = frameOwner(frame)
-          const result = group.session.adapter.observeMessage(frame, direction)
+          const group = control(frame) ? undefined : frameOwner(frame)
+          const result = group ? group.session.adapter.observeMessage(frame, direction) : 'new'
+          if (!group) {
+            encodeWireFrame(frame, controlContext(direction))
+          }
           const time = now()
           if (!Number.isSafeInteger(time) || time < highWater) {
             fail('clock_untrusted')
@@ -331,16 +452,25 @@ function compose(
         /** 证据规划只委托对应原请求上下文。 */ () => select(frame.payload.attempt).session.adapter.planEvidence(frame)
       ),
     release: /** 只释放完整目标所对应原adapter中的原attempt。 */ (binding) =>
-      invoke(/** 释放只交给原binding所属adapter。 */ () => select(binding).session.adapter.release(binding)),
+      invoke(
+        /** 已封锁 owner 已完成整体回收；重复清理不再调用关闭端口。 */ () => {
+          const group = select(binding, true)
+          if (!fenced.has(group)) {
+            group.session.adapter.release(binding)
+          }
+        }
+      ),
     close: closeAdapters,
     stats: /** 只合计计数；原始内容和原生句柄不离开各自owner。 */ () => ({
       closed: ended,
       executions: groups.reduce(
-        /** 合计真实执行上下文数量，不暴露内容。 */ (count, group) => count + group.session.adapter.stats().executions,
+        /** 已关闭原 owner 不再提供活执行上下文。 */ (count, group) =>
+          count + (fenced.has(group) ? 0 : group.session.adapter.stats().executions),
         0
       ),
       responses: groups.reduce(
-        /** 合计真实响应上下文数量，不建立新缓存。 */ (count, group) => count + group.session.adapter.stats().responses,
+        /** 失效来源不提供旧响应许可。 */ (count, group) =>
+          count + (fenced.has(group) ? 0 : group.session.adapter.stats().responses),
         0
       )
     })
@@ -351,8 +481,12 @@ function compose(
     readiness: /** 每组只报告自己的canonical binding，政策修订必须属于同一全局配置。 */ () =>
       invoke(
         /** 逐组核对路由覆盖与全局政策修订后合并原健康观测。 */ () => {
-          const states = groups.map(
-            /** 读取本组原就绪状态并拒绝缺失或重复的provider。 */ (group) => {
+          const live: Readiness[] = []
+          for (const group of groups) {
+            if (fenced.has(group)) {
+              continue
+            }
+            try {
               const state = group.session.readiness()
               if (state.providers.length !== group.providers.length) {
                 fail('provider_binding_mismatch')
@@ -365,33 +499,88 @@ function compose(
                 seen.add(provider.local.provider_id)
                 if (
                   !group.providers.some(
-                    /** 本组只认可其原受保护canonical binding。 */ (entry) =>
+                    /** 原 owner 只能报告原受保护配置，不能在同 epoch 换 binding。 */ (entry) =>
                       boundedJson(entry.binding) === boundedJson(provider.local)
                   )
                 ) {
                   fail('provider_binding_mismatch')
                 }
               }
-              return state
+              observed.set(group, structuredClone(state))
+              const ready = state.providers.every(
+                /** 双端原配置、策略和 native readiness 同时有效才记录首次就绪。 */ (provider) =>
+                  provider.native_ready === true &&
+                  provider.expected.enabled &&
+                  boundedJson(provider.expected) === boundedJson(provider.local) &&
+                  !!state.policy_revision &&
+                  state.policy_revision === state.peer_policy_revision
+              )
+              if (ready) {
+                wasReady.add(group)
+              }
+              if (isolated && !ready && (connector || wasReady.has(group))) {
+                fenceGroup(group)
+                continue
+              }
+              live.push(state)
+            } catch (error) {
+              if (!isolated) {
+                throw error
+              }
+              fenceGroup(group)
             }
-          )
+          }
           if (
-            states.some(
-              /** 同一认证连接不能拼接不同全局政策修订。 */ (state) =>
-                state.policy_revision !== states[0]!.policy_revision ||
-                state.peer_policy_revision !== states[0]!.peer_policy_revision
+            live.some(
+              /** 同一连接仍禁止混用不同全局政策修订。 */ (state) =>
+                state.policy_revision !== live[0]!.policy_revision ||
+                state.peer_policy_revision !== live[0]!.peer_policy_revision
             )
           ) {
             fail('policy_revision_conflict')
           }
+          const policy = live[0] ?? observed.values().next().value
           return {
-            policy_revision: states[0]!.policy_revision,
-            peer_policy_revision: states[0]!.peer_policy_revision,
-            providers: states.flatMap(/** 合并已逐组验证的provider观测，保留各自状态。 */ (state) => state.providers)
+            policy_revision: policy?.policy_revision ?? '',
+            peer_policy_revision: policy?.peer_policy_revision ?? '',
+            providers: groups.flatMap(
+              /** 失效 provider 保留原配置与最后已验证状态，只收紧 readiness，不重新调用原 owner。 */ (group) => {
+                const state = observed.get(group)
+                if (!fenced.has(group)) {
+                  return state!.providers
+                }
+                return group.providers.map(
+                  /** 当前故障只影响此原 binding，恢复也不能复活本 epoch 的来源。 */ (entry) => ({
+                    expected:
+                      state?.providers.find(
+                        /** 仅复用同一 provider 的最后 canonical 观测。 */ (provider) =>
+                          provider.local.provider_id === entry.binding.provider_id
+                      )?.expected ?? entry.binding,
+                    local: entry.binding,
+                    native_ready: false
+                  })
+                )
+              }
+            )
           }
         }
       ),
     close
+  }
+  if (isolated) {
+    result.fenceProvider = /** 只能永久撤回本 epoch 的原配置；不建立替换来源。 */ (binding) =>
+      invoke(/** 按完整原 binding 选择唯一 owner 并同步封锁。 */ () => fenceGroup(protectedProvider(binding)))
+    result.providerFences = /** 仅交付有界原配置，失效记录不生成新许可。 */ () => {
+      if (ended) {
+        fail('adapter_closed')
+      }
+      return Object.freeze(
+        [...fenced].flatMap(
+          /** 每个 owner 对应独立原 provider。 */ (group) =>
+            group.providers.map(/** 配置已在组建立时固定并冻结。 */ (entry) => entry.binding)
+        )
+      )
+    }
   }
   if (groups.some(/** 只在原端口存在时暴露快照接纳能力。 */ (group) => group.session.acceptProviderSnapshot)) {
     result.acceptProviderSnapshot = /** 快照仍由目标原owner核验pin与实际epoch。 */ (snapshot) =>
@@ -414,19 +603,33 @@ function compose(
             if (!group.session.providerSnapshot) {
               continue
             }
-            const current = group.session.providerSnapshot()
-            const previous = snapshotSources.get(group)
-            if (previous && previous !== current) {
-              fail('provider_snapshot_changed')
+            if (fenced.has(group)) {
+              continue
             }
-            for (const snapshot of current) {
-              const route = routes.get(boundedJson(snapshot.target))
-              if (route?.group !== group || boundedJson(route.binding) !== boundedJson(snapshot.binding)) {
-                fail('provider_binding_mismatch')
+            try {
+              const current = group.session.providerSnapshot()
+              if (!Array.isArray(current)) {
+                void Promise.resolve(current).catch(/** 消费违规异步来源的晚拒绝。 */ () => {})
+                fail('synchronous_provider_snapshot_required')
               }
+              const previous = snapshotSources.get(group)
+              if (previous && previous !== current) {
+                fail('provider_snapshot_changed')
+              }
+              for (const snapshot of current) {
+                const route = routes.get(boundedJson(snapshot.target))
+                if (route?.group !== group || boundedJson(route.binding) !== boundedJson(snapshot.binding)) {
+                  fail('provider_binding_mismatch')
+                }
+              }
+              snapshotSources.set(group, current)
+              all.push(...current)
+            } catch (error) {
+              if (!isolated) {
+                throw error
+              }
+              fenceGroup(group)
             }
-            snapshotSources.set(group, current)
-            all.push(...current)
           }
           snapshots ??= Object.freeze(all)
           return snapshots
@@ -479,6 +682,10 @@ function compose(
         }
         let failed = false
         for (const group of sessions) {
+          if (epochReleased.has(group)) {
+            continue
+          }
+          epochReleased.add(group)
           try {
             const value: unknown = group.session.admissions!.closeEpoch?.(epoch)
             if (value !== undefined) {

@@ -33,6 +33,7 @@ export type ContractSource = {
 export type ContractRecord = { source: ContractSource; support_status: 'candidate' | 'validated' }
 export type Capability =
   | 'rpc'
+  | 'provider_fence'
   | 'provider_snapshot'
   | 'admission_receipt'
   | 'admission_context'
@@ -121,6 +122,7 @@ export type RequestPayload = {
   validation: ValidationMode
 }
 export type Payloads = {
+  provider_fenced: { binding: ProviderBinding }
   provider_snapshot: {
     binding: ProviderBinding
     target: V2Target

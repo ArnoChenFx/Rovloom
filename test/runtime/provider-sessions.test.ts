@@ -35,6 +35,58 @@ const connection: Connection = {
 }
 
 test(
+  '单 provider 来源失效只永久封锁该 binding，健康 provider 保持同 epoch 原端口',
+  /** 组件原生端口始终明确拒绝执行；只验证故障域、治理协议与关闭次数。 */ () => {
+    const a = group('luvus')
+    const b = group('herdr')
+    const combined = composeGatewaySessions(
+      {
+        ...connection,
+        negotiated: {
+          ...connection.negotiated,
+          capabilities: [...connection.negotiated.capabilities, 'provider_fence']
+        }
+      },
+      [a.descriptor, b.descriptor],
+      Date.now
+    )
+    try {
+      assert.equal(combined.readiness().providers.length, 2)
+      a.state.closed = true
+      const health = combined.readiness()
+      assert.equal(
+        health.providers.find(/** 失败来源必须不可用。 */ (p) => p.local.kind === 'luvus')!.native_ready,
+        false
+      )
+      assert.equal(
+        health.providers.find(/** 健康来源保留自己的观测。 */ (p) => p.local.kind === 'herdr')!.native_ready,
+        true
+      )
+      a.state.closed = false
+      assert.equal(
+        combined.readiness().providers.find(/** 底层恢复不能复活旧 binding/epoch。 */ (p) => p.local.kind === 'luvus')!
+          .native_ready,
+        false
+      )
+      const heartbeat = envelope(connection, 'heartbeat', { sequence: 0 })
+      assert.deepEqual(
+        combined.adapter.decode(combined.adapter.encode(heartbeat, 'connector_to_gateway'), 'connector_to_gateway'),
+        heartbeat
+      )
+      assert.throws(
+        /** 健康 provider 仍调用自己的原端口；该端口明确没有原生后端。 */ () => combined.adapter.checkResult(b.attempt),
+        /stub_native_unavailable_herdr/
+      )
+      assert.equal(b.state.calls, 1)
+      assert.equal(a.state.calls, 0)
+    } finally {
+      combined.close()
+    }
+    assert.deepEqual([a.state.adapters, a.state.owners, b.state.adapters, b.state.owners], [1, 1, 1, 1])
+  }
+)
+
+test(
   '非空provider_snapshot没有attempt，按完整target/binding经原codec编码解码',
   /** 使用官方能力原值和真实Wire治理codec；不构造native许可或安装成功。 */ () => {
     const a = group('luvus')

@@ -42,6 +42,24 @@ read 权限，撤权后不返回新旧调用 ID。`get/cancel` 始终不含原�
 断连；prepare 使用共享 ChannelRegistry 仅同步封锁通道，不重入 Store。开启失败与显式关闭
 均尝试清理所属资源；`close()` 与 `closed` 使用相同完成结果，释放失败保持失败。
 
+### 单 provider 来源失效
+
+生产 CLI 在原 RPC offer 中启用可选 `provider_fence`。宿主的 `Session.fenceProvider(binding)`
+同步核对并永久撤回本 epoch 的原完整绑定；`providerFences()` 只返回这些原配置，不提供来源或执行许可。
+组合会话在此模式下让每个原 owner 只管理一个 provider；Gateway 为各原 Luvus 实例建立独立
+生命周期 adapter，Herdr 沿用自己的原 owner。缺少同步端口时拒绝协商，不回退为模拟成功。
+
+单个来源失效、readiness 丢失或快照变化会关闭对应原 adapter/owner、原远端 pin 和读取上下文，
+通知同一认证通道的对端撤回相同完整绑定，并将该来源未确定完成的在途调用按原 Store 事务记为
+unknown。健康 provider 保留同一连接与 epoch，原 pending 调用和后续调用继续经过原 Wire 门禁。
+设备撤销、认证错误、全局策略冲突、资源超限及断线仍按原通道规则处理。未启用此扩展的宿主
+沿用原会话关闭行为。
+
+本 epoch 的撤回不可逆，底层恢复不重新接纳旧来源。显式新配置/认证可建立新 epoch 的原来源，
+旧 binding、结果许可或 unknown 调用不会迁移、重放或补造成功。迟到失败来源的普通 RPC 只作
+有界丢弃，保留认证 envelope 与完整绑定核对；详细限制见 [Wire 协议](protocol/WIRE-PROTOCOL.md#可选逐-provider-来源撤回)。
+当前不支持 `provider_fence` 与 `objects` 组合，也不增加原生事件或终端流隔离。
+
 ### 明确受限的原生开发来源
 
 `startDevelopmentLuvus(config, { acknowledge_nonproduction: true, token_ttl_s, scopes })`仅支持

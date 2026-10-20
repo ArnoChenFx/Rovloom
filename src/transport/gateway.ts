@@ -17,15 +17,28 @@ import {
   LIMITS,
   uint,
   validateOffer,
+  validateProvider,
   WireError
 } from '../wire/index.js'
-import type { AttemptBinding, AuthenticatedEnvelope, VersionOffer } from '../wire/types.js'
+import type { AttemptBinding, AuthenticatedEnvelope, ProviderBinding, VersionOffer } from '../wire/types.js'
 import type { AdmissionReceiptRecord } from '../wire/admission.js'
 import type { LedgerInvalidation } from '../storage/model.js'
 import type { IdentityHost } from './identity.js'
 import { ChannelRegistry } from './channel-host.js'
 import type { SocketChannel } from './channel-host.js'
-import { budget, envelope, loopback, OFFER, positive, providerHealth, ready, ReceiveWindow, runtime } from './common.js'
+import {
+  budget,
+  discardProviderFrame,
+  envelope,
+  fenceSessionProvider,
+  loopback,
+  OFFER,
+  positive,
+  providerHealth,
+  ready,
+  ReceiveWindow,
+  runtime
+} from './common.js'
 import type { Adapter, Connection, Listener, ServerSocket, Session } from './common.js'
 import type { GatewayTransportObservationSource, GatewayTransportSnapshot, TransportObserved } from './observation.js'
 
@@ -68,8 +81,10 @@ type Peer = {
   ws?: ServerSocket<Peer>
   closed: boolean
   received: ReceiveWindow
-  providerSnapshots: Map<string, string>
+  providerSnapshots: Map<string, { fingerprint: string; bytes: number }>
   providerSnapshotBytes: number
+  providerFences: Map<string, ProviderBinding>
+  readyProviders: Set<string>
   epochReference?: string
   lastHeartbeatAt?: number
 }
@@ -167,6 +182,7 @@ export function createGateway(options: GatewayOptions) {
   const channels = options.channels ?? new ChannelRegistry()
   const machines = new Map<string, Peer>()
   const inflight = new Map<string, AuthenticatedEnvelope & { type: 'request' }>()
+  const inflightPrincipals = new WeakMap<AuthenticatedEnvelope & { type: 'request' }, string>()
   const reads = new Map<string, { binding: AttemptBinding; wire: Adapter; peer: Peer; expires: number }>()
   const admissions = new Map<string, { peer: Peer; record: AdmissionReceiptRecord; updating: boolean }>()
   let authWindow = performance.now()
@@ -213,6 +229,8 @@ export function createGateway(options: GatewayOptions) {
     peer.closed = true
     peer.providerSnapshots.clear()
     peer.providerSnapshotBytes = 0
+    peer.providerFences.clear()
+    peer.readyProviders.clear()
     peers.delete(peer)
     for (const [call, admission] of admissions) {
       if (admission.peer === peer) {
@@ -270,6 +288,91 @@ export function createGateway(options: GatewayOptions) {
       fail('connection_binding_mismatch')
     }
     options.identity.assert(peer.connection, peer.lease)
+  }
+  /** 只停止该原 provider 的观察并撤去来源；保留 responded/unknown 语义，不声称原生动作已取消。 */
+  function fenceProvider(peer: Peer, binding: ProviderBinding, announce = true): void {
+    assertPeer(peer)
+    validateProvider(binding)
+    if (binding.machine_id !== peer.connection.machine_id) {
+      fail('provider_binding_mismatch')
+    }
+    const previous = peer.providerFences.get(binding.provider_id)
+    if (previous) {
+      if (boundedJson(previous) !== boundedJson(binding)) {
+        fail('provider_binding_mismatch')
+      }
+      return
+    }
+    const current = peer.session
+    peer.providerFences.set(binding.provider_id, structuredClone(binding))
+    fenceSessionProvider(current, binding)
+    assertPeer(peer)
+    if (peer.session !== current) {
+      fail('connection_unavailable')
+    }
+    for (const [call, frame] of inflight) {
+      if (
+        frame.machine_id !== binding.machine_id ||
+        frame.connection_epoch !== peer.connection.connection_epoch ||
+        frame.payload.attempt.target.provider_id !== binding.provider_id
+      ) {
+        continue
+      }
+      const principal = inflightPrincipals.get(frame)
+      if (!principal) {
+        fail('attempt_anchor_unavailable')
+      }
+      const canonical = options.store.provider(binding.machine_id, binding.provider_id)
+      // revision 已改变时，原 Store 管理事务已经停止旧调用；不借旧 binding 写入新状态。
+      if (canonical && boundedJson(canonical) === boundedJson(binding)) {
+        options.store.stop(principal, call)
+      }
+      inflight.delete(call)
+    }
+    for (const [call, original] of reads) {
+      if (original.peer === peer && original.binding.target.provider_id === binding.provider_id) {
+        reads.delete(call)
+      }
+    }
+    for (const [call, tracked] of admissions) {
+      if (tracked.peer === peer && tracked.record.binding.target.provider_id === binding.provider_id) {
+        admissions.delete(call)
+      }
+    }
+    const fingerprint = peer.providerSnapshots.get(binding.provider_id)
+    if (fingerprint !== undefined) {
+      peer.providerSnapshots.delete(binding.provider_id)
+      peer.providerSnapshotBytes -= fingerprint.bytes
+    }
+    if (announce) {
+      write(peer, envelope(peer.connection, 'provider_fenced', { binding }))
+    }
+  }
+  /** 首次等待快照不等于来源丢失；已就绪或明确失效的原来源才永久封锁。 */
+  function reconcileProviders(peer: Peer): void {
+    assertPeer(peer)
+    if (!peer.connection.negotiated.capabilities.includes('provider_fence')) {
+      return
+    }
+    const state = peer.session.readiness()
+    const health = providerHealth(peer.connection, state)
+    const fenced = peer.session.providerFences?.() ?? []
+    if (fenced.length > 64) {
+      fail('provider_limit')
+    }
+    for (const binding of fenced) {
+      fenceProvider(peer, binding)
+    }
+    for (const provider of state.providers) {
+      const healthy = health.find(
+        /** 原 provider 独立匹配自己的就绪事实。 */ (row) => row.provider_id === provider.local.provider_id
+      )!.ready
+      if (healthy) {
+        peer.readyProviders.add(provider.local.provider_id)
+      } else if (peer.readyProviders.has(provider.local.provider_id)) {
+        fenceProvider(peer, provider.local)
+      }
+    }
   }
   /** 只读取 live peer 和当前身份/绑定；未知保持未知，取样不会关闭通道或发起原生工作。 */
   const observations: GatewayTransportObservationSource = Object.freeze({
@@ -672,6 +775,13 @@ export function createGateway(options: GatewayOptions) {
           fail('provider_snapshot_receiver_required')
         }
         peer.channel.attach(peer.session)
+        if (
+          connection.negotiated.capabilities.includes('provider_fence') &&
+          !peer.session.fenceProvider &&
+          peer.session.readiness().providers.length
+        ) {
+          fail('provider_fence_backend_unavailable')
+        }
         machines.set(connection.machine_id, peer)
         const welcome = encodeWireFrame(
           {
@@ -702,7 +812,17 @@ export function createGateway(options: GatewayOptions) {
       if (peer.received.observe(input, now) === 'duplicate') {
         return
       }
-      let decoded = peer.session.adapter.decode(input, 'connector_to_gateway')
+      reconcileProviders(peer)
+      let decoded: ReturnType<Adapter['decode']>
+      try {
+        decoded = peer.session.adapter.decode(input, 'connector_to_gateway')
+      } catch (error) {
+        reconcileProviders(peer)
+        if (discardProviderFrame(input, peer.connection, 'connector_to_gateway', peer.providerFences)) {
+          return
+        }
+        throw error
+      }
       if (!('connection_epoch' in decoded)) {
         fail('authentication_required')
       }
@@ -719,6 +839,10 @@ export function createGateway(options: GatewayOptions) {
       if (peer.session.adapter.observeMessage(decoded, 'connector_to_gateway') === 'duplicate') {
         return
       }
+      if (decoded.type === 'provider_fenced') {
+        fenceProvider(peer, decoded.payload.binding, false)
+        return
+      }
       if (decoded.type === 'provider_snapshot') {
         const current = peer.session
         const active = peer.connection
@@ -731,7 +855,7 @@ export function createGateway(options: GatewayOptions) {
         const fingerprint = hash(raw)
         const previous = peer.providerSnapshots.get(provider)
         if (previous !== undefined) {
-          if (previous !== fingerprint) {
+          if (previous.fingerprint !== fingerprint) {
             fail('provider_snapshot_conflict')
           }
           return
@@ -740,7 +864,7 @@ export function createGateway(options: GatewayOptions) {
         if (peer.providerSnapshots.size >= 64 || peer.providerSnapshotBytes + bytes > LIMITS.buffered_bytes) {
           fail('provider_snapshot_limit')
         }
-        peer.providerSnapshots.set(provider, fingerprint)
+        peer.providerSnapshots.set(provider, { fingerprint, bytes })
         peer.providerSnapshotBytes += bytes
         const accepted = accept.call(current, structuredClone(decoded.payload))
         if (accepted !== undefined) {
@@ -831,6 +955,8 @@ export function createGateway(options: GatewayOptions) {
         closed: false,
         received: new ReceiveWindow(),
         providerSnapshots: new Map(),
+        providerFences: new Map(),
+        readyProviders: new Set(),
         providerSnapshotBytes: 0
       }
       peers.add(peer)
@@ -881,6 +1007,7 @@ export function createGateway(options: GatewayOptions) {
             continue
           }
           assertPeer(peer)
+          reconcileProviders(peer)
           const candidates = [...admissions]
             .filter(
               /** 只观察此 peer 仍需推进的原记录，已广播 fence 的记录沿用原跳过语义。 */
@@ -1138,6 +1265,7 @@ export function createGateway(options: GatewayOptions) {
           validation: row.mode
         })
         inflight.set(callId, frame)
+        inflightPrincipals.set(frame, row.principal_id)
         if (peer.connection.negotiated.capabilities.includes('admission_receipt')) {
           const anchor = options.store.responseAnchor(binding)
           assertBinding(anchor.binding, binding)
