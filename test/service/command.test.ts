@@ -104,6 +104,8 @@ test(
     const xml = spawnSync(
       'python3',
       [
+        '-X',
+        'utf8',
         '-c',
         `import json,sys,plistlib,xml.etree.ElementTree as E
 p=json.load(sys.stdin)
@@ -175,6 +177,8 @@ test(
     const result = spawnSync(
       'python3',
       [
+        '-X',
+        'utf8',
         '-c',
         `import json,sys,xml.etree.ElementTree as E
 p=json.load(sys.stdin)

@@ -10,6 +10,8 @@ import { sampleSpec } from './helpers.js'
 
 test(
   '实际宿主原生解析器接受开机声明且不执行注册或启动',
+  // 工具自身预算为十秒；外层仅留回收余量，不能先被 Bun 默认五秒截断而遗失原生错误。
+  { timeout: 12000 },
   /* 一个原生平台只证明自己的格式解析能力。 */ async () => {
     const platform = process.platform
     assert(['linux', 'darwin', 'win32'].includes(platform))
