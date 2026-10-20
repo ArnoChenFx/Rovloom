@@ -1,4 +1,4 @@
-// 验证产品服务宿主的当前产物绑定、目标账户默认配置和只读预检；所有监管工具均为受控端口。
+// 验证产品服务宿主的当前产物绑定、单份角色配置和只读预检；所有监管工具均为受控端口。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   assertServiceProduct,
   productServiceEnvironment,
+  productServiceBackend,
   createProductServiceHost,
   verifyProductServiceRuntime
 } from '../../src/cli/service-host.js'
@@ -13,6 +14,71 @@ import { configDocument, configTemplate } from '../../src/cli/config.js'
 import { parseServiceCommand } from '../../src/service/command.js'
 import { parseCommand } from '../../src/cli/run.js'
 import { sampleSpec } from '../service/helpers.js'
+import { createNativeServiceBackend } from '../../src/service/native.js'
+import { ServiceManager } from '../../src/service/manager.js'
+import { manifest } from '../../src/service/spec.js'
+import type { RegistrationFiles } from '../../src/service/files.js'
+import { ServiceError } from '../../src/service/types.js'
+
+test(
+  'Windows排队取消前已变成running时明确失败，不能绕过正常Abort强停',
+  /* 真实产品组合器、原生后端及状态机参与，只有系统命令/文件端口为隔离内存模型。 */ async () => {
+    for (const finalState of [4, 2, 3]) {
+      const spec = { ...sampleSpec('win32'), role: 'gateway' as const }
+      const operations: string[] = []
+      let inspections = 0
+      let forcedWhileRunning = 0
+      const files: RegistrationFiles = {
+        verify: /* 模型不触碰系统控制目录。 */ async () => {},
+        lock: /* 本回归只需包围单次状态转换，不创建真实锁。 */ async (_role, operation) => operation(),
+        read: /* Windows登记来自受控COM端口。 */ async () => assert.fail('unexpected file read'),
+        create: /* 停止不能创建登记文件。 */ async () => assert.fail('unexpected file create'),
+        remove: /* 自启仍启用，停止不得清理登记。 */ async () => assert.fail('unexpected file remove')
+      }
+      const native = createNativeServiceBackend({
+        platform: 'win32',
+        files,
+        verifyRuntime: /* 本例不启动角色，也不读业务配置。 */ async () => assert.fail('unexpected preflight'),
+        runner: /* 前两次观察排队，最后分别运行/排队/退出；均不能强停或虚报终止。 */ async (plan) => {
+          const request = JSON.parse(plan.input!)
+          operations.push(request.op)
+          if (request.op === 'authorize') {
+            return { code: 0, stdout: '{"ok":true}', stderr: '' }
+          }
+          if (request.op === 'read') {
+            return { code: 0, stdout: JSON.stringify({ marker: manifest(spec) }), stderr: '' }
+          }
+          if (request.op === 'inspect') {
+            inspections++
+            const state = inspections <= 2 ? 2 : forcedWhileRunning ? 3 : finalState
+            return {
+              code: 0,
+              stdout: JSON.stringify({ state, instances: state === 4 ? 1 : 0, enabled: true, exitCode: 0 }),
+              stderr: ''
+            }
+          }
+          assert.equal(request.op, 'stop')
+          forcedWhileRunning++
+          return { code: 0, stdout: '{"state":3,"instances":0,"enabled":true,"exitCode":0}', stderr: '' }
+        }
+      })
+      const backend = productServiceBackend(native, {
+        platform: 'win32',
+        arch: 'arm64',
+        executable: spec.executable,
+        standalone: true
+      })
+      const outcome = await new ServiceManager(backend)
+        .execute({ action: 'stop', role: 'gateway' })
+        .catch(/* 保留真实返回或错误，先断言没有强停，再核对明确失败。 */ (error: unknown) => error)
+      assert.equal(inspections, 3)
+      assert.equal(forcedWhileRunning, 0)
+      assert(outcome instanceof ServiceError)
+      assert.equal(outcome.code, 'service_busy')
+      assert(!operations.includes('stop'))
+    }
+  }
+)
 
 test(
   '源码解释器不被识别为可安装的单文件产物',
@@ -33,6 +99,7 @@ test(
     for (const role of ['gateway', 'connector'] as const) {
       const foreground = parseCommand([role])
       assert('path' in foreground)
+      assert.deepEqual(parseCommand([role, '--non-interactive']), { ...foreground, nonInteractive: true })
       assert.equal(host.resolveDefaultConfig!(role, 'rovloom'), foreground.path)
       assert.equal(host.resolveDefaultConfig!(role, 'another-runtime-account'), foreground.path)
     }
@@ -95,6 +162,22 @@ test(
       assert.throws(
         /* 原生声明可生成，不代表角色运行时已跨平台。 */ () =>
           assertServiceProduct(target, { ...environment, platform, executable: target.executable }),
+        { code: 'backend_unavailable' }
+      )
+    }
+  }
+)
+
+test(
+  'Windows当前单文件Gateway可接服务，仍拒绝尚无本机owner的Connector',
+  /* 纯产品能力检查不注册任务、不读取另一用户目录。 */ () => {
+    const spec = { ...sampleSpec('win32'), role: 'gateway' as const }
+    for (const arch of ['x64', 'arm64']) {
+      const environment = { platform: 'win32', arch, executable: spec.executable, standalone: true }
+      assertServiceProduct(spec, environment)
+      assert.throws(
+        /* 服务后端不能赋予Windows尚未实现的native Connector能力。 */ () =>
+          assertServiceProduct({ ...spec, role: 'connector' }, environment),
         { code: 'backend_unavailable' }
       )
     }

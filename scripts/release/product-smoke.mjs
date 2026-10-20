@@ -1,4 +1,4 @@
-/** 按真实角色验收发行：四项POSIX Gateway，同一Linux x64产品另须通过原生双角色往返。 */
+/** 按真实角色验收六平台Gateway，同一Linux x64产品另须通过原生双角色往返。 */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync } from 'node:fs'
@@ -8,7 +8,7 @@ import { smokeDualRoleProduct } from './dual-role-smoke.mjs'
 
 /** 每项目标必须运行实际Gateway；Linux x64不能跳过原生Owner，未支持角色明确标记。 */
 export async function smokeProduct(binary, version, options = {}) {
-  assert(['linux', 'darwin'].includes(process.platform), 'product_gateway_storage_platform_unsupported')
+  assert(['linux', 'darwin', 'win32'].includes(process.platform), 'product_gateway_storage_platform_unsupported')
   assert(['x64', 'arm64'].includes(process.arch), 'product_gateway_arch_unsupported')
   binary = resolve(binary)
   assert(lstatSync(binary).isFile(), 'product_binary_required')
@@ -29,7 +29,7 @@ export async function smokeProduct(binary, version, options = {}) {
   assert.equal(createHash('sha256').update(readFileSync(binary)).digest('hex'), digest)
   return {
     scope: 'product',
-    platform: `${process.platform}-${process.arch}`,
+    platform: `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`,
     version,
     product_sha256: digest,
     gateway: gatewayAcceptance,

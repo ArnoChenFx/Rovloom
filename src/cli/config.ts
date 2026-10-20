@@ -25,9 +25,15 @@ export type ConnectorConfig = Readonly<{
   gateway_url: string
   provider_config_refs: readonly string[]
   allow_terminal_execution?: boolean
-  native?: Readonly<{ runtime_bin_dir?: string; agent_bin_dir?: string }>
+  native?: Readonly<{ provider?: 'luvus' | 'herdr' | 'mixed'; runtime_bin_dir?: string; agent_bin_dir?: string }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
+export type NativeProviderKind = 'luvus' | 'herdr'
+
+// 省略选择时保留已有Luvus首次路径；混合选择只包含两份固定来源，不接受任意provider注册。
+export function selectedNativeProviders(config: ConnectorConfig): readonly NativeProviderKind[] {
+  return config.native?.provider === 'mixed' ? ['luvus', 'herdr'] : [config.native?.provider ?? 'luvus']
+}
 
 export const CLI_ERROR_CODES = [
   'invalid_config',
@@ -190,9 +196,16 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
       return fail()
     }
     const native =
-      input.native === undefined ? undefined : exact(input.native, [], ['runtime_bin_dir', 'agent_bin_dir'])
+      input.native === undefined ? undefined : exact(input.native, [], ['provider', 'runtime_bin_dir', 'agent_bin_dir'])
     if (native) {
-      for (const directory of Object.values(native)) {
+      if (native.provider !== undefined && !['luvus', 'herdr', 'mixed'].includes(native.provider as string)) {
+        return fail()
+      }
+      for (const key of ['runtime_bin_dir', 'agent_bin_dir']) {
+        const directory = native[key]
+        if (directory === undefined) {
+          continue
+        }
         if (!fixedPath(directory, platform)) {
           return fail()
         }

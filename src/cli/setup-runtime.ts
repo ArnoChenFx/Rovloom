@@ -5,6 +5,7 @@ import { SetupTerminal } from './setup-terminal.js'
 import { GatewaySetup } from './setup-gateway.js'
 import { setupConnector } from './setup-connector.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
+import { HerdrLocalError } from '../connector/herdr/local.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import { readSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
@@ -42,7 +43,7 @@ export class CliSetup {
 
   // 原生失败只交付现有适配器的有界固定代码；不打印child输出、异常message/stack、路径或请求。
   nativeFailed(error: unknown): void {
-    if (error instanceof LuvusAdapterError && /^[a-z_]{1,80}$/.test(error.code)) {
+    if ((error instanceof LuvusAdapterError || error instanceof HerdrLocalError) && /^[a-z_]{1,80}$/.test(error.code)) {
       this.#terminal?.show('native_unavailable ' + error.code + '\n')
     }
   }

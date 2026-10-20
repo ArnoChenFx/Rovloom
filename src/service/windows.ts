@@ -4,6 +4,42 @@ import { renderTask } from './render.js'
 import { type CommandRunner } from './runner.js'
 import { ServiceError, type ServiceRole, type ServiceSnapshot, type ServiceSpec } from './types.js'
 
+// 生产和只读原生探针共用账户与执行声明比较，测试无需复制验证逻辑。
+export const TASK_DEFINITION_FUNCTIONS = `
+# 正常解析既有用户身份，不读取profile、密码、ACL或额外账户配置。
+function userSid($account) {
+  try {
+    if ($account -match '^S-1-') {
+      $identifier = [Security.Principal.SecurityIdentifier]::new($account)
+      $null = $identifier.Translate([Security.Principal.NTAccount])
+      $sid = $identifier.Value
+    }
+    else { $sid = ([Security.Principal.NTAccount]::new($account)).Translate([Security.Principal.SecurityIdentifier]).Value }
+    if ($sid -in @('S-1-5-18','S-1-5-19','S-1-5-20')) { throw 'invalid_arguments' }
+    return $sid
+  } catch { throw 'invalid_arguments' }
+}
+# COM属性读取包含系统默认值；只比较实际执行声明，不把节点顺序和调度引擎默认选择误判为异物。
+function declaration($definition) {
+  if ($definition.Actions.Count -ne 1 -or $definition.Actions.Item(1).Type -ne 0 -or $definition.Triggers.Count -ne 1 -or $definition.Triggers.Item(1).Type -ne 8) { throw 'service_conflict' }
+  $action = $definition.Actions.Item(1)
+  $boot = $definition.Triggers.Item(1)
+  $settings = $definition.Settings
+  return $json.Serialize(@(
+    (userSid $definition.Principal.UserId), [int]$definition.Principal.LogonType, [int]$definition.Principal.RunLevel,
+    $action.Path, $action.Arguments, $action.WorkingDirectory,
+    $boot.Delay, $boot.StartBoundary, $boot.EndBoundary, $boot.ExecutionTimeLimit,
+    $boot.Repetition.Interval, $boot.Repetition.Duration, [bool]$boot.Repetition.StopAtDurationEnd,
+    [int]$settings.MultipleInstances, [bool]$settings.DisallowStartIfOnBatteries, [bool]$settings.StopIfGoingOnBatteries,
+    [bool]$settings.AllowHardTerminate, [bool]$settings.StartWhenAvailable, [bool]$settings.RunOnlyIfNetworkAvailable,
+    [bool]$settings.AllowDemandStart, [bool]$settings.Enabled, [bool]$settings.RunOnlyIfIdle, $settings.ExecutionTimeLimit,
+    [bool]$settings.IdleSettings.StopOnIdleEnd, [bool]$settings.IdleSettings.RestartOnIdle,
+    $settings.RestartCount, $settings.RestartInterval, $settings.DeleteExpiredTaskAfter,
+    [bool]$settings.WakeToRun, $definition.RegistrationInfo.Description
+  ))
+}
+`
+
 // 脚本只接受固定项目角色与动作；TASK_CREATE 防止检查后竞态覆盖其它任务。
 export const TASK_SCRIPT = `
 $ErrorActionPreference = 'Stop'
@@ -13,6 +49,8 @@ $ErrorActionPreference = 'Stop'
 $json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
 # 固定CLR序列化器绕开cmdlet自动加载；JSON始终为数据，不执行表达式。
 function emit($value) { [Console]::Write($json.Serialize($value)) }
+${TASK_DEFINITION_FUNCTIONS}
+
 try {
   $p = $json.DeserializeObject([Console]::In.ReadToEnd())
   if ($p.name -notmatch '^rovloom-(gateway|connector)$') { throw 'service_conflict' }
@@ -23,6 +61,7 @@ try {
   $s.Connect()
   $folder = $s.GetFolder('\\')
   if ($p.op -eq 'authorize') { emit @{ok=$true}; exit 0 }
+  if ($p.op -eq 'validate') { $null = userSid $p.account; emit @{ok=$true}; exit 0 }
   $t = $null
   try { $t = $folder.GetTask($p.name) }
   catch { if ($_.Exception.HResult -ne -2147024894) { throw } }
@@ -32,23 +71,19 @@ try {
   }
   if ($p.op -eq 'create') {
     if ($null -ne $t) { throw 'service_conflict' }
-    $null = $folder.RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5, $null)
+    $definition = $s.NewTask(0)
+    $definition.XmlText = $p.xml
+    $definition.Principal.UserId = userSid $p.account
+    $definition.Principal.LogonType = 2
+    $null = $folder.RegisterTaskDefinition($p.name, $definition, 2, $definition.Principal.UserId, $null, 2, $null)
     emit @{ok=$true}; exit 0
   }
   if ($null -eq $t) { throw 'service_conflict' }
   $expected = $s.NewTask(0)
   $expected.XmlText = $p.xml
-  $expected.Principal.LogonType = 5
-  [xml]$a = $t.Xml
-  [xml]$b = $expected.XmlText
-  foreach ($doc in @($a,$b)) {
-    $ns = [Xml.XmlNamespaceManager]::new($doc.NameTable)
-    $ns.AddNamespace('t', 'http://schemas.microsoft.com/windows/2004/02/mit/task')
-    foreach ($node in @($doc.SelectNodes('/t:Task/t:RegistrationInfo/t:URI | /t:Task/t:RegistrationInfo/t:Date', $ns))) { $null = $node.ParentNode.RemoveChild($node) }
-    $enabled = $doc.SelectSingleNode('/t:Task/t:Triggers/t:BootTrigger/t:Enabled', $ns)
-    if ($null -ne $enabled) { $enabled.InnerText = 'true' }
-  }
-  if ($a.OuterXml -cne $b.OuterXml -or $t.Definition.RegistrationInfo.Description -cne $p.marker) { throw 'service_conflict' }
+  $expected.Principal.UserId = userSid $p.account
+  $expected.Principal.LogonType = 2
+  if ((declaration $t.Definition) -cne (declaration $expected) -or $t.Definition.RegistrationInfo.Description -cne $p.marker) { throw 'service_conflict' }
   if ([int]$t.State -notin @(1,2,3,4)) { throw 'system_command_failed' }
   switch ($p.op) {
     'inspect' { }
@@ -57,10 +92,9 @@ try {
       $boot = $definition.Triggers.Item(1)
       $boot.Enabled = [bool]$p.enabled
       $security = $t.GetSecurityDescriptor(7)
-      $t = $folder.RegisterTaskDefinition($p.name, $definition, 52, 'S-1-5-19', $null, 5, $security)
+      $t = $folder.RegisterTaskDefinition($p.name, $definition, 52, $expected.Principal.UserId, $null, 2, $security)
     }
     'start' { $null = $t.Run($null) }
-    'stop' { $t.Stop(0) }
     'remove' {
       if ([int]$t.State -notin @(1,3) -or $t.GetInstances(0).Count -ne 0) { emit @{retained=$true}; exit 0 }
       if ($t.Definition.Triggers.Item(1).Enabled) { throw 'service_conflict' }
@@ -102,6 +136,7 @@ export async function taskCall(
       name: serviceName(role, 'win32'),
       xml: spec ? renderTask(spec) : undefined,
       marker: spec ? manifest(spec) : undefined,
+      account: spec?.account,
       enabled
     })
   })
@@ -111,7 +146,12 @@ export async function taskCall(
   } catch {
     throw new ServiceError('system_command_failed', result.code)
   }
-  if (value.error === 'permission_denied' || value.error === 'service_conflict' || value.error === 'service_busy') {
+  if (
+    value.error === 'permission_denied' ||
+    value.error === 'service_conflict' ||
+    value.error === 'service_busy' ||
+    value.error === 'invalid_arguments'
+  ) {
     throw new ServiceError(value.error, result.code)
   }
   if (result.code !== 0 || value.error) {

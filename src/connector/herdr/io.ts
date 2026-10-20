@@ -6,6 +6,28 @@ import { HerdrLocalError, herdrEnvironment, inspectHerdrPath, verifyHerdrInstall
 import type { HerdrEndpoint, HerdrLocalConfig } from './local.js'
 import { HERDR_READONLY_REVIEW } from './review.js'
 
+const stoppedCommandCancellations = new WeakSet<HerdrLocalError>()
+
+/** 只有未启动固定命令或已经观察到原child close时签发；JSON和普通同码错误不能伪造清理完成。 */
+function stoppedCommandCancellation(): HerdrLocalError {
+  const error = new HerdrLocalError('herdr_cancelled')
+  stoppedCommandCancellations.add(error)
+  return error
+}
+
+/** 供CLI区分已确认固定命令回收的取消与真正IO/清理失败，不依据signal.aborted统一吞错。 */
+export function isStoppedHerdrCommandCancellation(error: unknown): boolean {
+  return error instanceof HerdrLocalError && stoppedCommandCancellations.has(error)
+}
+
+/** 仅用于spawn前和确认close后的检查，此处取消时没有尚待确认回收的固定命令。 */
+function checkCommandSignal(signal: AbortSignal): void {
+  if (signal.aborted && signal.reason !== 'deadline') {
+    throw stoppedCommandCancellation()
+  }
+  checkHerdrSignal(signal)
+}
+
 /** 将已中止状态转换为本地错误，不向 Herdr 发送通用 cancel 或其它控制方法。 */
 export function checkHerdrSignal(signal: AbortSignal): void {
   if (signal.aborted) {
@@ -43,12 +65,12 @@ export function runHerdrCommand(
   command: 'version' | 'schema',
   signal: AbortSignal
 ): Promise<Buffer> {
-  checkHerdrSignal(signal)
+  checkCommandSignal(signal)
   if (command !== 'version' && command !== 'schema') {
     throw new HerdrLocalError('herdr_cli_command_invalid')
   }
   const installation = verifyHerdrInstallation(config)
-  checkHerdrSignal(signal)
+  checkCommandSignal(signal)
   const argv = command === 'version' ? ['--version'] : ['api', 'schema', '--json']
   return new Promise(
     /** 有界收集本次 CLI 输出，清理后才结算，不泄露 stderr 原文。 */ (resolve, reject) => {
@@ -66,7 +88,7 @@ export function runHerdrCommand(
       let kill: ReturnType<typeof setTimeout> | undefined
       let final: ReturnType<typeof setTimeout> | undefined
       /** 等待自有子进程关闭或最终清理期限，所有出口只保留固定错误码。 */
-      function finish(code: number | null) {
+      function finish(code: number | null, exited = false) {
         if (done) {
           return
         }
@@ -75,10 +97,16 @@ export function runHerdrCommand(
         clearTimeout(final)
         signal.removeEventListener('abort', cancel)
         if (failure || code !== 0) {
-          reject(new HerdrLocalError(failure ?? 'herdr_cli_exit'))
+          reject(
+            !exited
+              ? new HerdrLocalError('herdr_cli_cleanup_unconfirmed')
+              : failure === 'herdr_cancelled'
+                ? stoppedCommandCancellation()
+                : new HerdrLocalError(failure ?? 'herdr_cli_exit')
+          )
         } else {
           try {
-            checkHerdrSignal(signal)
+            checkCommandSignal(signal)
             if (verifyHerdrInstallation(config) !== installation) {
               throw new HerdrLocalError('herdr_binary_identity_changed')
             }
@@ -136,7 +164,7 @@ export function runHerdrCommand(
           }
         }
       )
-      child.once('close', /** close 后所有管道已关闭，保留命令实际退出结果。 */ (code) => finish(code))
+      child.once('close', /** close 后所有管道已关闭，保留命令实际退出结果。 */ (code) => finish(code, true))
       signal.addEventListener('abort', cancel, { once: true })
       if (signal.aborted) {
         cancel()

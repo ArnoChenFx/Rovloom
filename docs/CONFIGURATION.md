@@ -63,8 +63,9 @@ Setting an address does not establish pairing or install a native provider.
 | Connector `gateway` | Object, required | Contains only `url`. |
 | `gateway.url` | String, required | `""` while setup is pending; otherwise WS/WSS origin, ≤2048 characters, e.g. `ws://192.0.2.10:9443` or `wss://gateway.example`. No credentials/query/fragment/path except optional trailing `/`. Product selects `/connector`. |
 | Connector `allow_terminal_execution` | Boolean, optional | `false`, also when omitted. Only literal `true` enables direct terminal input and custom launch/restore commands through the existing local guard. Edit this single user file and restart Connector; it does not change installation settings or caller/local grants. |
-| Connector `native` | Object, optional | Absent by default. Contains only the two installation-directory settings below; applied at first Luvus initialization. |
-| `native.runtime_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: search `/usr/bin:/bin` for `luvus`. When set, search this directory first, then those fixed system directories. No PATH lists, shell expansion or executable argv. |
+| Connector `native` | Object, optional | Absent by default. Contains only the provider-selection and installation-directory settings below; applied at first native initialization. |
+| `native.provider` | String enum, optional | Omitted: `luvus`; `herdr` selects Herdr, `mixed` selects one of each. Choose before native initialization; changing an initialized selection requires a future reconfiguration flow. |
+| `native.runtime_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: search `/usr/bin:/bin` for the selected `luvus`/`herdr` programs. When set, search this directory first, then those fixed system directories. No PATH lists, shell expansion or executable argv. |
 | `native.agent_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: native/Agent PATH is `/usr/bin:/bin`. When set, prepend this one directory to that fixed PATH. It does not install or authenticate an Agent. |
 
 Enabled Gateway listeners must use different ports. Unknown fields, old flat
@@ -104,7 +105,9 @@ The old `runtime.json`/`refs/` format is not loaded or migrated.
 
 Preserve the data directory as a whole, including companion database files.
 Do not edit its internal records or delete them to retry an uncertain setup.
-Guided recovery and first Herdr/mixed setup are not yet available. For first
+Herdr uses `<data.directory>/hr/` for its isolated `h/c/s/k/t/w/control` directories;
+Rovloom retains the measured schema, claims and receipts there. These are program-managed
+paths, not additional user configuration. Guided recovery is not yet available. For first
 Luvus setup, `data.directory` plus `/n` must fit within 52 UTF-8 bytes; select a
 shorter directory before pairing if necessary.
 
@@ -187,7 +190,7 @@ installation directories under the owner's control. Do not edit a managed root
 record or its digest to change an initialized installation.
 
 Configure Agent/model access in the runtime's private HOME/XDG locations;
-for first Luvus setup its HOME is `<data.directory>/h`. A login in your usual home
+for first setup its HOME is `<data.directory>/h` (Luvus) or `<data.directory>/hr/h` (Herdr). A login in your usual home
 is not copied. This preview has no guided model-login procedure for that isolated
 environment, so fresh model setup still needs the machine owner's preparation.
 Ordinary strict text conversation can keep local `allow_terminal_execution:false`.
@@ -242,15 +245,15 @@ Linux/macOS/Windows at the selected path; an existing file is never overwritten.
 resolved for the process user. Stop a foreground
 role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
 Network ports are JSON fields, not flags. Provider initialization is limited to
-the first local-terminal Luvus flow described above; Agent/model login is separate.
+the first local-terminal flow for selected Luvus/Herdr providers described above; Agent/model login is separate.
 
 ### Service command syntax and current availability
 
-`rovloom service --help` is available offline. The product entry connects Gateway to Linux systemd and macOS system LaunchDaemons. Installation requires the current standalone Rovloom
+`rovloom service --help` is available offline. Gateway uses Linux systemd, macOS system LaunchDaemons or Windows user boot-triggered tasks. Installation requires the current standalone Rovloom
 binary, normal system-service authorization, an existing non-root account and an
 existing working directory. Existing JSON/role errors are checked; missing config
 is left for normal first startup. No UID/mode/ACL or ancestor proof is required,
-and existing permissions are not changed. Windows product service lifecycle remains unavailable. Native definition
+and existing permissions are not changed. Windows uses an explicitly selected existing user with S4U and the same absolute config file. Native definition
 parsing does not establish actual lifecycle acceptance.
 See [service prerequisites and platform limits](SERVICE.md).
 
@@ -272,7 +275,7 @@ role. There is no default role, `all` role, `--now`, `--force`, `--purge` or
 | `--executable` | Install-only, optional absolute path string, at most 4096 characters; defaults to the current standalone binary | Must equal the current canonical executable. Another installation, shell or interpreter is rejected. Windows path must end in `.exe`. |
 | `--config` | Install-only, optional absolute path string, at most 4096 characters | Uses the same current-user role file as foreground startup when omitted. Installation fixes this absolute path; background startup does not select another home. Pass the original user's absolute file explicitly when invoking through sudo. |
 | `--workdir` | Install-only, required absolute directory string, at most 4096 characters; no default | Working directory of the service; does not set or replace JSON `data.directory`. |
-| `--user` | Install-only, required account string; no default | Existing non-root account on Linux/macOS. Windows accepts only LocalService SID `S-1-5-19`, without a password. |
+| `--user` | Install-only, required account string; no default | Existing non-root account on Linux/macOS; existing Windows user name or user SID for S4U. No password is stored. This does not select another configuration directory. |
 
 Service path values are fixed at install time; later boot/start/restart uses the
 recorded absolute role configuration, rather than resolving a new home. The installer
@@ -298,7 +301,7 @@ stop/restart may terminate the task directly; do not treat it as native rollback
 | Gateway startup / `config check-runtime` | Available | Available | Available |
 | First-pairing approval | Local terminal required | Not yet available | Not available |
 | Native Connector | This guide covers Linux x64 | Not supported | Not supported |
-| Service actions | Production systemd backend connected; native Connector on x64 | Gateway system LaunchDaemon; local Connector rejected | Product service lifecycle unavailable; rejects before system access |
+| Service actions | Production systemd backend connected; native Connector on x64 | Gateway system LaunchDaemon; local Connector rejected | Gateway user BootTrigger task; native Connector rejected |
 | `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
 
 There is no working Rovloom service-status query in this preview.

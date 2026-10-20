@@ -1,9 +1,9 @@
 // 规范化固定服务身份与路径，并验证注册内嵌的非秘密清单。
 import { posix, win32 } from 'node:path'
+import { createHash } from 'node:crypto'
 import { ServiceError, type ServicePlatform, type ServiceRole, type ServiceSpec } from './types.js'
 
 export const OWNER = 'Rovloom managed boot service v1:'
-export const LOCAL_SERVICE = 'S-1-5-19'
 
 // 只允许现行两种角色，禁止借服务名称管理其它项目。
 export function isRole(value: unknown): value is ServiceRole {
@@ -60,12 +60,23 @@ export function validateSpec(value: unknown): ServiceSpec {
   ) {
     throw new ServiceError('invalid_arguments')
   }
+  if (
+    typeof spec.account !== 'string' ||
+    !spec.account ||
+    spec.account.length > 256 ||
+    Array.from(spec.account).some(
+      /* 账户按普通文本传递，拒绝NUL和控制字符。 */ (c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127
+    )
+  ) {
+    throw new ServiceError('invalid_arguments')
+  }
   // WorkingDirectory 是单值原文，非 argv；行尾空白和续行反斜杠不能无损表达，因此明确拒绝。
   if (spec.platform === 'linux' && (spec.directory.trimEnd() !== spec.directory || spec.directory.endsWith('\\'))) {
     throw new ServiceError('invalid_arguments')
   }
   if (spec.platform === 'win32') {
-    if (spec.account !== LOCAL_SERVICE || !spec.executable.toLowerCase().endsWith('.exe')) {
+    // S4U运行既有用户，不把内置系统服务账户作为用户会话；账户有效性再由正常Windows解析确认。
+    if (/^S-1-5-(?:18|19|20)$/u.test(spec.account) || !spec.executable.toLowerCase().endsWith('.exe')) {
       throw new ServiceError('invalid_arguments')
     }
   } else if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/u.test(spec.account) || spec.account === 'root') {
@@ -114,5 +125,16 @@ export function serviceName(role: ServiceRole, platform: ServicePlatform): strin
 
 // 固定复用现有角色命令；后台能力须由 CLI 宿主在 preflight 中确认。
 export function launchArguments(spec: ServiceSpec): string[] {
-  return [spec.role, '--config', spec.config]
+  // Task Scheduler的非交互桌面也可能提供TTY句柄，必须显式关闭本地交互引导。
+  return [
+    spec.role,
+    '--config',
+    spec.config,
+    ...(spec.platform === 'win32' ? ['--non-interactive', '--service-id', serviceControlId(spec)] : [])
+  ]
+}
+
+// 非秘密标识精确绑定整份登记清单；普通前台非交互启动没有此标识，不创建服务停止端点。
+export function serviceControlId(spec: ServiceSpec): string {
+  return createHash('sha256').update(manifest(spec)).digest('hex')
 }

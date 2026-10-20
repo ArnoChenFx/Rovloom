@@ -79,8 +79,9 @@ facade 不能识别普通原生内容中所有未知秘密，也不能替代后�
 runtime_response_discard。MCP 可见设备/provider 仅由当前 caller 的完整 read tuple 与本地政策
 求交，结果仍从 Store 读取；不存在的 binding 不由 grant 补造。名称只在授权候选中精确查询。
 单次查询最多处理 256 条 caller/local grants 与 256 次 tuple 求交，超过返回 busy。
-列表游标为最多 128 个、30 秒有效的进程内关联，绑定 principal、查询/limit、双方政策及恢复代次；
-每页重新授权，旧政策、查询变更、期限或重启后明确 invalid_cursor，不能将 offset 当作权限。
+列表游标使用服务实例私有密钥的 HMAC-SHA256 签名，无逐页记录或共享名额，绑定 principal、
+查询/limit、双方政策、恢复代次、位置及固定期限。后继期限至多 30 秒，并受更早的目录期限约束；
+后续页与重读不续期，每页重新授权。旧政策、查询变更、期限或重启后明确 invalid_cursor，不能将 offset 当作权限。
 
 调用查询仅投影真实账本元数据，content_delivery 固定 unavailable，不输出 native_response、请求、
 principal 或内部 epoch。Store 公共 Call 尚无可独立读取的 contract_ref，返回 null，不从失效
@@ -228,7 +229,7 @@ caller、result_id、max_bytes、服务产生的字节位置及绝对期限，�
 当前身份、双方 ACL、原 Wire 许可及实际内容/句柄期限。无 cursor 的重新读取可开始新下载，
 但不得延长实际结果有效期。过期、篡改、跨 caller/result/页大小或服务重启的 cursor 返回 invalid_cursor。
 结果 cursor 无逐页或逐下载服务端记录，只有实例的 32 字节签名密钥；长下载和 EOF
-不占用共享游标名额。业务列表的 128 项进程内游标上限保持独立，结果句柄与正文仍受原有全局预算约束。
+不占用共享游标名额。业务列表同样没有共享游标名额；结果句柄与正文仍受原有全局预算约束。
 
 完整公开JSON-RPC响应（含文本副本、JSON转义和envelope）最多64KiB，单工具参数最多64KiB，
 每会话最多16个工具请求在途，字符串请求ID最多128字节，协议关联最多1024项。
@@ -303,12 +304,18 @@ createFileCredentialSink落盘再回传完整ack。ACK/状态/native短请求使
 完成setup后关闭这些短认证路径，避免状态查询夺取已运行WS的epoch。结果不确定保留原attempt，
 不重新注册、重发secret、清除身份或删除账本。
 
+Connector通过单份业务配置的`native.provider`选择`luvus`（默认）、`herdr`或`mixed`。
+状态查询返回所选完整Target的权限提案，不在Gateway另行批准之前开放运行权限；
+native清单最多含每种来源各一份，混合方法按各自Target分别授权，不生成笛卡尔权限。
 Luvus初始化只用实际安装测量/完整schema编译与原managed root/claims/receipt工厂；
 程序管理的control、n、h、w为互不重叠的私有目录。n完整路径超过52字节在兑换前拒绝，
 不放宽原endpoint归属门禁。Gateway另经本机批准为精确Target定义provider及一个普通MCP caller，
 不授予管理身份；Bearer仅交付本机TTY/私有mcp-client文件。静态配置提交只记configured，
 旧listener/唯一writer完整关闭后重开正式来源，只有transport观察到实际认证provider ready才记ready。
-Agent/模型认证、Herdr/混合首次引导及不确定状态恢复/续期仍未接通。
+Herdr同样测量本机安装、运行固定schema命令并复用既有完整编译和claims/receipt工厂；
+Gateway自己核验原schema字节，选择本机私有保存路径，不接受Connector文件路径或可信句柄。
+每种来源都由原静态生产工厂重开，全部所选来源实际ready后才报告connector_ready。
+Agent/模型认证由用户在私有HOME/XDG中独立完成；不确定状态恢复和续期引导仍未接通。
 
 `config check-runtime [--role gateway|connector] [--config ABS]`复用角色及现有provider registry校验，成功输出
 `runtime_config_valid`；不加载caller/设备凭据、验证native/Agent或打开数据库。

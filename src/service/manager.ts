@@ -225,6 +225,7 @@ export class ServiceManager {
         let current = await this.backend.inspect(request.role)
         let changed = false
         let stopRequested = false
+        let gracefulStop = false
         if (request.action === 'install') {
           if (!request.spec) {
             throw new ServiceError('invalid_arguments')
@@ -281,7 +282,7 @@ export class ServiceManager {
             ) {
               // 撤销自启后，Linux 显式 stop 仍须取消待启动 Job；macOS 则释放 loaded job。卸载分支不走这里。
               stopRequested = true
-              await this.backend.stop(spec, request.action === 'restart')
+              gracefulStop = (await this.backend.stop(spec, request.action === 'restart')) === 'graceful_request'
               current = await this.settle(spec, false)
               changed = true
             }
@@ -312,9 +313,11 @@ export class ServiceManager {
           controlRetained: current !== undefined,
           readiness: 'not_checked',
           stopMode: stopRequested
-            ? this.backend.platform === 'win32'
-              ? 'task_termination'
-              : 'signal_then_kill'
+            ? gracefulStop
+              ? 'graceful_request'
+              : this.backend.platform === 'win32'
+                ? 'task_termination'
+                : 'signal_then_kill'
             : 'not_requested'
         }
       }

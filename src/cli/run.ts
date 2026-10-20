@@ -29,8 +29,8 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom config template gateway|connector
   rovloom config check [--role gateway|connector] [--config /absolute/path/config.json]
   rovloom config check-runtime [--role gateway|connector] [--config /absolute/path/config.json]
-  rovloom gateway [--config /absolute/path/config.json]
-  rovloom connector [--config /absolute/path/config.json]
+  rovloom gateway [--config /absolute/path/config.json] [--non-interactive]
+  rovloom connector [--config /absolute/path/config.json] [--non-interactive]
   rovloom service --help
   rovloom update --check
   rovloom update --help
@@ -45,11 +45,13 @@ check既无role也无路径时分别检查两份；检查始终只读，不为�
 check-runtime核对单份角色配置及程序管理状态，不读取凭据或宣称原生Agent就绪。
 Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
 Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文件，WSS客户端保持系统证书验证。
-Linux真实本地TTY可批准Gateway一次性配对，并由Connector输入地址/隐藏码、持久保存身份及发现初始化Luvus。
-首次引导仅接入一个Luvus provider；Herdr引导、Agent模型认证与已有配置恢复管理仍未接通。
+Linux真实本地TTY可批准Gateway一次性配对，并由Connector输入地址/隐藏码、持久保存身份及发现初始化所选原生安装。
+首次引导按Connector的native.provider选择luvus（默认）、herdr或mixed；每种最多一个provider。
+Agent模型认证与已有配置恢复管理仍需独立准备，不把原生ready当作聊天成功。
 非TTY缺地址/身份/provider时返回configuration_required；不读取stdin，不假报Agent或模型就绪。
+--non-interactive 显式关闭本地交互引导；Windows服务自动传入，仍核对原配置、身份及后端能力。
 service 已接原生监管宿主；install 固定当前单文件及与前台相同的角色配置绝对路径，后台不另选home。
-Gateway服务支持Linux/macOS；本机Connector限Linux x64，Windows服务仍拒绝，详见service --help。
+Gateway服务支持Linux/macOS/Windows；本机Connector仍限Linux x64，详见service --help。
 update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
 角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
 `
@@ -89,7 +91,7 @@ type Command =
   | { action: 'help' | 'version' }
   | { action: 'template'; role: 'gateway' | 'connector' }
   | { action: 'check' | 'check-runtime'; checks: readonly { role?: 'gateway' | 'connector'; path: string }[] }
-  | { action: 'gateway' | 'connector'; path: string }
+  | { action: 'gateway' | 'connector'; path: string; nonInteractive?: true; serviceId?: string }
 
 // 解析固定命令形状，未知参数只返回稳定错误，不回显 argv。
 export function parseCommand(args: readonly string[], environment?: ConfigPathEnvironment): Command {
@@ -139,11 +141,23 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
             )
     }
   }
+  const serviceId = args.at(-2) === '--service-id' ? args.at(-1) : undefined
+  const serviceArgs = serviceId !== undefined ? args.slice(0, -2) : args
+  const nonInteractive = serviceArgs.at(-1) === '--non-interactive'
+  if (serviceId !== undefined && (!nonInteractive || !/^[a-f0-9]{64}$/u.test(serviceId))) {
+    throw new CliError('invalid_arguments')
+  }
+  const roleArgs = nonInteractive ? serviceArgs.slice(0, -1) : serviceArgs
   if (
-    (args[0] === 'gateway' || args[0] === 'connector') &&
-    (args.length === 1 || (args.length === 3 && args[1] === '--config'))
+    (roleArgs[0] === 'gateway' || roleArgs[0] === 'connector') &&
+    (roleArgs.length === 1 || (roleArgs.length === 3 && roleArgs[1] === '--config'))
   ) {
-    return { action: args[0], path: resolveRoleConfigPath(args[0], args[2], environment) }
+    return {
+      action: roleArgs[0],
+      path: resolveRoleConfigPath(roleArgs[0], roleArgs[2], environment),
+      ...(nonInteractive ? { nonInteractive: true } : {}),
+      ...(serviceId ? { serviceId } : {})
+    }
   }
   throw new CliError('invalid_arguments')
 }
@@ -262,7 +276,9 @@ export async function runCli(
     if (io.signal.aborted) {
       return 0
     }
-    config = (await runtime.prepare?.(config, command.path, io)) ?? config
+    if (!command.nonInteractive) {
+      config = (await runtime.prepare?.(config, command.path, io)) ?? config
+    }
     if (config.role !== command.action) {
       throw new CliError('config_role_mismatch')
     }

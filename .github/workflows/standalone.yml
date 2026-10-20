@@ -40,7 +40,7 @@ jobs:
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Check service lifecycle models and native definition parsing without installing services
-        run: bun --no-env-file test ./test/service/macos-host.test.ts ./test/service/platform-probe.test.ts ./test/service/runner-lifecycle.test.ts ./test/service/manager.test.ts ./test/service/command.test.ts ./test/cli/service-host.test.ts ./test/cli/service-runtime.test.ts
+        run: bun --no-env-file test ./test/service/macos-host.test.ts ./test/service/platform-probe.test.ts ./test/service/runner-lifecycle.test.ts ./test/service/manager.test.ts ./test/service/command.test.ts ./test/service/windows-control.test.ts ./test/cli/service-host.test.ts ./test/cli/service-runtime.test.ts
       - name: Exercise user installers with isolated downloads and native replacement
         run: bun --no-env-file test ./test/release/install.test.mjs
       - name: Check exact precompiled assets and corruption/provenance regressions
@@ -53,6 +53,9 @@ jobs:
       - name: Exercise native POSIX replacement and rollback with private fixture binaries only
         if: runner.os != 'Windows'
         run: bun --no-env-file test ./test/update/posix/transaction.test.ts
+      - name: Exercise Windows product Gateway and omitted-Worker rejection before candidate build
+        if: runner.os == 'Windows'
+        run: bun --no-env-file test ./test/release/gateway-smoke.test.mjs ./test/release/publication.test.mjs
       - name: Compile and run isolated packaging probe, including omitted-Worker rejection
         run: bun --no-env-file test ./test/release/executable.test.mjs
       - name: Verify actual Windows PE icon and console subsystem
@@ -78,25 +81,29 @@ jobs:
             echo 'CLI product wiring pending; only the packaging probe was accepted.'
             echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
-      - name: Verify real system service lifecycle in disposable GitHub-hosted VM with explicit sudo -n
-        if: runner.os != 'Windows' && steps.product.outputs.present == 'true'
+      - name: Verify real service lifecycle in disposable hosted VM with explicit OS authorization
+        if: steps.product.outputs.present == 'true'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
           ROVLOOM_NATIVE_SERVICE_CI: '1'
         run: |
           set -euo pipefail
-          export ROVLOOM_SERVICE_EXECUTABLE="$PWD/dist/release/$TARGET/candidate/rovloom"
+          extension=''
+          if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
+          export ROVLOOM_SERVICE_EXECUTABLE="dist/release/$TARGET/candidate/rovloom$extension"
           bun --no-env-file scripts/service/native-smoke.mjs
       - name: Accept real standalone Gateway and explicit unsupported native roles
-        if: (runner.os == 'Linux' || runner.os == 'macOS') && matrix.target != 'bun-linux-x64'
+        if: matrix.target != 'bun-linux-x64'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          extension=''
+          if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
           version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
-          bun --no-env-file scripts/release/product-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom" "$version"
+          bun --no-env-file scripts/release/product-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom$extension" "$version"
       - name: Accept same product Gateway and Connector with official native Herdr ping
         if: matrix.target == 'bun-linux-x64'
         shell: bash

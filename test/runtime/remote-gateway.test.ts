@@ -1057,3 +1057,229 @@ test(
     }
   }
 )
+
+test(
+  'provider host carries current terminal state to real SDK discovery for Luvus and Herdr',
+  { timeout: 45_000 },
+  /** 真实角色、认证 Wire、双原生目录与 SDK；安装来源和执行端口为明确合成 fixture，不执行终端命令。 */ async () => {
+    const f = await fixture({ mixed: true, isolated: true })
+    let connector: Awaited<ReturnType<typeof createProviderConnectorRuntime>> | undefined
+    let service: RuntimeGatewayService | undefined
+    let http: ReturnType<typeof httpFixture> | undefined
+    let enabled = true
+    let nativeRequests = 0
+    let observations = 0
+    const hosted = f.herdr!.providers[0]!
+    const routes = [f.snapshot, hosted]
+    const methods = ['pane.run', 'pane.send_text']
+    for (const policy of [f.caller, f.local]) {
+      policy.grants[0]!.methods.push('pane.run', 'pane.read', 'agent.prompt')
+      policy.grants[1]!.methods.push('pane.send_text')
+    }
+    const snapshots = structuredClone([f.snapshot])
+    /** 快照沿用生产固定深冻结要求，测试只更改独立布尔观察，不替换来源。 */
+    function freeze(value: unknown): void {
+      if (value && typeof value === 'object') {
+        for (const item of Object.values(value)) {
+          freeze(item)
+        }
+        Object.freeze(value)
+      }
+    }
+    freeze(snapshots)
+    try {
+      connector = await createProviderConnectorRuntime({
+        provider_snapshot: true,
+        transport: {
+          url: f.runtime.transport.url,
+          developmentLoopback: true,
+          offer: {
+            major: 2,
+            minor: 0,
+            capabilities: ['rpc', 'provider_fence', 'terminal_execution_state'],
+            required: ['rpc', 'provider_fence']
+          },
+          credential: /** 只用本例临时状态中的合成身份。 */ () => f.credential
+        },
+        session: /** 实际生产中性 owner 包装同样的多 provider 原会话，不能绕过该层测试 getter。 */ (connection) =>
+          composeConnectorSessions(
+            connection,
+            routes.map(
+              /** 各原目录保持自己的完整 binding，布尔值不生成能力或执行许可。 */ (route, index) => {
+                const current: ConnectorWireSession = {
+                  ...snapshotSession(connection, route, f.local.revision),
+                  /** 只有本例来源 getter 可以报告对应原配置，且保留原方法接收对象。 */
+                  terminalExecutionState() {
+                    assert.equal(this, current)
+                    observations++
+                    return [{ binding: route.binding, enabled }]
+                  },
+                  /** 本例不得调用 native，意外派发始终拒绝而非返回合成成功。 */
+                  async executeWire() {
+                    nativeRequests++
+                    throw new Error('terminal_catalog_native_unavailable')
+                  },
+                  ...(index === 0 ? { providerSnapshot: /** 原 Luvus 来源仅发布既有非空快照。 */ () => snapshots } : {})
+                }
+                return { providers: [route], session: current }
+              }
+            ),
+            Date.now
+          ),
+        release: /** 只释放本测试创建的长期角色资源。 */ async () => {}
+      })
+      await until(
+        /** 原角色确认两端目录来源已就绪，不能用设备认证代替实际快照接纳。 */ () =>
+          f.runtime.transport
+            .status()
+            .devices[0]?.providers.every(/** 两个原 provider 都必须独立 ready。 */ (provider) => provider.ready) ===
+          true
+      )
+      await until(
+        /** welcome 后的元数据必须实际到达 Gateway，readiness 不能替代开关观察。 */ () =>
+          routes.every(
+            /** 每个 provider 都必须收到自己的开启状态。 */ (route) =>
+              f.runtime.terminalExecutionState(route.binding) === true
+          )
+      )
+      for (const route of routes) {
+        assert.equal(f.runtime.terminalExecutionState(route.binding), true)
+      }
+      const epoch = connector.transport.status().connection_epoch
+      service = new RuntimeGatewayService({
+        runtime: f.runtime,
+        identities: {
+          principal: /** 与实际 runtime 使用同一合成 caller 和政策，不从参数取得身份。 */ (caller) =>
+            caller.principal_id === 'remote_reader' ? { id: 'remote_reader', policy: f.caller } : null,
+          administrator: /** 本例没有管理员会话。 */ () => null
+        },
+        localPolicies: /** 目录仍使用同一双端完整目标授权。 */ () => f.local,
+        catalog: {
+          kind: 'mixed',
+          select: /** 委托两种真实原生目录，不自造描述或参数 schema。 */ (target) =>
+            target.provider_id === hosted.binding.provider_id ? f.herdr!.catalog : f.runtime.catalog
+        }
+      })
+      http = httpFixture(service, {
+        authentication: {
+          authenticate: /** 仅本例私有 HTTP listener 的测试身份。 */ () => ({ principal_id: 'remote_reader' })
+        }
+      })
+      await http.client.connect(http.transport, { timeout: 5000 })
+      for (const [index, route] of routes.entries()) {
+        const page = await http.client.callTool(
+          {
+            name: 'runtime_discover',
+            arguments: {
+              target: route.target,
+              expected_binding_revision: 1
+            }
+          },
+          CallToolResultSchema,
+          { timeout: 5000 }
+        )
+        assert.equal(page.isError, undefined)
+        const data: { items: { method: string }[] } = (
+          page.structuredContent as { data: { items: { method: string }[] } }
+        ).data
+        assert(
+          data.items.some(/** 开启时相应直接输入必须在真实 MCP 目录出现。 */ (item) => item.method === methods[index])
+        )
+        const description = await http.client.callTool(
+          {
+            name: 'runtime_describe',
+            arguments: {
+              target: route.target,
+              expected_binding_revision: 1,
+              method: methods[index]!
+            }
+          },
+          CallToolResultSchema,
+          { timeout: 5000 }
+        )
+        assert.equal(description.isError, undefined)
+        assert.deepEqual(
+          (description.structuredContent as { data: { terminal_execution: object } }).data.terminal_execution,
+          { local_state: 'enabled' }
+        )
+      }
+      const first = await http.client.callTool(
+        {
+          name: 'runtime_discover',
+          arguments: {
+            target: f.target,
+            expected_binding_revision: 1,
+            limit: 1
+          }
+        },
+        CallToolResultSchema,
+        { timeout: 5000 }
+      )
+      const cursor = (first.structuredContent as { data: { next_cursor?: string } }).data.next_cursor
+      assert(cursor)
+      enabled = false
+      await until(
+        /** 本机当前值改变后原连接发布关闭观察，不换 epoch。 */ () =>
+          routes.every(
+            /** 独立核对两个原 binding 的实际观察值。 */ (route) =>
+              f.runtime.terminalExecutionState(route.binding) === false
+          )
+      )
+      for (const [index, route] of routes.entries()) {
+        const page = await http.client.callTool(
+          {
+            name: 'runtime_discover',
+            arguments: {
+              target: route.target,
+              expected_binding_revision: 1
+            }
+          },
+          CallToolResultSchema,
+          { timeout: 5000 }
+        )
+        assert.equal(page.isError, undefined)
+        assert(
+          !(page.structuredContent as { data: { items: { method: string }[] } }).data.items.some(
+            /** 关闭仍只隐藏该实例直接输入，不能沿用开启时的目录结果。 */ (item) => item.method === methods[index]
+          )
+        )
+      }
+      const stale = await http.client.callTool(
+        {
+          name: 'runtime_discover',
+          arguments: {
+            target: f.target,
+            expected_binding_revision: 1,
+            limit: 1,
+            cursor
+          }
+        },
+        CallToolResultSchema,
+        { timeout: 5000 }
+      )
+      assert.deepEqual(stale.structuredContent, { gateway_error: { code: 'invalid_cursor' } })
+      assert.equal(connector.transport.status().connection_epoch, epoch)
+      assert(observations >= 4)
+      assert.equal(nativeRequests, 0)
+      await connector.close()
+      await until(
+        /** 实际认证连接关闭后不能保留上一 epoch 的本机开关。 */ () =>
+          f.runtime.transport.currentConnection(f.target.machine_id) === undefined
+      )
+      for (const route of routes) {
+        assert.equal(f.runtime.terminalExecutionState(route.binding), undefined)
+      }
+    } finally {
+      try {
+        await http?.close()
+      } finally {
+        service?.close()
+        try {
+          await connector?.close()
+        } finally {
+          await f.close()
+        }
+      }
+    }
+  }
+)

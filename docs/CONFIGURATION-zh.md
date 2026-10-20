@@ -59,8 +59,9 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
 | Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |
-| Connector `native` | object，可选 | 默认省略，只接受以下两个安装目录字段，在首次 Luvus 初始化时应用。 |
-| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找 `luvus`；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
+| Connector `native` | object，可选 | 默认省略，只接受以下来源选择及安装目录字段，在首次原生初始化时应用。 |
+| `native.provider` | string enum，可选 | 省略时为 `luvus`；`herdr` 仅选 Herdr，`mixed` 各选一个。首次初始化前选定；已初始化选择的变更仍需未来的重配置流程。 |
+| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找所选 `luvus`/`herdr` 程序；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
 | `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
 
 Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、runtime/ref 选择、TLS/CA
@@ -89,7 +90,8 @@ Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用
 格式不再加载或迁移。
 
 保留整个数据目录，包括数据库附属文件。不要修改内部记录，也不要为重试不确定的
-初始化而删除数据。引导恢复和 Herdr/混合首次设置尚不可用。
+初始化而删除数据。Herdr 在 `<data.directory>/hr/` 管理隔离的 `h/c/s/k/t/w/control` 目录及原 schema、claims、receipts；
+这些不是额外用户配置。引导恢复尚不可用。
 首次 Luvus 设置要求 `data.directory` 路径加 `/n` 不超过52个 UTF-8 字节，
 如有需要，请在配对前选择更短的目录。
 
@@ -153,8 +155,8 @@ schema 输出保留原字节。已知预编译摘要只用于缓存命中，未�
 这是完整 Connector 文档中的可选片段。安装目录应由机器所有者控制；不要修改 managed
 root 记录或摘要来更换已初始化的安装。
 
-Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 HOME 为
-`<data.directory>/h`，不会复制普通 home 中的登录。本预览没有这个隔离环境的模型
+Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次设置的 HOME 为
+`<data.directory>/h`（Luvus）或 `<data.directory>/hr/h`（Herdr），不会复制普通 home 中的登录。本预览没有这个隔离环境的模型
 登录引导，因此全新模型设置仍需机器所有者准备。普通严格文本对话可保持本地
 `allow_terminal_execution:false`，不要用任意 argv/env 或终端输入绕过缺失 PATH。
 终端开关不会沙箱化 Agent 自身工具；binary/schema 校验或 `ready` 不证明模型已回复。
@@ -197,14 +199,14 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS/Windows 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
-上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
+上述所选 Luvus/Herdr 的本地终端流程，Agent/模型登录仍需独立准备。
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
+`rovloom service --help` 可离线使用。Gateway连接Linux systemd、macOS系统LaunchDaemon或Windows用户开机任务；安装要求当前
 Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
 缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
-Windows产品服务生命周期仍不可用；原生格式解析不等于生命周期验收。
+Windows使用显式选择的既有用户S4U及同一配置绝对路径；原生格式解析不等于生命周期验收。
 见[服务前提与平台限制](SERVICE.md)。
 
 | 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
@@ -224,11 +226,11 @@ Windows产品服务生命周期仍不可用；原生格式解析不等于生命�
 | `--executable` | 仅 install，可选绝对路径 string，≤4096 字符，默认当前单文件程序 | 必须等于当前规范可执行路径；拒绝另一安装、shell 或解释器。Windows 路径须以 `.exe` 结尾。 |
 | `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 省略时与前台使用当前用户同一份角色文件。安装固定其绝对路径，后台不另选home；通过sudo执行时显式传原用户文件的绝对路径。 |
 | `--workdir` | 仅 install，必填绝对目录 string，≤4096 字符，无默认 | 服务工作目录，不设置或替代 JSON 的 `data.directory`。 |
-| `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
+| `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS上既有非root账户；Windows既有用户名或用户SID，以S4U运行，不保存密码；不另选配置目录。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
 安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
-不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
+不创建账户、不修改已有权限。Windows使用所选既有用户，不自动切换为系统服务账户。
 运行账户不决定第二套配置目录。安装不启动角色，
 不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
 Linux 工作目录不得以空白或反斜杠结尾。
@@ -248,7 +250,7 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | Gateway 启动 / `config check-runtime` | 可用 | 可用 | 可用 |
 | 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
 | 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
-| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品服务生命周期不可用；在系统访问前拒绝 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | Gateway用户BootTrigger开机任务；本机Connector仍拒绝 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，

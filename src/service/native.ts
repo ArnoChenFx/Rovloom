@@ -160,7 +160,9 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
       if (typeof options.verifyRuntime !== 'function') {
         throw new ServiceError('backend_unavailable')
       }
-      if (platform !== 'win32') {
+      if (platform === 'win32') {
+        await taskCall(run, 'validate', spec.role, spec)
+      } else {
         const id = await checkedCommand(run, { executable: '/usr/bin/id', args: ['-u', spec.account], timeout: 5000 })
         if (!/^[1-9]\d*$/u.test(id.stdout.trim()) || !Number.isSafeInteger(Number(id.stdout.trim()))) {
           throw new ServiceError('invalid_arguments')
@@ -317,7 +319,9 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
     async stop(spec, forRestart = false) {
       await owned(spec)
       if (platform === 'win32') {
-        await taskCall(run, 'stop', spec.role, spec)
+        // Scheduler没有原子的“仅取消排队”操作；查询后可能立刻运行，因此绝不调用会强停的Task.Stop。
+        // 产品已运行路径使用登记专属管道；其它状态及竞态明确失败，也不能把无动作虚报为task_termination。
+        throw new ServiceError('service_busy')
       } else if (platform === 'darwin') {
         if ((await launchInfo(spec.role)).loaded) {
           await launchctl(
