@@ -8,9 +8,10 @@ import type { Session, Readiness, Adapter } from '../transport/common.js'
 import { DEFAULT_LIMITS } from '../native-contract/index.js'
 import type { TrustedAttempt } from '../integration/luvus-wire.js'
 import type { Call } from '../store.js'
-import type { ProviderBinding, ProviderSnapshot, V2Target } from '../wire/types.js'
+import type { JsonObject, ProviderBinding, ProviderSnapshot, V2Target } from '../wire/types.js'
 import { boundedJson, contractRef, fail, LIMITS, uint, validateProvider, validateTarget } from '../wire/index.js'
 import { createTrustedRequestScope } from './request-scope.js'
+import { createLuvusRequestPreflight } from './request-preflight.js'
 import { composeGatewaySessions, type ProviderSessionGroup } from './provider-sessions.js'
 import type {
   GatewayRuntimeOptions,
@@ -212,8 +213,18 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
       if (isHosted) {
         hostedNames.add(name)
       }
+      const requestShape = native ? createLuvusRequestPreflight(native.contract.compiled) : undefined
       providers.set(name, {
         ...provider,
+        ...(requestShape
+          ? {
+              /** 先检查既有原生请求结构，再保留原 provider 的额外同步预检；都不签发执行许可。 */
+              preflightRequest(request: JsonObject) {
+                requestShape(request)
+                return provider.preflightRequest?.(request)
+              }
+            }
+          : {}),
         max_response_bytes: responseBudget,
         binding: Object.freeze(binding),
         target: Object.freeze(structuredClone(provider.target))
@@ -646,7 +657,8 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
       store,
       localPolicies,
       principal,
-      resolveOriginalRead: active.resolveOriginalRead,
+      /** 本结果层在策略回调前后分别执行带正文的原 Wire 门禁；解析只取当前 peer/ACL/期限核对后的引用。 */
+      resolveOriginalRead: (callId) => active.resolveOriginalRead(callId, false),
       /** 每次读取重新核对当前受保护配置；所有 provider 共用 Store 的内容和 handle 总预算。 */
       provider(target) {
         const configured = providers.get(key(target))

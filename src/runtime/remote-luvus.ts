@@ -22,6 +22,7 @@ import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from './native-s
 import { assertLuvusOperationsContract, createLuvusOperationsAuthority } from './luvus-operations-authority.js'
 import { LUVUS_OPERATION_METHODS } from './luvus-operations.js'
 import type { RemoteLuvusRuntimeProvider, RuntimeProvider } from './types.js'
+import { createLuvusRequestPreflight } from './request-preflight.js'
 
 export type LuvusProductionRemoteConfig = Readonly<{
   kind: 'luvus'
@@ -203,6 +204,7 @@ export async function createPinnedRemoteLuvus(config: LuvusProductionRemoteConfi
     binding: config.binding,
     target: config.target,
     peer_policy_revision: config.peer_policy_revision,
+    preflightRequest: createLuvusRequestPreflight(contractHandle),
     ready,
     /** 只由 Gateway 的实际认证 session 调用；静态 pin 不预先构造任何 live 来源。 */
     open(connection, assertCurrent) {

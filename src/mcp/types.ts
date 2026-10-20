@@ -97,6 +97,7 @@ export interface GatewayService {
 export const SERVICE_ERROR_CODES = [
   'backend_unavailable',
   'invalid_arguments',
+  'native_request_invalid',
   'internal_error',
   'unauthenticated',
   'forbidden',
@@ -122,5 +123,14 @@ export class FacadeServiceError extends Error {
   constructor(readonly code: ServiceErrorCode) {
     super('Gateway service rejected the request')
     this.name = 'FacadeServiceError'
+  }
+}
+
+export class NativeRequestNotDispatchedError extends FacadeServiceError {
+  readonly outcome = 'not_dispatched' as const
+
+  /** 仅投影已完成登记前拒绝的固定结果，不把普通后端异常声明为未派发。 */
+  constructor() {
+    super('native_request_invalid')
   }
 }

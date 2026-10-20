@@ -29,9 +29,12 @@ import type { Adapter, Connection, ConnectorWireSession } from '../../src/transp
 import { envelope } from '../../src/transport/common.js'
 import { until } from '../transport/helpers.js'
 import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
+import { RuntimeGatewayService } from '../../src/mcp/runtime-service.js'
+import { httpFixture } from '../mcp/http-fixture.js'
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 
 /** Gateway 只建立自身状态目录；没有 binary、HOME、native root 或 socket 输入。 */
-async function fixture(mixed = false) {
+async function fixture(mixed = false, historyScope = false) {
   const root = mixed
     ? privateHerdrTestRoot('.remote-gateway-')
     : mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.remote-gateway-'))
@@ -173,7 +176,14 @@ async function fixture(mixed = false) {
     localPolicies: /** 每次门禁读取当前完整目标策略。 */ () => local,
     providers: resources.providers,
     ...(herdr ? { hosted: [herdr] } : {}),
-    listener: { hostname: '127.0.0.1', port: 0, developmentLoopback: true },
+    listener: {
+      hostname: '127.0.0.1',
+      port: 0,
+      developmentLoopback: true,
+      ...(historyScope
+        ? { offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc', 'history_scope'] } }
+        : {})
+    },
     release: /** listener 停止后释放来源和唯一状态 writer。 */ async () => {
       await resources.release()
       await herdr?.release()
@@ -191,6 +201,7 @@ async function fixture(mixed = false) {
     sockets.add(socket)
     let connection: Connection | undefined
     let sequence = 0
+    const requests: Extract<AuthenticatedEnvelope, { type: 'request' }>[] = []
     socket.onopen = /** 凭本轮真实签发的临时设备凭据走原认证握手。 */ () =>
       socket.send(
         JSON.stringify({
@@ -203,7 +214,12 @@ async function fixture(mixed = false) {
             recovery_generation: credential.recovery_generation,
             device_credential: credential.credential,
             connector_instance_id: randomUUID(),
-            offer: { major: 2, minor: 0, capabilities: ['rpc', 'provider_snapshot'], required: ['rpc'] }
+            offer: {
+              major: 2,
+              minor: 0,
+              capabilities: ['rpc', 'provider_snapshot', ...(historyScope ? ['history_scope'] : [])],
+              required: ['rpc', ...(historyScope ? ['history_scope'] : [])]
+            }
           }
         })
       )
@@ -231,6 +247,7 @@ async function fixture(mixed = false) {
       } else if (frame.type === 'heartbeat') {
         send('heartbeat', { sequence: sequence++ })
       } else if (frame.type === 'request') {
+        requests.push(frame)
         writes++
         send('accepted', { attempt: frame.payload.attempt })
         if (!hold) {
@@ -245,6 +262,14 @@ async function fixture(mixed = false) {
     return {
       socket,
       connection: connection!,
+      requests,
+      reply: /** 只完成本测试原请求，不冒充真实 native；回包仍经实际 Gateway 原 Wire。 */ (
+        request: (typeof requests)[number]
+      ) =>
+        send('response', {
+          attempt: request.payload.attempt,
+          native_response: { id: request.payload.attempt.native_request_id, result: { panes: [] } }
+        }),
       snapshot: /** 每次测试消息仍经同一认证通道。 */ (value = snapshot) => send('provider_snapshot', value)
     }
   }
@@ -464,6 +489,154 @@ test(
       await f.close()
     }
     assert.equal(releases, 1)
+  }
+)
+
+test(
+  '真实 MCP SDK 的非法 agent.wait 在登记前回复 not_dispatched，不关闭原 WSS 或污染健康调用',
+  { timeout: 45_000 },
+  /** 真实 pinned schema、双库、Gateway、Wire 和 HTTP SDK；peer 仅为明确合成回包，无 native/model。 */ async () => {
+    const f = await fixture(false, true)
+    let http: ReturnType<typeof httpFixture> | undefined
+    let service: RuntimeGatewayService | undefined
+    try {
+      for (const policy of [f.caller, f.local]) {
+        policy.grants.push({ target: f.target, methods: ['agent.wait'], actions: ['dispatch', 'read'] })
+      }
+      const peer = await f.peer()
+      peer.snapshot()
+      await until(/** 原 pin 必须先接纳实际认证快照。 */ () => f.runtime.transport.status().devices[0]?.ready === true)
+      f.hold()
+      service = new RuntimeGatewayService({
+        runtime: f.runtime,
+        identities: {
+          principal: /** 沿用原 runtime 的当前 caller 来源。 */ (caller) =>
+            caller.principal_id === 'remote_reader' ? { id: 'remote_reader', policy: f.caller } : null,
+          administrator: /** 本例不提供管理员会话。 */ () => null
+        },
+        localPolicies: /** 与原 Gateway 使用同一政策对象。 */ () => f.local
+      })
+      http = httpFixture(service, {
+        authentication: { authenticate: /** 仅本例 listener 的合成身份。 */ () => ({ principal_id: 'remote_reader' }) }
+      })
+      await http.client.connect(http.transport)
+      let toolCursor: string | undefined
+      let foundCall = false
+      for (let page = 0; page < 10 && !foundCall; page++) {
+        const tools = await http.client.listTools(toolCursor ? { cursor: toolCursor } : {})
+        foundCall = tools.tools.some(
+          /** 真实 SDK 按标准分页读取当前工具输出 schema。 */ (tool) => tool.name === 'runtime_call'
+        )
+        toolCursor = tools.nextCursor
+        if (!toolCursor) {
+          break
+        }
+      }
+      assert(foundCall)
+      const history = f.state.store.openHistory('remote_reader', f.target, 1)
+      const input = {
+        target: f.target,
+        expected_binding_revision: 1,
+        contract_ref: contractRef(f.snapshot.source),
+        native_request: { method: 'pane.list', params: { all_tabs: true } },
+        deadline: f.state.store.clock() + 30000
+      }
+      const healthy = CallToolResultSchema.parse(await http.client.callTool({ name: 'runtime_call', arguments: input }))
+      assert.equal(healthy.isError, undefined)
+      const healthyId = (healthy.structuredContent!.data as { call_id: string }).call_id
+      await until(
+        /** 原健康调用确实已到对端并 accepted。 */ () =>
+          f.state.store.call('remote_reader', healthyId).state === 'connector_accepted'
+      )
+      const epoch = peer.connection.connection_epoch
+      const before = f.writes()
+      const context = {
+        history_epoch: history.history_epoch,
+        client_request_key: 'correctable_bad_wait',
+        recovery_generation: f.state.store.generation()
+      }
+      const bad = CallToolResultSchema.parse(
+        await http.client.callTool({
+          name: 'runtime_call',
+          arguments: {
+            ...input,
+            native_request: { method: 'agent.wait', params: { target: '1', until: 'idle' } },
+            history: context
+          }
+        })
+      )
+      assert.equal(bad.isError, true)
+      assert.deepEqual(bad.structuredContent, {
+        gateway_error: { code: 'native_request_invalid', outcome: 'not_dispatched' }
+      })
+      assert.deepEqual(JSON.parse((bad.content[0] as { text: string }).text), bad.structuredContent)
+      assert.equal(f.writes(), before)
+      assert.equal(f.state.store.call('remote_reader', healthyId).state, 'connector_accepted')
+      assert.equal(f.runtime.transport.currentConnection(f.target.machine_id)!.connection_epoch, epoch)
+      assert.equal(f.runtime.transport.status().connections, 1)
+      peer.reply(
+        peer.requests.find(/** 只完成原健康请求。 */ (request) => request.payload.attempt.call_id === healthyId)!
+      )
+      await until(
+        /** schema 拒绝未夺走健康调用的原响应许可。 */ () =>
+          f.state.store.call('remote_reader', healthyId).state === 'responded'
+      )
+      const corrected = CallToolResultSchema.parse(
+        await http.client.callTool({ name: 'runtime_call', arguments: { ...input, history: context } })
+      )
+      assert.equal(corrected.isError, undefined)
+      const correctedId = (corrected.structuredContent!.data as { call_id: string }).call_id
+      await until(
+        /** 非法登记已回滚，其 key 未被坏请求占用；明确的新合法意图才发送。 */ () =>
+          peer.requests.some(/** 对照真实收到的 call。 */ (request) => request.payload.attempt.call_id === correctedId)
+      )
+      assert.equal(f.writes(), before + 1)
+      peer.reply(
+        peer.requests.find(/** 按新意图原 call 回复。 */ (request) => request.payload.attempt.call_id === correctedId)!
+      )
+      await until(
+        /** 后续合法请求仍沿原 epoch 正常完成。 */ () =>
+          f.state.store.call('remote_reader', correctedId).state === 'responded'
+      )
+      assert.equal(f.runtime.transport.currentConnection(f.target.machine_id)!.connection_epoch, epoch)
+      const oldRequest = { method: 'agent.wait', params: { target: '1', until: 'idle' } }
+      const oldKey = 'legacy_unknown_bad_wait'
+      const old = await f.runtime.runAuthenticated(
+        { principal_id: 'remote_reader' },
+        /** 人工构造旧版本已登记 unknown 的合成历史；只走原 Router/Store，不发送任何 Wire 或 native。 */ () => {
+          const principal = f.runtime.principal()
+          const admitted = f.runtime.router.admit(principal, f.target, oldRequest, {
+            binding_revision: 1,
+            contract_ref: input.contract_ref,
+            deadline: input.deadline,
+            history: { history_epoch: history.history_epoch, client_request_key: oldKey }
+          })
+          f.runtime.router.dispatch(principal, admitted.call.call_id, epoch)
+          return f.state.store.stop(principal.id, admitted.call.call_id)
+        }
+      )
+      assert.equal(old.state, 'outcome_unknown')
+      const writes = f.writes()
+      const repeated = CallToolResultSchema.parse(
+        await http.client.callTool({
+          name: 'runtime_call',
+          arguments: {
+            ...input,
+            native_request: oldRequest,
+            history: { ...context, client_request_key: oldKey }
+          }
+        })
+      )
+      assert.equal(repeated.isError, undefined)
+      assert.equal((repeated.structuredContent!.data as { call_id: string }).call_id, old.call_id)
+      assert.equal((repeated.structuredContent!.data as { state: string }).state, 'outcome_unknown')
+      assert.equal(f.writes(), writes)
+      assert.equal(f.runtime.transport.currentConnection(f.target.machine_id)!.connection_epoch, epoch)
+    } finally {
+      await http?.close()
+      service?.close()
+      await f.close()
+    }
   }
 )
 
