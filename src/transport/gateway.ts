@@ -23,6 +23,7 @@ import type { AttemptBinding, AuthenticatedEnvelope, VersionOffer } from '../wir
 import type { AdmissionReceiptRecord } from '../wire/admission.js'
 import type { LedgerInvalidation } from '../storage/model.js'
 import type { IdentityHost } from './identity.js'
+import type { DispatchRefusalLedger } from './dispatch-refusal.js'
 import { ChannelRegistry } from './channel-host.js'
 import type { SocketChannel } from './channel-host.js'
 import { budget, envelope, loopback, OFFER, positive, providerHealth, ready, ReceiveWindow, runtime } from './common.js'
@@ -80,7 +81,7 @@ export type GatewayOptions = {
   tls?: { cert: string; key: string }
   identity: IdentityHost
   channels?: ChannelRegistry
-  store: Store
+  store: Store & Partial<DispatchRefusalLedger>
   router: Router
   /** 从当前宿主认证上下文取得 caller，禁止根据工具 JSON 或设备帧构造。 */
   principal(): Principal
@@ -131,6 +132,16 @@ export function createGateway(options: GatewayOptions) {
   positive(limits.read_contexts, LIMITS.dedup_entries)
   const offer = structuredClone(options.offer ?? OFFER)
   validateOffer(offer)
+  const commitDispatchRefusal = options.store.commitDispatchRefusal?.bind(options.store)
+  if (!commitDispatchRefusal) {
+    if (offer.required.includes('dispatch_refusal')) {
+      fail('dispatch_refusal_backend_unavailable')
+    }
+    // 缺少真实账本事务接口时不协商此能力，不能用 stop 或原生响应伪装确定未写出。
+    offer.capabilities = offer.capabilities.filter(
+      /** 仅移除当前没有持久化后端的可选能力。 */ (capability) => capability !== 'dispatch_refusal'
+    )
+  }
   let snapshotMachines: ReadonlySet<string> | undefined
   if (options.providerSnapshotMachines !== undefined) {
     const machines = options.providerSnapshotMachines
@@ -767,7 +778,7 @@ export function createGateway(options: GatewayOptions) {
         }
         return
       }
-      if (decoded.type !== 'accepted' && decoded.type !== 'response') {
+      if (decoded.type !== 'accepted' && decoded.type !== 'response' && decoded.type !== 'dispatch_refused') {
         fail('transport_feature_unavailable')
       }
       const binding = { ...peer.connection, ...decoded.payload.attempt }
@@ -777,6 +788,20 @@ export function createGateway(options: GatewayOptions) {
           options.store.accepted(binding)
         }
         refreshAdmission(binding.call_id)
+      } else if (decoded.type === 'dispatch_refused') {
+        if (!commitDispatchRefusal) {
+          fail('dispatch_refusal_backend_unavailable')
+        }
+        // 认证、当前连接和原独立 attempt 已由原 codec 核对；先提交终态，再释放本 call 的资源。
+        const committed = commitDispatchRefusal(binding, decoded.payload.code)
+        if (committed !== undefined) {
+          void Promise.resolve(committed).catch(/** 消费违规异步 port 的晚到拒绝，不发布假终态。 */ () => {})
+          fail('synchronous_dispatch_refusal_required')
+        }
+        refreshAdmission(binding.call_id)
+        inflight.delete(binding.call_id)
+        reads.delete(binding.call_id)
+        peer.session.adapter.release(binding)
       } else {
         commitNativeResponse(options.store, peer.session.adapter, decoded)
         refreshAdmission(binding.call_id)

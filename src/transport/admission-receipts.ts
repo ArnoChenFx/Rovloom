@@ -409,8 +409,8 @@ export class ConnectorAdmissionReceipts implements AdmissionReceiptSink, Admissi
       throw new WireError('admission_context_conflict')
     }
     const states: Record<string, readonly string[]> = {
-      dispatching: ['dispatching', 'connector_accepted', 'outcome_unknown', 'responded'],
-      connector_accepted: ['connector_accepted', 'outcome_unknown', 'responded'],
+      dispatching: ['dispatching', 'connector_accepted', 'not_dispatched', 'outcome_unknown', 'responded'],
+      connector_accepted: ['connector_accepted', 'not_dispatched', 'outcome_unknown', 'responded'],
       outcome_unknown: ['outcome_unknown', 'responded'],
       responded: ['responded'],
       not_dispatched: ['not_dispatched']

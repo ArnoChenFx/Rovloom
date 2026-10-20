@@ -19,7 +19,14 @@ import {
 } from './wire/index.js'
 import type { HistoryScope, HistoryRecord } from './wire/history.js'
 import type { ResponseAnchor, ResponseEvidencePlan } from './wire/evidence.js'
-import type { AttemptBinding, AttemptIdentity, JsonObject, ProviderBinding, V2Target } from './wire/types.js'
+import type {
+  AttemptBinding,
+  AttemptIdentity,
+  DispatchRefusalCode,
+  JsonObject,
+  ProviderBinding,
+  V2Target
+} from './wire/types.js'
 import type { TrustedAttempt } from './integration/luvus-wire.js'
 import { DEFAULT_RETENTION, retention } from './storage/config.js'
 import type { Retention } from './storage/config.js'
@@ -1408,6 +1415,24 @@ export class Store {
         }
         this.db.prepare("UPDATE calls SET state='connector_accepted' WHERE call_id=?").run(binding.call_id)
         this.audit('connector_accepted', 'connector', now, this.row(binding.call_id))
+      },
+      false
+    )
+  }
+  /** 仅由已认证 Wire 拒绝路径调用；原子提交确定未写出，未知或既有终态绝不倒退。 */
+  commitDispatchRefusal(binding: AttemptBinding, code: DispatchRefusalCode): void {
+    if (code !== 'terminal_execution_disabled') {
+      throw new GatewayError('invalid_dispatch_refusal')
+    }
+    this.transaction(
+      /** 先落实原固定 deadline，再核对当前完整锚点；审计提交前不发布拒绝。 */ (now) => {
+        this.stopWhere('call_id=? AND deadline<=?', [binding.call_id, String(now)], 'deadline_exceeded', now)
+        const row = this.responseAnchorRow(binding)
+        if (!['dispatching', 'connector_accepted'].includes(row.state)) {
+          return
+        }
+        this.db.prepare("UPDATE calls SET state='not_dispatched',reserved=0 WHERE call_id=?").run(binding.call_id)
+        this.audit('dispatch_refused', 'connector', now, this.row(binding.call_id), { code })
       },
       false
     )

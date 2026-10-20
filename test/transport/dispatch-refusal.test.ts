@@ -1,0 +1,275 @@
+// 使用真实 loopback、Store 和 Wire，执行层为明确不启动原生进程的合成 stub。
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { LuvusAdapterError } from '../../src/connector/luvus/types.js'
+import { contractRef } from '../../src/wire/index.js'
+import { fixture, rawConnect, until } from './helpers.js'
+import { wireFixture } from './wire-execution-helpers.js'
+import { Store } from '../../src/store.js'
+import { createGateway } from '../../src/transport/gateway.js'
+
+test(
+  '缺真实拒绝事务后端时不协商能力，显式必需配置拒绝启动',
+  /** 主动移除隔离 Store 的可选 port，不能由收到的帧或执行 stub 补出后端成功。 */ async () => {
+    const f = fixture(
+      {},
+      {},
+      {
+        /** 实际 Store 仍处理认证/登记；仅声明拒绝接口尚未接线。 */ store(now, options) {
+          const store = new Store(':memory:', now, options)
+          Object.defineProperty(store, 'commitDispatchRefusal', { value: undefined })
+          return store
+        }
+      }
+    )
+    const device = f.pair('synthetic_missing_refusal_ledger')
+    const offer = { major: 2, minor: 0, capabilities: ['rpc', 'dispatch_refusal'], required: ['rpc'] }
+    const raw = rawConnect(f.gateway.url, device.credential, offer)
+    try {
+      await until(/** 等待真实已认证 welcome。 */ () => raw.epoch !== '')
+      const welcome = raw.frames.find(/** 仅查看无密钥的协商结果。 */ (value: any) => value.type === 'welcome') as any
+      assert.equal(welcome.payload.selected.capabilities.includes('dispatch_refusal'), false)
+      assert.throws(
+        /** 宿主要求未接线能力时必须在开启新 listener 前拒绝。 */ () =>
+          createGateway({
+            hostname: '127.0.0.1',
+            port: 0,
+            developmentLoopback: true,
+            identity: f.credentials,
+            store: f.store,
+            router: f.router,
+            principal: /** 沿用 fixture 独立 caller，不接受帧内身份。 */ () => f.principal,
+            session: f.session,
+            offer: { ...offer, required: ['rpc', 'dispatch_refusal'] }
+          }),
+        /dispatch_refusal_backend_unavailable/
+      )
+    } finally {
+      raw.ws.close()
+      f.stop()
+    }
+  }
+)
+
+test(
+  '可能写出或伪造形状的异常不产生 not_dispatched 证明',
+  /** 即使后端已接线，普通异常和 unknown 也保持断连后的保守结局。 */ async () => {
+    for (const error of [
+      new LuvusAdapterError('terminal_execution_disabled', 'outcome_unknown'),
+      { code: 'terminal_execution_disabled', outcome: 'not_dispatched' }
+    ]) {
+      const f = fixture()
+      const device = f.pair('synthetic_unknown_refusal')
+      const client = f.connector(/** 仅使用 fixture 身份。 */ () => device.credential, {
+        limits: { reconnect_ms: 5000, reconnect_max_ms: 5000 },
+        execute: /** 明确异常 stub，不触发真实 IO。 */ async () => {
+          throw error
+        }
+      })
+      try {
+        await until(/** 等待合成设备通过真实认证。 */ () => client.status().phase === 'ready')
+        const call = f.call(device.target)
+        f.gateway.dispatch(call.call_id)
+        await until(
+          /** 等待未知结局在原 Store 收敛。 */ () =>
+            f.store.call(f.principal.id, call.call_id).state === 'outcome_unknown'
+        )
+        assert.equal(f.store.call(f.principal.id, call.call_id).response, null)
+      } finally {
+        f.stop()
+      }
+    }
+  }
+)
+
+test(
+  '确定拒绝在原 deadline 后到达时不倒退账本，也不中止同连接另一调用',
+  /** 拒绝 port 是明确只能抛错的服务 stub；过期路径不得调用它或假报提交成功。 */ async () => {
+    let commits = 0
+    const f = fixture(
+      {},
+      {},
+      {
+        /** 原 Store 保持所有真实行为；只为验证未调用性质暴露一个必定拒绝的合成 port。 */ store(now, options) {
+          return Object.assign(new Store(':memory:', now, options), {
+            /** 若错误触及过期提交路径就使测试失败，绝不 mock 持久化成功。 */ commitDispatchRefusal() {
+              commits++
+              throw new Error('synthetic_refusal_port_must_not_run')
+            }
+          })
+        }
+      }
+    )
+    let second = ''
+    let signal: AbortSignal | undefined
+    let finish: (() => void) | undefined
+    let refuse: (() => void) | undefined
+    const device = f.pair('synthetic_expired_refusal')
+    const client = f.connector(/** 仅取隔离 fixture 身份。 */ () => device.credential, {
+      limits: { reconnect_ms: 5000, reconnect_max_ms: 5000 },
+      /** 两份合成工作均手动推进，不启动原生进程。 */ execute(raw, active, binding) {
+        return new Promise(
+          /** 先等真实 accepted 提交，再投递晚到的确定拒绝。 */ (resolve, reject) => {
+            if (binding.call_id === second) {
+              refuse = /** 固定未写出异常不携带请求、原生响应或秘密。 */ () =>
+                reject(new LuvusAdapterError('terminal_execution_disabled', 'not_dispatched'))
+            } else {
+              signal = active
+              finish = /** 完成未到期的原合成请求。 */ () =>
+                resolve({ id: JSON.parse(raw).id, result: { id: 'synthetic_task' } })
+            }
+          }
+        )
+      }
+    })
+    try {
+      await until(/** 等待实际认证及就绪。 */ () => client.status().phase === 'ready')
+      const epoch = client.status().connection_epoch
+      const first = f.call(device.target)
+      f.gateway.dispatch(first.call_id)
+      await until(/** 正常调用已占有独立 signal。 */ () => signal !== undefined)
+      const registered = f.store.call(f.principal.id, first.call_id)
+      const ref = f.store.attempt(first.call_id, registered.attempt_id!)!.binding.contract_ref
+      const short = f.router.create(
+        f.principal,
+        device.target,
+        { method: 'task.add', params: { title: 'synthetic' } },
+        { binding_revision: 1, contract_ref: ref, timeoutMs: 5 }
+      )
+      second = short.call_id
+      f.gateway.dispatch(second)
+      await until(
+        /** 必须先收到并持久化 accepted，避免把先到的过期确认误当逐调用拒绝。 */ () =>
+          refuse !== undefined && f.store.call(f.principal.id, second).state === 'connector_accepted'
+      )
+      f.now = short.deadline + 1
+      refuse!()
+      await until(
+        /** 固定 deadline 只结束已到期调用。 */ () => f.store.call(f.principal.id, second).state === 'outcome_unknown'
+      )
+      assert.equal(commits, 0)
+      assert.equal(signal!.aborted, false)
+      assert.equal(client.status().connection_epoch, epoch)
+      finish!()
+      await until(
+        /** 另一调用仍可提交真实响应证据。 */ () => f.store.call(f.principal.id, first.call_id).state === 'responded'
+      )
+      assert.equal(client.status().connection_epoch, epoch)
+    } finally {
+      refuse?.()
+      finish?.()
+      f.stop()
+    }
+  }
+)
+
+test(
+  'accepted 后的确定未写出拒绝只结束本 call，同连接的在途调用继续完成',
+  /** 第二次执行在 stub 写入前明确拒绝；第一份合成工作保持原 epoch、signal 和结果归属。 */
+  async () => {
+    const f = fixture()
+    let rejected = ''
+    let signal: AbortSignal | undefined
+    let finish: (() => void) | undefined
+    let refused = false
+    const device = f.pair('synthetic_refusal')
+    const client = f.connector(/** 只使用本 fixture 的无生产效力身份。 */ () => device.credential, {
+      limits: { reconnect_ms: 5000, reconnect_max_ms: 5000 },
+      /** 明确合成的执行 stub；不接触任何真实原生 endpoint、终端或模型。 */
+      execute: (raw, active, binding) => {
+        if (binding.call_id === rejected) {
+          refused = true
+          throw new LuvusAdapterError('terminal_execution_disabled', 'not_dispatched')
+        }
+        signal = active
+        return new Promise(
+          /** 手动控制第一份合成回包，以暴露连接级中止的附带影响。 */ (resolve) => {
+            finish = /** 仅返回本次原生请求 ID 的合成回包。 */ () =>
+              resolve({ id: JSON.parse(raw).id, result: { id: 'synthetic_task' } })
+          }
+        )
+      }
+    })
+    try {
+      await until(/** 等待真实 welcome 与 provider readiness。 */ () => client.status().phase === 'ready')
+      const epoch = client.status().connection_epoch
+      const first = f.call(device.target)
+      f.gateway.dispatch(first.call_id)
+      await until(/** 确认第一份工作已占用实际在途槽位。 */ () => signal !== undefined)
+      const second = f.call(device.target)
+      rejected = second.call_id
+      f.gateway.dispatch(second.call_id)
+      await until(/** 等待确定拒绝到达当前执行 stub。 */ () => refused)
+      await until(
+        /** 修复前连接会被关闭；修复后账本必须收到逐调用拒绝。 */ () =>
+          client.status().phase !== 'ready' || f.store.call(f.principal.id, second.call_id).state === 'not_dispatched'
+      )
+      assert.equal(signal!.aborted, false)
+      assert.equal(client.status().connection_epoch, epoch)
+      assert.equal(f.gateway.status().connections, 1)
+      assert.equal(f.store.call(f.principal.id, second.call_id).state, 'not_dispatched')
+      assert.equal(f.store.call(f.principal.id, first.call_id).state, 'connector_accepted')
+      finish!()
+      await until(
+        /** 原调用必须仍能通过原 permit 和真实响应事务完成。 */ () =>
+          f.store.call(f.principal.id, first.call_id).state === 'responded'
+      )
+      assert.equal(client.status().connection_epoch, epoch)
+      assert.equal(client.status().running, 0)
+    } finally {
+      finish?.()
+      f.stop()
+    }
+  }
+)
+
+test(
+  '真实 Luvus 最终终端门禁拒绝经 Wire hook 独立收敛，另一个原请求继续使用原 adapter',
+  /** 原生来源与回包均为明确 fixture；实际 Store、原始 Wire、LuvusRpcAdapter 和 loopback 保持生产实现。 */
+  async () => {
+    const w = await wireFixture({ dispatchRefusal: true })
+    const { f, state } = w
+    let unblock: (() => void) | undefined
+    let first = ''
+    state.beforeAuth = /** 第一份真实 adapter 工作在唯一 claim 前受控等待。 */ async (binding) => {
+      if (binding.call_id === first) {
+        await new Promise<void>(/** 只控制合成宿主 auth 的返回时刻。 */ (resolve) => (unblock = resolve))
+      }
+    }
+    try {
+      const device = w.pair('synthetic_original_refusal')
+      const client = w.connect(device)
+      await w.ready(client)
+      const epoch = client.status().connection_epoch
+      first = f.call(device.target).call_id
+      f.gateway.dispatch(first)
+      await until(/** 确认正常工作已进入原生 adapter 的 auth 等待。 */ () => unblock !== undefined)
+      const second = f.router.create(
+        f.principal,
+        device.target,
+        { method: 'task.add', params: { title: 'synthetic', gate: 'printf synthetic' } },
+        { binding_revision: 1, contract_ref: contractRef(w.native.origin), timeoutMs: 10_000 }
+      )
+      f.gateway.dispatch(second.call_id)
+      await until(
+        /** 实际 adapter 的默认关闭门禁必须产生确定拒绝，不写入合成 endpoint。 */ () =>
+          f.store.call(f.principal.id, second.call_id).state === 'not_dispatched'
+      )
+      assert.deepEqual(state.rpcErrors, [{ code: 'terminal_execution_disabled', outcome: 'not_dispatched' }])
+      assert.equal(state.claim, 0)
+      assert.equal(w.native.received(), '')
+      assert.equal(client.status().connection_epoch, epoch)
+      assert.equal(f.gateway.status().connections, 1)
+      unblock!()
+      await until(
+        /** 第一份请求沿原许可完成真实证据事务。 */ () => f.store.call(f.principal.id, first).state === 'responded'
+      )
+      assert.equal(state.claim, 1)
+      assert.equal(client.status().connection_epoch, epoch)
+      assert.equal(state.requests.length, 2)
+    } finally {
+      unblock?.()
+      await w.close()
+    }
+  }
+)

@@ -7,6 +7,7 @@ export const WIRE_MINOR = 0
 // 2.0 中的可选能力仍须双方明确广告；较高 minor 不能隐式启用它们。
 const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   rpc: 0,
+  dispatch_refusal: 0,
   provider_snapshot: 0,
   admission_receipt: 0,
   admission_context: 0,
@@ -114,6 +115,9 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
     fail('invalid_capabilities')
   }
   if (v.capabilities.includes('provider_snapshot') && !v.capabilities.includes('rpc')) {
+    fail('invalid_capabilities')
+  }
+  if (v.capabilities.includes('dispatch_refusal') && !v.capabilities.includes('rpc')) {
     fail('invalid_capabilities')
   }
   // 该依赖也约束 welcome 的选定结果，不能只在本地 offer 一侧检查。
