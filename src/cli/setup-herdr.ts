@@ -1,7 +1,7 @@
 // Herdr首次准备只使用实际binary/schema和既有编译、私有路径及账本工厂；不启动Agent或复制普通HOME认证。
 import { join } from 'node:path'
 import { compileHerdrSchemas } from '../connector/herdr/compiler-api.js'
-import { herdrDeadline, runHerdrCommand } from '../connector/herdr/io.js'
+import { herdrDeadline, isStoppedHerdrCommandCancellation, runHerdrCommand } from '../connector/herdr/io.js'
 import { HerdrLocalError, measureHerdrInstallation, verifyHerdrInstallation } from '../connector/herdr/local.js'
 import type { HerdrLocalConfig } from '../connector/herdr/local.js'
 import { observedHerdrSource } from '../connector/herdr/review.js'
@@ -12,7 +12,7 @@ import { ConnectorAdmissionReceipts } from '../transport/admission-receipts.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import type { ProviderPolicies } from '../wire/types.js'
 import { boundedJson, fields, hash, object } from '../wire/index.js'
-import { CliError, type ConnectorConfig } from './config.js'
+import { CliCancelled, CliError, type ConnectorConfig } from './config.js'
 import { privateDirectory } from './first-config.js'
 import type { HerdrProductionOwnerConfig } from './production-herdr.js'
 import { readSetupJson, writeSetupFile, writeSetupJson } from './setup-files.js'
@@ -140,6 +140,11 @@ export async function prepareSetupHerdr(
       throw new CliError('configuration_required')
     }
     source = observedHerdrSource(label, measured.sha256, compiled.schema_sha256, compiled.protocol)
+  } catch (error) {
+    if (terminal.io.signal.aborted && isStoppedHerdrCommandCancellation(error)) {
+      throw new CliCancelled()
+    }
+    throw error
   } finally {
     scope.close()
   }

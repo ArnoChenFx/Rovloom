@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -13,6 +13,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { configDocument, configTemplate } from '../../src/cli/config.js'
 import { privateDirectory } from '../../src/cli/first-config.js'
 import { loadCredential } from '../../src/transport/credentials.js'
+import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
 
 // 内核分配临时回环端口；不访问外部网络，也不假定默认端口空闲。
 async function port(): Promise<number> {
@@ -28,11 +29,21 @@ async function port(): Promise<number> {
 
 // Python标准库只提供测试OS PTY；secret始终留在该临时fixture内存，不向测试日志输出终端正文。
 const terminal = String.raw`
-import os,pty,subprocess,sys,select,time,json,re,signal,fcntl,termios,urllib.request,urllib.error,base64,sqlite3
+import os,pty,subprocess,sys,select,time,json,re,signal,fcntl,termios,urllib.request,urllib.error,base64,sqlite3,array
 children=[]
 fds=[]
+cleanup=[]
+mode=sys.argv[6] if len(sys.argv)>6 else 'decline'
 def own_terminal():
  fcntl.ioctl(0,termios.TIOCSCTTY,0)
+def process_observation(child,fd):
+ queued=array.array('i',[0])
+ try:fcntl.ioctl(fd,termios.FIONREAD,queued,True)
+ except OSError:queued[0]=-1
+ try:
+  with open('/proc/'+str(child.pid)+'/wchan') as stream:waiting=stream.read().strip()
+ except OSError:waiting='unavailable'
+ return {'exited':child.poll() is not None,'tty_queued_bytes':queued[0],'waiting':waiting}
 def native_read(phase='initial'):
  # 只对该合成身份刚获批准的实际MCP endpoint做只读原生调用；不创建Agent、不发送模型prompt。
  gateway_config=json.load(open(sys.argv[3]))
@@ -40,7 +51,7 @@ def native_read(phase='initial'):
  credential=json.load(open(root+'/managed/mcp-client.json'))
  providers=json.load(open(root+'/managed/providers.json'))['providers']
  endpoint=credential['resource']
- session=None; sequence=0;current_kind='none'
+ session=None; sequence=0;current_kind='none';rpc_observations=[]
  def rpc(method,params,notification=False):
   nonlocal session,sequence
   sequence+=1
@@ -49,6 +60,7 @@ def native_read(phase='initial'):
   headers={'content-type':'application/json','accept':'application/json, text/event-stream','authorization':'Bearer '+credential['token']}
   if session:headers.update({'mcp-session-id':session,'mcp-protocol-version':'2025-11-25'})
   request=urllib.request.Request(endpoint,data=json.dumps(message).encode(),headers=headers,method='POST')
+  started=time.monotonic()
   with urllib.request.urlopen(request,timeout=10) as response:
    session=session or response.headers.get('mcp-session-id')
    if notification:return None
@@ -65,6 +77,7 @@ def native_read(phase='initial'):
     content=response.read(1048577)
     if len(content)>1048576:raise RuntimeError('fixture_mcp_size')
     packet=json.loads(content)
+   rpc_observations.append({'method':method,'elapsed_ms':round((time.monotonic()-started)*1000),'sse':response.headers.get('content-type','').startswith('text/event-stream')})
    if 'error' in packet:raise RuntimeError('fixture_mcp_rpc_error')
    return packet['result']
  def tool(name,arguments):
@@ -75,7 +88,9 @@ def native_read(phase='initial'):
      # 只输出固定状态/本例两种方法，不输出call ID、epoch、身份、原请求/响应或secret。
      states=database.execute('SELECT provider_kind,method,state,content_status,response_category,response_bytes FROM calls ORDER BY created LIMIT 8').fetchall()
    except sqlite3.Error:states='metadata_unavailable'
-   raise RuntimeError('fixture_mcp_timeout_'+phase+'_'+current_kind+'_'+name+' states='+json.dumps(states)) from None
+   observation={'phase':phase,'kind':current_kind,'tool':name,'states':states,'previous_rpc':rpc_observations[-8:],
+    'gateway':process_observation(gateway,gfd),'connector':process_observation(connector,cfd)}
+   raise RuntimeError('fixture_mcp_timeout '+json.dumps(observation)) from None
   if result.get('isError'):raise RuntimeError('fixture_mcp_tool_error: '+str(result.get('structuredContent',{}).get('gateway_error',{}).get('code','unknown')))
   return result['structuredContent']['data']
  rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'isolated-first-pairing','version':'1'}})
@@ -102,6 +117,7 @@ def native_read(phase='initial'):
 def launch(path):
  master,slave=pty.openpty()
  command=[sys.argv[7]] if len(sys.argv)>7 and sys.argv[7] else [sys.argv[1],'--no-env-file',sys.argv[2]]
+ if mode=='cancel-schema-unconfirmed' and path[0]=='connector':command=[sys.argv[1],'--no-env-file','--preload',sys.argv[9],sys.argv[2]]
  child=subprocess.Popen(command+[path[0],'--config',path[1]],stdin=slave,stderr=slave,stdout=subprocess.PIPE,start_new_session=True,preexec_fn=own_terminal)
  os.close(slave); children.append(child); fds.append(master)
  return child,master,bytearray()
@@ -159,6 +175,39 @@ try:
   native_read('restarted')
   os.write(cfd,b'\x03');connector.wait(timeout=15)
   if connector.returncode!=0:raise RuntimeError('fixture_connector_restart_exit')
+ elif mode.startswith('cancel-schema'):
+  read_until(connector,cfd,cdata,rb'Discover this Herdr.*\[y/N\] ')
+  os.write(cfd,b'y\n')
+  until=time.monotonic()+10
+  while not os.path.exists(sys.argv[8]):
+   if time.monotonic()>until:raise RuntimeError('fixture_schema_not_entered')
+   time.sleep(0.01)
+  with open(sys.argv[8]) as stream:pid=int(stream.read())
+  pidfd=os.pidfd_open(pid)
+  saved_path=json.load(open(sys.argv[4]))['data']['directory']+'/managed/device.json'
+  original_credential=open(saved_path,'rb').read()
+  try:
+   connector.send_signal(signal.SIGTERM)
+   if mode=='cancel-schema-unconfirmed':
+    # 此分支故意拒绝产品kill；只有测试自己持有的pidfd才能做故障后的最终清理。
+    read_until(connector,cfd,cdata,rb'runtime_failed\r?\n')
+    if select.select([pidfd],[],[],0)[0]:raise RuntimeError('fixture_expected_live_command')
+    signal.pidfd_send_signal(pidfd,signal.SIGKILL)
+    connector.wait(timeout=15)
+    if connector.returncode!=1:raise RuntimeError('fixture_unconfirmed_cleanup_hidden')
+   else:
+    connector.wait(timeout=15)
+    if connector.returncode!=0:raise RuntimeError('fixture_cancelled_schema_exit')
+   if not select.select([pidfd],[],[],0)[0]:raise RuntimeError('fixture_schema_child_not_exited')
+  finally:
+   if not select.select([pidfd],[],[],0)[0]:signal.pidfd_send_signal(pidfd,signal.SIGKILL)
+   os.close(pidfd)
+  if os.path.exists(os.path.dirname(saved_path)+'/herdr-setup.json'):raise RuntimeError('fixture_cancelled_journal_created')
+  connector,cfd,cdata=launch(('connector',sys.argv[4]))
+  read_until(connector,cfd,cdata,rb'Discover this Herdr.*\[y/N\] ')
+  os.write(cfd,b'n\n');connector.wait(timeout=15)
+  if connector.returncode!=2:raise RuntimeError('fixture_retry_decline_exit')
+  if open(saved_path,'rb').read()!=original_credential:raise RuntimeError('fixture_retry_identity_replaced')
  else:
   # 默认回归不批准native初始化；没有执行其schema/version或启动server的路径。
   os.write(cfd,b'n\n')
@@ -174,10 +223,13 @@ try:
  print(json.dumps({'paired':True,'native_ready':native,'gateway_exit':0,'connector_exit':connector.returncode,'secret_echoed':False}))
 finally:
  for child in children:
+  forced=False
   if child.poll() is None:
    child.send_signal(signal.SIGTERM)
    try:child.wait(timeout=3)
-   except subprocess.TimeoutExpired:child.kill();child.wait()
+   except subprocess.TimeoutExpired:forced=True;child.kill();child.wait()
+  cleanup.append({'exit':child.returncode,'forced':forced})
+ if sys.exc_info()[0] is not None:sys.stderr.write('fixture_cleanup '+json.dumps(cleanup)+'\n')
  for fd in fds:os.close(fd)
 `
 
@@ -281,7 +333,11 @@ test(
 )
 
 // 显式提供真实安装时才运行native验收；默认CI不把未执行的官方安装探针记为通过或skip。
-async function nativeProbe(provider: 'luvus' | 'herdr' | 'mixed', binaryDirectory: string): Promise<void> {
+async function nativeProbe(
+  provider: 'luvus' | 'herdr' | 'mixed',
+  binaryDirectory: string,
+  mode: 'native' | 'cancel-schema' | 'cancel-schema-unconfirmed' = 'native'
+): Promise<void> {
   const root = mkdtempSync(join(dirname(dirname(binaryDirectory)), 'rvl-'))
   const gatewayState = join(root, 'gateway')
   const connectorState = join(root, 'connector')
@@ -330,8 +386,10 @@ async function nativeProbe(provider: 'luvus' | 'herdr' | 'mixed', binaryDirector
         gatewayPath,
         connectorPath,
         'ws://127.0.0.1:' + devices,
-        'native',
-        process.env.ROVLOOM_TEST_STANDALONE ?? ''
+        mode,
+        process.env.ROVLOOM_TEST_STANDALONE ?? '',
+        join(binaryDirectory, 'schema.pid'),
+        join(binaryDirectory, 'kill-failure.mjs')
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] }
     )
@@ -353,13 +411,25 @@ async function nativeProbe(provider: 'luvus' | 'herdr' | 'mixed', binaryDirector
     assert.equal(code, 0, errors)
     assert.deepEqual(JSON.parse(output), {
       paired: true,
-      native_ready: true,
+      native_ready: mode === 'native',
       gateway_exit: 0,
-      connector_exit: 0,
+      connector_exit: mode === 'native' ? 0 : 2,
       secret_echoed: false
     })
     const pairing = JSON.parse(readFileSync(join(connectorState, 'managed', 'pairing.json'), 'utf8'))
-    assert.equal(pairing.phase, 'configured')
+    assert.equal(pairing.phase, mode === 'native' ? 'configured' : 'paired')
+    if (mode !== 'native') {
+      assert.deepEqual(readdirSync(join(connectorState, 'managed')).sort(), ['device.json', 'pairing.json'])
+      assert.equal(existsSync(join(connectorState, 'managed', 'herdr-setup.json')), false)
+      const database = new DatabaseSync(join(gatewayState, 'gateway.db'), { readOnly: true })
+      try {
+        assert.equal(Number(database.prepare('SELECT count(*) AS n FROM machines').get()!.n), 1)
+        assert.equal(Number(database.prepare('SELECT count(*) AS n FROM providers').get()!.n), 0)
+      } finally {
+        database.close()
+      }
+      return
+    }
     const registry = JSON.parse(readFileSync(join(connectorState, 'managed', 'providers.json'), 'utf8'))
     const kinds = provider === 'mixed' ? ['luvus', 'herdr'] : [provider]
     assert.deepEqual(
@@ -407,6 +477,38 @@ async function nativeProbe(provider: 'luvus' | 'herdr' | 'mixed', binaryDirector
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+}
+
+for (const mode of ['cancel-schema', 'cancel-schema-unconfirmed'] as const) {
+  test(
+    `Herdr固定schema问答后SIGTERM ${mode}区分实际回收与故障，保留原配对身份且不创建journal`,
+    { timeout: 60_000 },
+    /* 真实CLI/TTY及真实静态命令child；故障分支仅阻断kill，不提供native或身份成功替身。 */ async () => {
+      if (process.platform !== 'linux' || !process.versions.bun) {
+        return
+      }
+      const root = privateHerdrTestRoot('.schema-cancel-')
+      const binaryDirectory = join(root, 'bin')
+      privateDirectory(binaryDirectory)
+      const binary = join(binaryDirectory, 'herdr')
+      const pid = join(binaryDirectory, 'schema.pid').replaceAll("'", "'\\''")
+      writeFileSync(
+        binary,
+        `#!/bin/sh\ncase "$*" in\n--version) printf 'herdr synthetic-cancel\\n' ;;\n'api schema --json') printf '%s' "$$" > '${pid}'; exec /bin/sleep 30 ;;\n*) exit 99 ;;\nesac\n`,
+        { mode: 0o700 }
+      )
+      writeFileSync(
+        join(binaryDirectory, 'kill-failure.mjs'),
+        `import {ChildProcess} from 'node:child_process';\nconst original=ChildProcess.prototype.kill;\nChildProcess.prototype.kill=function(signal){\n if(this.spawnargs?.[0]===${JSON.stringify(binary)} && this.spawnargs.slice(1).join(' ')==='api schema --json') return false;\n return original.call(this,signal);\n};\n`,
+        { mode: 0o600 }
+      )
+      try {
+        await nativeProbe('herdr', binaryDirectory, mode)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }
+  )
 }
 
 for (const provider of ['luvus', 'herdr', 'mixed'] as const) {
