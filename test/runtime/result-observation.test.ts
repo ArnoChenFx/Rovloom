@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 import type { Adapter } from '../../src/transport/index.js'
+import { RuntimeGatewayService } from '../../src/mcp/runtime-service.js'
 import { clockWrites } from '../storage/clock-write-helpers.js'
 import { runtimeFixture } from './helpers.js'
 
@@ -41,6 +42,28 @@ test(
       identity.committed = /** 每次均执行原独立已提交身份读取，只记录实际次数。 */ (...args) => {
         identityReads++
         return committed.apply(identity, args)
+      }
+      const service = new RuntimeGatewayService(f.mcp)
+      try {
+        for (let index = 0; index < 2; index++) {
+          identityReads = 0
+          const reply = await service.execute(
+            'runtime_call_get',
+            { call_id: admitted.call.call_id, wait_ms: 0 },
+            { caller: f.caller, wait_signal: new AbortController().signal }
+          )
+          assert.equal(reply.data.content_delivery, 'result_handle')
+          assert.deepEqual(reply.data.result, {
+            result_id: meta.result_id,
+            bytes: meta.bytes,
+            sha256: meta.hash,
+            expires_at: meta.expires
+          })
+          // 每次服务查询仍真实观察双库身份；已有句柄不再重复整轮保留检查，旧路径每轮52次。
+          assert(identityReads > 0 && identityReads <= 30, String(identityReads))
+        }
+      } finally {
+        service.close()
       }
       const resolve = f.gateway.transport.resolveOriginalRead
       const wires = new Map<Adapter, Adapter>()

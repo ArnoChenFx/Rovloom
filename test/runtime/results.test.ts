@@ -356,7 +356,96 @@ test(
   }
 )
 
-for (const change of ['identity', 'local', 'wire', 'source', 'budget'] as const) {
+test(
+  '已有句柄只执行一轮前后保留门禁，每次open仍重新授权且不签发或续期',
+  /** 使用原Wire与Store计量门禁次数；减少重复轮次不能缓存前次授权或代替最终元数据新读。 */ (t) => {
+    const f = fixture()
+    t.after(/** 回收本例实际上下文。 */ () => f.close())
+    const callId = f.calls[0]!.call_id
+    const meta = f.access.open(callId)
+    const original = f.originals.get(callId)!
+    let checks = 0
+    let saves = 0
+    const save = f.store.saveResult.bind(f.store)
+    f.store.saveResult = /** 只观察原签发入口；已有句柄不应进入任何写事务。 */ (...args) => {
+      saves++
+      return save(...args)
+    }
+    f.originals.set(callId, {
+      ...original,
+      wire: {
+        ...original.wire,
+        /** 前后门禁都调用原Wire，计数不代替许可校验。 */ checkResultRetention(binding, frame) {
+          checks++
+          original.wire.checkResultRetention!(binding, frame)
+        }
+      }
+    })
+    for (let index = 0; index < 2; index++) {
+      f.state.now++
+      checks = 0
+      assert.deepEqual(f.access.open(callId), meta)
+      assert.equal(checks, 2)
+      assert.equal(saves, 0)
+      assert.equal(f.handles(), 1)
+    }
+    f.local.grants = []
+    assert.throws(/** 再次open不能复用之前已通过的读取授权。 */ () => f.access.open(callId), /forbidden/)
+    assert.equal(saves, 0)
+    assert.equal(f.first.state.sends, 1)
+  }
+)
+
+for (const change of ['delete', 'expiry', 'replacement'] as const) {
+  test(
+    '已有句柄末次原Wire检查后仍新读且不重新签发：' + change,
+    /** 原检查通过后交错改变实际句柄；拒绝旧快照，也不能借缺失分支签发新ID。 */ (t) => {
+      const f = fixture()
+      t.after(/** 回收本例原许可与文件库。 */ () => f.close())
+      const callId = f.calls[0]!.call_id
+      const meta = f.access.open(callId)
+      const original = f.originals.get(callId)!
+      let checks = 0
+      let saves = 0
+      const save = f.store.saveResult.bind(f.store)
+      f.store.saveResult = /** 只计量实际进入签发事务的尝试。 */ (...args) => {
+        saves++
+        return save(...args)
+      }
+      f.originals.set(callId, {
+        ...original,
+        wire: {
+          ...original.wire,
+          /** 第二道原生门禁结束后，仍须用当前Store句柄核对元数据。 */ checkResultRetention(binding, frame) {
+            original.wire.checkResultRetention!(binding, frame)
+            if (++checks === 2) {
+              if (change === 'expiry') {
+                f.state.now = meta.expires
+              } else {
+                const db = new DatabaseSync(f.path)
+                try {
+                  if (change === 'delete') {
+                    db.prepare('DELETE FROM results WHERE result_id=?').run(meta.result_id)
+                  } else {
+                    db.prepare('UPDATE results SET result_id=? WHERE result_id=?').run('replacement', meta.result_id)
+                  }
+                } finally {
+                  db.close()
+                }
+              }
+            }
+          }
+        }
+      })
+      assert.throws(/** 实际句柄变化只使当前open失败，不自动补建。 */ () => f.access.open(callId), /result_not_ready/)
+      assert.equal(checks, 2)
+      assert.equal(saves, 0)
+      assert.equal(f.first.state.sends, 1)
+    }
+  )
+}
+
+for (const change of ['identity', 'local', 'wire', 'source', 'epoch', 'budget'] as const) {
   test(
     '复用已有句柄元数据仍重验末次 provider/Wire ' + change,
     /** 重复 open 命中已有句柄也必须运行前后完整原生门禁，不能凭固定 ID 免授权。 */ (t) => {
@@ -366,8 +455,8 @@ for (const change of ['identity', 'local', 'wire', 'source', 'budget'] as const)
       let reads = 0
       const access = createProviderResultAccess({
         ...f.ports,
-        /** 第二次 readable 的最后一道 provider 回调位于复用元数据之后。 */ provider(target) {
-          if (++reads === 4) {
+        /** 已有句柄已预读，唯一完整readable的末次provider回调仍须影响本次交付。 */ provider(target) {
+          if (++reads === 2) {
             if (change === 'identity') {
               f.principal.id = 'other'
             } else if (change === 'local') {
@@ -376,6 +465,8 @@ for (const change of ['identity', 'local', 'wire', 'source', 'budget'] as const)
               f.first.adapter.close()
             } else if (change === 'source') {
               f.first.state.sourceVerified = false
+            } else if (change === 'epoch') {
+              f.store.disconnect(f.first.device.machine_id, f.first.device.epoch)
             } else {
               const configured = f.providers.get(target.provider_id)!
               f.configure(target.provider_id, { ...configured, max_response_bytes: 1 })
@@ -385,7 +476,7 @@ for (const change of ['identity', 'local', 'wire', 'source', 'budget'] as const)
         }
       })
       assert.throws(/** 命中旧句柄也不能交付撤权前的元数据。 */ () => access.open(f.calls[0]!.call_id))
-      assert.equal(reads, 4)
+      assert.equal(reads, 2)
       assert.equal(f.handles(), 1)
       assert.equal(meta.expires, 110)
     }
@@ -409,6 +500,8 @@ for (const change of ['identity', 'local', 'wire', 'source', 'budget'] as const)
               f.first.adapter.close()
             } else if (change === 'source') {
               f.first.state.sourceVerified = false
+            } else if (change === 'epoch') {
+              f.store.disconnect(f.first.device.machine_id, f.first.device.epoch)
             } else {
               const configured = f.providers.get(target.provider_id)!
               f.configure(target.provider_id, { ...configured, max_response_bytes: 1 })
