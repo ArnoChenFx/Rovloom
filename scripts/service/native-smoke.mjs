@@ -1,0 +1,219 @@
+// 仅在GitHub托管临时VM中实装本轮Gateway服务并验证五项CLI语义；不接触用户机器、既有登记或真实凭据。
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { userInfo } from 'node:os'
+import { createServer } from 'node:net'
+import { once } from 'node:events'
+import { join } from 'node:path'
+import { configDocument, configTemplate } from '../../src/cli/config.ts'
+import { renderDefinition } from '../../src/service/render.ts'
+
+if (
+  process.env.GITHUB_ACTIONS !== 'true' ||
+  process.env.RUNNER_ENVIRONMENT !== 'github-hosted' ||
+  process.env.ROVLOOM_NATIVE_SERVICE_CI !== '1' ||
+  !['linux', 'darwin'].includes(process.platform)
+) {
+  throw new Error('native_service_requires_disposable_github_vm')
+}
+const executable = realpathSync(process.env.ROVLOOM_SERVICE_EXECUTABLE ?? '')
+const user = userInfo()
+assert(user.uid > 0)
+const root = mkdtempSync(join(process.cwd(), '.rovloom-native-service-'))
+const config = join(root, 'gateway.json')
+const state = join(root, 'state')
+const keep = join(root, 'keep-user-data.txt')
+const spec = {
+  version: 1,
+  platform: process.platform,
+  role: 'gateway',
+  executable,
+  config,
+  directory: root,
+  account: user.username
+}
+const definition =
+  process.platform === 'linux'
+    ? '/etc/systemd/system/rovloom-gateway.service'
+    : '/Library/LaunchDaemons/io.rovloom.gateway.plist'
+const expected = renderDefinition(spec)
+let attempted = false
+let cleaned = false
+let failure
+
+// 云CI明确使用已有免密码sudo授权；产品代码本身不调用提权，不继承测试之外的环境配置。
+function command(file, args) {
+  const result = spawnSync('/usr/bin/sudo', ['-n', '--', file, ...args], {
+    encoding: 'utf8',
+    timeout: 90000,
+    maxBuffer: 1024 * 1024,
+    env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
+  })
+  if (result.error || result.signal) {
+    throw new Error('native_service_command_incomplete')
+  }
+  return result
+}
+
+// 只解析唯一产品CLI的固定监管结果；不把systemctl/launchctl成功误作HTTP可用。
+function service(action, install = false) {
+  const result = command(executable, [
+    'service',
+    action,
+    '--role',
+    'gateway',
+    ...(install ? ['--config', config, '--workdir', root, '--user', user.username] : [])
+  ])
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout, '')
+  return JSON.parse(result.stderr)
+}
+
+// 精确比对本轮登记后才允许收尾，绝不对同名既有服务发卸载/停止请求。
+function owned() {
+  const result = command('/bin/cat', [definition])
+  return result.status === 0 && result.stdout === expected
+}
+
+// 向内核借用回环端口后立即释放，不扫描或复用用户监听器。
+async function port() {
+  const server = createServer()
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const value = server.address().port
+  server.close()
+  await once(server, 'close')
+  return value
+}
+
+// 已运行Gateway必须真实响应401，证明后台宿主活着且基础MCP鉴权没有被测试关闭。
+async function reachable(url) {
+  const deadline = performance.now() + 10000
+  while (performance.now() < deadline) {
+    let response
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(1000) })
+    } catch {
+      await new Promise(/* 仅重试回环只读探针，不重试系统变更。 */ (resolve) => setTimeout(resolve, 100))
+      continue
+    }
+    assert.equal(response.status, 401)
+    await response.body?.cancel()
+    return
+  }
+  throw new Error('native_gateway_http_timeout')
+}
+
+try {
+  assert.equal(existsSync(definition), false, 'native_service_name_collision')
+  if (process.platform === 'linux') {
+    const probe = command('/usr/bin/systemctl', [
+      '--system',
+      'show',
+      '--property=LoadState',
+      '--value',
+      'rovloom-gateway.service'
+    ])
+    assert([0, 4].includes(probe.status) && probe.stdout.trim() === 'not-found', 'native_service_name_collision')
+  } else {
+    const probe = command('/bin/launchctl', ['list'])
+    assert.equal(probe.status, 0)
+    assert(
+      !probe.stdout
+        .split('\n')
+        .some(/* 既有标签不能被本轮试验接管。 */ (line) => line.trim().split(/\s+/u).at(-1) === 'io.rovloom.gateway'),
+      'native_service_name_collision'
+    )
+  }
+  const mcp = await port()
+  let device = await port()
+  while (device === mcp) {
+    device = await port()
+  }
+  const bytes = JSON.stringify(
+    configDocument({
+      ...configTemplate('gateway'),
+      state_dir: state,
+      mcp_port: mcp,
+      device_port: device,
+      management_enabled: false
+    })
+  )
+  // 普通新fixture沿用当前角色文件生成权限；没有修改任何既有对象权限或额外ACL。
+  writeFileSync(config, bytes, { mode: 0o600 })
+  writeFileSync(keep, 'fixture-user-data')
+  attempted = true
+  const installed = service('install', true)
+  assert.equal(installed.state, 'stopped')
+  assert.equal(installed.bootEnabled, true)
+  assert.equal(service('install', true).changed, false)
+  assert.equal(service('start').state, 'running')
+  const url = `http://127.0.0.1:${mcp}/mcp`
+  await reachable(url)
+  assert.equal(existsSync(join(state, 'gateway.db')), true)
+  assert.equal(existsSync(join(state, 'identity.db')), true)
+  const removed = service('uninstall')
+  assert.equal(removed.state, 'running')
+  assert.equal(removed.bootEnabled, false)
+  assert.equal(removed.stopMode, 'not_requested')
+  await reachable(url)
+  assert.equal(service('start').changed, false)
+  const restarted = service('restart')
+  assert.equal(restarted.state, 'running')
+  assert.equal(restarted.bootEnabled, false)
+  await reachable(url)
+  assert.equal(service('stop').state, 'absent')
+  assert.equal(service('uninstall').changed, false)
+  assert.equal(readFileSync(config, 'utf8'), bytes)
+  assert.equal(readFileSync(keep, 'utf8'), 'fixture-user-data')
+  assert.equal(existsSync(join(state, 'gateway.db')), true)
+  assert.equal(existsSync(join(state, 'identity.db')), true)
+  assert.equal(existsSync(join(state, 'gateway.db.lock')), false)
+  assert.equal(existsSync(join(state, 'identity.db.lock')), false)
+  assert.equal(owned(), false)
+  cleaned = true
+} catch (error) {
+  failure = error
+}
+
+// 收尾结果独立核对，既保留原失败，也不以finally控制流掩盖清理失败。
+try {
+  if (!attempted) {
+    cleaned = true
+  } else if (owned()) {
+    let failed = false
+    for (const action of ['uninstall', 'stop']) {
+      try {
+        service(action)
+      } catch {
+        failed = true
+      }
+    }
+    cleaned = !failed && !owned()
+  } else if (!existsSync(definition)) {
+    cleaned = true
+  }
+  if (cleaned) {
+    rmSync(root, { recursive: true, force: true })
+  } else {
+    throw new Error('native_service_cleanup_unconfirmed_fixture_retained')
+  }
+} catch (error) {
+  failure = failure ? new AggregateError([failure, error], 'native_service_and_cleanup_failed') : error
+}
+if (failure) {
+  throw failure
+}
+process.stdout.write(
+  JSON.stringify({
+    scope: 'disposable-native-service',
+    platform: process.platform,
+    binarySha256: createHash('sha256').update(readFileSync(executable)).digest('hex'),
+    lifecycle: 'passed',
+    mcpAuthentication: 'required',
+    userData: 'preserved',
+    reboot: 'not_exercised'
+  }) + '\n'
+)
