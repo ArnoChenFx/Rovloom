@@ -249,6 +249,9 @@ export async function createDualRoleFixture({
     assert.equal(existsSync(endpoint), false)
     const nativeConfig = join(native.config_home, 'herdr')
     mkdirSync(nativeConfig, { mode: 0o700 })
+    // Herdr新建目录会继承宿主umask；本例独占准备私有session，不修改任何既有实例权限。
+    mkdirSync(join(nativeConfig, 'sessions'), { mode: 0o700 })
+    mkdirSync(join(nativeConfig, 'sessions', target.session), { mode: 0o700 })
     // 只有ping可达；即使server创建终端，合成shell也只读入字节，不启动agent或执行输入。
     const terminal = join(root, 'synthetic-shell')
     writeFileSync(terminal, '#!/bin/sh\nexec /bin/cat\n', { mode: 0o700, flag: 'wx' })

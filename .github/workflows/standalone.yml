@@ -92,6 +92,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          umask 022
           version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
           bun --no-env-file scripts/release/product-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom" "$version"
       - name: Upload packaging probe evidence
