@@ -102,7 +102,7 @@ async function rejected(promise: Promise<HerdrSchemas>, reason: string): Promise
 }
 
 test(
-  '完整原生根在 Worker 编译，宿主无 Ajv 重编译且品牌不能复制',
+  '完整原生根由固定 Worker 资产接纳，宿主无 Ajv 重编译且品牌不能复制',
   /** 固定官方根覆盖全部方法和两类响应。 */ async () => {
     const keys = ['compile', 'addSchema', 'getSchema'] as const
     const originals = keys.map(/** 保存宿主原始方法，最终精确恢复。 */ (key) => Ajv2020.prototype[key])
@@ -442,6 +442,7 @@ test(
   /** 只有已知固定原因可暴露，任何失败后都不补建 Worker。 */ async () => {
     for (const [reason, expected] of [
       ['schema_compile_failed', 'schema_compile_failed'],
+      ['precompiled_asset_invalid', 'precompiled_asset_invalid'],
       ['compiler_timeout', 'compiler_protocol_invalid'],
       ['synthetic-private', 'compiler_protocol_invalid']
     ]) {

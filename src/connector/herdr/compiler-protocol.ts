@@ -18,6 +18,7 @@ export const HERDR_WORKER_FAILURES: readonly string[] = Object.freeze([
   'schema_root_unavailable',
   'generated_code_limit',
   'schema_compile_failed',
+  'precompiled_asset_invalid',
   'compiler_protocol_invalid'
 ])
 export const HERDR_ROOTS = Object.freeze(['request', 'success_response', 'error_response'] as const)

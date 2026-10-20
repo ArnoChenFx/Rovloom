@@ -8,7 +8,8 @@ const output = await buildStandalone({
   workers: [
     'src/native-contract/compiler-worker.ts',
     'src/connector/herdr/compiler-herdr-worker.ts',
-    'test/release/precompiled-worker.ts'
+    'test/release/precompiled-worker.ts',
+    'test/release/herdr-precompiled-worker.ts'
   ],
   probe: 'native-contract'
 })
@@ -19,6 +20,6 @@ assert.deepEqual(JSON.parse(result.stdout), {
   errorDataPreserved: true,
   precompiledEmbedded: true,
   unknownSchemaWorker: { documents: 9, malformedRejected: true, unknownKeywordRejected: true, helpersValidated: true },
-  herdr: { version: '0.9.5', originalRoots: true, compiledBrand: true }
+  herdr: { version: '0.9.5', originalRoots: true, compiledBrand: true, precompiledEmbedded: true }
 })
 console.log(JSON.stringify({ scope: 'native-contract-probe', isolatedRuntime: 'pass', sha256: output.manifest.sha256 }))

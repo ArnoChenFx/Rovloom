@@ -89,6 +89,30 @@ assert(!herdr.request({ id: 'packaging', method: 'unknown', params: {} }))
 assert(herdr.response({ id: 'packaging', result: { type: 'pong', version: '0.9.5', protocol: 22 } }))
 assert(herdr.response({ id: 'packaging', error: { code: 'synthetic', message: 'synthetic' } }))
 assert(!herdr.response({ id: 'packaging', result: {} }))
+// 自有 Worker 禁止 Ajv 编译；单文件必须真正包含 Herdr 资产，不能从 checkout 或实时编译补包。
+const herdrWorker = new Worker(new URL('./herdr-precompiled-worker.ts', import.meta.url).href, { smol: true })
+let herdrTimer
+try {
+  const artifact = await new Promise(
+    /** 与原生产接纳预算一致，资产验证失败不能被重试或预热掩盖。 */ (resolve, reject) => {
+      herdrTimer = setTimeout(
+        /** 限定探针观察，不增加产品期限。 */ () => reject(new Error('Herdr asset probe timeout')),
+        2000
+      )
+      herdrWorker.onerror = /** 不输出 schema、代码或底层路径。 */ (event) => {
+        event.preventDefault()
+        reject(new Error('Herdr asset probe failed'))
+      }
+      herdrWorker.onmessage = /** 只读取固定结果，产物代码不进入 stdout。 */ ({ data }) => resolve(data.result)
+      herdrWorker.postMessage({ version: 1, job_id: randomUUID(), bytes: readFileSync(herdrSchema) })
+    }
+  )
+  assert(artifact.ok)
+  assert.deepEqual(artifact.value.roots, ['request', 'success_response', 'error_response'])
+} finally {
+  clearTimeout(herdrTimer)
+  herdrWorker.terminate()
+}
 console.log(
   JSON.stringify({
     scope: 'native-contract-probe',
@@ -101,6 +125,6 @@ console.log(
       unknownKeywordRejected: true,
       helpersValidated: true
     },
-    herdr: { version: '0.9.5', originalRoots: true, compiledBrand: true }
+    herdr: { version: '0.9.5', originalRoots: true, compiledBrand: true, precompiledEmbedded: true }
   })
 )
