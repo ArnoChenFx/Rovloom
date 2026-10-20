@@ -87,7 +87,13 @@ function offer(context: true | undefined): VersionOffer {
   return {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'history_scope', 'admission_receipt', ...(context ? ['admission_context'] : [])],
+    capabilities: [
+      'rpc',
+      'dispatch_refusal',
+      'history_scope',
+      'admission_receipt',
+      ...(context ? ['admission_context'] : [])
+    ],
     required: ['rpc', 'admission_receipt', ...(context ? ['admission_context'] : [])]
   }
 }

@@ -61,7 +61,7 @@ export function closeSession(session: Session | undefined): void {
 export const OFFER: VersionOffer = {
   major: 2,
   minor: 0,
-  capabilities: ['rpc'],
+  capabilities: ['rpc', 'dispatch_refusal'],
   required: ['rpc']
 }
 /** 构造绑定当前设备、恢复代次和 epoch 的业务 envelope，并分配独立消息 ID。 */

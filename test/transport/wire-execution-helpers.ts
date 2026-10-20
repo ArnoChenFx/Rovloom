@@ -20,6 +20,7 @@ export async function wireFixture(
     nativeLimits?: Partial<LuvusLocalLimits>
     store?: Partial<StoreOptions>
     objects?: boolean
+    dispatchRefusal?: boolean
     frameBytes?: number
     readContexts?: number
   } = {}
@@ -40,7 +41,16 @@ export async function wireFixture(
       throw error
     }
   }
-  const offer = { major: 2, minor: 0, capabilities: options.objects ? ['rpc', 'objects'] : ['rpc'], required: ['rpc'] }
+  const offer = {
+    major: 2,
+    minor: 0,
+    capabilities: [
+      'rpc',
+      ...(options.objects ? ['objects'] : []),
+      ...(options.dispatchRefusal ? ['dispatch_refusal'] : [])
+    ],
+    required: ['rpc']
+  }
   const f = fixture(
     {
       offer,
