@@ -53,6 +53,45 @@ class TraceCompletion(unittest.TestCase):
         self.assertIsNone(trace_completion_error(resumed, '', 1, 1))
 
 class TraceFailureDiagnostics(unittest.TestCase):
+    # strace 的真实 group-stop 行不带 siginfo，必须与 signal-delivery 区分并保留顺序。
+    def test_group_stop_and_delivery_are_retained_without_inventing_exit(self):
+        traced = ('10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
+                  '10 clone3({flags=CLONE_VM|CLONE_THREAD}, 88) = 11\n'
+                  '11 --- SIGSTOP {si_signo=SIGSTOP, si_pid=10} ---\n'
+                  '11 --- stopped by SIGSTOP ---\n'
+                  '11 --- SIGCONT {si_signo=SIGCONT, si_pid=10} ---\n')
+        error = '/usr/bin/strace: ptrace(PTRACE_LISTEN,pid:11,sig:0): Input/output error\n'
+        result = json.loads(trace_failure_summary(traced, error, 1, set()))
+        child = result['ptraceErrors'][0]['lineage'][0]
+        self.assertEqual(child['signalsTail'], ['SIGSTOP', 'SIGCONT'])
+        self.assertEqual(child['stopsTail'], [{'kind': 'delivery', 'signal': 'SIGSTOP'},
+                                            {'kind': 'group', 'signal': 'SIGSTOP'},
+                                            {'kind': 'delivery', 'signal': 'SIGCONT'}])
+        self.assertIsNone(child['exit'])
+        self.assertFalse(result['completeAudit'])
+        self.assertIsNotNone(trace_completion_error(traced, error, 1, 1))
+
+    # 新增停止上下文只保存最后四项固定字段，不输出 siginfo、任意后缀或其他线程的停止。
+    def test_stop_context_is_bounded_and_does_not_reflect_private_signal_details(self):
+        events = ['10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0',
+                  '10 --- SIGUSR1 {PRIVATE_SECRET} ---',
+                  '20 --- stopped by SIGTTOU ---',
+                  '10 --- stopped by SIGSTOP ---',
+                  '10 --- SIGCONT {PRIVATE_SECRET} ---',
+                  '10 --- stopped by SIGTSTP ---',
+                  '10 --- stopped by SIGTTIN ---',
+                  '10 --- stopped by PRIVATE_SECRET ---',
+                  '10 --- stopped by SIGSTOP --- PRIVATE_SECRET']
+        console = trace_failure_summary('\n'.join(events), '', 1, set())
+        result = json.loads(console)
+        self.assertEqual(result['root']['stopsTail'], [{'kind': 'group', 'signal': 'SIGSTOP'},
+                                                     {'kind': 'delivery', 'signal': 'SIGCONT'},
+                                                     {'kind': 'group', 'signal': 'SIGTSTP'},
+                                                     {'kind': 'group', 'signal': 'SIGTTIN'}])
+        self.assertEqual(result['root']['signalsTail'], ['SIGUSR1', 'SIGCONT'])
+        self.assertNotIn('PRIVATE_SECRET', console)
+        self.assertNotIn('SIGTTOU', console)
+
     # 追踪器异常可发生在业务用例全部通过后；仍保持失败并保留错误线程和创建链，不反射秘密参数。
     def test_ptrace_failure_keeps_lineage_and_root_signal_separate_from_passed_cases(self):
         traced = ('3153 execve("/isolated/bin/bun", ["bun", "run", "test"], 0x0) = 0\n'
