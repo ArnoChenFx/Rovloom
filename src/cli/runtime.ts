@@ -14,6 +14,7 @@ import type {
 } from '../runtime/index.js'
 import { scopeManagementService } from './management-scope.js'
 import { RuntimeGatewayService } from '../mcp/runtime-service.js'
+import type { ProviderSessionGroup } from '../runtime/provider-sessions.js'
 import type { GatewayCatalog } from '../mcp/native-catalog.js'
 import type { HttpAuthenticationProvider } from '../mcp/http.js'
 import {
@@ -62,6 +63,7 @@ export type RuntimeCliConnectorResources = Omit<ConnectorRuntimeOptions, 'transp
 }
 export type RuntimeCliProviderResources = Omit<ConnectorHostOptions, 'transport'> & {
   kind: 'provider'
+  providers?: ProviderSessionGroup['providers']
   transport: Omit<ConnectorHostOptions['transport'], 'url'>
 }
 export type RuntimeCliHost = {
@@ -191,7 +193,8 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
           return createProviderConnectorRuntime({
             ...options,
             session: resource.session.bind(resource),
-            release_timeout_ms: resource.release_timeout_ms
+            release_timeout_ms: resource.release_timeout_ms,
+            provider_snapshot: resource.provider_snapshot
           })
         }
         return createConnectorRuntime({

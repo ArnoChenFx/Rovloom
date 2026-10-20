@@ -7,7 +7,7 @@ import { configTemplate } from '../../src/cli/config.js'
 import { createManagementSessionAuthority } from '../../src/runtime/index.js'
 
 test(
-  '静态kind路由保留真实工厂this/配置/authority，未知和混合kind在打开任何工厂前拒绝',
+  '静态kind路由保留真实工厂this/配置/authority，未知kind在打开任何工厂前拒绝',
   /* 两个factory均只抛出固定fixture错误，不提供原生成功结果。 */ async () => {
     const gateway = configTemplate('gateway')
     const connector = configTemplate('connector')
@@ -57,14 +57,7 @@ test(
         )
       }
       assert.deepEqual(calls, ['luvus:gateway', 'luvus:connector', 'herdr:gateway', 'herdr:connector'])
-      for (const references of [
-        [{ reference: 'bad', value: { kind: 'SYNTHETIC_SECRET_DO_NOT_PRINT' } }],
-        [
-          { reference: 'one', value: { kind: 'luvus' } },
-          { reference: 'two', value: { kind: 'herdr' } }
-        ],
-        []
-      ]) {
+      for (const references of [[{ reference: 'bad', value: { kind: 'SYNTHETIC_SECRET_DO_NOT_PRINT' } }], []]) {
         await assert.rejects(
           /* 拒绝先于任何工厂副作用；空Connector同样没有可启动的provider。 */ () =>
             routed.connector!(connector, references)

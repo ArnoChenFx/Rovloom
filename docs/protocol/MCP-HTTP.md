@@ -320,7 +320,8 @@ Connector封套另含`native: { mode: 'managed' }`、完整`ProviderPolicies`的
 须含`connector`。只接受单个明确managed引用，不支持attach。原所有者先校验schema/binary，再持有
 本次真实child及installation，复用`createHerdrConnectorResources`的当前policies、now与releaseOwner；
 不创建身份凭据。关闭确认本次child退出后才移除自己的同inode排他标记，未确认退出保持失败。
-未注册kind、空Connector引用或缺少混合kind会话组合时返回`backend_unavailable`；不会创建native成功stub。
+固定工厂按Luvus/Herdr分组准备原资源，再由同一runtime组合会话；各owner原有的引用数量和来源限制保留。
+未知kind、重复引用在取得资源前拒绝；缺工厂或空Connector引用返回`backend_unavailable`，不创建native成功stub。
 外部supervisor实例交付和跨进程native来源仍遵循[TRANSPORT](../TRANSPORT.md#生产来源边界)的未完成边界。
 受信embedding可交付现有管理员来源；加载器使用PR71同一authority的identities/sessions，
 PR69 handler完成认证、CSRF及原预算准入后，才在service委托处建立该cookie的管理作用域。
@@ -341,8 +342,11 @@ Gateway资源采用明确联合：旧`kind?: 'luvus'`交付现行`GatewayRuntime
 同次描述仍受最早取得的观察期限约束；每页重新核验当前有效视图，后续游标沿用原期限与当前视图的
 较早值，不能通过resolve或翻页续期。它不会把目录或schema变成执行许可。实际调用仍走同一runtime准入、原Wire和原生backend。
 旧Luvus catalog结构与校验路径保持兼容；CLI使用`resource.catalog ?? gateway.catalog`消费同一真实
-连接上的目录，Herdr无需填造UHP schema或Luvus可信来源。每个角色的引用当前选择同一静态kind工厂；
-跨kind会话组合须由实际runtime宿主交付，CLI不会为此另建Router或adapter。
+连接上的目录，Herdr无需填造UHP schema或Luvus可信来源。混合资源用`kind: 'mixed'`分别交付
+原Luvus providers与`hosted`中性会话组，目录的`select(target)`只委托原resolver；
+Luvus目录在唯一runtime建立后绑定其实际catalog。Connector复用原Luvus session builder与Herdr原owner，
+共享一套设备身份和一条出站连接，不增加Router、Wire codec或原生许可入口。精确接口见
+[provider runtime](../PROVIDER-RUNTIME.md)。
 
 `gateway [--config ...]` / `connector [--config ...]`缺真实来源时退出3；
 Gateway持续监听HTTP，stdin EOF与客户端退出不停止它，SIGINT或SIGTERM关闭本地资源，失败退出1。

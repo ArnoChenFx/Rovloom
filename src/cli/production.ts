@@ -44,11 +44,17 @@ type ProductionGatewayCommon = Pick<RuntimeCliGatewayResources, 'catalog'> & {
   // 需要原caller/锚点的provider显式启用现行协商能力，不复制receipt或ledger实现。
   admission_context?: true
   management?: ProductionGatewayManagement
+  started?(gateway: RuntimeCliGateway): void
   release(): Promise<void>
 }
 export type ProductionGatewayResources = ProductionGatewayCommon &
   (
     | { kind?: 'luvus'; providers: GatewayRuntimeOptions['providers'] }
+    | {
+        kind: 'mixed'
+        providers: GatewayRuntimeOptions['providers']
+        hosted: NonNullable<GatewayRuntimeOptions['hosted']>
+      }
     | {
         kind: 'provider'
         providers: ProviderGatewayRuntimeOptions['providers']
@@ -286,6 +292,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
           management,
           started: /* 绑定唯一已建立runtime，不在配置中记录端口对象或派发许可。 */ (active: RuntimeCliGateway) => {
             gateway = active
+            provider?.started?.(active)
           }
         }
         if (provider?.kind === 'provider') {
@@ -295,7 +302,14 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
             options: { ...options, providers: provider.providers, session: provider.session.bind(provider) }
           }
         }
-        return { ...common, options: { ...options, providers: provider?.providers ?? [] } }
+        return {
+          ...common,
+          options: {
+            ...options,
+            providers: provider?.providers ?? [],
+            ...(provider?.kind === 'mixed' ? { hosted: provider.hosted } : {})
+          }
+        }
       } catch (error) {
         await release()
         throw error
@@ -348,7 +362,8 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
             transport,
             session: resource.session.bind(resource),
             release: resource.release.bind(resource),
-            release_timeout_ms: resource.release_timeout_ms
+            release_timeout_ms: resource.release_timeout_ms,
+            provider_snapshot: resource.provider_snapshot
           }
         }
         return {
