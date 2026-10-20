@@ -2,100 +2,99 @@
 
 **English** · [简体中文](QUICK-START-zh.md) · [Configuration reference](CONFIGURATION.md)
 
-Use one **Gateway** as the MCP entry point and one outbound **Connector** on each
-device running Luvus or Herdr. They can share a machine, with separate state directories.
+Run one **Gateway** as the MCP entry point and one outbound **Connector** on each
+machine running Luvus or Herdr. Each role owns one user configuration file and a
+separate data directory.
 
-## 1. Install the product and prepare access
+## 1. Install and start
 
-This preview currently requires **Linux x64** for Gateway/Connector runtime use.
-There is no published Rovloom installation package yet. Obtain an approved
-standalone executable and the matching configuration from your administrator;
-place the executable at a private, executable location such as
-`/absolute/protected/rovloom/bin/rovloom`. In the commands below, `rovloom` means
-that executable on your PATH, or substitute its absolute path. Check it with:
+This preview's runtime requires **Linux x64**. There is no published installation
+package yet; obtain the approved standalone executable from your administrator
+and place it on your PATH. Check `rovloom --version` and `rovloom --help`.
 
-```sh
-rovloom --version
-rovloom --help
-```
-
-On each runtime device, install **Luvus or Herdr** and the Agent you intend to use.
-Compatibility uses the installed protocol and actual interfaces; versions are diagnostic.
-Actual installation identity and the Agent's
-controlled PATH are in [native installation](CONFIGURATION.md#native-installation-and-pins).
-Rovloom does not install the native programs or configure their model access.
-
-Before starting, obtain the Gateway address, CA, already paired device credential,
-provider configuration and an existing MCP Bearer from your administrator.
-Fresh-device setup is not yet available as a complete user flow. If these are
-missing, configuration templates alone will not produce a working connection.
-
-## 2. Configure Gateway and Connector
-
-Default files belong to the **user running the role**:
-
-| Role | Default file | Main settings |
-|---|---|---|
-| Gateway | `~/.config/rovloom/gateway.json` | `state_dir`, loopback `mcp_hostname`, `mcp_port`, `authentication_ref` |
-| Connector | `~/.config/rovloom/connector.json` | Separate `state_dir`, `gateway_url`, `provider_config_refs` |
-
-`~` denotes the current user's home. Windows uses the same home-relative layout,
-but current protected runtime loading requires Linux; there is no AppData/XDG
-override. No working-directory search or cross-role fallback occurs.
-`--config /absolute/path.json` overrides the default. All configured paths must
-be normalized absolute paths: JSON does not expand `~`, environment variables or
-paths relative to the configuration file.
-
-Use the [complete minimal configurations and parameter tables](CONFIGURATION.md).
-Each role also needs `state_dir/runtime.json` and its administrator-supplied
-`state_dir/refs/` files. The role directory and state directories are private
-`0700`; files are `0600` and owned by the role user. Keep Gateway and Connector
-state separate. Empty provider lists are templates, not a ready-to-start Connector.
-
-To view non-secret templates or check your saved files:
-
-```sh
-rovloom config template gateway
-rovloom config template connector
-rovloom config template runtime gateway
-rovloom config template runtime connector
-rovloom config check --config /absolute/protected/gateway.json
-rovloom config check-runtime --config /absolute/protected/gateway.json
-```
-
-Use your actual role-file path; run the same checks for Connector. `config_valid`
-and `runtime_config_valid` confirm structure only, not pairing, credentials or
-Agent readiness. Templates do not change existing files.
-
-## 3. Start and connect
-
-On the Gateway machine and the runtime device, respectively:
+On the Gateway machine:
 
 ```sh
 rovloom gateway
+```
+
+On the runtime machine:
+
+```sh
 rovloom connector
 ```
 
-Keep both foreground processes running. With custom file locations use
-`rovloom gateway --config /absolute/protected/gateway.json` and
-`rovloom connector --config /absolute/protected/connector.json`.
+The first command creates a missing `~/.config/rovloom/gateway.json`, opens the
+local Gateway and reports `gateway_listening` and `pairing_required`. Its MCP URL
+is `http://127.0.0.1:9444/mcp`; the device WS listener is on `127.0.0.1:9443` and
+the local management page is `http://127.0.0.1:9445/`. The unpaired Gateway grants
+no MCP identity or administrator access. Its page is not a default administrator login.
 
-The template MCP endpoint is `http://127.0.0.1:9444/mcp`. The separate template
-device listener uses TLS on loopback port 9443. To connect another device, configure
-its reachable WSS listener and matching certificate/CA explicitly. Connector's
-`gateway_url` is an origin such as `wss://gateway.example:9443`, without credentials
-or an endpoint path; the product chooses `/connector`.
+The second command creates a missing `~/.config/rovloom/connector.json` and exits
+with `configuration_required` (2). **The interactive address/code wizard,
+one-time pairing delivery and automatic native setup are not connected yet.**
+There is no complete fresh-device deployment path in this preview. An existing
+installation still needs its program-managed paired identity, provider state and
+MCP caller access; changing JSON or receiving a pairing-progress display does
+not create those resources. Do not construct hashes, bindings or credentials by hand.
 
-If your administrator enabled the optional management page, open
-`http://127.0.0.1:<management-port>/` on the Gateway. There is no default management
-port. Use the supplied principal ID and independent management proof in the
-browser login prompt; an MCP Bearer is not a management login. Check the selected
-device's connection and provider readiness. Pairing progress is checked manually;
-pending does not mean credentials have been issued. With permission, the page
-can disable a selected provider; re-enabling is currently unavailable. After a
-management session expires, refresh and authenticate again; refresh does not
-extend the upstream login expiry. A pending registration still needs completed
-pairing before Connector can connect.
+On non-interactive input the Connector returns immediately; it does not wait for
+stdin. There is no `init` or `pair` command. The remaining steps apply after an
+administrator has supplied a working installation, and do not claim fresh setup
+has completed.
+
+## 2. Configuration and network
+
+| Role | User configuration | Default data directory |
+|---|---|---|
+| Gateway | `~/.config/rovloom/gateway.json` | `~/.local/share/rovloom/gateway` |
+| Connector | `~/.config/rovloom/connector.json` | `~/.local/share/rovloom/connector` |
+
+`~` here means the current process user's home. The default path and the user configuration are the same file. Both roles
+generate only their own missing file and never overwrite an existing file, including a malformed one.
+`--config /absolute/path.json` selects that exact file, including for first
+creation. There is no working-directory search, cross-role fallback or AppData/XDG
+override. Windows uses the same home-relative path convention, but runtime and
+first-file creation currently require Linux. Existing protected role JSON can be
+checked on POSIX. Paths inside JSON are normalized absolute paths; `~`, variables
+and paths relative to the JSON are not expanded.
+
+Use the [complete examples and parameter tables](CONFIGURATION.md). File mode is
+`0600`, its private directory is `0700`, owned by the role user. Program-managed
+state, databases and credentials belong under the role's data directory. There is
+no user `runtime.json`, ref list, CA or certificate file to prepare.
+
+For another device, set Gateway `devices.hostname` to an appropriate listener and
+Connector `gateway.url` to its reachable `ws://host:port` or `wss://host:port` origin,
+without `/connector`, credentials or query parameters. Defaults are local only.
+Use HTTP/WS for local or trusted-network access; public TLS is terminated by your
+standard HTTPS/WSS reverse proxy. WSS uses system certificate validation, with no
+CA override or skip-verification setting. MCP remains loopback HTTP; remote MCP
+access requires an administrator's proxy or tunnel arrangement.
+
+Check saved configuration without starting a role:
+
+```sh
+rovloom config check --role gateway
+rovloom config check-runtime --role gateway
+```
+
+On a Connector machine use `--role connector`. With no options, each check reads
+both default user files and reports each role separately; a missing file returns
+nonzero even when you only use the other role. Use `--role gateway` or `--role connector` to check one; `--config
+/absolute/path.json` overrides the selected file. If both are supplied, the file
+must match the selected role. Checks never create missing files, pair devices,
+load credentials or establish Agent readiness. Foreground roles keep running until
+Ctrl-C; an MCP client disconnect does not stop Gateway.
+
+## 3. Prepare the native programs
+
+Install the approved official Luvus or Herdr and the Agent you intend to use.
+Compatibility uses actual protocols and interfaces; version labels are diagnostic.
+Actual installation identity and controlled PATH are described in
+[native installation](CONFIGURATION.md#native-installation-and-pins).
+Rovloom does not yet install them or configure model access. A running Gateway
+or an accepted configuration does not establish a usable native provider.
 
 ## 4. Connect your AI Agent's MCP client
 
@@ -108,8 +107,8 @@ In a client supporting **Streamable HTTP**, enter:
 | Authorization header | `Bearer <EXISTING_MCP_BEARER>` |
 
 Use the existing Bearer supplied for this exact endpoint and caller, stored in
-the client's secret storage. The Gateway stores its digest and expiry through
-`authentication_ref`. Management proof and device credentials are different
+the client's secret storage. The Gateway stores its digest and expiry in
+program-managed identity state. Management proof and device credentials are different
 credentials. MCP binds to loopback; remote clients need your administrator's
 local/tunnel access arrangement. The CLI is not a stdio MCP server.
 
@@ -155,14 +154,12 @@ Use each method through `runtime_call` after describing it. Luvus `pane.list`,
 other reviewed ordinary methods require raw authorization. The local
 `allow_terminal_execution` switch defaults to false; strict text conversation
 can remain available with it off. Custom argv/env and direct terminal input need
-explicit local permission. For an official Agent installed in a user directory,
-set the local `agent_bin_dir` to its installation directory; see
-[Agent installation directory](CONFIGURATION.md#agent-installation-directory)
-for each provider's configuration location. This prepends one directory to
-`/usr/bin:/bin`; omitting it keeps that default. Luvus's initial local setup must
-still be supplied by the administrator. Keep Agent/model configuration in the
-runtime's private HOME. No system-directory installation or custom argv/env is
-needed to select the Agent directory; `allow_terminal_execution` can stay false.
+explicit local permission. The Agent must be available in the native runtime's controlled PATH and have model
+access configured in its private HOME. The default PATH is `/usr/bin:/bin`.
+An owner-selected Agent installation directory is supported by the existing
+native integration, but the new user setup flow does not yet create that local
+runtime configuration. Do not bypass `allow_terminal_execution:false` with
+arbitrary argv/env. See [native installation](CONFIGURATION.md#native-installation-and-pins).
 
 Send a harmless message with a unique phrase, read the actual reply, then ask
 the same Agent to recall the phrase. Keep the same complete Target, generation,
@@ -173,28 +170,29 @@ failures without automatically resending or switching models.
 
 ## 6. Stop and troubleshoot
 
-Stop Connector with Ctrl-C, wait for exit, then stop Gateway with Ctrl-C.
-Disconnecting the MCP client leaves Gateway running. Shutdown does not promise
-native rollback. Preserve state and ownership records if shutdown fails.
+Stop Connector with Ctrl-C and wait for exit, then stop Gateway with Ctrl-C.
+Shutdown does not promise native rollback. Preserve data if shutdown fails.
 
-Use foreground roles in this preview: service install/uninstall/start/restart/stop
-are unavailable in the product CLI (`backend_unavailable`), even though
-`service --help` exists. `update --check` checks official stable releases and
-requires network; with no published release it may return `release_unavailable`.
-`update` does not currently provide an operational replacement/upgrade flow.
+Service install/uninstall/start/restart/stop remain unavailable in the product
+CLI (`backend_unavailable`, 3). `service --help` documents their syntax;
+installation enables boot startup and does not mean start now, while uninstall
+removes boot startup and does not stop now. See the [complete CLI reference](CONFIGURATION.md#complete-cli-reference).
+`update --check` checks official stable releases over the network; no published
+release may produce `release_unavailable`. An operational replacement backend is
+not connected.
 
 | Problem | Next action |
 |---|---|
-| Configuration missing / home unavailable | Check user and role filename; supply an absolute `--config`. |
-| Invalid path/configuration/role | Remove unknown fields, normalize absolute paths, match role and references; run configuration checks. |
-| Configuration unreadable/not protected | Correct ownership, 0700 directories and 0600 files; avoid symlinks and hard-linked runtime files. |
-| Startup unavailable/failed | Check supplied refs, TLS/CA, paired credential, provider installation and state. |
-| HTTP 401 | Check exact `/mcp` URL, existing Bearer and expiry; management proof is separate. |
-| Device offline / provider not ready | Check WSS reachability, TLS name/CA, pairing, selected native installation identity and the required method/protocol capability. |
-| Permission/contract/revision error | Refresh provider and method descriptions; ask the administrator to check grants. |
-| Agent executable missing / `agent_bin_dir_invalid` | Check the local `agent_bin_dir` points to one normalized absolute installation directory and the Agent/model configuration uses the private HOME; restart the configured runtime. |
-| Uncertain call / storage error | Keep the original call and state; ask the administrator to recover it, without deleting ledgers or resending blindly. |
+| `pairing_required` / `configuration_required` | Gateway can wait locally, but fresh pairing/native setup is still a product gap. Address JSON alone cannot complete pairing. |
+| Home/path/configuration/role error | Check process user, exact role file and absolute paths; use `--config` and configuration checks. Existing bad files are preserved. |
+| Configuration unreadable/not protected | Check owner, private directory and file permissions; avoid links. Existing permissions are not silently repaired. |
+| Listener failure | Check selected ports, address availability and data directory ownership. |
+| HTTP 401 | Check exact `/mcp` URL, existing Bearer and expiry. An unpaired Gateway rejects every caller. |
+| Offline / provider not ready | Check WS/WSS reachability, system TLS trust, pairing and native installation. |
+| Permission/contract/revision error | Refresh provider/method descriptions and verify grants. |
+| Agent executable missing | Verify the Agent is in the runtime's controlled PATH with model access in its private HOME; do not bypass the terminal switch. |
+| Uncertain call / storage failure | Preserve original call and state; do not delete ledgers or blindly resend. |
 
-Diagnostics use stderr. Role exit codes: 0 success/normal shutdown, 2 arguments or
-configuration, 3 unavailable backend, 1 runtime/shutdown failure. Share error codes
-when seeking help; keep credentials, real configuration, databases and runtime output private.
+Diagnostics use stderr. Role exit codes are 0 normal shutdown, 2 arguments,
+configuration or setup required, 3 unavailable backend, 1 runtime/shutdown failure.
+Share error codes when seeking help; keep secrets, real configuration and data private.

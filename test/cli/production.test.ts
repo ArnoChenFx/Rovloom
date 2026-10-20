@@ -1,4 +1,5 @@
 // 公开CLI与真实HTTP SDK/双库验证产品loader；身份、摘要、TLS均为自建合成fixture，不触及用户账户。
+import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -60,7 +61,7 @@ async function availablePort(): Promise<number> {
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-production-cli-'))
   const state = join(root, 'gateway')
-  const refs = join(state, 'refs')
+  const refs = join(state, 'managed')
   mkdirSync(state, { mode: 0o700 })
   mkdirSync(refs, { mode: 0o700 })
   const port = await availablePort()
@@ -68,7 +69,13 @@ async function fixture() {
   while (devicePort === port) {
     devicePort = await availablePort()
   }
-  const config = { ...configTemplate('gateway'), state_dir: state, mcp_port: port } as GatewayConfig
+  const config = {
+    ...configTemplate('gateway'),
+    state_dir: state,
+    mcp_port: port,
+    device_port: devicePort,
+    management_enabled: false
+  } as GatewayConfig
   const url = `http://127.0.0.1:${port}/mcp`
   const source = {
     schema_version: 1,
@@ -86,50 +93,25 @@ async function fixture() {
   }
   const auth = join(refs, config.authentication_ref + '.json')
   const path = join(root, 'gateway.json')
-  writeFileSync(path, JSON.stringify(config), { mode: 0o600 })
+  writeFileSync(path, JSON.stringify(configDocument(config)), { mode: 0o600 })
   writeFileSync(auth, JSON.stringify(source), { mode: 0o600 })
-  writeFileSync(
-    join(state, 'runtime.json'),
-    JSON.stringify({
-      schema_version: 1,
-      role: 'gateway',
-      authentication_ref: config.authentication_ref,
-      device_listener: { hostname: '127.0.0.1', port: devicePort, tls_ref: 'fixture_tls' },
-      provider_config_refs: []
-    }),
-    { mode: 0o600 }
-  )
-  return { root, state, refs, config, url, source, auth, path }
-}
-
-// 一日合成证书只写入本例私有refs，不修改系统信任或读取已有证书。
-function certificate(refs: string): void {
-  const cert = join(refs, 'fixture_tls.cert.pem')
-  const key = join(refs, 'fixture_tls.key.pem')
-  const result = spawnSync(
-    '/usr/bin/openssl',
-    [
-      'req',
-      '-x509',
-      '-newkey',
-      'rsa:2048',
-      '-nodes',
-      '-days',
-      '1',
-      '-subj',
-      '/CN=fixture-only',
-      '-addext',
-      'subjectAltName=IP:127.0.0.1',
-      '-out',
-      cert,
-      '-keyout',
-      key
-    ],
-    { stdio: 'ignore' }
-  )
-  assert.equal(result.status, 0)
-  chmodSync(cert, 0o600)
-  chmodSync(key, 0o600)
+  const entries = new Map<string, unknown>()
+  const providers = /* 程序管理的provider状态只由本例合成资源生成。 */ (values: Record<string, unknown>) => {
+    entries.clear()
+    for (const [reference, value] of Object.entries(values)) {
+      entries.set(reference, value)
+    }
+    writeFileSync(
+      join(refs, 'providers.json'),
+      JSON.stringify({
+        schema_version: 1,
+        role: 'gateway',
+        providers: [...entries].map(/* 每条保留原始来源值。 */ ([reference, value]) => ({ reference, value }))
+      }),
+      { mode: 0o600 }
+    )
+  }
+  return { root, state, refs, config, url, source, auth, path, providers }
 }
 
 test(
@@ -167,7 +149,7 @@ test(
         schema_sha256: FIXED_LUVUS_SCHEMA_SHA256,
         adapter_revision: MANAGED_LUVUS_REVISION,
         classification_revision: MANAGED_LUVUS_CLASSIFICATION,
-        schema_bundle_ref: 'fixture_schema'
+        schema_bundle: schema.toString('utf8')
       }
     }
     const herdrRoot = privateHerdrTestRoot('.mixed-production-schema-')
@@ -179,8 +161,6 @@ test(
       config_ref: 'fixture_herdr'
     }
     const herdrSchema = join(herdrRoot, 'schema.json')
-    const refPath = join(f.refs, 'fixture_remote.json')
-    const schemaPath = join(f.refs, 'fixture_schema.json')
     const state = /** 同一个真实双库只在种子阶段或产品角色中独占打开。 */ () =>
       openGatewayState({
         state_directory: f.state,
@@ -192,31 +172,22 @@ test(
       })
     let active: Awaited<ReturnType<NonNullable<ReturnType<typeof createProductionCliRuntime>['gateway']>>> | undefined
     try {
-      certificate(f.refs)
-      const manifest = readRuntimeJson(join(f.state, 'runtime.json')) as Record<string, unknown>
-      writeFileSync(
-        join(f.state, 'runtime.json'),
-        JSON.stringify({ ...manifest, provider_config_refs: ['fixture_remote', 'fixture_herdr'] })
-      )
       writeFileSync(herdrSchema, readFileSync(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url)), {
         mode: 0o600
       })
-      writeFileSync(
-        join(f.refs, 'fixture_herdr.json'),
-        JSON.stringify({
-          kind: 'herdr',
-          config: {
-            version: 1,
-            target: herdrTarget,
-            binding_revision: 1,
-            config_ref: 'fixture_herdr',
-            expected_source: fixedHerdrSource(),
-            schema_path: herdrSchema,
-            peer_policy_revision: f.source.local_policy.revision
-          }
-        }),
-        { mode: 0o600 }
-      )
+      const herdrReference = {
+        kind: 'herdr',
+        config: {
+          version: 1,
+          target: herdrTarget,
+          binding_revision: 1,
+          config_ref: 'fixture_herdr',
+          expected_source: fixedHerdrSource(),
+          schema_path: herdrSchema,
+          peer_policy_revision: f.source.local_policy.revision
+        }
+      }
+      f.providers({ fixture_remote: reference, fixture_herdr: herdrReference })
       const grants = [target, herdrTarget].map(
         /** 两个完整目标分别授权，只读取目录，不授予native执行。 */ (selected) => ({
           target: selected,
@@ -229,9 +200,6 @@ test(
         grants
       ) as (typeof f.source.callers)[0]['principal']['policy']['grants']
       writeFileSync(f.auth, JSON.stringify(f.source))
-      writeFileSync(refPath, JSON.stringify(reference), { mode: 0o600 })
-      writeFileSync(schemaPath, schema, { mode: 0o600 })
-      assert(readFileSync(refPath).length < 16_384)
       state().close()
       const seed = new DatabaseSync(join(f.state, 'gateway.db'))
       try {
@@ -291,18 +259,20 @@ test(
       await active.close()
       active = undefined
       state().close()
-      for (const contract of [
-        { ...reference.contract, schema_bundle_ref: 'https://invalid.example/schema' },
-        { ...reference.contract, schema_bundle: '{}' }
-      ]) {
-        writeFileSync(refPath, JSON.stringify({ ...reference, contract }))
+      for (const contract of [{ ...reference.contract, schema_bundle_ref: 'https://invalid.example/schema' }]) {
+        f.providers({ fixture_remote: { ...reference, contract }, fixture_herdr: herdrReference })
         await assert.rejects(
           /** URL和双重声明在原资源打开前拒绝，不放宽小配置或路径门禁。 */ () => runtime.gateway!(f.config),
-          { code: 'invalid_config' }
+          { code: 'production_reference_invalid' }
         )
       }
-      writeFileSync(refPath, JSON.stringify(reference))
-      writeFileSync(schemaPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), schema]))
+      f.providers({
+        fixture_remote: {
+          ...reference,
+          contract: { ...reference.contract, schema_bundle: '\ufeff' + schema.toString('utf8') }
+        },
+        fixture_herdr: herdrReference
+      })
       await assert.rejects(
         /** 解码不能剥掉BOM后套用旧摘要，原始文件变化仍交原pin核验拒绝。 */ () => runtime.gateway!(f.config),
         { code: 'remote_luvus_pin_invalid' }
@@ -333,7 +303,6 @@ test(
     const issued = Date.now()
     const sources = createProductSources()
     try {
-      certificate(f.refs)
       const initial = openGatewayState({
         state_directory: f.state,
         identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
@@ -507,7 +476,6 @@ test(
       })
     }
     try {
-      certificate(f.refs)
       const grants = [{ target, methods: ['pane.read', 'agent.state'], actions: ['read'] }]
       writeFileSync(
         f.auth,
@@ -522,12 +490,7 @@ test(
           )
         })
       )
-      const manifest = readRuntimeJson(join(f.state, 'runtime.json')) as Record<string, unknown>
-      writeFileSync(
-        join(f.state, 'runtime.json'),
-        JSON.stringify({ ...manifest, provider_config_refs: ['fixture_herdr'] })
-      )
-      writeFileSync(join(f.refs, 'fixture_herdr.json'), JSON.stringify({ kind: 'herdr' }), { mode: 0o600 })
+      f.providers({ fixture_herdr: { kind: 'herdr' } })
       state().close()
       const seed = new DatabaseSync(join(f.state, 'gateway.db'))
       try {
@@ -649,7 +612,6 @@ test(
   { timeout: 30_000 },
   /* 只测试空provider角色的真实查询与生命周期，不把SDK/双库成功称为native调用成功。 */ async () => {
     const f = await fixture()
-    certificate(f.refs)
     const child = spawn(process.execPath, ['--no-env-file', main, 'gateway', '--config', f.path], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { PATH: process.env.PATH ?? '', NO_COLOR: '1' }
@@ -841,24 +803,19 @@ test(
   /* resolver仅交付故意不合法的negative fixture，不创建可执行provider或真实管理身份。 */ async () => {
     const f = await fixture()
     try {
-      const original = JSON.parse(readFileSync(join(f.state, 'runtime.json'), 'utf8'))
       for (const value of [
-        { ...original, provider_config_refs: [123] },
-        { ...original, device_listener: { ...original.device_listener, tls_ref: null } }
+        { reference: 123, value: {} },
+        { reference: '../outside', value: {} }
       ]) {
-        writeFileSync(join(f.state, 'runtime.json'), JSON.stringify(value))
-        await assert.rejects(
-          createProductionCliRuntime().gateway!(f.config),
-          /* 非字符串ref必须按配置错误拒绝，不能落到来源缺失或读取隐式文件名。 */ (error: unknown) =>
-            error instanceof CliError && error.code === 'invalid_config'
+        writeFileSync(
+          join(f.refs, 'providers.json'),
+          JSON.stringify({ schema_version: 1, role: 'gateway', providers: [value] }),
+          { mode: 0o600 }
         )
+        await assert.rejects(createProductionCliRuntime().gateway!(f.config), { code: 'invalid_config' })
         assert.equal(existsSync(join(f.state, 'gateway.db')), false)
       }
-      certificate(f.refs)
-      for (const ref of ['a', 'b']) {
-        writeFileSync(join(f.refs, ref + '.json'), '{}', { mode: 0o600 })
-      }
-      writeFileSync(join(f.state, 'runtime.json'), JSON.stringify({ ...original, provider_config_refs: ['a', 'b'] }))
+      f.providers({ a: {}, b: {} })
       let released = 0
       const runtime = createProductionCliRuntime({
         gateway: /* 相同ref的两个残缺对象不得借总数相等进入实际Gateway工厂。 */ async () => ({
@@ -907,15 +864,8 @@ test(
     }
     const f = await fixture()
     try {
-      certificate(f.refs)
-      const settings = JSON.parse(readFileSync(join(f.state, 'runtime.json'), 'utf8'))
-      writeFileSync(
-        join(f.state, 'runtime.json'),
-        JSON.stringify({ ...settings, provider_config_refs: ['local_luvus'] })
-      )
-      writeFileSync(
-        join(f.refs, 'local_luvus.json'),
-        JSON.stringify({
+      f.providers({
+        local_luvus: {
           kind: 'luvus',
           authentication: 'local_owner',
           native: {
@@ -928,9 +878,8 @@ test(
           principal_id: 'fixture_caller',
           policies: { caller: f.source.callers[0]!.principal.policy, local: f.source.local_policy },
           storage_mode: 'open'
-        }),
-        { mode: 0o600 }
-      )
+        }
+      })
       const result = spawnSync(process.execPath, ['--no-env-file', main, 'gateway', '--config', f.path], {
         env: { PATH: process.env.PATH ?? '', NO_COLOR: '1' },
         timeout: 5000,
@@ -952,31 +901,22 @@ test(
   /* 不提供测试session/native成功替身，缺资源时保留真实非零退出。 */ async () => {
     const f = await fixture()
     try {
-      const settings = JSON.parse(readFileSync(join(f.state, 'runtime.json'), 'utf8'))
-      writeFileSync(join(f.state, 'runtime.json'), JSON.stringify({ ...settings, provider_config_refs: ['native'] }))
+      f.providers({ native: { kind: 'luvus' } })
       for (const role of ['gateway', 'connector'] as const) {
         const path = join(f.root, role + '.json')
         if (role === 'connector') {
-          writeFileSync(path, JSON.stringify({ ...configTemplate(role), state_dir: f.state }), { mode: 0o600 })
-          writeFileSync(
-            join(f.state, 'runtime.json'),
-            JSON.stringify({
-              schema_version: 1,
-              role,
-              credential_ref: 'device',
-              ca_ref: 'gateway',
-              provider_config_refs: []
-            })
-          )
+          writeFileSync(path, JSON.stringify(configDocument({ ...configTemplate(role), state_dir: f.state })), {
+            mode: 0o600
+          })
         }
         const result = spawnSync(process.execPath, ['--no-env-file', main, role, '--config', path], {
           env: { PATH: process.env.PATH ?? '', NO_COLOR: '1' },
           timeout: 5000,
           encoding: 'utf8'
         })
-        assert.equal(result.status, 3)
+        assert.equal(result.status, role === 'gateway' ? 1 : 2)
         assert.equal(result.stdout, '')
-        assert.equal(result.stderr, 'backend_unavailable\n')
+        assert.match(result.stderr, role === 'gateway' ? /^runtime_failed\n$/ : /^configuration_required\n/)
         assert.equal(existsSync(join(f.state, 'gateway.db')), false)
         assert.equal(existsSync(join(f.state, 'identity.db')), false)
       }

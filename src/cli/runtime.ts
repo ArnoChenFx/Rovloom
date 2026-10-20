@@ -49,6 +49,7 @@ export type RuntimeCliGateway =
   | Awaited<ReturnType<typeof createGatewayRuntime>>
   | Awaited<ReturnType<typeof createProviderGatewayRuntime>>
 type GatewayResources = {
+  setupRequired?: boolean
   authentication: HttpAuthenticationProvider
   catalog?: GatewayCatalog
   management?: RuntimeCliManagement
@@ -164,7 +165,13 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
           })
           options.listening?.(management.url)
         }
-        return { service, authentication: resource.authentication, closed: gateway.closed, close }
+        return {
+          service,
+          authentication: resource.authentication,
+          setupRequired: resource.setupRequired,
+          closed: gateway.closed,
+          close
+        }
       } catch (error) {
         await close()
         throw error

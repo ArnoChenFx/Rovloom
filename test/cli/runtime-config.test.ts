@@ -1,97 +1,125 @@
-// 只读产品配置命令使用真实私有文件；不连接provider、创建凭据或把结构有效当作业务就绪。
+// 单文件配置与程序管理registry共用正式装配；旧runtime/ref输入不能改变运行参数。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PassThrough } from 'node:stream'
-import { configTemplate, parseConfig, parseRuntimeConfig, runCli, type CliRuntime } from '../../src/cli/index.js'
-
-// 收集真实CLI命令的流，宿主回调只有错误探针，不能为配置检查制造后端成功。
-async function capture(args: string[], runtime: CliRuntime = {}) {
-  const stdout = new PassThrough()
-  const stderr = new PassThrough()
-  let out = ''
-  let err = ''
-  stdout.on('data', /* 模板可以写stdout，检查结果只进stderr。 */ (chunk) => (out += chunk))
-  stderr.on('data', /* 不输出文件内容、秘密或底层异常。 */ (chunk) => (err += chunk))
-  const code = await runCli(
-    args,
-    {
-      stdin: new PassThrough(),
-      stdout,
-      stderr,
-      signal: new AbortController().signal
-    },
-    runtime
-  )
-  return { code, stdout: out, stderr: err }
-}
+import { configTemplate, readRuntimeConfig } from '../../src/cli/index.js'
+import { configDocument, parseConfig } from '../../src/cli/config.js'
+import { createLuvusProductionSources } from '../../src/runtime/production-luvus.js'
+import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from '../../src/runtime/native-source.js'
+import { hash } from '../../src/wire/index.js'
 
 test(
-  'runtime模板可由唯一CLI离线消费，双角色只读检查不打开DB或宿主',
-  /* 两份真实描述与其角色模板配套，测试目录不含caller、凭据或TLS文件。 */ async () => {
-    const root = mkdtempSync(join(tmpdir(), 'rovloom-runtime-config-'))
+  'single-file role config preserves actual native schema bytes in the managed provider registry',
+  /** 合成安装资料走原 registry 与生产编译工厂；无 CA、凭据、native child 或模型调用。 */ async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'rovloom-managed-discovery-'))
+    let resources: Awaited<ReturnType<ReturnType<typeof createLuvusProductionSources>['gateway']>> | undefined
     try {
-      for (const role of ['gateway', 'connector'] as const) {
-        const result = await capture(['config', 'template', 'runtime', role])
-        assert.equal(result.code, 0)
-        assert.equal(result.stderr, '')
-        const runtime = JSON.parse(result.stdout)
-        const path = join(root, 'role.json')
-        const config = parseConfig({ ...configTemplate(role), state_dir: root })
-        writeFileSync(path, JSON.stringify(config), { mode: 0o600 })
-        writeFileSync(join(root, 'runtime.json'), JSON.stringify(runtime), { mode: 0o600 })
-        const unexpected = /* 检查不能建立实际角色或访问其凭据。 */ async () => assert.fail('role was started')
-        assert.deepEqual(
-          await capture(['config', 'check-runtime', '--config', path], {
-            gateway: unexpected,
-            connector: unexpected
-          }),
-          process.platform === 'linux'
-            ? { code: 0, stdout: '', stderr: 'runtime_config_valid\n' }
-            : { code: 2, stdout: '', stderr: 'config_platform_unsupported\n' }
-        )
-        assert.deepEqual(readdirSync(root).sort(), ['role.json', 'runtime.json'])
+      mkdirSync(join(directory, 'managed'), { mode: 0o700 })
+      const role = parseConfig(configDocument({ ...configTemplate('gateway'), state_dir: directory }))
+      assert.equal(role.role, 'gateway')
+      if (role.role !== 'gateway') {
+        throw new Error('wrong fixture role')
       }
+      const schema =
+        readFileSync(new URL('../fixtures/luvus/0.14.3/linux/schema-bundle.json', import.meta.url), 'utf8') + '\n'
+      const value = {
+        kind: 'luvus',
+        authentication: 'remote_connector',
+        binding: {
+          machine_id: 'synthetic_machine',
+          provider_id: 'synthetic_provider',
+          kind: 'luvus',
+          config_ref: 'synthetic_remote',
+          binding_revision: 1,
+          enabled: true
+        },
+        target: {
+          machine_id: 'synthetic_machine',
+          provider_id: 'synthetic_provider',
+          profile: 'session',
+          session: 'synthetic'
+        },
+        contract: {
+          binary_version: 'synthetic-future-diagnostic',
+          binary_sha256: 'd'.repeat(64),
+          schema_sha256: hash(schema),
+          adapter_revision: MANAGED_LUVUS_REVISION,
+          classification_revision: MANAGED_LUVUS_CLASSIFICATION,
+          schema_bundle: schema
+        },
+        peer_policy_revision: 'synthetic_policy'
+      }
+      writeFileSync(
+        join(directory, 'managed', 'providers.json'),
+        JSON.stringify({
+          schema_version: 1,
+          role: 'gateway',
+          providers: [{ reference: 'synthetic_remote', value }]
+        }),
+        { mode: 0o600 }
+      )
+      const settings = readRuntimeConfig(role)
+      assert.deepEqual(settings.providers, [{ reference: 'synthetic_remote', value }])
+      resources = await createLuvusProductionSources().gateway(role, settings.providers)
+      const provider = resources.providers[0]!
+      assert('remote_luvus' in provider && provider.remote_luvus)
+      assert.equal(provider.ready(), false)
+      assert.doesNotThrow(
+        /** 实际未知原字节完整编译后的请求结构可用，不代表拥有来源或派发许可。 */ () =>
+          provider.preflightRequest!({ id: 'synthetic', method: 'pane.list', params: { all_tabs: true } })
+      )
+      assert.throws(
+        /** 单文件装配不能使非法原生参数越过登记前校验。 */ () =>
+          provider.preflightRequest!({ id: 'synthetic', method: 'agent.wait', params: { target: '1', until: 'idle' } }),
+        { code: 'native_request_invalid' }
+      )
+      assert.throws(
+        /** 原生设置仍不是公开角色 JSON 参数。 */ () =>
+          parseConfig({ ...configDocument(role), native: value.contract }),
+        { code: 'invalid_config' }
+      )
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      await resources?.release()
+      rmSync(directory, { recursive: true, force: true })
     }
   }
 )
 
 test(
-  'runtime检查共用启动校验器，冲突引用和额外秘密只返回固定错误',
-  /* 从真实命令输入验证角色/runtime错配，不能仅检查新模板自身。 */ async () => {
-    const root = mkdtempSync(join(tmpdir(), 'rovloom-runtime-config-'))
+  'single user configuration supplies listeners without a runtime manifest',
+  /* 只核对实际单文件解析和状态装配。 */ () => {
+    const directory = mkdtempSync(join(tmpdir(), 'rovloom-managed-config-'))
     try {
-      const path = join(root, 'role.json')
-      const config = parseConfig({ ...configTemplate('gateway'), state_dir: root })
-      writeFileSync(path, JSON.stringify(config), { mode: 0o600 })
-      const template = JSON.parse((await capture(['config', 'template', 'runtime', 'gateway'])).stdout)
-      for (const changed of [
-        { authentication_ref: 'another' },
-        { secret: 'SYNTHETIC_SECRET_DO_NOT_PRINT' },
-        { provider_config_refs: ['../private'] },
-        { role: 'connector' }
-      ]) {
-        const value = { ...template, ...changed }
-        assert.throws(/* 纯字段校验全平台执行，私有读取仍保留现行平台边界。 */ () => parseRuntimeConfig(value, config))
-        writeFileSync(join(root, 'runtime.json'), JSON.stringify(value), { mode: 0o600 })
-        assert.deepEqual(await capture(['config', 'check-runtime', '--config', path]), {
-          code: 2,
-          stdout: '',
-          stderr: process.platform === 'linux' ? 'invalid_config\n' : 'config_platform_unsupported\n'
-        })
+      mkdirSync(join(directory, 'managed'), { mode: 0o700 })
+      const config = { ...configTemplate('gateway'), state_dir: directory, device_port: 9333 }
+      assert.equal(config.role, 'gateway')
+      if (config.role !== 'gateway') {
+        throw new Error('wrong fixture role')
       }
-      assert.deepEqual(await capture(['config', 'template', 'runtime', 'SYNTHETIC_SECRET_DO_NOT_PRINT']), {
-        code: 2,
-        stdout: '',
-        stderr: 'invalid_arguments\n'
-      })
-      assert.deepEqual(readdirSync(root).sort(), ['role.json', 'runtime.json'])
+      writeFileSync(join(directory, 'runtime.json'), '{"secret":"SYNTHETIC_IGNORED_OLD_INPUT"}', { mode: 0o600 })
+      const settings = readRuntimeConfig(config)
+      assert.deepEqual(settings.device_listener, { hostname: '127.0.0.1', port: 9333 })
+      assert.deepEqual(settings.providers, [])
+      writeFileSync(
+        join(directory, 'managed', 'providers.json'),
+        JSON.stringify({
+          schema_version: 1,
+          role: 'gateway',
+          providers: [{ reference: 'owned_provider', value: { kind: 'luvus' } }]
+        }),
+        { mode: 0o600 }
+      )
+      assert.deepEqual(readRuntimeConfig(config).providers, [{ reference: 'owned_provider', value: { kind: 'luvus' } }])
+      writeFileSync(
+        join(directory, 'managed', 'providers.json'),
+        '{"schema_version":1,"role":"connector","providers":[]}',
+        { mode: 0o600 }
+      )
+      assert.throws(/* 程序管理状态损坏必须拒绝。 */ () => readRuntimeConfig(config), { code: 'invalid_config' })
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true })
     }
   }
 )

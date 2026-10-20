@@ -1,12 +1,12 @@
 // 验证唯一配置到实际出站端点的绑定与错误清理；TLS、凭据和会话均为本例合成fixture。
+import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
-import { createServer } from 'node:https'
+import { createServer } from 'node:http'
 import { PassThrough } from 'node:stream'
 import { createRuntimeCliRuntime, type RuntimeCliConnectorResources } from '../../src/cli/runtime.js'
 import { configTemplate, type ConnectorConfig } from '../../src/cli/config.js'
@@ -18,41 +18,37 @@ import { saveCredential } from '../../src/transport/index.js'
 import { decodeWireFrame } from '../../src/wire/index.js'
 
 test(
-  '生产Connector在provider启动前拒绝无效CA和凭据，准备期间撤去凭据仍释放资源并固定诊断',
+  '生产Connector在provider启动前拒绝无效凭据，准备期间撤去凭据仍释放资源并固定诊断',
   /** provider/session为明确清理stub；不启动native或签发真实身份，CLI错误走实际入口。 */ async () => {
     if (process.platform !== 'linux') {
       return
     }
     const directory = mkdtempSync(join(tmpdir(), 'rovloom-cli-credential-preflight-'))
-    const refs = join(directory, 'refs')
+    const refs = join(directory, 'managed')
     mkdirSync(refs, { mode: 0o700 })
-    const tls = certificate(directory)
     const config = {
       ...configTemplate('connector'),
       state_dir: directory,
+      gateway_url: 'ws://127.0.0.1:9443',
       provider_config_refs: ['credential_fixture']
     } as ConnectorConfig
     const configPath = join(directory, 'connector.json')
-    const caPath = join(refs, 'fixture_tls.ca.pem')
-    const credentialPath = join(refs, 'fixture_device.json')
+    const credentialPath = join(refs, 'device.json')
     const synthetic = {
       machine_id: 'preflight_fixture',
       recovery_generation: 'preflight_generation',
       credential: 'SYNTHETIC_PREFLIGHT_CREDENTIAL_NOT_REAL'
     }
-    writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 })
+    writeFileSync(configPath, JSON.stringify(configDocument(config)), { mode: 0o600 })
     writeFileSync(
-      join(directory, 'runtime.json'),
+      join(refs, 'providers.json'),
       JSON.stringify({
         schema_version: 1,
         role: 'connector',
-        credential_ref: 'fixture_device',
-        ca_ref: 'fixture_tls',
-        provider_config_refs: config.provider_config_refs
+        providers: [{ reference: 'credential_fixture', value: { kind: 'luvus' } }]
       }),
       { mode: 0o600 }
     )
-    writeFileSync(join(refs, 'credential_fixture.json'), JSON.stringify({ kind: 'luvus' }), { mode: 0o600 })
     let opened = 0
     let released = 0
     const runtime = createProductionCliRuntime({
@@ -74,13 +70,8 @@ test(
         'missing_credential',
         'invalid_credential',
         'unsafe_credential',
-        'missing_ca',
-        'invalid_ca',
-        'unsafe_ca',
         'revoked_during_prepare'
       ]) {
-        writeFileSync(caPath, tls.cert, { mode: 0o600 })
-        chmodSync(caPath, 0o600)
         writeFileSync(credentialPath, JSON.stringify(synthetic), { mode: 0o600 })
         chmodSync(credentialPath, 0o600)
         if (failure === 'missing_credential') {
@@ -91,15 +82,6 @@ test(
         }
         if (failure === 'unsafe_credential') {
           chmodSync(credentialPath, 0o644)
-        }
-        if (failure === 'missing_ca') {
-          unlinkSync(caPath)
-        }
-        if (failure === 'invalid_ca') {
-          writeFileSync(caPath, 'SYNTHETIC_SECRET_INVALID_CA')
-        }
-        if (failure === 'unsafe_ca') {
-          chmodSync(caPath, 0o644)
         }
         const stdin = new PassThrough()
         const stdout = new PassThrough()
@@ -131,7 +113,10 @@ test(
           )
           assert.notEqual(code, 0)
           assert.equal(output, '')
-          assert.match(diagnostic, /^(backend_unavailable|invalid_config|config_unreadable|config_not_protected)\n$/)
+          assert.match(
+            diagnostic,
+            /^(backend_unavailable|invalid_config|config_unreadable|config_not_protected|configuration_required)\n/
+          )
           assert.equal(opened, failure === 'revoked_during_prepare' ? 1 : 0)
           assert.equal(released, opened)
         } finally {
@@ -147,20 +132,18 @@ test(
 )
 
 test(
-  '生产Connector的快照声明穿过两层CLI并进入真实TLS认证帧，未声明时不补广告',
+  '生产Connector的快照声明穿过两层CLI并进入真实WS认证帧，未声明时不补广告',
   /** 对端只观察真实Wire协商后拒绝认证；来源和凭据为明确合成fixture，不建立native会话。 */ async () => {
     if (process.platform !== 'linux') {
       return
     }
     const directory = mkdtempSync(join(tmpdir(), 'rovloom-cli-snapshot-'))
-    const refs = join(directory, 'refs')
+    const refs = join(directory, 'managed')
     mkdirSync(refs, { mode: 0o700 })
-    const tls = certificate(directory)
     let observe!: (capabilities: string[]) => void
     const listener = transportRuntime().serve<null>({
       hostname: '127.0.0.1',
       port: 0,
-      tls,
       fetch: /** 仅本例固定端点接受WebSocket，观察协议不创建Gateway身份。 */ (request, server) =>
         new URL(request.url).pathname === '/connector' && server.upgrade(request, { data: null })
           ? undefined
@@ -186,23 +169,19 @@ test(
       const config = {
         ...configTemplate('connector'),
         state_dir: directory,
-        gateway_url: `wss://127.0.0.1:${listener.port}`,
+        gateway_url: `ws://127.0.0.1:${listener.port}`,
         provider_config_refs: ['snapshot_fixture']
       } as ConnectorConfig
       writeFileSync(
-        join(directory, 'runtime.json'),
+        join(refs, 'providers.json'),
         JSON.stringify({
           schema_version: 1,
           role: 'connector',
-          credential_ref: 'fixture_device',
-          ca_ref: 'fixture_tls',
-          provider_config_refs: config.provider_config_refs
+          providers: [{ reference: 'snapshot_fixture', value: { kind: 'luvus' } }]
         }),
         { mode: 0o600 }
       )
-      writeFileSync(join(refs, 'fixture_tls.ca.pem'), tls.cert, { mode: 0o600 })
-      writeFileSync(join(refs, 'snapshot_fixture.json'), JSON.stringify({ kind: 'luvus' }), { mode: 0o600 })
-      saveCredential(join(refs, 'fixture_device.json'), {
+      saveCredential(join(refs, 'device.json'), {
         machine_id: 'snapshot_fixture',
         recovery_generation: 'snapshot_generation',
         credential: 'SYNTHETIC_SNAPSHOT_CREDENTIAL_NOT_REAL'
@@ -244,44 +223,13 @@ test(
   }
 )
 
-// 本地一日证书只供拒绝握手，不安装系统信任、不创建真实设备身份。
-function certificate(directory: string) {
-  const cert = join(directory, 'fixture.crt')
-  const key = join(directory, 'fixture.key')
-  const result = spawnSync(
-    '/usr/bin/openssl',
-    [
-      'req',
-      '-x509',
-      '-newkey',
-      'rsa:2048',
-      '-nodes',
-      '-days',
-      '1',
-      '-subj',
-      '/CN=fixture-only',
-      '-addext',
-      'subjectAltName=IP:127.0.0.1',
-      '-out',
-      cert,
-      '-keyout',
-      key
-    ],
-    { stdio: 'ignore' }
-  )
-  assert.equal(result.status, 0)
-  return { cert: readFileSync(cert, 'utf8'), key: readFileSync(key, 'utf8') }
-}
-
 test(
-  'runtime Connector从唯一配置固定真实TLS端点，宿主不重复提供URL',
-  /* 真实TLS只到本例401服务，不接受认证或建立native session。 */ async () => {
+  'runtime Connector从唯一配置固定真实WS端点，宿主不重复提供URL',
+  /* 真实WS只到本例401服务，不接受认证或建立native session。 */ async () => {
     const directory = mkdtempSync(join(tmpdir(), 'rovloom-runtime-resource-'))
-    const tls = certificate(directory)
     let observed!: (url: string) => void
     const requested = new Promise<string>(/* 收到真实HTTP请求后才验证路径和关闭。 */ (resolve) => (observed = resolve))
     const server = createServer(
-      tls,
       /* 拒绝WebSocket升级，不接收凭据帧或建立设备会话。 */ (request, response) => {
         response.writeHead(401, { connection: 'close' })
         response.end()
@@ -307,12 +255,11 @@ test(
       const config = {
         ...configTemplate('connector'),
         state_dir: directory,
-        gateway_url: `wss://127.0.0.1:${address.port}`
+        gateway_url: `ws://127.0.0.1:${address.port}`
       } as ConnectorConfig
       class FixtureResources implements RuntimeCliConnectorResources {
         readonly marker = 'fixture_instance'
         readonly transport = {
-          ca: tls.cert,
           credential: /* Gateway握手拒绝，此fixture不能成为生产身份。 */ () => {
             credentials++
             return {
@@ -336,7 +283,7 @@ test(
       }
       const source = new FixtureResources()
       const runtime = createRuntimeCliRuntime({
-        connector: /* 只交付实际TLS CA和明确合成设备输入，URL由CLI配置拥有。 */ async () => source
+        connector: /* 只交付明确合成设备输入，URL由CLI配置拥有。 */ async () => source
       })
       running = await runtime.connector!(config)
       assert.equal(await requested, '/connector')
@@ -363,7 +310,13 @@ test(
     const directory = mkdtempSync(join(tmpdir(), 'rovloom-runtime-target-'))
     try {
       const path = join(directory, 'connector.json')
-      writeFileSync(path, JSON.stringify({ ...configTemplate('connector'), state_dir: directory }), { mode: 0o600 })
+      writeFileSync(
+        path,
+        JSON.stringify(
+          configDocument({ ...configTemplate('connector'), state_dir: directory, gateway_url: 'ws://127.0.0.1:9443' })
+        ),
+        { mode: 0o600 }
+      )
       for (const failRelease of [false, true]) {
         let released = 0
         let credentials = 0
