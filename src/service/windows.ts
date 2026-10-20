@@ -58,7 +58,10 @@ try {
   $expected.XmlText = $p.xml
   $expected.Principal.UserId = userSid $p.account
   $expected.Principal.LogonType = 2
-  [xml]$a = $t.Xml
+  $registered = $s.NewTask(0)
+  $registered.XmlText = $t.Xml
+  $registered.Principal.UserId = userSid $registered.Principal.UserId
+  [xml]$a = $registered.XmlText
   [xml]$b = $expected.XmlText
   foreach ($doc in @($a,$b)) {
     $ns = [Xml.XmlNamespaceManager]::new($doc.NameTable)
@@ -67,7 +70,7 @@ try {
     $enabled = $doc.SelectSingleNode('/t:Task/t:Triggers/t:BootTrigger/t:Enabled', $ns)
     if ($null -ne $enabled) { $enabled.InnerText = 'true' }
   }
-  if ($a.OuterXml -cne $b.OuterXml -or $t.Definition.RegistrationInfo.Description -cne $p.marker) { throw 'service_conflict' }
+  if ($a.DocumentElement.OuterXml -cne $b.DocumentElement.OuterXml -or $t.Definition.RegistrationInfo.Description -cne $p.marker) { throw 'service_conflict' }
   if ([int]$t.State -notin @(1,2,3,4)) { throw 'system_command_failed' }
   switch ($p.op) {
     'inspect' { }

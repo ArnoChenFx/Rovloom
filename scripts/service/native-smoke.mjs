@@ -11,6 +11,7 @@ import { configDocument, configTemplate } from '../../src/cli/config.ts'
 import { renderDefinition } from '../../src/service/render.ts'
 import { createNativeServiceBackend } from '../../src/service/native.ts'
 import { manifest } from '../../src/service/spec.ts'
+import { runSystemCommand } from '../../src/service/runner.ts'
 
 if (
   process.env.GITHUB_ACTIONS !== 'true' ||
@@ -131,6 +132,46 @@ async function reachable(url) {
   throw new Error('native_gateway_http_timeout')
 }
 
+// 失败时只读本轮精确清单的临时任务；保留原生序列化差异，不读取配置正文或接管未知任务。
+async function taskDiagnostic() {
+  const script = `
+$ErrorActionPreference='Stop'
+[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$json=[System.Web.Script.Serialization.JavaScriptSerializer]::new()
+$p=$json.DeserializeObject([Console]::In.ReadToEnd())
+$s=[Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service',$true))
+$s.Connect()
+$t=$s.GetFolder('\\').GetTask('rovloom-gateway')
+if ($t.Definition.RegistrationInfo.Description -cne $p.marker) { exit 1 }
+$e=$s.NewTask(0)
+$e.XmlText=$p.xml
+$e.Principal.UserId=([Security.Principal.NTAccount]::new($p.account)).Translate([Security.Principal.SecurityIdentifier]).Value
+$e.Principal.LogonType=2
+[Console]::Write($json.Serialize(@{actual=$t.Xml;expected=$e.XmlText;state=[int]$t.State;result=[long]$t.LastTaskResult}))
+`
+  const result = await runSystemCommand({
+    executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    args: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-STA',
+      '-EncodedCommand',
+      Buffer.from(script, 'utf16le').toString('base64')
+    ],
+    input: JSON.stringify({ marker: manifest(spec), xml: expected, account: user.username }),
+    timeout: 10000
+  })
+  if (result.code === 0) {
+    // 这些XML只包含本轮fixture路径及公开启动声明；不包含配置文件内容、密码或token。
+    process.stderr.write(
+      JSON.stringify({ scope: 'disposable-native-task-definition', phase, ...JSON.parse(result.stdout) }) + '\n'
+    )
+  }
+}
+
 try {
   if (native) {
     await native.authorize()
@@ -222,6 +263,11 @@ try {
       )
     } catch {
       // 诊断查询失败不改变原测试失败，也不被解释为登记缺失。
+    }
+    try {
+      await taskDiagnostic()
+    } catch {
+      // 只读诊断失败不替代最初失败；未知任务不输出或修改。
     }
   }
 }
