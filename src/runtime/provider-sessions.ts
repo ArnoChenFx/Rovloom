@@ -34,20 +34,33 @@ function compose(
   now: () => number,
   connector: boolean
 ) {
-  const groups = input.map(
-    /** 固定原会话对象与独立路由快照，防止配置别名改变选择。 */ (group) => ({
-      session: group.session,
-      providers: Object.freeze(
-        group.providers.map(
-          /** 只复制纯配置，原adapter和opaque句柄保持原所有权。 */ (provider) =>
-            Object.freeze({
-              binding: Object.freeze(structuredClone(provider.binding)),
-              target: Object.freeze(structuredClone(provider.target))
-            })
+  let groups: ProviderSessionGroup[]
+  try {
+    groups = input.map(
+      /** 固定原会话对象与独立路由快照，防止配置别名改变选择。 */ (group) => ({
+        session: group.session,
+        providers: Object.freeze(
+          group.providers.map(
+            /** 只复制纯配置，原adapter和opaque句柄保持原所有权。 */ (provider) =>
+              Object.freeze({
+                binding: Object.freeze(structuredClone(provider.binding)),
+                target: Object.freeze(structuredClone(provider.target))
+              })
+          )
         )
-      )
-    })
-  )
+      })
+    )
+  } catch (error) {
+    // 调用方已交付全部会话；路由快照在校验前失败时，也不能遗留已经取得的adapter/owner。
+    for (const group of [...input].reverse()) {
+      try {
+        closeSession(group.session)
+      } catch {
+        /* 继续回收其它原owner，原构建错误保持失败。 */
+      }
+    }
+    throw error
+  }
   const routes = new Map<string, { group: ProviderSessionGroup; binding: ProviderBinding; target: V2Target }>()
   const windows = new Map<Direction, ReceiveWindow>()
   let ended = false

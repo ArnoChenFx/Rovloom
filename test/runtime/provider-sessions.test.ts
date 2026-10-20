@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { composeConnectorSessions, composeGatewaySessions } from '../../src/runtime/provider-sessions.js'
 import type { ProviderSessionGroup } from '../../src/runtime/provider-sessions.js'
 import { ConnectorAdmissionReceipts } from '../../src/transport/index.js'
@@ -242,7 +243,9 @@ test(
 test(
   'opaque receipt只交原持久sink一次，串组proof由原受保护routes拒绝',
   /** 两个真实writer只使用本测试新目录。 */ () => {
-    const root = mkdtempSync(join(process.cwd(), '.component-receipts-'))
+    const root = mkdtempSync(
+      join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.component-receipts-')
+    )
     const a = group('luvus')
     const b = group('herdr')
     const readers = [a, b].map(
@@ -439,5 +442,30 @@ test(
     combined.close()
     assert.throws(/** 关闭后不得继续调用原快照getter。 */ () => combined.providerSnapshot!(), /adapter_closed/)
     assert.equal(reads, 3)
+  }
+)
+
+test(
+  '路由快照构建失败仍释放已交付的全部原会话',
+  /** 非可复制元数据只用于构建失败反例，没有原生执行后端。 */ () => {
+    const a = group('luvus')
+    const b = group('herdr')
+    const invalid = {
+      ...a.descriptor,
+      providers: [
+        {
+          binding: a.binding,
+          target: {
+            ...a.target,
+            invalid: /** 配置里不可出现函数；确保structuredClone在正常校验前拒绝。 */ () => undefined
+          }
+        }
+      ]
+    }
+    assert.throws(
+      /** 调用方已移交所有权，构建失败也必须回收两个原owner。 */ () =>
+        composeGatewaySessions(connection, [invalid, b.descriptor], /** 固定隔离时钟。 */ () => 100)
+    )
+    assert.deepEqual([a.state.adapters, b.state.adapters, a.state.owners, b.state.owners], [1, 1, 1, 1])
   }
 )

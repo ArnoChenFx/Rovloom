@@ -601,7 +601,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
                   local: provider.binding,
                   native_ready:
                     provider.ready() === true &&
-                    (!hosted.length || ready(native, connection, provider.binding.provider_id)) &&
+                    (!selectedHosts.length || ready(native, connection, provider.binding.provider_id)) &&
                     !closing &&
                     !!localProvider(provider.target) &&
                     localPolicies(provider.target).revision === policyRevision &&
