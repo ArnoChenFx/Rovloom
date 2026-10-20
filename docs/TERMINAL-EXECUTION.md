@@ -23,17 +23,20 @@
 | Luvus `module.action.invoke` | 可调用本地模块动作，按可执行入口拒绝 |
 | Luvus `agent.report`、`pane.report_session`、`pane.report_event` | 可改变原生 Agent 判断，关闭时拒绝，避免先把 shell 标记为 Agent 再输入 |
 | Luvus `agent.keys` | 仅有 report/session 等标签不能独立证明当前前台真 Agent，关闭时一律保守拒绝；开启时留下的旧报告、session 或 terminal fence 不能绕过随后关闭 |
+| Luvus `agent.send` / `agent.prompt` | 关闭时只接纳调用者显式 `strict:true` 的文本请求；省略或 `false` 沿用上游宽松语义，必须开启开关；不在最后 IO 临时补 strict |
 | Luvus `task.add` / `task.start` | 非空白 `gate` / 自定义 `agent` 命令分别需要开启；普通无 gate 任务记录保持可用，`task.update` 不接受 gate，继续交给完整原生 schema 拒绝 |
 | Luvus `task.done` / `task.retry` | 可分别执行已保存的 gate 或重启原 automation run；当前请求不包含完整执行来源，关闭时保守拒绝 |
 | Herdr `pane.send_text/send_keys/send_input`、`pane.link.activate` | 关闭时拒绝；链接可调用本地处理器 |
 | Agent 启动、workspace/tab/pane 创建及会话恢复/报告 | 非空 `command`、`args`、`env`、`resume_command`、`resume_argv` 需要开启；不能通过启动环境或恢复命令绕过 |
-| 普通 Agent 文本对话、读取、无自定义启动参数的 `agent.start` | 保留已有独立原生门禁、分类和 caller/local grants，不由此开关默认禁用；Herdr 的 Agent 按键继续保留其原生运行进程检查 |
+| 严格 Agent 文本对话、读取、无自定义启动参数的 `agent.start` | 保留已有独立原生门禁、分类和 caller/local grants；Herdr 的 Agent 文本及按键继续保留其原生运行进程检查 |
 
 准确的方法/参数集合由 [共享判定](../src/connector/terminal-execution.ts)维护；目录对直接
 方法使用 `requiresTerminalExecution(kind, method)`，具体参数预检使用
 `terminalExecutionAllowed(kind, method, params, enabled)`。参数敏感方法可以继续描述，
 其具体请求须再次预检。开关开启不能补齐未经适配的传输、缺失分类或原生 lease；例如
 普通 RPC adapter 仍不能把 `terminal.backend.control` 当作单次 RPC 执行。
+目录应保留支持 `strict:true` 的 Luvus 文本方法并说明该本地限制，不能仅按省略参数时的
+默认请求判定隐藏全部严格对话；完整请求预检仍使用同一个参数判定。
 
 Luvus adapter 在发现前检查，在原 Wire、安装、peer、最终帧预算和持久唯一 claim 之后，
 紧贴实际 write 再次检查。可选 `LuvusRpcHost.terminalExecution()` 是受保护同步配置
@@ -44,7 +47,8 @@ Luvus adapter 在发现前检查，在原 Wire、安装、peer、最终帧预算
 
 Luvus `is_agent_pane` 接纳报告和 session 标记，不是当前前台进程证明。故按键入口即使
 面向真正 Agent，也须先开启此开关；不通过一次检查或旧报告发放后续按键许可。文本
-`agent.send/prompt` 仍复用原生目标与 prompt-readiness 门禁；Connector 不将该门禁、
+`agent.send/prompt` 在关闭时要求原请求显式 `strict:true`，保留原生目标与严格
+prompt-readiness 门禁；不改写已验权、计算摘要及持久登记的参数。Connector 不将该门禁、
 返回的状态或终端画面称为独立的实时前台身份核验，也不承诺隔离 Agent 内部工具。
 
 ## 执行环境与结果
@@ -76,8 +80,10 @@ It defaults to `false`; only literal `true` enables direct terminal inputs and c
 restore commands. Existing Agent conversations retain their separate native and caller/local
 authorization. This switch is not an OS sandbox for Agent tools.
 Luvus raw `agent.keys` requires the switch even with existing report/session labels, because
-those labels do not prove the current foreground program. Ordinary native text prompts keep
-their own admission path. Nonblank task gates, custom task worker commands, and task completion
+those labels do not prove the current foreground program. With the switch off, Luvus text
+`agent.send/prompt` requires explicit `strict:true`; omitted or false needs the switch enabled.
+The authorized request is never rewritten, and strict prompts keep their native readiness checks.
+Nonblank task gates, custom task worker commands, and task completion
 or retry paths that can execute saved commands are also covered; plain task records remain usable.
 
 Both adapters recheck the current local switch immediately before their existing native write.

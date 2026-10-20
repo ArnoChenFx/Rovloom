@@ -56,7 +56,7 @@ export function pinTerminalExecution(value: unknown): boolean {
   return value === true
 }
 
-/** 判断可直接写 shell、启动自定义程序或保存恢复命令的输入；普通 Agent 文本对话不落入此分类。 */
+/** 判断直接或宽松终端输入及可启动程序的请求；严格 Agent 文本对话保留原生门禁。 */
 export function requiresTerminalExecution(
   kind: TerminalExecutionKind,
   method: string,
@@ -64,6 +64,10 @@ export function requiresTerminalExecution(
 ): boolean {
   if (direct[kind].has(method)) {
     return true
+  }
+  // 上游省略 strict 等同 false；关闭时仅接受调用者原请求中显式的严格文本对话。
+  if (kind === 'luvus' && (method === 'agent.send' || method === 'agent.prompt')) {
+    return params.strict !== true
   }
   // task.add 保存的 gate 会被后续 task.done 通过 shell 执行；空白 gate 不会运行。
   if (kind === 'luvus' && method === 'task.add') {

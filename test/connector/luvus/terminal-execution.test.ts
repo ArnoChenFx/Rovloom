@@ -8,6 +8,79 @@ import { LuvusRpcAdapter } from '../../../src/connector/luvus/adapter.js'
 const method = 'terminal.backend.submit_text'
 const params = { server_generation: G, terminal_id: '1'.repeat(32), pane_id: '3', text: 'printf synthetic' }
 
+for (const agentMethod of ['agent.send', 'agent.prompt']) {
+  for (const strict of [undefined, false]) {
+    test(
+      `Luvus ${agentMethod} refuses strict ${strict} before native dispatch when switch is off`,
+      /** 完整原生 schema 接受该宽松参数；Connector 本地开关仍须在发现与 claim 前明确拒绝。 */ async () => {
+        const requestParams = { target: 'owned-agent', text: 'synthetic', ...(strict === undefined ? {} : { strict }) }
+        const f = await fixture('ipc', agentMethod, requestParams)
+        try {
+          await assert.rejects(f.adapter.dispatch(f.input()), {
+            code: 'terminal_execution_disabled',
+            outcome: 'not_dispatched'
+          })
+          assert.equal(f.state.claims, 0)
+          assert.equal(f.received(), '')
+          assert.deepEqual(f.row.native_request.params, requestParams)
+        } finally {
+          await f.close()
+        }
+      }
+    )
+  }
+}
+
+test(
+  'Luvus strict agent.send succeeds without rewriting the authorized request',
+  /** 保留调用者显式严格参数及合成原生成功回包，不发放真实前台身份保证。 */ async () => {
+    const requestParams = { target: 'owned-agent', text: 'synthetic', strict: true }
+    const f = await fixture('ipc', 'agent.send', requestParams)
+    const response = {
+      id: f.binding.native_request_id,
+      result: { type: 'agent_send', pane: '3', agent: 'synthetic', status: 'idle', name: 'owned-agent' }
+    }
+    f.respond(
+      /** 只模拟原生严格文本输入的成功回包，不调用 Agent 或 shell。 */ (socket) =>
+        socket.end(JSON.stringify(response) + '\n')
+    )
+    try {
+      assert.deepEqual((await f.adapter.dispatch(f.input())).native_response, response)
+      assert.deepEqual(JSON.parse(f.received()).params, requestParams)
+      assert.deepEqual(f.row.native_request.params, requestParams)
+      assert.equal(f.state.claims, 1)
+    } finally {
+      await f.close()
+    }
+  }
+)
+
+test(
+  'Luvus loose Agent input becomes forbidden if the switch closes after claim',
+  /** 不能缓存首次 true 或临时补 strict 来改变已验权请求；最终写入必须拒绝原宽松输入。 */ async () => {
+    const requestParams = { target: 'owned-agent', text: 'synthetic' }
+    const f = await fixture('ipc', 'agent.prompt', requestParams)
+    let enabled = true
+    f.host.terminalExecution = /** 同步读取当前本机开关。 */ () => enabled
+    const claim = f.host.claimDispatch
+    f.host.claimDispatch = /** 保留唯一派发墓碑后撤销直接执行。 */ async (...args) => {
+      await claim(...args)
+      enabled = false
+    }
+    try {
+      await assert.rejects(f.adapter.dispatch(f.input()), {
+        code: 'terminal_execution_disabled',
+        outcome: 'not_dispatched'
+      })
+      assert.equal(f.received(), '')
+      assert.equal(f.state.claims, 1)
+      assert.deepEqual(f.row.native_request.params, requestParams)
+    } finally {
+      await f.close()
+    }
+  }
+)
+
 for (const [name, taskParams] of [
   ['gate', { title: 'synthetic', gate: 'printf synthetic' }],
   ['multiline gate', { title: 'synthetic', gate: '\n printf synthetic \n' }]
@@ -181,7 +254,8 @@ test(
 test(
   'Luvus ordinary Agent prompt succeeds through its independent native path with terminal execution disabled',
   /** 正常文本对话保留真实适配器正向路径；合成原生 queued 表示输入接纳，不表示模型完成或前台身份实证。 */ async () => {
-    const f = await fixture('ipc', 'agent.prompt', { target: 'owned-agent', text: 'synthetic', wait: false })
+    const requestParams = { target: 'owned-agent', text: 'synthetic', wait: false, strict: true }
+    const f = await fixture('ipc', 'agent.prompt', requestParams)
     const response = {
       id: f.binding.native_request_id,
       result: {
@@ -203,6 +277,8 @@ test(
       const result = await f.adapter.dispatch(f.input())
       assert.deepEqual(result.native_response, response)
       assert.equal(JSON.parse(f.received()).method, 'agent.prompt')
+      assert.deepEqual(JSON.parse(f.received()).params, requestParams)
+      assert.deepEqual(f.row.native_request.params, requestParams)
       assert.equal(f.state.claims, 1)
       assert.equal(result.exit_code, null)
     } finally {
@@ -321,7 +397,7 @@ test(
 test(
   'Luvus native Agent-not-ready remains an error with direct execution disabled',
   /** 对话沿用原生 Agent 门禁，测试 listener 的拒绝不能退化为 pane.run 或其它 shell 重试。 */ async () => {
-    const f = await fixture('ipc', 'agent.send', { target: '3', text: 'synthetic' })
+    const f = await fixture('ipc', 'agent.send', { target: '3', text: 'synthetic', strict: true })
     const response = {
       id: f.binding.native_request_id,
       error: { code: 'agent_not_ready', message: 'synthetic shell pane' }

@@ -75,12 +75,33 @@ for (const kind of ['luvus', 'herdr'] as const) {
         'ping',
         ...(kind === 'luvus' ? ['agent.send', 'terminal.backend.capture'] : ['agent.send_keys'])
       ]) {
-        assert.equal(terminalExecutionAllowed(kind, method, { target: 'owned-agent', text: 'synthetic' }), true)
+        assert.equal(
+          terminalExecutionAllowed(kind, method, { target: 'owned-agent', text: 'synthetic', strict: true }),
+          true
+        )
       }
       assert.equal(terminalExecutionAllowed(kind, 'agent.start', { name: 'owned', kind: 'opencode', args: [] }), true)
       if (kind === 'herdr') {
         assert.equal(terminalExecutionAllowed(kind, 'agent.send_keys', { target: 'owned-agent', keys: ['a'] }), true)
       }
+    }
+  )
+}
+
+for (const method of ['agent.send', 'agent.prompt']) {
+  test(
+    `Luvus ${method} needs explicit strict true while direct execution is disabled`,
+    /** 省略与 false 保留上游宽松语义并受开关约束；严格请求保持可用，不能由写入层补参。 */ () => {
+      for (const strict of [undefined, false]) {
+        const params = { target: 'owned-agent', text: 'synthetic', ...(strict === undefined ? {} : { strict }) }
+        assert.equal(terminalExecutionAllowed('luvus', method, params), false)
+        assert.equal(terminalExecutionAllowed('luvus', method, params, true), true)
+        assert.equal(terminalExecutionAllowed('herdr', 'agent.prompt', params), true)
+      }
+      assert.equal(
+        terminalExecutionAllowed('luvus', method, { target: 'owned-agent', text: 'synthetic', strict: true }),
+        true
+      )
     }
   )
 }
