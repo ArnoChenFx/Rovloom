@@ -41,7 +41,12 @@ export interface ProviderCatalogProvider {
   // owner从当前原生安装/能力提供目录；目录元数据不建立Wire执行许可。
   resolve(target: V2Target, principal: Principal): ProviderCatalogSource | undefined
 }
-export type GatewayCatalog = GatewayCatalogProvider | ProviderCatalogProvider
+export interface CompositeGatewayCatalogProvider {
+  kind: 'mixed'
+  // 只选择原目录端口，实际授权、期限与schema仍由原authorizer复验。
+  select(target: V2Target): GatewayCatalogProvider | ProviderCatalogProvider | undefined
+}
+export type GatewayCatalog = GatewayCatalogProvider | ProviderCatalogProvider | CompositeGatewayCatalogProvider
 type CatalogOptions = {
   store: Store
   principal: Principal

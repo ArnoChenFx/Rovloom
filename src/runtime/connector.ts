@@ -8,7 +8,8 @@ import type { TrustedNativeContext } from '../native-contract/index.js'
 import { createConnector } from '../transport/index.js'
 import type { Adapter, Connection, ConnectorWireSession } from '../transport/index.js'
 import { assertBinding, boundedJson, fail } from '../wire/index.js'
-import type { AttemptBinding } from '../wire/types.js'
+import type { AttemptBinding, V2Target } from '../wire/types.js'
+import type { ProviderSessionGroup } from './provider-sessions.js'
 import { connectorAdmissionAdapter } from './connector-attempts.js'
 import { OFFER } from '../transport/common.js'
 import type { ConnectorRuntimeOptions } from './types.js'
@@ -21,23 +22,13 @@ type Pending = {
   socket?: Socket
 }
 
-/** 返回可长期运行的角色句柄；显式关闭先停止重连及所有 epoch，再释放长期 custody/claims 所有者。 */
-export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
+/** 复用同一个原Luvus会话构建器，不启动transport；供唯一出站宿主组合已审provider。 */
+export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptions, 'session'>) {
   let stopping = false
-  let finished = false
-  let resolveClosed!: () => void
-  let rejectClosed!: (error: unknown) => void
-  const closed = new Promise<void>(
-    /** 保存单一完成入口，使并发 close 返回同一个关闭结果。 */ (resolve, reject) => {
-      resolveClosed = resolve
-      rejectClosed = reject
-    }
-  )
-  // closed 可被长期观察；调用者仍从 close/closed 收到同一错误，不产生无人消费的异步拒绝。
-  void closed.catch(/** 标记拒绝已被内部观察，不改写对外 closed 的失败结果。 */ () => {})
   const sessions = new Set<ConnectorWireSession>()
   let cleanupFailed = false
   const backends = new WeakSet<object>()
+  const targets = new WeakMap<ConnectorWireSession, () => V2Target>()
 
   /** 逐项执行同步清理；其中一项失败不阻止其它会话资源关闭。 */
   function cleanup(operations: readonly (() => void)[]): void {
@@ -349,6 +340,10 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
       // 最终注册必须在最后一个外部构建回调之后；已开始 close 的 epoch 不能在遍历结束后补入集合。
       assertSessionOpen()
       sessions.add(result)
+      targets.set(
+        result,
+        /** 只有组合调用方显式取组时才读取原受保护配置。 */ () => structuredClone(resource.config.target)
+      )
       return result
     } catch (error) {
       cleanup([
@@ -361,6 +356,76 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
     }
   }
 
+  return Object.freeze({
+    session,
+    failed: /** 原构建回调晚于同步close才完成回滚时，仍向角色终态交付真实清理失败。 */ () => cleanupFailed,
+    /** 路由只来自原config和同一原会话的readiness，不读取请求或广告建立目标。 */
+    group(connection: Connection): ProviderSessionGroup<ConnectorWireSession> {
+      const current = session(connection)
+      try {
+        const target = targets.get(current)!()
+        const state = current.readiness()
+        const provider = state.providers.find(
+          /** 同一配置精确选择原canonical provider，不按名称或最近实例猜测。 */ (entry) =>
+            entry.local.machine_id === target.machine_id &&
+            entry.local.provider_id === target.provider_id &&
+            entry.local.kind === 'luvus'
+        )
+        if (stopping || !provider || state.providers.length !== 1) {
+          fail('provider_binding_mismatch')
+        }
+        return { providers: [{ target, binding: provider.local }], session: current }
+      } catch (error) {
+        current.close()
+        throw error
+      }
+    },
+    /** 先同步封锁所有新epoch，再尝试原会话清理；失败保留为真实逻辑关闭失败。 */
+    close(): void {
+      if (!stopping) {
+        stopping = true
+        for (const active of sessions) {
+          active.close()
+        }
+      }
+      if (cleanupFailed) {
+        throw new LuvusAdapterError('connector_runtime_session_close_failed')
+      }
+    }
+  })
+}
+
+/** 返回可长期运行的角色句柄；显式关闭先停止重连及所有 epoch，再释放长期 custody/claims 所有者。 */
+export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
+  let stopping = false
+  let finished = false
+  let resolveClosed!: () => void
+  let rejectClosed!: (error: unknown) => void
+  const closed = new Promise<void>(
+    /** 保存单一完成入口，使并发 close 返回同一个关闭结果。 */ (resolve, reject) => {
+      resolveClosed = resolve
+      rejectClosed = reject
+    }
+  )
+  // closed 可被长期观察；调用者仍从 close/closed 收到同一错误，不产生无人消费的异步拒绝。
+  void closed.catch(/** 标记拒绝已被内部观察，不改写对外 closed 的失败结果。 */ () => {})
+  const owner = createLuvusConnectorSessions(options)
+  let cleanupFailed = false
+  /** 逐项执行同步清理；其中一项失败不阻止其它会话资源关闭。 */
+  function cleanup(operations: readonly (() => void)[]): void {
+    for (const operation of operations) {
+      try {
+        if (operation() !== undefined) {
+          fail('synchronous_channel_block_required')
+        }
+      } catch {
+        cleanupFailed = true
+      }
+    }
+  }
+
+  const session = owner.session
+
   let transport: ReturnType<typeof createConnector>
   try {
     const offer = structuredClone(options.transport.offer ?? OFFER)
@@ -370,9 +435,7 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
     transport = createConnector({ ...options.transport, offer, session })
   } catch {
     stopping = true
-    for (const active of sessions) {
-      active.close()
-    }
+    cleanup([/** 原构建器停止全部已交付epoch。 */ () => owner.close()])
     try {
       await options.release()
     } catch {
@@ -388,9 +451,7 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
       if (!stopping) {
         stopping = true
         cleanup([/** 先停原 transport 的 timer/socket/reconnect，再释放长期凭据资源。 */ () => transport.stop()])
-        for (const active of sessions) {
-          active.close()
-        }
+        cleanup([/** 同一个原构建器释放全部epoch，不重复实现关闭。 */ () => owner.close()])
         void Promise.resolve().then(
           /** 所有 epoch 都已同步阻止派发，最后关闭长期 custody/claims 所有者。 */ async () => {
             try {
@@ -400,7 +461,7 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
             }
             if (!finished) {
               finished = true
-              if (cleanupFailed) {
+              if (cleanupFailed || owner.failed()) {
                 rejectClosed(new LuvusAdapterError('connector_runtime_close_failed'))
               } else {
                 resolveClosed()

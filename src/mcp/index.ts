@@ -37,6 +37,7 @@ export type {
   GatewayCatalogProvider,
   GatewayCatalogSource,
   GatewayCatalog,
+  CompositeGatewayCatalogProvider,
   ProviderCatalogProvider,
   ProviderCatalogSource
 } from './native-catalog.js'

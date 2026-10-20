@@ -18,6 +18,23 @@
 | `createConnectorAdmissionLedger` | 实际认证 `Connection`、受保护完整 Target→principal 路由、当前双端政策、独立 `AdmissionContextReader`、共享 `ConnectorAttemptBook`及可信单调时钟 |
 | `createProviderResultAccess` | 原 Wire 只读/保留门禁、当前主体/政策和完整受保护 provider binding及预算；不取得 Wire 编码或原生执行能力 |
 
+`GatewayRuntimeOptions.hosted`显式交付中性provider的`providers/session`分组；
+`providers`仍只属于原Luvus本机/远端注册表，两者共享唯一Store、Router和认证listener。
+每个实际epoch先取得原会话，再由`composeGatewaySessions`按完整Target及kind委托原adapter。
+原Luvus目录继续绑定真实连接、pin和能力来源；`kind: 'mixed'`目录只选择原resolver，
+每次发现、描述、分页仍走原authorizer，不从describe重建目录或native来源。
+
+`createLuvusConnectorSessions`复用原Luvus builder而不启动transport，独立Luvus入口也使用同一builder。
+`composeConnectorSessions`把它与其它原会话交给唯一中性Connector宿主。
+完整路由来自原owner配置；receipt在原同步observe之后只把原opaque proof交给对应原sink一次，
+不拆封、广播或重新签发。实际执行、schema、socket证据及持久claims仍由各自原端口检查。
+原Luvus快照getter保持稳定并逐次复核，Herdr没有对象传输或快照时不补造这些能力。
+
+组合会话的执行/响应上下文合计至多128，原快照字节合计至多16MiB，
+跨provider消息ID使用共享有界去重窗；完整对象继续只由唯一原Luvus组装器处理。
+组合层不复制Store、Router、Wire codec或连接，不增加原native单请求预算。
+关闭先同步封锁，再逐一回收原adapter/owner；部分失败不跳过其余owner，失败与晚到清理仍进入原角色终态。
+
 通用 Gateway 不要求 UHP schema、Luvus delegation 或 Luvus native peer evidence。
 实际 provider 的原生来源、schema、权限与 executeWire 仍由其既有已审实现负责。
 Gateway session 回调发生关闭重入或包装失败时回收已取得的 Wire/session；客户端退出只关闭其连接，

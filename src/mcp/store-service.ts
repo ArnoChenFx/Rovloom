@@ -383,10 +383,15 @@ export class StoreGatewayService implements GatewayService {
         target: request.args.target,
         expected_binding_revision: request.args.expected_binding_revision
       }
+      const provider =
+        this.options.catalog.kind === 'mixed' ? this.options.catalog.select(request.args.target) : this.options.catalog
+      if (!provider) {
+        throw new FacadeServiceError('backend_unavailable')
+      }
       const catalog =
-        this.options.catalog.kind === 'provider'
-          ? authorizedProviderCatalog({ ...options, provider: this.options.catalog })
-          : authorizedLuvusCatalog({ ...options, provider: this.options.catalog })
+        provider.kind === 'provider'
+          ? authorizedProviderCatalog({ ...options, provider })
+          : authorizedLuvusCatalog({ ...options, provider })
       if (request.name === 'runtime_describe') {
         return catalog.describe(request.args.method)
       }

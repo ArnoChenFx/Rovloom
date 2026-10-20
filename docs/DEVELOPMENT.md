@@ -334,7 +334,8 @@ python3 scripts/herdr/verify_readonly.py --binary /absolute/verified/herdr --out
 `createHerdrGatewayResources({config, signal?, now?})`返回 `providers/session/catalog/describe/release`，
 交给既有 `createProviderGatewayRuntime`，会话使用外部提供的唯一 Store。
 `createHerdrConnectorResources({config, installation, now, policies, releaseOwner, release_timeout_ms?})`
-返回 `session/release/release_timeout_ms`，交给 `createProviderConnectorRuntime`。
+返回 `providers/session/release/release_timeout_ms`，交给 `createProviderConnectorRuntime`；
+`providers`为原受保护路由描述，供同一runtime组合会话，不是来自广告的原生来源。
 受保护 ref 由 `readHerdrProviderRefConfig`读取，字段及精确返回类型以
 [`provider.ts`](../src/connector/herdr/provider.ts)为准；必须提供完整 Target、binding revision、
 config ref、固定 expected source、schema 路径及独立 peer policy revision。Connector 另需

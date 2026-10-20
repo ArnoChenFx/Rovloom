@@ -3,7 +3,7 @@ export { createGatewayRuntime, createProviderGatewayRuntime } from './gateway.js
 export { createTrustedRequestScope } from './request-scope.js'
 export { createDevelopmentLuvusProvider } from './development-provider.js'
 export { openGatewayState } from './state.js'
-export { createConnectorRuntime } from './connector.js'
+export { createConnectorRuntime, createLuvusConnectorSessions } from './connector.js'
 export { createProviderConnectorRuntime, ConnectorHostStartupError } from './connector-host.js'
 export type { ConnectorHostOptions, ConnectorHostShutdown, ConnectorReleaseStatus } from './connector-host.js'
 export { createManagementSessionAuthority } from './management-session.js'
@@ -75,3 +75,6 @@ export type {
   ProviderResultPage,
   ResultProvider
 } from './results.js'
+
+export { composeGatewaySessions, composeConnectorSessions } from './provider-sessions.js'
+export type { ProviderSessionGroup } from './provider-sessions.js'
