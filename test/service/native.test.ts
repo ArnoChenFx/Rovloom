@@ -260,8 +260,11 @@ test(
       assert.equal(Buffer.from(p.args.at(-1)!, 'base64').toString('utf16le'), TASK_SCRIPT)
       assert(!p.args.join(' ').includes(spec.config))
     }
-    assert(TASK_SCRIPT.includes("RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5"))
-    assert(TASK_SCRIPT.includes('$t.Stop(0)'))
+    assert(
+      TASK_SCRIPT.includes('RegisterTaskDefinition($p.name, $definition, 2, $definition.Principal.UserId, $null, 2')
+    )
+    assert.equal(JSON.parse(plans.at(-1)!.input!).account, spec.account)
+    assert(!TASK_SCRIPT.includes('$t.Stop(0)'))
     assert(!TASK_SCRIPT.includes('sc.exe'))
     const backend = createNativeServiceBackend({
       platform: 'win32',
@@ -270,6 +273,41 @@ test(
       verifyRuntime: /* 只验证本例实际选择的后台配置。 */ async (selected) => assert.deepEqual(selected, spec)
     })
     await backend.preflight(spec)
+  }
+)
+
+test(
+  'Windows用户不存在时在正常账户解析阶段失败，不创建任务或配置',
+  /* 只模拟Task Scheduler返回的账户参数错误，不安装服务或修改已有文件。 */ async () => {
+    const memory = memoryFiles()
+    const operations: string[] = []
+    let configured = false
+    const backend = createNativeServiceBackend({
+      platform: 'win32',
+      files: memory.files,
+      runner: /* 返回正常授权、无登记和用户解析失败；create不应被调用。 */ async (plan) => {
+        const request = JSON.parse(plan.input!)
+        operations.push(request.op)
+        if (request.op === 'validate') {
+          return { code: 1, stdout: JSON.stringify({ error: 'invalid_arguments' }), stderr: '' }
+        }
+        assert(['authorize', 'read'].includes(request.op))
+        return { code: 0, stdout: JSON.stringify(request.op === 'read' ? { absent: true } : { ok: true }), stderr: '' }
+      },
+      verifyRuntime: /* 账户失败不能继续配置读取或角色初始化。 */ async () => {
+        configured = true
+      }
+    })
+    const spec = sampleSpec('win32')
+    await assert.rejects(
+      /* 真实状态机在注册之前传播Windows的固定参数错误。 */ () =>
+        new ServiceManager(backend).execute({ action: 'install', role: spec.role, spec }),
+      { code: 'invalid_arguments' }
+    )
+    assert(operations.includes('validate'))
+    assert(!operations.includes('create'))
+    assert.equal(configured, false)
+    assert.equal(memory.data.size, 0)
   }
 )
 
@@ -708,7 +746,7 @@ test(
     assert(TASK_SCRIPT.includes('$t.GetInstances(0).Count -ne 0'))
     assert(TASK_SCRIPT.includes('$boot.Enabled = [bool]$p.enabled'))
     assert(!TASK_SCRIPT.includes('$t.Enabled ='))
-    assert(TASK_SCRIPT.includes('$expected.Principal.LogonType = 5'))
+    assert(TASK_SCRIPT.includes('$expected.Principal.LogonType = 2'))
     assert(TASK_SCRIPT.includes('RegisterTaskDefinition($p.name, $definition, 52'))
   }
 )

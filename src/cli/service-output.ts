@@ -40,7 +40,7 @@ export function serviceDiagnostic(text: string): string {
     typeof value.controlRetained !== 'boolean' ||
     !['running', 'stopped', 'starting', 'stopping', 'failed', 'absent'].includes(value.state as string) ||
     value.readiness !== 'not_checked' ||
-    !['not_requested', 'signal_then_kill', 'task_termination'].includes(value.stopMode as string)
+    !['not_requested', 'signal_then_kill', 'task_termination', 'graceful_request'].includes(value.stopMode as string)
   ) {
     throw new Error('invalid_service_output')
   }

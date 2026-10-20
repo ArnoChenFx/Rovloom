@@ -28,10 +28,10 @@ export type ServiceResult = {
   bootEnabled: boolean
   // 自启撤销后可保留控制记录，供显式 stop 与同清单重新安装使用。
   controlRetained: boolean
-  // 系统监管状态不证明业务就绪；Windows 停止可能直接终止进程。
+  // 系统监管状态不证明业务就绪；正常关停请求也必须另行核对实例退出。
   readiness: 'not_checked'
   // 实际发出的停止请求；安装、撤销自启及无需停止的操作明确返回 not_requested。
-  stopMode: 'not_requested' | 'signal_then_kill' | 'task_termination'
+  stopMode: 'not_requested' | 'signal_then_kill' | 'task_termination' | 'graceful_request'
 }
 export type ServiceErrorCode =
   | 'invalid_arguments'
@@ -75,7 +75,7 @@ export type ServiceBackend = {
   // 仅向已核验的本项目角色发送启动请求。
   start(spec: ServiceSpec): Promise<void>
   // 请求停止本项目实例，不按进程名或任意 PID 杀进程。
-  stop(spec: ServiceSpec, forRestart?: boolean): Promise<void>
+  stop(spec: ServiceSpec, forRestart?: boolean): Promise<'graceful_request' | void>
   // 只在禁用自启且监管记录可安全释放时清理；保留则返回 false，绝不停止进程或 bootout。
   remove(spec: ServiceSpec): Promise<boolean>
 }

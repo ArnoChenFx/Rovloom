@@ -69,14 +69,14 @@ export function renderLaunchd(spec: ServiceSpec): string {
 `
 }
 
-// 输出 BootTrigger 计划任务，使用无密码低权限 LocalService，明确允许长驻与任务终止。
+// 输出既有用户的BootTrigger任务；S4U无需保存密码或等待登录，配置始终使用安装时固定路径。
 export function renderTask(spec: ServiceSpec): string {
   const args = launchArguments(spec).map(windowsQuote).join(' ')
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
 <RegistrationInfo><Description>${manifest(spec)}</Description></RegistrationInfo>
 <Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers>
-<Principals><Principal id="Service"><UserId>S-1-5-19</UserId><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+<Principals><Principal id="Service"><UserId>${xmlText(spec.account)}</UserId><LogonType>S4U</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
 <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><RunOnlyIfIdle>false</RunOnlyIfIdle><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
 <Actions Context="Service"><Exec><Command>${xmlText(spec.executable)}</Command><Arguments>${xmlText(args)}</Arguments><WorkingDirectory>${xmlText(spec.directory)}</WorkingDirectory></Exec></Actions>
 </Task>

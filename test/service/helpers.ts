@@ -17,7 +17,7 @@ export function sampleSpec(platform: ServicePlatform = 'linux'): ServiceSpec {
     executable: platform === 'win32' ? 'C:\\Program Files\\Rovloom\\汉字.exe' : '/opt/Rovloom 汉字/rovloom',
     config: platform === 'win32' ? 'C:\\Rovloom 数据\\config.json' : '/var/lib/rovloom 汉字/config.json',
     directory: platform === 'win32' ? 'C:\\Rovloom 数据' : '/var/lib/rovloom 汉字',
-    account: platform === 'win32' ? 'S-1-5-19' : 'rovloom'
+    account: platform === 'win32' ? 'RovloomHost\\operator' : 'rovloom'
   }
 }
 
