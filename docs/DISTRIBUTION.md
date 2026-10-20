@@ -159,6 +159,21 @@ CI 解析实际 EXE 的 `RT_GROUP_ICON`/`RT_ICON`，逐字节比对原 PNG 并�
 选项与嵌入方式以 [Bun 官方 executables 文档](https://bun.sh/docs/bundler/executables)为依据，
 本仓库固定版本的实际 binary/CI 验收优先于文档示例。
 
+## 用户安装器
+
+[Shell安装器](../scripts/install.sh)与[PowerShell安装器](../scripts/install.ps1)始终使用官方
+`latest` 稳定Release。每次只解析一次规范稳定tag，再从同一tag下载 `SHA256SUMS` 和精确OS/arch资产，
+安装期间latest切换不会混用版本；没有固定版本参数。Linux只接纳glibc；
+macOS支持x64/arm64目标选择，Windows按原生OS架构选择而非模拟进程架构。
+脚本无需Bun或Node，使用用户目录暂存，验证唯一规范摘要后同文件系统原子替换；
+下载、校验或替换失败保留既有程序。不创建角色身份/配置、安装系统服务或修改PATH。
+六平台Standalone CI运行[隔离安装测试](../test/release/install.test.mjs)，使用合成下载，
+Windows另执行[原生PowerShell替换测试](../test/release/install-windows.ps1)。
+安装字节不等于当前平台运行角色已通过。
+
+首个Release资产尚未确认存在，当前不提供可用下载的一键成功教程。
+发布后由维护者核对实际六项资产、manifest和校验和，再在中英文Quick Start加入固定tag的用户步骤。
+
 ## 自更新接缝
 
 [自更新模块](UPDATE.md)提供稳定版本检查、受限下载和唯一 CLI 接缝；缺 service/runtime 原地替换事务时明确返回非零，不修改服务或用户数据。
