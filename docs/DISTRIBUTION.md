@@ -195,7 +195,7 @@ Windows另执行[原生PowerShell替换测试](../test/release/install-windows.p
 安装字节不等于当前平台运行角色已通过。
 
 首个Release资产尚未确认存在，当前不提供可用下载的一键成功教程。
-发布后由维护者核对实际六项资产、manifest和校验和，再在中英文Quick Start加入始终跟随官方latest的用户步骤。
+发布后由维护者核对实际六项资产、manifest和校验和，再在中英文Quick Start加入使用官方 latest 稳定Release的用户步骤。
 
 ## 自更新接缝
 
