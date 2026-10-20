@@ -27,7 +27,13 @@ import { source } from '../wire/helpers.js'
 import { management } from '../storage/helpers.js'
 
 type FixtureHost = {
-  contract?: { source: ContractSource; compiled: CompiledContract; identity: NativeBinding['contract'] }
+  contract?: {
+    source: ContractSource
+    compiled: CompiledContract
+    identity: NativeBinding['contract']
+    capabilities?: unknown
+    capability_revision?: string
+  }
   /** 把同一测试账本放入新建私有目录，以验证真实磁盘 Store 生命周期。 */
   store?(now: () => number, options: StoreOptions): Store
   /** 为实际 Gateway socket 组合受信生命周期 backend；Connector 仍独立创建其本机 adapter。 */
@@ -99,12 +105,18 @@ export function fixture(
     ...baseline,
     classifications: baseline.classifications.map(
       /** 保留 fixture 的原授权分类，只绑定本次隔离安装的实际二进制与 schema 身份。 */
-      (classification) => ({ ...(classification as SafetyClassification), contract: installedIdentity })
+      (classification) => ({
+        ...(classification as SafetyClassification),
+        contract: installedIdentity,
+        revision: origin.classification_revision ?? (classification as SafetyClassification).revision
+      })
     )
   }
   const capabilities = json('session-capabilities.json')
   capabilities.result.session = 'synthetic'
   capabilities.result.server_generation = G
+  const installedCapabilities = host.contract?.capabilities ?? capabilities
+  const capabilityRevision = host.contract?.capability_revision ?? 'caps1'
   const localBindings = new Map<string, ProviderBinding>()
   const configs = new Map<string, { native: boolean; peerPolicy: string; sourceVerified: boolean }>()
   let openedSessions = 0
@@ -122,8 +134,8 @@ export function fixture(
         ? {
             wire: { source: origin, support_status: 'validated' },
             compiled: host.contract?.compiled ?? compiled,
-            capabilities,
-            capability_revision: 'caps1'
+            capabilities: installedCapabilities,
+            capability_revision: capabilityRevision
           }
         : undefined,
     /** 从真实 Store attempt 构造该实例的 mock NativeBinding，并受来源开关控制。 */
@@ -142,10 +154,10 @@ export function fixture(
         server_generation: G,
         connection_epoch: b.connection_epoch,
         recovery_generation: b.recovery_generation,
-        capability_revision: 'caps1',
+        capability_revision: capabilityRevision,
         caller_policy_revision: b.registration.caller_policy_revision,
         local_policy_revision: b.registration.local_policy_revision,
-        classification_revision: 'review1',
+        classification_revision: origin.classification_revision ?? 'review1',
         contract: installedIdentity
       }
       return {

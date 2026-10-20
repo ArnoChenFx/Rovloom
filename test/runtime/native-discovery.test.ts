@@ -13,6 +13,9 @@ import { compileBundle, createNativeValidator } from '../../src/native-contract/
 import type { LuvusLocalConfig } from '../../src/connector/luvus/types.js'
 import { unknownSchemaBundle } from '../native-contract/unknown-schema-fixture.js'
 import { validateProviderSnapshot } from '../../src/wire/index.js'
+import { providerIsolationFixture } from '../transport/provider-isolation-helpers.js'
+import { until } from '../transport/helpers.js'
+import { G } from '../native-contract/helpers.js'
 
 /** 为被测安装生成原字节摘要，与任何内嵌发行版摘要无关。 */
 function hash(value: string | Uint8Array): string {
@@ -59,6 +62,90 @@ esac
   }
   return { root, schema, config }
 }
+
+test(
+  'actual capability discovery composes with provider isolation without restoring a fenced source',
+  /** 合成安装走真实发现/编译，原 Wire/Store 负责隔离；执行和身份仍是无生产效力 fixture。 */ async () => {
+    const f = fixture()
+    let w: ReturnType<typeof providerIsolationFixture> | undefined
+    try {
+      const discovered = await discoverLuvusInstallation(f.config, {
+        revision: MANAGED_LUVUS_REVISION,
+        signal: new AbortController().signal
+      })
+      const frame = JSON.parse(
+        readFileSync(new URL('../fixtures/luvus/0.14.3/linux/session-capabilities.json', import.meta.url), 'utf8')
+      )
+      frame.result.session = 'synthetic'
+      frame.result.server_generation = G
+      frame.result.method_contracts.find(
+        /** 兼容诊断扩展仍保留在实际快照。 */ (row: any) => row.method === 'agent.prompt'
+      ).future_diagnostic = 'optional'
+      const observed = observedLuvusContract(
+        discovered.config,
+        discovered.compiled,
+        { frame, result: frame.result },
+        discovered.binaryVersion
+      )
+      assert.equal(observed.wire.source.server_version, null)
+      assert.equal(observed.wire.source.binary_sha256, hash(readFileSync(f.config.binary)))
+      w = providerIsolationFixture(observed)
+      const active = w
+      const client = active.connect()
+      await until(
+        /** 两个实际发现快照均经原 codec 和 provider 路由接纳。 */ () => {
+          const providers = active.f.gateway.status().devices[0]?.providers ?? []
+          return (
+            client.status().phase === 'ready' &&
+            providers.length === 2 &&
+            providers.every(/** 各来源独立 ready。 */ (provider) => provider.ready)
+          )
+        }
+      )
+      const epoch = client.status().connection_epoch
+      const failed = active.f.call(active.targets[0]!)
+      const healthy = active.f.call(active.targets[1]!)
+      active.f.gateway.dispatch(failed.call_id)
+      active.f.gateway.dispatch(healthy.call_id)
+      await until(
+        /** 原调用均已进入真实持久 accepted 状态。 */ () =>
+          [failed, healthy].every(
+            /** 按各自原调用读取账本。 */ (call) =>
+              active.f.store.call(active.f.principal.id, call.call_id).state === 'connector_accepted'
+          )
+      )
+      active.state.changed.add(active.targets[0]!.provider_id)
+      await until(
+        /** 同 epoch 替换发现结果只撤回该来源，原调用收敛 unknown。 */ () =>
+          active.f.store.call(active.f.principal.id, failed.call_id).state === 'outcome_unknown'
+      )
+      assert.equal(active.work.get(failed.call_id)!.signal.aborted, true)
+      assert.equal(active.work.get(healthy.call_id)!.signal.aborted, false)
+      active.state.changed.delete(active.targets[0]!.provider_id)
+      active.work.get(failed.call_id)!.finish()
+      active.work.get(healthy.call_id)!.finish()
+      await until(
+        /** 健康调用仍用原 permit 完成响应及结果读取绑定。 */ () =>
+          active.f.store.call(active.f.principal.id, healthy.call_id).state === 'responded'
+      )
+      assert(active.f.gateway.resolveOriginalRead(healthy.call_id))
+      assert.equal(active.f.gateway.resolveOriginalRead(failed.call_id), undefined)
+      assert.equal(active.f.store.call(active.f.principal.id, failed.call_id).state, 'outcome_unknown')
+      assert.equal(active.f.gateway.status().connections, 1)
+      assert.equal(client.status().connection_epoch, epoch)
+      assert.equal(client.status().reconnects, 0)
+      const blocked = active.f.call(active.targets[0]!)
+      assert.throws(
+        /** 广告恢复不能复活原 epoch 的失效配置。 */ () => active.f.gateway.dispatch(blocked.call_id),
+        /provider_not_ready/
+      )
+      assert.equal(active.state.executions.length, 2)
+    } finally {
+      w?.stop()
+      rmSync(f.root, { recursive: true, force: true })
+    }
+  }
+)
 
 test(
   'Luvus accepts an actual installation hash and retains an unfamiliar version for diagnostics',

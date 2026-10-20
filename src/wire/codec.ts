@@ -9,6 +9,7 @@ import type {
   NativeValidationContext,
   RequestGate,
   ProviderSnapshot,
+  ProviderBinding,
   WireEnvelope
 } from './types.js'
 import { boundedJson, fields, object, id, uint, sha, text, oneOf, fail, parseJson, LIMITS } from './validation.js'
@@ -41,6 +42,7 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   authenticate: ['connector_to_gateway'],
   welcome: ['gateway_to_connector'],
   provider_snapshot: ['connector_to_gateway'],
+  provider_fenced: ['gateway_to_connector', 'connector_to_gateway'],
   request: ['gateway_to_connector'],
   admission_receipt: ['gateway_to_connector'],
   accepted: ['connector_to_gateway'],
@@ -437,8 +439,8 @@ function validateObjectChunk(p: JsonObject, context: AuthContext): void {
   }
 }
 
-// context 是受信外部输入；逐帧检查 active/epoch 不代替 TLS、认证或撤销查询。
-function decode(input: string | Uint8Array, context: CodecContext, limit: number): WireEnvelope {
+/** 共用有界 JSON、方向、版本和消息 ID 校验；此步骤不建立原生许可。 */
+function readEnvelope(input: string | Uint8Array, context: CodecContext, limit: number): JsonObject {
   const frame = object(parseJson(input, limit))
   id(frame.message_id)
   uint(frame.protocol_major, true)
@@ -452,12 +454,12 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   if (frame.protocol_major !== WIRE_MAJOR) {
     fail('protocol_major_unsupported')
   }
-  const p = object(frame.payload)
+  object(frame.payload)
+  return frame
+}
 
-  if (context.phase === 'preauth') {
-    return decodeHandshake(frame, p, context)
-  }
-
+/** 只校验当前认证连接和完整 envelope header，供正常解码与失效后丢弃共用。 */
+function authenticateEnvelope(frame: JsonObject, context: CodecContext): asserts context is AuthContext {
   if (
     context.phase !== 'authenticated' ||
     context.connection?.authenticated !== true ||
@@ -483,8 +485,27 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   ) {
     fail('connection_binding_mismatch')
   }
+}
+
+// context 是受信外部输入；逐帧检查 active/epoch 不代替 TLS、认证或撤销查询。
+function decode(input: string | Uint8Array, context: CodecContext, limit: number): WireEnvelope {
+  const frame = readEnvelope(input, context, limit)
+  const p = object(frame.payload)
+  if (context.phase === 'preauth') {
+    return decodeHandshake(frame, p, context)
+  }
+  authenticateEnvelope(frame, context)
 
   switch (frame.type) {
+    case 'provider_fenced':
+      capability(context, 'provider_fence')
+      fields(p, ['binding'])
+      validateProvider(p.binding)
+      if (p.binding.machine_id !== frame.machine_id) {
+        fail('target_machine_mismatch')
+      }
+      // 完整 binding 是否属于本 epoch 原配置仍由 session 的同步失效端口独立核对。
+      break
     case 'provider_snapshot':
       capability(context, 'provider_snapshot')
       validateProviderSnapshot(p)
@@ -651,6 +672,80 @@ export function encodeWireFrame(frame: WireEnvelope, context: CodecContext): str
 // 在单帧大小上限内解码并校验 Wire 消息。
 export function decodeWireFrame(input: string | Uint8Array, context: CodecContext): WireEnvelope {
   return decode(input, context, LIMITS.frame_bytes)
+}
+
+/** 只丢弃已永久失效 provider 的迟到 RPC 数据；不返回 payload、原生上下文或任何执行/读取许可。 */
+export function discardFencedWireFrame(
+  input: string | Uint8Array,
+  context: CodecContext,
+  fenced: readonly ProviderBinding[]
+): boolean {
+  const frame = readEnvelope(input, context, LIMITS.frame_bytes)
+  authenticateEnvelope(frame, context)
+  capability(context, 'provider_fence')
+  const p = object(frame.payload)
+  if (frame.type === 'provider_snapshot') {
+    capability(context, 'provider_snapshot')
+    validateProviderSnapshot(p)
+    return fenced.some(
+      /** 旧快照只能被丢弃，不能由重复广告恢复已失效来源。 */ (binding) =>
+        boundedJson(binding) === boundedJson(p.binding)
+    )
+  }
+  if (
+    !['request', 'accepted', 'dispatch_refused', 'response', 'cancel', 'admission_receipt'].includes(
+      frame.type as string
+    )
+  ) {
+    return false
+  }
+  const binding = bind(frame, p.attempt)
+  if (
+    !fenced.some(
+      /** 只丢弃当前连接原配置中已失效的同一 provider/kind/revision。 */ (provider) =>
+        provider.machine_id === binding.machine_id &&
+        provider.provider_id === binding.target.provider_id &&
+        provider.kind === binding.provider_kind &&
+        provider.binding_revision === binding.binding_revision
+    )
+  ) {
+    return false
+  }
+  switch (frame.type) {
+    case 'request':
+      fields(p, REQUEST)
+      uint(p.expected_binding_revision, true)
+      oneOf(p.validation, ['strict', 'raw-contract'])
+      object(p.native_request)
+      break
+    case 'accepted':
+      fields(p, ['attempt'])
+      break
+    case 'dispatch_refused':
+      capability(context, 'dispatch_refusal')
+      fields(p, ['attempt', 'code'])
+      oneOf(p.code, ['terminal_execution_disabled'])
+      break
+    case 'response':
+      fields(p, ['attempt', 'native_response'])
+      object(p.native_response)
+      break
+    case 'cancel':
+      fields(p, ['attempt', 'reason'])
+      oneOf(p.reason, ['caller_cancelled', 'deadline_exceeded'])
+      break
+    case 'admission_receipt':
+      capability(context, 'admission_receipt')
+      fields(p, ['attempt', 'request_sha256', 'dedup_expires_at'], ['context'])
+      validateAdmissionReceipt({
+        binding,
+        request_sha256: p.request_sha256,
+        dedup_expires_at: p.dedup_expires_at,
+        ...(p.context === undefined ? {} : { context: p.context })
+      })
+      break
+  }
+  return true
 }
 
 // 仅供有界重组使用；逻辑对象仍须完整执行所有 envelope/原生/授权检查。

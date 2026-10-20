@@ -7,6 +7,7 @@ import { boundedJson } from '../wire/index.js'
 import type { GatewayCatalogProvider, ProviderCatalogProvider } from '../mcp/native-catalog.js'
 import type { GatewayConfig, ConnectorConfig } from './config.js'
 import { CliError } from './config.js'
+import { ProviderUnavailableError } from './provider-unavailable.js'
 import type { ManagementSessionAuthority } from '../runtime/index.js'
 import type { RuntimeCliGateway } from './runtime.js'
 import type {
@@ -180,11 +181,20 @@ export async function prepareMixedConnector(
 ): Promise<ProductionConnectorResources> {
   const owner = ownership()
   const prepared: ProductionConnectorResources[] = []
+  const unavailable: ProviderSessionGroup['providers'][number][] = []
   try {
     for (const group of groups) {
-      const resource = await group.source.connector!(config, group.references)
-      owner.resources.push(resource)
-      prepared.push(resource)
+      try {
+        const resource = await group.source.connector!(config, group.references)
+        owner.resources.push(resource)
+        prepared.push(resource)
+      } catch (error) {
+        if (error instanceof ProviderUnavailableError && group.kind === error.provider.binding.kind) {
+          unavailable.push(error.provider)
+        } else {
+          throw error
+        }
+      }
     }
     const native = prepared.find(/** 选择原Luvus会话构建资源。 */ (resource) => resource.kind !== 'provider')
     const hosted = prepared.filter(/** 保留原中性Connector资源及其owner。 */ (resource) => resource.kind === 'provider')
@@ -219,7 +229,7 @@ export async function prepareMixedConnector(
             owner.assertOpen()
           }
           transferred = true
-          return composeConnectorSessions(connection, parts, Date.now)
+          return composeConnectorSessions(connection, parts, Date.now, unavailable)
         } catch (error) {
           if (!transferred) {
             for (const part of parts.reverse()) {
