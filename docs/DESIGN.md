@@ -334,6 +334,8 @@ HTTP MCP 按所选规范验证 issuer、audience、有效期与 scope，使用�
 
 实现语言为 TypeScript，执行与构建使用 [Bun 工具链决策](adr/0003-bun-toolchain.md)，开发命令见 [开发指引](DEVELOPMENT.md)。模块构建成功不是服务入口、网络认证或上线证明。
 
+质量验证直接执行固定 Bun 的安装、类型检查、测试、构建与 smoke 命令，按实际子进程退出码、JUnit 用例和源码执行覆盖判定结果。超时与未执行项保持失败；执行记录描述本次命令和范围。
+
 健康分层报告 Gateway mode/readiness、设备认证/link、Connector、各 binding enabled/readiness、profile/session、model provider/agent 任务错误。单 adapter 故障不等于设备离线，model API 错误不等于网关断线。指标包括在途/拒绝/延迟、unknown、重连、缺口/背压、契约缓存和认证失败；标签及错误聚合有界，不泄露目标内容。
 
 ## 15. 决策理由
