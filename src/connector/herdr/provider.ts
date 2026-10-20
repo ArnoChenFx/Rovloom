@@ -164,18 +164,22 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
   fields(connector, ['local', 'principal_id', 'receipts', 'claims'])
   id(connector.principal_id)
   const local = object(connector.local)
-  fields(local, [
-    'target',
-    'binding_revision',
-    'config_ref',
-    'binary',
-    'home',
-    'config_home',
-    'state_home',
-    'cache_home',
-    'temporary_home',
-    'cwd'
-  ])
+  fields(
+    local,
+    [
+      'target',
+      'binding_revision',
+      'config_ref',
+      'binary',
+      'home',
+      'config_home',
+      'state_home',
+      'cache_home',
+      'temporary_home',
+      'cwd'
+    ],
+    ['allow_terminal_execution']
+  )
   if (
     boundedJson(local.target) !== boundedJson(target) ||
     local.binding_revision !== shared.binding_revision ||
@@ -193,7 +197,10 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
     state_home: path(local.state_home),
     cache_home: path(local.cache_home),
     temporary_home: path(local.temporary_home),
-    cwd: path(local.cwd)
+    cwd: path(local.cwd),
+    ...(Object.hasOwn(local, 'allow_terminal_execution')
+      ? { allow_terminal_execution: local.allow_terminal_execution as boolean }
+      : {})
   })
   const receipts = ledgerRef(connector.receipts, 1024)
   const claims = ledgerRef(connector.claims, 4096)

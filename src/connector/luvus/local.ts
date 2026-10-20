@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { DEFAULT_LIMITS } from '../../native-contract/index.js'
 import { boundedJson, validateTarget } from '../../wire/index.js'
 import { LuvusAdapterError } from './types.js'
+import { pinTerminalExecution } from '../terminal-execution.js'
 import type { EndpointIdentity, LuvusLocalConfig, LuvusLocalLimits } from './types.js'
 
 const defaults: LuvusLocalLimits = Object.freeze({
@@ -85,6 +86,7 @@ async function inspect(path: string, kind: 'directory' | 'binary' | 'socket') {
 }
 /** 校验固定会话、来源哈希、路径和修订，并冻结配置快照以隔离调用方后续修改。 */
 export function pinConfig(config: LuvusLocalConfig): LuvusLocalConfig {
+  pinTerminalExecution(config.allow_terminal_execution)
   validateTarget(config.target)
   uid()
   if (

@@ -14,6 +14,7 @@
 | WSS/loopback 通道、ready、配对 custody、重连与 transport 限额 | [通道接线](TRANSPORT.md) |
 | MCP Streamable HTTP、受信 caller/服务接口、双角色 CLI 与预览限制 | [MCP Streamable HTTP 契约](protocol/MCP-HTTP.md) |
 | 通用 provider 角色、原 caller/锚点与结果预算接缝 | [Provider 角色](PROVIDER-RUNTIME.md) |
+| Connector 本地终端开关、替代输入入口、cwd/PATH 与原生结果边界 | [终端执行](TERMINAL-EXECUTION.md) |
 | Luvus 窗口、Agent、静态 CLI 工厂与同机 managed/attach | [Luvus 操作装配](LUVUS-OPERATIONS.md) |
 | 受管运行时的自有实例、来源与清理隔离验收方法 | [受管运行时隔离验收](MANAGED-RUNTIME-VERIFICATION.md) |
 | 共享管理写事务、确认/回执、窄 HTTP handler 与生产接线边界 | [管理写服务](MANAGEMENT-WRITES.md) |

@@ -16,6 +16,7 @@
 | 产品服务 | 双角色 CLI、MCP Streamable HTTP、实际 Store/Router 查询及清理、逐请求HTTP认证接缝、transport 宿主工厂、受信 Luvus catalog、共享管理 DTO、管理六读及受保护写服务/handler、WebUI 展示/快照生命周期模块 | 生产管理session/CSRF/custody、原子准入的角色装配、唯一持久 claim、生产身份/原生来源及五方法族验收和部署发行 |
 | 开机服务 | systemd 系统单元、系统域 LaunchDaemon、Windows BootTrigger 计划任务的独立状态机、原生后端及唯一 CLI 可选宿主接缝；受控测试，不修改系统启动项 | 生产后台角色宿主、Windows 有效 ACL 与运行配置验证、三平台真实开机及全生命周期验收；见 [SERVICE](SERVICE.md) |
 | Herdr | 固定来源的 65 个普通 RPC、安装/异步 Worker、独立原生来源、Store/Wire/结果锚点与两个 provider 资源工厂，完整 policy 及两份静态/合成回归输入 | 唯一 CLI loader/HTTP MCP 目录联合接线、独立原生证据、同会话真实两轮及模型出口、其余 37 方法、跨平台和实际部署验收 |
+| 直接终端执行 | 单一本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派回归；见[终端执行](TERMINAL-EXECUTION.md) | 唯一 CLI/目录一致接线、隔离原生命令与真实输出验证；逐命令退出证据和独立双向控制仍未交付 |
 
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影

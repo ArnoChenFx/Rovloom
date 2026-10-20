@@ -9,6 +9,7 @@ import { aborted, deadline, interruptible, runFixedProcess, runSocket } from './
 import type { PreparedFrame } from './io.js'
 import { inspectEndpoint, localLimits, pinConfig, recheckEndpoint, verifyInstallation } from './local.js'
 import { LuvusAdapterError } from './types.js'
+import { assertTerminalExecutionAllowed } from '../terminal-execution.js'
 import type {
   EndpointIdentity,
   LuvusLocalConfig,
@@ -302,6 +303,14 @@ export class LuvusRpcAdapter {
         throw new LuvusAdapterError('ordinary_rpc_required')
       }
       const request = frame as RpcRequest
+      /** 只从本机配置取得开关；完整原生请求始终仍走既有 Wire、分类及权限门禁。 */
+      const terminalBoundary = () =>
+        assertTerminalExecutionAllowed(
+          'luvus',
+          request.payload.native_request,
+          this.#host.terminalExecution ? this.#host.terminalExecution() : this.#config.allow_terminal_execution
+        )
+      terminalBoundary()
       const binding: AttemptBinding = {
         machine_id: request.machine_id,
         recovery_generation: request.recovery_generation,
@@ -364,6 +373,7 @@ export class LuvusRpcAdapter {
           if (this.#now() >= binding.registration.deadline) {
             throw new LuvusAdapterError('native_timeout')
           }
+          terminalBoundary()
         }
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
         await interruptible(verifyInstallation(this.#config), ioSignal)

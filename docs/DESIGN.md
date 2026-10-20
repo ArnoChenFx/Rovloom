@@ -61,6 +61,11 @@ Connector 仅执行管理员固定的 binary、状态根和 session 策略。cal
 
 ### 4.1 持久 Gateway 服务
 
+Connector 的直接终端输入及自定义程序启动由机器所有者的本地布尔配置
+`allow_terminal_execution` 显式开启，默认关闭；目录与最终执行前检查使用同一能力判定。
+普通 Agent 对话保留独立授权，不能把该开关描述为限制 Agent 内部工具的 OS 沙箱。
+精确覆盖、cwd/PATH、写入与原生结果边界见[终端执行](TERMINAL-EXECUTION.md)。
+
 Gateway由同一程序作为持久服务运行，唯一MCP入口为Streamable HTTP；本机默认仅监听回环，远程部署须使用HTTPS及兼容认证宿主。MCP客户端连接、断开或退出只影响其会话/请求等待，不隐式停止Gateway或取消native。stdout不承载MCP协议；同一数据库仅一个writer，CLI或后台服务共用角色入口和配置规则。
 
 ### 4.2 Gateway 内置管理 Web UI

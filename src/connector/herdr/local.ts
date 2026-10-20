@@ -7,6 +7,7 @@ import { boundedJson, validateTarget } from '../../wire/index.js'
 import type { V2Target } from '../../wire/types.js'
 import type { NativePeer } from '../local/linux-peer.js'
 import { HERDR_READONLY_REVIEW } from './review.js'
+import { pinTerminalExecution } from '../terminal-execution.js'
 
 export class HerdrLocalError extends Error {
   /** 区分未派发与可能已发送的失败，仅保留固定错误码。 */
@@ -30,6 +31,8 @@ export type HerdrLocalConfig = Readonly<{
   cache_home: string
   temporary_home: string
   cwd: string
+  // 默认关闭直接终端执行；本地显式开启不扩大 caller grants 或赋予操作系统权限。
+  allow_terminal_execution?: boolean
 }>
 export type HerdrEndpoint = Readonly<{ address: string; stamp: string; uid: number }>
 
@@ -101,6 +104,7 @@ export function inspectHerdrPath(path: string, kind: 'directory' | 'binary' | 's
 /** 复制管理员配置，拒绝未声明字段与不能映射到安装版本地 session 的目标。 */
 export function pinHerdrConfig(value: HerdrLocalConfig): HerdrLocalConfig {
   const config = JSON.parse(boundedJson(value, 16_384)) as HerdrLocalConfig
+  pinTerminalExecution(config.allow_terminal_execution)
   validateTarget(config.target)
   const keys = [
     'target',
@@ -115,7 +119,9 @@ export function pinHerdrConfig(value: HerdrLocalConfig): HerdrLocalConfig {
     'cwd'
   ]
   if (
-    Object.keys(config).length !== keys.length ||
+    Object.keys(config).some(
+      /** 只增加明确开关，其余未知配置仍拒绝。 */ (key) => !keys.includes(key) && key !== 'allow_terminal_execution'
+    ) ||
     keys.some(/** 任何配置项缺失都不能使用环境默认值。 */ (key) => !Object.hasOwn(config, key)) ||
     config.target.profile !== 'session' ||
     !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(config.target.session) ||
