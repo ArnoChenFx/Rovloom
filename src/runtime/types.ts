@@ -16,6 +16,7 @@ import type {
   AdmissionReceiptSink,
   WireConnectorOptions
 } from '../transport/index.js'
+import type { ProviderSnapshot } from '../wire/types.js'
 import type {
   LuvusLocalConfig,
   LuvusBoundDelegation,
@@ -40,7 +41,7 @@ export type RuntimeProviderBinding = Readonly<{
 export type RuntimeProvider = RuntimeProviderBinding &
   Readonly<{
     contract: NativeContractRecord
-    // 每次从受保护本机来源复核实例；设备广告或请求 JSON 不能建立该事实。
+    // Connector 复核本机实例；远端 Gateway 复核受保护 pin 和实际认证 epoch，不由广告 JSON 自证。
     source(binding: AttemptBinding): TrustedNativeContext | undefined
     // 目录直接绑定当前实际连接，不编造完整 attempt；旧有限 custody provider 可省略。
     catalogSource?(
@@ -48,6 +49,18 @@ export type RuntimeProvider = RuntimeProviderBinding &
       policies: Readonly<{ caller_policy_revision: string; local_policy_revision: string }>
     ): TrustedNativeContext
     authority: NativeWireBackend['authority']
+  }>
+// 受保护 pin 与当前认证 epoch 分离；此接缝不接受本机 Owner、编译句柄或原生许可的 JSON。
+export type RemoteLuvusRuntimeProvider = RuntimeProviderBinding &
+  Readonly<{
+    remote_luvus: true
+    open(
+      connection: Connection,
+      assertCurrent: () => void
+    ): Readonly<{
+      accept(snapshot: ProviderSnapshot): RuntimeProvider
+      close(): void
+    }>
   }>
 export type RuntimeCatalogProvider = Readonly<{
   resolve(
@@ -82,7 +95,7 @@ export type GatewayRuntimeOptions = Readonly<{
   channels?: ChannelRegistry
   identities: GatewayIdentitySource
   localPolicies: LocalPolicies
-  providers: readonly RuntimeProvider[]
+  providers: readonly (RuntimeProvider | RemoteLuvusRuntimeProvider)[]
   listener: Pick<GatewayOptions, 'hostname' | 'port' | 'tls' | 'developmentLoopback' | 'limits' | 'offer'>
   // 仅在显式关闭角色时释放所交付的 Store/身份库；HTTP 客户端断开不调用此端口。
   release(): Promise<void>
@@ -102,6 +115,8 @@ export type TrustedRequestScope = {
 }
 export type ConnectorRuntimeOptions = Readonly<{
   transport: Omit<WireConnectorOptions, 'session'>
+  // 生产来源可交付固定实测快照；能力仅按双方 offer 协商，不给旧本机模式补造广告。
+  provider_snapshot?: true
   // 每个 epoch 使用独立 backend；来源由可信宿主提供，不重复打开 Gateway writer。
   session(connection: Connection): Readonly<
     {
@@ -120,6 +135,7 @@ export type ConnectorRuntimeOptions = Readonly<{
         evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
       ) => void
       readiness(): Readiness
+      providerSnapshot?(): readonly ProviderSnapshot[]
       close(): void
     } & (
       | {

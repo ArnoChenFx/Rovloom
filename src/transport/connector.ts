@@ -6,10 +6,18 @@ import {
   decodeWireFrame,
   encodeWireFrame,
   fail,
+  hash,
   LIMITS,
+  validateProviderSnapshot,
   validateOffer
 } from '../wire/index.js'
-import type { AttemptBinding, AuthenticatedEnvelope, JsonObject, VersionOffer } from '../wire/types.js'
+import type {
+  AttemptBinding,
+  AuthenticatedEnvelope,
+  JsonObject,
+  ProviderSnapshot,
+  VersionOffer
+} from '../wire/types.js'
 import type { DeviceCredential } from './identity.js'
 import { authenticateAdmissionReceipt } from './admission-proof.js'
 import type { AdmissionReceiptSink } from './admission-proof.js'
@@ -72,6 +80,17 @@ export type WireConnectorOptions = ConnectorBaseOptions & {
   execute?: never
 }
 export type ConnectorOptions = NativeConnectorOptions | WireConnectorOptions
+/** 初次发布前核对整个快照为不可变纯数据；后续 tick 可只比引用，不反复遍历大 capabilities。 */
+function frozenSnapshot(value: unknown): void {
+  if (value && typeof value === 'object') {
+    if (!Object.isFrozen(value)) {
+      fail('provider_snapshot_not_frozen')
+    }
+    for (const child of Object.values(value)) {
+      frozenSnapshot(child)
+    }
+  }
+}
 /** 建立受信配置驱动的出站通道，管理握手、心跳、限额和退避；重连不迁入或重放原请求。 */
 export function createConnector(options: ConnectorOptions) {
   const url = endpoint(options.url, options.developmentLoopback).href
@@ -114,6 +133,15 @@ export function createConnector(options: ConnectorOptions) {
   const seen = new Set<string>()
   let received = new ReceiveWindow()
   let observedTime = 0
+  let published:
+    | {
+        connection: Connection
+        session: Session
+        socket: Socket
+        snapshots: readonly ProviderSnapshot[]
+        fingerprints: readonly string[]
+      }
+    | undefined
   /** 读取宿主可信时间并保持进程内高水位，回拨时拒绝继续执行。 */
   function trustedTime(): number {
     const now = (options.now ?? Date.now)()
@@ -122,6 +150,92 @@ export function createConnector(options: ConnectorOptions) {
     }
     observedTime = now
     return now
+  }
+  /** 快照 getter 必须同步返回；违规异步来源的晚到拒绝被消费，但不当作来源已接纳。 */
+  function snapshots(current: Session): readonly ProviderSnapshot[] {
+    const values = current.providerSnapshot?.()
+    if (!Array.isArray(values) || values.length < 1 || values.length > 64) {
+      void Promise.resolve(values).catch(/** 关闭之外仍消费违规异步 getter 的晚到拒绝。 */ () => {})
+      fail('provider_snapshot_source_required')
+    }
+    return values
+  }
+  /** tick 只复核稳定引用与实际 readiness；心跳和请求边界再完整比较固定 fingerprint。 */
+  function assertSnapshots(active: Connection, current: Session, full = false): void {
+    if (!active.negotiated.capabilities.includes('provider_snapshot')) {
+      return
+    }
+    const captured = published
+    if (
+      !captured ||
+      captured.connection !== active ||
+      captured.session !== current ||
+      connection !== active ||
+      session !== current ||
+      ws !== captured.socket ||
+      stopped
+    ) {
+      fail('connection_unavailable')
+    }
+    const values = snapshots(current)
+    if (values.length !== captured.snapshots.length) {
+      fail('provider_snapshot_changed')
+    }
+    for (let index = 0; index < values.length; index++) {
+      if (
+        values[index] !== captured.snapshots[index] ||
+        (full && hash(boundedJson(values[index])) !== captured.fingerprints[index])
+      ) {
+        fail('provider_snapshot_changed')
+      }
+    }
+    const health = providerHealth(active, current.readiness())
+    for (const value of values) {
+      if (
+        !health.some(
+          /** 每个已发布目标都必须仍有真实 native readiness。 */ (item) =>
+            item.provider_id === value.binding.provider_id && item.ready
+        )
+      ) {
+        fail('provider_not_ready')
+      }
+    }
+    if (published !== captured || connection !== active || session !== current || ws !== captured.socket || stopped) {
+      fail('connection_unavailable')
+    }
+  }
+  /** welcome 后仅向原 socket 各发布一次单 provider 快照；任何重入、替换或背压都关闭原 epoch。 */
+  function publishSnapshots(active: Connection, current: Session): void {
+    if (!active.negotiated.capabilities.includes('provider_snapshot')) {
+      return
+    }
+    const values = snapshots(current)
+    const seenProviders = new Set<string>()
+    const fingerprints: string[] = []
+    let bytes = 0
+    for (const value of values) {
+      validateProviderSnapshot(value)
+      if (value.binding.machine_id !== active.machine_id || seenProviders.has(value.binding.provider_id)) {
+        fail('provider_snapshot_binding_mismatch')
+      }
+      seenProviders.add(value.binding.provider_id)
+      const raw = boundedJson(value)
+      bytes += Buffer.byteLength(raw)
+      if (bytes > LIMITS.buffered_bytes) {
+        fail('provider_snapshot_limit')
+      }
+      fingerprints.push(hash(raw))
+    }
+    frozenSnapshot(values)
+    if (!ws || connection !== active || session !== current || stopped) {
+      fail('connection_unavailable')
+    }
+    published = { connection: active, session: current, socket: ws, snapshots: values, fingerprints }
+    for (const value of values) {
+      assertSnapshots(active, current)
+      write(envelope(active, 'provider_snapshot', value))
+    }
+    assertSnapshots(active, current, true)
   }
   /** 中止旧会话观察、关闭宿主资源并清空连接去重状态；未完成原生工作仍占并发额度。 */
   function clearSession(): void {
@@ -133,6 +247,7 @@ export function createConnector(options: ConnectorOptions) {
     // 先撤下活动引用，避免宿主关闭回调重入时再次消费同一 epoch。
     session = undefined
     connection = undefined
+    published = undefined
     try {
       if (previous && identity && 'admissions' in previous && previous.admissions?.closeEpoch) {
         const fenced = previous.admissions.closeEpoch(identity)
@@ -230,6 +345,7 @@ export function createConnector(options: ConnectorOptions) {
     active: Connection,
     current: Session | ConnectorWireSession
   ): Promise<void> {
+    assertSnapshots(active, current, true)
     const binding: AttemptBinding = {
       machine_id: active.machine_id,
       recovery_generation: active.recovery_generation,
@@ -285,6 +401,7 @@ export function createConnector(options: ConnectorOptions) {
       if (trustedTime() >= binding.registration.deadline) {
         fail('deadline_exceeded')
       }
+      assertSnapshots(active, current, true)
       // Wire hook 保留原帧、原 message_id 和无 id/auth 的 native_request，由原生 adapter 唯一注入。
       let result: WireExecutionResult | undefined
       let response: JsonObject
@@ -432,6 +549,10 @@ export function createConnector(options: ConnectorOptions) {
             if (stopped || ws !== current || !connection || !session) {
               fail('connection_unavailable')
             }
+            publishSnapshots(connection, session)
+            if (stopped || ws !== current || !connection || !session) {
+              fail('connection_unavailable')
+            }
             phase = 'authenticated'
             last = now
             return
@@ -568,6 +689,7 @@ export function createConnector(options: ConnectorOptions) {
           close()
           return
         }
+        assertSnapshots(connection, session)
         for (const { controller, binding } of running.values()) {
           if (
             !ready(session, connection, binding.target.provider_id) ||
@@ -577,6 +699,7 @@ export function createConnector(options: ConnectorOptions) {
           }
         }
         if (now - sentAt >= limits.heartbeat_ms) {
+          assertSnapshots(connection, session, true)
           write(envelope(connection, 'heartbeat', { sequence: sent++ }))
           sentAt = now
         }

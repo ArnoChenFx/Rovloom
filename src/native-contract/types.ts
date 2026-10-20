@@ -197,6 +197,8 @@ export type ResultAuthorization = Readonly<{
 }>
 
 export interface NativeValidator {
+  // 只校验能力响应、目录和预期目标身份，不认证来源或创建能力/响应句柄。
+  checkCapabilitiesShape(input: unknown, expected: Pick<NativeBinding, 'target' | 'server_generation'>): Check<void>
   // 把独立验证的原生来源与能力广告绑定为当前契约的内存视图。
   bindCapabilities(response: unknown, source: TrustedNativeContext): Check<CapabilityView>
   // 返回能力视图中的方法描述，描述信息本身不授予执行权限。

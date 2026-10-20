@@ -14,6 +14,7 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 | 可选 feature | 用途 |
 |---|---|
 | rpc | 普通 request/accepted/response/cancel |
+| provider_snapshot | Connector 实测 provider 来源快照；同时要求 rpc，不交付 schema 或 opaque handle |
 | admission_receipt | Gateway 原去重截止和请求摘要的认证交付；同时要求 rpc |
 | admission_context | 在原 receipt 内交付完整登记上下文与有序失效；同时要求 admission_receipt 和 rpc |
 | history_scope | 显式登记 history_epoch/client_request_key |
@@ -166,6 +167,7 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | enroll | Connector → Gateway，预认证 | registration_id, connector_instance_id, enrollment_credential, offer |
 | authenticate | Connector → Gateway，预认证 | machine_id, recovery_generation, connector_instance_id, device_credential, offer |
 | welcome | Gateway → Connector，预认证 | machine_id, recovery_generation, connection_epoch, in_reply_to, selected |
+| provider_snapshot | Connector → Gateway | binding, target, source, capabilities, capability_revision |
 | admission_receipt | Gateway → Connector | attempt, request_sha256, dedup_expires_at；协商 admission_context 后另需 context |
 | request | Gateway → Connector | attempt, expected_binding_revision, native_request, validation |
 | accepted | Connector → Gateway | attempt |
@@ -178,6 +180,29 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | stream_close | 双向 | attempt, stream_id, reason |
 | error | 双向，预认证或已认证 | source, code, retryable, cause_message_id? |
 | object_chunk | 双向，schema_bundle 仅 Connector → Gateway | object_id, kind, total_bytes, sha256, chunk_count, index, data |
+
+## 可选 provider 来源快照
+
+`provider_snapshot` 仅在双方协商后使用，不从 welcome 或 heartbeat 推断。生产 Gateway
+按受保护的 machine 名单要求远端快照，本机 attach 设备不被其它远端设备的能力广告影响；
+显式 required 与设备范围冲突时拒绝，不静默删除 required。外壳仍逐项绑定
+真实设备、恢复代次与当前 epoch，source/target/binding 形状严格校验；首片仅 Luvus
+session。capabilities 是同次原完整能力 envelope，capability_revision 是原 result 的
+canonical JSON SHA-256。消息不接收 schema、compiled/view/permit、PID/uid、路径或
+authenticated/source_verified 自报字段。
+
+每个 provider 每 epoch 发送一次，单帧仍为 1 MiB；每 epoch 最多 64 provider、累计
+20 MiB。精确重复幂等，不刷新来源或期限；同 provider 的变化关闭连接。Gateway 只将
+消息交给该已认证 socket 的同步 receiver，完成后再次核验实际 peer；缺 receiver 或
+异步返回均拒绝。Connector 的 snapshot source 是固定深冻结数据，tick/发送前继续
+核实际 readiness，内容变化或来源失效关闭 epoch。重连须重新认证和独立交付，旧调用
+不重发。
+
+codec 成功仅证明消息边界。受保护配置先固定 schema 原字节及版本/hash/revisions，
+由 Gateway 本地原 Worker 编译；runtime 再核 canonical binding、完整 Target、能力、
+当前 SocketChannel/Store epoch，成功后才发布 live source。此流程不反序列化 native
+opaque，不代替 Connector 的实际 binary/socket/process 核验。schema_bundle 分片仍不
+是 provider 注册或任意 schema 信任入口。
 
 ## 可选原截止交付
 

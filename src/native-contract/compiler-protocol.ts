@@ -32,6 +32,8 @@ export type CompilerArtifact = {
   code_sha256: string
   options_sha256: string
 }
+// 仅由固定 Worker 模块传入的资产查询；公共编译 API 和私有消息均不接受该端口。
+export type PrecompiledLookup = (identity: ContractIdentity, budget: Limits) => CompilerArtifact | undefined
 export type CompileJob = {
   version: number
   job_id: string
