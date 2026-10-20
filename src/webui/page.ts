@@ -6,6 +6,7 @@ import type { ReaderState } from './reader.js'
 import { createLocalizer } from './i18n.js'
 import { createUiPreferences, type UiPreferences } from './preferences.js'
 import { createPreferenceControl } from './preference-control.js'
+import { createPairingProgress } from './pairing-progress.js'
 import { createDeviceActions } from './device-actions.js'
 import type { ManagementWriteTransport, DeviceManagementIntent } from './write-contract.js'
 
@@ -93,15 +94,35 @@ export function mountWebUi(
   let reader: SnapshotReader<PageView>
   let disposed = false
   let i18n = createLocalizer('en')
+  const pairing = management
+    ? createPairingProgress({
+        transport: management,
+        /** 取消申请与其它管理动作共用同一个确认/未知回执实例。 */
+        cancel(machine_id, pairing_id, trigger) {
+          actions?.open({ action: 'pairing_cancel', machine_id, pairing_id }, trigger)
+        },
+        /** 失效会话清空整个页面，进度403则由局部控件说明。 */
+        authorizationLost() {
+          reader.dispose()
+          actions?.clear()
+          pairing?.clear()
+          paint({ snapshot: null, pending: false, stale: true, ageMs: 0, problem: 'unauthenticated' }, route)
+        }
+      })
+    : undefined
   const actions = management
     ? createDeviceActions({
         transport: management,
         /** 持久提交后销毁旧在途读取，再取当前目标；迟到旧快照不能覆盖真实变更。 */
         committed(machineId) {
-          if (!disposed && route.machineId === machineId) {
+          if (!disposed && (route.machineId === machineId || route.machineId === null)) {
             reader.dispose()
             start()
           }
+        },
+        /** 注册回执仅携带原申请引用，不自动获取新设备权限。 */
+        pairingCreated(machine, id) {
+          pairing?.open(machine, id)
         },
         /** 写请求发现会话/权限失效时同样清空读数据，不能让旧页面继续操作。 */
         authorizationLost(problem) {
@@ -110,12 +131,13 @@ export function mountWebUi(
           }
           reader.dispose()
           actions?.clear()
+          pairing?.clear()
           paint({ snapshot: null, pending: false, stale: true, ageMs: 0, problem }, route)
         }
       })
     : undefined
   if (actions) {
-    footer.before(actions.region)
+    footer.before(actions.region, pairing!.region)
   }
 
   /** 稳定工具栏与当前快照重新本地化；不替换 reader、路由、等待信号或时间锚点。 */
@@ -136,8 +158,14 @@ export function mountWebUi(
     sectionLink.setAttribute('aria-current', current.machineId === null ? 'page' : 'location')
     if (['unauthenticated', 'forbidden', 'not_found'].includes(state.problem ?? '')) {
       actions?.clear()
+      pairing?.clear()
     }
     actions?.update(
+      i18n,
+      !!state.snapshot && !state.stale && state.snapshot.value.status.mode === 'active',
+      state.snapshot ? state.snapshot.observedAt + state.ageMs : undefined
+    )
+    pairing?.update(
       i18n,
       !!state.snapshot && !state.stale && state.snapshot.value.status.mode === 'active',
       state.snapshot ? state.snapshot.observedAt + state.ageMs : undefined
@@ -209,24 +237,68 @@ export function mountWebUi(
   /** 只接收实际启用的设备入口和当前读模型目标，不消费浏览器自报身份。 */
   function deviceAction(event: MouseEvent): void {
     const button =
-      event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-device-action]') : null
+      event.target instanceof Element
+        ? event.target.closest<HTMLButtonElement>(
+            'button[data-device-action],button[data-provider-action],button[data-pairing-action]'
+          )
+        : null
     if (!actions || !button || button.disabled || !content.contains(button)) {
       return
     }
-    const device = reader.state().snapshot?.value.device
+    const snapshot = reader.state()
+    const page = snapshot.snapshot?.value
+    if (!page || snapshot.stale || page.status.mode !== 'active') {
+      return
+    }
+    if (button.dataset.pairingAction === 'lookup') {
+      pairing?.open(page.device?.machine_id)
+      return
+    }
+    if (button.dataset.pairingAction === 'create') {
+      const value: DeviceManagementIntent = page.device
+        ? { action: 'pairing_create', machine_id: page.device.machine_id, policy_ref: '' }
+        : { action: 'pairing_create', name: '', labels: [], policy_ref: '' }
+      if (page.device && page.device.persisted_state !== 'pending') {
+        return
+      }
+      actions.open(value, button)
+      return
+    }
+    const device = page.device
     if (!device || route.machineId !== device.machine_id) {
       return
     }
-    const action = button.dataset.deviceAction as DeviceManagementIntent['action']
-    if (!['device_rename', 'device_disconnect', 'device_revoke'].includes(action)) {
+    if (button.dataset.providerAction === 'disable') {
+      const provider = page.providers.items.find(
+        /** 仅从当前已授权实例页选取目标。 */ (item) => item.provider_id === button.dataset.providerId
+      )
+      if (provider?.enabled) {
+        actions.open(
+          {
+            action: 'provider_disable',
+            machine_id: device.machine_id,
+            provider_id: provider.provider_id,
+            kind: provider.kind,
+            expected_binding_revision: provider.binding_revision
+          },
+          button
+        )
+      }
       return
     }
-    actions.open(action, device.machine_id, device.name, button)
+    const action = button.dataset.deviceAction
+    if (action === 'device_rename') {
+      actions.open({ action, machine_id: device.machine_id, name: device.name }, button)
+    }
+    if (action === 'device_disconnect' || action === 'device_revoke') {
+      actions.open({ action, machine_id: device.machine_id }, button)
+    }
   }
 
   /** 哈希导航、后退与分页都先清理旧路由资源，再获取新目标。 */
   function navigate(): void {
     actions?.suspend()
+    pairing?.suspend()
     language.close()
     theme.close()
     if (location.hash === '#management-content') {
@@ -243,6 +315,7 @@ export function mountWebUi(
   function visibility(): void {
     if (document.visibilityState === 'hidden') {
       actions?.suspend()
+      pairing?.suspend()
     }
     reader.visible(document.visibilityState !== 'hidden')
   }
@@ -260,6 +333,7 @@ export function mountWebUi(
   /** 页面离开时销毁在途请求及定时器，后退不会重复任何写入。 */
   function hide(): void {
     actions?.suspend()
+    pairing?.suspend()
     language.close()
     theme.close()
     reader.dispose()
@@ -274,6 +348,7 @@ export function mountWebUi(
     disposed = true
     reader.dispose()
     actions?.dispose()
+    pairing?.dispose()
     content.removeEventListener('click', deviceAction)
     skip.removeEventListener('click', skipContent)
     refresh.removeEventListener('click', refreshPage)

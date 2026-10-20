@@ -14,10 +14,11 @@
 当前构建同时输出 Bun 展示/宿主模块和 `dist/webui/` 静态资源，默认浏览器入口通过固定同源 GET 读取六项管理资源，
 不自动启动管理 listener、提供登录/退出或加载测试数据。默认入口消费宿主受保护 HTML 的单次 CSRF meta，
 并通过既有写客户端接入设备改名、断开和撤销的一次确认与回执流程；缺失或无效交付在网络发送前拒绝。
-配对及 provider 页面操作仍不可用；没有后台一次性确认或持久提交证明时不显示成功。
+页面已接注册/pending 申请、精确配对进度及取消、单实例 provider 禁用，均复用原确认/持久回执。
+provider 启用缺少真实 `providerEnable` 证明，当前明确不可用；没有后台持久提交证明时不显示成功。
 展示、HTTP 接口测试通过不表示 issue #14、生产会话接线或真实设备链路已完成。
 
-共享读取未提供设备 ready 证明、配对进度、最近连接/重连时间、OS/version、实际监听范围或管理员会话截止时间；
+共享六读未提供设备 ready 证明、配对进度、最近连接/重连时间、OS/version、实际监听范围或管理员会话截止时间；
 页面明确显示缺口。`persisted_state=online` 不填补 `Observed.verification=unverified`，
 权限提示的 `expires_at` 与 history 截止时间均不作为登录期限。宿主如有可信管理会话截止信息，
 可通过内部 `TimedSnapshot.sessionExpiresAt` 传递；未提供时依靠每次重新认证的读取，收到 401 即清空并停轮询。
@@ -28,6 +29,23 @@
 展示边界最多 200 行、512 KiB，并拒绝未知字段和越目标数据；HTTP 桥同时执行输入、输出和在途任务预算；这不替代宿主会话服务及共享业务授权。
 恢复隔离仅读取并展示最小 status；provider 的 403/暂不可用单独显示，401 使整页失效；设备/整页读取不可见的404同样清空旧页并停止读取，provider/权限提示的局部404只降级该部分且仍复核设备，避免撤权后保留旧详情。
 隔离 fixture 与真实 Chromium 的复现入口见[开发指引](DEVELOPMENT.md#管理页面的隔离验证)。
+
+## 注册与配对进度的当前接线
+
+设备列表的注册表单只接收规范名称及已配置的非秘密 `policy_ref`，labels 暂为显式空集合。
+确认展示原名称、策略和零revision；提交后只展示原 `machine_id/pairing_id`、pending及本机签发指引。
+返回 pending 不等于签发或认证成功，不签发 enrollment 或凭据，也不授予新设备 `devices_read`。
+原回执丢失只能按原request/history查询；返回的申请引用在内存保留，不写URL或持久存储。
+
+进度面板按原 `machine_id/pairing_id` 手动调用现有 `pairings_get`，严格只接受
+`pending/paired/cancelled/expired`，签发固定 `unverified`。不新增 registration_id 或“已签发”状态。
+新设备缺少读取授权时显示局部403说明，保留注册已提交回执，不自动补权、重注册或导航到不可读详情。
+已有独立读取授权的pending目标可查询，再通过同一二次确认/回执状态机取消申请；
+取消仍要求原 `devices_register` 及目标 `devices_revoke` 权限，后端独立复核状态/revision。
+进度不自动轮询；输入变更、导航、隐藏和会话失效取消旧等待，十五秒后旧进度不能启用取消。
+
+仅持久状态为pending的设备可申请配对；已配对offline/revoked设备的重配重置尚未支持，明确展示限制。
+秘密签发、安全输入、真实双Connector认证与最终联合验收均未由该页面完成。
 
 ## 语言与主题
 
@@ -63,7 +81,10 @@ Gateway 的监听/认证缺口、组件状态和观测时间保持可见，只�
 `mountWebUi(root, read, clock?, management?)` 可注入现有 `ManagementWriteTransport`，
 在设备详情启用权限提示允许且当前快照有效的改名、断开和撤销入口。提示只控制入口，
 每一步仍由原写服务验证管理员、CSRF、目标和资源 fence；不从浏览器生成管理员身份。
-改名只接受 Store 现有名称约束，不提供尚未接入的标签修改。配对和 provider 操作继续显示不可用。
+改名只接受 Store 现有名称约束，不提供标签修改。provider 每行只启用单实例禁用入口，
+复核当前 `expected_binding_revision` 并在确认/回执展示精确 kind/provider、binding 和影响。
+启用按钮附带缺少真实 `providerEnable` 证明的说明，客户端不开放该写动作。
+入口提示不代替后端 `providers_manage` 的精确目标授权。
 
 页面复用 `createDeviceManagementFlow`：准备只获取后台摘要；明确确认才提交。
 对话框展示目标、名称或精确连接代次、revision、原因、原截止和撤销影响实例。
@@ -139,8 +160,8 @@ pending/revoked 优先保留共享服务已有且新鲜的 Store 认证证明，
 [共享管理写服务](MANAGEMENT-WRITES.md)已提供同 Store 事务、独立管理员授权、后台一次性确认与持久回执，
 支持 pending 注册/配对申请、改名、进度、取消、精确 epoch 断开、持久撤销及 provider 启停的受信端口。
 生产 session/CSRF、秘密交付进度和 provider 重新启用证明仍须运行宿主接线，缺失即拒绝。
-窄 HTTP handler 复用现有读桥，不启动第二 listener；三个设备页面动作消费已公布的固定 actions POST，
-下文目标 REST 路由及其余页面操作仍待接线，
+窄 HTTP handler 复用现有读桥，不启动第二 listener；页面消费已公布的固定 actions POST，
+下文目标 REST 路由不新增实现，
 不因服务模块或合成测试称管理产品已上线。
 
 ## 范围与服务边界

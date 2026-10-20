@@ -127,7 +127,7 @@ test(
     const f = fixture()
     try {
       const responses = await Promise.all([f.handler.fetch(f.request()), f.handler.fetch(f.request('/index.html'))])
-      assert(responses.every((response) => response.status === 200))
+      assert(responses.every(/** 两个页面均恢复同一交付。 */ (response) => response.status === 200))
       const first = responses[0]!
       const rawCookie = /^rovloom_management=([\w-]{43});/.exec(first.headers.get('set-cookie')!)![1]!
       const nextCookie = /^rovloom_management=([\w-]{43});/.exec(responses[1]!.headers.get('set-cookie')!)![1]!
