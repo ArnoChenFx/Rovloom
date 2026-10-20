@@ -21,6 +21,7 @@ import { CliError } from './config.js'
 import type { ProductionCliSources, ProductionProviderReference } from './production.js'
 import { createHerdrProductSources } from './herdr-sources.js'
 import { readRuntimeFile } from './runtime-files.js'
+import { ProviderUnavailableError } from './provider-unavailable.js'
 
 export type HerdrProductionOwnerConfig = Readonly<{
   kind: 'herdr'
@@ -160,7 +161,7 @@ export class HerdrProductionStartupError extends HerdrLocalError {
 }
 
 /** 已存在的端点明确拒绝；现有目录仍逐级验证，不能把链接或另一个 session 当作可认领实例。 */
-function endpointAbsent(config: HerdrProductionOwnerConfig['config']): void {
+export function assertHerdrProductionEndpointAbsent(config: HerdrProductionOwnerConfig['config']): void {
   const local = config.connector.local
   const directories = [join(local.config_home, 'herdr')]
   if (local.target.session !== 'default') {
@@ -185,7 +186,18 @@ function endpointAbsent(config: HerdrProductionOwnerConfig['config']): void {
     }
     throw new HerdrLocalError('herdr_production_endpoint_unavailable')
   }
-  throw new HerdrLocalError('herdr_production_instance_exists')
+  // 未取得 child/owner/writer，不能删除或接管既有端点；只声明此原配置不可用。
+  throw new ProviderUnavailableError({
+    target: config.target,
+    binding: {
+      machine_id: config.target.machine_id,
+      provider_id: config.target.provider_id,
+      kind: 'herdr',
+      config_ref: config.config_ref,
+      binding_revision: config.binding_revision,
+      enabled: true
+    }
+  })
 }
 
 /** 仅等待当前受监管 child 的 endpoint；来源、schema 与实际 socket peer 继续由原 installation 核验。 */
@@ -226,7 +238,7 @@ export function createHerdrProductionSources(): ProductionCliSources {
         bytes.fill(0)
       }
       verifyHerdrInstallation(local)
-      endpointAbsent(config)
+      assertHerdrProductionEndpointAbsent(config)
       const ownerPath = join(local.config_home, `.rovloom-herdr-${local.target.session}.owner.json`)
       let stamp: string | undefined = createNativeRecord(ownerPath, {
         format: 'rovloom-herdr-owner-v1',

@@ -3,7 +3,7 @@ import { Router } from '../router.js'
 import { GatewayError } from '../contracts.js'
 import { createGateway, createDeviceLifecycleAdapter } from '../transport/index.js'
 import { createProviderResultAccess } from './results.js'
-import { closeSession, ready, OFFER } from '../transport/common.js'
+import { closeSession, providerHealth, ready, OFFER } from '../transport/common.js'
 import type { Session, Readiness, Adapter } from '../transport/common.js'
 import { DEFAULT_LIMITS } from '../native-contract/index.js'
 import type { TrustedAttempt } from '../integration/luvus-wire.js'
@@ -113,9 +113,12 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
     return current
   }
   /** 按持久原请求选择独立 native 来源，不能从响应或 caller JSON 建立来源。 */
-  function source(callId: string, attemptId: string) {
+  function source(callId: string, attemptId: string, fenced: ReadonlySet<string>) {
     const attempt = store.attempt(callId, attemptId)
-    const current = attempt ? nativeProviders.get(key(attempt.binding.target))?.source(attempt.binding) : undefined
+    const current =
+      attempt && !fenced.has(key(attempt.binding.target))
+        ? nativeProviders.get(key(attempt.binding.target))?.source(attempt.binding)
+        : undefined
     if (closing) {
       throw new GatewayError('runtime_closed')
     }
@@ -269,32 +272,68 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
             live?: RuntimeProvider
           }
         >()
-        /** 同一实际 socket 先失效，再移除该 epoch 的目录与契约；原调用不迁到新连接。 */
-        function closeRemoteEpochs(): void {
-          let failed = false
-          for (const [name, state] of remoteEpochs) {
-            try {
-              state.epoch.close()
-            } catch {
-              failed = true
-              sessionCleanupFailed = true
-            }
+        const isolated = connection.negotiated.capabilities.includes('provider_fence')
+        const fencedNative = new Set<string>()
+        /** 同一来源只关闭自己的 epoch；其它 provider 的目录与契约仍由其原 owner 持有。 */
+        function fenceNativeProvider(binding: ProviderBinding): void {
+          const name = key(binding)
+          const configured = providers.get(name)
+          if (!configured || boundedJson(configured.binding) !== boundedJson(binding)) {
+            fail('provider_binding_mismatch')
+          }
+          if (fencedNative.has(name)) {
+            return
+          }
+          fencedNative.add(name)
+          const state = remoteEpochs.get(name)
+          if (!state) {
+            return
+          }
+          try {
+            state.epoch.close()
+          } finally {
+            remoteEpochs.delete(name)
             if (state.live && nativeProviders.get(name) === state.live) {
               nativeProviders.delete(name)
               const ref = contractRef(state.live.contract.wire.source)
               if (
                 ![...nativeProviders.values()].some(
-                  /** 其它固定 provider 仍使用该引用时保留自己的契约。 */
-                  (provider) => contractRef(provider.contract.wire.source) === ref
+                  /** 相同契约仍被其它活来源使用时保留其原引用。 */ (provider) =>
+                    contractRef(provider.contract.wire.source) === ref
                 )
               ) {
                 contracts.delete(ref)
               }
             }
           }
-          remoteEpochs.clear()
+        }
+        /** 全角色关闭仍逐项回收全部原 epoch，即使一项失败也不跳过其它 owner。 */
+        function closeRemoteEpochs(): void {
+          let failed = false
+          for (const name of remoteEpochs.keys()) {
+            try {
+              fenceNativeProvider(providers.get(name)!.binding)
+            } catch {
+              failed = true
+              sessionCleanupFailed = true
+            }
+          }
           if (failed) {
             fail('runtime_session_close_failed')
+          }
+        }
+        /** 已失效来源永不复查为 ready；独立来源 getter 的失败只收紧对应 provider。 */
+        function providerReady(provider: RuntimeProviderBinding): boolean {
+          if (fencedNative.has(key(provider.binding))) {
+            return false
+          }
+          try {
+            return provider.ready() === true
+          } catch (error) {
+            if (isolated) {
+              return false
+            }
+            throw error
           }
         }
         /** 每个来源操作都回到当前 SocketChannel 与唯一 Store，不信任帧中的 authenticated 标志。 */
@@ -320,6 +359,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           const name = key(snapshot.target)
           const configured = providers.get(name)
           if (
+            fencedNative.has(name) ||
             !configured ||
             snapshot.target.machine_id !== connection.machine_id ||
             boundedJson(configured.binding) !== boundedJson(snapshot.binding) ||
@@ -372,7 +412,8 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           localProvider,
           /** 仅查受保护契约注册表中的固定来源。 */
           contract: (ref) => contracts.get(ref),
-          nativeSource: source,
+          nativeSource: /** 只从原账本取 attempt，再排除本 epoch 已永久失效的来源。 */ (call, attempt) =>
+            source(call, attempt, fencedNative),
           /** caller 及本机策略始终重新取当前来源；未认证的持久引用不能继续授权。 */
           policies(principalId) {
             const caller = options.identities.principal({ principal_id: principalId })
@@ -452,15 +493,51 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
                 provider.binding.machine_id === connection.machine_id && !hostedNames.has(key(provider.binding))
             )
             if (nativeOptions && (nativeEntries.length || !selectedHosts.length)) {
-              parts.push({
-                providers: nativeEntries,
-                session: {
-                  ...createDeviceLifecycleAdapter(nativeOptions.lifecycle, channel, services),
-                  readiness: nativeReadiness,
-                  acceptProviderSnapshot,
-                  /** 原Wire由transport关闭，远端epoch由同一外层owner清理。 */ close() {}
-                }
-              })
+              const scopes =
+                isolated && nativeEntries.length
+                  ? nativeEntries.map(
+                      /** 每个原 provider 独立持有同一真实后端的 Wire 状态。 */ (provider) => [provider]
+                    )
+                  : [nativeEntries]
+              for (const entries of scopes) {
+                parts.push({
+                  providers: entries,
+                  session: {
+                    ...createDeviceLifecycleAdapter(nativeOptions.lifecycle, channel, services),
+                    /** 仅投影此原实例的健康，不改变其 canonical binding 或权限。 */ readiness() {
+                      const state = nativeReadiness(entries)
+                      return {
+                        ...state,
+                        providers: state.providers.filter(
+                          /** 独立 adapter 只报告其原实例。 */ (provider) =>
+                            entries.some(
+                              /** 按同机器唯一 provider ID 匹配，不拼接 tuple。 */ (entry) =>
+                                entry.binding.provider_id === provider.local.provider_id
+                            )
+                        )
+                      }
+                    },
+                    /** 仍由原远端 pin/epoch 接纳实际快照。 */ acceptProviderSnapshot(snapshot) {
+                      if (
+                        !entries.some(
+                          /** 不允许跨原实例导入来源。 */ (entry) =>
+                            entry.binding.provider_id === snapshot.binding.provider_id
+                        )
+                      ) {
+                        fail('provider_binding_mismatch')
+                      }
+                      acceptProviderSnapshot(snapshot)
+                    },
+                    /** 只撤去此原实例来源；原 Wire 的许可由 transport 关闭。 */ close() {
+                      if (isolated) {
+                        for (const entry of entries) {
+                          fenceNativeProvider(entry.binding)
+                        }
+                      }
+                    }
+                  }
+                })
+              }
             }
             for (const group of selectedHosts) {
               const session = group.session(connection, channel, {
@@ -485,7 +562,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
             if (!parts.length) {
               fail('runtime_session_unavailable')
             }
-            if (parts.length === 1) {
+            if (parts.length === 1 && (!isolated || !parts[0]!.providers.length)) {
               owned = parts[0]!.session
             } else {
               composed = true
@@ -566,11 +643,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
             }
           }
           /** Luvus原组只报告自己的来源，不递归读取组合会话或借用Herdr就绪。 */
-          function nativeReadiness(): Readiness {
-            const entries = [...providers.values()].filter(
-              /** 每个原adapter仅覆盖本机器上明确归属它的provider。 */ (provider) =>
-                provider.binding.machine_id === connection.machine_id && !hostedNames.has(key(provider.binding))
-            )
+          function nativeReadiness(entries: readonly RuntimeProviderBinding[]): Readiness {
             const revision = entries[0] ? localPolicies(entries[0].target).revision : ''
             const peer = entries[0]?.peer_policy_revision ?? ''
             return {
@@ -582,7 +655,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
                     store.provider(provider.binding.machine_id, provider.binding.provider_id) ?? provider.binding,
                   local: provider.binding,
                   native_ready:
-                    provider.ready() === true &&
+                    providerReady(provider) &&
                     !closing &&
                     !!localProvider(provider.target) &&
                     localPolicies(provider.target).revision === revision &&
@@ -601,6 +674,16 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
             const local = entries[0]
             const policyRevision = local ? localPolicies(local.target).revision : ''
             const peerRevision = local?.peer_policy_revision ?? ''
+            const sessionHealth = isolated
+              ? new Map(
+                  providerHealth(connection, native.readiness()).map(
+                    /** 每轮只观察组合原来源一次，避免为每个 provider 重读全部实例。 */ (provider) => [
+                      provider.provider_id,
+                      provider.ready
+                    ]
+                  )
+                )
+              : undefined
             return {
               policy_revision: policyRevision,
               peer_policy_revision: peerRevision,
@@ -611,8 +694,11 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
                     store.provider(provider.binding.machine_id, provider.binding.provider_id) ?? provider.binding,
                   local: provider.binding,
                   native_ready:
-                    provider.ready() === true &&
-                    (!selectedHosts.length || ready(native, connection, provider.binding.provider_id)) &&
+                    providerReady(provider) &&
+                    ((!isolated && !selectedHosts.length) ||
+                      (isolated
+                        ? sessionHealth!.get(provider.binding.provider_id) === true
+                        : ready(native, connection, provider.binding.provider_id))) &&
                     !closing &&
                     !!localProvider(provider.target) &&
                     localPolicies(provider.target).revision === policyRevision &&
@@ -625,6 +711,19 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           return {
             adapter,
             readiness: configuredReadiness,
+            ...(native.fenceProvider
+              ? {
+                  /** 原组合先关闭该 provider 的许可，再永久移除其本 epoch 来源。 */ fenceProvider(
+                    binding: ProviderBinding
+                  ) {
+                    native.fenceProvider!(binding)
+                    if (!hostedNames.has(key(binding))) {
+                      fenceNativeProvider(binding)
+                    }
+                  },
+                  providerFences: native.providerFences?.bind(native)
+                }
+              : {}),
             ...(native.acceptProviderSnapshot
               ? { acceptProviderSnapshot: native.acceptProviderSnapshot.bind(native) }
               : {}),
