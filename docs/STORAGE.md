@@ -87,6 +87,9 @@ get/readResult 返回，命中已完成旧调用也不能凭 dispatch/cancel 权
 不跨轮缓存时间。共同 provider 结果层的前置 `Router.checkResultRead` 与实际分页共用句柄、期限和
 参数校验，但不构造正文页；原 Wire 与当前权限末次复验后仍由 `Store.readResult` 重新读页，
 句柄删除或到期必须拒绝。本轮预检成功不授予后续读取权，也不刷新任何期限或取消时钟高水位。
+`Router.saveResult` 先以当前归属、内容和期限读取已有句柄元数据，命中时保留原 ID/摘要/期限，
+不进入签发事务或全量预算检查；缺失时仍由原 `Store.saveResult` 事务执行签发与预算检查。
+provider 结果层在此路径前后仍复验原 Wire 与当前授权，不用缓存句柄代替本次授权。
 Store 的可选 `authorize` 是独立可信宿主参数，必须同步返回 undefined；异常或非 undefined
 返回值回滚登记，不支持异步授权，也不承诺撤销异步回调已产生的外部影响。Router 不从工具 JSON
 接收该回调。内部 `Router.create` / `Store.createCall` 保留相对 `timeoutMs` 和原有 Call 返回值，

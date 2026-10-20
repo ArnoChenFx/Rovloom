@@ -358,6 +358,39 @@ test(
 
 for (const change of ['identity', 'local', 'wire', 'source', 'budget'] as const) {
   test(
+    '复用已有句柄元数据仍重验末次 provider/Wire ' + change,
+    /** 重复 open 命中已有句柄也必须运行前后完整原生门禁，不能凭固定 ID 免授权。 */ (t) => {
+      const f = fixture()
+      t.after(/** 回收本例实际资源。 */ () => f.close())
+      const meta = f.access.open(f.calls[0]!.call_id)
+      let reads = 0
+      const access = createProviderResultAccess({
+        ...f.ports,
+        /** 第二次 readable 的最后一道 provider 回调位于复用元数据之后。 */ provider(target) {
+          if (++reads === 4) {
+            if (change === 'identity') {
+              f.principal.id = 'other'
+            } else if (change === 'local') {
+              f.local.grants = []
+            } else if (change === 'wire') {
+              f.first.adapter.close()
+            } else if (change === 'source') {
+              f.first.state.sourceVerified = false
+            } else {
+              const configured = f.providers.get(target.provider_id)!
+              f.configure(target.provider_id, { ...configured, max_response_bytes: 1 })
+            }
+          }
+          return f.ports.provider(target)
+        }
+      })
+      assert.throws(/** 命中旧句柄也不能交付撤权前的元数据。 */ () => access.open(f.calls[0]!.call_id))
+      assert.equal(reads, 4)
+      assert.equal(f.handles(), 1)
+      assert.equal(meta.expires, 110)
+    }
+  )
+  test(
     'protected provider callback cannot invalidate final result ' + change + ' facts silently',
     /** 最后一次配置回调同步撤权或关闭后，必须重验原 Wire 与当前身份及策略。 */ (t) => {
       const f = fixture()

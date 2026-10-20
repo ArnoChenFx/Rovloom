@@ -145,10 +145,10 @@ export class Router {
     })
     return JSON.parse(boundedJson(binding)) as typeof binding
   }
-  // 重新确认调用可读后创建或复用受固定内容期限约束的结果句柄。
+  // 重新确认调用可读后读取已有句柄元数据；缺失时才经原写事务签发，固定期限不刷新。
   saveResult(principal: Principal, callId: string) {
     this.get(principal, callId)
-    return this.store.saveResult(principal.id, callId)
+    return this.store.findResult(principal.id, callId) ?? this.store.saveResult(principal.id, callId)
   }
   // 同时要求当前读取授权与独立丢弃权限，再删除结果句柄和调用原文。
   discardResponse(principal: Principal, callId: string): void {

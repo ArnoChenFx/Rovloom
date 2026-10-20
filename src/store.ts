@@ -1588,6 +1588,23 @@ export class Store {
       false
     )
   }
+  // 按当前归属、内容和期限读取已有句柄元数据，不进入签发事务，不续期或创建句柄。
+  findResult(
+    principal: string,
+    callId: string
+  ): Pick<ResultPage, 'result_id' | 'bytes' | 'hash' | 'expires'> | undefined {
+    if (this.transactionTime !== undefined) {
+      throw new GatewayError('transaction_in_progress')
+    }
+    this.active()
+    const call = this.call(principal, callId)
+    if (call.state !== 'responded' || call.content_status !== 'available' || !call.response) {
+      throw new GatewayError('result_not_ready')
+    }
+    return this.db
+      .prepare('SELECT result_id,bytes,hash,expires FROM results WHERE call_id=? AND expires>?')
+      .get(callId, this.time()) as Pick<ResultPage, 'result_id' | 'bytes' | 'hash' | 'expires'> | undefined
+  }
   // 只为已提交且当前可见的响应创建有界结果句柄，拒绝过期、删除或超配额内容。
   saveResult(
     principal: string,
