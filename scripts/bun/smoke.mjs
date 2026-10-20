@@ -155,7 +155,7 @@ for (const role of ['gateway', 'connector']) {
   })
   assert.equal(help.status, 0, help.stderr)
   assert.equal(help.stdout, '')
-  assert.match(help.stderr, /backend_unavailable/)
+  assert.match(help.stderr, /^Rovloom /u)
 }
 assert.deepEqual(
   Object.keys(contracts).sort(),
