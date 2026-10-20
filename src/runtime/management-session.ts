@@ -14,7 +14,7 @@ export type ManagementSessionLease = Readonly<{
   expires_at: number
 }>
 export type ManagementSessionBootstrap = ManagementSessionLease & Readonly<{ cookie: string; csrf: string }>
-export type ManagementBootstrapOptions = Readonly<{ signal?: AbortSignal; rotate?: false }>
+export type ManagementBootstrapOptions = Readonly<{ signal?: AbortSignal; rotate?: false; reauthenticate?: true }>
 export type CurrentManagementSession = Readonly<{
   principal: Principal
   administrator: Administrator
@@ -38,6 +38,8 @@ type LeaseRecord = {
   cookie_sha256: string | undefined
   csrf_sha256: string | undefined
   revoked: boolean
+  expiry_only: boolean
+  upstream: ManagementSessionLease
 }
 type Proof = { lease: LeaseRecord; cookie_sha256: string; signal: AbortSignal }
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/
@@ -97,13 +99,14 @@ export function createManagementSessionAuthority(
   let observed = -1
 
   /** 摘要立即失效但保留原引用墓碑，显式撤销或到期不能再 bootstrap 延长。 */
-  function invalidate(lease: LeaseRecord): void {
+  function invalidate(lease: LeaseRecord, expiryOnly = false): void {
     if (lease.cookie_sha256) {
       cookies.delete(lease.cookie_sha256)
     }
     lease.cookie_sha256 = undefined
     lease.csrf_sha256 = undefined
     lease.revoked = true
+    lease.expiry_only = expiryOnly
   }
 
   /** 停止来源并使全部异步后代失去当前作用域，不修改原身份后端。 */
@@ -169,6 +172,10 @@ export function createManagementSessionAuthority(
       !lease.cookie_sha256 ||
       (cookieDigest !== undefined && lease.cookie_sha256 !== cookieDigest)
     ) {
+      throw new GatewayError('unauthenticated')
+    }
+    if (time() >= lease.session.expires_at) {
+      invalidate(lease, true)
       throw new GatewayError('unauthenticated')
     }
     let current: ReturnType<typeof base>
@@ -275,9 +282,32 @@ export function createManagementSessionAuthority(
         const name = key(caller, sessionRef)
         const existing = leases.get(name)
         const previousCookie = existing?.cookie_sha256
+        const previousRevoked = existing?.revoked
+        const previousExpiry = existing?.expiry_only
         let lease = existing
-        if (lease) {
-          // 页面只交付首次结果，刷新或并发请求不能使仍有效的页面秘密失效。
+        if (lease && options.reauthenticate === true) {
+          // 只有重新验证的独立上游证明可轮换本地到期窗口；显式撤销/政策失效的墓碑不可恢复。
+          if (
+            (lease.revoked && !lease.expiry_only) ||
+            at < lease.session.expires_at ||
+            input.issued_at !== lease.upstream.issued_at ||
+            input.expires_at !== lease.upstream.expires_at
+          ) {
+            throw new GatewayError('unauthenticated')
+          }
+          const session = Object.freeze({
+            ...lease.upstream,
+            expires_at: Math.min(lease.upstream.expires_at, at + 300_000)
+          })
+          try {
+            base(session, lease.policy)
+          } catch {
+            invalidate(lease)
+            throw new GatewayError('unauthenticated')
+          }
+          lease = { ...lease, session, revoked: false, expiry_only: false }
+        } else if (lease) {
+          // 页面首次交付仍拒绝隐式旋转；恢复由已认证页面交付缓存负责。
           if (rotate === false) {
             throw new GatewayError('unauthenticated')
           }
@@ -302,7 +332,14 @@ export function createManagementSessionAuthority(
             policy: current.administrator.policy_revision,
             cookie_sha256: undefined,
             csrf_sha256: undefined,
-            revoked: false
+            revoked: false,
+            expiry_only: false,
+            upstream: Object.freeze({
+              caller,
+              management_session_ref: sessionRef,
+              issued_at: input.issued_at,
+              expires_at: input.expires_at
+            })
           }
         }
         const cookie = randomBytes(32).toString('base64url')
@@ -313,7 +350,10 @@ export function createManagementSessionAuthority(
           signal?.aborted ||
           closed ||
           leases.get(name) !== existing ||
-          (existing && existing.cookie_sha256 !== previousCookie) ||
+          (existing &&
+            (existing.cookie_sha256 !== previousCookie ||
+              existing.revoked !== previousRevoked ||
+              existing.expiry_only !== previousExpiry)) ||
           (!existing && leases.size >= capacity)
         ) {
           throw new GatewayError('unauthenticated')

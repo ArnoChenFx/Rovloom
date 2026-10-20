@@ -89,18 +89,21 @@ python3 scripts/webui/check-layout.py --url http://127.0.0.1:PORT --output /tmp/
 焦点、导航、取消、部分失败及会话失效展示，不验证真实管理后端或安全认证。
 浏览器检查需显式运行，不从工具链通过推导浏览器或跨平台验收。
 
-三项设备操作可独立使用临时 Store、现有会话/CSRF handler 和页面状态机验收：
+设备、provider与配对操作可独立使用临时 Store、现有会话/CSRF handler 和页面状态机验收：
 
 ```sh
 bun --no-env-file scripts/webui/preview.mjs 33231 --actions
 python3 scripts/webui/check-actions.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-actions-new
+python3 scripts/webui/check-lifecycle.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-lifecycle-new
 python3 scripts/webui/check-bootstrap.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-bootstrap-new
 python3 scripts/webui/check-retry-deadline.py --url http://127.0.0.1:33231 --output /tmp/rovloom-webui-retry-deadline-new
 ```
 
 该服务只在显式 `/fixtures/` 让生产 `browser.js` 消费 CLI 同式 meta，拒绝根入口，所有设备和会话均为本次内存 fixture。
 检查包括两语两主题、桌面/320px、实际改名/断开/撤销、一次确认、重复点击、错误恢复、
-取消/导航与迟到、丢响应后原回执核对及原确认截止。bootstrap 检查额外覆盖实际 DOM 消费、
+取消/导航与迟到、丢响应后原回执核对及原确认截止。lifecycle检查另覆盖单实例禁用、
+启用证明缺失、注册表单/pending回执、不补devices_read，以及既有授权申请的pending/paired/cancelled/expired进度。
+fixture内兑换仅作用于自建临时设备，不是实际用户设备操作。bootstrap 检查额外覆盖实际 DOM 消费、
 重复/无效交付、在页过期及永久卸载；不验证真实管理员、宿主秘密交付或用户设备。
 跨截止检查在真实临时 Store 提交后延迟回执，验证提交中、未确认及查询中的重试事件均保留原关联，
 直接交付或查询原回执只对应一次设备提交；覆盖英文桌面与中文深色320px。

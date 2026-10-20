@@ -2,6 +2,33 @@
 export type UiLanguage = 'zh-CN' | 'en'
 
 export const chinese = Object.freeze({
+  'provider.disable': '禁用此 provider',
+  'provider.enable': '重新启用',
+  'provider.unavailable': '重新启用不可用：当前管理来源没有真实 providerEnable 证明。',
+  'provider.target': 'Provider 目标',
+  'provider.effect':
+    '仅禁用此实例并递增 binding revision；设备授权及其它实例不变。旧流、句柄和 attempt 不复活，在途原生工作可能继续。',
+  'pairing.policy': '受保护策略引用',
+  'pairing.createNote':
+    '只创建 pending 配对申请，不签发秘密、不授予设备读取或执行权限。输入已配置的非秘密 policy_ref；签发和安全输入须走受保护本机渠道。',
+  'pairing.lookup': '查看配对进度',
+  'pairing.id': 'Pairing ID',
+  'pairing.status': '配对进度',
+  'pairing.issuance': '签发证明',
+  'pairing.pending': '待配对 (pending)',
+  'pairing.paired': '已配对 (paired)',
+  'pairing.cancelled': '已取消 (cancelled)',
+  'pairing.expired': '已过期 (expired)',
+  'pairing.cancel': '取消配对申请',
+  'pairing.cancelNote': '仅取消指定 pending 申请；已有身份的重配重置尚未支持。需要独立注册及目标撤销权限。',
+  'pairing.lookupNote':
+    '使用原回执的 machine_id 和 pairing_id 手动查询。新设备不会自动获得 devices_read；拒绝不表示注册失败。签发始终未核实。',
+  'pairing.forbidden': '当前无法查看此目标进度；需要现有 devices_read 授权。不会自动补权或重新注册。',
+  'pairing.reading': '正在查询原配对申请…',
+  'pairing.unknown': '进度未读取或已过期；请显式查询。',
+  'pairing.repairUnavailable': '已配对的 offline/revoked 设备重配重置尚未支持。',
+  'pairing.new': '为 pending 设备建立配对申请',
+
   'app.title': 'Rovloom 管理',
   'app.navigation': 'Rovloom，返回设备列表',
   'app.subtitle': '设备与连接管理',
@@ -139,7 +166,7 @@ export const chinese = Object.freeze({
   'device.connectionUnknown': '连接未核实 · {reason}',
   'device.authUnknown': '认证未核实 · {reason}',
   'device.readyUnknown': '设备 ready 尚无独立观测',
-  'actions.available': '可用操作需查看后台摘要并明确确认；配对等其它操作尚未接入。',
+  'actions.available': '可用操作需查看后台摘要并明确确认；后端逐次核对权限。',
   'actions.unavailable': '以下操作尚未接入，当前不可用。',
   'actions.register': '新建设备 / 配对申请',
   'actions.provider': '禁用 / 重新启用 provider',
@@ -235,6 +262,35 @@ export const chinese = Object.freeze({
 export type MessageKey = keyof typeof chinese
 export type Messages = Readonly<Record<MessageKey, string>>
 export const english = Object.freeze({
+  'provider.disable': 'Disable this provider',
+  'provider.enable': 'Re-enable',
+  'provider.unavailable': 'Re-enable unavailable: this management source has no verified providerEnable proof.',
+  'provider.target': 'Provider target',
+  'provider.effect':
+    'Disables only this instance and advances its binding revision. Device authorization and other instances stay independent. Old streams, handles and attempts do not revive; in-flight native work may continue.',
+  'pairing.policy': 'Protected policy reference',
+  'pairing.createNote':
+    'Creates only a pending pairing request. It issues no secrets and grants no device read or execution permissions. Enter a configured non-secret policy_ref; issuance and safe input require the protected local channel.',
+  'pairing.lookup': 'View pairing progress',
+  'pairing.id': 'Pairing ID',
+  'pairing.status': 'Pairing progress',
+  'pairing.issuance': 'Issuance proof',
+  'pairing.pending': 'Pending (pending)',
+  'pairing.paired': 'Paired (paired)',
+  'pairing.cancelled': 'Cancelled (cancelled)',
+  'pairing.expired': 'Expired (expired)',
+  'pairing.cancel': 'Cancel pairing request',
+  'pairing.cancelNote':
+    'Cancels only the selected pending request. Resetting an existing identity for re-pairing is unsupported. Separate registration and target revocation grants are required.',
+  'pairing.lookupNote':
+    'Manually query machine_id and pairing_id from the original receipt. New devices receive no automatic devices_read grant; refusal does not mean registration failed. Issuance remains unverified.',
+  'pairing.forbidden':
+    'Progress is unavailable for this target; an existing devices_read grant is required. No permissions are added and registration is not repeated.',
+  'pairing.reading': 'Reading the original pairing request…',
+  'pairing.unknown': 'Progress is unread or stale; query explicitly.',
+  'pairing.repairUnavailable': 'Resetting paired offline/revoked devices for re-pairing is unsupported.',
+  'pairing.new': 'Create pairing request for pending device',
+
   'app.title': 'Rovloom Management',
   'app.navigation': 'Rovloom, back to devices',
   'app.subtitle': 'Device and connection management',
@@ -377,7 +433,7 @@ export const english = Object.freeze({
   'device.authUnknown': 'Authentication unverified · {reason}',
   'device.readyUnknown': 'Device readiness has no independent observation',
   'actions.available':
-    'Review and confirm the server summary for available actions. Pairing and other actions remain unavailable.',
+    'Review and confirm the server summary for available actions. Permissions are checked on every request.',
   'actions.unavailable': 'The following actions are not connected and are unavailable.',
   'actions.register': 'New device / pairing request',
   'actions.provider': 'Disable / re-enable provider',
