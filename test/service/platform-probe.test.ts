@@ -6,7 +6,12 @@ import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { renderDefinition } from '../../src/service/render.js'
-import { createSystemCommandRunner, type CommandPlan } from '../../src/service/runner.js'
+import {
+  createSystemCommandRunner,
+  SystemCommandError,
+  type CommandPlan,
+  type CommandResult
+} from '../../src/service/runner.js'
 import { sampleSpec } from './helpers.js'
 import { taskCall } from '../../src/service/windows.js'
 
@@ -146,7 +151,9 @@ async function bridgeProbe(plan: CommandPlan) {
 }
 
 // POSIX仍在原十秒截止时终止；只继续观察同一个失败子进程，不重试、不重新解释为成功。
-async function nativeProbe(plan: CommandPlan) {
+async function nativeProbe(plan: CommandPlan, start: typeof spawn = spawn, observationMs = 35000) {
+  // 反例只能缩短测试诊断等待，不能扩大默认上限或改变生产回收期限。
+  assert(observationMs > 0 && observationMs <= 35000)
   const began = performance.now()
   const times: Record<string, number> = {}
   let child: ChildProcess | undefined
@@ -167,7 +174,7 @@ async function nativeProbe(plan: CommandPlan) {
     ) => {
       // 事件、终止请求和实际回收共用同一单调时钟。
       const elapsed = () => Math.round(performance.now() - began)
-      child = spawn(file, args, options)
+      child = start(file, args, options)
       const kill = child.kill.bind(child)
       child.kill = /* 保留原终止请求和返回值，不重发信号。 */ (requested) => {
         times.kill_requested = elapsed()
@@ -210,13 +217,16 @@ async function nativeProbe(plan: CommandPlan) {
       return child
     }) as typeof spawn
   })
+  let result: CommandResult | undefined
+  let failure: unknown
   try {
-    return await run(plan)
+    result = await run(plan)
   } catch (error) {
+    failure = error
     // 原操作失败已确定；晚到close只用于区分延迟回收与仍未知，绝不能把失败洗成通过。
     await new Promise<void>(
       /* 诊断总计至多35秒，生产回收预算仍为一秒。 */ (resolve) => {
-        const timer = setTimeout(resolve, Math.max(0, 35000 - (performance.now() - began)))
+        const timer = setTimeout(resolve, Math.max(0, observationMs - (performance.now() - began)))
         void closed.then(
           /* 同一子进程完成时及时取消诊断计时器。 */ () => {
             clearTimeout(timer)
@@ -225,7 +235,6 @@ async function nativeProbe(plan: CommandPlan) {
         )
       }
     )
-    throw error
   } finally {
     process.stderr.write(
       JSON.stringify({
@@ -245,6 +254,15 @@ async function nativeProbe(plan: CommandPlan) {
       }) + '\n'
     )
   }
+  if (times.exit === undefined || times.close === undefined) {
+    const unconfirmed = new SystemCommandError('service_recovery_required', 'cleanup_unknown')
+    unconfirmed.cause = failure
+    throw unconfirmed
+  }
+  if (result === undefined) {
+    throw failure
+  }
+  return result
 }
 
 test(
@@ -366,6 +384,51 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
       }
     } finally {
       rmSync(directory, { recursive: true, force: true })
+    }
+  }
+)
+
+test(
+  '真实工具缺少exit或close均不能把回收未确认伪报成预期超时',
+  /* 只屏蔽本次真实空转子进程的一个事件；不修改全局ChildProcess或其他命令。 */ async () => {
+    for (const suppressed of ['exit', 'close'] as const) {
+      const observed = { exit: false, close: false }
+      const start = /* 返回同一个真实子进程，在事件交付边界制造独审反例。 */ ((
+        file: string,
+        args: readonly string[],
+        options: SpawnOptions
+      ) => {
+        assert(args.includes('setInterval(() => {}, 1000)'))
+        const child = spawn(file, args, options)
+        const emit = child.emit.bind(child)
+        child.emit = /* 先记录Bun确实报告终态，再只扣留指定事件，实际进程仍正常回收。 */ (
+          event: string | symbol,
+          ...values: unknown[]
+        ) => {
+          if (event === 'exit' || event === 'close') {
+            observed[event] = true
+          }
+          return event === suppressed ? false : emit(event, ...values)
+        }
+        return child
+      }) as typeof spawn
+      await assert.rejects(
+        /* 原操作仍25ms超时、生产仍一秒回收；仅将反例诊断等待缩短到1.5秒。 */ () =>
+          nativeProbe(
+            { executable: process.execPath, args: ['--no-env-file', '-e', 'setInterval(() => {}, 1000)'], timeout: 25 },
+            start,
+            1500
+          ),
+        /* 缺任一终态必须使用回收未确认，原始超时作为cause保留。 */ (error: unknown) => {
+          assert(error instanceof SystemCommandError)
+          assert.equal(error.code, 'service_recovery_required')
+          assert.equal(error.phase, 'cleanup_unknown')
+          assert(error.cause instanceof SystemCommandError)
+          assert.equal(error.cause.code, 'service_timeout')
+          return true
+        }
+      )
+      assert.deepEqual(observed, { exit: true, close: true })
     }
   }
 )
