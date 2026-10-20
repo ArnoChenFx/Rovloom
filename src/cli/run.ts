@@ -27,25 +27,25 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom --help
   rovloom --version
   rovloom config template gateway|connector
-  rovloom config check [--role gateway|connector] [--config /absolute/protected/config.json]
-  rovloom config check-runtime [--role gateway|connector] [--config /absolute/protected/config.json]
-  rovloom gateway [--config /absolute/protected/config.json]
-  rovloom connector [--config /absolute/protected/config.json]
+  rovloom config check [--role gateway|connector] [--config /absolute/path/config.json]
+  rovloom config check-runtime [--role gateway|connector] [--config /absolute/path/config.json]
+  rovloom gateway [--config /absolute/path/config.json]
+  rovloom connector [--config /absolute/path/config.json]
   rovloom service --help
   rovloom update --check
   rovloom update --help
 
 省略 --config 时分别读取 ~/.config/rovloom/gateway.json 或 connector.json；Windows 同样使用用户 home。
-当前受保护配置读取仅支持 POSIX；Windows 读取返回 config_platform_unsupported。
-显式 --config 优先。Linux/macOS角色首次缺失配置时生成单份默认配置，不覆盖已有文件；无法确定home返回config_home_unavailable。
-配置文件及所在目录须由当前 POSIX 用户持有，权限分别为 0600/0700。
+角色文件读取、首次生成及Gateway运行支持Linux/macOS/Windows；原生Connector和首次配对审批仍要求Linux。
+显式 --config 优先。角色首次缺失配置时生成单份默认配置，不覆盖已有文件；无法确定home返回config_home_unavailable。
+文件访问沿用操作系统权限；新建时使用默认权限，不修改已有文件及目录的权限。
 各角色默认配置与用户配置是同一份文件；check省略路径时读取所选role的默认文件。
 check既无role也无路径时分别检查两份；检查始终只读，不为缺失文件生成默认值。
 模板只含分组业务参数；不接受 argv secret、URL 凭据、动态模块或任意 shell RPC。
 check-runtime核对单份角色配置及程序管理状态，不读取凭据或宣称原生Agent就绪。
 Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
-Linux/macOS Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文件，WSS客户端保持系统证书验证。
-真实本地TTY可批准Gateway一次性配对，并由Connector输入地址/隐藏码、持久保存身份及发现初始化Luvus。
+Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文件，WSS客户端保持系统证书验证。
+Linux真实本地TTY可批准Gateway一次性配对，并由Connector输入地址/隐藏码、持久保存身份及发现初始化Luvus。
 首次引导仅接入一个Luvus provider；Herdr引导、Agent模型认证与已有配置恢复管理仍未接通。
 非TTY缺地址/身份/provider时返回configuration_required；不读取stdin，不假报Agent或模型就绪。
 service 已接原生监管宿主；install 使用当前单文件和目标服务账户配置，不猜测提权前用户。
