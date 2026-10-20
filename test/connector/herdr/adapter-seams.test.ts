@@ -1027,3 +1027,71 @@ test(
     }
   }
 )
+
+for (const unknown of [false, true]) {
+  test(
+    `Herdr dispatch refusal uses the negotiated codec and preserves prior unknown=${unknown}`,
+    /** 真实 Wire/Store 与品牌 schema；原生来源为合成接缝，不写入终端、不生成 dispatch permit。 */ () => {
+      const state = stored(false, { method: 'pane.send_text', params: { pane_id: 'owned', text: 'synthetic input' } })
+      const connection = state.backend.context('principal1', 'connector_to_gateway').connection
+      connection.negotiated.capabilities.push('dispatch_refusal')
+      const wire = createHerdrWireAdapter(state.backend, state.adapter)
+      const refusal = {
+        ...state.frame,
+        type: 'dispatch_refused' as const,
+        message_id: 'herdr-refusal',
+        payload: { attempt: state.identity, code: 'terminal_execution_disabled' as const }
+      }
+      try {
+        const ack = { id: state.binding.native_request_id, result: { type: 'ok' } }
+        assert.throws(
+          /** 拒绝帧之前没有原生执行许可。 */ () => wire.checkResult(state.binding, ack),
+          /dispatch_permit_unavailable/
+        )
+        const raw = wire.encode(refusal, 'connector_to_gateway')
+        assert.deepEqual(wire.decode(raw, 'connector_to_gateway'), refusal)
+        assert.equal(wire.observeMessage(refusal, 'connector_to_gateway'), 'new')
+        assert.equal(wire.observeMessage(refusal, 'connector_to_gateway'), 'duplicate')
+        assert.throws(
+          /** 拒绝编解码不能补造原生执行许可。 */ () => wire.checkResult(state.binding, ack),
+          /dispatch_permit_unavailable/
+        )
+        assert.throws(
+          /** 拒绝仅允许 Connector 向 Gateway 发送。 */ () => wire.encode(refusal, 'gateway_to_connector'),
+          /wrong_direction/
+        )
+        assert.throws(
+          /** 旧 epoch 不得影响当前调用。 */ () =>
+            wire.decode(JSON.stringify({ ...refusal, connection_epoch: 'old_epoch' }), 'connector_to_gateway'),
+          /connection_binding_mismatch/
+        )
+        assert.throws(
+          /** 固定拒绝码不能携带任意原生异常或回包。 */ () =>
+            wire.decode(
+              JSON.stringify({ ...refusal, payload: { ...refusal.payload, code: 'synthetic_other' } }),
+              'connector_to_gateway'
+            ),
+          /invalid_enum/
+        )
+        connection.negotiated.capabilities = ['rpc', 'late_evidence']
+        assert.throws(
+          /** 未协商时仍不能接收拒绝帧。 */ () => wire.decode(raw, 'connector_to_gateway'),
+          /unsupported_capability/
+        )
+        connection.negotiated.capabilities.push('dispatch_refusal')
+        state.store.accepted(state.binding)
+        if (unknown) {
+          state.store.stop('principal1', state.binding.call_id)
+        }
+        assert.equal(state.store.commitDispatchRefusal(state.binding, refusal.payload.code), !unknown)
+        assert.equal(
+          state.store.call('principal1', state.binding.call_id).state,
+          unknown ? 'outcome_unknown' : 'not_dispatched'
+        )
+      } finally {
+        wire.close()
+        state.close()
+      }
+    }
+  )
+}
