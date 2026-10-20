@@ -71,11 +71,10 @@ Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、
 绝对文件路径，仅覆盖该文件位置；新生成数据目录仍按角色用户 home 选择。已有显式
 文件不要求解析 home，缺失文件生成默认值时需要 home。
 
-首次文件创建和受保护角色文件检查支持 Linux/macOS；Windows 返回
-`config_platform_unsupported`。Gateway 启动支持 Linux/macOS，但首次配对审批和原生
+首次文件创建、角色文件检查和 Gateway 启动支持 Linux/macOS/Windows；首次配对审批和原生
 Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用性与状态检查)。
-模板使用目标平台路径分隔符。文件保持 `0600`，
-所在私有目录保持 `0700`，属于进程用户；新建时使用这些权限，不自动修复已有权限或
+模板使用目标平台路径分隔符，文件访问沿用操作系统权限。新建文件/目录在支持的平台
+请求 `0600`/`0700`，这是默认值，不是对已有文件的校验要求；不自动修复已有权限或
 损坏文件。用户 JSON 上限 16 KiB，不支持注释，拒绝非法编码和重复键。
 
 ## 程序管理的数据与认证
@@ -187,7 +186,7 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 | `rovloom gateway [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/gateway.json`，启动前台 Gateway。 | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
 | `rovloom connector [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/connector.json`，启动前台 Connector。 | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
 
-显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS 在所选位置生成缺失文件，不覆盖已有文件；
+显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS/Windows 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
 上述本地终端 Luvus 流程，Agent/模型登录仍需独立准备。
@@ -232,9 +231,9 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | 命令类别 | Linux | macOS | Windows |
 |---|---|---|---|
 | 帮助/版本/模板输出 | 可用 | 可用 | 可用 |
-| `config check` | 受保护 POSIX 读取器 | 受保护 POSIX 读取器 | 拒绝：`config_platform_unsupported` |
-| 缺失角色文件创建 | 可用 | 可用 | 拒绝：`config_platform_unsupported` |
-| Gateway 启动 / `config check-runtime` | 可用 | Gateway 私有文件层可用 | runtime 加载器拒绝该平台 |
+| `config check` | 普通操作系统文件访问 | 普通操作系统文件访问 | 普通操作系统文件访问 |
+| 缺失角色文件创建 | 可用 | 可用 | 可用 |
+| Gateway 启动 / `config check-runtime` | 可用 | 可用 | 可用 |
 | 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
 | 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
 | Service 动作 | 当前产品 CLI 不可用 | 当前产品 CLI 不可用 | 当前产品 CLI 不可用 |

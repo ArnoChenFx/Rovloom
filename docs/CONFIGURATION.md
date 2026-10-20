@@ -80,14 +80,14 @@ override. `--config` takes an absolute file path and overrides only that file's
 location. Generated data still defaults to the role user's home. Existing explicit
 files do not need home resolution. Missing files need home to generate defaults.
 
-First-file creation and protected role-file checks support Linux/macOS;
-Windows returns `config_platform_unsupported`. Gateway startup supports
-Linux/macOS, while first-pairing approval and the native Connector still require
+First-file creation, role-file checks and Gateway startup support
+Linux/macOS/Windows. First-pairing approval and the native Connector still require
 Linux. See [platform availability](#platform-availability-and-checking-state).
-Templates have platform-appropriate path separators. Keep files private `0600`
-and their immediate directory private `0700`, owned by the process user. Newly
-created directories/files use those modes; existing permissions and malformed
-files are never automatically repaired. User JSON is limited to 16 KiB. JSON has
+Templates have platform-appropriate path separators. Files use normal OS access
+permissions. Newly created files/directories request `0600`/`0700` where supported;
+these modes are defaults, not validation requirements for existing files.
+Existing permissions and malformed files are never automatically repaired.
+User JSON is limited to 16 KiB. JSON has
 no comments; malformed encoding and duplicate keys are rejected.
 
 ## Program-managed data and authentication
@@ -227,7 +227,7 @@ and returns nonzero if either fails. Neither check creates a missing file.
 
 Explicit paths take priority; there is no fallback from an invalid explicit path.
 The selected file must have the matching role. A missing file is generated on
-Linux/macOS at the selected path; an existing file is never overwritten. Defaults are
+Linux/macOS/Windows at the selected path; an existing file is never overwritten. Defaults are
 resolved for the process user. Stop a foreground
 role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
 Network ports are JSON fields, not flags. Provider initialization is limited to
@@ -281,9 +281,9 @@ stop/restart may terminate the task directly; do not treat it as native rollback
 | Command group | Linux | macOS | Windows |
 |---|---|---|---|
 | Help/version/template output | Available | Available | Available |
-| `config check` | Protected POSIX reader | Protected POSIX reader | Rejected: `config_platform_unsupported` |
-| Missing role-file creation | Available | Available | Rejected: `config_platform_unsupported` |
-| Gateway startup / `config check-runtime` | Available | Gateway private-file layer available | Runtime loader rejects this platform |
+| `config check` | Normal OS file access | Normal OS file access | Normal OS file access |
+| Missing role-file creation | Available | Available | Available |
+| Gateway startup / `config check-runtime` | Available | Available | Available |
 | First-pairing approval | Local terminal required | Not yet available | Not available |
 | Native Connector | This guide covers Linux x64 | Not supported | Not supported |
 | Service actions | Unavailable in current product CLI | Unavailable in current product CLI | Unavailable in current product CLI |
