@@ -30,8 +30,8 @@ jobs:
           target: ${{ matrix.target }}
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - name: Verify private files, actual Darwin ACL, locks and unknown recovery
-        run: bun --no-env-file test ./test/storage/private-platforms.test.ts
+      - name: Verify private files, schema provenance, actual Darwin ACL, locks and unknown recovery
+        run: bun --no-env-file test ./test/storage/private-platforms.test.ts ./test/connector/herdr/gateway-schema.test.ts
       - name: Build actual standalone product
         run: bun --no-env-file run release:build
       - name: Run actual standalone unpaired Gateway twice with private state

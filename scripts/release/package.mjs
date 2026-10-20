@@ -26,6 +26,10 @@ export function productSmokePath(specification = product, directory = root) {
     'Product HTTP release smoke is not wired; preview cannot release'
   )
   assert(
+    specification.workers.includes('src/connector/herdr/compiler-herdr-worker.ts'),
+    'Real Herdr schema Worker is required'
+  )
+  assert(
     /^scripts\/release\/[a-z][a-z0-9-]*\.mjs$/u.test(specification.releaseSmoke),
     'Expected maintained product smoke script'
   )
