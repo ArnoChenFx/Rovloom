@@ -73,7 +73,7 @@ Connector 机器使用 `--role connector`。无选项检查读取两份默认用
 
 ## 3. 准备原生程序
 
-安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。当前原生版本/字节校验与
+安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。兼容性按实际协议和方法能力判断，版本仅用于诊断。实际安装身份与
 受控 PATH 见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。Rovloom 尚未自动
 安装这些程序或配置模型访问。Gateway 已启动或配置通过不代表原生 provider 可用。
 
@@ -151,7 +151,7 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 | 不可读或权限不安全 | 检查所有者、私有目录与文件权限，避免链接；产品不会静默修复已有权限。 |
 | 监听失败 | 检查端口、地址可用性和数据目录所有者。 |
 | HTTP 401 | 检查精确 `/mcp` URL、既有 Bearer 与期限；未配对 Gateway 拒绝全部 caller。 |
-| 离线/provider 未就绪 | 检查 WS/WSS 可达性、系统 TLS 信任、配对和原生安装。 |
+| 离线/provider 未就绪 | 检查 WS/WSS 可达性、系统 TLS 信任、配对、所选安装身份及所需方法/协议能力。 |
 | 权限/契约/revision 错误 | 刷新 provider/方法描述并核实授权。 |
 | 找不到 Agent 程序 | 检查 runtime 受控 PATH 和私有 HOME 中的模型访问，不绕过终端开关。 |
 | 调用结果不确定/存储错误 | 保留原调用与状态，不删除账本或盲目重发。 |

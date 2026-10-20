@@ -3,3 +3,4 @@ test/fixtures/herdr/0.9.5/schema.json -text
 test/fixtures/luvus/0.14.3/linux/schema-bundle.json -text
 # 固定生成目录按完整原字节核对，Windows 检出同样不得转换换行。
 src/native-contract/generated/* -text
+src/connector/herdr/generated/* -text

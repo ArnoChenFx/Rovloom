@@ -114,7 +114,6 @@ test(
       { schema_path: 'relative/schema.json' },
       { extra: true },
       { target: { machine_id: 'owned-machine', provider_id: 'herdr', profile: 'host' } },
-      { expected_source: { ...source, binary_sha256: 'b'.repeat(64) } },
       { connector: { ...clean.connector, local: { ...clean.connector.local, binding_revision: 2 } } },
       { connector: { ...clean.connector, claims: { ...clean.connector.claims, path: clean.connector.receipts.path } } },
       { connector: { ...clean.connector, receipts: { ...clean.connector.receipts, mode: 'automatic' } } }

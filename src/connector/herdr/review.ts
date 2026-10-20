@@ -1,8 +1,8 @@
-/** 固定 Herdr 已实现方法的版本、完整原生来源与逐方法评审；不授予身份或策略。 */
+/** Herdr 已接入操作、历史 fixture 来源与逐方法分类；不授予身份或策略。 */
 import type { ContractSource } from '../../wire/types.js'
 import { HERDR_WORKFLOW_METHODS } from './methods.js'
 
-/** 固定版本的精确评审，不能替代 registry、安装、peer 或当前本地授权。 */
+/** 已接入操作及历史证据常量，不能替代实际 registry、安装、peer 或当前本地授权。 */
 export const HERDR_READONLY_REVIEW = Object.freeze({
   version: '0.9.5',
   protocol: 22,
@@ -21,7 +21,7 @@ export const HERDR_READONLY_REVIEW = Object.freeze({
   })
 })
 
-/** 只有与这个完整来源完全相同的安装契约才属于当前已评审 RPC 范围。 */
+/** 返回历史离线 fixture 的完整来源，生产安装使用本轮实际观测。 */
 export function fixedHerdrSource(): ContractSource {
   const review = HERDR_READONLY_REVIEW
   return {
@@ -41,12 +41,34 @@ export function fixedHerdrSource(): ContractSource {
   }
 }
 
-/** 对已严格解析的固定来源逐字段比较，研究字符串不能补造 endpoint 或 peer 身份。 */
+/** 核对已接入的协议族与分类来源；实际 schema/协议由编译器复核，研究字符串不授予实例身份。 */
 export function isReviewedHerdrSource(source: ContractSource): boolean {
-  const fixed = fixedHerdrSource()
-  const keys = Object.keys(fixed) as (keyof ContractSource)[]
   return (
-    Object.keys(source).length === keys.length &&
-    keys.every(/** 所有来源字段必须与当前评审完全一致。 */ (key) => source[key] === fixed[key])
+    source.provider_kind === 'herdr' &&
+    source.protocol_family === 'herdr-json' &&
+    source.schema_origin === 'installed_cli' &&
+    source.schema_command === 'herdr api schema --json' &&
+    source.adapter_revision === HERDR_READONLY_REVIEW.adapter_revision &&
+    source.classification_revision === HERDR_READONLY_REVIEW.classification_revision &&
+    source.runtime_generation === null &&
+    source.support_basis === 'schema_and_version' &&
+    /^\d+$/u.test(source.native_protocol_version ?? '')
   )
+}
+
+/** 从本轮实际安装与编译 schema 记录诊断信息；历史固定 fixture 不再决定安装接纳。 */
+export function observedHerdrSource(
+  version: string,
+  binarySha256: string,
+  schemaSha256: string,
+  protocol: number
+): ContractSource {
+  return {
+    ...fixedHerdrSource(),
+    binary_version: version,
+    server_version: version,
+    binary_sha256: binarySha256,
+    schema_sha256: schemaSha256,
+    native_protocol_version: String(protocol)
+  }
 }

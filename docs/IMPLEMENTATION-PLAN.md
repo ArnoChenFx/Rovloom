@@ -64,7 +64,7 @@ Herdr 固定契约/普通 RPC → 独立来源与共享 Store/Wire → 唯一 CL
 
 - 将业务 registry、Store、Router、策略、摘要及句柄统一到 DESIGN 的 provider/binding/contract 模型；保留 Wire/native 显式接缝，避免给旧类型加 optional provider 默认值。
 - 为集成 backend 提供独立当前认证、登记 attempt、双端配置、契约/分类、endpoint 来源、policy、真实确认、custody、可信时间及 durable response anchor。缺任一必要来源拒绝，不从消息构造 true。
-- Luvus `compileBundle` 通过 Bun Worker 完整预检后精确复用构建期完整 standalone 资产，未命中仍完整编译；2 秒接纳期限、取消、单在途准入和任务代次拒绝迟到产物。宿主核对固定版本、来源身份、生成选项、摘要、完整导出及 helper 白名单后只加载生成函数，登记本进程 opaque handle；同步 NativeValidator/Wire/事务接口保持不变。只接纳已审核本地安装 bundle，不开放外部 schema 或任意生成代码加载；首版无硬 heap 或物理退出时限保证，边界以 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)为准。角色宿主仍须在就绪前等待工厂，并将关闭/取消信号传入初始化；不能把跨 Worker 复制对象恢复成许可。
+- Luvus `compileBundle` 通过 Bun Worker 完整预检后精确复用构建期完整 standalone 资产，未命中仍完整编译；2 秒接纳期限、取消、单在途准入和任务代次拒绝迟到产物。宿主核对编译器版本、实际来源身份、生成选项、摘要、完整导出及 helper 白名单后只加载生成函数，登记本进程 opaque handle；同步 NativeValidator/Wire/事务接口保持不变。接纳实际本地安装 bundle 并按协议/接口判断，版本用于诊断，不开放外部 schema 或任意生成代码加载；首版无硬 heap 或物理退出时限保证，边界以 [DESIGN §8](DESIGN.md#8-能力发现契约与派发授权)为准。角色宿主仍须在就绪前等待工厂，并将关闭/取消信号传入初始化；不能把跨 Worker 复制对象恢复成许可。
 - 确认完全无 bundle 的 raw 路径之前维持拒绝；已有 generic 参数 raw 保留现有约束及实际 validation 标记，不借此降低分类/来源标准。
 
 交付：统一数据模型、可信来源工厂、隔离编译宿主及自动化正反例。Wire 编码与 native 签名只在各自规范维护。
@@ -125,7 +125,7 @@ claim、公共发现/结果分页或真实HTTP/MCP 联合验收；各层继续�
 
 ### 3.6 Herdr 普通 RPC 与剩余验收
 
-已实现固定 Linux x86_64、Herdr 0.9.5/protocol 22 的 65 方法，覆盖 workspace/tab/pane/Agent
+已在 Linux x86_64 接入最多 65 个 Herdr 方法（以实际安装 schema 为准，版本仅作诊断），覆盖 workspace/tab/pane/Agent
 普通 RPC、原始完整 schema 校验、当前双端策略与完整 Target、原 Store 内容/响应锚点、
 独立 Connector 准入记录及持久唯一 claims。模块不添加第二套设备、CLI、provider registry 或 Store。
 

@@ -105,22 +105,22 @@ Gateway 在本机/可信网络使用普通 HTTP/WS，公网 TLS 由外部标准 
 
 ## 原生安装与 pins
 
-通过原生程序的官方分发安装并核验精确字节。版本标签匹配还不够，不要改 pins 来接受另一份
-binary。使用为该安装批准的官方 [Luvus](https://github.com/RizRiyz/luvus) 或
-[Herdr](https://github.com/herdrdev/herdr/releases/tag/v0.9.5) 分发。
-当前实际接受的 Linux x64 pins 如下：
+通过官方分发安装 Luvus 或 Herdr。兼容性由安装版协议、完整请求/响应 schema 和实际方法能力
+判断；版本标签保留作提示与诊断，不要求指定 Luvus/Herdr 发行版或预设 binary/schema 摘要。
+可选方法缺失或不兼容只影响依赖功能，其它健康方法继续可用。目录只展示已接入的方法和传输。
 
-| Pin | Luvus | Herdr |
+| 安装观测 | Luvus | Herdr |
 |---|---|---|
-| 版本 / 协议 | `0.14.3` / live UHP catalog | `0.9.5` / `22` |
-| Binary SHA-256 | `895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9` | `14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d` |
-| 原始 schema SHA-256 | `00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6` | `9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b` |
 | Schema 命令 | `luvus uhp schema` | `herdr api schema --json` |
+| 协议依据 | UHP v1 信封及实际在线方法目录 | schema 中的实际协议与完整 JSON RPC 根 |
 | Adapter revision | `managed-owned-luvus-0.14.3-1` | `herdr-workflow-4` |
 | Classification revision | `managed-owned-rpc-1` | `herdr-0.9.5-workflow-4` |
 
-schema 输出须保持原始字节，不能 JSON 解析后重新序列化。这些 pins 不暗示未经核验的
-包管理器安装命令。
+revision 字符串标识 Rovloom 适配/分类代码，其中的历史版本文字不是原生安装要求。
+程序测量并记录本机实际安装摘要、保留 schema 原始字节，用户无需复制摘要或维护原生状态。
+受保护配置与当前来源仍须一致指向所选
+binary/schema 和完整目标；文件替换或过期配置会拒绝。这些核对防止误投，不选择原生版本。
+已知预编译摘要只用于缓存命中，未知 schema 在同一编译预算内从真实原字节完整编译。
 
 ## Agent 安装目录
 

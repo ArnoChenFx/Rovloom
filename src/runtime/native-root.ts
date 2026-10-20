@@ -7,7 +7,6 @@ import { boundedJson, fields, id, object } from '../wire/index.js'
 import { pinConfig, verifyInstallation } from '../connector/luvus/local.js'
 import type { LuvusLocalConfig } from '../connector/luvus/types.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
-import { FIXED_LUVUS_SHA256 } from './native-control.js'
 import { ownedPathStamp, OwnedNativeProcess } from './native-process.js'
 import {
   createNativeRecord,
@@ -127,12 +126,7 @@ function rootHandle(path: string, expected: { root_id: string; root_revision: nu
     throw new LuvusAdapterError('native_root_record_invalid')
   }
   const config = pinConfig(value.config as LuvusLocalConfig)
-  if (
-    config.binary_sha256 !== FIXED_LUVUS_SHA256 ||
-    config.transport !== 'ipc' ||
-    !process.versions.bun ||
-    process.arch !== 'x64'
-  ) {
+  if (config.transport !== 'ipc' || !process.versions.bun || process.arch !== 'x64') {
     throw new LuvusAdapterError('native_root_installation_unsupported')
   }
   assertManagedControlDirectory(config, dirname(path))
@@ -179,7 +173,7 @@ export async function initializeManagedLuvusRoot(
   }>
 ): Promise<ManagedLuvusRoot> {
   const config = pinConfig(options.config)
-  if (config.binary_sha256 !== FIXED_LUVUS_SHA256 || config.transport !== 'ipc') {
+  if (config.transport !== 'ipc') {
     throw new LuvusAdapterError('native_root_installation_unsupported')
   }
   nativeRecordParent(options.record_path)

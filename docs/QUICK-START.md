@@ -90,7 +90,8 @@ Ctrl-C; an MCP client disconnect does not stop Gateway.
 ## 3. Prepare the native programs
 
 Install the approved official Luvus or Herdr and the Agent you intend to use.
-Current native version/byte checks and controlled PATH are described in
+Compatibility follows actual protocol and method capabilities; version labels are
+diagnostic. Actual installation identity and controlled PATH are described in
 [native installation](CONFIGURATION.md#native-installation-and-pins).
 Rovloom does not yet install them or configure model access. A running Gateway
 or an accepted configuration does not establish a usable native provider.
@@ -187,7 +188,7 @@ not connected.
 | Configuration unreadable/not protected | Check owner, private directory and file permissions; avoid links. Existing permissions are not silently repaired. |
 | Listener failure | Check selected ports, address availability and data directory ownership. |
 | HTTP 401 | Check exact `/mcp` URL, existing Bearer and expiry. An unpaired Gateway rejects every caller. |
-| Offline / provider not ready | Check WS/WSS reachability, system TLS trust, pairing and native installation. |
+| Offline / provider not ready | Check WS/WSS reachability, system TLS trust, pairing, selected installation identity and required method/protocol capabilities. |
 | Permission/contract/revision error | Refresh provider/method descriptions and verify grants. |
 | Agent executable missing | Verify the Agent is in the runtime's controlled PATH with model access in its private HOME; do not bypass the terminal switch. |
 | Uncertain call / storage failure | Preserve original call and state; do not delete ledgers or blindly resend. |
