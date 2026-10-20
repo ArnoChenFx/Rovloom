@@ -15,6 +15,7 @@
 | 开机服务 | systemd 系统单元、系统域 LaunchDaemon、Windows BootTrigger 计划任务的独立状态机、原生后端与最小 parser 接缝；受控测试，不修改系统启动项 | 唯一 CLI/后台角色接线、Windows 有效 ACL 与运行配置验证、三平台真实开机及全生命周期验收；见 [SERVICE](SERVICE.md) |
 | 产品服务 | 受信宿主 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效与专用交付模块、隔离模拟 Connector、消费共享管理 DTO 的 WebUI 展示/快照生命周期模块 | Gateway/Connector 角色 CLI、MCP facade、生产宿主、原生 adapters、管理 UI 的受保护 HTTP/认证接线和部署发行 |
 | Herdr | 固定来源的 65 个普通 RPC、安装/异步 Worker、独立原生来源、Store/Wire/结果锚点与两个 provider 资源工厂，完整 policy 及两份静态/合成回归输入 | 唯一 CLI loader/HTTP MCP 目录联合接线、独立原生证据、同会话真实两轮及模型出口、其余 37 方法、跨平台和实际部署验收 |
+| 直接终端执行 | 单一本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派回归；见[终端执行](TERMINAL-EXECUTION.md) | 唯一 CLI/目录一致接线、隔离原生命令与真实输出验证；逐命令退出证据和独立双向控制仍未交付 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生

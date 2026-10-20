@@ -673,6 +673,7 @@ test(
     derived = derived.replace('export function verifyHerdrInstallation(', 'function originalVerifyHerdrInstallation(')
     for (const [relative, url] of [
       ['../../wire/index.js', new URL('../../../src/wire/index.ts', import.meta.url).href],
+      ['../terminal-execution.js', new URL('../../../src/connector/terminal-execution.ts', import.meta.url).href],
       ['./review.js', new URL('../../../src/connector/herdr/review.ts', import.meta.url).href]
     ]) {
       derived = derived.replaceAll(relative!, url!)

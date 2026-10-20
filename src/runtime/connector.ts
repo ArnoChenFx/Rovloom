@@ -213,6 +213,7 @@ export async function createConnectorRuntime(options: ConnectorRuntimeOptions) {
 
       rpc = new LuvusRpcAdapter(resource.config, {
         backend: guardedBackend,
+        terminalExecution: resource.terminalExecution,
         /** 保存实际同一 socket；宿主异步核验前后都不能把证据移交给其它 attempt 或已关闭连接。 */
         async verifyPeer(socket, endpoint, binding) {
           const name = binding.call_id + ':' + binding.attempt_id

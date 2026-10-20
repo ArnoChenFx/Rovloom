@@ -14,6 +14,8 @@ export type LuvusLocalConfig = Readonly<{
   home: string
   cwd: string
   transport: 'ipc' | 'cli'
+  // 本机所有者显式开启直接终端执行；省略时关闭，不影响独立授权的普通 Agent 对话。
+  allow_terminal_execution?: boolean
   limits?: Partial<LuvusLocalLimits>
 }>
 export type LuvusLocalLimits = Readonly<{
@@ -40,6 +42,8 @@ export type NativeTransportEvidence = Readonly<{
 export type LuvusNativeAuth = string | Readonly<{ kind: 'local_owner' }>
 export interface LuvusRpcHost {
   backend: NativeWireBackend
+  // 可选受保护同步配置读取器；存在时每个边界重新读取，返回非 true 或抛错均不能开启。
+  terminalExecution?(): boolean
   // 必须显式交付 token 或当前受控本机 Owner 模式；缺 token 不会触发隐式降级。
   nativeAuth(binding: AttemptBinding, evidence: NativeTransportEvidence): Promise<LuvusNativeAuth>
   // 宿主必须原子登记唯一派发并重查当前认证、策略、generation 和 deadline。

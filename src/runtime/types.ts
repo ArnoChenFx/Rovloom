@@ -127,6 +127,8 @@ export type ConnectorRuntimeOptions = Readonly<{
       // 可选原截止能力的真实接收端；实际准入后端须使用同一持久记录，不能从请求 JSON 自建。
       admissions?: AdmissionReceiptSink
       verifyPeer: NonNullable<LuvusRpcHost['verifyPeer']>
+      // 本机受保护配置的同步读取器；省略时使用本 epoch 固定的本地显式开关。
+      terminalExecution?: LuvusRpcHost['terminalExecution']
       // 固定 dedup 截止必须来自受保护准入记录；不得按重连时间重新计算。
       dedupExpires(binding: Parameters<LuvusRpcHost['claimDispatch']>[0]): number
       // 独立验证同一 socket 的实测证据后才可读 delegation 或登记 claim。
