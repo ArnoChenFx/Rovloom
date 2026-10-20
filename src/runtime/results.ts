@@ -273,6 +273,24 @@ export function createProviderResultAccess(options: ProviderResultAccessOptions)
     open(callId: string): ProviderResultMetadata {
       return operation(
         /* 在持久创建前核对原生读许可，创建后重新授权，最终只返回 Store 的实际元数据。 */ (principal) => {
+          // 已有句柄没有保留写事务；先验当前ACL，再以一轮前后完整原生门禁核验，避免重复整轮观察。
+          router(principal).get(principal, callId)
+          const existing = store.findResult(principal.id, callId)
+          if (existing) {
+            const current = readable(principal, callId, true)
+            // 宿主回调可能删除、替换或使句柄到期；末次从Store新读，不能返回先前元数据或在此重新签发。
+            const final = store.findResult(principal.id, callId)
+            if (
+              !final ||
+              final.result_id !== existing.result_id ||
+              final.bytes !== existing.bytes ||
+              final.hash !== existing.hash ||
+              final.expires !== existing.expires
+            ) {
+              throw new GatewayError('result_not_ready')
+            }
+            return metadata(final, current, final.result_id)
+          }
           readable(principal, callId, true)
           const saved = router(principal).saveResult(principal, callId)
           const current = readable(principal, callId, true)

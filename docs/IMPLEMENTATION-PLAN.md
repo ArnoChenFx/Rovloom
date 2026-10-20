@@ -16,7 +16,7 @@
 | 产品服务 | 双角色 CLI、MCP Streamable HTTP、Store/Router 查询及清理、请求认证、生产管理 session/CSRF/custody、原子准入与持久 claim、Luvus/Herdr catalog、WebUI 确认/回执及认证后恢复 | provider 重新启用证明、所选实际 MCP Host/OAuth、完整工作流与发行部署验收 |
 | 开机服务 | Linux systemd、macOS 系统域 LaunchDaemon 与 Windows 既有用户 BootTrigger 的 Gateway 生产宿主；Linux x64 Connector 服务；前后台共用角色配置；见 [SERVICE](SERVICE.md) | 三平台重启开机实测及部署环境验收 |
 | Herdr | 最多 65 个普通 RPC、独立原生来源/Worker、Store/Wire/结果锚点与持久 claim；唯一 CLI loader、mixed runtime、HTTP MCP 目录及 Herdr/mixed 首次配置向导 | 同会话真实两轮及模型出口、其余 37 方法、原生跨平台和实际双机部署验收 |
-| 直接终端执行 | 本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派、单文件 CLI 开关、通用宿主目录状态转发及 Herdr 普通拒绝闭环；见[终端执行](TERMINAL-EXECUTION.md) | 隔离原生命令、逐命令退出证据和独立双向控制验收 |
+| 直接终端执行 | 本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派、单文件 CLI 开关、通用宿主目录状态转发及 Herdr 普通拒绝闭环；两端隔离原生命令与真实输出已验收，见[终端执行](TERMINAL-EXECUTION.md) | 逐命令退出证据和独立双向控制验收；真实双机、模型会话与开机重启仍须独立验收 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
