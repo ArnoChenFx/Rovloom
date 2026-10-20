@@ -78,15 +78,17 @@ jobs:
             echo 'CLI product wiring pending; only the packaging probe was accepted.'
             echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
-      - name: Verify real system service lifecycle in disposable GitHub-hosted VM with explicit sudo -n
-        if: runner.os != 'Windows' && steps.product.outputs.present == 'true'
+      - name: Verify real service lifecycle in disposable hosted VM with explicit OS authorization
+        if: steps.product.outputs.present == 'true'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
           ROVLOOM_NATIVE_SERVICE_CI: '1'
         run: |
           set -euo pipefail
-          export ROVLOOM_SERVICE_EXECUTABLE="$PWD/dist/release/$TARGET/candidate/rovloom"
+          extension=''
+          if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
+          export ROVLOOM_SERVICE_EXECUTABLE="dist/release/$TARGET/candidate/rovloom$extension"
           bun --no-env-file scripts/service/native-smoke.mjs
       - name: Accept real standalone Gateway and explicit unsupported native roles
         if: (runner.os == 'Linux' || runner.os == 'macOS') && matrix.target != 'bun-linux-x64'

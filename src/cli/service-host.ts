@@ -33,9 +33,9 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
   if (spec.platform !== environment.platform || spec.executable !== environment.executable) {
     throw new ServiceError('unsafe_installation')
   }
-  // Gateway服务支持Linux/macOS；本机native Connector仍限Linux x64。
+  // Gateway服务支持三个平台；本机native Connector仍限Linux x64。
   if (
-    !['linux', 'darwin'].includes(environment.platform) ||
+    !['linux', 'darwin', 'win32'].includes(environment.platform) ||
     (spec.role === 'connector' && (environment.platform !== 'linux' || environment.arch !== 'x64'))
   ) {
     throw new ServiceError('backend_unavailable')
@@ -110,7 +110,7 @@ export function createProductServiceHost(): CliServiceHost {
     // 当前不能运行角色的平台在接触系统控制目录、权限或注册之前明确拒绝。
     async authorize(role?: ServiceRole) {
       if (
-        !['linux', 'darwin'].includes(environment.platform) ||
+        !['linux', 'darwin', 'win32'].includes(environment.platform) ||
         !environment.standalone ||
         (role === 'connector' && (environment.platform !== 'linux' || environment.arch !== 'x64'))
       ) {

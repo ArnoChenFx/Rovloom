@@ -102,6 +102,22 @@ test(
 )
 
 test(
+  'Windows当前单文件Gateway可接服务，仍拒绝尚无本机owner的Connector',
+  /* 纯产品能力检查不注册任务、不读取另一用户目录。 */ () => {
+    const spec = { ...sampleSpec('win32'), role: 'gateway' as const }
+    for (const arch of ['x64', 'arm64']) {
+      const environment = { platform: 'win32', arch, executable: spec.executable, standalone: true }
+      assertServiceProduct(spec, environment)
+      assert.throws(
+        /* 服务后端不能赋予Windows尚未实现的native Connector能力。 */ () =>
+          assertServiceProduct({ ...spec, role: 'connector' }, environment),
+        { code: 'backend_unavailable' }
+      )
+    }
+  }
+)
+
+test(
   '无运行时支持时预检不能执行工具或读取所选路径',
   /* 缺省必须在所有文件与命令操作之前拒绝。 */ async () => {
     const spec = sampleSpec()

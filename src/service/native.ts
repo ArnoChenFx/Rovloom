@@ -160,7 +160,9 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
       if (typeof options.verifyRuntime !== 'function') {
         throw new ServiceError('backend_unavailable')
       }
-      if (platform !== 'win32') {
+      if (platform === 'win32') {
+        await taskCall(run, 'validate', spec.role, spec)
+      } else {
         const id = await checkedCommand(run, { executable: '/usr/bin/id', args: ['-u', spec.account], timeout: 5000 })
         if (!/^[1-9]\d*$/u.test(id.stdout.trim()) || !Number.isSafeInteger(Number(id.stdout.trim()))) {
           throw new ServiceError('invalid_arguments')

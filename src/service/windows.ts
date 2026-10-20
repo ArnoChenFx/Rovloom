@@ -13,6 +13,19 @@ $ErrorActionPreference = 'Stop'
 $json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
 # 固定CLR序列化器绕开cmdlet自动加载；JSON始终为数据，不执行表达式。
 function emit($value) { [Console]::Write($json.Serialize($value)) }
+# 正常解析既有用户身份，不读取profile、密码、ACL或额外账户配置。
+function userSid($account) {
+  try {
+    if ($account -match '^S-1-') {
+      $identifier = [Security.Principal.SecurityIdentifier]::new($account)
+      $null = $identifier.Translate([Security.Principal.NTAccount])
+      $sid = $identifier.Value
+    }
+    else { $sid = ([Security.Principal.NTAccount]::new($account)).Translate([Security.Principal.SecurityIdentifier]).Value }
+    if ($sid -in @('S-1-5-18','S-1-5-19','S-1-5-20')) { throw 'invalid_arguments' }
+    return $sid
+  } catch { throw 'invalid_arguments' }
+}
 try {
   $p = $json.DeserializeObject([Console]::In.ReadToEnd())
   if ($p.name -notmatch '^rovloom-(gateway|connector)$') { throw 'service_conflict' }
@@ -23,6 +36,7 @@ try {
   $s.Connect()
   $folder = $s.GetFolder('\\')
   if ($p.op -eq 'authorize') { emit @{ok=$true}; exit 0 }
+  if ($p.op -eq 'validate') { $null = userSid $p.account; emit @{ok=$true}; exit 0 }
   $t = $null
   try { $t = $folder.GetTask($p.name) }
   catch { if ($_.Exception.HResult -ne -2147024894) { throw } }
@@ -32,13 +46,18 @@ try {
   }
   if ($p.op -eq 'create') {
     if ($null -ne $t) { throw 'service_conflict' }
-    $null = $folder.RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5, $null)
+    $definition = $s.NewTask(0)
+    $definition.XmlText = $p.xml
+    $definition.Principal.UserId = userSid $p.account
+    $definition.Principal.LogonType = 2
+    $null = $folder.RegisterTaskDefinition($p.name, $definition, 2, $definition.Principal.UserId, $null, 2, $null)
     emit @{ok=$true}; exit 0
   }
   if ($null -eq $t) { throw 'service_conflict' }
   $expected = $s.NewTask(0)
   $expected.XmlText = $p.xml
-  $expected.Principal.LogonType = 5
+  $expected.Principal.UserId = userSid $p.account
+  $expected.Principal.LogonType = 2
   [xml]$a = $t.Xml
   [xml]$b = $expected.XmlText
   foreach ($doc in @($a,$b)) {
@@ -57,7 +76,7 @@ try {
       $boot = $definition.Triggers.Item(1)
       $boot.Enabled = [bool]$p.enabled
       $security = $t.GetSecurityDescriptor(7)
-      $t = $folder.RegisterTaskDefinition($p.name, $definition, 52, 'S-1-5-19', $null, 5, $security)
+      $t = $folder.RegisterTaskDefinition($p.name, $definition, 52, $expected.Principal.UserId, $null, 2, $security)
     }
     'start' { $null = $t.Run($null) }
     'stop' { $t.Stop(0) }
@@ -102,6 +121,7 @@ export async function taskCall(
       name: serviceName(role, 'win32'),
       xml: spec ? renderTask(spec) : undefined,
       marker: spec ? manifest(spec) : undefined,
+      account: spec?.account,
       enabled
     })
   })
@@ -111,7 +131,12 @@ export async function taskCall(
   } catch {
     throw new ServiceError('system_command_failed', result.code)
   }
-  if (value.error === 'permission_denied' || value.error === 'service_conflict' || value.error === 'service_busy') {
+  if (
+    value.error === 'permission_denied' ||
+    value.error === 'service_conflict' ||
+    value.error === 'service_busy' ||
+    value.error === 'invalid_arguments'
+  ) {
     throw new ServiceError(value.error, result.code)
   }
   if (result.code !== 0 || value.error) {

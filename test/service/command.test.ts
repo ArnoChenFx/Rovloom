@@ -81,6 +81,23 @@ test(
 )
 
 test(
+  'Windows用户账户保留同一配置引用，不回退系统账户或转换路径',
+  /* 常规用户名称和用户SID交由Windows正常解析；本地只核对参数形状。 */ () => {
+    const spec = sampleSpec('win32')
+    for (const account of ['operator', 'RovloomHost\\operator', 'S-1-5-21-100-200-300-1001']) {
+      const selected = validateSpec({ ...spec, account })
+      assert.equal(selected.account, account)
+      assert.equal(selected.config, spec.config)
+    }
+    for (const account of [null, 42, {}, '', 'bad\naccount', 'a'.repeat(257), 'S-1-5-18', 'S-1-5-19', 'S-1-5-20']) {
+      assert.throws(/* 无效账户不进入OS注册，不添加另一个配置目录。 */ () => validateSpec({ ...spec, account }), {
+        code: 'invalid_arguments'
+      })
+    }
+  }
+)
+
+test(
   'systemd escapes variables/specifiers and Windows follows CRT quoting for slashes and quotes',
   /* 特殊字符作为字面 argv，不能注入 unit 选项或环境扩展。 */ () => {
     assert.equal(unitQuote('/opt/$HOME/%n/"a"\\b'), '"/opt/$HOME/%%n/\\"a\\"\\\\b"')
@@ -117,8 +134,8 @@ assert a['StandardInPath']=='/dev/null'
 b=E.fromstring(p['task']); n={'t':'http://schemas.microsoft.com/windows/2004/02/mit/task'}
 assert len(b.findall('t:Triggers/*',n))==1
 assert b.find('t:Triggers/t:BootTrigger',n) is not None
-assert b.find('t:Principals/t:Principal/t:UserId',n).text=='S-1-5-19'
-assert b.find('t:Principals/t:Principal/t:LogonType',n) is None
+assert b.find('t:Principals/t:Principal/t:UserId',n).text==p['account']
+assert b.find('t:Principals/t:Principal/t:LogonType',n).text=='S4U'
 for k,v in {'ExecutionTimeLimit':'PT0S','MultipleInstancesPolicy':'IgnoreNew','DisallowStartIfOnBatteries':'false','StopIfGoingOnBatteries':'false','AllowStartOnDemand':'true','AllowHardTerminate':'true'}.items(): assert b.find('t:Settings/t:'+k,n).text==v
 assert b.find('t:Actions/t:Exec/t:Command',n).text==p['exe']
 assert b.find('t:Actions/t:Exec/t:WorkingDirectory',n).text==p['cwd']
@@ -130,6 +147,7 @@ assert b.find('t:Actions/t:Exec/t:Arguments',n).text==p['args']
           plist: renderDefinition(mac),
           argv: [mac.executable, 'connector', '--config', mac.config],
           task: renderTask(win),
+          account: win.account,
           exe: win.executable,
           cwd: win.directory,
           args: ['connector', '--config', win.config].map(windowsQuote).join(' ')
@@ -172,6 +190,27 @@ test(
 )
 
 test(
+  '原生实装脚本在普通机器或自托管环境先拒绝，不读取安装目标',
+  /* 只启动带拒绝条件的子进程；没有有效二进制路径，也绝不伪造可实装的托管VM环境。 */ () => {
+    for (const env of [
+      {},
+      { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted', ROVLOOM_NATIVE_SERVICE_CI: '1' },
+      { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' }
+    ]) {
+      const result = spawnSync(process.execPath, ['--no-env-file', 'scripts/service/native-smoke.mjs'], {
+        env: { ...env, ROVLOOM_SERVICE_EXECUTABLE: 'missing-candidate' },
+        encoding: 'utf8',
+        timeout: 5000
+      })
+      assert.equal(result.status, 1)
+      assert.equal(result.signal, null)
+      assert.match(result.stderr, /native_service_requires_disposable_github_vm/u)
+      assert(!result.stderr.includes('ENOENT'))
+    }
+  }
+)
+
+test(
   'Windows task principal satisfies official XSD LogonType enum/cardinality semantics',
   /* 独立检查 schema 枚举与基数，证明语法正确但非法的 ServiceAccount 会被拒绝；不声称全 XSD 验证。 */ () => {
     const result = spawnSync(
@@ -192,11 +231,12 @@ def valid(xml):
  nodes=root.findall('t:Principals/t:Principal/t:LogonType',ns)
  return int(r.attrib['minOccurs'])<=len(nodes)<=int(r.attrib['maxOccurs']) and all(n.text in values for n in nodes)
 assert valid(p['xml'])
-assert not valid(p['xml'].replace('<RunLevel>','<LogonType>ServiceAccount</LogonType><RunLevel>'))
-assert not valid(p['xml'].replace('<RunLevel>','<LogonType>Unknown</LogonType><RunLevel>'))
+xml=p['xml'].replace('<LogonType>S4U</LogonType>','')
+assert not valid(xml.replace('<RunLevel>','<LogonType>ServiceAccount</LogonType><RunLevel>'))
+assert not valid(xml.replace('<RunLevel>','<LogonType>Unknown</LogonType><RunLevel>'))
 for value in values:
- assert valid(p['xml'].replace('<RunLevel>','<LogonType>'+value+'</LogonType><RunLevel>'))
-assert not valid(p['xml'].replace('<RunLevel>','<LogonType>S4U</LogonType><LogonType>Password</LogonType><RunLevel>'))
+ assert valid(xml.replace('<RunLevel>','<LogonType>'+value+'</LogonType><RunLevel>'))
+assert not valid(xml.replace('<RunLevel>','<LogonType>S4U</LogonType><LogonType>Password</LogonType><RunLevel>'))
 `
       ],
       { input: JSON.stringify({ xml: renderTask(sampleSpec('win32')) }), encoding: 'utf8' }

@@ -9,18 +9,23 @@ import { once } from 'node:events'
 import { join } from 'node:path'
 import { configDocument, configTemplate } from '../../src/cli/config.ts'
 import { renderDefinition } from '../../src/service/render.ts'
+import { createNativeServiceBackend } from '../../src/service/native.ts'
+import { manifest } from '../../src/service/spec.ts'
 
 if (
   process.env.GITHUB_ACTIONS !== 'true' ||
   process.env.RUNNER_ENVIRONMENT !== 'github-hosted' ||
   process.env.ROVLOOM_NATIVE_SERVICE_CI !== '1' ||
-  !['linux', 'darwin'].includes(process.platform)
+  !['linux', 'darwin', 'win32'].includes(process.platform)
 ) {
   throw new Error('native_service_requires_disposable_github_vm')
 }
 const executable = realpathSync(process.env.ROVLOOM_SERVICE_EXECUTABLE ?? '')
+const windows = process.platform === 'win32'
 const user = userInfo()
-assert(user.uid > 0)
+if (!windows) {
+  assert(user.uid > 0)
+}
 const root = mkdtempSync(join(process.cwd(), '.rovloom-native-service-'))
 const config = join(root, 'gateway.json')
 const state = join(root, 'state')
@@ -39,12 +44,27 @@ const definition =
     ? '/etc/systemd/system/rovloom-gateway.service'
     : '/Library/LaunchDaemons/io.rovloom.gateway.plist'
 const expected = renderDefinition(spec)
+const native = windows ? createNativeServiceBackend({ platform: 'win32' }) : undefined
 let attempted = false
 let cleaned = false
 let failure
+let phase = 'preflight'
 
 // 云CI明确使用已有免密码sudo授权；产品代码本身不调用提权，不继承测试之外的环境配置。
 function command(file, args) {
+  if (windows) {
+    const result = spawnSync(file, args, {
+      encoding: 'utf8',
+      timeout: 90000,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    })
+    if (result.error || result.signal) {
+      throw new Error('native_service_command_incomplete')
+    }
+    return result
+  }
   const result = spawnSync('/usr/bin/sudo', ['-n', '--', file, ...args], {
     encoding: 'utf8',
     timeout: 90000,
@@ -59,6 +79,7 @@ function command(file, args) {
 
 // 只解析唯一产品CLI的固定监管结果；不把systemctl/launchctl成功误作HTTP可用。
 function service(action, install = false) {
+  phase = action
   const result = command(executable, [
     'service',
     action,
@@ -72,7 +93,11 @@ function service(action, install = false) {
 }
 
 // 精确比对本轮登记后才允许收尾，绝不对同名既有服务发卸载/停止请求。
-function owned() {
+async function owned() {
+  if (native) {
+    const found = await native.inspect('gateway')
+    return found !== undefined && manifest(found.spec) === manifest(spec)
+  }
   const result = command('/bin/cat', [definition])
   return result.status === 0 && result.stdout === expected
 }
@@ -107,7 +132,12 @@ async function reachable(url) {
 }
 
 try {
-  assert.equal(existsSync(definition), false, 'native_service_name_collision')
+  if (native) {
+    await native.authorize()
+    assert.equal(await native.inspect('gateway'), undefined, 'native_service_name_collision')
+  } else {
+    assert.equal(existsSync(definition), false, 'native_service_name_collision')
+  }
   if (process.platform === 'linux') {
     const probe = command('/usr/bin/systemctl', [
       '--system',
@@ -117,7 +147,7 @@ try {
       'rovloom-gateway.service'
     ])
     assert([0, 4].includes(probe.status) && probe.stdout.trim() === 'not-found', 'native_service_name_collision')
-  } else {
+  } else if (process.platform === 'darwin') {
     const probe = command('/bin/launchctl', ['list'])
     assert.equal(probe.status, 0)
     assert(
@@ -172,17 +202,35 @@ try {
   assert.equal(existsSync(join(state, 'identity.db')), true)
   assert.equal(existsSync(join(state, 'gateway.db.lock')), false)
   assert.equal(existsSync(join(state, 'identity.db.lock')), false)
-  assert.equal(owned(), false)
+  assert.equal(await owned(), false)
   cleaned = true
 } catch (error) {
   failure = error
+  if (native) {
+    try {
+      const observed = await native.inspect('gateway')
+      // 只记录本轮固定阶段、监管退出码与锁是否存在，不输出角色配置或凭据。
+      process.stderr.write(
+        JSON.stringify({
+          scope: 'disposable-native-service-failure',
+          phase,
+          state: observed?.state ?? 'absent',
+          exitCode: observed?.exitCode ?? null,
+          gatewayLock: existsSync(join(state, 'gateway.db.lock')),
+          identityLock: existsSync(join(state, 'identity.db.lock'))
+        }) + '\n'
+      )
+    } catch {
+      // 诊断查询失败不改变原测试失败，也不被解释为登记缺失。
+    }
+  }
 }
 
 // 收尾结果独立核对，既保留原失败，也不以finally控制流掩盖清理失败。
 try {
   if (!attempted) {
     cleaned = true
-  } else if (owned()) {
+  } else if (await owned()) {
     let failed = false
     for (const action of ['uninstall', 'stop']) {
       try {
@@ -191,8 +239,8 @@ try {
         failed = true
       }
     }
-    cleaned = !failed && !owned()
-  } else if (!existsSync(definition)) {
+    cleaned = !failed && !(await owned())
+  } else if (native ? (await native.inspect('gateway')) === undefined : !existsSync(definition)) {
     cleaned = true
   }
   if (cleaned) {

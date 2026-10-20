@@ -3,7 +3,6 @@ import { posix, win32 } from 'node:path'
 import { ServiceError, type ServicePlatform, type ServiceRole, type ServiceSpec } from './types.js'
 
 export const OWNER = 'Rovloom managed boot service v1:'
-export const LOCAL_SERVICE = 'S-1-5-19'
 
 // 只允许现行两种角色，禁止借服务名称管理其它项目。
 export function isRole(value: unknown): value is ServiceRole {
@@ -60,12 +59,23 @@ export function validateSpec(value: unknown): ServiceSpec {
   ) {
     throw new ServiceError('invalid_arguments')
   }
+  if (
+    typeof spec.account !== 'string' ||
+    !spec.account ||
+    spec.account.length > 256 ||
+    Array.from(spec.account).some(
+      /* 账户按普通文本传递，拒绝NUL和控制字符。 */ (c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127
+    )
+  ) {
+    throw new ServiceError('invalid_arguments')
+  }
   // WorkingDirectory 是单值原文，非 argv；行尾空白和续行反斜杠不能无损表达，因此明确拒绝。
   if (spec.platform === 'linux' && (spec.directory.trimEnd() !== spec.directory || spec.directory.endsWith('\\'))) {
     throw new ServiceError('invalid_arguments')
   }
   if (spec.platform === 'win32') {
-    if (spec.account !== LOCAL_SERVICE || !spec.executable.toLowerCase().endsWith('.exe')) {
+    // S4U运行既有用户，不把内置系统服务账户作为用户会话；账户有效性再由正常Windows解析确认。
+    if (/^S-1-5-(?:18|19|20)$/u.test(spec.account) || !spec.executable.toLowerCase().endsWith('.exe')) {
       throw new ServiceError('invalid_arguments')
     }
   } else if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/u.test(spec.account) || spec.account === 'root') {

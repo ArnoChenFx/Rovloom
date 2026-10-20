@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { renderDefinition } from '../../src/service/render.js'
 import { runSystemCommand } from '../../src/service/runner.js'
@@ -16,7 +16,11 @@ test(
   /* 一个原生平台只证明自己的格式解析能力。 */ async () => {
     const platform = process.platform
     assert(['linux', 'darwin', 'win32'].includes(platform))
-    const spec = { ...sampleSpec(platform as 'linux' | 'darwin' | 'win32'), executable: process.execPath }
+    const spec = {
+      ...sampleSpec(platform as 'linux' | 'darwin' | 'win32'),
+      executable: process.execPath,
+      ...(platform === 'win32' ? { account: userInfo().username } : {})
+    }
     const directory = mkdtempSync(join(tmpdir(), 'rovloom-service-parse-'))
     try {
       if (platform === 'win32') {
@@ -38,10 +42,10 @@ $t=$s.NewTask(0)
 [IO.File]::WriteAllText($PhasePath,'definition_created')
 $t.XmlText=$xml
 [IO.File]::WriteAllText($PhasePath,'xml_parsed')
-$t.Principal.LogonType=5
+$t.Principal.LogonType=2
 $sid=$t.Principal.UserId
 if ($sid -notmatch '^S-1-') { $sid=([Security.Principal.NTAccount]::new($sid)).Translate([Security.Principal.SecurityIdentifier]).Value }
-if ($t.Triggers.Count -ne 1 -or $t.Triggers.Item(1).Type -ne 8 -or $sid -ne 'S-1-5-19') { exit 1 }
+if ($t.Triggers.Count -ne 1 -or $t.Triggers.Item(1).Type -ne 8 -or $sid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -or $t.Principal.LogonType -ne 2) { exit 1 }
 if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t.Settings.AllowDemandStart) { exit 1 }
 [Console]::Write('native_format_valid')
 [IO.File]::WriteAllText($PhasePath,'validated')

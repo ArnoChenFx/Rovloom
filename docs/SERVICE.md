@@ -2,8 +2,7 @@
 
 The CLI provides `service install`, `uninstall`, `start`, `restart`, and `stop` for
 an explicit `gateway` or `connector` role. Linux product wiring uses systemd and macOS uses system LaunchDaemons.
-Windows product wiring awaits
-the normal role-file/startup implementation. Native command plans exist for all
+Windows uses an existing user's native boot-triggered task. Native command plans exist for all
 three systems. Format/model tests do not establish a platform's actual lifecycle
 or reboot acceptance.
 
@@ -13,11 +12,14 @@ or reboot acceptance.
 |---|---|---|---|
 | Linux | `/etc/systemd/system/rovloom-{role}.service`, `multi-user.target` | system `systemctl` | Explicit existing non-root account |
 | macOS | `/Library/LaunchDaemons/io.rovloom.{role}.plist`, system domain | `launchctl bootstrap`, `kickstart`, `kill`, `bootout` | Explicit existing non-root account |
-| Windows | Task Scheduler `\rovloom-{role}`, `BootTrigger` | System Task Scheduler COM | LocalService (`S-1-5-19`) |
+| Windows | Task Scheduler `\rovloom-{role}`, `BootTrigger` | System Task Scheduler COM | Explicit existing user, S4U |
 
 Boot startup does not require an interactive login. LaunchAgents, user login tasks
 and `ONLOGON` are not used. A normal Bun executable is not registered as an SCM
-service: the Windows backend uses a native boot-triggered task with no password.
+service: the Windows backend uses a native boot-triggered task with no stored password.
+S4U runs on a non-interactive desktop without requiring a login. Windows limits
+its network-resource and encrypted-file access; interactive native Connector
+sessions are not enabled by this backend. No profile directory is queried or created.
 
 - `install` enables future boot startup and does not start the role. Repeating the
   same registration is safe; another executable/config/account is a conflict.
@@ -88,7 +90,7 @@ an ordinary user's machine or a self-hosted runner.
 ## 简体中文
 
 五项命令均显式选择 `gateway` 或 `connector`。Linux产品入口使用systemd，macOS使用system LaunchDaemon；
-Windows等普通角色文件/启动接口就绪。三平台已有原生命令计划，
+Windows使用显式选择的既有用户开机任务，不另查或创建账户profile。三平台已有原生命令计划，
 不能把格式解析或状态模型通过当作实际安装、生命周期或重启验收通过。
 
 - `install`：加入/启用未来开机自动启动，不立即启动。相同登记可重复，另一产物/配置/账户不能覆盖。
@@ -97,8 +99,10 @@ Windows等普通角色文件/启动接口就绪。三平台已有原生命令计
 - `stop`：停止所选角色，不取消开机启动。
 - `uninstall`：只撤销未来开机启动，不停止当前实例；必要时保留控制记录供显式启停。
 
-Linux 使用系统 unit，macOS 使用 system LaunchDaemon，Windows 使用 LocalService
-开机任务，不使用登录任务或把普通控制台程序冒充 SCM 服务。系统服务需要正常 OS 授权；
+Linux 使用系统 unit，macOS 使用 system LaunchDaemon，Windows 使用既有用户的S4U
+开机任务，不保存密码、不要求先登录，不把普通控制台程序冒充 SCM 服务。
+S4U是非交互桌面，Windows对其网络资源和加密文件访问有系统限制；不据此启用本机Connector会话。
+系统服务需要正常 OS 授权；
 CLI 不自动提权、不创建账户、不修改已有系统权限。
 
 登记引用当前单文件及与前台相同的角色配置绝对路径；后台不再按运行账户另选home。
