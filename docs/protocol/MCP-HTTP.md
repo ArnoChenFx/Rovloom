@@ -447,3 +447,52 @@ schema、启动、目录或原生请求失败都会使整个 CLI 验收非零退
 [SDK 流程测试](../../test/mcp/luvus-cli-flow.test.mjs)独立使用明确服务 stub，覆盖分页、原 call
 轮询、未派发 created 的 null 契约、已绑定契约倒退、稳定 ID、单次输入、结果摘要及 terminal/Target
 漂移拒绝。它只证明协议和流程断言可执行，不能代替上述真实 CLI/native 验收。
+
+## Client call sequence
+
+For MCP client implementers; ordinary setup is in the [Quick Start](../QUICK-START.md).
+The accepted arguments are defined by [the actual MCP schema](../../src/mcp/schema.ts).
+
+1. Initialize Streamable HTTP with the issued Bearer and load every tool page.
+2. Use `machines_list`, `providers_list` and `providers_get` to observe the device,
+   provider, readiness and current `binding_revision`.
+3. Use the complete Target displayed during setup or supplied by the administrator:
+   `machine_id`, `provider_id`, `profile`, and `session` for a session profile.
+   Provider listings do not supply `profile`/`session`; never guess them.
+4. Pass this Target and the observed revision as `expected_binding_revision` to
+   `runtime_discover`, following every `next_cursor`. Use `runtime_describe` for
+   the exact method and retain its `contract_ref` and native parameter schema.
+5. Submit `runtime_call` once with that Target/revision/contract and
+   `native_request:{method,params}`. `deadline` is a future absolute Unix time in
+   milliseconds; optional `wait_ms` is 0–5000 and only controls the frontend wait.
+6. Keep `call_id`; query `runtime_call_get`. Read an available `result.result_id`
+   with `runtime_result_read`, following `next_cursor` to `eof` and honoring
+   `encoding`. A timeout does not authorize resubmission.
+
+Start with `workspace.list` and the provider's described tab/pane list methods.
+Luvus generic methods such as `workspace.list` require `validation:"raw-contract"`
+and raw authorization. Luvus `pane.list`, `agent.prompt`, `agent.send`, `agent.wait`
+and `agent.keys` use strict validation; Herdr uses its actual schema and strict
+validation. Never reuse IDs, revisions or contract hashes from another provider.
+
+For conversation, describe `agent.list/get/explain/read` and select an observed
+Agent/pane. If starting an installed Agent, Luvus `agent.start` takes `pane`,
+while Herdr takes `pane_id`; use each native schema for the remaining fields.
+Luvus `agent.prompt` uses `target`, `text`, the observed `terminal_id` and
+`strict:true`. Herdr uses `target`, `text` and an optional object-valued `wait`.
+Read the actual reply with the described `agent.get/wait/read` operations and
+retain the same native conversation. Do not bypass disabled terminal execution
+with arbitrary executable arguments or environment variables.
+
+面向 MCP 客户端实现者；普通用户操作见[快速开始](../QUICK-START-zh.md)。
+参数以[实际 MCP schema](../../src/mcp/schema.ts)为准：初始化并加载全部工具页；通过
+`machines_list`、`providers_list/get` 取得实际设备/provider 和当前 revision；使用首次
+设置显示或管理员提供的完整 Target，不能从列表猜测 `profile` 或 `session`。
+带该 Target 和 `expected_binding_revision` 分页发现能力，描述精确方法后，携带原
+`contract_ref` 和原生参数只调用一次。`deadline` 是未来的 Unix 毫秒绝对时间，
+`wait_ms` 仅控制0–5000毫秒短等。保留 `call_id` 查询原调用；取得结果句柄后分页读取
+至 `eof`，遵循 `encoding`，超时不等于可重发。Luvus 的通用方法须有 raw 授权和
+`raw-contract` 校验，严格方法与 Herdr 按各自 schema 调用。
+选择实际 Agent/窗格后，按各 provider 描述的 `agent.start/prompt/get/wait/read` 操作
+发送并读取同一会话；Luvus 的 `pane`、`terminal_id`、`strict:true` 及 Herdr 的
+`pane_id`、对象型 `wait` 不可混用。禁止用任意 argv/env 绕过禁用的终端执行。
