@@ -36,12 +36,8 @@ export function createSystemCommandRunner(options: { start?: Start; cleanupMs?: 
           stdio: [plan.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
           env:
             process.platform === 'win32'
-              ? {
-                  SystemRoot: process.env.SystemRoot,
-                  WINDIR: process.env.SystemRoot,
-                  PSModulePath: String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\Modules`,
-                  PATH: String.raw`C:\Windows\System32;C:\Windows`
-                }
+              ? // PowerShell/.NET正常启动需要现有用户和临时目录环境；不另造缺失profile的环境。
+                process.env
               : { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' }
         })
         const chunks: { stdout: Buffer[]; stderr: Buffer[] } = { stdout: [], stderr: [] }
