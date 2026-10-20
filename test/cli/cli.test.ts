@@ -1,4 +1,5 @@
 // 使用临时配置、内存流和真实 Bun bundle 验证 CLI 拒绝、脱敏与关闭行为，不启动生产后端。
+import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -32,8 +33,8 @@ function temporary(check: (directory: string) => void | Promise<void>) {
 // 在私有目录写入无密钥角色配置，供只读解析和启动拒绝测试使用。
 function configFile(directory: string, role: 'gateway' | 'connector' = 'gateway') {
   const path = join(directory, `${role}.json`)
-  const config = { ...configTemplate(role), state_dir: join(directory, 'state') }
-  writeFileSync(path, JSON.stringify(config), { mode: 0o600 })
+  const config = { ...configTemplate(role), state_dir: join(directory, 'state'), gateway_url: 'ws://localhost:9443' }
+  writeFileSync(path, JSON.stringify(configDocument(config)), { mode: 0o600 })
   return path
 }
 
@@ -66,36 +67,58 @@ test(
   /* 组合秘密字段、路径和 URL 负例，检查模板与严格解析边界。 */ () => {
     for (const role of ['gateway', 'connector'] as const) {
       const template = configTemplate(role)
-      assert.equal(parseConfig(template).role, role)
+      assert.equal(parseConfig(configDocument(template)).role, role)
       assert(Object.isFrozen(template))
       for (const extra of [{ secret: marker }, { token: marker }, { principal_id: 'admin' }, { binary: '/bin/sh' }]) {
         assert.throws(
-          /* 提交未声明字段，确认配置不能接纳额外身份或秘密。 */ () => parseConfig({ ...template, ...extra })
+          /* 提交未声明字段，确认配置不能接纳额外身份或秘密。 */ () =>
+            parseConfig({ ...configDocument(template), ...extra })
         )
       }
       for (const state_dir of ['relative', '~/state', '/tmp/../state', '/tmp//state', '/']) {
-        assert.throws(/* 提交非规范状态路径，确认解析不依赖隐式展开。 */ () => parseConfig({ ...template, state_dir }))
+        assert.throws(
+          /* 提交非规范状态路径，确认解析不依赖隐式展开。 */ () =>
+            parseConfig({ ...configDocument(template), data: { directory: state_dir } })
+        )
       }
     }
     const connector = configTemplate('connector')
+    const gateway = configDocument(configTemplate('gateway'))
+    for (const invalid of [
+      { ...gateway, mcp: { hostname: '0.0.0.0', port: 9444 } },
+      { ...gateway, devices: { hostname: 'localhost', port: 9443 } },
+      { ...gateway, devices: { hostname: '127.0.0.1', port: 9444 } },
+      { ...gateway, management: { enabled: true, port: 9443 } },
+      { ...gateway, management: { enabled: 'true', port: 9445 } },
+      { ...gateway, devices: { hostname: '127.0.0.1', port: 0 } },
+      { ...gateway, devices: { hostname: '127.0.0.1', port: 65536 } },
+      { ...gateway, devices: { hostname: '127.0.0.1', port: 9443, tls_ref: 'obsolete' } }
+    ]) {
+      assert.throws(/* 分组字段、端口与旧TLS选择不能越过正式配置边界。 */ () => parseConfig(invalid))
+    }
+    const disabled = { ...gateway, management: { enabled: false, port: 9555 } }
+    assert.deepEqual(configDocument(parseConfig(disabled)), disabled)
+    assert.throws(/* 旧扁平用户格式不再接受，也不提供隐式迁移。 */ () => parseConfig(configTemplate('gateway')))
     for (const gateway_url of [
       `wss://user:${marker}@localhost:9443`,
       `wss://localhost:9443/?token=${marker}`,
       `wss://localhost:9443/#${marker}`,
       `wss://localhost:9443/${marker}`,
-      'ws://localhost:9443',
       'https://localhost:9443',
       'wss://localhost:9443?'
     ]) {
-      assert.throws(/* 提交携带凭据或额外路径的 URL，确认其被拒绝。 */ () => parseConfig({ ...connector, gateway_url }))
+      assert.throws(
+        /* 提交携带凭据或额外路径的 URL，确认其被拒绝。 */ () =>
+          parseConfig({ ...configDocument(connector), gateway: { url: gateway_url } })
+      )
     }
     assert.throws(
       /* 提交重复 provider 引用，确认配置不会产生歧义绑定。 */ () =>
-        parseConfig({ ...connector, provider_config_refs: ['same', 'same'] })
+        parseConfig({ ...configDocument(connector), provider_config_refs: ['same', 'same'] })
     )
     assert.throws(
       /* 将本地路径伪装成引用，确认不会变成模块加载入口。 */ () =>
-        parseConfig({ ...connector, provider_config_refs: ['/private/provider'] })
+        parseConfig({ ...configDocument(connector), provider_config_refs: ['/private/provider'] })
     )
   }
 )
@@ -177,7 +200,7 @@ test(
         assert.deepEqual(failure, { code: 1, stdout: '', stderr: 'runtime_failed\n' })
         const template = await capture(['config', 'template', 'gateway'])
         assert.equal(template.code, 0)
-        assert.deepEqual(JSON.parse(template.stdout), configTemplate('gateway'))
+        assert.deepEqual(JSON.parse(template.stdout), configDocument(configTemplate('gateway')))
         assert.equal(template.stderr, '')
       }
     )
@@ -197,7 +220,7 @@ test(
           ['gateway', '--config', path],
           {
             gateway: /* 检查 Gateway 收到固定配置，并提供仅供生命周期测试的宿主。 */ async (config: GatewayConfig) => {
-              assert.equal(config.authentication_ref, 'mcp-http')
+              assert.equal(config.authentication_ref, 'mcp-callers')
               return {
                 // 仅测试生命周期的 stub，不提供任何成功的业务动作。
                 service: {
@@ -297,11 +320,11 @@ test(
         for (const role of ['gateway', 'connector'] as const) {
           const template = run(['config', 'template', role])
           assert.equal(template.status, 0)
-          assert.deepEqual(JSON.parse(template.stdout), configTemplate(role))
+          assert.deepEqual(JSON.parse(template.stdout), configDocument(configTemplate(role)))
           const result = run([role, '--config', configFile(directory, role)])
-          assert.equal(result.status, 3)
+          assert.equal(result.status, role === 'connector' ? 2 : 3)
           assert.equal(result.stdout, '')
-          assert.equal(result.stderr, 'backend_unavailable\n')
+          assert.match(result.stderr, role === 'connector' ? /^configuration_required\n/ : /^backend_unavailable\n$/)
         }
       }
     )

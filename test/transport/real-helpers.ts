@@ -1,7 +1,6 @@
 // 在私有临时目录组合真实 Store 桥、唯一 IdentityStore、实际 socket 与真实 Wire/native adapter。
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/store.js'
@@ -23,36 +22,11 @@ import { fixture, until } from './helpers.js'
 import { management } from '../storage/helpers.js'
 
 /** 初始化真实双 SQLite 与双端 loopback，独立管理确认、凭据及 native 来源均仅为本次 mock fixture。 */
-export function realFixture(options: { tls?: boolean } = {}) {
+export function realFixture() {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-real-bridge-mock-'))
   const storePath = join(root, 'store.sqlite')
   const identityPath = join(root, 'identity.sqlite')
   const channels = new ChannelRegistry()
-  let tls: { cert: string; key: string } | undefined
-  if (options.tls) {
-    execFileSync(
-      '/usr/bin/openssl',
-      [
-        'req',
-        '-x509',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-days',
-        '1',
-        '-subj',
-        '/CN=mock-loopback-only',
-        '-addext',
-        'subjectAltName=IP:127.0.0.1',
-        '-keyout',
-        join(root, 'mock.key'),
-        '-out',
-        join(root, 'mock.crt')
-      ],
-      { stdio: 'ignore' }
-    )
-    tls = { cert: readFileSync(join(root, 'mock.crt'), 'utf8'), key: readFileSync(join(root, 'mock.key'), 'utf8') }
-  }
   let verify: DeviceLifecycleVerifier | undefined
   let approval: { machine: string; fence: string; id: string } | undefined
   let failStore = false
@@ -81,7 +55,6 @@ export function realFixture(options: { tls?: boolean } = {}) {
     {
       identity: identityProxy,
       channels,
-      ...(tls ? { tls } : {}),
       limits: { heartbeat_ms: 200, idle_ms: 10_000, handshake_ms: 5000 }
     },
     {
@@ -209,7 +182,6 @@ export function realFixture(options: { tls?: boolean } = {}) {
         /** 凭据来自本 fixture 受保护启动闭包，不取自业务输入或设备名称。 */
         () => device.credential,
         {
-          ...(tls ? { ca: tls.cert } : {}),
           limits: { heartbeat_ms: 200, idle_ms: 10_000, handshake_ms: 5000, reconnect_ms: 20, reconnect_max_ms: 200 },
           ...options
         }

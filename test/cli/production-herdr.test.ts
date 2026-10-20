@@ -1,6 +1,6 @@
 /** Herdr 生产来源的独立配置、双角色与 child 生命周期回归；合成子进程不提供任何原生身份或成功响应。 */
 import assert from 'node:assert/strict'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -79,7 +79,12 @@ function fixture() {
   if (template.role !== 'connector') {
     assert.fail('connector template required')
   }
-  const config = { ...template, state_dir: join(root, 'role'), provider_config_refs: ['herdr_fixture'] }
+  const config = {
+    ...template,
+    gateway_url: 'ws://127.0.0.1:9443',
+    state_dir: join(root, 'role'),
+    provider_config_refs: ['herdr_fixture']
+  }
   return {
     root,
     value,
@@ -323,47 +328,17 @@ test(
 )
 
 test(
-  '新来源兼容唯一 loader 的缺凭据前置校验，CA 正常时也不得调用 provider',
-  /** 合成自签证书只用于解析；不创建或签发设备凭据、不连接真实 Gateway。 */ async () => {
+  '新来源兼容唯一 loader 的缺凭据前置校验，不读取CA也不得调用 provider',
+  /** 程序管理状态只使用合成输入；不创建或签发设备凭据、不连接真实 Gateway。 */ async () => {
     const f = fixture()
     try {
-      const refs = join(f.config.state_dir, 'refs')
-      mkdirSync(refs, { mode: 0o700 })
-      const cert = join(refs, 'fixture.ca.pem')
-      const key = join(f.root, 'fixture.key.pem')
-      const result = spawnSync(
-        '/usr/bin/openssl',
-        [
-          'req',
-          '-x509',
-          '-newkey',
-          'rsa:2048',
-          '-nodes',
-          '-days',
-          '1',
-          '-subj',
-          '/CN=fixture-only',
-          '-out',
-          cert,
-          '-keyout',
-          key
-        ],
-        { stdio: 'ignore' }
-      )
-      assert.equal(result.status, 0)
-      chmodSync(cert, 0o600)
+      const managed = join(f.config.state_dir, 'managed')
+      mkdirSync(managed, { mode: 0o700 })
       writeFileSync(
-        join(f.config.state_dir, 'runtime.json'),
-        JSON.stringify({
-          schema_version: 1,
-          role: 'connector',
-          credential_ref: 'missing_device',
-          ca_ref: 'fixture',
-          provider_config_refs: f.config.provider_config_refs
-        }),
+        join(managed, 'providers.json'),
+        JSON.stringify({ schema_version: 1, role: 'connector', providers: f.refs() }),
         { mode: 0o600 }
       )
-      writeFileSync(join(refs, 'herdr_fixture.json'), JSON.stringify(f.value), { mode: 0o600 })
       const source = createHerdrProductionSources()
       let opened = 0
       const routed = routeProductionSources({
@@ -378,7 +353,7 @@ test(
       await assert.rejects(
         createProductionCliRuntime(routed).connector!(f.config),
         /** 固定错误不反射路径或任何合成秘密。 */ (error: unknown) =>
-          error instanceof CliError && error.code === 'backend_unavailable'
+          error instanceof CliError && error.code === 'configuration_required'
       )
       assert.equal(opened, 0)
     } finally {

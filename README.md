@@ -76,7 +76,8 @@ flowchart TB
 Follow the [Quick Start](docs/QUICK-START.md) for installation prerequisites,
 Gateway/Connector configuration paths, startup, HTTP MCP access and Agent use.
 The [configuration reference](docs/CONFIGURATION.md) lists the exact settings
-and complete non-secret templates.
+and complete non-secret templates. A first run creates the role file; fresh-device
+pairing and native setup are still incomplete.
 
 ```sh
 rovloom --version

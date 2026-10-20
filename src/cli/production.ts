@@ -1,6 +1,7 @@
 // 唯一产品入口按固定role/ref加载真实资源；JSON不能重建opaque native来源或执行任意模块。
+import { privateDirectory } from './first-config.js'
+import { join } from 'node:path'
 import { openGatewayState, createManagementSessionAuthority } from '../runtime/index.js'
-import { X509Certificate } from 'node:crypto'
 import type {
   GatewayRuntimeOptions,
   ProviderGatewayRuntimeOptions,
@@ -12,11 +13,11 @@ import type { GatewayIdentitySource } from '../mcp/management.js'
 import type { ManagementWriteHttpOptions } from '../admin/index.js'
 import { loadCredential } from '../transport/index.js'
 import { CliError, type ConnectorConfig, type GatewayConfig } from './config.js'
-import { DEFAULT_LIMITS } from '../native-contract/index.js'
 import { openCallerSource } from './caller-source.js'
-import { readRuntimeFile, readRuntimeJson, runtimeReference } from './runtime-files.js'
+import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { createRuntimeCliRuntime } from './runtime.js'
 import { readRuntimeConfig } from './runtime-config.js'
+import { loadProductManagementAssets } from './management-assets.js'
 import { openProtectedManagementSource } from './management-source.js'
 import {
   createManagementPageInitializer,
@@ -98,57 +99,42 @@ function offer(context: true | undefined): VersionOffer {
   }
 }
 
-/** 小配置只选择角色私有目录中的schema引用；原字节/pin仍由现有Luvus资源工厂核验。 */
-function providerValue(directory: string, reference: string): unknown {
-  const value = readRuntimeJson(runtimeReference(directory, reference))
-  if (
-    !value ||
-    typeof value !== 'object' ||
-    Array.isArray(value) ||
-    !('kind' in value) ||
-    value.kind !== 'luvus' ||
-    !('authentication' in value) ||
-    value.authentication !== 'remote_connector' ||
-    !('contract' in value) ||
-    !value.contract ||
-    typeof value.contract !== 'object' ||
-    Array.isArray(value.contract) ||
-    !Object.hasOwn(value.contract, 'schema_bundle_ref')
-  ) {
-    return value
+// 未配对的本地Gateway可以真实监听，但不授予任何MCP身份、管理员或原生权限。
+function unpairedCaller() {
+  return {
+    setupRequired: true,
+    identities: {
+      principal: /* 未配对没有caller身份。 */ () => null,
+      administrator: /* 未配对没有管理员。 */ () => null
+    } as GatewayIdentitySource,
+    authentication: { authenticate: /* 拒绝全部未建立的Bearer身份。 */ () => null },
+    localPolicies: /* 没有设备或原生授权。 */ () => ({ revision: 'unpaired', grants: [] }),
+    /* 无外部身份源需要释放。 */
+    close() {}
   }
-  const contract = value.contract as Record<string, unknown>
-  if (Object.hasOwn(contract, 'schema_bundle')) {
-    throw new CliError('invalid_config')
-  }
-  const { schema_bundle_ref, ...pin } = contract
-  const bytes = readRuntimeFile(runtimeReference(directory, schema_bundle_ref), DEFAULT_LIMITS.bundle_bytes)
+}
+
+// 身份状态缺失表示首次待配对；损坏或权限错误仍拒绝，不采用默认账号或测试凭据兜底。
+function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySource['administrator']) {
+  const path = runtimeReference(config.state_dir, 'mcp-callers')
   try {
-    return {
-      ...value,
-      contract: { ...pin, schema_bundle: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) }
+    readRuntimeJson(path)
+  } catch (error) {
+    if (error instanceof CliError && error.code === 'backend_unavailable') {
+      return unpairedCaller()
     }
-  } catch {
-    throw new CliError('invalid_config')
-  } finally {
-    bytes.fill(0)
+    throw error
   }
+  const hostname = config.mcp_hostname === '::1' ? '[::1]' : config.mcp_hostname
+  return { ...openCallerSource(path, `http://${hostname}:${config.mcp_port}/mcp`, administrator), setupRequired: false }
 }
 
-// provider配置只交给固定链接的真实来源resolver；没有resolver时不读取或宣称实例就绪。
-function references(directory: string, refs: readonly string[]): readonly ProductionProviderReference[] {
-  return Object.freeze(
-    refs.map(
-      /* 不解释native字段，不把普通JSON转换成来源、custody或派发许可。 */ (reference) =>
-        Object.freeze({ reference, value: providerValue(directory, reference) })
-    )
-  )
-}
-
-// 默认Gateway可读取既有caller、TLS及唯一双库；配置了native引用却没有真实来源时明确不可用。
+// 默认Gateway打开真实双库并可等待首次配对；程序管理的provider仍由固定工厂核验。
 export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
   return createRuntimeCliRuntime({
     gateway: /* 常规启动只打开已配置资源，不注册设备、签发enrollment/token或bootstrap管理cookie。 */ async (config) => {
+      privateDirectory(config.state_dir)
+      privateDirectory(join(config.state_dir, 'managed'))
       const settings = readRuntimeConfig(config)
       if (settings.provider_config_refs.length && !sources.gateway) {
         throw new CliError('backend_unavailable', 3)
@@ -156,25 +142,26 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
       if (sources.management && typeof sources.administrator !== 'function') {
         throw new CliError('backend_unavailable', 3)
       }
-      if (settings.management_ref && (sources.management || sources.administrator || sources.authorizeIdentity)) {
-        throw new CliError('invalid_config')
-      }
       let protectedManagement: ReturnType<typeof openProtectedManagementSource> | undefined
-      const hostname = config.mcp_hostname === '::1' ? '[::1]' : config.mcp_hostname
-      const caller = openCallerSource(
-        runtimeReference(config.state_dir, config.authentication_ref),
-        new URL(`http://${hostname}:${config.mcp_port}/mcp`).href,
-        settings.management_ref
-          ? /* 管理来源须在下方完整校验后才可返回现有管理员，启动窗口不提供默认身份。 */ (caller, session) =>
-              protectedManagement?.administrator(caller, session) ?? null
-          : sources.administrator?.bind(sources)
+      const caller = managedCaller(
+        config,
+        /* 逐次询问原独立管理来源，不从MCP提升权限。 */ (who, session) =>
+          protectedManagement?.administrator(who, session) ?? sources.administrator?.(who, session) ?? null
       )
+
       let authority: ManagementSessionAuthority
       try {
-        if (settings.management_ref) {
-          protectedManagement = openProtectedManagementSource(config, settings.management_ref)
-          if (protectedManagement.management.port === settings.device_listener.port) {
-            throw new CliError('invalid_config')
+        if (config.management_enabled && !sources.management) {
+          try {
+            readRuntimeJson(runtimeReference(config.state_dir, 'management'))
+            protectedManagement = openProtectedManagementSource(config, 'management')
+            if (protectedManagement.management.port !== config.management_port) {
+              throw new CliError('invalid_config')
+            }
+          } catch (error) {
+            if (!(error instanceof CliError) || error.code !== 'backend_unavailable') {
+              throw error
+            }
           }
         }
         authority = createManagementSessionAuthority(caller.identities)
@@ -203,22 +190,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
         return closing
       }
       try {
-        const certificate = readRuntimeFile(
-          runtimeReference(config.state_dir, settings.device_listener.tls_ref, '.cert.pem'),
-          65_536
-        )
-        const key = readRuntimeFile(
-          runtimeReference(config.state_dir, settings.device_listener.tls_ref, '.key.pem'),
-          65_536
-        )
-        const tls = { cert: certificate.toString('utf8'), key: key.toString('utf8') }
-        certificate.fill(0)
-        key.fill(0)
-        provider = await sources.gateway?.(
-          config,
-          references(config.state_dir, settings.provider_config_refs),
-          authority
-        )
+        provider = await sources.gateway?.(config, settings.providers, authority)
         if (sources.gateway && !provider) {
           throw new CliError('invalid_config')
         }
@@ -262,7 +234,15 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
             gateway.transport.disconnect(machine)
           }
         })
-        const configuredManagement = protectedManagement?.management ?? sources.management
+        const anonymousManagement: ProductionManagementHost | undefined =
+          config.management_enabled && !protectedManagement && !sources.management
+            ? {
+                port: config.management_port,
+                resolveLease: /* 匿名页面不创建管理员会话。 */ async () => null,
+                http: { assets: loadProductManagementAssets() }
+              }
+            : undefined
+        const configuredManagement = protectedManagement?.management ?? sources.management ?? anonymousManagement
         if (configuredManagement && provider?.management) {
           throw new CliError('invalid_config')
         }
@@ -297,12 +277,12 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
           listener: {
             hostname: settings.device_listener.hostname,
             port: settings.device_listener.port,
-            tls,
             offer: offer(provider?.admission_context)
           },
           release
         }
         const common = {
+          setupRequired: caller.setupRequired,
           authentication: caller.authentication,
           catalog: provider?.catalog,
           management,
@@ -331,44 +311,34 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
         throw error
       }
     },
-    connector: /* 只把已有设备凭据和CA接到真实session所有者；缺provider实现绝不创建心跳stub。 */ async (config) => {
+    connector: /* 只把程序保管的设备凭据接到真实session所有者；缺provider实现绝不创建心跳stub。 */ async (config) => {
+      privateDirectory(config.state_dir)
+      privateDirectory(join(config.state_dir, 'managed'))
       const settings = readRuntimeConfig(config)
       if (!sources.connector) {
         throw new CliError('backend_unavailable', 3)
       }
-      const caBytes = readRuntimeFile(runtimeReference(config.state_dir, settings.ca_ref, '.ca.pem'), 65_536)
-      let ca: string
-      try {
-        ca = caBytes.toString('utf8')
-        const pem = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g
-        const certificates = ca.match(pem)
-        if (!certificates?.length || ca.replace(pem, '').trim()) {
-          throw new CliError('invalid_config')
-        }
-        for (const certificate of certificates) {
-          new X509Certificate(certificate)
-        }
-      } catch {
-        throw new CliError('invalid_config')
-      } finally {
-        caBytes.fill(0)
+      if (!config.gateway_url || settings.providers.length === 0) {
+        throw new CliError('configuration_required')
       }
       const path = runtimeReference(config.state_dir, settings.credential_ref)
       const credential = /* 启动和每次认证均读取同一既有凭据，固定错误不反射路径或秘密。 */ () => {
         try {
           return loadCredential(path)
-        } catch {
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            throw new CliError('configuration_required')
+          }
           throw new CliError('backend_unavailable', 3)
         }
       }
       // 先验证静态认证输入，缺失或非法时不得启动provider所属的native child。
       credential()
-      const resource = await sources.connector(config, references(config.state_dir, settings.provider_config_refs))
+      const resource = await sources.connector(config, settings.providers)
       try {
         // 资源准备可能跨异步边界；期间撤去凭据也必须立即释放本次资源并退出。
         credential()
         const transport = {
-          ca,
           credential,
           offer: offer(resource.admission_context)
         }

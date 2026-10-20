@@ -5,6 +5,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createServer } from 'node:https'
+import { once } from 'node:events'
 import { fixture, until } from './helpers.js'
 
 /** 在测试私有目录生成一日自签 mock 证书，不修改系统信任或真实设备证书。 */
@@ -36,60 +38,43 @@ function certificate(root: string, ip: string) {
   return { cert: readFileSync(cert, 'utf8'), key: readFileSync(key, 'utf8') }
 }
 test(
-  'WSS 默认拒绝未知 CA，显式 fixture CA 仍严格核对 hostname',
-  /** 分别验证未知 CA、匹配的受信 CA 及错误 hostname，只允许准确 TLS 身份完成握手。 */
+  'WSS使用系统信任拒绝自签证书，旧CA或关闭校验输入不能改变结果',
+  /** 外部HTTPS监听器模拟反向代理；证书仅存在本例目录，不导入系统信任。 */
   async () => {
     const root = mkdtempSync(join(tmpdir(), 'rovloom-mock-tls-'))
-    try {
-      const tls = certificate(root, '127.0.0.1')
-      const f = fixture({ tls, developmentLoopback: false })
-      try {
-        const a = f.pair('mock')
-        const untrusted = f.connector(
-          /** 提供预先创建的 mock 设备凭据，只供本次隔离连接使用。 */
-          () => a.credential
-        )
-        await until(
-          /** 等待失败连接进入退避重连，观察握手或 TLS 的拒绝结果。 */
-          () => untrusted.status().reconnects > 1
-        )
-        assert.equal(f.gateway.status().devices.length, 0)
-        assert.equal(f.sessions.opened, 0)
-        untrusted.stop()
-        const verified = f.connector(
-          /** 提供预先创建的 mock 设备凭据，只供本次隔离连接使用。 */
-          () => a.credential,
-          {
-            ca: tls.cert
-          }
-        )
-        await until(
-          /** 等待模拟连接完成认证及可信 provider 核对后进入 ready。 */
-          () => verified.status().phase === 'ready'
-        )
-        assert.equal(f.gateway.status().devices[0]!.ready, true)
-      } finally {
-        f.stop()
+    const tls = certificate(root, '127.0.0.1')
+    let upgraded = 0
+    const proxy = createServer(tls)
+    proxy.on(
+      'upgrade',
+      /** 任何成功升级都说明不可信TLS边界被绕过。 */ (_request, socket) => {
+        upgraded++
+        socket.destroy()
       }
-      const wrong = certificate(root, '127.0.0.2')
-      const mismatch = fixture({ tls: wrong, developmentLoopback: false })
-      try {
-        const a = mismatch.pair('mock')
-        const client = mismatch.connector(
-          /** 提供预先创建的 mock 设备凭据，只供本次隔离连接使用。 */
-          () => a.credential,
-          { ca: wrong.cert }
-        )
-        await until(
-          /** 等待失败连接进入退避重连，观察握手或 TLS 的拒绝结果。 */
-          () => client.status().reconnects > 1
-        )
-        assert.equal(mismatch.gateway.status().devices.length, 0)
-        assert.equal(mismatch.sessions.opened, 0)
-      } finally {
-        mismatch.stop()
+    )
+    proxy.listen(0, '127.0.0.1')
+    await once(proxy, 'listening')
+    const address = proxy.address()
+    assert(address && typeof address === 'object')
+    const f = fixture()
+    try {
+      const device = f.pair('mock')
+      for (const legacy of [{}, { ca: tls.cert, rejectUnauthorized: false }]) {
+        const client = f.connector(/** 合成凭据不得在TLS拒绝前进入Wire认证。 */ () => device.credential, {
+          url: `wss://127.0.0.1:${address.port}/connector`,
+          ...legacy
+        })
+        await until(/** 等待真实TLS失败后进入至少一次重试。 */ () => client.status().reconnects > 1)
+        client.stop()
+        assert.equal(upgraded, 0)
+        assert.equal(f.sessions.opened, 0)
       }
     } finally {
+      f.stop()
+      const closed = once(proxy, 'close')
+      proxy.closeAllConnections()
+      proxy.close()
+      await closed
       rmSync(root, { recursive: true, force: true })
     }
   }

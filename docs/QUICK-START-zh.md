@@ -2,86 +2,78 @@
 
 [English](QUICK-START.md) · **简体中文** · [配置参考](CONFIGURATION-zh.md)
 
-用一个 **Gateway** 提供 MCP 入口，在每台运行 Luvus 或 Herdr 的设备上运行一个主动出站
-**Connector**。两个角色可以共用一台机器，但须使用独立状态目录。
+一台 **Gateway** 提供 MCP 入口，每台运行 Luvus 或 Herdr 的机器启动一个主动出站的
+**Connector**。每个角色只有一份用户配置，并使用独立的数据目录。
 
-## 1. 安装产品并准备接入资料
+## 1. 安装并启动
 
-本预览的 Gateway/Connector runtime 目前要求 **Linux x64**，尚无已发布的 Rovloom
-安装包。请向管理员取得已批准的单文件程序及匹配配置，放到私有且可执行的位置，例如
-`/absolute/protected/rovloom/bin/rovloom`。下文 `rovloom` 表示 PATH 中的该程序，
-也可以替换为它的绝对路径。先检查：
+当前预览的 runtime 要求 **Linux x64**。尚无公开安装包，请从管理员取得已批准的
+单文件程序并放入 PATH。先运行 `rovloom --version` 和 `rovloom --help` 检查程序。
 
-```sh
-rovloom --version
-rovloom --help
-```
-
-在每台 runtime 设备上安装已审核的 **Luvus 0.14.3** 或 **Herdr 0.9.5**，以及准备使用的
-Agent。精确 binary/schema 要求和 Agent 受控 PATH 见[原生安装](CONFIGURATION-zh.md#原生安装与-pins)。
-Rovloom 不会安装原生程序或配置其模型访问。
-
-启动前，请向管理员取得 Gateway 地址、CA、已配对设备凭据、provider 配置及既有 MCP Bearer。
-全新设备设置尚无完整的用户操作流程；缺少这些资料时，仅有配置模板不能建立可用连接。
-
-## 2. 配置 Gateway 和 Connector
-
-默认文件属于**实际运行角色的用户**：
-
-| 角色 | 默认文件 | 主要设置 |
-|---|---|---|
-| Gateway | `~/.config/rovloom/gateway.json` | `state_dir`、loopback `mcp_hostname`、`mcp_port`、`authentication_ref` |
-| Connector | `~/.config/rovloom/connector.json` | 独立 `state_dir`、`gateway_url`、`provider_config_refs` |
-
-`~` 表示当前用户 home。Windows 使用同样的 home 下布局，但当前受保护 runtime 加载要求
-Linux；没有 AppData/XDG 覆盖，不搜索工作目录或跨角色回退。
-`--config /absolute/path.json` 覆盖默认位置。所有配置路径必须为规范绝对路径；
-JSON 不展开 `~`、环境变量，也不相对于配置文件解析路径。
-
-使用[完整最小配置及参数表](CONFIGURATION-zh.md)。每个角色还需要
-`state_dir/runtime.json` 和管理员交付的 `state_dir/refs/` 文件。
-角色配置目录和状态目录为私有 `0700`，文件为 `0600`，属主为运行角色的用户。
-Gateway 与 Connector 状态应分开。空 provider 列表是模板，不能据此启动就绪的 Connector。
-
-查看无秘密模板或检查已保存的配置：
-
-```sh
-rovloom config template gateway
-rovloom config template connector
-rovloom config template runtime gateway
-rovloom config template runtime connector
-rovloom config check --config /absolute/protected/gateway.json
-rovloom config check-runtime --config /absolute/protected/gateway.json
-```
-
-请换成实际角色文件路径，并对 Connector 运行相同检查。
-`config_valid`、`runtime_config_valid` 仅确认结构，不证明配对、凭据或 Agent 就绪。
-模板命令不会修改已有文件。
-
-## 3. 启动并连接
-
-分别在 Gateway 机器和 runtime 设备上执行：
+Gateway 机器运行：
 
 ```sh
 rovloom gateway
+```
+
+原生运行机器运行：
+
+```sh
 rovloom connector
 ```
 
-保持两个前台进程运行。自定义文件位置使用
-`rovloom gateway --config /absolute/protected/gateway.json` 和
-`rovloom connector --config /absolute/protected/connector.json`。
+第一条命令会创建缺失的 `~/.config/rovloom/gateway.json`，启动本地 Gateway，输出
+`gateway_listening` 和 `pairing_required`。默认 MCP 为 `http://127.0.0.1:9444/mcp`，
+设备 WS 监听为 `127.0.0.1:9443`，本地管理页为 `http://127.0.0.1:9445/`。
+未配对 Gateway 不授予 MCP 身份或管理员权限，打开页面不等于默认管理员登录。
 
-模板 MCP 入口是 `http://127.0.0.1:9444/mcp`，独立的模板设备监听器使用 loopback
-端口 9443 和 TLS。连接其他设备时，须显式配置可达的 WSS 监听地址和匹配的证书/CA。
-Connector 的 `gateway_url` 是 `wss://gateway.example:9443` 这样的 origin，
-不含凭据或端点路径；产品固定选择 `/connector`。
+第二条命令会创建缺失的 `~/.config/rovloom/connector.json`，然后以
+`configuration_required`（2）退出。**输入地址/配对码的交互引导、一次性配对交付和
+自动原生初始化尚未接通。** 本预览还不能让全新设备完成部署。既有安装仍需要已准备的
+程序管理配对身份、provider 状态及 MCP caller 接入；编辑 JSON 或看到配对进度不代表
+这些资源已建立。不要手工构造摘要、绑定或凭据。
 
-如果管理员启用了可选管理页，在 Gateway 打开
-`http://127.0.0.1:<management-port>/`。管理端口没有默认值。
-在浏览器登录提示中使用交付的 principal ID 和独立管理证明；MCP Bearer 不是管理登录凭据。
-检查所选设备连接和 provider 就绪状态。配对进度需手动查询，pending 不表示已签发凭据。
-有权限时可以禁用所选 provider，当前暂不能重新启用。管理会话过期后刷新并重新认证；
-刷新不会延长上游登录有效期。pending 注册仍需完成配对，Connector 才能连接。
+非交互输入下 Connector 会立即返回，不等待 stdin。产品没有 `init` 或 `pair` 命令。
+后续步骤适用于管理员已提供可用安装的情况，不表示全新设备已完成初始化。
+
+## 2. 配置与网络
+
+| 角色 | 用户配置 | 默认数据目录 |
+|---|---|---|
+| Gateway | `~/.config/rovloom/gateway.json` | `~/.local/share/rovloom/gateway` |
+| Connector | `~/.config/rovloom/connector.json` | `~/.local/share/rovloom/connector` |
+
+此处 `~` 表示当前进程用户的 home。角色只生成自己的缺失文件，不覆盖任何已有文件，
+包括损坏文件。`--config /absolute/path.json` 选择该精确位置，首次创建也使用它。
+没有工作目录搜索、跨角色回退或 AppData/XDG 覆盖。Windows 的默认路径约定相同，但
+runtime 与首次文件创建目前要求 Linux；已有受保护角色 JSON 可在 POSIX 检查。
+JSON 内路径必须是规范绝对路径，不展开 `~`、变量或相对配置文件的路径。
+
+完整示例和所有参数见[配置参考](CONFIGURATION-zh.md)。文件权限为 `0600`，所在私有
+目录为 `0700`，属于角色用户。程序管理的状态、数据库和凭据位于角色数据目录，
+无需准备用户 `runtime.json`、ref 清单、CA 或证书文件。
+
+另一台设备接入时，为 Gateway 的 `devices.hostname` 设置合适的监听地址，并把
+Connector 的 `gateway.url` 设为可达的 `ws://host:port` 或 `wss://host:port` origin，
+不带 `/connector`、凭据或查询参数。默认仅本机可达。本机或可信网络使用 HTTP/WS；
+公网 TLS 由标准 HTTPS/WSS 反向代理终止。WSS 始终使用系统证书验证，没有自定义 CA
+或跳过验证选项。MCP 保持回环 HTTP，远程 MCP 需管理员安排代理或隧道。
+
+只检查已保存配置、不启动角色：
+
+```sh
+rovloom config check --config /absolute/path/gateway.json
+rovloom config check-runtime --config /absolute/path/gateway.json
+```
+
+Connector 使用自己的文件执行同样检查。检查不生成缺失文件、不配对、不加载凭据，
+也不证明 Agent 就绪。前台角色运行至 Ctrl-C；MCP 客户端断开不会停止 Gateway。
+
+## 3. 准备原生程序
+
+安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。当前原生版本/字节校验与
+受控 PATH 见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。Rovloom 尚未自动
+安装这些程序或配置模型访问。Gateway 已启动或配置通过不代表原生 provider 可用。
 
 ## 4. 配置 AI Agent 的 MCP 客户端
 
@@ -94,7 +86,7 @@ Connector 的 `gateway_url` 是 `wss://gateway.example:9443` 这样的 origin，
 | Authorization header | `Bearer <EXISTING_MCP_BEARER>` |
 
 使用为精确端点和 caller 提供的既有 Bearer，将它保存在客户端秘密存储中。
-Gateway 通过 `authentication_ref` 保存其摘要和有效期。管理证明和设备凭据是另外的凭据。
+Gateway 在程序管理的身份状态中保存其摘要和有效期。管理证明和设备凭据是另外的凭据。
 MCP 仅监听 loopback，远程客户端需要管理员安排本地/隧道访问方式。CLI 不是 stdio MCP 服务。
 
 让客户端完成 MCP 初始化并加载**全部工具页**。在工具运行界面执行，或要求 Agent 依次完成：
@@ -129,11 +121,10 @@ Herdr 使用自身 schema 和 `validation:"strict"`。不要复制其他设备�
 先描述方法，再通过 `runtime_call` 执行。Luvus 的 `pane.list`、`agent.prompt`、
 `agent.send`、`agent.wait`、`agent.keys` 使用 strict 校验，其余已审普通方法需要 raw 授权。
 本地 `allow_terminal_execution` 默认 false，关闭时仍可使用严格文本对话；自定义 argv/env
-和直接终端输入需要明确本地许可。官方 Agent 安装在用户目录时，将本地 `agent_bin_dir`
-设为其安装目录；各 provider 的配置位置见 [Agent 安装目录](CONFIGURATION-zh.md#agent-安装目录)。
-它会将一个目录前置到 `/usr/bin:/bin`，省略时保持默认。Luvus 的初始本地配置仍须由管理员
-交付。Agent/模型配置放在 runtime 的私有 HOME；选择 Agent 目录无需安装到系统目录或
-使用自定义 argv/env，`allow_terminal_execution` 可以保持 false。
+和直接终端输入需要明确本地许可。Agent 必须位于原生 runtime 的受控 PATH，并在私有 HOME 配好模型访问。
+默认 PATH 是 `/usr/bin:/bin`。既有原生集成支持所有者选择一个 Agent 安装目录，
+但新的用户初始化流程尚未接通这份本地 runtime 配置的创建。不要用任意 argv/env
+绕过 `allow_terminal_execution:false`。见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。
 
 发送含独特短语的无害首条消息，读取真实回复，再请同一个 Agent 回忆该短语。
 保持完整 Target、generation、pane/Agent、terminal ID 及有返回时的原生 Agent session 一致。
@@ -142,25 +133,26 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 
 ## 6. 关闭与排错
 
-用 Ctrl-C 停止 Connector，等待退出，再停止 Gateway。断开 MCP 客户端不会停止 Gateway。
-关闭不保证原生回滚；关闭失败时保留状态和归属记录。
+先 Ctrl-C 停止 Connector 并等待退出，再停止 Gateway。关闭不保证原生工作回滚；
+关闭失败时保留数据。
 
-本预览使用前台角色：产品 CLI 暂不提供 service install/uninstall/start/restart/stop，
-即使存在 `service --help`，操作仍返回 `backend_unavailable`。
-`update --check` 检查官方稳定发行，需要网络；没有已发布版本时可能返回 `release_unavailable`。
-`update` 当前没有可用的替换/升级流程。
+产品 CLI 的 service install/uninstall/start/restart/stop 仍不可用
+（`backend_unavailable`，3）。`service --help` 仅说明语法；install 表示开机自启，
+不表示立即启动，uninstall 表示取消开机自启，不会立即停止。见[完整 CLI 参考](CONFIGURATION-zh.md#完整-cli-参考)。
+`update --check` 通过网络检查官方稳定发行，无已发布版本时可能返回
+`release_unavailable`；实际替换升级后端尚未连接。
 
 | 问题 | 处理 |
 |---|---|
-| 配置缺失 / home 不可用 | 核对用户和角色文件名，提供绝对 `--config`。 |
-| 路径/配置/角色无效 | 删除未知字段，使用规范绝对路径，匹配角色与引用，运行配置检查。 |
-| 配置不可读/保护不足 | 修正属主、0700 目录、0600 文件，避免 symlink 和 runtime 文件额外硬链接。 |
-| 启动不可用/失败 | 检查交付的 refs、TLS/CA、已配对凭据、provider 安装及状态。 |
-| HTTP 401 | 核对精确 `/mcp` URL、既有 Bearer 和有效期；管理证明是独立的。 |
-| 设备离线 / provider 未就绪 | 检查 WSS 可达性、TLS 名称/CA、配对及原生 binary/schema 匹配。 |
-| 权限/契约/revision 错误 | 刷新 provider 和方法描述，请管理员检查 grants。 |
-| 找不到 Agent / `agent_bin_dir_invalid` | 核对本地 `agent_bin_dir` 为单个规范绝对安装目录，Agent/模型配置位于私有 HOME；重启已配置的 runtime。 |
-| 调用结果不确定 / 存储错误 | 保留原调用及状态，请管理员恢复，不删除账本或盲目重发。 |
+| `pairing_required` / `configuration_required` | Gateway 可以本地等待，但全新配对/原生初始化仍是产品缺口；只填写地址无法完成配对。 |
+| home/路径/配置/角色错误 | 检查进程用户、精确角色文件和绝对路径，使用 `--config` 与配置检查；已有坏文件会保留。 |
+| 不可读或权限不安全 | 检查所有者、私有目录与文件权限，避免链接；产品不会静默修复已有权限。 |
+| 监听失败 | 检查端口、地址可用性和数据目录所有者。 |
+| HTTP 401 | 检查精确 `/mcp` URL、既有 Bearer 与期限；未配对 Gateway 拒绝全部 caller。 |
+| 离线/provider 未就绪 | 检查 WS/WSS 可达性、系统 TLS 信任、配对和原生安装。 |
+| 权限/契约/revision 错误 | 刷新 provider/方法描述并核实授权。 |
+| 找不到 Agent 程序 | 检查 runtime 受控 PATH 和私有 HOME 中的模型访问，不绕过终端开关。 |
+| 调用结果不确定/存储错误 | 保留原调用与状态，不删除账本或盲目重发。 |
 
-诊断输出到 stderr。角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，
-1 运行/关闭失败。求助时提供错误码，勿公开凭据、真实配置、数据库和 runtime 输出。
+诊断写 stderr。角色退出码：0 正常关闭，2 参数/配置/待初始化，3 后端不可用，
+1 运行或关闭失败。求助时提供错误码，保持秘密、实际配置与数据私有。

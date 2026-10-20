@@ -1,4 +1,5 @@
 // 使用真实双库/角色工厂和HTTP SDK验证CLI组合；身份/管理会话为明确fixture，不连接用户native。
+import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -146,9 +147,13 @@ test(
         const port = Number(new URL(reservation.url).port)
         await reservation.close()
         const path = join(directory, 'gateway.json')
-        writeFileSync(path, JSON.stringify({ ...configTemplate('gateway'), state_dir: directory, mcp_port: port }), {
-          mode: 0o600
-        })
+        writeFileSync(
+          path,
+          JSON.stringify(configDocument({ ...configTemplate('gateway'), state_dir: directory, mcp_port: port })),
+          {
+            mode: 0o600
+          }
+        )
         role = runCli(
           ['gateway', '--config', path],
           {

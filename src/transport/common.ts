@@ -127,8 +127,8 @@ export function ready(session: Session, connection: Connection, provider?: strin
 export function loopback(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === '[::1]'
 }
-/** 规范化固定通道 URL，拒绝夹带凭据、查询及路径变化，并要求 TLS 或显式 loopback WS。 */
-export function endpoint(raw: string, developmentLoopback = false): URL {
+/** 规范化固定WS/WSS通道 URL，拒绝夹带凭据、查询及路径变化；公网TLS由反向代理终止。 */
+export function endpoint(raw: string, _developmentLoopback = false): URL {
   let url: URL
   try {
     url = new URL(raw)
@@ -138,7 +138,7 @@ export function endpoint(raw: string, developmentLoopback = false): URL {
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/connector') {
     fail('invalid_endpoint')
   }
-  if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && developmentLoopback && loopback(url.hostname))) {
+  if (url.protocol !== 'wss:' && url.protocol !== 'ws:') {
     fail('tls_required')
   }
   return url
@@ -208,13 +208,10 @@ export const runtime = () =>
       }
     }
   ).Bun
-/** 创建强制证书与 hostname 校验的出站 socket，受信 CA 仅作为额外验证输入。 */
-export const socket = (url: string, ca?: string): Socket =>
-  new (WebSocket as unknown as new (
-    url: string,
-    options: { tls: { rejectUnauthorized: true; ca?: string } }
-  ) => Socket)(url, {
-    tls: { rejectUnauthorized: true, ...(ca ? { ca } : {}) }
+/** 创建使用系统信任及严格hostname校验的出站socket，不接受自管CA或跳过验证选项。 */
+export const socket = (url: string): Socket =>
+  new (WebSocket as unknown as new (url: string, options: { tls: { rejectUnauthorized: true } }) => Socket)(url, {
+    tls: { rejectUnauthorized: true }
   })
 
 /** 按 UTF-8 字节核对整帧预算，超限时在写出前拒绝。 */

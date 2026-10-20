@@ -1,4 +1,5 @@
 // 用纯平台参数验证Windows模板根因，不伪装在Linux执行Windows文件权限或产品产物。
+import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { configTemplate, parseConfig } from '../../src/cli/config.js'
@@ -13,7 +14,7 @@ test(
           template.state_dir,
           platform === 'win32' ? `C:\\absolute\\protected\\rovloom\\${role}` : `/absolute/protected/rovloom/${role}`
         )
-        assert.deepEqual(parseConfig(JSON.parse(JSON.stringify(template)), platform), template)
+        assert.deepEqual(parseConfig(JSON.parse(JSON.stringify(configDocument(template))), platform), template)
         assert(Object.isFrozen(template))
         assert(
           !Object.keys(template).some(
@@ -41,13 +42,15 @@ test(
     ]) {
       assert.throws(
         /* 路径仍须在目标平台绝对、非根且已规范化；模板不能成为放宽校验的例外。 */ () =>
-          parseConfig({ ...windows, state_dir }, 'win32')
+          parseConfig({ ...configDocument(windows), data: { directory: state_dir } }, 'win32')
       )
     }
-    assert.throws(/* 跨平台模板必须明确重新生成，不能把Windows路径用于POSIX。 */ () => parseConfig(windows, 'linux'))
+    assert.throws(
+      /* 跨平台模板必须明确重新生成，不能把Windows路径用于POSIX。 */ () => parseConfig(configDocument(windows), 'linux')
+    )
     assert.throws(
       /* POSIX模板不能靠忽略分隔符规范性在Windows上通过。 */ () =>
-        parseConfig(configTemplate('gateway', 'linux'), 'win32')
+        parseConfig(configDocument(configTemplate('gateway', 'linux')), 'win32')
     )
   }
 )

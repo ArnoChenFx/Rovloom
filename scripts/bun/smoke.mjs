@@ -144,8 +144,8 @@ assert.equal(typeof cli.createTransportCliRuntime, 'function')
 assert.equal(typeof cli.resolveRoleConfigPath, 'function')
 assert.equal(typeof mcp.createHttpFacade, 'function')
 assert.equal(mcp.MCP_REVISION, '2025-11-25')
-assert.equal(cli.parseConfig(cli.configTemplate('gateway')).role, 'gateway')
-assert.equal(cli.parseConfig(cli.configTemplate('connector')).role, 'connector')
+assert.equal(cli.parseConfig(cli.configDocument(cli.configTemplate('gateway'))).role, 'gateway')
+assert.equal(cli.parseConfig(cli.configDocument(cli.configTemplate('connector'))).role, 'connector')
 // 从同一构建入口查询角色帮助；未注入后端时不启动任何真实服务。
 for (const role of ['gateway', 'connector']) {
   const help = spawnSync(process.execPath, ['--no-env-file', 'dist/src/cli/main.js', role, '--help'], {

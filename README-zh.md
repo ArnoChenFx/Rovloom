@@ -73,6 +73,7 @@ flowchart TB
 
 从[快速开始](docs/QUICK-START-zh.md)了解安装前提、Gateway/Connector 配置路径、启动、
 HTTP MCP 接入与 Agent 使用。[配置参考](docs/CONFIGURATION-zh.md)列出精确参数和完整无秘密模板。
+首次运行会生成角色文件；全新设备配对与原生初始化仍未完成。
 
 ```sh
 rovloom --version
