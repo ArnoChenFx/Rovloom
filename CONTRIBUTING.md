@@ -3,11 +3,13 @@
 Use the Bun version in [.bun-version](.bun-version). Keep the package/runtime
 pins consistent and direct dependency versions exact; commit `bun.lock` with
 dependency changes. Project JavaScript and TypeScript commands run through Bun.
-Python 3 and Linux strace are also required for the complete verification.
+Python 3 is also required for the complete Linux verification.
 
 Run the same gates as [CI](.github/workflows/bun.yml) from the repository root:
 
 ```sh
+bun run lint
+bun run format:check
 bun run comments:check
 python3 scripts/maintenance/run_python_tests.py --output /tmp/rovloom-python-tests-new.json
 python3 scripts/maintenance/check.py
@@ -18,7 +20,9 @@ python3 scripts/maintenance/check.py --evidence /tmp/rovloom-verification-new --
 
 Choose a fresh output directory outside the checkout. The verifier performs a
 frozen install, strict typechecking with negative probes, tests, fixture audits,
-clean build and artifact smoke. See [package.json](package.json) for individual
+clean build and artifact smoke. Commands run directly and report their actual
+exit status; timeouts terminate and reap their process group and fail verification.
+See [package.json](package.json) for individual
 commands. Maintain tests for the current behavior and wire new suites into
 verification; every tracked `*.test.*`, `*_test.*`,
 `*.spec.*` or `*_spec.*` JavaScript/TypeScript file must appear in its run evidence.

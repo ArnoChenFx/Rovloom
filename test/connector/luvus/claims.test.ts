@@ -223,16 +223,34 @@ test(
     const f = setup()
     f.options.limits.entries = 4096
     f.options.limits.bytes = 1_048_576
-    const claims = f.create()
     try {
-      for (let index = 0; lstatSync(f.path).size <= 131_072; index++) {
-        claims.claim(binding('call' + index), 1000)
+      const claims = f.create()
+      try {
+        claims.claim(binding('call0'), 1000)
+      } finally {
+        claims.close()
       }
-    } finally {
-      claims.close()
-    }
-    try {
+      // 本例检验重开配额，不重复做数百次同步派发；同一真实库批量准备合法墓碑与较大页分配。
+      const writer = new DatabaseSync(f.path)
+      try {
+        writer.exec('BEGIN IMMEDIATE')
+        const insert = writer.prepare('INSERT INTO luvus_dispatch_claims VALUES(?,?,?,?)')
+        const pageSize = Number(writer.prepare('PRAGMA page_size').get()!.page_size)
+        for (
+          let index = 1;
+          Number(writer.prepare('PRAGMA page_count').get()!.page_count) * pageSize <= 131_072;
+          index++
+        ) {
+          assert(index < f.options.limits.entries)
+          const next = binding('call' + index)
+          insert.run(next.call_id, next.attempt_id, JSON.stringify(next), 1000)
+        }
+        writer.exec('COMMIT')
+      } finally {
+        writer.close()
+      }
       const bytes = lstatSync(f.path).size
+      assert(bytes > 131_072)
       f.options.limits.bytes = 262_144
       assert(bytes < f.options.limits.bytes)
       assert.throws(f.open, failure('claim_capacity'))

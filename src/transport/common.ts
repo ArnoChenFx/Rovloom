@@ -23,6 +23,7 @@ import type {
 import type { createLuvusWireAdapter } from '../integration/luvus-wire.js'
 
 export type Connection = AuthenticatedContext['connection']
+/** checkResultRetention 同次核验当前读取及独立保留许可，不能只检查保留位。 */
 export type Adapter = Pick<
   ReturnType<typeof createLuvusWireAdapter>,
   | 'encode'
