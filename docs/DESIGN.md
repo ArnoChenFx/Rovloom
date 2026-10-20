@@ -61,6 +61,11 @@ Connector 仅执行管理员固定的 binary、状态根和 session 策略。cal
 
 ### 4.1 两种 Gateway 部署
 
+Connector 的直接终端输入及自定义程序启动由机器所有者的本地布尔配置
+`allow_terminal_execution` 显式开启，默认关闭；目录与最终执行前检查使用同一能力判定。
+普通 Agent 对话保留独立授权，不能把该开关描述为限制 Agent 内部工具的 OS 沙箱。
+精确覆盖、cwd/PATH、写入与原生结果边界见[终端执行](TERMINAL-EXECUTION.md)。
+
 本地模式由 MCP Host 通过 stdio 启动 Gateway，stdout 仅承载 MCP，日志写 stderr；设备须可达其 WSS 地址。常驻模式由同一程序运行 Gateway，MCP 走 HTTPS Streamable HTTP，适合长期在线设备。两者共用业务核心，同一数据库仅一个 writer；多个 stdio Host 不能各自争用同一状态目录。
 
 ### 4.2 Gateway 内置管理 Web UI

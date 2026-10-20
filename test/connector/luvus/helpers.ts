@@ -50,7 +50,11 @@ function compiledFixture(): Promise<CompiledContract> {
 }
 
 /** 建立仅使用仓库证据、合成许可和受控 Bun 子进程的私有 fixture，并返回显式清理入口。 */
-export async function fixture(transport: 'ipc' | 'cli' = 'ipc', method = 'task.add') {
+export async function fixture(
+  transport: 'ipc' | 'cli' = 'ipc',
+  method = 'task.add',
+  requestParams?: Record<string, unknown>
+) {
   const root = mkdtempSync(
     join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../../../', import.meta.url)), '.luvus-adapter-')
   )
@@ -72,11 +76,12 @@ export async function fixture(transport: 'ipc' | 'cli' = 'ipc', method = 'task.a
   const installedIdentity = { ...fixedIdentity }
   const compiled = await compiledFixture()
   const params =
-    method === 'task.add'
+    requestParams ??
+    (method === 'task.add'
       ? { title: 'synthetic' }
       : method === 'ping'
         ? {}
-        : { server_generation: G, terminal_id: '1'.repeat(32), pane_id: '3' }
+        : { server_generation: G, terminal_id: '1'.repeat(32), pane_id: '3' })
   const candidate = request(view(), { id: 'native_1', method, params })
   const initial = auth(candidate)
   const origin: ContractSource = {

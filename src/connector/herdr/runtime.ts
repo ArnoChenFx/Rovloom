@@ -11,12 +11,14 @@ import { HerdrLocalError } from './local.js'
 import { createHerdrReadonlyAdapter } from './readonly.js'
 import type { HerdrReadonlyBackend } from './readonly.js'
 import { createHerdrWireAdapter } from './wire.js'
+import { assertTerminalExecutionAllowed } from '../terminal-execution.js'
 
 /** 实例只作用于当前认证 epoch；宿主分别提供 readiness 与关闭流程，不创建 Gateway 或新认证模型。 */
 export function createHerdrRuntime(
   installation: HerdrInstallation,
   backend: HerdrReadonlyBackend,
-  claims: LuvusDispatchClaims
+  claims: LuvusDispatchClaims,
+  terminalExecution?: () => boolean
 ) {
   if (!(installation instanceof HerdrInstallation) || !(claims instanceof LuvusDispatchClaims)) {
     throw new HerdrLocalError('herdr_runtime_host_required')
@@ -73,6 +75,20 @@ export function createHerdrRuntime(
         throw new HerdrLocalError('herdr_request_required')
       }
       const frame = decoded as Extract<AuthenticatedEnvelope, { type: 'request' }>
+      /** 当前本机配置仅控制直接终端能力，不能从请求帧或远端目录获得许可。 */
+      const terminalBoundary = () => {
+        try {
+          assertTerminalExecutionAllowed(
+            'herdr',
+            frame.payload.native_request,
+            terminalExecution ? terminalExecution() : installation.config.allow_terminal_execution
+          )
+        } catch (cause) {
+          // 保留共享开关错误码，使最终 IO 不把本机明确拒绝折叠成一般准备失败。
+          throw cause instanceof WireError ? new HerdrLocalError(cause.code) : cause
+        }
+      }
+      terminalBoundary()
       const binding: AttemptBinding = {
         machine_id: frame.machine_id,
         recovery_generation: frame.recovery_generation,
@@ -124,6 +140,7 @@ export function createHerdrRuntime(
                 if (now() >= binding.registration.deadline) {
                   throw new HerdrLocalError('herdr_timeout')
                 }
+                terminalBoundary()
               }
               current()
               const bytes = core.encodeRequest(request, context)

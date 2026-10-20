@@ -70,6 +70,22 @@ test(
   /** 配置归一化不启动进程或新 writer，也不把配置字符串变成来源证明。 */ () => {
     const input = config('/workspace/synthetic-herdr-ref')
     const parsed = parseHerdrProviderRefConfig(input)
+    for (const enabled of [true, false]) {
+      const local = { ...input.connector.local, allow_terminal_execution: enabled }
+      assert.equal(
+        parseHerdrProviderRefConfig({ ...input, connector: { ...input.connector, local } }).connector!.local
+          .allow_terminal_execution,
+        enabled
+      )
+    }
+    assert.throws(
+      /** 本地开关必须是布尔值，不把字符串转成执行许可。 */ () =>
+        parseHerdrProviderRefConfig({
+          ...input,
+          connector: { ...input.connector, local: { ...input.connector.local, allow_terminal_execution: 'true' } }
+        }),
+      /terminal_execution_config_invalid/
+    )
     assert.equal(parsed.connector!.claims.mode, 'open')
     assert.equal(parsed.connector!.receipts.mode, 'create')
     input.expected_source.server_version = 'mutated'
