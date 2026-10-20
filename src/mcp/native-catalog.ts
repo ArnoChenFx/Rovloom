@@ -15,6 +15,7 @@ import {
 } from '../wire/index.js'
 import type { AttemptBinding, JsonObject, ProviderBinding, ProviderPolicy, V2Target } from '../wire/types.js'
 import { FacadeServiceError } from './types.js'
+import { terminalExecutionCatalog } from '../connector/terminal-execution.js'
 
 export type GatewayCatalogSource = Readonly<{
   record: NativeContractRecord
@@ -56,6 +57,7 @@ type CatalogOptions = {
   provider: GatewayCatalogProvider
   target: V2Target
   expected_binding_revision: number
+  terminalExecutionState?(binding: ProviderBinding): boolean | undefined
 }
 
 // 只在当前精确binding和可信来源有效时创建目录，沿用原生validator并按授权后的集合分页。
@@ -76,9 +78,22 @@ export function authorizedLuvusCatalog(options: CatalogOptions) {
   if (binding.kind !== 'luvus' || target.profile !== 'session') {
     throw new FacadeServiceError('unsupported')
   }
+  /** 同步读取本 epoch 的本地开关；未知和违规异步值不能作为启用证明。 */
+  function terminalState(): boolean | undefined {
+    const value = options.terminalExecutionState?.(binding!)
+    if (value !== undefined && typeof value !== 'boolean') {
+      void Promise.resolve(value).catch(/** 异步来源不满足同步契约，拒绝仍须被观察。 */ () => {})
+      throw new FacadeServiceError('contract_unavailable')
+    }
+    return value
+  }
+  const terminal = terminalState()
   let stamp: string | undefined
   // 每次fresh检查重新读取受信来源与Store fence，不借用最近连接或其它provider的能力。
   const current = /* 缺能力来源保持拒绝；消息里的authenticated/source_verified不能进入此接口。 */ () => {
+    if (terminalState() !== terminal) {
+      throw new FacadeServiceError('contract_unavailable')
+    }
     const provider = store.provider(target.machine_id, target.provider_id)
     if (
       !provider ||
@@ -100,6 +115,7 @@ export function authorizedLuvusCatalog(options: CatalogOptions) {
       boundedJson(
         {
           ref,
+          terminal_execution: terminal ?? null,
           capabilities: resolved.record.capabilities,
           capability_revision: resolved.record.capability_revision,
           compiled: resolved.record.compiled.identity,
@@ -139,6 +155,9 @@ export function authorizedLuvusCatalog(options: CatalogOptions) {
       connection_epoch: native.connection_epoch
     })
     // 来源回调可触发同步撤权或时钟推进；返回前重新核对，不能只检查回调之前的快照。
+    if (terminalState() !== terminal) {
+      throw new FacadeServiceError('contract_unavailable')
+    }
     const currentPrincipal = options.currentPrincipal()
     const currentLocal = options.localPolicies(target)
     const currentProvider = store.provider(target.machine_id, target.provider_id)
@@ -172,10 +191,20 @@ export function authorizedLuvusCatalog(options: CatalogOptions) {
         throw new FacadeServiceError('busy')
       }
       for (const method of page.methods) {
+        const entry = terminalExecutionCatalog('luvus', method.method, terminal)
         if (
+          entry.visible &&
           providerScopeAllowed({ target } as AttemptBinding, method.method, 'read', { caller: principal.policy, local })
         ) {
-          methods.push(JSON.parse(boundedJson({ ...method, contract_ref: ref })) as JsonObject)
+          methods.push(
+            JSON.parse(
+              boundedJson({
+                ...method,
+                contract_ref: ref,
+                ...(entry.details ? { terminal_execution: entry.details } : {})
+              })
+            ) as JsonObject
+          )
         }
       }
       cursor = page.next_cursor ?? undefined
@@ -197,7 +226,14 @@ export function authorizedLuvusCatalog(options: CatalogOptions) {
           throw new FacadeServiceError('not_found')
         }
         try {
-          return JSON.parse(boundedJson({ ...catalog.describe(method), contract_ref: ref })) as JsonObject
+          const entry = terminalExecutionCatalog('luvus', method, terminal)
+          return JSON.parse(
+            boundedJson({
+              ...catalog.describe(method),
+              contract_ref: ref,
+              ...(entry.details ? { terminal_execution: entry.details } : {})
+            })
+          ) as JsonObject
         } catch (error) {
           if (error instanceof LuvusAdapterError || error instanceof WireError) {
             throw new FacadeServiceError('contract_unavailable')

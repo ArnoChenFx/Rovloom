@@ -9,6 +9,7 @@ import { CliError, type GatewayConfig } from './config.js'
 import { SetupApproval } from './setup-approval.js'
 import { GatewayPairingHttp, type SetupNativeRequest } from './pairing-http.js'
 import { SetupTerminal } from './setup-terminal.js'
+import { gatewayNativePrompt } from './setup-prompts.js'
 import { setupPolicies, setupReference, setupTarget } from './setup-policy.js'
 import { readSetupJson, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
@@ -175,11 +176,7 @@ export class GatewaySetup {
       request.plan.attempt_id,
       'luvus',
       fingerprint,
-      "Allow this paired device's measured Luvus (" +
-        remote.contract.binary_version +
-        ', binary SHA-256 ' +
-        remote.contract.binary_sha256 +
-        ') for reviewed workspace/Agent operations and one local MCP caller? Terminal execution stays disabled. / 批准这台设备的实测 Luvus、普通窗口/Agent 操作及一个本机 MCP caller（终端执行关闭）？',
+      gatewayNativePrompt(remote.contract.binary_version, remote.contract.binary_sha256),
       request.signal
     )
     this.terminal.assertOwner()

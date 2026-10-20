@@ -84,6 +84,7 @@ type Peer = {
   providerSnapshots: Map<string, { fingerprint: string; bytes: number }>
   providerSnapshotBytes: number
   providerFences: Map<string, ProviderBinding>
+  terminalExecutions: Map<string, { binding: ProviderBinding; enabled: boolean }>
   readyProviders: Set<string>
   epochReference?: string
   lastHeartbeatAt?: number
@@ -313,6 +314,7 @@ export function createGateway(options: GatewayOptions) {
     }
     const current = peer.session
     peer.providerFences.set(binding.provider_id, structuredClone(binding))
+    peer.terminalExecutions.delete(binding.provider_id)
     fenceSessionProvider(current, binding)
     assertPeer(peer)
     if (peer.session !== current) {
@@ -847,6 +849,20 @@ export function createGateway(options: GatewayOptions) {
       if (peer.session.adapter.observeMessage(decoded, 'connector_to_gateway') === 'duplicate') {
         return
       }
+      if (decoded.type === 'terminal_execution_state') {
+        const { binding, enabled } = decoded.payload
+        const configured = options.store.provider(binding.machine_id, binding.provider_id)
+        if (!configured || boundedJson(configured) !== boundedJson(binding)) {
+          fail('provider_binding_mismatch')
+        }
+        if (!peer.providerFences.has(binding.provider_id)) {
+          if (peer.terminalExecutions.size >= 64 && !peer.terminalExecutions.has(binding.provider_id)) {
+            fail('provider_limit')
+          }
+          peer.terminalExecutions.set(binding.provider_id, { binding: structuredClone(binding), enabled })
+        }
+        return
+      }
       if (decoded.type === 'provider_fenced') {
         fenceProvider(peer, decoded.payload.binding, false)
         return
@@ -985,6 +1001,7 @@ export function createGateway(options: GatewayOptions) {
         received: new ReceiveWindow(),
         providerSnapshots: new Map(),
         providerFences: new Map(),
+        terminalExecutions: new Map(),
         readyProviders: new Set(),
         providerSnapshotBytes: 0
       }
@@ -1122,6 +1139,32 @@ export function createGateway(options: GatewayOptions) {
         assertPeer(peer)
         options.store.assertConnection(peer.connection)
         return structuredClone(peer.connection)
+      } catch {
+        return undefined
+      }
+    },
+    /** 当前认证连接的观察值仅供目录；连接、完整配置或来源失效后不沿用旧 epoch 的值。 */
+    terminalExecutionState(binding: ProviderBinding): boolean | undefined {
+      try {
+        const peer = machines.get(binding.machine_id)
+        if (!peer || peer.providerFences.has(binding.provider_id)) {
+          return undefined
+        }
+        assertPeer(peer)
+        if (performance.now() - peer.last >= limits.idle_ms) {
+          return undefined
+        }
+        const configured = options.store.provider(binding.machine_id, binding.provider_id)
+        const observed = peer.terminalExecutions.get(binding.provider_id)
+        if (
+          !observed ||
+          boundedJson(configured ?? null) !== boundedJson(binding) ||
+          boundedJson(observed.binding) !== boundedJson(binding)
+        ) {
+          return undefined
+        }
+        assertPeer(peer)
+        return observed.enabled
       } catch {
         return undefined
       }
