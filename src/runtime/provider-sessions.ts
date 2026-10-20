@@ -34,9 +34,10 @@ export function composeGatewaySessions(
 export function composeConnectorSessions(
   connection: Connection,
   groups: readonly ProviderSessionGroup<ConnectorWireSession>[],
-  now: () => number
+  now: () => number,
+  unavailable: ProviderSessionGroup['providers'] = []
 ): ConnectorWireSession {
-  return compose(connection, groups, now, true) as ConnectorWireSession
+  return compose(connection, groups, now, true, unavailable) as ConnectorWireSession
 }
 
 /** 两种角色共用路由与同步关闭 fence；原 adapter 执行完整协议、来源、授权和结果校验。 */
@@ -44,7 +45,8 @@ function compose(
   connection: Connection,
   input: readonly ProviderSessionGroup[],
   now: () => number,
-  connector: boolean
+  connector: boolean,
+  unavailableInput: ProviderSessionGroup['providers'] = []
 ) {
   let groups: ProviderSessionGroup[]
   try {
@@ -73,7 +75,8 @@ function compose(
     }
     throw error
   }
-  const routes = new Map<string, { group: ProviderSessionGroup; binding: ProviderBinding; target: V2Target }>()
+  const routes = new Map<string, { group?: ProviderSessionGroup; binding: ProviderBinding; target: V2Target }>()
+  const unavailable: { binding: ProviderBinding; target: V2Target }[] = []
   const windows = new Map<Direction, ReceiveWindow>()
   let ended = false
   let cleanupFailed = false
@@ -152,7 +155,7 @@ function compose(
     return { phase: 'authenticated' as const, direction, connection }
   }
   /** 失效声明必须精确对应本 epoch 原受保护配置，不能借治理帧替换 revision。 */
-  function protectedProvider(binding: ProviderBinding): ProviderSessionGroup {
+  function protectedProvider(binding: ProviderBinding): ProviderSessionGroup | undefined {
     validateProvider(binding)
     const route = [...routes.values()].find(
       /** provider ID 在同机器内唯一，仍逐字段比较完整原 binding。 */ (entry) =>
@@ -258,6 +261,9 @@ function compose(
       const measured = stats as typeof stats & { snapshot_bytes?: number; attempt_bytes?: number }
       bytes += (measured.snapshot_bytes ?? 0) + (measured.attempt_bytes ?? 0)
     }
+    if (cleanupFailed) {
+      fail('runtime_session_close_failed')
+    }
     if (contexts > 128 || bytes > 16_777_216) {
       try {
         close()
@@ -296,6 +302,9 @@ function compose(
     if (!route || attempt.provider_kind !== route.binding.kind) {
       fail('provider_binding_mismatch')
     }
+    if (!route.group) {
+      fail('provider_not_ready')
+    }
     if (!cleanup && fenced.has(route.group)) {
       fail('provider_not_ready')
     }
@@ -312,7 +321,7 @@ function compose(
       const payload = object(value.payload)
       const binding = object(payload.binding)
       const route = routes.get(boundedJson(payload.target))
-      if (!route || binding.kind !== route.binding.kind || boundedJson(binding) !== boundedJson(route.binding)) {
+      if (!route?.group || binding.kind !== route.binding.kind || boundedJson(binding) !== boundedJson(route.binding)) {
         fail('provider_binding_mismatch')
       }
       // 这里只选择原端口；原codec继续核验快照、协商能力、header身份和实际epoch。
@@ -361,6 +370,32 @@ function compose(
         }
         routes.set(key, { group, binding, target })
       }
+    }
+    if (unavailableInput.length && !isolated) {
+      fail('provider_fence_required')
+    }
+    if (unavailableInput.length + routes.size > 64) {
+      fail('provider_limit')
+    }
+    for (const entry of unavailableInput) {
+      const binding = Object.freeze(structuredClone(entry.binding))
+      const target = Object.freeze(structuredClone(entry.target))
+      validateProvider(binding)
+      validateTarget(target)
+      if (
+        binding.machine_id !== connection.machine_id ||
+        target.machine_id !== connection.machine_id ||
+        binding.provider_id !== target.provider_id ||
+        routes.has(boundedJson(target)) ||
+        [...routes.values()].some(
+          /** 不可用声明也不得覆盖任何原会话或同名 provider。 */ (route) =>
+            route.binding.provider_id === binding.provider_id
+        )
+      ) {
+        fail('provider_binding_mismatch')
+      }
+      unavailable.push(Object.freeze({ binding, target }))
+      routes.set(boundedJson(target), { binding, target })
     }
     assertOpen()
   } catch (error) {
@@ -543,25 +578,34 @@ function compose(
           return {
             policy_revision: policy?.policy_revision ?? '',
             peer_policy_revision: policy?.peer_policy_revision ?? '',
-            providers: groups.flatMap(
-              /** 失效 provider 保留原配置与最后已验证状态，只收紧 readiness，不重新调用原 owner。 */ (group) => {
-                const state = observed.get(group)
-                if (!fenced.has(group)) {
-                  return state!.providers
+            providers: [
+              ...groups.flatMap(
+                /** 失效 provider 保留原配置与最后已验证状态，只收紧 readiness，不重新调用原 owner。 */ (group) => {
+                  const state = observed.get(group)
+                  if (!fenced.has(group)) {
+                    return state!.providers
+                  }
+                  return group.providers.map(
+                    /** 当前故障只影响此原 binding，恢复也不能复活本 epoch 的来源。 */ (entry) => ({
+                      expected:
+                        state?.providers.find(
+                          /** 仅复用同一 provider 的最后 canonical 观测。 */ (provider) =>
+                            provider.local.provider_id === entry.binding.provider_id
+                        )?.expected ?? entry.binding,
+                      local: entry.binding,
+                      native_ready: false
+                    })
+                  )
                 }
-                return group.providers.map(
-                  /** 当前故障只影响此原 binding，恢复也不能复活本 epoch 的来源。 */ (entry) => ({
-                    expected:
-                      state?.providers.find(
-                        /** 仅复用同一 provider 的最后 canonical 观测。 */ (provider) =>
-                          provider.local.provider_id === entry.binding.provider_id
-                      )?.expected ?? entry.binding,
-                    local: entry.binding,
-                    native_ready: false
-                  })
-                )
-              }
-            )
+              ),
+              ...unavailable.map(
+                /** 受保护配置只声明不可用，不交付 adapter、native 来源或 permit。 */ (entry) => ({
+                  expected: entry.binding,
+                  local: entry.binding,
+                  native_ready: false
+                })
+              )
+            ]
           }
         }
       ),
@@ -569,17 +613,25 @@ function compose(
   }
   if (isolated) {
     result.fenceProvider = /** 只能永久撤回本 epoch 的原配置；不建立替换来源。 */ (binding) =>
-      invoke(/** 按完整原 binding 选择唯一 owner 并同步封锁。 */ () => fenceGroup(protectedProvider(binding)))
+      invoke(
+        /** 不可用声明本就没有 owner；真实会话仍只关闭对应的原资源。 */ () => {
+          const group = protectedProvider(binding)
+          if (group) {
+            fenceGroup(group)
+          }
+        }
+      )
     result.providerFences = /** 仅交付有界原配置，失效记录不生成新许可。 */ () => {
       if (ended) {
         fail('adapter_closed')
       }
-      return Object.freeze(
-        [...fenced].flatMap(
+      return Object.freeze([
+        ...unavailable.map(/** 始终撤回的配置不能在本 epoch 变为 ready。 */ (entry) => entry.binding),
+        ...[...fenced].flatMap(
           /** 每个 owner 对应独立原 provider。 */ (group) =>
             group.providers.map(/** 配置已在组建立时固定并冻结。 */ (entry) => entry.binding)
         )
-      )
+      ])
     }
   }
   if (groups.some(/** 只在原端口存在时暴露快照接纳能力。 */ (group) => group.session.acceptProviderSnapshot)) {

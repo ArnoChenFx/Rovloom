@@ -549,6 +549,84 @@ for (const isolated of [false, true]) {
 }
 
 test(
+  'Herdr 启动前不可用声明经真实通道撤回，Gateway 的健康 Luvus pin 仍在同 epoch 就绪',
+  { timeout: 45_000 },
+  /** Herdr 没有构造替代session；Luvus合成peer只发布原快照，不执行native或模型。 */ async () => {
+    const f = await fixture(true, true)
+    let connector: Awaited<ReturnType<typeof createProviderConnectorRuntime>> | undefined
+    try {
+      const snapshots = structuredClone([f.snapshot])
+      /** 与正式快照来源相同的固定深冻结数据要求。 */
+      function freeze(value: unknown): void {
+        if (value && typeof value === 'object') {
+          for (const child of Object.values(value)) {
+            freeze(child)
+          }
+          Object.freeze(value)
+        }
+      }
+      freeze(snapshots)
+      connector = await createProviderConnectorRuntime({
+        provider_snapshot: true,
+        transport: {
+          url: f.runtime.transport.url,
+          developmentLoopback: true,
+          offer: { major: 2, minor: 0, capabilities: ['rpc', 'provider_fence'], required: ['rpc', 'provider_fence'] },
+          limits: { heartbeat_ms: 30, idle_ms: 3000 },
+          credential: /** 仅使用本轮合成设备身份。 */ () => f.credential
+        },
+        session: /** 实际welcome后仅建立健康原会话，不为Herdr生成adapter或来源。 */ (connection) => {
+          const luvus = snapshotSession(connection, f.snapshot, f.local.revision)
+          luvus.providerSnapshot = /** 原稳定快照不刷新generation。 */ () => snapshots
+          return composeConnectorSessions(
+            connection,
+            [{ providers: [f.snapshot], session: luvus }],
+            Date.now,
+            f.herdr!.providers
+          )
+        },
+        release: /** 此合成peer没有额外安装或child资源。 */ async () => {}
+      })
+      await until(
+        /** 两个实例都须有明确状态，不能把缺项当作已隔离。 */ () => {
+          const providers = f.runtime.transport.status().devices[0]?.providers ?? []
+          return (
+            connector!.transport.status().phase === 'ready' &&
+            providers.find(/** 健康原Luvus来源仍ready。 */ (provider) => provider.provider_id === f.target.provider_id)
+              ?.ready === true &&
+            providers.find(
+              /** 无原生backend的Herdr明确不可用。 */ (provider) => provider.provider_id === 'herdr_snapshot'
+            )?.ready === false
+          )
+        }
+      )
+      assert.equal(f.runtime.transport.status().connections, 1)
+      assert.equal(connector.transport.status().reconnects, 0)
+      assert.equal(
+        connector.transport
+          .status()
+          .providers.find(
+            /** 原失败配置也在Connector健康中明确报告。 */ (provider) => provider.provider_id === 'herdr_snapshot'
+          )!.ready,
+        false
+      )
+      await f.runtime.runAuthenticated(
+        { principal_id: 'remote_reader' },
+        /** 仍读取实际Gateway pin创建的原Luvus目录，不以元数据stub自证来源。 */ () => {
+          const resolved = f.runtime.catalog.resolve(f.target, f.runtime.principal())!
+          assert(resolved)
+          assert.deepEqual(resolved.record.wire.source, f.snapshot.source)
+        }
+      )
+      assert.equal(f.writes(), 0)
+    } finally {
+      await connector?.close()
+      await f.close()
+    }
+  }
+)
+
+test(
   'remote Gateway starts without Luvus paths, waits for authenticated snapshot, and reads original Wire result',
   // 集成总预算覆盖真实认证、持久写与原结果读取；不改变产品编译、业务 deadline 或阶段等待上限。
   { timeout: 45_000 },

@@ -190,11 +190,16 @@ export function createDeviceLifecycleAdapter(
   channels: ChannelHost,
   services: Omit<Parameters<typeof persistentBackend>[1], 'connection'>
 ) {
-  const backend = persistentBackend(lifecycle.store, {
-    ...services,
-    /** 每次 backend 使用均从当前 socket 及双库重新取可信连接。 */
-    connection: () => lifecycle.connection(channels),
-    nativeSource: lifecycle.nativeSource(channels, services.nativeSource)
-  })
+  /** 生命周期已同步核对双库和当前 Store fence；直接复用本次结果，避免紧邻的重复持久时钟写入。 */
+  const connection = () => lifecycle.connection(channels)
+  const backend = {
+    ...persistentBackend(lifecycle.store, {
+      ...services,
+      /** 每次 backend 使用均从当前 socket 及双库重新取可信连接。 */
+      connection,
+      nativeSource: lifecycle.nativeSource(channels, services.nativeSource)
+    }),
+    connection
+  }
   return { backend, adapter: createLuvusWireAdapter(backend) }
 }

@@ -52,13 +52,20 @@ read 权限，撤权后不返回新旧调用 ID。`get/cancel` 始终不含原�
 单个来源失效、readiness 丢失或快照变化会关闭对应原 adapter/owner、原远端 pin 和读取上下文，
 通知同一认证通道的对端撤回相同完整绑定，并将该来源未确定完成的在途调用按原 Store 事务记为
 unknown。健康 provider 保留同一连接与 epoch，原 pending 调用和后续调用继续经过原 Wire 门禁。
-设备撤销、认证错误、全局策略冲突、资源超限及断线仍按原通道规则处理。未启用此扩展的宿主
+设备撤销、认证错误、全局策略冲突、资源超限、原 owner 清理失败及断线仍按原通道规则处理；
+未确认回收不能作为新上下文的可用预算。未启用此扩展的宿主
 沿用原会话关闭行为。
 
 本 epoch 的撤回不可逆，底层恢复不重新接纳旧来源。显式新配置/认证可建立新 epoch 的原来源，
 旧 binding、结果许可或 unknown 调用不会迁移、重放或补造成功。迟到失败来源的普通 RPC 只作
 有界丢弃，保留认证 envelope 与完整绑定核对；详细限制见 [Wire 协议](protocol/WIRE-PROTOCOL.md#可选逐-provider-来源撤回)。
 当前不支持 `provider_fence` 与 `objects` 组合，也不增加原生事件或终端流隔离。
+
+混合 Connector 中，Herdr 的既有端点阻止启动时，原工厂在取得 child/owner/writer 前只交付
+`ProviderUnavailableError` 的原受保护配置。混合宿主将该配置作为不可用声明交给原组合会话，
+不创建替代 adapter、native 来源或执行后端；必须协商 `provider_fence`，随后由原通道明确撤回，
+健康 Luvus owner 保留。未知启动错误或未确认清理仍失败并回收已交付资源。既有 socket 无论
+存活、拒连或归属未知均不删除、接管或自动重启；底层端点恢复也不复活本 epoch 的不可用声明。
 
 ### 明确受限的原生开发来源
 
@@ -247,6 +254,12 @@ provider 项包含稳定 ID、当前 `binding_revision` 和 `dispatch_ready`；�
 租期、恢复代次和业务 Store epoch。时钟回退、提交/预算失败或原始恢复代次不符默认拒绝；
 不会删崩溃锁或自动解除拒绝标记。管理操作须由宿主核实精确 action/target/revision/epoch，
 一次性 confirmation 最多有效五分钟，消费记录跨重启保留至原确认期限结束。
+
+生命周期 backend 每次连接观察由同一接线完成当前身份快照及 Store fence 核对，避免随后在
+通用持久 backend 中再次执行紧邻的 Store 检查。独立身份观察的入口 guard 与其紧邻事务
+共用一次门禁调用；事务仍重新采样并持久提交身份时间、检查预算，再从独立连接读取已提交
+状态。writer 内重入观察仍执行入口 guard。此去重不缓存跨轮权限或时钟，原生来源回调前后
+及结果交付末次的 Wire/身份/双端 ACL/实际句柄期限检查保持逐次执行。
 
 轮换最多两份凭据，旧凭据重叠至 min(原期限, now + overlap)，重叠最多十分钟；显式结束轮换
 即时使旧凭据失效。显式 takeover 绑定原 epoch、签发只交给新 custody 的新凭据，并立即废止

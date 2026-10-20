@@ -87,6 +87,101 @@ test(
 )
 
 test(
+  '启动时不可用配置没有替代 adapter 或 native owner，只撤回该 provider 并保留真实健康会话',
+  /** 不可用配置只供声明失效，不能以拒绝 stub 冒充可执行来源。 */ () => {
+    const a = group('luvus')
+    const b = group('herdr')
+    const selected: Connection = {
+      ...connection,
+      negotiated: {
+        ...connection.negotiated,
+        capabilities: [...connection.negotiated.capabilities, 'provider_fence']
+      }
+    }
+    const noAdmission = /** 本组件没有 receipt writer，意外业务准入始终拒绝。 */ () => {
+      throw new Error('component_admission_unavailable')
+    }
+    a.session.admissions = { accept: noAdmission, assertRequest: noAdmission }
+    const combined = composeConnectorSessions(selected, [a.descriptor], Date.now, b.descriptor.providers)
+    try {
+      assert.deepEqual(combined.providerFences!(), [b.binding])
+      assert.equal(
+        combined.readiness().providers.find(/** 原配置明确不可用。 */ (p) => p.local.kind === 'herdr')!.native_ready,
+        false
+      )
+      const message = envelope(selected, 'provider_fenced', { binding: b.binding })
+      assert.deepEqual(
+        combined.adapter.decode(combined.adapter.encode(message, 'connector_to_gateway'), 'connector_to_gateway'),
+        message
+      )
+      combined.fenceProvider!(b.binding)
+      assert.throws(
+        /** 不可用声明没有原生执行或读取端口。 */ () => combined.adapter.checkResult(b.attempt),
+        /provider_not_ready/
+      )
+      assert.throws(
+        /** 不可用也不能换成其它 revision。 */ () => combined.fenceProvider!({ ...b.binding, binding_revision: 2 }),
+        /provider_binding_mismatch/
+      )
+      assert.throws(
+        /** 健康会话仍调用它原来的明确拒绝测试端口。 */ () => combined.adapter.checkResult(a.attempt),
+        /stub_native_unavailable_luvus/
+      )
+      assert.equal(a.state.calls, 1)
+      assert.deepEqual([b.state.calls, b.state.adapters, b.state.owners], [0, 0, 0])
+    } finally {
+      combined.close()
+    }
+    const legacy = group('luvus')
+    assert.throws(
+      /** 对端未协商撤回时不能把不完整来源静默当作正常会话。 */ () =>
+        composeConnectorSessions(connection, [legacy.descriptor], Date.now, b.descriptor.providers),
+      /provider_fence_required/
+    )
+    assert.deepEqual([legacy.state.adapters, legacy.state.owners], [1, 1])
+  }
+)
+
+test(
+  '失败 owner 清理不能确认时拒绝继续分配上下文，不能把未回收预算算作已释放',
+  /** 清理失败是原通道资源故障；正常单来源失效仍由独立隔离回归覆盖。 */ () => {
+    const a = group('luvus')
+    const b = group('herdr')
+    const combined = composeGatewaySessions(
+      {
+        ...connection,
+        negotiated: {
+          ...connection.negotiated,
+          capabilities: [...connection.negotiated.capabilities, 'provider_fence']
+        }
+      },
+      [a.descriptor, b.descriptor],
+      Date.now
+    )
+    a.state.failing = true
+    a.state.closed = true
+    a.state.contexts = 128
+    try {
+      assert.throws(
+        /** 原 owner 抛错不能被视为预算已经回收。 */ () => combined.readiness(),
+        /runtime_session_close_failed/
+      )
+      assert.throws(
+        /** 健康原端口也不能在全局资源回收未确认时分配新上下文。 */ () => combined.adapter.checkResult(b.attempt),
+        /runtime_session_close_failed/
+      )
+      assert.equal(b.state.calls, 0)
+    } finally {
+      assert.throws(
+        /** 原关闭结果持续失败，但仍尝试所有原 owner。 */ () => combined.close(),
+        /runtime_session_close_failed/
+      )
+    }
+    assert.deepEqual([a.state.adapters, a.state.owners, b.state.adapters, b.state.owners], [1, 1, 1, 1])
+  }
+)
+
+test(
   '非空provider_snapshot没有attempt，按完整target/binding经原codec编码解码',
   /** 使用官方能力原值和真实Wire治理codec；不构造native许可或安装成功。 */ () => {
     const a = group('luvus')

@@ -350,10 +350,10 @@ export function createGateway(options: GatewayOptions) {
   }
   /** 首次等待快照不等于来源丢失；已就绪或明确失效的原来源才永久封锁。 */
   function reconcileProviders(peer: Peer): void {
-    assertPeer(peer)
-    if (!peer.connection.negotiated.capabilities.includes('provider_fence')) {
+    if (!peer.connection?.negotiated.capabilities.includes('provider_fence')) {
       return
     }
+    assertPeer(peer)
     const state = peer.session.readiness()
     const health = providerHealth(peer.connection, state)
     const fenced = peer.session.providerFences?.() ?? []
