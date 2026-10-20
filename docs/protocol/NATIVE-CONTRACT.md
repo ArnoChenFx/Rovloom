@@ -96,6 +96,11 @@ view、response handle、candidate、permit。远端 epoch 接纳可在没有 MC
 access_machines 分开，machine.* 不用作 Gateway 设备注册。数据及审计入口见
 [开发指引](../DEVELOPMENT.md#固定输入与维护用途)。
 
+`checkRequestShape` 使用原有有界复制：已收录方法检查完整已编译请求根，未知方法只检查
+既有 raw 最小信封。成功返回 void，不表示参数覆盖完整或获得 raw 授权；不登记
+能力视图、候选、来源或执行许可，不检查在线能力及分类授权。Gateway 可将它接入既有
+Store 首次登记事务的同步 preflight，非法参数回滚登记；后续原 Wire 与实际 IO 门禁仍完整复验。
+
 `checkRequest`/`checkRawRequest` 建立候选，`inspectRequestGate` 独立报告分类、
 schema、传输及授权状态，`checkDispatch` 成功才产生不可从 JSON 复制的
 DispatchPermit。strict 拒绝 generic/unavailable；raw_contract 只在 Owner

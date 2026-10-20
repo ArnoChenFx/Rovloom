@@ -209,6 +209,12 @@ facade 不为重试更换任何范围。`runtime_response_discard` 是独立动�
 网关拒绝为 `isError: true` 和 `gateway_error: {code}`。未知工具/参数为固定 JSON-RPC 错误，
 不回显请求值、服务异常、私人路径或栈。HTTP承载协议，stdout不承载MCP；stderr仅允许固定诊断代码。
 
+Luvus 完整原生请求 schema 在首次登记的同步 preflight 中拒绝时，`runtime_call` 返回
+`isError: true` 与 `gateway_error: {code: 'native_request_invalid', outcome: 'not_dispatched'}`。
+该错误仅证明本请求尚未建立 call/dispatch 锚点，坏请求不占 history key，不发送业务 Wire，也不关闭 WSS。
+已有 key 仍返回原调用的真实状态；旧 unknown 不倒退或重派。相同错误码来自其它阶段时不附此 outcome。
+预检不授予执行权限，仍须后续原来源、在线能力、分类、策略及最终 IO 检查；网关不交付参数或 schema 错误正文。
+
 tools/list 每页 5 项，用 SDK 标准 nextCursor；此游标仅索引静态目录。
 业务列表和结果游标由服务产生，须绑定 caller、查询/Target、结果、期限和当前授权，
 不能将任意 offset 当授权。结果读取 max_bytes 默认 4096、上限 16384；服务须按 UTF-8/编码

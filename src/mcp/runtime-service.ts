@@ -3,6 +3,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { GatewayError } from '../contracts.js'
 import { WireError } from '../wire/index.js'
 import { LuvusAdapterError } from '../connector/luvus/index.js'
+import { NativeRequestPreflightError } from '../runtime/request-preflight.js'
 import type { createGatewayRuntime, createProviderGatewayRuntime } from '../runtime/index.js'
 import type { Store } from '../store.js'
 import { StoreGatewayService, type StoreGatewayOptions } from './store-service.js'
@@ -10,6 +11,7 @@ import { isToolName, parseToolArguments } from './schema.js'
 import { publicCallView } from './call-view.js'
 import {
   FacadeServiceError,
+  NativeRequestNotDispatchedError,
   SERVICE_ERROR_CODES,
   type CallView,
   type GatewayService,
@@ -48,6 +50,9 @@ const errors: Record<string, ServiceErrorCode> = {
 
 // 只映射受信错误类中的固定公共码，未知原生异常及code不进入MCP诊断。
 function publicError(error: unknown): FacadeServiceError {
+  if (error instanceof NativeRequestPreflightError) {
+    return new NativeRequestNotDispatchedError()
+  }
   if (error instanceof FacadeServiceError && SERVICE_ERROR_CODES.includes(error.code)) {
     return error
   }
