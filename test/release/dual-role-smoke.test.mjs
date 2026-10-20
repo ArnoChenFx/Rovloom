@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { startDualRoleSmokeProcess } from '../../scripts/release/dual-role-smoke.mjs'
+import { createDualRoleManagementRead, startDualRoleSmokeProcess } from '../../scripts/release/dual-role-smoke.mjs'
 
 /** 只构造不读取环境或运行用户命令的受控shell child，所有输出和状态均为本轮合成值。 */
 function fixture(body, limits) {
@@ -89,6 +89,71 @@ test(
       assert.equal(existsSync(`/proc/${f.child.child.pid}`), false)
     } finally {
       await f.close()
+    }
+  }
+)
+
+test(
+  'dual-role management timeout retains safe fetch diagnostics and remains unavailable',
+  /** 使用原一秒请求期限触发真实取消；合成异常中的秘密不能进入最终失败。 */ async () => {
+    const secret = 'synthetic-token-and-body-must-not-leak'
+    const signal = AbortSignal.timeout(1000)
+    const read = createDualRoleManagementRead(
+      /* 不访问网络，直到同一个请求信号取消才拒绝。 */ async (_path, init) => {
+        assert.equal(init.signal, signal)
+        return new Promise(
+          /* 仅产生取消失败，不构造任何成功HTTP响应。 */ (_resolve, reject) =>
+            signal.addEventListener(
+              'abort',
+              /* 原异常消息和非错误码字段均含合成秘密，用于验证诊断投影。 */ () =>
+                reject(Object.assign(new Error(secret), { code: 'ABORT_ERR', token: secret, body: secret })),
+              { once: true }
+            )
+        )
+      }
+    )
+    await assert.rejects(
+      /* 请求仍走现有页面读取分类，不绕过失败适配器。 */ () => read('devices_get', { machine_id: secret }, signal),
+      /* 只允许安全的三个诊断字段，最终错误继续拒绝且不携带原始异常。 */ (error) => {
+        assert.equal(error.problem, 'unavailable')
+        assert.deepEqual(Object.keys(error.smoke_fetch).sort(), ['aborted', 'code', 'elapsed_ms'])
+        assert.equal(error.smoke_fetch.aborted, true)
+        assert.equal(error.smoke_fetch.code, 'ABORT_ERR')
+        assert(Number.isSafeInteger(error.smoke_fetch.elapsed_ms) && error.smoke_fetch.elapsed_ms >= 0)
+        assert.equal(error.cause, undefined)
+        assert.equal(JSON.stringify(error).includes(secret), false)
+        assert.equal(error.stack.includes(secret), false)
+        return true
+      }
+    )
+  }
+)
+
+test(
+  'dual-role management connection rejection retains only whitelisted codes and remains unavailable',
+  /** 连接拒绝不误标成取消；嵌套错误码可读，未知码和原始秘密不出边界。 */ async () => {
+    const secret = 'synthetic-token-and-body-must-not-leak'
+    for (const code of ['ECONNREFUSED', secret]) {
+      const signal = new AbortController().signal
+      const read = createDualRoleManagementRead(
+        /* 模拟fetch的嵌套连接错误，不记录URL、消息、token或正文。 */ async () => {
+          throw new Error(secret, { cause: Object.assign(new Error(secret), { code, token: secret, body: secret }) })
+        }
+      )
+      await assert.rejects(
+        /* 合成设备名也不得出现在失败诊断里。 */ () => read('devices_get', { machine_id: secret }, signal),
+        /* 未知错误码投影为空，不能让任意异常字符串混入CI输出。 */ (error) => {
+          assert.equal(error.problem, 'unavailable')
+          assert.deepEqual(Object.keys(error.smoke_fetch).sort(), ['aborted', 'code', 'elapsed_ms'])
+          assert.equal(error.smoke_fetch.aborted, false)
+          assert.equal(error.smoke_fetch.code, code === secret ? null : code)
+          assert(Number.isSafeInteger(error.smoke_fetch.elapsed_ms) && error.smoke_fetch.elapsed_ms >= 0)
+          assert.equal(error.cause, undefined)
+          assert.equal(JSON.stringify(error).includes(secret), false)
+          assert.equal(error.stack.includes(secret), false)
+          return true
+        }
+      )
     }
   }
 )
