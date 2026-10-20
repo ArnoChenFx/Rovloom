@@ -113,9 +113,8 @@ also be absolute; `~` and environment variables are not expanded there.
 
 Stop the Connector with Ctrl-C and wait for it to exit, then stop the Gateway.
 Next time, run the same commands with the same user files and data. Gateway can
-also run as a Linux systemd service; native Connector service support remains
-Linux x64. macOS service product wiring is delivered separately.
-See [boot services](SERVICE.md) for the five commands,
+also run as a Linux systemd or macOS system LaunchDaemon; native Connector service
+support remains Linux x64. See [boot services](SERVICE.md) for the five commands,
 required OS authorization and account/configuration choices. Windows product
 services and automatic update replacement remain unavailable in this preview.
 

@@ -1,8 +1,8 @@
 # Boot services / 开机服务
 
 The CLI provides `service install`, `uninstall`, `start`, `restart`, and `stop` for
-an explicit `gateway` or `connector` role. Linux product wiring uses systemd.
-The macOS product wiring is delivered separately; Windows product wiring awaits
+an explicit `gateway` or `connector` role. Linux product wiring uses systemd and macOS uses system LaunchDaemons.
+Windows product wiring awaits
 the normal role-file/startup implementation. Native command plans exist for all
 three systems. Format/model tests do not establish a platform's actual lifecycle
 or reboot acceptance.
@@ -84,8 +84,8 @@ an ordinary user's machine or a self-hosted runner.
 
 ## 简体中文
 
-五项命令均显式选择 `gateway` 或 `connector`。Linux 产品入口使用 systemd；macOS
-产品接线单独交付，Windows 等普通角色文件/启动接口就绪。三平台已有原生命令计划，
+五项命令均显式选择 `gateway` 或 `connector`。Linux产品入口使用systemd，macOS使用system LaunchDaemon；
+Windows等普通角色文件/启动接口就绪。三平台已有原生命令计划，
 不能把格式解析或状态模型通过当作实际安装、生命周期或重启验收通过。
 
 - `install`：加入/启用未来开机自动启动，不立即启动。相同登记可重复，另一产物/配置/账户不能覆盖。

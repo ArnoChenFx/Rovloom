@@ -235,8 +235,7 @@ the first local-terminal Luvus flow described above; Agent/model login is separa
 
 ### Service command syntax and current availability
 
-`rovloom service --help` is available offline. The product entry connects to Linux systemd;
-macOS product wiring is delivered separately. Installation requires the current standalone Rovloom
+`rovloom service --help` is available offline. The product entry connects Gateway to Linux systemd and macOS system LaunchDaemons. Installation requires the current standalone Rovloom
 binary, normal system-service authorization, an existing non-root account and an
 existing working directory. Existing JSON/role errors are checked; missing config
 is left for normal first startup. No UID/mode/ACL or ancestor proof is required,
@@ -288,7 +287,7 @@ stop/restart may terminate the task directly; do not treat it as native rollback
 | Gateway startup / `config check-runtime` | Available | Gateway private-file layer available | Runtime loader rejects this platform |
 | First-pairing approval | Local terminal required | Not yet available | Not available |
 | Native Connector | This guide covers Linux x64 | Not supported | Not supported |
-| Service actions | Production systemd backend connected; native Connector on x64 | Product entry not enabled | Product rejects before system access; ordinary role-file/startup wiring incomplete |
+| Service actions | Production systemd backend connected; native Connector on x64 | Gateway system LaunchDaemon; local Connector rejected | Product rejects before system access; ordinary role-file/startup wiring incomplete |
 | `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
 
 There is no working Rovloom service-status query in this preview.

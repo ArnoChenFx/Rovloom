@@ -194,7 +194,7 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。产品入口已连接Linux systemd，macOS产品接线单独交付；安装要求当前
+`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
 Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
 缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
 Windows等待普通角色启动接口；原生格式解析不等于生命周期验收。
@@ -241,7 +241,7 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | Gateway 启动 / `config check-runtime` | 可用 | Gateway 私有文件层可用 | runtime 加载器拒绝该平台 |
 | 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
 | 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
-| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | 产品入口未启用 | 产品在系统访问前拒绝；普通角色文件与启动接线未完成 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品在系统访问前拒绝；普通角色文件与启动接线未完成 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，
