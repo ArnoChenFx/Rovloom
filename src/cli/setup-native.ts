@@ -94,7 +94,9 @@ export async function prepareSetupNative(
   const binary = luvusBinary(config)
   if (
     !(await terminal.confirm(
-      'Discover this Luvus installation and create its isolated local state (terminal execution disabled)? / 发现 Luvus 并创建隔离状态（关闭终端执行）？'
+      config.allow_terminal_execution === true
+        ? 'Discover Luvus and create isolated state (terminal execution ENABLED by connector.json)? / 发现 Luvus 并创建隔离状态（connector.json 已开启终端执行）？'
+        : 'Discover this Luvus installation and create its isolated local state (terminal execution disabled)? / 发现 Luvus 并创建隔离状态（关闭终端执行）？'
     ))
   ) {
     throw new CliError('configuration_required')

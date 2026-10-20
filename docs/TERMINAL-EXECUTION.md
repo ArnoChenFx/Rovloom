@@ -1,9 +1,9 @@
 # Connector 直接终端执行
 
-本机配置只有一个可选布尔字段 `allow_terminal_execution`，省略或 `false` 时关闭；只有
-机器所有者在受保护的 Connector 本地配置中写入 `true` 才开启。该字段已经由
-`LuvusLocalConfig`、`HerdrLocalConfig` 和 Herdr provider ref 的 `connector.local` 接受。
-下面是加入现有本地配置的字段片段，不是独立 CLI 配置文件：
+标准 CLI 从唯一 Connector 用户文件（默认 `~/.config/rovloom/connector.json`）的根字段
+`allow_terminal_execution` 读取开关。模板明确写 `false`，省略也关闭；只有字面量
+`true` 开启。字符串、数字、null 或对象会被配置解析拒绝。无密钥完整模板及字段表见
+[配置参考](CONFIGURATION-zh.md)。在现有 Connector 文档中设置：
 
 ```json
 {
@@ -11,14 +11,21 @@
 }
 ```
 
-配置的其余 binary、Target、目录和来源字段仍须完整有效。字符串 `"true"`、数字与未知
-字段不会转换成许可。标准 Connector CLI 沿用原 owner 的本地配置：Luvus 来自原
-managed root 的 `config.allow_terminal_execution`，Herdr 来自 provider ref 的
-`config.connector.local.allow_terminal_execution`；没有额外 argv 或 Gateway 开关。
-本轮 pin 的配置变化须按原 owner 生命周期重建资源，不直接改写 Luvus root 记录。
-Gateway 目录描述原生方法及参数，不代表已知远端 Connector 当前开关或发放执行许可；
-不能用 Gateway 自报值绕过 Connector 最终检查。目录的当前本机开关过滤与跨机器联合
-验收仍是独立接线边界；已有机器不会因升级或目录查询自动开启远程执行。
+这只是字段片段；其余角色、data 和 Gateway 字段仍须有效。修改后重启 Connector，服务
+安装用户使用现有 `rovloom service restart --role connector`。该设置不属于首次安装
+`native` 目录设置，不要求修改受保护 root record、摘要或 provider ref；没有额外 argv
+或 Gateway 开关，不会修改已有 caller/local grants、配对身份或安装 Agent。
+
+CLI 将同一有效值交给 Luvus 与 Herdr 现有最终写前检查。直接使用底层库且未传入角色
+开关时，仍使用 `LuvusLocalConfig` / `HerdrLocalConfig` 的原本地字段，默认也关闭。
+已有机器不会因升级或目录查询自动开启远程执行。
+
+Gateway 通过可选认证 Wire `terminal_execution_state` 接收原 provider 完整 binding 和
+布尔观察值，只在当前设备、恢复代次、epoch 和配置仍有效时使用。没有协商、没有报告、
+断连、配置变化或来源失效时状态为 unknown，目录隐藏直接终端写入。参数敏感方法保留
+可用变体；例如关闭时 Luvus `agent.send/prompt` 的描述要求显式 `strict:true`。目录
+游标包含本地状态，状态变化不能沿用旧页。这个观察值不是执行许可；Connector 在原
+检查、持久 claim 与紧贴实际写入处仍检查本机开关，不能只靠隐藏工具禁止执行。
 
 ## 检查范围
 
@@ -35,8 +42,8 @@ Gateway 目录描述原生方法及参数，不代表已知远端 Connector 当�
 | Agent 启动、workspace/tab/pane 创建及会话恢复/报告 | 非空 `command`、`args`、`env`、`resume_command`、`resume_argv` 需要开启；不能通过启动环境或恢复命令绕过 |
 | 严格 Agent 文本对话、读取、无自定义启动参数的 `agent.start` | 保留已有独立原生门禁、分类和 caller/local grants；Herdr 的 Agent 文本及按键继续保留其原生运行进程检查 |
 
-准确的方法/参数集合由 [共享判定](../src/connector/terminal-execution.ts)维护；目录对直接
-方法使用 `requiresTerminalExecution(kind, method)`，具体参数预检使用
+准确的方法/参数集合由 [共享判定](../src/connector/terminal-execution.ts)维护；目录使用
+`terminalExecutionCatalog(kind, method, enabled)` 保留合法参数变体，具体参数预检使用
 `terminalExecutionAllowed(kind, method, params, enabled)`。参数敏感方法可以继续描述，
 其具体请求须再次预检。开关开启不能补齐未经适配的传输、缺失分类或原生 lease；例如
 普通 RPC adapter 仍不能把 `terminal.backend.control` 当作单次 RPC 执行。
@@ -90,6 +97,12 @@ Connector 的发现、schema 和代理子进程继续使用受保护的绝对 `c
 或用户目录。本模块不提供文件系统沙箱、不自动提权、不安装 Agent、不配置模型凭据。
 Agent 自身获授权后运行的内部工具也不受此开关隔离。
 
+普通 Luvus 入口已审核 `pane.run` 的有界子集 `{pane, command}`，必须显式指定目标 pane。
+它使用原生 `workspace` write 契约及既有 Owner raw-contract 路径；generic schema 的事实
+保持原样，不伪称完整参数 schema，不新增通用执行 RPC。既有配置可能仍缺该方法的
+caller/local/raw-contract 授权，开关开启不补授权。该方法不接受新增 cwd/env/argv 字段；
+输入写入原 pane，输出继续用 `pane.read` 读取。
+
 返回的 `native_response` 保留原生值。Herdr 的 `ok`、Luvus 的输入 queued/executed
 仅说明原生输入操作，不能推断 shell 命令结束。PTY read/capture 是可能渲染和截断的
 terminal output，保留原生截断/完整性信息，不能称为独立无损 stdout/stderr。Luvus RPC
@@ -103,7 +116,7 @@ claim 已提交后才关闭开关，也不能清除墓碑重新执行旧 attempt
 
 ## English configuration summary
 
-Add the optional boolean `allow_terminal_execution` to the trusted Connector local configuration.
+Add the optional root boolean `allow_terminal_execution` to the single Connector user JSON file.
 It defaults to `false`; only literal `true` enables direct terminal inputs and custom launch or
 restore commands. Existing Agent conversations retain their separate native and caller/local
 authorization. This switch is not an OS sandbox for Agent tools.
@@ -120,15 +133,20 @@ Nonblank task gates, custom task worker commands, and task completion
 or retry paths that can execute saved commands are also covered; plain task records remain usable.
 
 Both adapters recheck the current local switch immediately before their existing native write.
-Catalog filtering must use the same shared predicate. The standard Connector CLI preserves the
-original owner's local configuration; it adds no argument or Gateway switch. Gateway metadata
-does not attest the remote Connector's current local switch. Joint catalog state filtering remains
-a separate wiring boundary. Native replies and terminal truncation stay unchanged:
-input acknowledgments never become command completion or a fabricated exit code. A lost reply
-after dispatch remains unknown and is not replayed. No existing real machine is enabled by this change.
+The standard CLI reads the root boolean in the one Connector user file, defaults it to false,
+and forwards it independently of immutable installation settings. Edit the file and restart
+Connector; there is no argv or Gateway switch. Current authenticated per-provider metadata
+lets Gateway hide direct input while local state is off or unknown, without changing native
+schemas or granting execution. Connection loss and provider fencing discard the observation.
+Luvus `pane.run` accepts an explicit `pane` and bounded `command` through its existing raw-contract
+path; prior caller/local/raw policies may still exclude it. Read output through `pane.read`.
+Native replies and terminal truncation stay unchanged: input acknowledgments never become
+command completion or a fabricated shell exit code. A lost reply after dispatch remains unknown
+and is not replayed. No existing real machine is enabled by this change.
 
 ## 原生研究依据
 
+- [Luvus 固定版本 pane 输入与读取](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch/topology.rs)：`pane.run` 写入 command 加回车，返回 `ok`；`pane.read` 读取终端画面，不提供逐命令退出码。
 - [Luvus 固定版本 Agent 判断与输入](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch/agents.rs)：Agent 输入不回退到普通 pane；报告状态也影响 `is_agent_pane`。
 - [Luvus 固定版本任务分派](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch/orchestration.rs)：`task.add` 保存 gate，`task.start` 可提交自定义 agent 命令；`task.update` 不接收 gate。
 - [Luvus 固定版本任务执行](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/board.rs)：任务完成可启动 shell gate，automation task retry 可重启原运行；不能仅从本次请求有无命令判断其可执行性。

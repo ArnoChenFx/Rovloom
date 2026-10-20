@@ -4,7 +4,7 @@ import { canonical, digest, GatewayError } from '../contracts.js'
 import { Router, type LocalPolicies, type Principal } from '../router.js'
 import type { Store } from '../store.js'
 import { providerScopeAllowed, validatePolicies } from '../wire/index.js'
-import type { AttemptBinding, ProviderPolicy, V2Target } from '../wire/types.js'
+import type { AttemptBinding, ProviderBinding, ProviderPolicy, V2Target } from '../wire/types.js'
 import { isToolName, parseToolArguments } from './schema.js'
 import { publicCallView } from './call-view.js'
 import { authorizedLuvusCatalog, type GatewayCatalog } from './native-catalog.js'
@@ -47,6 +47,8 @@ export type StoreGatewayOptions = {
   localPolicies: LocalPolicies
   router?: Router
   catalog?: GatewayCatalog
+  /** 仅观察当前连接报告的本地开关；缺失为未知，不授予调用或读取权。 */
+  terminalExecutionState?(binding: ProviderBinding): boolean | undefined
   // 仅由实际组合器报告已装配的管理写能力；只读提示不得调用确认、签发或provider启用证明。
   managementCapabilities?(target: { machine_id: string; provider_id?: string }): readonly ManagementPermission[]
 }
@@ -379,6 +381,7 @@ export class StoreGatewayService implements GatewayService {
         currentPrincipal: /* 扫描和描述期间仍从同一受信身份来源复验，不借用旧principal。 */ () =>
           this.principal(context),
         localPolicies: this.options.localPolicies,
+        terminalExecutionState: this.options.terminalExecutionState,
         target: request.args.target,
         expected_binding_revision: request.args.expected_binding_revision
       }

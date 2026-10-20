@@ -42,6 +42,7 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   authenticate: ['connector_to_gateway'],
   welcome: ['gateway_to_connector'],
   provider_snapshot: ['connector_to_gateway'],
+  terminal_execution_state: ['connector_to_gateway'],
   provider_fenced: ['gateway_to_connector', 'connector_to_gateway'],
   request: ['gateway_to_connector'],
   admission_receipt: ['gateway_to_connector'],
@@ -497,6 +498,14 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
   authenticateEnvelope(frame, context)
 
   switch (frame.type) {
+    case 'terminal_execution_state':
+      capability(context, 'terminal_execution_state')
+      fields(p, ['binding', 'enabled'])
+      validateProvider(p.binding)
+      if (typeof p.enabled !== 'boolean' || p.binding.machine_id !== frame.machine_id) {
+        fail('terminal_execution_state_invalid')
+      }
+      break
     case 'provider_fenced':
       capability(context, 'provider_fence')
       fields(p, ['binding'])

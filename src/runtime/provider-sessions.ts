@@ -169,10 +169,16 @@ function compose(
   /** 只让已协商的连接使用不依赖原生来源的有界治理消息。 */
   function control(frame: unknown): boolean {
     const value = object(frame)
-    if (!isolated || !['heartbeat', 'error', 'provider_fenced'].includes(value.type as string)) {
+    const terminalState =
+      value.type === 'terminal_execution_state' &&
+      connection.negotiated.capabilities.includes('terminal_execution_state')
+    if (
+      (!isolated && !terminalState) ||
+      !['heartbeat', 'error', 'provider_fenced', 'terminal_execution_state'].includes(value.type as string)
+    ) {
       return false
     }
-    if (value.type === 'provider_fenced') {
+    if (value.type === 'provider_fenced' || value.type === 'terminal_execution_state') {
       protectedProvider(object(value.payload).binding as ProviderBinding)
     }
     return true
@@ -610,6 +616,30 @@ function compose(
         }
       ),
     close
+  }
+  if (connector) {
+    result.terminalExecutionState = /** 原owner只能报告自己原配置的本地开关，不使已失效组复活。 */ () =>
+      invoke(
+        /** 聚合原配置的同步观察值，不调用原生方法。 */ () =>
+          groups.flatMap(
+            /** 每个组保持独立的配置读取器和最终执行guard。 */ (group) => {
+              if (fenced.has(group)) {
+                return []
+              }
+              const values = group.session.terminalExecutionState?.() ?? []
+              if (!Array.isArray(values) || values.length > group.providers.length) {
+                void Promise.resolve(values).catch(/** 消费违规异步 getter 的拒绝。 */ () => {})
+                fail('terminal_execution_state_invalid')
+              }
+              for (const value of values) {
+                if (protectedProvider(value.binding) !== group || typeof value.enabled !== 'boolean') {
+                  fail('provider_binding_mismatch')
+                }
+              }
+              return values
+            }
+          )
+      )
   }
   if (isolated) {
     result.fenceProvider = /** 只能永久撤回本 epoch 的原配置；不建立替换来源。 */ (binding) =>

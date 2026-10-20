@@ -24,6 +24,7 @@ import type { ControlledLuvusProcess } from './native-source.js'
 import type { ConnectorRuntimeOptions, RemoteLuvusRuntimeProvider, RuntimeProvider } from './types.js'
 import { checkedRemoteLuvusConfig, createPinnedRemoteLuvus } from './remote-luvus.js'
 import type { LuvusProductionRemoteConfig } from './remote-luvus.js'
+import { pinTerminalExecution } from '../connector/terminal-execution.js'
 
 export type LuvusProductionReference = Readonly<{ reference: string; value: unknown }>
 export type LuvusProductionOwnerConfig = Readonly<{
@@ -43,7 +44,7 @@ export type LuvusProductionOwnerConfig = Readonly<{
 }>
 type CheckedReference = Readonly<{ reference: string; value: LuvusProductionOwnerConfig }>
 type GatewayReference = CheckedReference | Readonly<{ reference: string; value: LuvusProductionRemoteConfig }>
-type CliState = Readonly<{ state_dir: string }>
+type CliState = Readonly<{ state_dir: string; allow_terminal_execution?: boolean }>
 
 /** 有界复制已解析引用，只校验 provider 自己的配置，不重新读取或解析 CLI 配置文件。 */
 function references(input: readonly LuvusProductionReference[], mode: 'managed' | 'attach'): CheckedReference[] {
@@ -257,6 +258,13 @@ export function createLuvusProductionSources() {
       config: CliState,
       input: readonly LuvusProductionReference[]
     ): Promise<Omit<ConnectorRuntimeOptions, 'transport'> & { readonly admission_context: true }> {
+      // CLI单文件开关独立于已登记安装settings；省略时保留底层工厂的原配置契约。
+      const terminalExecution =
+        config.allow_terminal_execution === undefined
+          ? undefined
+          : /** 每次最终检查读取本次装配的显式本机值，不接收RPC参数。 */ () =>
+              pinTerminalExecution(config.allow_terminal_execution)
+      terminalExecution?.()
       const [entry] = references(input, 'managed')
       const selected = entry!
       const root = openRoot(selected)
@@ -385,6 +393,13 @@ export function createLuvusProductionSources() {
               return {
                 authentication: 'local_owner' as const,
                 config: fixed,
+                ...(terminalExecution ? { terminalExecution } : {}),
+                terminalExecutionState: /** 只报告原本机guard的有效值，不构造原生能力或许可。 */ () => [
+                  {
+                    binding: provider.binding,
+                    enabled: terminalExecution ? terminalExecution() : fixed.allow_terminal_execution === true
+                  }
+                ],
                 backend,
                 admissions: receipts,
                 claims: dispatchClaims,
