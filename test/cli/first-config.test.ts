@@ -1,11 +1,11 @@
 // 首次配置只使用测试自有HOME；真实Gateway保持未配对且不签发身份、密钥或调用模型。
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { once } from 'node:events'
 import { PassThrough } from 'node:stream'
@@ -72,6 +72,128 @@ test(
         assert.match(result.stderr, /^configuration_required\n/)
         assert.equal(readConfig(join(home, '.config', 'rovloom', 'connector.json')).role, 'connector')
         assert.equal(existsSync(join(home, '.local')), false)
+      }
+    )
+  }
+)
+
+test(
+  '首次配置写入失败不发布空文件或残片，解除限额后可正常重试',
+  /* 实际子进程文件大小限额覆盖零字节和部分写入，不用mock替代write/fsync边界。 */ async () => {
+    await temporary(
+      /* 所有受限写入只发生在本例HOME，失败不留下用户配置或临时文件。 */ (root) => {
+        const main = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url))
+        for (const limit of ['0', '1']) {
+          const home = limit === '0' ? join(root, 'zero') : join(root, ...Array(12).fill('long-' + 'x'.repeat(105)))
+          mkdirSync(home, { recursive: true, mode: 0o700 })
+          const env = { PATH: process.env.PATH ?? '', HOME: home, NO_COLOR: '1' }
+          const failed = spawnSync(
+            '/bin/sh',
+            [
+              '-c',
+              'trap "" XFSZ; ulimit -f "$1"; shift; exec "$@"',
+              'config-write-limit',
+              limit,
+              process.execPath,
+              '--no-env-file',
+              main,
+              'connector'
+            ],
+            { env, input: '', timeout: 5000, encoding: 'utf8' }
+          )
+          assert.equal(failed.error, undefined)
+          assert.equal(failed.signal, null)
+          assert.equal(failed.status, 2)
+          assert.equal(failed.stdout, '')
+          assert.equal(failed.stderr, 'config_unreadable\n')
+          const directory = join(home, '.config', 'rovloom')
+          assert.equal(existsSync(join(directory, 'connector.json')), false)
+          assert.deepEqual(readdirSync(directory), [])
+          const retried = spawnSync(process.execPath, ['--no-env-file', main, 'connector'], {
+            env,
+            input: '',
+            timeout: 5000,
+            encoding: 'utf8'
+          })
+          assert.equal(retried.error, undefined)
+          assert.equal(retried.status, 2)
+          assert.match(retried.stderr, /^configuration_required\n/)
+          assert.equal(
+            readConfig(join(directory, 'connector.json')).state_dir,
+            join(home, '.local', 'share', 'rovloom', 'connector')
+          )
+          assert.deepEqual(readdirSync(directory), ['connector.json'])
+        }
+      }
+    )
+  }
+)
+
+test(
+  '并发首次启动只发布完整的获胜配置，已有文件的字节与inode均保留',
+  /* 八个真实入口竞争同一文件，不通过顺序函数调用模拟并发。 */ async () => {
+    await temporary(
+      /* 全部子进程仅生成本例Connector文件，无网络和身份操作。 */ async (home) => {
+        const main = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url))
+        const children = Array.from(
+          { length: 8 },
+          /* 同时启动同一缺失角色文件的独立进程。 */ () => {
+            const child = spawn(process.execPath, ['--no-env-file', main, 'connector'], {
+              env: { PATH: process.env.PATH ?? '', HOME: home, NO_COLOR: '1' },
+              stdio: ['pipe', 'pipe', 'pipe']
+            })
+            let out = ''
+            let err = ''
+            child.stdout.on(
+              'data',
+              /* 不向控制台交付实际配置，只断言协议通道为空。 */ (chunk) => {
+                out += chunk
+              }
+            )
+            child.stderr.on(
+              'data',
+              /* 收集固定诊断，验证每个竞争者读到完整文档。 */ (chunk) => {
+                err += chunk
+              }
+            )
+            child.stdin.end()
+            return {
+              child,
+              closed: once(child, 'close'),
+              output: /* 返回已结束子进程的固定输出。 */ () => ({ out, err })
+            }
+          }
+        )
+        for (const entry of children) {
+          const [code, signal] = await entry.closed
+          assert.equal(code, 2)
+          assert.equal(signal, null)
+          assert.equal(entry.output().out, '')
+          assert.match(entry.output().err, /^configuration_required\n/)
+        }
+        const directory = join(home, '.config', 'rovloom')
+        const path = join(directory, 'connector.json')
+        assert.equal(readConfig(path).role, 'connector')
+        assert.deepEqual(readdirSync(directory), ['connector.json'])
+        const custom =
+          JSON.stringify(
+            configDocument({ ...configTemplate('connector'), state_dir: join(home, 'chosen-data') }),
+            null,
+            '\t'
+          ) + '\n'
+        writeFileSync(path, custom)
+        const inode = statSync(path).ino
+        const result = spawnSync(process.execPath, ['--no-env-file', main, 'connector'], {
+          env: { PATH: process.env.PATH ?? '', HOME: home },
+          input: '',
+          timeout: 5000,
+          encoding: 'utf8'
+        })
+        assert.equal(result.status, 2)
+        assert.match(result.stderr, /^configuration_required\n/)
+        assert.equal(readFileSync(path, 'utf8'), custom)
+        assert.equal(statSync(path).ino, inode)
+        assert.deepEqual(readdirSync(directory), ['connector.json'])
       }
     )
   }
