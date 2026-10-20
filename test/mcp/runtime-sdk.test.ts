@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { RuntimeGatewayService } from '../../src/mcp/runtime-service.js'
 import { httpFixture } from './http-fixture.js'
+import { sdkTestLifecycle } from './sdk-lifecycle.js'
 
 // 对照结构化和文本副本后读取数据，避免网关改写原生结果时仍让测试通过。
 function data(value: unknown): Record<string, unknown> {
@@ -19,18 +20,11 @@ test(
   '真实HTTP SDK接实际runtime准入、去重、原Wire结果分页、显式取消及撤权',
   { timeout: 30_000 },
   /* 动态加载真实native fixture；其编译失败照常报告，不用stub或缓存替代。 */ async (testContext) => {
-    let phase = 'fixture_import'
-    let cleanup = 'not_started'
-    testContext.after(
-      /* 超时和断言失败都保留固定阶段；原始native/HTTP输入和错误值不进入诊断。 */ () => {
-        if (phase !== 'complete' || cleanup !== 'complete') {
-          console.error(`[mcp-http-failure] case=runtime-sdk phase=${phase} cleanup=${cleanup}`)
-        }
-      }
-    )
+    const lifecycle = sdkTestLifecycle(testContext, 'runtime-sdk', 30_000)
     const { runtimeFixture } = await import('../runtime/helpers.js')
-    phase = 'fixture_open'
+    lifecycle.phase('fixture_open')
     const f = await runtimeFixture()
+    await lifecycle.own('runtime', /** 超时后返回的fixture也必须立即释放，不进入下一用例。 */ () => f.close())
     const service = new RuntimeGatewayService({
       runtime: f.gateway,
       identities: {
@@ -45,16 +39,30 @@ test(
         grants: [{ target: f.target, methods: ['task.add'], actions: ['dispatch', 'read', 'cancel'] }]
       })
     })
-    const http = httpFixture(service, {
+    await lifecycle.own('service', /** facade service只关闭自己的等待/游标。 */ () => service.close())
+    const http = httpFixture(lifecycle.service(service), {
       authentication: {
         authenticate: /* 仅本用例自建listener认识的合成HTTP身份。 */ () => f.caller
       }
     })
+    await lifecycle.own('http', /** 先关闭真实SDK和HTTP，再关闭服务及双库角色。 */ () => http.close())
+    const invoke = /** 所有SDK请求服从同一原测试期限，输入与原断言保持不变。 */ (
+      request: Parameters<typeof http.client.callTool>[0]
+    ) =>
+      lifecycle.call(
+        request.name,
+        /** 请求只发送一次，不由诊断重试。 */ () =>
+          http.client.callTool(request, CallToolResultSchema, lifecycle.options())
+      )
     try {
-      phase = 'ready'
-      await f.ready()
-      phase = 'http_connect'
-      await http.client.connect(http.transport)
+      lifecycle.phase('ready')
+      await lifecycle.wait(f.ready(lifecycle.signal))
+      lifecycle.phase('http_connect')
+      await lifecycle.call(
+        'initialize',
+        /** 初始化同样不遗留超过测试期限的默认SDK等待。 */ () =>
+          http.client.connect(http.transport, lifecycle.options())
+      )
       const history = f.state.store.openHistory('synthetic', f.target, 1)
       const args = {
         target: f.target,
@@ -69,12 +77,10 @@ test(
           recovery_generation: f.state.store.generation()
         }
       }
-      phase = 'call'
-      const call = data(await http.client.callTool({ name: 'runtime_call', arguments: args }, CallToolResultSchema))
-      phase = 'duplicate'
-      const duplicate = data(
-        await http.client.callTool({ name: 'runtime_call', arguments: args }, CallToolResultSchema)
-      )
+      lifecycle.phase('call')
+      const call = data(await invoke({ name: 'runtime_call', arguments: args }))
+      lifecycle.phase('duplicate')
+      const duplicate = data(await invoke({ name: 'runtime_call', arguments: args }))
       assert.equal(duplicate.call_id, call.call_id)
       assert.equal(call.state, 'responded')
       assert.equal(call.contract_ref, f.reference)
@@ -85,72 +91,62 @@ test(
       const chunks: Buffer[] = []
       let cursor: string | undefined
       let firstNext: string | undefined
+      let bytesRead = 0
       do {
-        phase = 'result_page'
+        lifecycle.phase('result_page')
         const page = data(
-          await http.client.callTool(
-            {
-              name: 'runtime_result_read',
-              arguments: { result_id: result.result_id, max_bytes: 32, ...(cursor ? { cursor } : {}) }
-            },
-            CallToolResultSchema
-          )
+          await invoke({
+            name: 'runtime_result_read',
+            arguments: { result_id: result.result_id, max_bytes: 32, ...(cursor ? { cursor } : {}) }
+          })
         )
         assert.equal(page.expires_at, result.expires_at)
         assert.equal(page.encoding, 'base64')
-        chunks.push(Buffer.from(page.chunk as string, 'base64'))
+        const chunk = Buffer.from(page.chunk as string, 'base64')
+        assert(chunk.byteLength > 0 && chunk.byteLength <= 32)
+        bytesRead += chunk.byteLength
+        assert(bytesRead <= result.bytes)
+        assert.equal(page.eof, bytesRead === result.bytes)
+        chunks.push(chunk)
         if (!cursor) {
           firstNext = page.next_cursor as string | undefined
         }
         cursor = page.next_cursor as string | undefined
       } while (cursor)
+      assert(chunks.length > 1)
       assert.equal(Buffer.concat(chunks).byteLength, result.bytes)
       assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()).error, f.native.response.error)
       assert(firstNext)
-      phase = 'changed_cursor'
-      const changedPage = await http.client.callTool(
-        {
-          name: 'runtime_result_read',
-          arguments: { result_id: result.result_id, max_bytes: 64, cursor: firstNext }
-        },
-        CallToolResultSchema
-      )
+      lifecycle.phase('changed_cursor')
+      const changedPage = await invoke({
+        name: 'runtime_result_read',
+        arguments: { result_id: result.result_id, max_bytes: 64, cursor: firstNext }
+      })
       assert.deepEqual(changedPage.structuredContent, { gateway_error: { code: 'invalid_cursor' } })
-      phase = 'cancel'
+      lifecycle.phase('cancel')
       const cancelled = data(
-        await http.client.callTool(
-          {
-            name: 'runtime_call_cancel',
-            arguments: { call_id: call.call_id }
-          },
-          CallToolResultSchema
-        )
+        await invoke({
+          name: 'runtime_call_cancel',
+          arguments: { call_id: call.call_id }
+        })
       )
       assert.equal(cancelled.cancellation, 'unsupported')
       assert.equal(f.native.state.responses, 1)
       f.authorize(false)
-      phase = 'revoked_read'
-      const denied = await http.client.callTool(
-        {
-          name: 'runtime_result_read',
-          arguments: { result_id: result.result_id }
-        },
-        CallToolResultSchema
-      )
+      lifecycle.phase('revoked_read')
+      const denied = await invoke({
+        name: 'runtime_result_read',
+        arguments: { result_id: result.result_id }
+      })
       assert.deepEqual(denied.structuredContent, { gateway_error: { code: 'unauthenticated' } })
-      phase = 'client_close'
+      lifecycle.phase('client_close')
       await http.client.close()
       assert.equal(f.gateway.transport.status().stopped, false)
       assert.equal(f.state.store.health().mode, 'active')
-      phase = 'complete'
+      lifecycle.phase('complete')
+      lifecycle.complete()
     } finally {
-      cleanup = 'http'
-      await http.close()
-      cleanup = 'service'
-      service.close()
-      cleanup = 'runtime'
-      await f.close()
-      cleanup = 'complete'
+      await lifecycle.close()
     }
   }
 )

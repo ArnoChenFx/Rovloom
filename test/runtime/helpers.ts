@@ -227,11 +227,15 @@ export async function runtimeFixture(limits: GatewayRuntimeOptions['listener']['
       localPolicyRead = callback
     },
     /** 等待双方实际认证且完成 provider readiness。 */
-    async ready() {
+    async ready(signal?: AbortSignal) {
       await until(
-        /** 每端都须 ready，不以 TCP 打开代替。 */ () =>
-          connector.transport.status().phase === 'ready' &&
-          active.transport.status().devices.some(/** 当前设备应由真实认证连接建立。 */ (device) => device.ready),
+        /** 每端都须ready；所属测试已结束时停止轮询，不继续访问旧writer。 */ () => {
+          signal?.throwIfAborted()
+          return (
+            connector.transport.status().phase === 'ready' &&
+            active.transport.status().devices.some(/** 当前设备应由真实认证连接建立。 */ (device) => device.ready)
+          )
+        },
         30_000
       )
     },

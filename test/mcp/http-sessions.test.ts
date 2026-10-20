@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { startHttpFacade } from '../../src/mcp/http.js'
 import { FacadeServiceError, type ServiceContext, type ToolName } from '../../src/mcp/types.js'
+import { sdkTestLifecycle } from './sdk-lifecycle.js'
 
 // 只有真实业务入口及AbortSignal回调能推进这些测试握手。
 function gate() {
@@ -20,15 +21,7 @@ function gate() {
 test(
   '同一Gateway的两会话并发复用SDK请求ID，A取消/退出不影响B等待或持久listener',
   /* 服务明确为阻塞探针，不执行native或创建真实凭据。 */ async (testContext) => {
-    let phase = 'connect'
-    let cleanup = 'not_started'
-    testContext.after(
-      /* Bun超时也执行结束钩子；只输出本例固定阶段，不输出身份、请求或异常值。 */ () => {
-        if (phase !== 'complete' || cleanup !== 'complete') {
-          console.error(`[mcp-http-failure] case=http-sessions phase=${phase} cleanup=${cleanup}`)
-        }
-      }
-    )
+    const lifecycle = sdkTestLifecycle(testContext, 'http-sessions', 5000)
     const ready = gate()
     const stopped = gate()
     const release = { alice: gate(), bob: gate() }
@@ -46,7 +39,7 @@ test(
               : null
         }
       },
-      service: {
+      service: lifecycle.service({
         execute: /* 两主体共享同一服务实例，但等待分别持有各自的认证上下文。 */ async (name, _args, context) => {
           operations.push(name)
           const id = context.caller.principal_id as keyof typeof release
@@ -60,8 +53,9 @@ test(
           await release[id].promise
           throw new FacadeServiceError('unavailable')
         }
-      }
+      })
     })
+    await lifecycle.own('listener', /** 客户端等待排空后关闭同一个真实listener。 */ () => running.close())
     const clientA = new Client({ name: 'alice-test', version: '1' })
     const clientB = new Client({ name: 'bob-test', version: '1' })
     const transportA = new StreamableHTTPClientTransport(new URL(running.url), {
@@ -70,57 +64,82 @@ test(
     const transportB = new StreamableHTTPClientTransport(new URL(running.url), {
       requestInit: { headers: { authorization: 'Bearer BOB_TEST_ONLY' } }
     })
+    await lifecycle.own(
+      'clients',
+      /** 超时也释放业务探针和两条SDK连接，不让旧回调进入下一用例。 */ async () => {
+        release.alice.resolve()
+        release.bob.resolve()
+        await Promise.all([clientA.close(), clientB.close()])
+      }
+    )
     try {
       await Promise.all([
-        clientA.connect(transportA, { timeout: 5000 }),
-        clientB.connect(transportB, { timeout: 5000 })
+        lifecycle.call(
+          'initialize',
+          /** A初始化服从本例原五秒期限。 */ () => clientA.connect(transportA, lifecycle.options())
+        ),
+        lifecycle.call(
+          'initialize',
+          /** B初始化共享原期限，不重新取得五秒预算。 */ () => clientB.connect(transportB, lifecycle.options())
+        )
       ])
       assert(transportA.sessionId && transportB.sessionId)
       assert.notEqual(transportA.sessionId, transportB.sessionId)
-      phase = 'start'
+      lifecycle.phase('start')
       const stop = new AbortController()
-      const first = clientA
-        .callTool({ name: 'machines_list', arguments: {} }, undefined, { signal: stop.signal, timeout: 5000 })
+      const first = lifecycle
+        .call(
+          'machines_list',
+          /** A显式取消与测试清理分别可中止本次等待。 */ () =>
+            clientA.callTool({ name: 'machines_list', arguments: {} }, undefined, {
+              ...lifecycle.options(),
+              signal: AbortSignal.any([stop.signal, lifecycle.signal])
+            })
+        )
         .then(
           /* 意外成功也被立即观察，最后必须断言它真实拒绝。 */ () => false,
           /* 标准客户端取消拒绝不是native取消成功。 */ () => true
         )
-      const second = clientB.callTool({ name: 'machines_list', arguments: {} }, undefined, { timeout: 5000 })
+      const second = lifecycle.call(
+        'machines_list',
+        /** B只绑定测试作用域，不绑定A的取消信号。 */ () =>
+          clientB.callTool({ name: 'machines_list', arguments: {} }, undefined, lifecycle.options())
+      )
       const secondObserved = second.then(
         /* 提前观察B成功路径，防止测试清理窗口留下未处理拒绝。 */ (reply) => ({ reply }),
         /* B的意外失败保留为失败结果，不能被清理隐藏。 */ (error: unknown) => ({ error })
       )
-      phase = 'both_running'
-      await ready.promise
-      phase = 'client_cancel'
+      lifecycle.phase('both_running')
+      await lifecycle.wait(ready.promise)
+      lifecycle.phase('client_cancel')
       stop.abort()
       assert.equal(await first, true)
-      phase = 'server_cancel'
-      await stopped.promise
+      lifecycle.phase('server_cancel')
+      await lifecycle.wait(stopped.promise)
       assert.equal(contexts.get('alice')!.wait_signal.aborted, true)
       assert.equal(contexts.get('bob')!.wait_signal.aborted, false)
-      phase = 'client_close'
+      lifecycle.phase('client_close')
       await clientA.close()
       release.alice.resolve()
       release.bob.resolve()
-      phase = 'bob_reply'
+      lifecycle.phase('bob_reply')
       const result = await secondObserved
       assert('reply' in result)
       assert.equal(result.reply.isError, true)
-      phase = 'ping'
-      assert.deepEqual(await clientB.ping({ timeout: 5000 }), {})
+      lifecycle.phase('ping')
+      assert.deepEqual(
+        await lifecycle.call('ping', /** 保留B的真实协议存活检查。 */ () => clientB.ping(lifecycle.options())),
+        {}
+      )
       assert.deepEqual(operations, ['machines_list', 'machines_list'])
-      phase = 'listener_auth'
-      assert.equal((await fetch(running.url)).status, 401)
-      phase = 'complete'
+      lifecycle.phase('listener_auth')
+      const denied = await fetch(running.url, { signal: lifecycle.signal })
+      assert.equal(denied.status, 401)
+      await denied.body?.cancel()
+      lifecycle.phase('complete')
+      lifecycle.complete()
     } finally {
-      release.alice.resolve()
-      release.bob.resolve()
-      cleanup = 'clients'
-      await Promise.allSettled([clientA.close(), clientB.close()])
-      cleanup = 'listener'
-      await running.close()
-      cleanup = 'complete'
+      await lifecycle.close()
     }
   }
 )
