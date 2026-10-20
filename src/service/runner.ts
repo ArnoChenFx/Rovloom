@@ -78,7 +78,10 @@ export function createSystemCommandRunner(options: { start?: Start; cleanupMs?: 
           cleanup = setTimeout(
             /* 只销毁本次管道；无法证明退出时保留角色恢复保护，不自动重试系统操作。 */ () => {
               if (!exited && !closed) {
-                failure = new SystemCommandError('service_recovery_required', 'cleanup_unknown')
+                const unknown = new SystemCommandError('service_recovery_required', 'cleanup_unknown')
+                // 回收未知不能抹掉原先的操作超时及其阶段；cause仍只有固定代码，不保存工具正文。
+                unknown.cause = failure
+                failure = unknown
                 uncertain.add(child)
                 child.unref()
               }
