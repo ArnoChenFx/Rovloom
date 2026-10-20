@@ -31,7 +31,7 @@ function fixture(count = 1) {
 
 for (const count of [1, 8, 16]) {
   test(
-    `${count} 个批锚点共用一次时钟 UPDATE，返回独立最小副本且不执行预算或公开宿主入口`,
+    `${count} 个批锚点仅在时钟推进时共用一次 UPDATE，返回独立最小副本且不执行预算或公开宿主入口`,
     /** 用实际 SQL 计数验证常数写入，并禁止把批观察变成通用事务或公开逐项循环。 */ () => {
       const f = fixture(count)
       try {
@@ -46,9 +46,10 @@ for (const count of [1, 8, 16]) {
             }
           })
         }
+        f.time(1001)
         const measured = clockWrites(f.store, /** 只计量本次同步批观察。 */ () => f.store.responseAnchors(f.bindings))
         assert.equal(measured.updates, 1)
-        assert.equal(measured.result.now, 1000)
+        assert.equal(measured.result.now, 1001)
         assert.deepEqual(
           measured.result.entries,
           expected.map(/** 保留每个成功项的明确可用判别。 */ (anchor) => ({ available: true, anchor }))
@@ -57,7 +58,12 @@ for (const count of [1, 8, 16]) {
         assert(entry.available)
         entry.anchor.binding.target.provider_id = 'changed_copy'
         assert.equal(f.bindings[0]!.target.provider_id, 'provider')
-        const again = f.store.responseAnchors(f.bindings).entries[0]!
+        const repeated = clockWrites(
+          f.store,
+          /** 同毫秒重复批观察仍核对锚点，但不重复持久相同时间。 */ () => f.store.responseAnchors(f.bindings)
+        )
+        assert.equal(repeated.updates, 0)
+        const again = repeated.result.entries[0]!
         assert(again.available)
         assert.equal(again.anchor.binding.target.provider_id, 'provider')
         assert.equal('native_request' in again.anchor, false)
@@ -108,6 +114,7 @@ test(
         local_policy_revision: long,
         history: { history_epoch: long, client_request_key: long }
       }
+      f.time(1001)
       const measured = clockWrites(
         f.store,
         /** 不存在的合法绑定只产生逐项 unavailable。 */ () =>

@@ -99,7 +99,7 @@ provider kind 从可信 registry 解析，消息里的 kind 仅回显并被核�
 
 ### 5.3 持久化与数据库边界
 
-Gateway 使用 SQLite 保存机器、凭据 hash、配对消费、bindings/revisions、策略、契约来源、调用/attempt、历史范围、内容元数据、流元数据及审计；大对象放受限文件，保存摘要/引用。Connector 使用权限受限状态目录及最小有界调用记录。POSIX 可使用目录 0700/文件 0600；Windows 需等效 ACL，不能把 mode 位当跨平台证明。
+Gateway 使用 SQLite 保存机器、凭据 hash、配对消费、bindings/revisions、策略、契约来源、调用/attempt、历史范围、内容元数据、流元数据及审计；大对象保存为文件并记录摘要/引用。Connector 使用独立状态目录及最小有界调用记录。本机文件依赖普通操作系统权限保护；新建目录/文件请求 0700/0600，已有路径不额外校验或改写 UID、mode、Windows ACL。文件兼容性与设备认证、业务授权、单 writer 锁及隔离恢复分别检查，不以本机权限推导远程身份或执行许可。
 
 项目尚未发布，仅维护当前规范 schema，不提供未发布旧库的迁移、降级或 legacy binding 兼容入口。旧版或未知 schema 在任何业务修改前拒绝，源库保持原样；新状态从独立全新库建立。不能通过改版本号、补默认 provider/scope、导入旧调用或换 key 把旧工作变为新执行。
 

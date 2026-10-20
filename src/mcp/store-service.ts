@@ -1,5 +1,5 @@
 // 将门面查询、调用元数据和独立清理接到实际 Store/Router；缺执行、管理审计或通道后端时拒绝写入。
-import { randomUUID } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { canonical, digest, GatewayError } from '../contracts.js'
 import { Router, type LocalPolicies, type Principal } from '../router.js'
 import type { Store } from '../store.js'
@@ -40,7 +40,6 @@ import type {
 } from './management.js'
 
 type ToolRequest = { [K in ToolName]: { name: K; args: ToolArguments[K] } }[ToolName]
-type Cursor = { scope: string; offset: number; expires: number }
 export type StoreGatewayOptions = {
   store: Store
   identities: GatewayIdentitySource
@@ -161,7 +160,8 @@ function adminArguments(value: unknown, required: string[], optional: string[] =
 
 export class StoreGatewayService implements GatewayService {
   private readonly router: Router
-  private readonly cursors = new Map<string, Cursor>()
+  private readonly cursorKey = randomBytes(32)
+  private closed = false
   readonly management: GatewayManagementService
 
   // 只组合现有 Store、Router 和同一身份政策来源；资源关闭及真实 transport/native 仍由宿主持有。
@@ -173,9 +173,15 @@ export class StoreGatewayService implements GatewayService {
     }
   }
 
+  // 关闭门面并销毁本实例游标签名密钥；Store、Router 和目录资源仍由宿主释放。
+  close(): void {
+    this.closed = true
+    this.cursorKey.fill(0)
+  }
+
   // 复制当前 Principal 并核对受信 caller；不从工具参数创建身份或扩展 Router 权限。
   private principal(context: ServiceContext | AdminContext): Principal {
-    if (context.wait_signal.aborted) {
+    if (this.closed || context.wait_signal.aborted) {
       throw new FacadeServiceError('unavailable')
     }
     return resolveGatewayPrincipal(this.options.identities, context.caller)
@@ -258,7 +264,14 @@ export class StoreGatewayService implements GatewayService {
     }
   }
 
-  // 对授权后的行分页；游标是有界短期关联，绑定身份、查询、政策和恢复代次，每页仍重新授权。
+  // 签名只绑定分页范围和位置，不授予读取权；密钥只存在于当前门面实例，重启后旧游标失效。
+  private cursorTag(scope: string, offset: number, expires: number): string {
+    return createHmac('sha256', this.cursorKey)
+      .update(JSON.stringify([scope, offset, expires]))
+      .digest('base64url')
+  }
+
+  // 对当前授权后的行无状态分页；固定期限与完整scope签名避免页数、重读或其它列表挤占容量。
   private page<T>(
     items: T[],
     args: { cursor?: string; limit?: number },
@@ -267,33 +280,32 @@ export class StoreGatewayService implements GatewayService {
     expiresAt?: number
   ): Page<T> {
     const fingerprint = digest(canonical(scope))
-    for (const [token, cursor] of this.cursors) {
-      if (cursor.expires <= now) {
-        this.cursors.delete(token)
-      }
-    }
     let offset = 0
     let expires = Math.min(now + 30_000, expiresAt ?? Infinity)
     if (args.cursor !== undefined) {
-      const prior = this.cursors.get(args.cursor)
-      if (!prior || prior.scope !== fingerprint) {
+      const parts = /^page_v1\.([1-9][0-9]{0,15})\.([1-9][0-9]{0,15})\.([A-Za-z0-9_-]{43})$/.exec(args.cursor)
+      if (!parts) {
         throw new FacadeServiceError('invalid_cursor')
       }
-      offset = prior.offset
+      offset = Number(parts[1])
+      const priorExpires = Number(parts[2])
+      if (
+        !Number.isSafeInteger(offset) ||
+        !Number.isSafeInteger(priorExpires) ||
+        now >= priorExpires ||
+        !timingSafeEqual(Buffer.from(parts[3]!), Buffer.from(this.cursorTag(fingerprint, offset, priorExpires)))
+      ) {
+        throw new FacadeServiceError('invalid_cursor')
+      }
       // 后续页只沿用原游标与当前目录的较早期限，不能借fresh resolve滑动续期。
-      expires = Math.min(expires, prior.expires)
+      expires = Math.min(expires, priorExpires)
     }
     const limit = args.limit ?? 50
     const next = offset + limit
     if (next >= items.length) {
       return { items: items.slice(offset, next) }
     }
-    if (this.cursors.size >= 128) {
-      throw new FacadeServiceError('busy')
-    }
-    // 此引用只关联分页位置，不是认证凭据或业务 history，重启后明确失效。
-    const token = 'page_' + randomUUID()
-    this.cursors.set(token, { scope: fingerprint, offset: next, expires })
+    const token = `page_v1.${next}.${expires}.${this.cursorTag(fingerprint, next, expires)}`
     return { items: items.slice(offset, next), next_cursor: token }
   }
 
@@ -345,6 +357,9 @@ export class StoreGatewayService implements GatewayService {
         request.name === 'runtime_call_get'
           ? await this.callGet(request.args, context)
           : await this.run(request, principal, context, this.now())
+      if (this.closed || context.wait_signal.aborted) {
+        throw new FacadeServiceError('unavailable')
+      }
       return { data: data as ReplyData[K] }
     } catch (error) {
       throw serviceError(error)
