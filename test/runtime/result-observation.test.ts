@@ -24,10 +24,16 @@ test(
           })
       )
       await f.responded(admitted.call.call_id)
-      const meta = await f.gateway.runAuthenticated(
+      const opened = await f.gateway.runAuthenticated(
         f.caller,
-        /** 句柄仍由完整原 Wire 读取及独立保留门禁签发。 */ () => f.gateway.results.open(admitted.call.call_id)
+        /** 统计同次保留的真实提交；原 Wire 仍独立核对读取与保留权限。 */ () =>
+          clockWrites(
+            f.state.store,
+            /** 实际申请原句柄，不用计数器替代任何校验。 */ () => f.gateway.results.open(admitted.call.call_id)
+          )
       )
+      assert(opened.updates < 250, String(opened.updates))
+      const meta = opened.result
       const identity = (f.state.credentials as unknown as { store: { committed: (...args: unknown[]) => unknown } })
         .store
       const committed = identity.committed
