@@ -1,5 +1,6 @@
 /** 管理 Herdr 有界异步编译任务，只接纳固定私有 Worker 的同任务 standalone 产物。 */
 import { createHash, randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import ucs2length from 'ajv/dist/runtime/ucs2length.js'
 import deepEqual from 'ajv/dist/runtime/equal.js'
 import ajvPackage from 'ajv/package.json' with { type: 'json' }
@@ -12,7 +13,7 @@ import {
   HERDR_COMPILER_VERSION,
   HERDR_FORMAT_CODE,
   HERDR_GENERATOR,
-  HERDR_IDENTITY,
+  HERDR_DIALECT,
   HERDR_INPUT_LIMIT,
   HERDR_ROOTS,
   HERDR_WORKER_FAILURES
@@ -24,6 +25,7 @@ type Pending = {
   id: string
   until: number
   inputSha256: string
+  inputIdentity: HerdrCompilerArtifact['identity']
   resolve: (value: HerdrSchemas) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
@@ -70,11 +72,15 @@ function runtimeHelper(name: string): Readonly<{ default: unknown }> {
 
 /** 身份字段逐项精确核对，不依赖序列化顺序。 */
 function reviewedIdentity(value: unknown): boolean {
-  const names = Object.keys(HERDR_IDENTITY)
-  const identity = fields(value, names)
-  return names.every(
-    /** 只承认当前固定 binary/schema/version/protocol/dialect。 */ (name) =>
-      identity[name] === HERDR_IDENTITY[name as keyof typeof HERDR_IDENTITY]
+  const identity = fields(value, ['schema_sha256', 'protocol', 'schema_version', 'dialect'])
+  return (
+    typeof identity.schema_sha256 === 'string' &&
+    /^[a-f0-9]{64}$/u.test(identity.schema_sha256) &&
+    Number.isSafeInteger(identity.protocol) &&
+    (identity.protocol as number) >= 0 &&
+    Number.isSafeInteger(identity.schema_version) &&
+    (identity.schema_version as number) >= 1 &&
+    identity.dialect === HERDR_DIALECT
   )
 }
 
@@ -104,6 +110,7 @@ function install(value: unknown, pending: Pending): HerdrSchemas {
     ajvPackage.version !== HERDR_AJV_VERSION ||
     !reviewedIdentity(artifact.identity) ||
     artifact.identity.schema_sha256 !== pending.inputSha256 ||
+    !isDeepStrictEqual(artifact.identity, pending.inputIdentity) ||
     artifact.options_sha256 !== hash(JSON.stringify([HERDR_AJV_OPTIONS, HERDR_FORMAT_CODE])) ||
     artifact.code_sha256 !== hash(artifact.code) ||
     !Array.isArray(artifact.roots) ||
@@ -133,9 +140,9 @@ function install(value: unknown, pending: Pending): HerdrSchemas {
     throw fault('compiler_timeout')
   }
   const schemas: HerdrSchemas = Object.freeze({
-    binary_sha256: HERDR_IDENTITY.binary_sha256,
-    schema_sha256: HERDR_IDENTITY.schema_sha256,
-    dialect: HERDR_IDENTITY.dialect,
+    schema_sha256: pending.inputSha256,
+    protocol: artifact.identity.protocol,
+    dialect: HERDR_DIALECT,
     request: /** 完整原生 request 根同步返回 boolean，不修改输入。 */ (value: Parameters<HerdrSchemas['request']>[0]) =>
       request(value) === true,
     response: /** success/error 分别使用原生完整根，不添加 UHP envelope。 */ (
@@ -182,8 +189,19 @@ export class HerdrSchemaCompiler {
     }
     const input = typeof bytes === 'string' ? bytes : new Uint8Array(bytes)
     const inputSha256 = hash(input)
-    if (inputSha256 !== HERDR_IDENTITY.schema_sha256) {
-      return Promise.reject(fault('schema_digest_mismatch'))
+    let inputIdentity: HerdrCompilerArtifact['identity']
+    try {
+      const document = JSON.parse(
+        typeof input === 'string' ? input : new TextDecoder('utf-8', { fatal: true }).decode(input)
+      )
+      inputIdentity = {
+        schema_sha256: inputSha256,
+        protocol: document.protocol,
+        schema_version: document.schema_version,
+        dialect: document.$schema
+      }
+    } catch {
+      return Promise.reject(fault('schema_compile_failed'))
     }
     return new Promise(
       /** 安装前没有可观察 schema 对象，每个任务最多结算一次。 */ (resolve, reject) => {
@@ -192,7 +210,7 @@ export class HerdrSchemaCompiler {
           /** 期限只能证明接纳已撤销；terminate 不等于硬堆或物理退出保证。 */ () => this.#retire('compiler_timeout'),
           Math.max(0, until - performance.now())
         )
-        this.#pending = { id: randomUUID(), until, inputSha256, resolve, reject, timer, signal, cancel }
+        this.#pending = { id: randomUUID(), until, inputSha256, inputIdentity, resolve, reject, timer, signal, cancel }
         signal?.addEventListener('abort', cancel, { once: true })
         try {
           if (!this.#worker) {
@@ -246,8 +264,21 @@ export class HerdrSchemaCompiler {
         (reply.result as { ok?: boolean })?.ok === true ? ['ok', 'value'] : ['ok', 'reason']
       )
       if (result.ok === false && typeof result.reason === 'string' && HERDR_WORKER_FAILURES.includes(result.reason)) {
-        // 输入只可能是固定已审核原文；Worker 返回编译失败时不自动恢复或补建。
-        this.#retire(result.reason)
+        // 原生 schema 不可用只拒绝本任务；基础设施故障仍永久退役，绝不补建 Worker。
+        if (
+          [
+            'schema_input_limit',
+            'schema_digest_mismatch',
+            'schema_identity_mismatch',
+            'schema_root_unavailable',
+            'schema_compile_failed',
+            'generated_code_limit'
+          ].includes(result.reason)
+        ) {
+          this.#settle(undefined, fault(result.reason))
+        } else {
+          this.#retire(result.reason)
+        }
         return
       }
       if (result.ok !== true) {

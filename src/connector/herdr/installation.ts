@@ -1,5 +1,4 @@
 /** 将固定安装 schema、内核 peer 与受监管进程合为不可序列化的本机来源，不负责启动宿主。 */
-import { createHash } from 'node:crypto'
 import { readLinuxPeer } from '../local/linux-peer.js'
 import type { NativePeer } from '../local/linux-peer.js'
 import { boundedJson, contractRef } from '../../wire/index.js'
@@ -12,12 +11,13 @@ import {
   herdrEndpoint,
   inspectHerdrPath,
   pinHerdrConfig,
-  verifyHerdrInstallation
+  verifyHerdrInstallation,
+  measureHerdrInstallation
 } from './local.js'
 import type { HerdrEndpoint, HerdrLocalConfig } from './local.js'
 import type { HerdrContractRecord, HerdrNativeSource } from './readonly.js'
 import type { HerdrHostServices } from './persistence.js'
-import { fixedHerdrSource, HERDR_READONLY_REVIEW } from './review.js'
+import { observedHerdrSource } from './review.js'
 
 const installationKey = Object.freeze({})
 
@@ -52,7 +52,7 @@ export class HerdrInstallation {
     this.#schemaDocument = schemaDocument
   }
 
-  /** 只运行固定版本/schema 命令及一次无请求连接；不执行 ping、不扫描其它 session 或自动启动。 */
+  /** 只运行固定 argv 的版本诊断/schema 命令及一次无请求连接；不执行 ping、不扫描其它 session 或自动启动。 */
   static async open(
     input: HerdrLocalConfig,
     processBinding: HerdrProcessBinding,
@@ -65,15 +65,36 @@ export class HerdrInstallation {
         throw new HerdrLocalError('herdr_supervised_process_required')
       }
       processBinding.assert(config)
-      const binary = verifyHerdrInstallation(config)
-      const version = await runHerdrCommand(config, 'version', scope.signal)
-      if (version.toString('utf8').trim() !== 'herdr ' + HERDR_READONLY_REVIEW.version) {
-        throw new HerdrLocalError('herdr_version_unreviewed')
-      }
+      const measured = measureHerdrInstallation(config)
+      const binary = measured.stamp
+      const versionScope = herdrDeadline(scope.signal, 1000)
+      const version = await runHerdrCommand(config, 'version', versionScope.signal)
+        .catch(
+          /** 不支持版本命令仅降低诊断；身份、IO、期限错误仍拒绝。 */ (error: unknown) => {
+            if (
+              error instanceof HerdrLocalError &&
+              (error.code === 'herdr_cli_exit' || (error.code === 'herdr_timeout' && !scope.signal.aborted))
+            ) {
+              return Buffer.alloc(0)
+            }
+            throw error
+          }
+        )
+        .finally(/** 诊断不占用后续必需接口的完整等待范围。 */ () => versionScope.close())
+      const label = version
+        .toString('utf8')
+        .trim()
+        .replace(/^herdr\s+/i, '')
+      const binaryVersion =
+        label.length > 0 &&
+        label.length <= 128 &&
+        [...label].every(
+          /** 版本仅展示有界单行诊断。 */ (character) =>
+            character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127
+        )
+          ? label
+          : 'unavailable'
       const raw = await runHerdrCommand(config, 'schema', scope.signal)
-      if (createHash('sha256').update(raw).digest('hex') !== HERDR_READONLY_REVIEW.schema_sha256) {
-        throw new HerdrLocalError('herdr_schema_unreviewed')
-      }
       const schemas = await compileHerdrSchemas(raw, scope.signal)
       checkHerdrSignal(scope.signal)
       const endpoint = herdrEndpoint(config)
@@ -89,7 +110,9 @@ export class HerdrInstallation {
         throw new HerdrLocalError('herdr_installation_changed')
       }
       processBinding.assert(config)
-      const source = Object.freeze(fixedHerdrSource())
+      const source = Object.freeze(
+        observedHerdrSource(binaryVersion, measured.sha256, schemas.schema_sha256, schemas.protocol)
+      )
       const record = Object.freeze({ wire: Object.freeze({ source, support_status: 'validated' as const }), schemas })
       return new HerdrInstallation(
         config,
@@ -112,8 +135,9 @@ export class HerdrInstallation {
     }
     this.#process.assert(this.config, peer)
     if (
-      (fullHash ? verifyHerdrInstallation(this.config) : inspectHerdrPath(this.config.binary, 'binary')) !==
-        this.#binary ||
+      (fullHash
+        ? verifyHerdrInstallation(this.config, this.#record.wire.source.binary_sha256)
+        : inspectHerdrPath(this.config.binary, 'binary')) !== this.#binary ||
       herdrEndpoint(this.config).stamp !== this.#endpoint.stamp
     ) {
       throw new HerdrLocalError('herdr_installation_changed')

@@ -89,7 +89,7 @@ test(
 )
 
 test(
-  'development native refuses CLI, unpinned binaries and overlapping roots before launch',
+  'development native refuses CLI, changed installed bytes and overlapping roots before launch',
   /** caller 不能切换传输、binary 指纹或把空白 HOME 与工作根重叠。 */ async () => {
     const f = fixture()
     try {
@@ -99,7 +99,7 @@ test(
       )
       await assert.rejects(
         startDevelopmentLuvus({ ...f.config, binary_sha256: '0'.repeat(64) }, options),
-        failure('development_installation_unsupported')
+        failure('binary_identity_changed')
       )
       for (const cwd of [f.config.home, join(f.config.home, 'config')]) {
         await assert.rejects(startDevelopmentLuvus({ ...f.config, cwd }, options), failure('development_roots_overlap'))

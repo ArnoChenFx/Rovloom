@@ -83,7 +83,7 @@ export type ProcessOutput = { stdout: Buffer; exit_code: number; stderr_bytes: n
 export async function runFixedProcess(
   config: LuvusLocalConfig,
   limits: LuvusLocalLimits,
-  command: 'schema' | 'sessions' | 'proxy',
+  command: 'schema' | 'sessions' | 'proxy' | 'version',
   signal: AbortSignal,
   ready?: /* 在子进程启动后验证其身份并准备输入；收到取消后不得继续准备或提交新 claim。 */ (
     child: ChildProcessWithoutNullStreams,

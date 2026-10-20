@@ -53,16 +53,18 @@ function failure(code: string) {
 }
 
 test(
-  'attach refuses CLI transport and unpinned installation before executing commands',
+  'attach refuses CLI transport and changed installed bytes before executing commands',
   /** attach 不是缺 token 自动 Owner 回退，也不允许任意 binary 进入发现流程。 */ async () => {
     const f = fixture()
     try {
-      for (const config of [
-        { ...f.config, transport: 'cli' as const },
-        { ...f.config, binary_sha256: '0'.repeat(64) }
-      ]) {
-        await assert.rejects(attachExistingLuvus(config), failure('native_attach_installation_unsupported'))
-      }
+      await assert.rejects(
+        attachExistingLuvus({ ...f.config, transport: 'cli' }),
+        failure('native_attach_installation_unsupported')
+      )
+      await assert.rejects(
+        attachExistingLuvus({ ...f.config, binary_sha256: '0'.repeat(64) }),
+        failure('binary_identity_changed')
+      )
       assert.deepEqual(readdirSync(f.config.state_root), [])
     } finally {
       f.close()

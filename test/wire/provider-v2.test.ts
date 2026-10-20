@@ -650,12 +650,14 @@ test(
 )
 
 test(
-  'Herdr provider gate requires validated exact reviewed provenance without claiming an endpoint proof',
-  /** 共享层只接纳完整固定来源；schema_and_version 仍不代表本地 endpoint、peer 或执行授权。 */ () => {
+  'Herdr provider gate requires validated actual provenance without version or release-hash admission',
+  /** 共享层核对完整实际来源；版本/发行版摘要不是门禁，schema_and_version 仍不授予实例身份。 */ () => {
     const reviewed = fixedHerdrSource()
     for (const delta of [
       undefined,
       { binary_sha256: 'f'.repeat(64) },
+      { binary_version: 'future-diagnostic-version' },
+      { native_protocol_version: '27' },
       { adapter_revision: 'future' },
       { support_basis: 'live_catalog' as const },
       { runtime_generation: 'invented' }
@@ -672,7 +674,12 @@ test(
         source: current,
         support_status: 'validated'
       })
-      if (delta === undefined) {
+      if (
+        delta === undefined ||
+        'binary_sha256' in delta ||
+        'binary_version' in delta ||
+        'native_protocol_version' in delta
+      ) {
         assert.equal(providerFor(herdrBinding, ctx).kind, 'herdr')
         ctx.resolveContract = /** 固定来源没有 validated 状态仍然不能派发。 */ () => ({
           source: current,

@@ -639,9 +639,9 @@
       "expected": {
         "verdict": "reject",
         "assertions": [
-          "未知 access 枚举不可作为受信分类"
+          "未知 access 枚举不可作为受信分类；仅隔离对应方法，健康方法仍可请求"
         ],
-        "code": "capability_invalid"
+        "code": "method_not_advertised"
       },
       "mutations": [
         {

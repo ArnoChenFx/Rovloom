@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
@@ -106,6 +107,45 @@ function fixture() {
     }
   }
 }
+
+test(
+  'actual Herdr installation identity and an existing endpoint preserve provider unavailability',
+  /** 陌生原字节使用配置中的实际摘要，既有合成 socket 仍阻止 child/owner 创建且不被接管。 */ async () => {
+    const f = fixture()
+    try {
+      const directory = join(f.value.config.connector.local.config_home, 'herdr', 'sessions', 'owned')
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+      const socket = join(directory, 'herdr.sock')
+      const bound = spawnSync('python3', [
+        '-c',
+        'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()',
+        socket
+      ])
+      assert.equal(bound.status, 0)
+      const before = lstatSync(socket, { bigint: true })
+      writeFileSync(f.schema, Buffer.concat([readFileSync(f.schema), Buffer.from('\n')]))
+      const value = structuredClone(f.value)
+      value.config.expected_source.binary_version = 'synthetic-diagnostic'
+      value.config.expected_source.binary_sha256 = createHash('sha256')
+        .update(readFileSync(value.config.connector.local.binary))
+        .digest('hex')
+      value.config.expected_source.schema_sha256 = createHash('sha256').update(readFileSync(f.schema)).digest('hex')
+      await assert.rejects(
+        createHerdrProductionSources().connector!(f.config, [{ reference: 'herdr_fixture', value }]),
+        /** 已核验陌生安装，但原不可用事实不能冒称 ready 或建立替代来源。 */ (error: unknown) => {
+          assert(error instanceof ProviderUnavailableError)
+          assert.deepEqual(error.provider.target, value.config.target)
+          return true
+        }
+      )
+      const after = lstatSync(socket, { bigint: true })
+      assert.equal(after.dev, before.dev)
+      assert.equal(after.ino, before.ino)
+    } finally {
+      f.close()
+    }
+  }
+)
 
 test(
   'Herdr 遗留拒连 socket 只声明该配置不可用，不删除端点、创建 owner 或尝试原生重启',

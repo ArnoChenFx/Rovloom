@@ -1,7 +1,7 @@
 /** 只连接明确配置的已有本机 Luvus，核对实际 peer/启动身份与契约；关闭只释放本观察者。 */
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { compileBundle, createNativeValidator, parseNativeJson } from '../native-contract/index.js'
+import { createNativeValidator, parseNativeJson } from '../native-contract/index.js'
 import { boundedJson, object } from '../wire/index.js'
 import { LuvusAdapterError, readLinuxLuvusPeer } from '../connector/luvus/index.js'
 import type { EndpointIdentity, LuvusLocalConfig, NativeTransportEvidence } from '../connector/luvus/index.js'
@@ -20,7 +20,7 @@ import { observeLinuxLuvusProcess } from './native-process.js'
 import type { ObservedNativeProcess } from './native-process.js'
 import { MANAGED_LUVUS_REVISION, registerLocalOwnerLuvus, observedLuvusContract } from './native-source.js'
 import type { LocalOwnerLuvusInstance } from './native-source.js'
-import { FIXED_LUVUS_SCHEMA_SHA256, FIXED_LUVUS_SHA256 } from './native-control.js'
+import { discoverLuvusInstallation } from './native-control.js'
 import type { NativeContractRecord } from '../integration/luvus-wire.js'
 
 export interface AttachedLuvusInstance extends LocalOwnerLuvusInstance {
@@ -97,12 +97,7 @@ export async function attachExistingLuvus(
   let scope: ReturnType<typeof deadline> | undefined
   try {
     const fixed = pinConfig(config)
-    if (
-      fixed.transport !== 'ipc' ||
-      fixed.binary_sha256 !== FIXED_LUVUS_SHA256 ||
-      process.arch !== 'x64' ||
-      !process.versions.bun
-    ) {
+    if (fixed.transport !== 'ipc' || process.arch !== 'x64' || !process.versions.bun) {
       throw new LuvusAdapterError('native_attach_installation_unsupported')
     }
     const limits = localLimits(fixed.limits)
@@ -110,27 +105,7 @@ export async function attachExistingLuvus(
     aborted(scope.signal)
     await verifyInstallation(fixed)
     aborted(scope.signal)
-    const schema = await runFixedProcess(fixed, limits, 'schema', scope.signal)
-    if (
-      schema.exit_code !== 0 ||
-      createHash('sha256').update(schema.stdout).digest('hex') !== FIXED_LUVUS_SCHEMA_SHA256
-    ) {
-      throw new LuvusAdapterError('native_control_schema_mismatch')
-    }
-    const compiled = await compileBundle(
-      schema.stdout,
-      {
-        identity: {
-          binary_sha256: FIXED_LUVUS_SHA256,
-          schema_sha256: FIXED_LUVUS_SCHEMA_SHA256,
-          revision: MANAGED_LUVUS_REVISION
-        }
-      },
-      scope.signal
-    )
-    if (!compiled.ok) {
-      throw new LuvusAdapterError(compiled.error.code)
-    }
+    const discovery = await discoverLuvusInstallation(fixed, { revision: MANAGED_LUVUS_REVISION, signal: scope.signal })
     const listing = await runFixedProcess(fixed, limits, 'sessions', scope.signal)
     const parsed = parseNativeJson(listing.stdout, { object_bytes: Math.min(limits.discovery_bytes, 1_048_576) })
     if (listing.exit_code !== 0 || !parsed.ok) {
@@ -176,10 +151,15 @@ export async function attachExistingLuvus(
     await recheckEndpoint(fixed, endpoint)
     aborted(scope.signal)
     const frame = parseRpcFrame(reply, limits.response_bytes)
-    if (frame.id !== id || !createNativeValidator(compiled.value).checkResponseShape(frame).ok || frame.error) {
+    if (frame.id !== id || !createNativeValidator(discovery.compiled).checkResponseShape(frame).ok || frame.error) {
       throw new LuvusAdapterError('native_source_capabilities_invalid')
     }
-    const contract = observedLuvusContract(fixed, compiled.value, { frame, result: object(frame.result) })
+    const contract = observedLuvusContract(
+      fixed,
+      discovery.compiled,
+      { frame, result: object(frame.result) },
+      discovery.binaryVersion
+    )
     observation!.assertLive()
     return new AttachedLuvus(
       fixed as LuvusLocalConfig & { readonly transport: 'ipc' },

@@ -125,24 +125,28 @@ certificate validation. There is no custom CA or skip-verification option.
 
 ## Native installation and pins
 
-Install native programs through their official distribution and verify the exact
-bytes. A matching version label alone is insufficient; there is no user pin override. Use the official [Luvus](https://github.com/RizRiyz/luvus) or
-[Herdr](https://github.com/herdrdev/herdr/releases/tag/v0.9.5) distribution approved
-for your installation.
-The following are the actual currently accepted Linux x64 pins:
+Install native programs through their official [Luvus](https://github.com/RizRiyz/luvus)
+or [Herdr](https://github.com/herdrdev/herdr/releases) distribution. Compatibility
+uses the installed protocol, complete request/response schema and actual method
+capabilities. Version labels are diagnostic; no fixed native release or preset
+binary/schema digest is required. Missing or incompatible optional interfaces
+only make their dependent operations unavailable.
 
-| Pin | Luvus | Herdr |
+| Integration basis | Luvus | Herdr |
 |---|---|---|
-| Version / protocol | `0.14.3` / live UHP catalog | `0.9.5` / `22` |
-| Binary SHA-256 | `895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9` | `14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d` |
-| Original schema SHA-256 | `00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6` | `9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b` |
 | Schema command | `luvus uhp schema` | `herdr api schema --json` |
+| Protocol basis | UHP v1 envelope and actual live method catalog | Actual schema protocol and complete JSON RPC roots |
 | Adapter revision | `managed-owned-luvus-0.14.3-1` | `herdr-workflow-4` |
 | Classification revision | `managed-owned-rpc-1` | `herdr-0.9.5-workflow-4` |
 
-These are current integration checks, not fields to copy into user configuration.
-Automatic discovery/installation and version compatibility updates are separate
-work; they are not implied by first-file generation.
+Revision strings identify Rovloom adapter/classification code; their historical
+version text is not a native installation requirement. Protected program-managed
+state and each live source must still agree on the actual binary/schema hashes,
+complete target and generation. Preserve schema output as original bytes.
+A known precompiled digest is a cache key; unknown schema bytes are fully compiled
+within the same compiler budget. These are integration checks, not user JSON fields.
+Internal discovery does not complete the user-facing provider setup or install
+native programs; first-file generation does not prepare native settings or model access.
 
 ## Agent installation directory
 
