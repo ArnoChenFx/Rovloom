@@ -10,20 +10,24 @@ import {
 } from './types.js'
 
 const actions = new Set(['install', 'uninstall', 'start', 'restart', 'stop'])
-export const SERVICE_HELP = `service install --role gateway|connector --executable ABS [--config ABS] --workdir ABS --user ACCOUNT
+export const SERVICE_HELP = `service install --role gateway|connector [--executable ABS] [--config ABS] --workdir ABS --user ACCOUNT
 service uninstall|start|restart|stop --role gateway|connector
 install registers boot startup without starting; uninstall only revokes future boot startup and preserves running instances and their control records.
-Omitted --config uses the unique CLI verified-home resolver; unavailable identity requires explicit --config.
+Omitted --executable uses the current standalone binary; a different binary is rejected.
+Omitted --config uses the selected service account's verified home; unavailable identity requires explicit --config.
+Linux uses systemd system units; macOS uses system LaunchDaemons; Windows uses boot-triggered tasks, not SCM services or login tasks.
+Gateway services support Linux systemd and macOS system LaunchDaemons; local native Connector remains Linux x64. Windows product installation still fails closed with backend_unavailable.
 Windows requires --user S-1-5-19 (LocalService); explicit stop/restart may terminate the task; uninstall never stops it.
 `
 
-export type ServiceConfigPathResolver = (role: ServiceRole) => string
+export type ServiceConfigPathResolver = (role: ServiceRole, account: string) => string
 
 // 对非 service 命令返回空，供 PR49 原 parser 继续处理；错误不回显参数。
 export function parseServiceCommand(
   args: readonly string[],
   platform: ServicePlatform,
-  resolveDefaultConfig?: ServiceConfigPathResolver
+  resolveDefaultConfig?: ServiceConfigPathResolver,
+  executable?: string
 ): ServiceRequest | undefined {
   if (args[0] !== 'service') {
     return undefined
@@ -47,7 +51,7 @@ export function parseServiceCommand(
     !isRole(role) ||
     allowed.some(
       /* config 可由唯一 CLI 的受信路径 helper 解析，其余选项必须明确。 */ (key) =>
-        key !== '--config' && !options.has(key)
+        key !== '--config' && !(key === '--executable' && executable) && !options.has(key)
     )
   ) {
     throw new ServiceError('invalid_arguments')
@@ -59,8 +63,8 @@ export function parseServiceCommand(
     version: 1,
     role,
     platform,
-    executable: options.get('--executable'),
-    config: options.get('--config') ?? resolveDefaultConfig?.(role) ?? missingConfig(),
+    executable: options.get('--executable') ?? executable,
+    config: options.get('--config') ?? resolveDefaultConfig?.(role, options.get('--user')!) ?? missingConfig(),
     directory: options.get('--workdir'),
     account: options.get('--user')
   })
@@ -75,6 +79,8 @@ function missingConfig(): never {
 export type ServiceCommandHost = {
   platform: string
   manager: ServiceManager
+  // 生产宿主只提供当前单文件路径，不能由环境变量选择另一程序。
+  executable?: string
   // 复用唯一 CLI 的已验证 home/角色默认路径 helper，不接收配置中的身份断言。
   resolveDefaultConfig?: ServiceConfigPathResolver
   // 诊断使用 stderr，仅输出固定错误码或非秘密监管状态；不把 stdout 当作 MCP transport。
@@ -94,7 +100,12 @@ export async function handleServiceCommand(
       host.diagnostic(SERVICE_HELP)
       return 0
     }
-    const request = parseServiceCommand(args, servicePlatform(host.platform), host.resolveDefaultConfig)!
+    const request = parseServiceCommand(
+      args,
+      servicePlatform(host.platform),
+      host.resolveDefaultConfig,
+      host.executable
+    )!
     host.diagnostic(JSON.stringify(await host.manager.execute(request)) + '\n')
     return 0
   } catch (error) {

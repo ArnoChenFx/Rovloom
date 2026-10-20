@@ -24,6 +24,7 @@ export type ConnectorConfig = Readonly<{
   state_dir: string
   gateway_url: string
   provider_config_refs: readonly string[]
+  allow_terminal_execution?: boolean
   native?: Readonly<{ runtime_bin_dir?: string; agent_bin_dir?: string }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
@@ -180,7 +181,10 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
         authentication_ref: 'mcp-callers'
       })
     }
-    exact(input, ['schema_version', 'role', 'data', 'gateway'], ['native'])
+    exact(input, ['schema_version', 'role', 'data', 'gateway'], ['native', 'allow_terminal_execution'])
+    if (input.allow_terminal_execution !== undefined && typeof input.allow_terminal_execution !== 'boolean') {
+      return fail()
+    }
     const gateway = exact(input.gateway, ['url'])
     if (gateway.url !== '' && !gatewayUrl(gateway.url)) {
       return fail()
@@ -202,6 +206,7 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
       state_dir: data.directory,
       gateway_url: gateway.url as string,
       provider_config_refs: Object.freeze([]),
+      allow_terminal_execution: input.allow_terminal_execution === true,
       ...(native ? { native } : {})
     })
   } catch {
@@ -222,6 +227,7 @@ export function configDocument(config: RoleConfig): Record<string, unknown> {
     : {
         ...common,
         gateway: { url: config.gateway_url },
+        allow_terminal_execution: config.allow_terminal_execution === true,
         ...(config.native ? { native: config.native } : {})
       }
 }
@@ -253,7 +259,8 @@ export function configTemplate(
           schema_version: 1,
           role,
           data: { directory: paths.join(base, role) },
-          gateway: { url: '' }
+          gateway: { url: '' },
+          allow_terminal_execution: false
         },
     platform
   )

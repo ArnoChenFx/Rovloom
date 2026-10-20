@@ -42,6 +42,7 @@ const examples: Record<string, object> = {
   'pane.status': { pane: '1' },
   'pane.read': { pane: '1', lines: 100 },
   'pane.close': { pane: '1' },
+  'pane.run': { pane: '1', command: 'printf rovloom-fixture' },
   'agent.list': {},
   'agent.get': { target: 'selected-agent' },
   'agent.explain': { target: 'selected-agent' },
@@ -303,13 +304,12 @@ for (const [method, params] of [
 }
 
 test(
-  'Luvus ordinary operation surface excludes token, admin, shell and integration state fabrication',
-  /** 首版窗口/Agent 操作不借 Owner 模式加入 token、任意终端执行或伪造 Agent 上报。 */ () => {
+  'Luvus ordinary operation surface excludes token, admin and integration state fabrication',
+  /** 普通操作不借 Owner 模式加入 token 或伪造 Agent 上报。 */ () => {
     for (const method of [
       'uhp.token.create',
       'server.stop',
       'config.patch',
-      'pane.run',
       'pane.send_input',
       'agent.report',
       'agent.release'
@@ -353,5 +353,32 @@ test(
       /local_owner_unavailable/
     )
     assert.equal(invoked, false)
+  }
+)
+
+test(
+  'pane.run preserves explicit PTY input and rejects implicit targets and unsupported execution fields',
+  /** 原生只收 pane/command 并回复输入确认；此处不执行命令，也不伪造退出状态。 */ () => {
+    const params = { pane: '7', command: 'printf "fixture\\n"' }
+    const before = structuredClone(params)
+    validateLuvusOperationParams('pane.run', params)
+    assert.deepEqual(params, before)
+    assert.equal(luvusOperationValidation('pane.run'), 'raw-contract')
+    for (const input of [
+      { command: 'printf fixture' },
+      { pane: '0', command: 'printf fixture' },
+      { pane: '7', command: '' },
+      { pane: '7', command: 'x'.repeat(65_537) },
+      { ...params, cwd: '/ignored' },
+      { ...params, env: { SYNTHETIC_SECRET: 'not-forwarded' } },
+      { ...params, args: ['ignored'] },
+      { ...params, timeout_s: 1 }
+    ]) {
+      assert.throws(
+        /** 只接受核对过的真实字段，不替调用者扩展 shell 环境或生成执行框架。 */ () =>
+          validateLuvusOperationParams('pane.run', input),
+        /luvus_operation_params_invalid/
+      )
+    }
   }
 )

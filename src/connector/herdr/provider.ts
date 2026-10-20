@@ -552,6 +552,8 @@ export async function createHerdrConnectorResources(
     policies(principal: string): ProviderPolicies
     releaseOwner(): Promise<void>
     release_timeout_ms?: number
+    /** 与最终写入共用的本机开关读取器；省略时使用原安装配置。 */
+    terminalExecution?(): boolean
   }>
 ): Promise<HerdrConnectorResources> {
   const config = parseHerdrProviderRefConfig(input.config)
@@ -700,7 +702,7 @@ export async function createHerdrConnectorResources(
             })
           })
           const backend: HerdrReadonlyBackend = { ...services, ...ledger }
-          runtime = createHerdrRuntime(installed, backend, sendClaims)
+          runtime = createHerdrRuntime(installed, backend, sendClaims, input.terminalExecution)
           const current = runtime
           session = {
             admissions: reader,
@@ -710,6 +712,14 @@ export async function createHerdrConnectorResources(
                 ledger.decode(raw, direction, current.adapter.decode)
             },
             executeWire: current.executeWire,
+            terminalExecutionState: /** 目录使用同一个本机配置源；最终写入仍由原runtime再检查。 */ () => [
+              {
+                binding,
+                enabled: input.terminalExecution
+                  ? input.terminalExecution()
+                  : installed.config.allow_terminal_execution === true
+              }
+            ],
             readiness: /** 只有真实本机安装与当前双端配置均有效才报告该 provider 可用。 */ () => {
               if (closed) {
                 fail('herdr_provider_closed')

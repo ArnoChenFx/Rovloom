@@ -103,6 +103,26 @@ export function terminalExecutionAllowed(
   return enabled === true || !requiresTerminalExecution(kind, method, params)
 }
 
+/** 目录保留参数敏感方法的合法变体；它只描述本地限制，不生成执行许可或改写请求。 */
+export function terminalExecutionCatalog(kind: TerminalExecutionKind, method: string, enabled: boolean | undefined) {
+  const strictText = kind === 'luvus' && (method === 'agent.send' || method === 'agent.prompt')
+  const parameterSensitive =
+    launches[kind].has(method) || strictText || (kind === 'luvus' && (method === 'task.add' || method === 'task.start'))
+  const related = direct[kind].has(method) || parameterSensitive
+  return {
+    visible: terminalExecutionAllowed(kind, method, { strict: true }, enabled === true),
+    ...(related
+      ? {
+          details: {
+            local_state: enabled === undefined ? 'unknown' : enabled ? 'enabled' : 'disabled',
+            ...(parameterSensitive ? { request_parameters_checked: true } : {}),
+            ...(strictText && enabled !== true ? { requires_explicit_strict: true } : {})
+          }
+        }
+      : {})
+  }
+}
+
 /** 本机只在同步边界接受当前显式许可；不签发 dispatch permit、不清除持久 claim、不改变结果。 */
 export function assertTerminalExecutionAllowed(
   kind: TerminalExecutionKind,

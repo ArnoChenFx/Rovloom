@@ -30,7 +30,8 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
   "schema_version": 1,
   "role": "connector",
   "data": {"directory": "/home/your-user/.local/share/rovloom/connector"},
-  "gateway": {"url": ""}
+  "gateway": {"url": ""},
+  "allow_terminal_execution": false
 }
 ```
 
@@ -57,6 +58,7 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `management.port` | integer 1–65535，关闭时也必填 | `9445`；监听地址固定 `127.0.0.1`。 |
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
+| Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |
 | Connector `native` | object，可选 | 默认省略，只接受以下两个安装目录字段，在首次 Luvus 初始化时应用。 |
 | `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找 `luvus`；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
 | `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
@@ -157,6 +159,12 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 `allow_terminal_execution:false`，不要用任意 argv/env 或终端输入绕过缺失 PATH。
 终端开关不会沙箱化 Agent 自身工具；binary/schema 校验或 `ready` 不证明模型已回复。
 
+直接终端操作复用原生方法：Luvus `pane.run` 接受显式 `pane` 与 `command`，随后用
+`pane.read` 读取终端输出。`ok` 仅确认 PTY 输入，不表示命令完成或 shell 退出码。
+当前认证 Gateway 目录在本地开关关闭或未知时隐藏直接输入，保留并标明严格文本变体的
+参数限制。已有初始化策略可能未包含 `pane.run`，开启本地开关不会修改它们。执行环境、
+输出和未知结果语义见[终端执行](TERMINAL-EXECUTION.md)。
+
 ## 完整 CLI 参考
 
 以下覆盖当前产品的全部命令形状。`ROLE` 表示 `gateway` 或 `connector`，`ABS` 表示
@@ -193,13 +201,15 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。服务接口识别下列五种动作，但**当前产品未连接
-服务后端**，均返回 `backend_unavailable`、退出码 **3**，不会安装或管理系统服务。
-下列示例用于说明语法，不是本预览可成功执行的安装教程；管理员权限也不能消除此限制。
+`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
+Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
+缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
+Windows产品服务生命周期仍不可用；原生格式解析不等于生命周期验收。
+见[服务前提与平台限制](SERVICE.md)。
 
-| 命令形状 | 必填参数 | 动作含义 | 语法示例（当前不可用） |
+| 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
 |---|---|---|---|
-| `rovloom service install` | `--role`、`--executable`、`--workdir`、`--user`；`--config` 可选 | 加入/启用开机自动启动，**不会立即启动**。 | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
+| `rovloom service install` | `--role`、`--workdir`、`--user`；`--executable`、`--config` 可选 | 加入/启用开机自动启动，**不会立即启动**。 | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
 | `rovloom service start` | 仅 `--role` | 立即启动已安装角色，不自动安装。 | `rovloom service start --role gateway` |
 | `rovloom service restart` | 仅 `--role` | 停止已安装实例，再启动。 | `rovloom service restart --role connector` |
 | `rovloom service stop` | 仅 `--role` | 立即停止，保留下次开机自动启动。 | `rovloom service stop --role connector` |
@@ -211,15 +221,17 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次 Luvus 设置的 
 | 服务选项 | 类型 / 必需性 / 默认 | 用途 |
 |---|---|---|
 | `--role` | 必填 enum `gateway` 或 `connector`，无默认 | 选择要管理其自启/实例的角色。 |
-| `--executable` | 仅 install，必填绝对路径 string，≤4096 字符，无默认 | Rovloom 单文件程序，不是 shell 命令或解释器；Windows 路径须以 `.exe` 结尾。 |
-| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 显式角色配置。省略时需要已验证用户的 `~/.config/rovloom/gateway.json` 或 `connector.json`；无法验证身份时必须显式传入（`config_path_required`），不根据环境变量猜测提权前 home。 |
+| `--executable` | 仅 install，可选绝对路径 string，≤4096 字符，默认当前单文件程序 | 必须等于当前规范可执行路径；拒绝另一安装、shell 或解释器。Windows 路径须以 `.exe` 结尾。 |
+| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 显式角色配置。省略时从所选 `--user` 服务账户的系统记录取得 home，再复用共享的 `~/.config/rovloom/gateway.json` 或 `connector.json` 规则；无法验证身份时必须显式传入（`config_path_required`），不根据环境变量猜测提权前 home。 |
 | `--workdir` | 仅 install，必填绝对目录 string，≤4096 字符，无默认 | 服务工作目录，不设置或替代 JSON 的 `data.directory`。 |
 | `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
-POSIX 安装要求 root 持有的受保护程序，以及属于所选非 root 账户的配置/工作目录；
-不会创建账户或放宽权限。Windows 要求独立的受保护安装和 LocalService 访问权限。
-这些检查不会使尚未连接的产品服务后端变为可用。
+安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
+不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
+Linux宿主从系统账户记录选择默认配置路径，不读取安装管理员HOME。安装不启动角色，
+不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
+Linux 工作目录不得以空白或反斜杠结尾。
 
 服务动作将安装和运行状态分开：install 后再 start 才分别请求开机自启和立即运行；
 uninstall 后再 stop 才分别请求不再开机自启和立即停止。重复 start 不应产生重复实例，
@@ -236,7 +248,7 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | Gateway 启动 / `config check-runtime` | 可用 | 可用 | 可用 |
 | 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
 | 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
-| Service 动作 | 当前产品 CLI 不可用 | 当前产品 CLI 不可用 | 当前产品 CLI 不可用 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品服务生命周期不可用；在系统访问前拒绝 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，
@@ -263,14 +275,15 @@ stdout 不是 MCP 传输。任何命令都不接受 Bearer、TLS 秘密、模型
 
 | 退出码 | 角色/配置/服务含义 | Update 含义 |
 |---|---|---|
-| `0` | 帮助/模板/检查成功、角色正常关闭；服务帮助可成功 | 检查成功或无需替换，实际替换目前未接通。 |
+| `0` | 帮助/模板/检查成功、角色正常关闭；服务操作成功或幂等 | 检查成功或无需替换，实际替换目前未接通。 |
 | `1` | 运行/关闭失败；已接后端时的服务操作失败 | 未预期的更新失败。 |
 | `2` | 参数/配置错误；已接服务后端时的选项错误或缺少可信默认配置 | 参数/当前版本无效或平台不支持。 |
-| `3` | 后端不可用，当前产品的服务动作均返回此码 | 网络/发行/manifest/下载核验失败。 |
+| `3` | 后端/运行时不可用或服务平台不支持 | 网络/发行/manifest/下载核验失败。 |
 | `4` | 不是角色/配置/服务成功码 | 权限/暂存/锁/安装或 IO/清理未完成，不是成功。 |
 | `5` | 这些命令不使用 | 替换后端不可用。 |
 | `6` | 这些命令不使用 | 更新已回滚（替换模块结果）。 |
 | `7` | 这些命令不使用 | 需要恢复（替换模块结果）。 |
 
-未接通服务后端的检查发生在动作参数解析之前，所以当前即使传入畸形 service 动作也会返回
-`backend_unavailable`，不能据此认为选项合法。求助时保留错误码，不上传真实配置或秘密。
+产品先解析 service 选项，再校验授权。非法选项返回 `invalid_arguments`（2），Linux 权限
+不足返回 `permission_denied`（1），不会调用 sudo。成功诊断以固定 JSON 写入 stderr，分别报告
+`bootEnabled`、`controlRetained` 与 `readiness: "not_checked"`。求助时保留错误码，不上传真实配置或秘密。

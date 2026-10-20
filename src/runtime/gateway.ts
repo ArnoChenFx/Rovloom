@@ -242,6 +242,9 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
       }
     }
     const offer = structuredClone(options.listener.offer ?? OFFER)
+    if (offer.capabilities.includes('rpc') && !offer.capabilities.includes('terminal_execution_state')) {
+      offer.capabilities.push('terminal_execution_state')
+    }
     if (remoteProviders.size && !offer.capabilities.includes('provider_snapshot')) {
       offer.capabilities.push('provider_snapshot')
     }
@@ -810,6 +813,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
       store,
       router,
       transport: active,
+      terminalExecutionState: active.terminalExecutionState.bind(active),
       principal,
       runAuthenticated: scope.runAuthenticated,
       results,

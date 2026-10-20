@@ -296,6 +296,9 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
               }
             }
           : {}),
+        ...(resource.terminalExecutionState
+          ? { terminalExecutionState: resource.terminalExecutionState.bind(resource) }
+          : {}),
         /** 宿主 readiness 也可能同步关闭角色，返回值不能越过关闭 fence。 */
         readiness() {
           assertSessionOpen()

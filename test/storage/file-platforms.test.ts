@@ -164,6 +164,7 @@ test(
           readOrCreateRoleConfig('gateway', path, { home: root, platform: process.platform })
           assert.equal(readConfig(path).role, 'gateway')
           new Store(join(directory, 'gateway.db')).close()
+          new Store(join(directory, 'gateway.db')).close()
           assert.equal(statSync(search).mode & 0o777, 0o111)
           assert.equal(statSync(directory).mode & 0o777, 0o300)
         } finally {

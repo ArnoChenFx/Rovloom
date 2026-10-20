@@ -16,7 +16,7 @@ import type {
   AdmissionReceiptSink,
   WireConnectorOptions
 } from '../transport/index.js'
-import type { ProviderSnapshot } from '../wire/types.js'
+import type { ProviderSnapshot, TerminalExecutionState } from '../wire/types.js'
 import type {
   LuvusLocalConfig,
   LuvusBoundDelegation,
@@ -141,6 +141,8 @@ export type ConnectorRuntimeOptions = Readonly<{
       ) => void
       readiness(): Readiness
       providerSnapshot?(): readonly ProviderSnapshot[]
+      /** 与同一执行端guard共用的本地开关观察值，不包含路径或秘密。 */
+      terminalExecutionState?(): readonly TerminalExecutionState[]
       close(): void
     } & (
       | {

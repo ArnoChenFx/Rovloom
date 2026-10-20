@@ -8,6 +8,8 @@ import {
   openSync,
   readSync,
   readdirSync,
+  readlinkSync,
+  realpathSync,
   statSync,
   writeFileSync
 } from 'node:fs'
@@ -28,6 +30,35 @@ export function privateFile(path: string): void {
   if (!statSync(path).isFile()) {
     throw new GatewayError('invalid_storage_file')
   }
+}
+// SQLite的数据库、journal及写锁须使用同一实际文件名；硬链接没有唯一sidecar路径，不能作为数据库入口。
+export function databasePath(path: string): string {
+  privatePath(path)
+  // 只解析文件软链接；父目录别名本就指向同一锁文件，不额外要求列举祖先或父目录。
+  for (let links = 0; links < 40; links++) {
+    let file
+    try {
+      file = lstatSync(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error
+      }
+      return path
+    }
+    if (file.isSymbolicLink()) {
+      path = resolve(dirname(path), readlinkSync(path))
+      continue
+    }
+    if (!file.isFile()) {
+      throw new GatewayError('invalid_storage_file')
+    }
+    if (file.nlink !== 1) {
+      throw new GatewayError('database_hardlink_unsupported')
+    }
+    // Windows的实际文件名也统一短文件名和大小写；POSIX无需为普通目录重新计算祖先路径。
+    return process.platform === 'win32' ? realpathSync(path) : path
+  }
+  throw new GatewayError('database_symlink_loop')
 }
 // 排他创建并写完、同步同一文件；默认权限只用于新文件，不修改任何已有对象。
 export function createPrivate(path: string, content = ''): void {
