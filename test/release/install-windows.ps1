@@ -8,15 +8,25 @@ $script:payload = [Text.Encoding]::UTF8.GetBytes('synthetic release bytes, never
 $sha = [Security.Cryptography.SHA256]::Create()
 try { $script:digest = ([BitConverter]::ToString($sha.ComputeHash($script:payload))).Replace('-', '').ToLowerInvariant() }
 finally { $sha.Dispose() }
-$script:asset = 'rovloom-0.1.0-windows-' + (Get-RovloomArchitecture ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString())) + '.exe'
+$script:asset = 'rovloom-0.2.3-windows-' + (Get-RovloomArchitecture ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString())) + '.exe'
 $script:failure = ''
 $script:requests = @()
+$script:latestRequests = 0
+$script:latestUrl = 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3'
+
+# 只替换 latest 的网络响应；官方 URL 和稳定版本仍由产品真实门禁校验。
+function Resolve-RovloomLatestUrl {
+    $script:latestRequests++
+    if ($script:failure -ceq 'latest-404') { throw 'synthetic_latest_404' }
+    if ($script:latestRequests -gt 1) { return 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.9.9' }
+    return $script:latestUrl
+}
 
 # 覆盖仅限本测试脚本作用域；安装器依然负责真实校验和文件事务。
 function Save-RovloomAsset {
     param([string]$Url, [string]$Path, [long]$MaximumBytes)
     $script:requests += $Url
-    $base = 'https://github.com/ArnoChenFx/Rovloom/releases/download/v0.1.0/'
+    $base = 'https://github.com/ArnoChenFx/Rovloom/releases/download/v0.2.3/'
     if ($Url -ceq ($base + 'SHA256SUMS')) {
         if ($script:failure -ceq 'checksums-404') { throw 'synthetic_404' }
         $sums = "$script:digest  $script:asset`n"
@@ -38,6 +48,13 @@ function Assert-Installer {
 }
 
 try {
+    # 已知向量独立核对真实流式摘要；随后独占打开文件，证明摘要函数已释放读取句柄。
+    $hashVector = Join-Path $root 'hash-vector'
+    [IO.File]::WriteAllBytes($hashVector, [Text.Encoding]::ASCII.GetBytes('abc'))
+    Assert-Installer ((Get-RovloomSha256 $hashVector) -ceq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'sha256_known_vector_failed'
+    $exclusive = [IO.File]::Open($hashVector, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $exclusive.Dispose()
+    [IO.File]::Delete($hashVector)
     foreach ($pair in @(@('X64', 'x64'), @('AMD64', 'x64'), @('Arm64', 'arm64'))) {
         Assert-Installer ((Get-RovloomArchitecture $pair[0]) -ceq $pair[1]) 'architecture_mapping_failed'
     }
@@ -48,38 +65,65 @@ try {
     $program = Join-Path $directory 'rovloom.exe'
     [void][IO.Directory]::CreateDirectory($directory)
     [IO.File]::WriteAllText($program, 'old program')
-    Install-Rovloom '0.1.0' $directory | Out-Null
-    Assert-Installer ((Get-FileHash -LiteralPath $program -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $script:digest) 'replacement_bytes_failed'
-    Assert-Installer ($script:requests.Count -eq 2) 'download_count_failed'
+    Install-Rovloom -Directory $directory | Out-Null
+    Assert-Installer ([Convert]::ToBase64String([IO.File]::ReadAllBytes($program)) -ceq [Convert]::ToBase64String($script:payload)) 'replacement_bytes_failed'
+    Assert-Installer ($script:requests.Count -eq 2 -and $script:latestRequests -eq 1) 'tag_binding_failed'
     Assert-Installer (@(Get-ChildItem -LiteralPath $directory -Force).Count -eq 1) 'staging_cleanup_failed'
     foreach ($mode in @('checksums-404', 'binary-404', 'hash', 'duplicate', 'malformed', 'missing')) {
         $script:failure = $mode
+        $script:latestRequests = 0
         [IO.File]::WriteAllText($program, 'old program')
         $failed = $false
-        try { Install-Rovloom '0.1.0' $directory | Out-Null } catch { $failed = $true }
+        try { Install-Rovloom -Directory $directory | Out-Null } catch { $failed = $true }
         Assert-Installer $failed 'injected_failure_accepted'
         Assert-Installer ([IO.File]::ReadAllText($program) -ceq 'old program') 'old_program_changed'
         Assert-Installer (@(Get-ChildItem -LiteralPath $directory -Force).Count -eq 1) 'failure_staging_left'
     }
     $script:failure = ''
+    $script:latestRequests = 0
     [IO.File]::WriteAllText($program, 'locked old program')
     $locked = [IO.File]::Open($program, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
         $failed = $false
-        try { Install-Rovloom '0.1.0' $directory | Out-Null } catch { $failed = $true }
+        try { Install-Rovloom -Directory $directory | Out-Null } catch { $failed = $true }
         Assert-Installer $failed 'locked_destination_accepted'
         Assert-Installer ([IO.File]::ReadAllText($program) -ceq 'locked old program') 'locked_program_changed'
         Assert-Installer (@(Get-ChildItem -LiteralPath $directory -Force).Count -eq 1) 'locked_staging_left'
     } finally { $locked.Dispose() }
     [IO.File]::Delete($program)
-    Install-Rovloom 'v0.1.0' $directory | Out-Null
+    $script:latestRequests = 0
+    Install-Rovloom -Directory $directory | Out-Null
     Assert-Installer ([IO.File]::Exists($program)) 'new_install_failed'
-    foreach ($version in @('../main', 'latest', '01.2.3', '1.2.3+build')) {
+    foreach ($url in @(
+        'https://github.com/foreign/Rovloom/releases/tag/v0.2.3',
+        'http://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3',
+        'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3-rc.1',
+        'https://github.com/ArnoChenFx/Rovloom/releases/tag/v00.2.3',
+        'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3?x=1',
+        'https://github.com/ArnoChenFx/Rovloom/releases/tag/0.2.3',
+        "https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3`n"
+    )) {
+        $script:latestUrl = $url
+        $script:latestRequests = 0
         $count = $script:requests.Count
+        [IO.File]::WriteAllText($program, 'old program')
         $failed = $false
-        try { Install-Rovloom $version $directory | Out-Null } catch { $failed = $true }
-        Assert-Installer ($failed -and $script:requests.Count -eq $count) 'invalid_version_downloaded'
+        try { Install-Rovloom -Directory $directory | Out-Null } catch { $failed = $true }
+        Assert-Installer ($failed -and $script:requests.Count -eq $count) 'invalid_latest_tag_downloaded'
+        Assert-Installer ([IO.File]::ReadAllText($program) -ceq 'old program') 'invalid_latest_changed_program'
     }
+    $script:latestUrl = 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3'
+    $script:latestRequests = 0
+    $script:failure = 'latest-404'
+    $failed = $false
+    try { Install-Rovloom -Directory $directory | Out-Null } catch { $failed = $true }
+    Assert-Installer $failed 'latest_404_accepted'
+    Assert-Installer ([IO.File]::ReadAllText($program) -ceq 'old program') 'latest_404_changed_program'
+    $script:failure = ''
+    $script:latestRequests = 0
+    $count = $script:requests.Count
+    Assert-Installer ((Install-Rovloom -Directory $directory -OnlyAsset) -ceq $script:asset) 'latest_preview_asset_failed'
+    Assert-Installer ($script:latestRequests -eq 1 -and $script:requests.Count -eq $count) 'latest_preview_downloaded_asset'
     Write-Output 'windows_installer_fixture_pass'
 } finally {
     [IO.Directory]::Delete($root, $true)

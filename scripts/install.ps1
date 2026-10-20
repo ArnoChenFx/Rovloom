@@ -1,7 +1,6 @@
-# 仅安装官方固定版本二进制；不创建身份、服务或修改用户 PATH。
+# 仅安装官方 latest 稳定发行；单次解析 tag 后固定下载，不创建身份、服务或修改用户 PATH。
 [CmdletBinding()]
 param(
-    [string]$Version = '0.1.0',
     [string]$InstallDir = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Rovloom\bin'),
     [switch]$PrintAsset
 )
@@ -16,6 +15,57 @@ function Get-RovloomArchitecture {
         'amd64' { return 'x64' }
         'arm64' { return 'arm64' }
         default { throw 'Unsupported Windows architecture; expected x64 or arm64.' }
+    }
+}
+
+# latest 的网络接缝只返回最终 URL；每跳只接受 HTTPS 且不携带用户凭据。
+function Resolve-RovloomLatestUrl {
+    $url = [Uri]'https://github.com/ArnoChenFx/Rovloom/releases/latest'
+    for ($redirect = 0; $redirect -le 5; $redirect++) {
+        $request = [Net.HttpWebRequest]::Create($url)
+        $request.Method = 'HEAD'
+        $request.AllowAutoRedirect = $false
+        $request.Timeout = 120000
+        $request.ReadWriteTimeout = 120000
+        $request.UserAgent = 'Rovloom-installer'
+        $response = $null
+        try {
+            $response = $request.GetResponse()
+            $status = [int]$response.StatusCode
+            if ($status -ge 300 -and $status -lt 400) {
+                if ($redirect -eq 5) { throw 'Too many latest release redirects.' }
+                $url = [Uri]::new($url, $response.Headers['Location'])
+                if ($url.Scheme -ne 'https' -or $url.UserInfo) { throw 'Invalid latest release redirect.' }
+                continue
+            }
+            if ($status -ne 200) { throw 'Latest release is unavailable; existing program was kept.' }
+            return $url.AbsoluteUri
+        } finally {
+            if ($null -ne $response) { $response.Dispose() }
+        }
+    }
+}
+
+# 网络返回值仍经真实版本门禁；只接受唯一官方仓库的规范稳定 tag。
+function Get-RovloomLatestVersion {
+    $url = Resolve-RovloomLatestUrl
+    $match = [Regex]::Match($url, '\Ahttps://github\.com/ArnoChenFx/Rovloom/releases/tag/v((?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8}))\z')
+    if (-not $match.Success) { throw 'Latest release did not resolve to a canonical official stable tag; existing program was kept.' }
+    return $match.Groups[1].Value
+}
+
+# 直接使用 .NET 流式摘要，不依赖 PowerShell 模块自动加载或继承的 PSModulePath。
+function Get-RovloomSha256 {
+    param([string]$Path)
+    $stream = $null
+    $sha = $null
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        if ($null -ne $sha) { $sha.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
     }
 }
 
@@ -71,16 +121,13 @@ function Save-RovloomAsset {
 
 # 下载和摘要验证在用户目录的独占暂存区完成；最终只有一次原子替换。
 function Install-Rovloom {
-    param([string]$SelectedVersion, [string]$Directory, [switch]$OnlyAsset)
-    $SelectedVersion = $SelectedVersion -creplace '^v', ''
-    if ($SelectedVersion -cnotmatch '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$') {
-        throw 'Expected a stable version X.Y.Z.'
-    }
+    param([string]$Directory, [switch]$OnlyAsset)
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Use install.sh on Linux or macOS.' }
     if (-not [IO.Path]::IsPathRooted($Directory) -or $Directory -notmatch '^[A-Za-z]:[\\/]') {
         throw 'Install directory must be an absolute Windows drive path.'
     }
     $architecture = Get-RovloomArchitecture ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString())
+    $SelectedVersion = Get-RovloomLatestVersion
     $asset = "rovloom-$SelectedVersion-windows-$architecture.exe"
     if ($OnlyAsset) { return $asset }
     $directoryInfo = [IO.Directory]::CreateDirectory($Directory)
@@ -107,7 +154,7 @@ function Install-Rovloom {
         $expected = $matching[0].Substring(0, 64)
         Save-RovloomAsset "$base/$asset" $candidate 268435456
         if ((Get-Item -LiteralPath $candidate).Length -eq 0) { throw 'Release binary is empty; existing program was kept.' }
-        $actual = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actual = Get-RovloomSha256 $candidate
         if ($actual -cne $expected) { throw 'Release checksum mismatch; existing program was kept.' }
         # File.Replace 在同一卷原子替换；目标正运行或并发改变时直接失败，不删除旧文件重试。
         if ([IO.File]::Exists($destination)) {
@@ -126,5 +173,5 @@ function Install-Rovloom {
 if ($MyInvocation.InvocationName -ne '.') {
     # 旧版 Windows PowerShell 默认 TLS 不一定包含 1.2；仅为本安装进程启用标准 HTTPS。
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Install-Rovloom -SelectedVersion $Version -Directory $InstallDir -OnlyAsset:$PrintAsset
+    Install-Rovloom -Directory $InstallDir -OnlyAsset:$PrintAsset
 }

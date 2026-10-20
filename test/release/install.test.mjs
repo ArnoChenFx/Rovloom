@@ -21,9 +21,17 @@ const root = resolve(import.meta.dir, '../..')
 const shell = join(root, 'scripts/install.sh')
 const payload = Buffer.from('synthetic release bytes, never executed\n')
 const digest = createHash('sha256').update(payload).digest('hex')
+const version = '0.2.3'
+const latestEndpoint = 'https://github.com/ArnoChenFx/Rovloom/releases/latest'
 
 /** 假命令只选择合成资产；补充可信 POSIX 工具路径，原隔离 PATH 的 Node 拒绝 shim 仍优先。 */
-function fixture({ os = 'Linux', arch = 'x86_64', libc = 'glibc 2.39', failure = '' } = {}) {
+function fixture({
+  os = 'Linux',
+  arch = 'x86_64',
+  libc = 'glibc 2.39',
+  failure = '',
+  latestUrl = `https://github.com/ArnoChenFx/Rovloom/releases/tag/v${version}`
+} = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'rovloom-install-'))
   const commands = join(directory, 'commands')
   const home = join(directory, 'user home')
@@ -37,7 +45,7 @@ function fixture({ os = 'Linux', arch = 'x86_64', libc = 'glibc 2.39', failure =
   writeFileSync(binary, payload)
   const selectedOs = os === 'Darwin' ? 'darwin' : 'linux'
   const selectedArch = ['arm64', 'aarch64'].includes(arch) ? 'arm64' : 'x64'
-  const asset = `rovloom-0.1.0-${selectedOs}-${selectedArch}`
+  const asset = `rovloom-${version}-${selectedOs}-${selectedArch}`
   let sums = `${digest}  ${asset}\n`
   if (failure === 'hash') {
     sums = `${'a'.repeat(64)}  ${asset}\n`
@@ -66,18 +74,21 @@ url=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --output) output=$2; shift 2;;
-    --proto|--proto-redir|--connect-timeout|--max-time|--max-filesize) shift 2;;
-    --fail|--silent|--show-error|--location) shift;;
+    --proto|--proto-redir|--connect-timeout|--max-time|--max-filesize|--write-out) shift 2;;
+    --fail|--silent|--show-error|--location|--head) shift;;
     https://*) url=$1; shift;;
     *) exit 90;;
   esac
 done
 printf '%s\\n' "$url" >> "$FIXTURE_REQUESTS"
 case "$url" in
-  https://github.com/ArnoChenFx/Rovloom/releases/download/v0.1.0/SHA256SUMS)
+  https://github.com/ArnoChenFx/Rovloom/releases/latest)
+    [ "$FIXTURE_FAILURE" != latest-404 ] || exit 22
+    printf '%s' "$FIXTURE_LATEST_URL" ;;
+  https://github.com/ArnoChenFx/Rovloom/releases/download/v0.2.3/SHA256SUMS)
     [ "$FIXTURE_FAILURE" != checksums-404 ] || exit 22
     /bin/cp "$FIXTURE_CHECKSUMS" "$output" ;;
-  "https://github.com/ArnoChenFx/Rovloom/releases/download/v0.1.0/$FIXTURE_ASSET")
+  "https://github.com/ArnoChenFx/Rovloom/releases/download/v0.2.3/$FIXTURE_ASSET")
     [ "$FIXTURE_FAILURE" != binary-404 ] || exit 22
     /bin/cp "$FIXTURE_BINARY" "$output" ;;
   *) exit 91;;
@@ -98,6 +109,7 @@ esac
     FIXTURE_ARCH: arch,
     FIXTURE_LIBC: libc,
     FIXTURE_FAILURE: failure,
+    FIXTURE_LATEST_URL: latestUrl,
     FIXTURE_CHECKSUMS: checksums,
     FIXTURE_BINARY: binary,
     FIXTURE_ASSET: asset,
@@ -129,8 +141,8 @@ if (process.platform !== 'win32') {
         try {
           const result = f.run(['--print-asset'])
           assert.equal(result.status, 0, result.stderr)
-          assert.equal(result.stdout, `rovloom-0.1.0-${expected}\n`)
-          assert.equal(existsSync(f.requests), false)
+          assert.equal(result.stdout, `rovloom-${version}-${expected}\n`)
+          assert.equal(readFileSync(f.requests, 'utf8'), `${latestEndpoint}\n`)
         } finally {
           f.close()
         }
@@ -148,7 +160,7 @@ if (process.platform !== 'win32') {
   )
 
   test(
-    'shell installer validates official bytes before replacing a program in a path containing spaces',
+    'shell installer resolves latest once and binds checksums and binary to that tag before atomic replace',
     /** 旧程序保持到校验通过后原子替换；合成字节从不执行。 */ () => {
       const f = fixture()
       try {
@@ -159,8 +171,9 @@ if (process.platform !== 'win32') {
         assert.deepEqual(readFileSync(program), payload)
         assert.deepEqual(readdirSync(f.install), ['rovloom'])
         assert.deepEqual(readFileSync(f.requests, 'utf8').trim().split('\n'), [
-          'https://github.com/ArnoChenFx/Rovloom/releases/download/v0.1.0/SHA256SUMS',
-          `https://github.com/ArnoChenFx/Rovloom/releases/download/v0.1.0/${f.asset}`
+          latestEndpoint,
+          `https://github.com/ArnoChenFx/Rovloom/releases/download/v${version}/SHA256SUMS`,
+          `https://github.com/ArnoChenFx/Rovloom/releases/download/v${version}/${f.asset}`
         ])
       } finally {
         f.close()
@@ -169,18 +182,47 @@ if (process.platform !== 'win32') {
   )
 
   test(
-    'shell installer defaults to the user directory and allows an explicitly pinned stable version',
-    /** 显式版本只做离线名称检查；不下载尚未存在的官方版本。 */ () => {
+    'shell installer always resolves latest for asset preview and defaults to the user directory',
+    /** 预览也走实际版本门禁；所有网络响应均是合成 latest 与资产。 */ () => {
       const f = fixture()
       try {
-        const selected = f.run(['--version', 'v1.2.3', '--print-asset'])
+        const selected = f.run(['--print-asset'])
         assert.equal(selected.status, 0, selected.stderr)
-        assert.equal(selected.stdout, 'rovloom-1.2.3-linux-x64\n')
+        assert.equal(selected.stdout, `rovloom-${version}-linux-x64\n`)
+        assert.equal(readFileSync(f.requests, 'utf8'), `${latestEndpoint}\n`)
         const installed = f.run()
         assert.equal(installed.status, 0, installed.stderr)
         assert.deepEqual(readFileSync(join(f.home, '.local/bin/rovloom')), payload)
       } finally {
         f.close()
+      }
+    }
+  )
+
+  test(
+    'latest failures and noncanonical or foreign tags keep the previous program without downloading assets',
+    /** fake curl 只替换网络返回；官方仓库、稳定版本与 URL 的校验始终走真实脚本。 */ () => {
+      for (const input of [
+        { failure: 'latest-404' },
+        { latestUrl: 'https://github.com/foreign/Rovloom/releases/tag/v0.2.3' },
+        { latestUrl: 'http://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3' },
+        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3-rc.1' },
+        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v00.2.3' },
+        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3?x=1' },
+        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/0.2.3' },
+        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3\nforeign' }
+      ]) {
+        const f = fixture(input)
+        try {
+          const program = join(f.install, 'rovloom')
+          writeFileSync(program, 'old program')
+          assert.notEqual(f.run(['--install-dir', f.install]).status, 0)
+          assert.equal(readFileSync(program, 'utf8'), 'old program')
+          assert.deepEqual(readdirSync(f.install), ['rovloom'])
+          assert.equal(readFileSync(f.requests, 'utf8'), `${latestEndpoint}\n`)
+        } finally {
+          f.close()
+        }
       }
     }
   )
@@ -205,7 +247,7 @@ if (process.platform !== 'win32') {
   )
 
   test(
-    'invalid versions, relative paths and symlink destinations fail before download or mutation',
+    'version overrides, relative paths and symlink destinations fail before download or mutation',
     /** 不通过隐式源替换或文件链接写入安装目标之外。 */ () => {
       const f = fixture()
       try {

@@ -1,8 +1,7 @@
 #!/bin/sh
-# 仅安装官方固定版本二进制；不创建角色配置、身份、服务或修改用户 PATH。
+# 仅安装官方 latest 稳定发行；单次解析 tag 后固定下载，不创建身份、服务或修改用户 PATH。
 set -eu
 
-version=0.1.0
 install_dir=${HOME:?HOME is required}/.local/bin
 print_asset=false
 stage=''
@@ -16,25 +15,22 @@ trap 'exit 1' HUP INT TERM
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 usage() {
-  printf '%s\n' 'Usage: sh install.sh [--version X.Y.Z] [--install-dir /absolute/path] [--print-asset]' \
-    'Default: v0.1.0 from ArnoChenFx/Rovloom; installs to ~/.local/bin.' \
+  printf '%s\n' 'Usage: sh install.sh [--install-dir /absolute/path] [--print-asset]' \
+    'Installs the latest stable ArnoChenFx/Rovloom release to ~/.local/bin.' \
     'Requires curl and sha256sum (Linux) or shasum (macOS). Linux requires glibc.' \
     'Installing a binary does not establish Gateway/Connector platform support.'
 }
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --version|--install-dir)
+    --install-dir)
       [ "$#" -ge 2 ] || fail 'Missing option value.'
-      case "$1" in --version) version=${2#v};; --install-dir) install_dir=$2;; esac
+      install_dir=$2
       shift 2 ;;
     --print-asset) print_asset=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail 'Unknown option.' ;;
   esac
 done
-# 稳定版本只接受规范三段数字；不从 latest 或可变分支选择程序。
-printf '%s\n' "$version" | LC_ALL=C grep -Eq '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$' \
-  || fail 'Expected a stable version X.Y.Z.'
 case "$install_dir" in /*) ;; *) fail 'Install directory must be absolute.';; esac
 case "$(uname -s)" in
   Linux)
@@ -49,9 +45,26 @@ case "$(uname -m)" in
   aarch64|arm64) arch=arm64 ;;
   *) fail 'Unsupported architecture; expected x64 or arm64.' ;;
 esac
+command -v curl >/dev/null 2>&1 || fail 'curl is required.'
+[ ! -L "$install_dir" ] || fail 'Install directory must not be a symbolic link.'
+destination=$install_dir/rovloom
+[ ! -L "$destination" ] || fail 'Existing program must not be a symbolic link.'
+if [ -e "$destination" ] && [ ! -f "$destination" ]; then fail 'Existing program is not a regular file.'; fi
+# latest 只解析一次；只接受官方规范稳定 tag，后续摘要和二进制均绑定这个版本。
+latest_url=$(curl --head --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+  --connect-timeout 15 --max-time 120 --output /dev/null --write-out '%{url_effective}' \
+  https://github.com/ArnoChenFx/Rovloom/releases/latest) \
+  || fail 'Latest release is unavailable; existing program was kept.'
+case "$latest_url" in
+  https://github.com/ArnoChenFx/Rovloom/releases/tag/v*)
+    version=${latest_url#https://github.com/ArnoChenFx/Rovloom/releases/tag/v} ;;
+  *) fail 'Latest release did not resolve to an official tag; existing program was kept.' ;;
+esac
+case "$version" in *[!0-9.]*) fail 'Latest release must resolve to a canonical stable version; existing program was kept.';; esac
+printf '%s\n' "$version" | LC_ALL=C grep -Eq '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$' \
+  || fail 'Latest release must resolve to a canonical stable version; existing program was kept.'
 asset=rovloom-$version-$os-$arch
 if [ "$print_asset" = true ]; then printf '%s\n' "$asset"; exit 0; fi
-command -v curl >/dev/null 2>&1 || fail 'curl is required.'
 if command -v sha256sum >/dev/null 2>&1; then
   hash_program=sha256sum
 elif command -v shasum >/dev/null 2>&1; then
@@ -59,12 +72,8 @@ elif command -v shasum >/dev/null 2>&1; then
 else
   fail 'sha256sum or shasum is required.'
 fi
-[ ! -L "$install_dir" ] || fail 'Install directory must not be a symbolic link.'
 mkdir -p -- "$install_dir"
 [ -d "$install_dir" ] || fail 'Install directory is not a directory.'
-destination=$install_dir/rovloom
-[ ! -L "$destination" ] || fail 'Existing program must not be a symbolic link.'
-if [ -e "$destination" ] && [ ! -f "$destination" ]; then fail 'Existing program is not a regular file.'; fi
 stage=$(mktemp -d "$install_dir/.rovloom-install.XXXXXXXX")
 chmod 700 "$stage"
 base=https://github.com/ArnoChenFx/Rovloom/releases/download/v$version
