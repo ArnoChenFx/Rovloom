@@ -41,8 +41,10 @@ import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { ReplyData } from '../../src/mcp/types.js'
 
 /** Gateway 只建立自身状态目录；没有 binary、HOME、native root 或 socket 输入。 */
-async function fixture(options: { mixed?: boolean; isolated?: boolean; historyScope?: boolean } = {}) {
-  const { mixed = false, isolated = false, historyScope = false } = options
+async function fixture(
+  options: { mixed?: boolean; isolated?: boolean; historyScope?: boolean; fastHeartbeat?: boolean } = {}
+) {
+  const { mixed = false, isolated = false, historyScope = false, fastHeartbeat = true } = options
   const root = mixed
     ? privateHerdrTestRoot('.remote-gateway-')
     : mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.remote-gateway-'))
@@ -204,7 +206,7 @@ async function fixture(options: { mixed?: boolean; isolated?: boolean; historySc
                 ...(historyScope ? ['history_scope' as const] : [])
               ]
             },
-            ...(isolated ? { limits: { heartbeat_ms: 30, idle_ms: 3000 } } : {})
+            ...(isolated && fastHeartbeat ? { limits: { heartbeat_ms: 30, idle_ms: 3000 } } : {})
           }
         : {})
     },
@@ -677,7 +679,8 @@ for (const isolated of [false, true]) {
     `真实 MCP SDK 的非法 agent.wait 在登记前回复 not_dispatched，不关闭原 WSS 或污染健康调用（Herdr隔离组合: ${isolated}）`,
     { timeout: 45_000 },
     /** 真实 pinned schema、双库、Gateway、Wire 和 HTTP SDK；peer 仅为明确合成回包，无 native/model。 */ async () => {
-      const f = await fixture({ mixed: isolated, isolated, historyScope: true })
+      // 此例验证正式SDK参数拒绝和原结果读取，使用产品默认心跳；快速治理帧测试仍保留原30ms/3s配置。
+      const f = await fixture({ mixed: isolated, isolated, historyScope: true, fastHeartbeat: false })
       let http: ReturnType<typeof httpFixture> | undefined
       let service: RuntimeGatewayService | undefined
       try {
@@ -802,7 +805,17 @@ for (const isolated of [false, true]) {
             arguments: { result_id: retainedData.result.result_id, max_bytes: 4096 }
           })
         )
-        assert.equal(page.isError, undefined)
+        assert.equal(
+          page.isError,
+          undefined,
+          JSON.stringify({
+            gateway_error: (page.structuredContent as { gateway_error?: { code: string } })?.gateway_error?.code,
+            connections: f.runtime.transport.status().connections,
+            same_epoch: f.runtime.transport.currentConnection(f.target.machine_id)?.connection_epoch === epoch,
+            call_state: f.state.store.call('remote_reader', healthyId).state,
+            writes: f.writes() - before
+          })
+        )
         const delivered = page.structuredContent!.data as ReplyData['runtime_result_read']
         assert.equal(delivered.eof, true)
         assert.equal(delivered.encoding, 'base64')
