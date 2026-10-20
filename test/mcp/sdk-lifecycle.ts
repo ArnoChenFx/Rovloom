@@ -19,6 +19,7 @@ export function sdkTestLifecycle(context: TestContext, name: 'runtime-sdk' | 'ht
   const controller = new AbortController()
   const deadline = performance.now() + timeout
   const owned: { stage: Cleanup; close(): void | Promise<void> }[] = []
+  const acquiring = new Set<Promise<unknown>>()
   const pending = new Map<object, { side: 'client' | 'server'; operation: string; started: number }>()
   const timings: Timing[] = []
   let phase = name === 'runtime-sdk' ? 'fixture_import' : 'connect'
@@ -26,6 +27,8 @@ export function sdkTestLifecycle(context: TestContext, name: 'runtime-sdk' | 'ht
   let complete = false
   let failedCleanup = false
   let closing: Promise<void> | undefined
+  let callbackDone: Promise<void> | undefined
+  let callbackFinished = false
   let expected = performance.now() + 100
   let lag = 0
   const observer = setInterval(
@@ -54,6 +57,9 @@ export function sdkTestLifecycle(context: TestContext, name: 'runtime-sdk' | 'ht
       clearInterval(observer)
       void (
         /** 依照所有权逆序关闭，不能以超时为由遗留上一测试的HTTP或SQLite角色。 */ (async () => {
+          while (acquiring.size) {
+            await Promise.allSettled(acquiring)
+          }
           while (owned.length) {
             const resource = owned.pop()!
             cleanup = resource.stage
@@ -82,7 +88,11 @@ export function sdkTestLifecycle(context: TestContext, name: 'runtime-sdk' | 'ht
         console.error(`[mcp-http-failure] case=${name} phase=${phase} cleanup=${cleanup}`)
       }
       try {
-        await close()
+        try {
+          await close()
+        } finally {
+          await callbackDone
+        }
       } finally {
         if (report || process.env.ROVLOOM_MCP_TEST_DIAGNOSTICS === '1') {
           console.error(
@@ -91,6 +101,8 @@ export function sdkTestLifecycle(context: TestContext, name: 'runtime-sdk' | 'ht
               case: name,
               phase,
               cleanup,
+              callback_finished: callbackFinished,
+              acquisitions: acquiring.size,
               event_loop_max_lag_ms: Math.round(lag),
               pending: [...pending.values()].slice(0, 4).map(
                 /** 只记录固定操作名和等待时长，不输出ID、请求或结果。 */ (entry) => ({
@@ -123,9 +135,66 @@ export function sdkTestLifecycle(context: TestContext, name: 'runtime-sdk' | 'ht
     }
   }
 
+  /** 取得开始即登记；迟到资源交回同一清理栈，中止后的import不能继续建立fixture。 */
+  function acquire<T>(
+    open: () => T | Promise<T>,
+    resource?: { stage: Cleanup; release(value: T): void | Promise<void> }
+  ): Promise<T> {
+    const task: Promise<T> = Promise.resolve()
+      .then(
+        /** 关闭已开始时不调用新的资源工厂。 */ () => {
+          if (controller.signal.aborted) {
+            throw new Error('sdk_test_aborted')
+          }
+          return open()
+        }
+      )
+      .then(
+        /** 成功取得先交回所有权，再判断是否还能交付测试主体。 */ (value) => {
+          if (resource) {
+            owned.push({
+              stage: resource.stage,
+              close: /** 只释放本次实际取得的对象。 */ () => resource.release(value)
+            })
+          }
+          if (controller.signal.aborted) {
+            throw new Error('sdk_test_aborted')
+          }
+          return value
+        }
+      )
+      .finally(/** close等待实际取得结算，不以取消等待冒充资源已交回。 */ () => acquiring.delete(task))
+    acquiring.add(task)
+    void task.catch(/** 原拒绝仍交回调用者，清理期间没有无人观察的迟到拒绝。 */ () => {})
+    return task
+  }
+
   return {
     signal: controller.signal,
     close,
+    run: /** after也等待主体完成；主体finally可等待同一close，不形成循环。 */ <T>(
+      action: () => Promise<T>
+    ): Promise<T> => {
+      if (callbackDone || controller.signal.aborted) {
+        throw new Error('sdk_test_callback_invalid')
+      }
+      const result = Promise.resolve().then(action).finally(close)
+      callbackDone = result.then(
+        /** 主体正常结束须在after返回前得到观察。 */ () => {
+          callbackFinished = true
+        },
+        /** 原失败由runner观察；after只等待完成，不把失败改判通过。 */ () => {
+          callbackFinished = true
+        }
+      )
+      return result
+    },
+    load: /** 中止后不交付迟到模块，下一阶段不会再调用其资源工厂。 */ <T>(open: () => Promise<T>) => acquire(open),
+    acquire: /** 异步fixture从开始取得起归本作用域所有，不等主体恢复后才登记。 */ <T>(
+      stage: Cleanup,
+      open: () => Promise<T>,
+      release: (value: T) => void | Promise<void>
+    ) => acquire(open, { stage, release }),
     phase: /** 固定阶段由用例显式推进，不能从业务数据推导诊断。 */ (value: string) => {
       phase = value
     },

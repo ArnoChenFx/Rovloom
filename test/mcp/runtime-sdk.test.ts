@@ -21,132 +21,142 @@ test(
   { timeout: 30_000 },
   /* 动态加载真实native fixture；其编译失败照常报告，不用stub或缓存替代。 */ async (testContext) => {
     const lifecycle = sdkTestLifecycle(testContext, 'runtime-sdk', 30_000)
-    const { runtimeFixture } = await import('../runtime/helpers.js')
-    lifecycle.phase('fixture_open')
-    const f = await runtimeFixture()
-    await lifecycle.own('runtime', /** 超时后返回的fixture也必须立即释放，不进入下一用例。 */ () => f.close())
-    const service = new RuntimeGatewayService({
-      runtime: f.gateway,
-      identities: {
-        principal: /* 复用已进入fixture runtime的当前身份，不给SDK创建第二份权限。 */ (caller) => {
-          const principal = f.gateway.principal()
-          return principal.id === caller.principal_id ? principal : null
-        },
-        administrator: /* 普通测试caller没有管理会话，不能通过此组合获得管理权限。 */ () => null
-      },
-      localPolicies: /* 明确的fixture政策，与原runtime固定tuple相同，不代表生产策略来源。 */ () => ({
-        revision: 'local1',
-        grants: [{ target: f.target, methods: ['task.add'], actions: ['dispatch', 'read', 'cancel'] }]
-      })
-    })
-    await lifecycle.own('service', /** facade service只关闭自己的等待/游标。 */ () => service.close())
-    const http = httpFixture(lifecycle.service(service), {
-      authentication: {
-        authenticate: /* 仅本用例自建listener认识的合成HTTP身份。 */ () => f.caller
-      }
-    })
-    await lifecycle.own('http', /** 先关闭真实SDK和HTTP，再关闭服务及双库角色。 */ () => http.close())
-    const invoke = /** 所有SDK请求服从同一原测试期限，输入与原断言保持不变。 */ (
-      request: Parameters<typeof http.client.callTool>[0]
-    ) =>
-      lifecycle.call(
-        request.name,
-        /** 请求只发送一次，不由诊断重试。 */ () =>
-          http.client.callTool(request, CallToolResultSchema, lifecycle.options())
-      )
-    try {
-      lifecycle.phase('ready')
-      await lifecycle.wait(f.ready(lifecycle.signal))
-      lifecycle.phase('http_connect')
-      await lifecycle.call(
-        'initialize',
-        /** 初始化同样不遗留超过测试期限的默认SDK等待。 */ () =>
-          http.client.connect(http.transport, lifecycle.options())
-      )
-      const history = f.state.store.openHistory('synthetic', f.target, 1)
-      const args = {
-        target: f.target,
-        expected_binding_revision: 1,
-        contract_ref: f.reference,
-        native_request: { method: 'task.add', params: { title: 'synthetic_mcp' } },
-        deadline: f.state.store.clock() + 25_000,
-        wait_ms: 5000,
-        history: {
-          history_epoch: history.history_epoch,
-          client_request_key: 'mcp_one_intent',
-          recovery_generation: f.state.store.generation()
-        }
-      }
-      lifecycle.phase('call')
-      const call = data(await invoke({ name: 'runtime_call', arguments: args }))
-      lifecycle.phase('duplicate')
-      const duplicate = data(await invoke({ name: 'runtime_call', arguments: args }))
-      assert.equal(duplicate.call_id, call.call_id)
-      assert.equal(call.state, 'responded')
-      assert.equal(call.contract_ref, f.reference)
-      assert.equal(f.native.state.responses, 1)
-      assert.equal(f.claims(), 1)
-      const result = call.result as { result_id: string; bytes: number; expires_at: number }
-      assert(result.result_id)
-      const chunks: Buffer[] = []
-      let cursor: string | undefined
-      let firstNext: string | undefined
-      let bytesRead = 0
-      do {
-        lifecycle.phase('result_page')
-        const page = data(
-          await invoke({
-            name: 'runtime_result_read',
-            arguments: { result_id: result.result_id, max_bytes: 32, ...(cursor ? { cursor } : {}) }
-          })
+    return lifecycle.run(
+      /** 模块、fixture和请求主体都归本测试，after等待其实际收尾。 */ async () => {
+        const { runtimeFixture } = await lifecycle.load(
+          /** 中止后的import不再交付工厂。 */ () => import('../runtime/helpers.js')
         )
-        assert.equal(page.expires_at, result.expires_at)
-        assert.equal(page.encoding, 'base64')
-        const chunk = Buffer.from(page.chunk as string, 'base64')
-        assert(chunk.byteLength > 0 && chunk.byteLength <= 32)
-        bytesRead += chunk.byteLength
-        assert(bytesRead <= result.bytes)
-        assert.equal(page.eof, bytesRead === result.bytes)
-        chunks.push(chunk)
-        if (!cursor) {
-          firstNext = page.next_cursor as string | undefined
-        }
-        cursor = page.next_cursor as string | undefined
-      } while (cursor)
-      assert(chunks.length > 1)
-      assert.equal(Buffer.concat(chunks).byteLength, result.bytes)
-      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()).error, f.native.response.error)
-      assert(firstNext)
-      lifecycle.phase('changed_cursor')
-      const changedPage = await invoke({
-        name: 'runtime_result_read',
-        arguments: { result_id: result.result_id, max_bytes: 64, cursor: firstNext }
-      })
-      assert.deepEqual(changedPage.structuredContent, { gateway_error: { code: 'invalid_cursor' } })
-      lifecycle.phase('cancel')
-      const cancelled = data(
-        await invoke({
-          name: 'runtime_call_cancel',
-          arguments: { call_id: call.call_id }
+        lifecycle.signal.throwIfAborted()
+        lifecycle.phase('fixture_open')
+        const f = await lifecycle.acquire(
+          'runtime',
+          runtimeFixture,
+          /** 迟到fixture交回同一清理栈。 */ (value) => value.close()
+        )
+        const service = new RuntimeGatewayService({
+          runtime: f.gateway,
+          identities: {
+            principal: /* 复用已进入fixture runtime的当前身份，不给SDK创建第二份权限。 */ (caller) => {
+              const principal = f.gateway.principal()
+              return principal.id === caller.principal_id ? principal : null
+            },
+            administrator: /* 普通测试caller没有管理会话，不能通过此组合获得管理权限。 */ () => null
+          },
+          localPolicies: /* 明确的fixture政策，与原runtime固定tuple相同，不代表生产策略来源。 */ () => ({
+            revision: 'local1',
+            grants: [{ target: f.target, methods: ['task.add'], actions: ['dispatch', 'read', 'cancel'] }]
+          })
         })
-      )
-      assert.equal(cancelled.cancellation, 'unsupported')
-      assert.equal(f.native.state.responses, 1)
-      f.authorize(false)
-      lifecycle.phase('revoked_read')
-      const denied = await invoke({
-        name: 'runtime_result_read',
-        arguments: { result_id: result.result_id }
-      })
-      assert.deepEqual(denied.structuredContent, { gateway_error: { code: 'unauthenticated' } })
-      lifecycle.phase('client_close')
-      await http.client.close()
-      assert.equal(f.gateway.transport.status().stopped, false)
-      assert.equal(f.state.store.health().mode, 'active')
-      lifecycle.phase('complete')
-      lifecycle.complete()
-    } finally {
-      await lifecycle.close()
-    }
+        await lifecycle.own('service', /** facade service只关闭自己的等待/游标。 */ () => service.close())
+        const http = httpFixture(lifecycle.service(service), {
+          authentication: {
+            authenticate: /* 仅本用例自建listener认识的合成HTTP身份。 */ () => f.caller
+          }
+        })
+        await lifecycle.own('http', /** 先关闭真实SDK和HTTP，再关闭服务及双库角色。 */ () => http.close())
+        const invoke = /** 所有SDK请求服从同一原测试期限，输入与原断言保持不变。 */ (
+          request: Parameters<typeof http.client.callTool>[0]
+        ) =>
+          lifecycle.call(
+            request.name,
+            /** 请求只发送一次，不由诊断重试。 */ () =>
+              http.client.callTool(request, CallToolResultSchema, lifecycle.options())
+          )
+        try {
+          lifecycle.phase('ready')
+          await lifecycle.wait(f.ready(lifecycle.signal))
+          lifecycle.phase('http_connect')
+          await lifecycle.call(
+            'initialize',
+            /** 初始化同样不遗留超过测试期限的默认SDK等待。 */ () =>
+              http.client.connect(http.transport, lifecycle.options())
+          )
+          const history = f.state.store.openHistory('synthetic', f.target, 1)
+          const args = {
+            target: f.target,
+            expected_binding_revision: 1,
+            contract_ref: f.reference,
+            native_request: { method: 'task.add', params: { title: 'synthetic_mcp' } },
+            deadline: f.state.store.clock() + 25_000,
+            wait_ms: 5000,
+            history: {
+              history_epoch: history.history_epoch,
+              client_request_key: 'mcp_one_intent',
+              recovery_generation: f.state.store.generation()
+            }
+          }
+          lifecycle.phase('call')
+          const call = data(await invoke({ name: 'runtime_call', arguments: args }))
+          lifecycle.phase('duplicate')
+          const duplicate = data(await invoke({ name: 'runtime_call', arguments: args }))
+          assert.equal(duplicate.call_id, call.call_id)
+          assert.equal(call.state, 'responded')
+          assert.equal(call.contract_ref, f.reference)
+          assert.equal(f.native.state.responses, 1)
+          assert.equal(f.claims(), 1)
+          const result = call.result as { result_id: string; bytes: number; expires_at: number }
+          assert(result.result_id)
+          const chunks: Buffer[] = []
+          let cursor: string | undefined
+          let firstNext: string | undefined
+          let bytesRead = 0
+          do {
+            lifecycle.phase('result_page')
+            const page = data(
+              await invoke({
+                name: 'runtime_result_read',
+                arguments: { result_id: result.result_id, max_bytes: 32, ...(cursor ? { cursor } : {}) }
+              })
+            )
+            assert.equal(page.expires_at, result.expires_at)
+            assert.equal(page.encoding, 'base64')
+            const chunk = Buffer.from(page.chunk as string, 'base64')
+            assert(chunk.byteLength > 0 && chunk.byteLength <= 32)
+            bytesRead += chunk.byteLength
+            assert(bytesRead <= result.bytes)
+            assert.equal(page.eof, bytesRead === result.bytes)
+            chunks.push(chunk)
+            if (!cursor) {
+              firstNext = page.next_cursor as string | undefined
+            }
+            cursor = page.next_cursor as string | undefined
+          } while (cursor)
+          assert(chunks.length > 1)
+          assert.equal(Buffer.concat(chunks).byteLength, result.bytes)
+          assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()).error, f.native.response.error)
+          assert(firstNext)
+          lifecycle.phase('changed_cursor')
+          const changedPage = await invoke({
+            name: 'runtime_result_read',
+            arguments: { result_id: result.result_id, max_bytes: 64, cursor: firstNext }
+          })
+          assert.deepEqual(changedPage.structuredContent, { gateway_error: { code: 'invalid_cursor' } })
+          lifecycle.phase('cancel')
+          const cancelled = data(
+            await invoke({
+              name: 'runtime_call_cancel',
+              arguments: { call_id: call.call_id }
+            })
+          )
+          assert.equal(cancelled.cancellation, 'unsupported')
+          assert.equal(f.native.state.responses, 1)
+          f.authorize(false)
+          lifecycle.phase('revoked_read')
+          const denied = await invoke({
+            name: 'runtime_result_read',
+            arguments: { result_id: result.result_id }
+          })
+          assert.deepEqual(denied.structuredContent, { gateway_error: { code: 'unauthenticated' } })
+          lifecycle.phase('client_close')
+          await http.client.close()
+          assert.equal(f.gateway.transport.status().stopped, false)
+          assert.equal(f.state.store.health().mode, 'active')
+          lifecycle.phase('complete')
+          lifecycle.complete()
+        } finally {
+          await lifecycle.close()
+        }
+      }
+    )
   }
 )

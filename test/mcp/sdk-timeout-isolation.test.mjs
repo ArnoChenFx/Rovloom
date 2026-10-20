@@ -6,14 +6,18 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
+import { pathToFileURL } from 'node:url'
 
-for (const mode of ['blocked', 'sse_eof']) {
+for (const mode of ['blocked', 'sse_eof', 'fixture_import', 'fixture_open']) {
   test(
-    `真实SDK故意超时仍失败，after在下一用例前关闭listener：${mode}`,
+    `故意超时仍失败，after排空取得和主体后才进入下一用例：${mode}`,
     { timeout: 10_000 },
     /** 子进程业务明确为阻塞测试探针，不执行native或读用户配置。 */ async () => {
       const root = await mkdtemp(join(tmpdir(), 'rovloom-sdk-isolation-'))
       const path = join(root, 'timeout.test.mjs')
+      const fixturePath = join(root, 'acquisition.mjs')
+      const acquisition = pathToFileURL(fixturePath).href
+      const timeout = mode.startsWith('fixture_') ? 30 : 500
       const lifecycle = new URL('./sdk-lifecycle.ts', import.meta.url).href
       const fixture = new URL('./http-fixture.ts', import.meta.url).href
       const transport = new URL(
@@ -28,14 +32,29 @@ import { httpFixture, syntheticHeaders } from ${JSON.stringify(fixture)}
 import { StreamableHTTPClientTransport } from ${JSON.stringify(transport)}
 
 const mode = ${JSON.stringify(mode)}
+const timeout = ${timeout}
 let entered = false
 let cleaned = false
 let callbackSettled = false
 let requestSettled = false
 let settledBeforeCleanup
 let running
-test('intentional_timeout', { timeout: 500 }, async (context) => {
-  const scope = sdkTestLifecycle(context, 'http-sessions', 500)
+test('intentional_timeout', { timeout }, async (context) => {
+  const scope = sdkTestLifecycle(context, 'http-sessions', timeout)
+  return scope.run(async () => {
+  if (mode.startsWith('fixture_')) {
+    scope.phase(mode)
+    try {
+      const fixture = await scope.load(() => import(${JSON.stringify(acquisition)}))
+      await scope.acquire('runtime', () => fixture.open(), (resource) => {
+        resource.close()
+        cleaned = true
+      })
+      assert.fail('acquisition_timeout_must_not_pass')
+    } finally {
+      callbackSettled = true
+    }
+  }
   let release
   const blocked = new Promise((resolve) => { release = resolve })
   let ready
@@ -89,8 +108,20 @@ test('intentional_timeout', { timeout: 500 }, async (context) => {
     await scope.close()
     callbackSettled = true
   }
+  })
 })
 test('next_case_observes_closed_resources', async () => {
+  assert.equal(callbackSettled, true)
+  if (mode.startsWith('fixture_')) {
+    const fixture = await import(${JSON.stringify(acquisition)})
+    assert.equal(fixture.state.opens, mode === 'fixture_open' ? 1 : 0)
+    assert.equal(fixture.state.releases, mode === 'fixture_open' ? 1 : 0)
+    assert.equal(fixture.state.live, false)
+    assert.equal(cleaned, mode === 'fixture_open')
+    console.log('sdk_timeout_cleanup_before_next_case')
+    console.log(mode)
+    return
+  }
   assert.equal(entered, true)
   assert.equal(cleaned, true)
   assert.equal(callbackSettled, true)
@@ -104,6 +135,20 @@ test('next_case_observes_closed_resources', async () => {
 `
       let child
       try {
+        await writeFile(
+          fixturePath,
+          `
+// 只观察取得/释放的资源stub，不执行native或提供业务成功。
+export const state = { opens: 0, releases: 0, live: false }
+if (${JSON.stringify(mode)} === 'fixture_import') await new Promise((resolve) => setTimeout(resolve, 80))
+export async function open() {
+  state.opens++
+  if (${JSON.stringify(mode)} === 'fixture_open') await new Promise((resolve) => setTimeout(resolve, 80))
+  state.live = true
+  return { close() { state.live = false; state.releases++ } }
+}
+`
+        )
         await writeFile(path, source)
         child = spawn(process.execPath, ['--no-env-file', 'test', path], {
           env: { PATH: process.env.PATH, NO_COLOR: '1' },
@@ -131,11 +176,13 @@ test('next_case_observes_closed_resources', async () => {
         } finally {
           clearTimeout(deadline)
         }
-        assert.match(output, /test timed out after 500ms/)
+        assert.match(output, new RegExp('test timed out after ' + timeout + 'ms'))
         assert.match(output, /1 pass/)
         assert.match(output, /1 fail/)
         assert.match(output, /sdk_timeout_cleanup_before_next_case/)
         assert.match(output, /"cleanup":"complete"/)
+        assert.match(output, /"callback_finished":true/)
+        assert.match(output, /"acquisitions":0/)
         assert(output.includes(mode))
         assert.doesNotMatch(output, /Unhandled error/)
       } finally {
