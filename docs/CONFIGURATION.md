@@ -181,24 +181,27 @@ Target, method string array and action array (`dispatch`, `read`, `stream_input`
 
 ## Native installation and pins
 
-Install native programs through their official distribution and verify the exact
-bytes. A matching version label alone is insufficient; do not edit pins to accept
-another binary. Use the official [Luvus](https://github.com/RizRiyz/luvus) or
-[Herdr](https://github.com/herdrdev/herdr/releases/tag/v0.9.5) distribution approved
-for your installation.
-The following are the actual currently accepted Linux x64 pins:
+Install Luvus or Herdr through its official distribution. Compatibility is determined
+from the installed protocol, complete request/response schema and actual method
+capabilities. Version labels are retained for diagnostics; there is no required
+Luvus/Herdr release or preset binary/schema digest. An unavailable or incompatible
+optional method affects that function, while healthy methods remain available.
+Only the currently integrated methods and transports can be exposed.
 
-| Pin | Luvus | Herdr |
+| Installation observation | Luvus | Herdr |
 |---|---|---|
-| Version / protocol | `0.14.3` / live UHP catalog | `0.9.5` / `22` |
-| Binary SHA-256 | `895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9` | `14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d` |
-| Original schema SHA-256 | `00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6` | `9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b` |
 | Schema command | `luvus uhp schema` | `herdr api schema --json` |
+| Protocol basis | UHP v1 envelope and actual live method catalog | Actual schema protocol and full JSON RPC roots |
 | Adapter revision | `managed-owned-luvus-0.14.3-1` | `herdr-workflow-4` |
 | Classification revision | `managed-owned-rpc-1` | `herdr-0.9.5-workflow-4` |
 
-Preserve schema output as original bytes, not parsed/reserialized JSON. These
-pins do not imply an unverified package-manager installation command.
+The revision strings identify Rovloom adapter/classification code; embedded release
+numbers do not require that native version. Record hashes of **your actual
+installation**, and preserve schema output as original bytes. Protected configuration
+and each live source must still agree on the selected binary/schema and target;
+replacement or stale configuration is rejected. These checks prevent misdelivery,
+not version selection. A known precompiled digest is a cache key; an unknown schema
+is compiled from its real bytes within the same compiler budget.
 
 ## Agent installation directory
 
@@ -258,7 +261,7 @@ construct or modify its identity, digest or ownership records by hand.
 |---|---|---|
 | `target` | required object | `machine_id`, `provider_id`, `profile:"session"`, `session`; session matches `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`. |
 | `binding_revision`, `config_ref` | required positive integer / string | Registered binding revision and matching ref name. |
-| `binary`, `binary_sha256` | required absolute path / SHA-256 | Approved executable and exact pin above. |
+| `binary`, `binary_sha256` | required absolute path / SHA-256 | Selected executable and its actual measured SHA-256; no preset release hash. |
 | `state_root`, `home`, `cwd` | required absolute path strings | Separate private native state, HOME and work directory; separate from the control directory. HOME contains private `config`, `data`, `cache`, `runtime` directories. |
 | `transport` | required string | Managed runtime requires `ipc`; use the supplied setting. |
 | `agent_bin_dir` | optional absolute-directory string, 1–4096 characters; default absent | Prepends one Agent installation directory to `/usr/bin:/bin`; selected during initial local setup. |
@@ -275,7 +278,7 @@ outside that root, which the adapter rejects (`endpoint_outside_state_root`).
 | `kind`, `authentication` | required constants | `luvus`, `remote_connector`. |
 | `binding` | required object | Registered `machine_id`, `provider_id`, `kind:"luvus"`, matching `config_ref`, positive `binding_revision`, boolean `enabled`. |
 | `target`, `peer_policy_revision` | required Target / ID | Same session route and expected peer policy. |
-| `contract` | required object | Exact `binary_version`, `binary_sha256`, `schema_sha256`, `adapter_revision`, `classification_revision` from pins. |
+| `contract` | required object | Observed version (diagnostic), actual binary/schema SHA-256 and current adapter/classification revisions. |
 | `contract.schema_bundle_ref` | required ref when using file indirection | Original schema at `refs/<ref>.json`, up to 2 MiB. Alternative inline `schema_bundle` is supported, but cannot coexist with ref; the 16 KiB outer JSON limit still applies. |
 | `raw_grant` | optional; absent grants no raw permission | Required `principal_id` and unique `methods` array selected from reviewed Luvus operations. Generic methods require this explicit remote authorization. |
 
@@ -294,16 +297,16 @@ are required without defaults unless marked optional.
 |---|---|---|
 | `version` | integer `1` | Configuration version. |
 | `target`, `binding_revision`, `config_ref` | session Target / positive integer / string | Registered binding, matching ref name; same session syntax as Luvus. |
-| `schema_path` | canonical absolute path string | Protected original schema file, up to 16 MiB on Connector; exact digest above. |
+| `schema_path` | canonical absolute path string | Protected original schema file, up to 16 MiB on Connector; digest recorded in `expected_source`. The compiler separately limits input to 512 KiB. |
 | `peer_policy_revision` | ID string | Expected peer policy. |
-| `expected_source` | exact source object | Required fixed fields below; arbitrary version/hash changes are rejected. |
+| `expected_source` | exact source object | Required source fields below, measured from the selected installation; no preset version/hash whitelist. |
 | `connector` | optional on Gateway; required on Connector | Local installation, fixed caller and persistent ledgers. |
 | `connector.principal_id` | ID string | Fixed existing caller. |
 | `connector.local` | object | Required `target`, `binding_revision`, `config_ref` matching outer values; absolute `binary`, `home`, `config_home`, `state_home`, `cache_home`, `temporary_home`, `cwd`; optional boolean `allow_terminal_execution` defaults false. All directories private 0700. |
 | `connector.local.agent_bin_dir` | optional absolute-directory string, 1–4096 characters; default absent | Prepends one Agent installation directory to `/usr/bin:/bin`; does not change terminal-execution permission. |
 | `connector.receipts`, `.claims` | distinct ledger objects | Required `path` (absolute), `mode` (`create`/`open`), `ledger_id` (ID), `limits:{entries,bytes}`. Entries 1–1024 for receipts, 1–4096 for claims; bytes 262144–16777216. |
 
-`expected_source` is the following exact non-secret object (including JSON nulls):
+`expected_source` records the selected installation (including JSON nulls). The historical fixture below illustrates the shape; replace observations with your actual installation. Version labels diagnose the source and do not determine compatibility:
 
 ```json
 {

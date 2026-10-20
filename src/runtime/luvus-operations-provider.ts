@@ -1,7 +1,6 @@
 /** 为实际受控本机 Owner 装配普通 Luvus 窗口与 Agent 操作，复用原 Wire、当前政策、来源与固定派发期限。 */
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import { id, object } from '../wire/index.js'
-import { FIXED_LUVUS_SHA256 } from './native-control.js'
 import { assertLocalOwnerLuvus } from './native-source.js'
 import type { LocalOwnerLuvusInstance } from './native-source.js'
 import { assertLuvusOperationsContract, createLuvusOperationsAuthority } from './luvus-operations-authority.js'
@@ -19,11 +18,7 @@ export function createLuvusOperationsProvider(
   const source = contract.wire.source
   const capabilities = object(object(contract.capabilities).result)
   assertLuvusOperationsContract(contract)
-  if (
-    config.binary_sha256 !== FIXED_LUVUS_SHA256 ||
-    source.runtime_generation !== capabilities.server_generation ||
-    capabilities.session !== config.target.session
-  ) {
+  if (source.runtime_generation !== capabilities.server_generation || capabilities.session !== config.target.session) {
     throw new LuvusAdapterError('luvus_operations_source_mismatch')
   }
   const authority = createLuvusOperationsAuthority(

@@ -131,14 +131,12 @@ function dispatch(input: ReturnType<typeof fixture>, allowed: boolean, now = 100
 }
 
 test(
-  'shared Luvus contract review pins native, schema, source revisions and actual compiled identity',
-  /** 每个固定来源字段都独立破坏，不能靠形状正确或非空修订替代受审固定值。 */ () => {
+  'shared Luvus contract review binds actual installation, source revisions and compiled identity',
+  /** 逐项破坏实际来源、协议与修订，诊断版本不参与接纳。 */ () => {
     assert.doesNotThrow(/** 原官方固定输入保持可用。 */ () => assertLuvusOperationsContract(record()))
     for (const [field, value] of [
       ['binary_sha256', 'a'.repeat(64)],
       ['schema_sha256', 'b'.repeat(64)],
-      ['binary_version', '0.14.4'],
-      ['server_version', '0.14.4'],
       ['provider_kind', 'herdr'],
       ['protocol_family', 'herdr-json'],
       ['schema_origin', 'advertisement'],
@@ -168,35 +166,45 @@ test(
 )
 
 test(
-  'shared Luvus contract review requires all 34 exact native method descriptors',
-  /** 任一普通方法缺失、重复、访问范围变化或多字段均不能成为可执行分类。 */ () => {
-    assert.equal(LUVUS_OPERATION_METHODS.length, 34)
-    for (const method of LUVUS_OPERATION_METHODS) {
-      for (const change of ['missing', 'duplicate', 'access', 'scope', 'idempotent', 'extra']) {
-        const contract = record()
-        const capabilities = contract.capabilities as { result: { method_contracts: Record<string, unknown>[] } }
-        const rows = capabilities.result.method_contracts
-        const index = rows.findIndex(/** 只选择当前精确方法，不扩大前缀。 */ (row) => row.method === method)
-        const row = rows[index]!
-        if (change === 'missing') {
-          rows.splice(index, 1)
-        } else if (change === 'duplicate') {
-          rows.push({ ...row })
-        } else if (change === 'access') {
-          row.access = row.access === 'read' ? 'write' : 'read'
-        } else if (change === 'scope') {
-          row.scope = 'admin'
-        } else if (change === 'idempotent') {
-          row.idempotent = !row.idempotent
-        } else {
-          row.extra = true
-        }
-        assert.throws(
-          /** 每个受审 descriptor 均要求官方精确字段和值。 */ () => assertLuvusOperationsContract(contract),
-          /luvus_operations_contract_mismatch/
-        )
+  'shared Luvus method compatibility rejects only the dependent operation',
+  /** 缺少或变化的可选方法不阻断 provider；相关方法独立失败，健康方法继续产生原授权。 */ () => {
+    for (const change of ['missing', 'duplicate', 'access', 'scope', 'idempotent', 'extra']) {
+      const input = fixture()
+      const caps = input.contract.capabilities as { result: { method_contracts: Record<string, unknown>[] } }
+      const rows = caps.result.method_contracts
+      const index = rows.findIndex(/** 只改变本次依赖的窗口重命名能力。 */ (row) => row.method === 'workspace.rename')
+      const row = rows[index]!
+      if (change === 'missing') {
+        rows.splice(index, 1)
+      } else if (change === 'duplicate') {
+        rows.push({ ...row })
+      } else if (change === 'access') {
+        row.access = 'read'
+      } else if (change === 'scope') {
+        row.scope = 'admin'
+      } else if (change === 'idempotent') {
+        row.idempotent = true
+      } else {
+        row.extra = true
       }
+      assert.doesNotThrow(/** provider 保留其它能力的来源。 */ () => assertLuvusOperationsContract(input.contract))
+      const authority = createLuvusOperationsAuthority(
+        input.contract,
+        /** 合成当前来源。 */ () => input.source,
+        /** 显式 raw 决定。 */ () => true
+      )
+      assert.throws(
+        /** 仅相关方法拒绝。 */ () => authority(input.attempt, input.native),
+        /luvus_operations_contract_mismatch/
+      )
+      const healthy = fixture('pane.list', {})
+      assert.doesNotThrow(/** 相同 provider 的健康方法继续通过。 */ () => authority(healthy.attempt, input.native))
     }
+    const input = record()
+    input.wire.source.binary_version = 'future-diagnostic-version'
+    input.wire.source.server_version = 'different-server-version'
+    assert.doesNotThrow(/** 版本标签不参与接口兼容判断。 */ () => assertLuvusOperationsContract(input))
+    assert.equal(LUVUS_OPERATION_METHODS.length, 34)
   }
 )
 

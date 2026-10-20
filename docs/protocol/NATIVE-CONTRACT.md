@@ -37,7 +37,7 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 
 ### 编译 Worker 与生成物接纳
 
-首版只接受宿主已审核并精确 pin 的安装版 schema 原字节。远端 Gateway 可独立接收受保护
+使用宿主实际安装导出的 schema 原字节，按协议和实际接口能力判断兼容性；版本仅作诊断，不设原生发行版或预设 binary/schema 摘要白名单。缺失的可选接口仅使依赖功能不可用。远端 Gateway 可独立接收受保护
 配置交付的同一固定资料，本地 Worker 编译，不要求安装或运行 Luvus；不自动信任 Wire 重组对象、远端 URL 或 caller
 提交的 schema。公共工厂只收原字节、安装身份/限额和可选取消信号，不接收代码、路径或
 Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；构建时内嵌 Worker 模块。

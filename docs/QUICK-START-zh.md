@@ -17,8 +17,8 @@ rovloom --version
 rovloom --help
 ```
 
-在每台 runtime 设备上安装已审核的 **Luvus 0.14.3** 或 **Herdr 0.9.5**，以及准备使用的
-Agent。精确 binary/schema 要求和 Agent 受控 PATH 见[原生安装](CONFIGURATION-zh.md#原生安装与-pins)。
+在每台 runtime 设备上安装 **Luvus 或 Herdr**，以及准备使用的 Agent。兼容性按实际协议
+和接口能力判断，版本仅用于诊断。本机安装身份和 Agent 受控 PATH 见[原生安装](CONFIGURATION-zh.md#原生安装与-pins)。
 Rovloom 不会安装原生程序或配置其模型访问。
 
 启动前，请向管理员取得 Gateway 地址、CA、已配对设备凭据、provider 配置及既有 MCP Bearer。
@@ -157,7 +157,7 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 | 配置不可读/保护不足 | 修正属主、0700 目录、0600 文件，避免 symlink 和 runtime 文件额外硬链接。 |
 | 启动不可用/失败 | 检查交付的 refs、TLS/CA、已配对凭据、provider 安装及状态。 |
 | HTTP 401 | 核对精确 `/mcp` URL、既有 Bearer 和有效期；管理证明是独立的。 |
-| 设备离线 / provider 未就绪 | 检查 WSS 可达性、TLS 名称/CA、配对及原生 binary/schema 匹配。 |
+| 设备离线 / provider 未就绪 | 检查 WSS 可达性、TLS 名称/CA、配对、所选原生安装身份及所需方法/协议能力。 |
 | 权限/契约/revision 错误 | 刷新 provider 和方法描述，请管理员检查 grants。 |
 | 找不到 Agent / `agent_bin_dir_invalid` | 核对本地 `agent_bin_dir` 为单个规范绝对安装目录，Agent/模型配置位于私有 HOME；重启已配置的 runtime。 |
 | 调用结果不确定 / 存储错误 | 保留原调用及状态，请管理员恢复，不删除账本或盲目重发。 |

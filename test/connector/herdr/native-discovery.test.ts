@@ -1,0 +1,91 @@
+/** 用合成变化的原生 schema 检验逐功能接纳，不运行真实 Herdr 或创建实际身份。 */
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { test } from 'node:test'
+import { HerdrSchemaCompiler } from '../../../src/connector/herdr/compiler-host.js'
+import { createHerdrCompilerWorker } from '../../../src/connector/herdr/compiler-location.js'
+import { observedHerdrSource } from '../../../src/connector/herdr/review.js'
+import { createHerdrCodec } from '../../../src/connector/herdr/readonly.js'
+import { describeHerdrContract } from '../../../src/connector/herdr/discovery.js'
+import { parseHerdrProviderRefConfig } from '../../../src/connector/herdr/provider.js'
+
+test(
+  'Herdr discovers changed protocol/schema bytes and keeps healthy methods when an optional method is absent',
+  /** 原字节未命中历史摘要；完整编译、实际目录和 codec 共用同一协议/方法事实。 */ async () => {
+    const document = JSON.parse(
+      readFileSync(new URL('../../fixtures/herdr/0.9.5/schema.json', import.meta.url), 'utf8')
+    )
+    document.protocol = 27
+    document.schema_version = 3
+    document.schemas.request.oneOf = document.schemas.request.oneOf.filter(
+      /** 合成安装不支持等待接口。 */ (branch: any) => branch.properties.method.const !== 'agent.wait'
+    )
+    delete document.schemas.event
+    delete document.schemas.subscription_event
+    const bytes = JSON.stringify(document)
+    const compiler = new HerdrSchemaCompiler(createHerdrCompilerWorker)
+    try {
+      const schemas = await compiler.compile(bytes)
+      const source = observedHerdrSource(
+        'synthetic-future-version',
+        'd'.repeat(64),
+        createHash('sha256').update(bytes).digest('hex'),
+        schemas.protocol
+      )
+      assert.equal(source.binary_version, 'synthetic-future-version')
+      const target = {
+        machine_id: 'synthetic-machine',
+        provider_id: 'synthetic-provider',
+        profile: 'session' as const,
+        session: 'synthetic'
+      }
+      assert.doesNotThrow(
+        /** 配置不再限定已知发行版摘要与版本标签。 */ () =>
+          parseHerdrProviderRefConfig({
+            version: 1,
+            target,
+            binding_revision: 1,
+            config_ref: 'synthetic-config',
+            expected_source: source,
+            schema_path: '/synthetic/schema.json',
+            peer_policy_revision: 'synthetic-policy'
+          })
+      )
+      const catalog = describeHerdrContract({
+        target,
+        binding_revision: 1,
+        source,
+        document,
+        source_basis: 'configured_connector_contract'
+      })
+      assert(catalog.methods.some(/** 健康的 ping 仍可发现。 */ (method) => method.method === 'ping'))
+      assert(!catalog.methods.some(/** 缺失的等待接口不冒称支持。 */ (method) => method.method === 'agent.wait'))
+      const codec = createHerdrCodec(source, schemas)
+      const request = { id: 'synthetic', method: 'ping', params: {} }
+      assert(codec.encode(request))
+      const reply = { id: 'synthetic', result: { type: 'pong', version: 'different-server-diagnostic', protocol: 27 } }
+      assert.deepEqual(codec.decode(Buffer.from(JSON.stringify(reply) + '\n'), request), reply)
+      assert.throws(
+        /** 缺失功能报告原生契约错误，其它方法继续工作。 */ () =>
+          codec.encode({ id: 'synthetic', method: 'agent.wait', params: { target: 'synthetic', until: ['idle'] } }),
+        /herdr_native_request_invalid/
+      )
+      assert.throws(
+        /** 不支持的参数仍由完整原生根拒绝。 */ () =>
+          codec.encode({ id: 'synthetic', method: 'agent.prompt', params: {} }),
+        /herdr_native_request_invalid/
+      )
+      assert.throws(
+        /** 不把另一协议实例的响应当成本轮结果。 */ () =>
+          codec.decode(
+            Buffer.from(JSON.stringify({ ...reply, result: { ...reply.result, protocol: 22 } }) + '\n'),
+            request
+          ),
+        /herdr_native_response_invalid/
+      )
+    } finally {
+      compiler.close()
+    }
+  }
+)

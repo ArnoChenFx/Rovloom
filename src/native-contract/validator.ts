@@ -209,7 +209,13 @@ function shapeCapabilities(
   value: JsonObject,
   binding: Pick<NativeBinding, 'target' | 'server_generation'>
 ): Map<string, NativeMethodContract> {
-  if (!equal(value.protocol, { name: 'luvus-uhp', major: 1, minor: 0 })) {
+  const protocol = object(value.protocol, 'capability_invalid')
+  if (
+    protocol.name !== 'luvus-uhp' ||
+    protocol.major !== 1 ||
+    !Number.isSafeInteger(protocol.minor) ||
+    (protocol.minor as number) < 0
+  ) {
     fail('capability_invalid', 'discovery', 'protocol')
   }
   if (
@@ -270,7 +276,13 @@ function shapeCapabilities(
     }
   }
   if (binding.target.profile === 'session') {
-    validateTerminalCapabilities(value)
+    const limits = object(value.limits, 'capability_invalid')
+    if (!Number.isSafeInteger(limits.frame_bytes) || (limits.frame_bytes as number) <= 0) {
+      fail('capability_invalid', 'discovery', 'frame_limit')
+    }
+    if (value.terminal !== undefined) {
+      validateTerminalCapabilities(value)
+    }
   }
   return result
 }

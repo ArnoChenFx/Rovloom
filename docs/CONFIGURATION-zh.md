@@ -165,22 +165,21 @@ provider policy 形状为 `{revision, grants}`，每条 grant 必须有
 
 ## 原生安装与 pins
 
-通过原生程序的官方分发安装并核验精确字节。版本标签匹配还不够，不要改 pins 来接受另一份
-binary。使用为该安装批准的官方 [Luvus](https://github.com/RizRiyz/luvus) 或
-[Herdr](https://github.com/herdrdev/herdr/releases/tag/v0.9.5) 分发。
-当前实际接受的 Linux x64 pins 如下：
+通过官方分发安装 Luvus 或 Herdr。兼容性由安装版协议、完整请求/响应 schema 和实际方法能力
+判断；版本标签保留作提示与诊断，不要求指定 Luvus/Herdr 发行版或预设 binary/schema 摘要。
+可选方法缺失或不兼容只影响依赖功能，其它健康方法继续可用。目录只展示已接入的方法和传输。
 
-| Pin | Luvus | Herdr |
+| 安装观测 | Luvus | Herdr |
 |---|---|---|
-| 版本 / 协议 | `0.14.3` / live UHP catalog | `0.9.5` / `22` |
-| Binary SHA-256 | `895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9` | `14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d` |
-| 原始 schema SHA-256 | `00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6` | `9e2af207e9aa8183d4aeca5fde9cc48e7909bb40cdbd7cf21608a6d3ea78075b` |
 | Schema 命令 | `luvus uhp schema` | `herdr api schema --json` |
+| 协议依据 | UHP v1 信封及实际在线方法目录 | schema 中的实际协议与完整 JSON RPC 根 |
 | Adapter revision | `managed-owned-luvus-0.14.3-1` | `herdr-workflow-4` |
 | Classification revision | `managed-owned-rpc-1` | `herdr-0.9.5-workflow-4` |
 
-schema 输出须保持原始字节，不能 JSON 解析后重新序列化。这些 pins 不暗示未经核验的
-包管理器安装命令。
+revision 字符串标识 Rovloom 适配/分类代码，其中的历史版本文字不是原生安装要求。
+摘要应取自**本机实际安装**，schema 输出保留原字节。受保护配置与当前来源仍须一致指向所选
+binary/schema 和完整目标；文件替换或过期配置会拒绝。这些核对防止误投，不选择原生版本。
+已知预编译摘要只用于缓存命中，未知 schema 在同一编译预算内从真实原字节完整编译。
 
 ## Agent 安装目录
 
@@ -232,7 +231,7 @@ root，或使用远端 pin；同一 machine 不能混用 attach 和 remote。
 |---|---|---|
 | `target` | 必填 object | `machine_id`、`provider_id`、`profile:"session"`、`session`；session 匹配 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`。 |
 | `binding_revision`、`config_ref` | 必填正 integer / string | 已注册 binding revision 和匹配的 ref 名称。 |
-| `binary`、`binary_sha256` | 必填绝对路径 / SHA-256 | 已审核可执行文件及上述精确 pin。 |
+| `binary`、`binary_sha256` | 必填绝对路径 / SHA-256 | 所选可执行文件及本机实际测量的 SHA-256；无预设发行版摘要。 |
 | `state_root`、`home`、`cwd` | 必填绝对路径 string | 分离的私有原生状态、HOME、工作目录，并与控制目录分离；HOME 下有私有 `config`、`data`、`cache`、`runtime` 目录。 |
 | `transport` | 必填 string | managed runtime 要求 `ipc`，请使用交付值。 |
 | `agent_bin_dir` | 可选绝对目录 string，1–4096 字符，默认缺省 | 将一个 Agent 安装目录前置到 `/usr/bin:/bin`，在初始本地设置时选定。 |
@@ -249,7 +248,7 @@ root 外，适配器会拒绝（`endpoint_outside_state_root`）。
 | `kind`、`authentication` | 必填常量 | `luvus`、`remote_connector`。 |
 | `binding` | 必填 object | 已注册的 `machine_id`、`provider_id`、`kind:"luvus"`、匹配的 `config_ref`、正 `binding_revision`、boolean `enabled`。 |
 | `target`、`peer_policy_revision` | 必填 Target / ID | 相同 session route 和预期 peer 策略。 |
-| `contract` | 必填 object | pins 中精确的 `binary_version`、`binary_sha256`、`schema_sha256`、`adapter_revision`、`classification_revision`。 |
+| `contract` | 必填 object | 诊断用版本标签、实际 binary/schema SHA-256 及当前 adapter/classification revisions。 |
 | `contract.schema_bundle_ref` | 使用文件间接引用时必填 ref | `refs/<ref>.json` 中的原始 schema，上限 2 MiB；也支持内联 `schema_bundle`，但不能与 ref 同时出现，外层 JSON 仍有 16 KiB 上限。 |
 | `raw_grant` | 可选，缺省不授予 raw 权限 | 必填 `principal_id` 和从已审 Luvus 操作中选择的不重复 `methods` array；generic 方法需要明确的远端授权。 |
 
@@ -266,16 +265,16 @@ Gateway ref 封套准确为 `{kind:"herdr",config:{...}}`；Connector 封套准�
 |---|---|---|
 | `version` | integer `1` | 配置版本。 |
 | `target`、`binding_revision`、`config_ref` | session Target / 正 integer / string | 已注册 binding，ref 名称匹配，session 语法与 Luvus 相同。 |
-| `schema_path` | 规范绝对路径 string | 受保护的原始 schema 文件，Connector 上限 16 MiB，须匹配上述精确摘要。 |
+| `schema_path` | 规范绝对路径 string | 受保护的原始 schema 文件，Connector 上限 16 MiB，摘要记录于 `expected_source`；编译器另有 512 KiB 输入预算。 |
 | `peer_policy_revision` | ID string | 预期 peer 策略。 |
-| `expected_source` | 精确来源 object | 必填固定字段见下文，任意版本/摘要更改都会被拒绝。 |
+| `expected_source` | 精确来源 object | 记录实际安装的必填来源字段见下文；无预设版本/摘要白名单。 |
 | `connector` | Gateway 可选，Connector 必填 | 本地安装、固定 caller 和持久账本。 |
 | `connector.principal_id` | ID string | 固定既有 caller。 |
 | `connector.local` | object | 必填且匹配外层的 `target`、`binding_revision`、`config_ref`；绝对路径 `binary`、`home`、`config_home`、`state_home`、`cache_home`、`temporary_home`、`cwd`；可选 boolean `allow_terminal_execution` 默认 false。所有目录为私有 0700。 |
 | `connector.local.agent_bin_dir` | 可选绝对目录 string，1–4096 字符，默认缺省 | 将一个 Agent 安装目录前置到 `/usr/bin:/bin`，不改变终端执行许可。 |
 | `connector.receipts`、`.claims` | 路径不同的 ledger object | 必填 `path`（绝对路径）、`mode`（`create`/`open`）、`ledger_id`（ID）、`limits:{entries,bytes}`。receipts entries 1–1024，claims entries 1–4096；bytes 262144–16777216。 |
 
-`expected_source` 必须是以下精确无秘密对象，包括 JSON null：
+`expected_source` 记录所选实际安装（包括 JSON null）。以下历史 fixture 仅演示字段形状，应填写本机实际观测；版本标签用于来源诊断，不决定兼容性：
 
 ```json
 {

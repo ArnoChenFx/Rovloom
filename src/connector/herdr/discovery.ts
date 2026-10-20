@@ -81,32 +81,46 @@ export function describeHerdrContract(
     contract_ref: contractRef(source),
     source: structuredClone(source),
     source_basis: input.source_basis,
-    methods: HERDR_READONLY_REVIEW.methods.map(
-      /** 方法描述携带真实参数和原生结果类型，不把进程或状态探测解释为消息完成确认。 */ (method) => ({
-        method,
-        params_schema: describeHerdrParams(document, method),
-        response_types: herdrResponseRule(method),
-        transport: 'rpc',
-        limits: {
-          request_frame_bytes: HERDR_READONLY_REVIEW.frame_bytes,
-          response_frame_bytes: HERDR_READONLY_REVIEW.frame_bytes,
-          frame_size_basis: 'utf8_json_including_lf',
-          response_pagination: 'unavailable',
-          response_objects: false,
-          ...(method === 'pane.read' || method === 'agent.read'
-            ? {
-                line_window: {
-                  parameter: 'lines',
-                  selection: 'last_lines',
-                  native_max_lines: 1000,
-                  guarantees_frame_fit: false
+    methods: HERDR_READONLY_REVIEW.methods
+      .filter(
+        /** 可选方法仅在本轮实际 request union 存在时展示；缺失不阻断其它方法。 */ (method) => {
+          const request = object(object(document.schemas).request)
+          return (
+            Array.isArray(request.oneOf) &&
+            request.oneOf.some(
+              /** 精确匹配原生 method 常量。 */ (branch) =>
+                object(object(object(branch).properties).method).const === method
+            )
+          )
+        }
+      )
+      .map(
+        /** 方法描述携带真实参数和原生结果类型，不把进程或状态探测解释为消息完成确认。 */ (method) => ({
+          method,
+          params_schema: describeHerdrParams(document, method),
+          response_types: herdrResponseRule(method),
+          transport: 'rpc',
+          limits: {
+            request_frame_bytes: HERDR_READONLY_REVIEW.frame_bytes,
+            response_frame_bytes: HERDR_READONLY_REVIEW.frame_bytes,
+            frame_size_basis: 'utf8_json_including_lf',
+            response_pagination: 'unavailable',
+            response_objects: false,
+            ...(method === 'pane.read' || method === 'agent.read'
+              ? {
+                  line_window: {
+                    parameter: 'lines',
+                    selection: 'last_lines',
+                    native_max_lines: 1000,
+                    guarantees_frame_fit: false
+                  }
                 }
-              }
-            : {})
-        },
-        completion: method === 'agent.prompt' || method === 'agent.wait' ? 'native_agent_state_only' : 'native_response'
-      })
-    )
+              : {})
+          },
+          completion:
+            method === 'agent.prompt' || method === 'agent.wait' ? 'native_agent_state_only' : 'native_response'
+        })
+      )
   }
 }
 

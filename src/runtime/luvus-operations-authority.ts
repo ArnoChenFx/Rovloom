@@ -5,30 +5,20 @@ import type { NativeContractRecord, NativeWireBackend, TrustedAttempt } from '..
 import type { SafetyClassification, TrustedNativeContext } from '../native-contract/index.js'
 import { object } from '../wire/index.js'
 import type { AttemptBinding } from '../wire/types.js'
-import { FIXED_LUVUS_SCHEMA_SHA256, FIXED_LUVUS_SHA256 } from './native-control.js'
 import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from './native-source.js'
-import {
-  LUVUS_OPERATION_METHODS,
-  luvusOperationDescriptor,
-  luvusOperationValidation,
-  validateLuvusOperationParams
-} from './luvus-operations.js'
+import { luvusOperationDescriptor, luvusOperationValidation, validateLuvusOperationParams } from './luvus-operations.js'
 
-/** 只审核固定安装契约与普通方法事实；完整响应 schema、能力绑定和实际来源由外层原校验器复核。 */
+/** 只核对本轮实际安装契约与普通方法来源；完整响应 schema、能力绑定和实际来源由外层原校验器复核。 */
 export function assertLuvusOperationsContract(contract: NativeContractRecord): void {
   const source = contract.wire.source
   const capabilities = object(object(contract.capabilities).result)
   if (
     contract.wire.support_status !== 'validated' ||
-    source.binary_sha256 !== FIXED_LUVUS_SHA256 ||
-    source.schema_sha256 !== FIXED_LUVUS_SCHEMA_SHA256 ||
-    source.binary_version !== '0.14.3' ||
-    source.server_version !== '0.14.3' ||
     source.provider_kind !== 'luvus' ||
     source.protocol_family !== 'uhp' ||
     source.schema_origin !== 'installed_cli' ||
     source.schema_command !== 'luvus uhp schema' ||
-    source.native_protocol_version !== '1.0' ||
+    !/^1\.\d+$/u.test(source.native_protocol_version ?? '') ||
     source.support_basis !== 'live_catalog' ||
     source.adapter_revision !== MANAGED_LUVUS_REVISION ||
     source.classification_revision !== MANAGED_LUVUS_CLASSIFICATION ||
@@ -42,20 +32,6 @@ export function assertLuvusOperationsContract(contract: NativeContractRecord): v
   ) {
     throw new LuvusAdapterError('luvus_operations_source_mismatch')
   }
-  const live = new Set<string>()
-  for (const value of capabilities.method_contracts) {
-    const item = object(value)
-    if (typeof item.method === 'string' && LUVUS_OPERATION_METHODS.includes(item.method)) {
-      const reviewed = luvusOperationDescriptor(item.method)!
-      if (live.has(item.method) || !isDeepStrictEqual(item, reviewed.native)) {
-        throw new LuvusAdapterError('luvus_operations_contract_mismatch')
-      }
-      live.add(item.method)
-    }
-  }
-  if (live.size !== LUVUS_OPERATION_METHODS.length) {
-    throw new LuvusAdapterError('luvus_operations_contract_mismatch')
-  }
 }
 
 /** 固定分类不能授予来源或 raw 权限；每次先取宿主当前来源，再按显式回调决定是否交付原 gate 所需 grant。 */
@@ -67,6 +43,7 @@ export function createLuvusOperationsAuthority(
   assertLuvusOperationsContract(contract)
   const classificationRevision = contract.wire.source.classification_revision!
   const identity = contract.compiled.identity
+  const methods = object(object(contract.capabilities).result).method_contracts as Record<string, unknown>[]
   return /** 每个候选重验当前来源、精确方法与参数，不从快照导入 Owner、permit 或新的期限。 */ (attempt, native) => {
     const proven = current(attempt.binding)
     const descriptor = luvusOperationDescriptor(attempt.method)
@@ -79,6 +56,12 @@ export function createLuvusOperationsAuthority(
       !isDeepStrictEqual(proven.binding, native)
     ) {
       throw new LuvusAdapterError('luvus_operation_unreviewed')
+    }
+    const live = methods.filter(
+      /** 仅审核本次依赖的方法，缺少或变化不使其它健康方法失效。 */ (row) => row.method === attempt.method
+    )
+    if (live.length !== 1 || !isDeepStrictEqual(live[0], descriptor.native)) {
+      throw new LuvusAdapterError('luvus_operations_contract_mismatch')
     }
     validateLuvusOperationParams(attempt.method, attempt.native_request.params)
     const classification: SafetyClassification = {

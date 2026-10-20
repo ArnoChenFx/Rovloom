@@ -58,7 +58,7 @@ const requestRoot = ajv.compile({ $ref: schemaId + '#/schemas/request' })
 const successRoot = ajv.compile({ $ref: schemaId + '#/schemas/success_response' })
 const errorRoot = ajv.compile({ $ref: schemaId + '#/schemas/error_response' })
 export const schemas: HerdrSchemas = Object.freeze({
-  binary_sha256: review.binary_sha256,
+  protocol: review.protocol,
   schema_sha256: hash(raw),
   dialect: bundle.$schema,
   request: requestRoot,

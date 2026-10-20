@@ -225,7 +225,7 @@ export function createHerdrProductionSources(): ProductionCliSources {
       } finally {
         bytes.fill(0)
       }
-      verifyHerdrInstallation(local)
+      verifyHerdrInstallation(local, config.expected_source.binary_sha256)
       endpointAbsent(config)
       const ownerPath = join(local.config_home, `.rovloom-herdr-${local.target.session}.owner.json`)
       let stamp: string | undefined = createNativeRecord(ownerPath, {

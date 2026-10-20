@@ -1,4 +1,4 @@
-/** 私有 Herdr Worker 只编译固定官方 schema；不执行 RPC 或输出底层异常原文。 */
+/** 私有 Herdr Worker 按实际 schema 完整编译必需根；不执行 RPC 或输出底层异常原文。 */
 import { compileHerdrArtifact } from './compiler-core.js'
 import { HERDR_COMPILER_VERSION } from './compiler-protocol.js'
 import type { HerdrCompileJob } from './compiler-protocol.js'

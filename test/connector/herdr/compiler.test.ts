@@ -120,7 +120,7 @@ test(
       assert(Object.isFrozen(schemas))
       assert(!isCompiledHerdrSchemas({ ...schemas }))
       assert(!isCompiledHerdrSchemas(JSON.parse(JSON.stringify(schemas))))
-      assert.equal(schemas.binary_sha256, HERDR_IDENTITY.binary_sha256)
+      assert.equal(schemas.protocol, HERDR_IDENTITY.protocol)
       assert.equal(schemas.schema_sha256, HERDR_IDENTITY.schema_sha256)
       for (const exchange of exchanges) {
         assert.equal(schemas.request(exchange.request), true)
@@ -201,8 +201,8 @@ test(
 )
 
 test(
-  '固定原字节摘要和输入预算失败不启动 Worker',
-  /** 字节变化和超限输入在任何 schema 解析之前拒绝。 */ async () => {
+  '非法 JSON、超预算和预先取消不启动 Worker',
+  /** 损坏 JSON 与超限输入在创建 Worker 之前拒绝。 */ async () => {
     let starts = 0
     const compiler = new HerdrSchemaCompiler(
       /** 只统计自有端口创建次数。 */ () => {
@@ -212,8 +212,8 @@ test(
     )
     const changed = new Uint8Array(raw)
     changed[0] = 32
-    await rejected(compiler.compile(changed), 'schema_digest_mismatch')
-    await rejected(compiler.compile('synthetic-private'), 'schema_digest_mismatch')
+    await rejected(compiler.compile(changed), 'schema_compile_failed')
+    await rejected(compiler.compile('synthetic-private'), 'schema_compile_failed')
     await rejected(compiler.compile(new Uint8Array(HERDR_INPUT_LIMIT + 1)), 'schema_input_limit')
     const controller = new AbortController()
     controller.abort()

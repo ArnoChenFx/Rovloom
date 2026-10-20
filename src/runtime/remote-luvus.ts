@@ -18,7 +18,6 @@ import {
 } from '../wire/index.js'
 import type { AttemptBinding, ProviderBinding, ProviderSnapshot, V2Target } from '../wire/types.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
-import { FIXED_LUVUS_SCHEMA_SHA256, FIXED_LUVUS_SHA256 } from './native-control.js'
 import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from './native-source.js'
 import { assertLuvusOperationsContract, createLuvusOperationsAuthority } from './luvus-operations-authority.js'
 import { LUVUS_OPERATION_METHODS } from './luvus-operations.js'
@@ -30,7 +29,7 @@ export type LuvusProductionRemoteConfig = Readonly<{
   binding: ProviderBinding
   target: V2Target
   contract: Readonly<{
-    binary_version: '0.14.3'
+    binary_version: string
     binary_sha256: string
     schema_sha256: string
     adapter_revision: string
@@ -69,9 +68,9 @@ export function checkedRemoteLuvusConfig(reference: string, input: unknown): Luv
     config.binding.machine_id !== config.target.machine_id ||
     config.binding.provider_id !== config.target.provider_id ||
     config.binding.config_ref !== reference ||
-    pin.binary_version !== '0.14.3' ||
-    pin.binary_sha256 !== FIXED_LUVUS_SHA256 ||
-    pin.schema_sha256 !== FIXED_LUVUS_SCHEMA_SHA256 ||
+    typeof pin.binary_version !== 'string' ||
+    !pin.binary_version.length ||
+    pin.binary_version.length > 128 ||
     pin.adapter_revision !== MANAGED_LUVUS_REVISION ||
     pin.classification_revision !== MANAGED_LUVUS_CLASSIFICATION ||
     typeof pin.schema_bundle !== 'string' ||
@@ -249,7 +248,6 @@ export async function createPinnedRemoteLuvus(config: LuvusProductionRemoteConfi
           if (
             source.binary_sha256 !== pin.binary_sha256 ||
             source.schema_sha256 !== pin.schema_sha256 ||
-            source.binary_version !== pin.binary_version ||
             source.adapter_revision !== pin.adapter_revision ||
             source.classification_revision !== pin.classification_revision ||
             typeof source.runtime_generation !== 'string' ||

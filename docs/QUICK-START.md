@@ -19,8 +19,9 @@ rovloom --version
 rovloom --help
 ```
 
-On each runtime device, install the approved **Luvus 0.14.3** or **Herdr 0.9.5**
-and the Agent you intend to use. Exact binary/schema requirements and the Agent's
+On each runtime device, install **Luvus or Herdr** and the Agent you intend to use.
+Compatibility uses the installed protocol and actual interfaces; versions are diagnostic.
+Actual installation identity and the Agent's
 controlled PATH are in [native installation](CONFIGURATION.md#native-installation-and-pins).
 Rovloom does not install the native programs or configure their model access.
 
@@ -189,7 +190,7 @@ requires network; with no published release it may return `release_unavailable`.
 | Configuration unreadable/not protected | Correct ownership, 0700 directories and 0600 files; avoid symlinks and hard-linked runtime files. |
 | Startup unavailable/failed | Check supplied refs, TLS/CA, paired credential, provider installation and state. |
 | HTTP 401 | Check exact `/mcp` URL, existing Bearer and expiry; management proof is separate. |
-| Device offline / provider not ready | Check WSS reachability, TLS name/CA, pairing and native binary/schema match. |
+| Device offline / provider not ready | Check WSS reachability, TLS name/CA, pairing, selected native installation identity and the required method/protocol capability. |
 | Permission/contract/revision error | Refresh provider and method descriptions; ask the administrator to check grants. |
 | Agent executable missing / `agent_bin_dir_invalid` | Check the local `agent_bin_dir` points to one normalized absolute installation directory and the Agent/model configuration uses the private HOME; restart the configured runtime. |
 | Uncertain call / storage error | Keep the original call and state; ask the administrator to recover it, without deleting ledgers or resending blindly. |
