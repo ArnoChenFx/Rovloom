@@ -53,6 +53,9 @@ jobs:
       - name: Exercise native POSIX replacement and rollback with private fixture binaries only
         if: runner.os != 'Windows'
         run: bun --no-env-file test ./test/update/posix/transaction.test.ts
+      - name: Exercise Windows product Gateway and omitted-Worker rejection before candidate build
+        if: runner.os == 'Windows'
+        run: bun --no-env-file test ./test/release/gateway-smoke.test.mjs ./test/release/publication.test.mjs
       - name: Compile and run isolated packaging probe, including omitted-Worker rejection
         run: bun --no-env-file test ./test/release/executable.test.mjs
       - name: Verify actual Windows PE icon and console subsystem
@@ -91,14 +94,16 @@ jobs:
           export ROVLOOM_SERVICE_EXECUTABLE="dist/release/$TARGET/candidate/rovloom$extension"
           bun --no-env-file scripts/service/native-smoke.mjs
       - name: Accept real standalone Gateway and explicit unsupported native roles
-        if: (runner.os == 'Linux' || runner.os == 'macOS') && matrix.target != 'bun-linux-x64'
+        if: matrix.target != 'bun-linux-x64'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          extension=''
+          if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
           version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
-          bun --no-env-file scripts/release/product-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom" "$version"
+          bun --no-env-file scripts/release/product-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom$extension" "$version"
       - name: Accept same product Gateway and Connector with official native Herdr ping
         if: matrix.target == 'bun-linux-x64'
         shell: bash

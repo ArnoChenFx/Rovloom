@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, chmodSync, mkdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import { DatabaseSync } from 'node:sqlite'
@@ -19,6 +19,7 @@ import { createManagementWriteClient } from '../../src/webui/write-client.ts'
 import { createDeviceManagementFlow } from '../../src/webui/write-flow.ts'
 import { gatewaySmokeFixture, managementProof, mcpProof } from './gateway-fixture.mjs'
 import { cleanupSmokeDirectory, runSmokeChild } from './smoke-process.mjs'
+import { requestStopPipe, windowsStopPipe } from '../../src/service/windows-control.ts'
 
 /** 固定离线公开schema仅作为受保护测试输入；原生进程、模型及长期设备凭据均不参与。 */
 function seed(f) {
@@ -145,12 +146,23 @@ function certificate(refs) {
 
 /** 子进程固定15秒期限与2MiB输出上限；失败及关闭均等待直接child的真实close。 */
 async function withGateway(binary, f, cwd, env, inspect) {
-  const child = spawn(binary, ['gateway', '--config', f.configPath], {
-    cwd,
-    env,
-    shell: false,
-    stdio: ['pipe', 'pipe', 'pipe']
-  })
+  // Windows复用既有角色关停管道；标识仅绑定本轮自有启动，不登记系统任务或声称服务验收。
+  const controlId =
+    process.platform === 'win32'
+      ? createHash('sha256')
+          .update(JSON.stringify([binary, f.configPath, cwd]))
+          .digest('hex')
+      : undefined
+  const child = spawn(
+    binary,
+    ['gateway', '--config', f.configPath, ...(controlId ? ['--non-interactive', '--service-id', controlId] : [])],
+    {
+      cwd,
+      env,
+      shell: false,
+      stdio: ['pipe', 'pipe', 'pipe']
+    }
+  )
   let stdout = ''
   let stderr = ''
   let failure
@@ -201,7 +213,11 @@ async function withGateway(binary, f, cwd, env, inspect) {
     if (failure) {
       throw failure
     }
-    child.kill('SIGTERM')
+    if (controlId) {
+      await requestStopPipe(windowsStopPipe('gateway', realpathSync(binary), f.configPath, controlId))
+    } else {
+      child.kill('SIGTERM')
+    }
     const result = await completion
     assert.equal(result.signal, null, 'product_gateway_signal')
     assert.equal(result.code, 0, 'product_gateway_exit')
@@ -216,13 +232,13 @@ async function withGateway(binary, f, cwd, env, inspect) {
   }
 }
 
-/** 仅接纳已实现私有文件语义的Linux/macOS；其它平台明确失败，不用编译探针替代角色验收。 */
+/** 六平台均以实际产品验收Gateway；Windows通过既有管道请求正常关闭，不用强杀充当成功。 */
 export async function smokeGatewayProduct(
   binary,
   version,
   assets = loadManagementAssets(join(dirname(binary), 'webui'))
 ) {
-  assert(['linux', 'darwin'].includes(process.platform), 'product_gateway_storage_platform_unsupported')
+  assert(['linux', 'darwin', 'win32'].includes(process.platform), 'product_gateway_storage_platform_unsupported')
   assert(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(version), 'product_smoke_version_required')
   const f = await gatewaySmokeFixture()
   let client
@@ -230,6 +246,10 @@ export async function smokeGatewayProduct(
   let flow
   try {
     seed(f)
+    if (process.platform === 'win32') {
+      // 只释放已close的夹具statement包装，产品尚未启动，不参与其正常关闭判定。
+      Bun.gc(true)
+    }
     if (f.legacyRuntime) {
       certificate(f.refs)
     }
@@ -242,7 +262,16 @@ export async function smokeGatewayProduct(
     const executable = join(f.root, basename(binary))
     copyFileSync(binary, executable)
     const productSha256 = createHash('sha256').update(readFileSync(executable)).digest('hex')
-    const env = { PATH: emptyPath, HOME: home, TMPDIR: f.root, LANG: 'C.UTF-8', NO_COLOR: '1' }
+    const env = {
+      PATH: emptyPath,
+      HOME: home,
+      TMPDIR: f.root,
+      LANG: 'C.UTF-8',
+      NO_COLOR: '1',
+      ...(process.platform === 'win32'
+        ? { USERPROFILE: home, TEMP: f.root, TMP: f.root, SystemRoot: process.env.SystemRoot }
+        : {})
+    }
     const checked = await runSmokeChild(executable, ['--version'], { cwd, env })
     assert.equal(checked.status, 0)
     assert.equal(checked.stdout, '')
@@ -342,6 +371,9 @@ export async function smokeGatewayProduct(
         writer = undefined
       }
     )
+    for (const name of ['gateway.db.lock', 'identity.db.lock']) {
+      assert.equal(existsSync(join(f.state, name)), false, 'product_gateway_lock_not_released')
+    }
     const database = new DatabaseSync(join(f.state, 'gateway.db'), { readOnly: true })
     try {
       assert.equal(
@@ -353,7 +385,7 @@ export async function smokeGatewayProduct(
     }
     return {
       scope: 'product-gateway',
-      platform: `${process.platform}-${process.arch}`,
+      platform: `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`,
       version,
       product_sha256: productSha256,
       isolatedBinary: true,
@@ -369,6 +401,10 @@ export async function smokeGatewayProduct(
     flow?.dispose()
     writer?.close()
     await client?.close()
+    if (process.platform === 'win32') {
+      // 产品退出和写锁释放已断言，仅回收父进程已close的只读SQLite包装后清理自有目录。
+      Bun.gc(true)
+    }
     await cleanupSmokeDirectory(f.root)
   }
 }
