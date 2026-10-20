@@ -139,11 +139,21 @@ export function readPosixPrivate(path: string, maximum: number, ownerOnly: boole
 
 // 元数据检查仍打开实际文件对象，不把路径 mode 当作之后读取描述符的证明。
 export function posixPrivateFile(path: string): void {
+  const before = lstatSync(path, { bigint: true })
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
+    throw new GatewayError('unsafe_storage_file')
+  }
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const stat = assertPrivateDescriptor(fd, false)
     const named = lstatSync(path, { bigint: true })
-    if (stat.dev !== named.dev || stat.ino !== named.ino || named.isSymbolicLink()) {
+    if (
+      stat.dev !== before.dev ||
+      stat.ino !== before.ino ||
+      stat.dev !== named.dev ||
+      stat.ino !== named.ino ||
+      named.isSymbolicLink()
+    ) {
       throw new GatewayError('unsafe_storage_file')
     }
   } finally {
