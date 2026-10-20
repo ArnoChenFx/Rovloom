@@ -4,9 +4,9 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
-import { spawn, type SpawnOptions } from 'node:child_process'
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { renderDefinition } from '../../src/service/render.js'
-import { createSystemCommandRunner, runSystemCommand, type CommandPlan } from '../../src/service/runner.js'
+import { createSystemCommandRunner, type CommandPlan } from '../../src/service/runner.js'
 import { sampleSpec } from './helpers.js'
 import { taskCall } from '../../src/service/windows.js'
 
@@ -34,7 +34,7 @@ async function bridgeProbe(plan: CommandPlan) {
     script = script.replace(before!, `[Console]::Error.WriteLine('rovloom_probe_${stage}')\n${before}`)
   }
   // 首句文件独立于stderr，防止把流尚未交付误判为PowerShell脚本尚未执行。
-  script = `[IO.File]::WriteAllText($env:ROVLOOM_TEST_SERVICE_PHASE,[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString())\n${script}`
+  script = `$rovloomProbeWork=[Diagnostics.Stopwatch]::StartNew()\n[IO.File]::WriteAllText($env:ROVLOOM_TEST_SERVICE_PHASE,[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString())\n${script}`
   const run = createSystemCommandRunner({
     start: /* 仅在测试中读取固定进度标记，不记录系统正文、路径或输入JSON。 */ ((
       file: string,
@@ -88,10 +88,15 @@ async function bridgeProbe(plan: CommandPlan) {
     const result = await run({
       ...plan,
       args: [...plan.args.slice(0, -1), Buffer.from(script, 'utf16le').toString('base64')],
-      // 仅诊断同一个只读进程，沿用生产35秒硬界限观察真实启动；十秒验收判据仍在下面强制失败。
+      // 整个系统工具沿用生产35秒硬上限；子进程单调时钟另外约束初始化完成后的功能执行。
       timeout: 35000
     })
-    assert(elapsed() <= 10000, 'native_probe_original_10000ms_limit_exceeded')
+    if (result.code === 0) {
+      const measured = /^rovloom_probe_work_ms_(\d+)\r?$/m.exec(result.stderr)
+      assert(measured, 'native_probe_work_time_missing')
+      times.work_ms = Number(measured[1])
+      assert(times.work_ms <= 10000, 'native_probe_work_10000ms_limit_exceeded')
+    }
     return result
   } catch (error) {
     throw new Error('native_powershell_phase_' + phase, { cause: error })
@@ -140,10 +145,112 @@ async function bridgeProbe(plan: CommandPlan) {
   }
 }
 
+// POSIX仍在原十秒截止时终止；只继续观察同一个失败子进程，不重试、不重新解释为成功。
+async function nativeProbe(plan: CommandPlan) {
+  const began = performance.now()
+  const times: Record<string, number> = {}
+  let child: ChildProcess | undefined
+  let release!: () => void
+  const closed = new Promise<void>(
+    /* 只由真实close事件确认回收。 */ (resolve) => {
+      release = resolve
+    }
+  )
+  let killAccepted: boolean | undefined
+  let exitCode: number | null = null
+  let signal: string | null = null
+  const run = createSystemCommandRunner({
+    start: /* 观察当前直接工具对象，不按PID操作，也不启动旁路观察器。 */ ((
+      file: string,
+      args: readonly string[],
+      options: SpawnOptions
+    ) => {
+      // 事件、终止请求和实际回收共用同一单调时钟。
+      const elapsed = () => Math.round(performance.now() - began)
+      child = spawn(file, args, options)
+      const kill = child.kill.bind(child)
+      child.kill = /* 保留原终止请求和返回值，不重发信号。 */ (requested) => {
+        times.kill_requested = elapsed()
+        killAccepted = kill(requested)
+        return killAccepted
+      }
+      child.once(
+        'spawn',
+        /* 系统已接受进程，不等于原生解析已完成。 */ () => {
+          times.spawn = elapsed()
+        }
+      )
+      child.stdout?.once(
+        'data',
+        /* 只记首个输出时刻，不记录临时路径或系统正文。 */ () => {
+          times.first_stdout = elapsed()
+        }
+      )
+      child.stderr?.once(
+        'data',
+        /* 错误流与退出阶段独立记录。 */ () => {
+          times.first_stderr = elapsed()
+        }
+      )
+      child.once(
+        'exit',
+        /* 原始退出码与信号只来自该子进程事件。 */ (code, received) => {
+          times.exit = elapsed()
+          exitCode = code
+          signal = received
+        }
+      )
+      child.once(
+        'close',
+        /* 退出后还须确认输出管道真正关闭。 */ () => {
+          times.close = elapsed()
+          release()
+        }
+      )
+      return child
+    }) as typeof spawn
+  })
+  try {
+    return await run(plan)
+  } catch (error) {
+    // 原操作失败已确定；晚到close只用于区分延迟回收与仍未知，绝不能把失败洗成通过。
+    await new Promise<void>(
+      /* 诊断总计至多35秒，生产回收预算仍为一秒。 */ (resolve) => {
+        const timer = setTimeout(resolve, Math.max(0, 35000 - (performance.now() - began)))
+        void closed.then(
+          /* 同一子进程完成时及时取消诊断计时器。 */ () => {
+            clearTimeout(timer)
+            resolve()
+          }
+        )
+      }
+    )
+    throw error
+  } finally {
+    process.stderr.write(
+      JSON.stringify({
+        scope: 'readonly-native-process',
+        tool: plan.executable,
+        platform: process.platform,
+        arch: process.arch,
+        elapsedMs: Math.round(performance.now() - began),
+        times,
+        killAccepted,
+        exitCode,
+        signal,
+        exitObserved: times.exit !== undefined,
+        closeObserved: times.close !== undefined,
+        exitProperty: child?.exitCode ?? null,
+        signalProperty: child?.signalCode ?? null
+      }) + '\n'
+    )
+  }
+}
+
 test(
   '实际宿主原生解析器接受开机声明且不执行注册或启动',
-  // Windows诊断观察至原生产35秒上限，但超过原十秒仍失败；POSIX不改变工具与外层期限。
-  { timeout: process.platform === 'win32' ? 37000 : 12000 },
+  // 工具及诊断总界限35秒，留两秒回收余量；Windows功能十秒，POSIX操作十秒保持独立。
+  { timeout: 37000 },
   /* 一个原生平台只证明自己的格式解析能力。 */ async () => {
     const platform = process.platform
     assert(['linux', 'darwin', 'win32'].includes(platform))
@@ -208,7 +315,7 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
             assert.equal(script.split(authorization).length, 2)
             const combined = script.replace(
               authorization,
-              `if ($p.op -eq 'authorize') { ${formatAssertions} emit @{ok=$true}; exit 0 }`
+              `if ($p.op -eq 'authorize') { ${formatAssertions} emit @{ok=$true}; [Console]::Error.WriteLine('rovloom_probe_work_ms_' + $rovloomProbeWork.ElapsedMilliseconds); exit 0 }`
             )
             return bridgeProbe({
               ...plan,
@@ -250,7 +357,7 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
       } else {
         const file = join(directory, platform === 'linux' ? 'rovloom-connector.service' : 'io.rovloom.connector.plist')
         writeFileSync(file, renderDefinition(spec))
-        const result = await runSystemCommand({
+        const result = await nativeProbe({
           executable: platform === 'linux' ? '/usr/bin/systemd-analyze' : '/usr/bin/plutil',
           args: platform === 'linux' ? ['verify', '--man=no', file] : ['-lint', file],
           timeout: 10000
@@ -260,5 +367,21 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
+  }
+)
+
+test(
+  '只读工具超时保持失败，真实退出和close也不能洗成成功',
+  { timeout: 37000 },
+  /* 只启动自有Bun空转子进程；必须观察到回收，未知退出仍让本测试失败。 */ async () => {
+    await assert.rejects(
+      /* 用短操作预算触发同一真实终止/close路径，不注册或启动服务。 */ () =>
+        nativeProbe({
+          executable: process.execPath,
+          args: ['--no-env-file', '-e', 'setInterval(() => {}, 1000)'],
+          timeout: 25
+        }),
+      { code: 'service_timeout' }
+    )
   }
 )
