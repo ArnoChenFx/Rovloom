@@ -10,6 +10,7 @@ import { fixture } from './helpers.js'
 import { source } from '../wire/helpers.js'
 import { G } from '../native-contract/helpers.js'
 import { LuvusAdapterError } from '../../src/connector/luvus/types.js'
+import type { NativeContractRecord } from '../../src/integration/luvus-wire.js'
 
 /** 只冻结合成纯数据，不冻结任何产品 owner、schema handle 或原生许可。 */
 function freeze<T>(value: T): T {
@@ -23,7 +24,7 @@ function freeze<T>(value: T): T {
 }
 
 /** 同一合成设备的两个原 provider 有独立 Wire/owner，只共享生产 transport 的认证连接。 */
-export function providerIsolationFixture() {
+export function providerIsolationFixture(discovered?: NativeContractRecord) {
   const offer = {
     major: 2,
     minor: 0,
@@ -51,22 +52,36 @@ export function providerIsolationFixture() {
   }
   const work = new Map<string, { signal: AbortSignal; finish(): void; refuse(): void }>()
   const clients: ReturnType<typeof createConnector>[] = []
-  const f = fixture({
-    offer,
-    retainOriginalRead: true,
-    limits: { heartbeat_ms: 30, idle_ms: 3000, handshake_ms: 500 },
-    /** 只用原 fixture 的独立 backend 构造每实例真实 Wire，不从广告建立安装来源。 */
-    session(connection, channel) {
-      return observe(
-        composeGatewaySessions(
-          connection,
-          groups(connection, 'gateway', channel),
-          /** 与 Store 同一可信时间。 */ () => f.now
-        ),
-        'gateway'
-      )
-    }
-  })
+  const f = fixture(
+    {
+      offer,
+      retainOriginalRead: true,
+      limits: { heartbeat_ms: 30, idle_ms: 3000, handshake_ms: 500 },
+      /** 只用原 fixture 的独立 backend 构造每实例真实 Wire，不从广告建立安装来源。 */
+      session(connection, channel) {
+        return observe(
+          composeGatewaySessions(
+            connection,
+            groups(connection, 'gateway', channel),
+            /** 与 Store 同一可信时间。 */ () => f.now
+          ),
+          'gateway'
+        )
+      }
+    },
+    {},
+    discovered
+      ? {
+          contract: {
+            source: discovered.wire.source,
+            compiled: discovered.compiled,
+            identity: discovered.compiled.identity,
+            capabilities: discovered.capabilities,
+            capability_revision: discovered.capability_revision
+          }
+        }
+      : {}
+  )
   const device = f.pair('synthetic_provider_isolation')
   const second = f.store.defineProvider({
     ...f.store.provider(device.machine_id, device.target.provider_id)!,
@@ -108,12 +123,19 @@ export function providerIsolationFixture() {
 
   /** 所有来源数值均为固定合成安装元数据；Wire 仍校验其真实字段、方向及连接绑定。 */
   function snapshot(binding: ProviderBinding, target: V2Target, generation = G): readonly ProviderSnapshot[] {
-    const capabilities = { id: 'synthetic_caps', result: { session: 'synthetic', server_generation: generation } }
+    const capabilities = discovered
+      ? (structuredClone(discovered.capabilities) as { result: { server_generation: string } })
+      : { id: 'synthetic_caps', result: { session: 'synthetic', server_generation: generation } }
+    capabilities.result.server_generation = generation
     return freeze([
       {
         binding: structuredClone(binding),
         target: structuredClone(target),
-        source: { ...source, runtime_generation: generation, classification_revision: 'review1' },
+        source: {
+          ...(discovered?.wire.source ?? source),
+          runtime_generation: generation,
+          classification_revision: discovered?.wire.source.classification_revision ?? 'review1'
+        },
         capabilities,
         capability_revision: hash(boundedJson(capabilities.result))
       }

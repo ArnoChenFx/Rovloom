@@ -90,7 +90,8 @@ Ctrl-C; an MCP client disconnect does not stop Gateway.
 ## 3. Prepare the native programs
 
 Install the approved official Luvus or Herdr and the Agent you intend to use.
-Current native version/byte checks and controlled PATH are described in
+Compatibility uses actual protocols and interfaces; version labels are diagnostic.
+Actual installation identity and controlled PATH are described in
 [native installation](CONFIGURATION.md#native-installation-and-pins).
 Rovloom does not yet install them or configure model access. A running Gateway
 or an accepted configuration does not establish a usable native provider.

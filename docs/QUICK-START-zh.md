@@ -73,7 +73,8 @@ Connector 机器使用 `--role connector`。无选项检查读取两份默认用
 
 ## 3. 准备原生程序
 
-安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。当前原生版本/字节校验与
+安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。兼容性按实际协议和接口能力判断，
+版本仅用于诊断。本机安装身份与
 受控 PATH 见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。Rovloom 尚未自动
 安装这些程序或配置模型访问。Gateway 已启动或配置通过不代表原生 provider 可用。
 

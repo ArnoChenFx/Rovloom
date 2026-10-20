@@ -20,19 +20,18 @@ import {
 } from '../connector/luvus/local.js'
 import { deadline, runFixedProcess, runSocket } from '../connector/luvus/io.js'
 import { parseRpcFrame } from '../connector/luvus/adapter.js'
-import { compileBundle, createNativeValidator, parseNativeJson } from '../native-contract/index.js'
+import { createNativeValidator, parseNativeJson } from '../native-contract/index.js'
 import type { TrustedNativeContext } from '../native-contract/index.js'
 import type { NativeContractRecord } from '../integration/luvus-wire.js'
 import { boundedJson } from '../wire/index.js'
 import type { AttemptBinding, ContractSource } from '../wire/types.js'
 import { OwnedNativeProcess, ownedPathStamp } from './native-process.js'
 import { NativeCustodyContext } from './native-context.js'
-import { FIXED_LUVUS_SHA256, FIXED_LUVUS_SCHEMA_SHA256 } from './native-control.js'
+import { FIXED_LUVUS_SHA256, discoverLuvusInstallation } from './native-control.js'
 
 export const DEVELOPMENT_LUVUS_SHA256 = FIXED_LUVUS_SHA256
 export const DEVELOPMENT_LUVUS_REVISION = 'development-owned-luvus-0.14.3-1'
 export const DEVELOPMENT_LUVUS_CLASSIFICATION = 'development-owned-rpc-1'
-const officialSchema = FIXED_LUVUS_SCHEMA_SHA256
 const owned = Symbol('owned-development-luvus')
 const markerName = '.rovloom-development-owner'
 
@@ -82,12 +81,7 @@ function developmentConfig(
     throw new LuvusAdapterError('development_opt_in_required')
   }
   const fixed = pinConfig(config)
-  if (
-    !process.versions.bun ||
-    process.arch !== 'x64' ||
-    fixed.transport !== 'ipc' ||
-    fixed.binary_sha256 !== DEVELOPMENT_LUVUS_SHA256
-  ) {
+  if (!process.versions.bun || process.arch !== 'x64' || fixed.transport !== 'ipc') {
     throw new LuvusAdapterError('development_installation_unsupported')
   }
   const roots = [fixed.home, fixed.cwd, fixed.state_root]
@@ -262,25 +256,11 @@ export async function startDevelopmentLuvus(
     assertBlankRoots(fixed)
     await verifyInstallation(fixed)
     markers = claimBlankRoots(fixed)
-    const schema = await runFixedProcess(fixed, limits, 'schema', scope.signal)
-    if (schema.exit_code !== 0 || hash(schema.stdout) !== officialSchema) {
-      throw new LuvusAdapterError('development_schema_mismatch')
-    }
-    const compiled = await compileBundle(
-      schema.stdout,
-      {
-        identity: {
-          binary_sha256: fixed.binary_sha256,
-          schema_sha256: officialSchema,
-          revision: DEVELOPMENT_LUVUS_REVISION
-        }
-      },
-      scope.signal
-    )
-    if (!compiled.ok) {
-      throw new LuvusAdapterError(compiled.error.code)
-    }
-    const validator = createNativeValidator(compiled.value)
+    const discovery = await discoverLuvusInstallation(fixed, {
+      revision: DEVELOPMENT_LUVUS_REVISION,
+      signal: scope.signal
+    })
+    const validator = createNativeValidator(discovery.compiled)
     child = new OwnedNativeProcess(fixed)
     await child.started()
     const ownedChild = child
@@ -393,7 +373,8 @@ export async function startDevelopmentLuvus(
       capabilities.session !== fixed.target.session ||
       protocol?.name !== 'luvus-uhp' ||
       protocol.major !== 1 ||
-      protocol.minor !== 0
+      !Number.isSafeInteger(protocol.minor) ||
+      (protocol.minor as number) < 0
     ) {
       throw new LuvusAdapterError('development_capabilities_invalid')
     }
@@ -407,13 +388,13 @@ export async function startDevelopmentLuvus(
     const source: ContractSource = Object.freeze({
       provider_kind: 'luvus',
       protocol_family: 'uhp',
-      binary_version: '0.14.3',
+      binary_version: discovery.binaryVersion,
       binary_sha256: fixed.binary_sha256,
-      schema_sha256: officialSchema,
+      schema_sha256: discovery.compiled.identity.schema_sha256,
       schema_origin: 'installed_cli',
       schema_command: 'luvus uhp schema',
-      server_version: '0.14.3',
-      native_protocol_version: '1.0',
+      server_version: null,
+      native_protocol_version: `${protocol.major}.${protocol.minor}`,
       runtime_generation: capabilities.server_generation,
       adapter_revision: DEVELOPMENT_LUVUS_REVISION,
       classification_revision: DEVELOPMENT_LUVUS_CLASSIFICATION,
@@ -428,7 +409,7 @@ export async function startDevelopmentLuvus(
     }
     const contract = Object.freeze({
       wire: Object.freeze({ source, support_status: 'validated' as const }),
-      compiled: compiled.value,
+      compiled: discovery.compiled,
       capabilities: immutableCaps.value,
       capability_revision: hash(boundedJson(capabilities, limits.discovery_bytes))
     })

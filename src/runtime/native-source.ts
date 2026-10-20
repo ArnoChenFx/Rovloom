@@ -26,12 +26,7 @@ import { assertManagedRoot, claimManagedRoot } from './native-root.js'
 import type { ManagedLuvusRoot } from './native-root.js'
 import { checkedNativeCustodyIntent, consumeNativeCustodyApproval } from './native-custody.js'
 import type { NativeCustodyAuthorizer, NativeCustodyIntent } from './native-custody.js'
-import {
-  assertControlledLuvus,
-  controlledLuvusRpc,
-  startControlledLuvus,
-  FIXED_LUVUS_SCHEMA_SHA256
-} from './native-control.js'
+import { assertControlledLuvus, controlledLuvusRpc, startControlledLuvus } from './native-control.js'
 import type { ControlledLuvusSession } from './native-control.js'
 import { OwnedProcessShutdownError } from './native-process.js'
 
@@ -110,14 +105,15 @@ function observedContract(
   observed: Readonly<{ frame: Record<string, unknown>; result: Record<string, unknown> }>
 ): NativeContractRecord {
   assertControlledLuvus(control)
-  return observedLuvusContract(control.config, control.compiled, observed)
+  return observedLuvusContract(control.config, control.compiled, observed, control.binaryVersion)
 }
 
 /** 共享真实能力快照到安装契约的纯映射；调用者必须先建立自身实际 socket/process 来源。 */
 export function observedLuvusContract(
   config: LuvusLocalConfig,
   compiled: CompiledContract,
-  observed: Readonly<{ frame: Record<string, unknown>; result: Record<string, unknown> }>
+  observed: Readonly<{ frame: Record<string, unknown>; result: Record<string, unknown> }>,
+  binaryVersion = 'unavailable'
 ): NativeContractRecord {
   const value = observed.result
   const protocol = value.protocol as Record<string, unknown> | undefined
@@ -128,7 +124,8 @@ export function observedLuvusContract(
     value.session !== config.target.session ||
     protocol?.name !== 'luvus-uhp' ||
     protocol.major !== 1 ||
-    protocol.minor !== 0
+    !Number.isSafeInteger(protocol.minor) ||
+    (protocol.minor as number) < 0
   ) {
     throw new LuvusAdapterError('native_source_capabilities_invalid')
   }
@@ -140,13 +137,16 @@ export function observedLuvusContract(
   const source: ContractSource = Object.freeze({
     provider_kind: 'luvus',
     protocol_family: 'uhp',
-    binary_version: '0.14.3',
+    binary_version: binaryVersion,
     binary_sha256: config.binary_sha256,
-    schema_sha256: FIXED_LUVUS_SCHEMA_SHA256,
+    schema_sha256: compiled.identity.schema_sha256,
     schema_origin: 'installed_cli',
     schema_command: 'luvus uhp schema',
-    server_version: '0.14.3',
-    native_protocol_version: '1.0',
+    server_version:
+      typeof value.version === 'string' && value.version.length > 0 && value.version.length <= 128
+        ? value.version
+        : null,
+    native_protocol_version: `${protocol.major}.${protocol.minor}`,
     runtime_generation: value.server_generation,
     adapter_revision: MANAGED_LUVUS_REVISION,
     classification_revision: MANAGED_LUVUS_CLASSIFICATION,

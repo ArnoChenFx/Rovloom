@@ -24,8 +24,9 @@ import {
   HerdrProcessBinding,
   herdrEnvironment,
   inspectHerdrPath,
-  launchHerdrProcess,
-  pinHerdrConfig
+  pinHerdrConfig,
+  verifyHerdrInstallation,
+  measureHerdrInstallation
 } from '../../../src/connector/herdr/local.js'
 import type { HerdrLocalConfig, HerdrEndpoint } from '../../../src/connector/herdr/local.js'
 import { exchangeHerdr, herdrDeadline, runHerdrCommand, withHerdrSocket } from '../../../src/connector/herdr/io.js'
@@ -619,12 +620,18 @@ test(
 )
 
 test(
-  'invalid installation and external ChildProcess cannot mint a process binding',
-  /** 合成 binary 不匹配 pin，来源伪造均拒绝；本用例从不执行合成文件。 */ async () => {
+  'actual installation measurement and external ChildProcess do not mint a process binding',
+  /** 实际合成字节可测量，配置摘要不符和来源伪造均拒绝；本例不执行文件。 */ async () => {
     const root = privateRoot()
     try {
       const config = configFixture(root)
-      await assert.rejects(launchHerdrProcess(config), code('herdr_binary_identity_changed'))
+      const measured = measureHerdrInstallation(config)
+      assert.match(measured.sha256, /^[a-f0-9]{64}$/u)
+      assert.equal(verifyHerdrInstallation(config, measured.sha256), measured.stamp)
+      assert.throws(
+        /** 实际配置摘要不符时在执行前拒绝。 */ () => verifyHerdrInstallation(config, '0'.repeat(64)),
+        code('herdr_binary_identity_changed')
+      )
       assert.throws(
         /** 即使拥有 ChildProcess 对象也没有模块私有凭据。 */ () =>
           Reflect.construct(HerdrProcessBinding, [config, new ChildProcess(), {}]),

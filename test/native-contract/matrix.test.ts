@@ -225,7 +225,14 @@ function capabilityCase(c: any): any {
   } else if (profile === 'session' && value.result.session) {
     trusted.binding.target.session = value.result.session
   }
-  return validator.bindCapabilities(value, trusted)
+  const bound = validator.bindCapabilities(value, trusted)
+  if (c.id === 'C-unknown-access') {
+    const isolated = unwrap(bound)
+    const method = value.result.method_contracts[0].method
+    assert(validator.checkRawRequest(isolated, { id: 'healthy', method: 'pane.list', params: {} }).ok)
+    return validator.checkRawRequest(isolated, { id: 'isolated', method, params: {} })
+  }
+  return bound
 }
 // 按场景选择形状校验或绑定请求校验，覆盖响应 ID、类型、模式和身份约束。
 function responseCase(c: any): any {

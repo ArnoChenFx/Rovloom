@@ -114,20 +114,34 @@ export function pinConfig(config: LuvusLocalConfig): LuvusLocalConfig {
   }
   return Object.freeze(snapshot)
 }
-/** 检查二进制读前读后身份及内容哈希，同时要求状态和子进程目录保持私有。 */
-export async function verifyInstallation(config: LuvusLocalConfig): Promise<string> {
-  const before = await inspect(config.binary, 'binary')
+/** 测量实际安装文件的身份与摘要，不要求预设版本或发行版摘要。 */
+export async function measureLuvusInstallation(binary: string): Promise<Readonly<{ stamp: string; sha256: string }>> {
+  const before = await inspect(binary, 'binary')
   const digest = createHash('sha256')
-  for await (const bytes of createReadStream(config.binary)) {
+  let total = 0
+  for await (const bytes of createReadStream(binary)) {
+    total += bytes.length
+    if (total > 268_435_456) {
+      throw new LuvusAdapterError('binary_identity_changed')
+    }
     digest.update(bytes)
   }
-  if (digest.digest('hex') !== config.binary_sha256 || (await inspect(config.binary, 'binary')) !== before) {
+  if ((await inspect(binary, 'binary')) !== before) {
+    throw new LuvusAdapterError('binary_identity_changed')
+  }
+  return Object.freeze({ stamp: before, sha256: digest.digest('hex') })
+}
+
+/** 检查本轮实际安装未被替换，同时要求状态和子进程目录保持私有。 */
+export async function verifyInstallation(config: LuvusLocalConfig): Promise<string> {
+  const measured = await measureLuvusInstallation(config.binary)
+  if (measured.sha256 !== config.binary_sha256) {
     throw new LuvusAdapterError('binary_identity_changed')
   }
   for (const path of [config.state_root, config.home, config.cwd, ...childDirectories(config)]) {
     await inspect(path, 'directory')
   }
-  return before
+  return measured.stamp
 }
 /** 列出固定 HOME 下供子进程使用的私有 XDG 目录。 */
 function childDirectories(config: LuvusLocalConfig): string[] {
@@ -151,7 +165,13 @@ export function childEnvironment(config: LuvusLocalConfig): NodeJS.ProcessEnv {
   }
 }
 /** 仅生成 schema、会话发现或 proxy 的固定 argv；不接受请求参数或任意 shell 文本。 */
-export function fixedArguments(config: LuvusLocalConfig, command: 'schema' | 'sessions' | 'proxy'): string[] {
+export function fixedArguments(
+  config: LuvusLocalConfig,
+  command: 'schema' | 'sessions' | 'proxy' | 'version'
+): string[] {
+  if (command === 'version') {
+    return ['--version']
+  }
   return [
     '--session',
     config.target.session,
