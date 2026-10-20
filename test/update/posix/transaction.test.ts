@@ -8,7 +8,7 @@ import { createPosixUpdater } from '../../../src/update/posix/transaction.js'
 import { probeVersion } from '../../../src/update/posix/policy.js'
 import { handleUpdateCommand } from '../../../src/update/command.js'
 import { runSystemCommand } from '../../../src/service/runner.js'
-import { cleanupBinaries, newVersion, oldVersion, setup } from './helpers.js'
+import { cleanupBinaries, compiled, newVersion, oldVersion, setup } from './helpers.js'
 
 test(
   'a failed exclusive candidate open never deletes an unowned file',
@@ -739,3 +739,52 @@ test(
     }
   }
 )
+
+for (const startup of ['exit', 'timeout'] as const) {
+  test(
+    `fixture startup ${startup} reports its cause and removes the failed setup`,
+    { timeout: 45_000 },
+    /* 只替换本测试自编译缓存中的旧样例，结束后恢复；不执行产品更新或改系统服务。 */ async () => {
+      if (process.platform === 'win32') {
+        return
+      }
+      const binary = await compiled()
+      const backup = join(binary.directory, 'startup-original')
+      await fs.rename(binary.old, backup)
+      try {
+        await fs.writeFile(
+          binary.old,
+          '#!/bin/sh\nprintf "fixture-startup-root:%s\\n" "$PWD" >&2\n' +
+            (startup === 'exit' ? 'exit 7\n' : 'exec /bin/sleep 30\n'),
+          { mode: 0o750 }
+        )
+        let failedRoot: string | undefined
+        await assert.rejects(
+          /* 初始角色启动失败必须经过 setup 自己的清理，而不是依赖尚未返回的 f.cleanup。 */ () => setup(),
+          /* 退出与超时保持不同分类，真实 stderr 给出本例临时根。 */ (error) => {
+            assert(error instanceof Error && 'stderr' in error && typeof error.stderr === 'string')
+            assert('exitCode' in error && 'signal' in error)
+            failedRoot = /^fixture-startup-root:([^\n]+)\n$/u.exec(error.stderr)?.[1]
+            assert(failedRoot)
+            if (startup === 'exit') {
+              assert.match(error.message, /^fixture exited before readiness /u)
+              assert.equal(error.exitCode, 7)
+              assert.equal(error.signal, null)
+            } else {
+              assert.match(error.message, /^fixture readiness timeout /u)
+              assert.equal(error.exitCode, null)
+              assert.equal(error.signal, null)
+            }
+            return true
+          }
+        )
+        await assert.rejects(/* 子进程真正 close 后，失败 fixture 根应已回收。 */ () => fs.stat(failedRoot!), {
+          code: 'ENOENT'
+        })
+      } finally {
+        await fs.rm(binary.old, { force: true })
+        await fs.rename(backup, binary.old)
+      }
+    }
+  )
+}
