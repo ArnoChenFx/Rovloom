@@ -16,7 +16,10 @@ const direct = Object.freeze({
     'module.action.invoke',
     'agent.report',
     'pane.report_session',
-    'pane.report_event'
+    'pane.report_event',
+    'agent.keys',
+    'task.done',
+    'task.retry'
   ]),
   herdr: new Set(['pane.send_text', 'pane.send_keys', 'pane.send_input', 'pane.link.activate'])
 })
@@ -53,7 +56,7 @@ export function pinTerminalExecution(value: unknown): boolean {
   return value === true
 }
 
-/** 判断可直接写 shell、启动自定义程序或保存恢复命令的输入；普通 Agent 对话不落入此分类。 */
+/** 判断可直接写 shell、启动自定义程序或保存恢复命令的输入；普通 Agent 文本对话不落入此分类。 */
 export function requiresTerminalExecution(
   kind: TerminalExecutionKind,
   method: string,
@@ -61,6 +64,14 @@ export function requiresTerminalExecution(
 ): boolean {
   if (direct[kind].has(method)) {
     return true
+  }
+  // task.add 保存的 gate 会被后续 task.done 通过 shell 执行；空白 gate 不会运行。
+  if (kind === 'luvus' && method === 'task.add') {
+    return typeof params.gate === 'string' && params.gate.trim().length > 0
+  }
+  // task.start 的 agent 是可自定义的 executable/argv，不能当作受信 Agent kind。
+  if (kind === 'luvus' && method === 'task.start') {
+    return typeof params.agent === 'string' && params.agent.trim().length > 0
   }
   if (!launches[kind].has(method)) {
     return false

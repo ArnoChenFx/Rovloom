@@ -21,7 +21,10 @@ const direct = {
     'module.action.invoke',
     'agent.report',
     'pane.report_session',
-    'pane.report_event'
+    'pane.report_event',
+    'agent.keys',
+    'task.done',
+    'task.retry'
   ],
   herdr: ['pane.send_text', 'pane.send_keys', 'pane.send_input', 'pane.link.activate']
 } as const
@@ -67,20 +70,38 @@ for (const kind of ['luvus', 'herdr'] as const) {
     /** 开关不声称限制 Agent 自身工具；不会把普通对话归类为裸 shell。 */ () => {
       for (const method of [
         'agent.prompt',
-        'agent.send',
-        'agent.keys',
-        'agent.send_keys',
         'agent.read',
         'pane.read',
-        'terminal.backend.capture',
-        'ping'
+        'ping',
+        ...(kind === 'luvus' ? ['agent.send', 'terminal.backend.capture'] : ['agent.send_keys'])
       ]) {
         assert.equal(terminalExecutionAllowed(kind, method, { target: 'owned-agent', text: 'synthetic' }), true)
       }
       assert.equal(terminalExecutionAllowed(kind, 'agent.start', { name: 'owned', kind: 'opencode', args: [] }), true)
+      if (kind === 'herdr') {
+        assert.equal(terminalExecutionAllowed(kind, 'agent.send_keys', { target: 'owned-agent', keys: ['a'] }), true)
+      }
     }
   )
 }
+
+test(
+  'Luvus task gates and custom worker commands share the terminal switch',
+  /** 保存 shell gate、触发旧 gate 与自定义 worker 命令各自形成执行入口，不能仅检查显式 pane 输入。 */ () => {
+    for (const gate of [undefined, null, '', ' \n\t ']) {
+      assert.equal(terminalExecutionAllowed('luvus', 'task.add', { title: 'synthetic', gate }), true)
+    }
+    for (const gate of ['printf synthetic', '\n printf synthetic \n']) {
+      assert.equal(terminalExecutionAllowed('luvus', 'task.add', { title: 'synthetic', gate }), false)
+      assert.equal(terminalExecutionAllowed('luvus', 'task.add', { title: 'synthetic', gate }, true), true)
+    }
+    assert.equal(terminalExecutionAllowed('luvus', 'task.start', { id: 'owned' }), true)
+    assert.equal(terminalExecutionAllowed('luvus', 'task.start', { id: 'owned', agent: '/bin/sh -c true' }), false)
+    assert.equal(terminalExecutionAllowed('luvus', 'task.done', { id: 'owned' }), false)
+    assert.equal(terminalExecutionAllowed('luvus', 'task.retry', { id: 'owned' }), false)
+    assert.equal(terminalExecutionAllowed('luvus', 'task.update', { id: 'owned', note: 'synthetic' }), true)
+  }
+)
 
 for (const [kind, method] of [
   ['luvus', 'agent.start'],

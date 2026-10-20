@@ -22,9 +22,12 @@
 | Luvus `pane.run`、`pane.send_input`、`terminal.backend.create/control/type_literal/paste_text/submit_text/send_key` | 关闭时拒绝，不能改用另一输入方法绕过 |
 | Luvus `module.action.invoke` | 可调用本地模块动作，按可执行入口拒绝 |
 | Luvus `agent.report`、`pane.report_session`、`pane.report_event` | 可改变原生 Agent 判断，关闭时拒绝，避免先把 shell 标记为 Agent 再输入 |
+| Luvus `agent.keys` | 仅有 report/session 等标签不能独立证明当前前台真 Agent，关闭时一律保守拒绝；开启时留下的旧报告、session 或 terminal fence 不能绕过随后关闭 |
+| Luvus `task.add` / `task.start` | 非空白 `gate` / 自定义 `agent` 命令分别需要开启；普通无 gate 任务记录保持可用，`task.update` 不接受 gate，继续交给完整原生 schema 拒绝 |
+| Luvus `task.done` / `task.retry` | 可分别执行已保存的 gate 或重启原 automation run；当前请求不包含完整执行来源，关闭时保守拒绝 |
 | Herdr `pane.send_text/send_keys/send_input`、`pane.link.activate` | 关闭时拒绝；链接可调用本地处理器 |
 | Agent 启动、workspace/tab/pane 创建及会话恢复/报告 | 非空 `command`、`args`、`env`、`resume_command`、`resume_argv` 需要开启；不能通过启动环境或恢复命令绕过 |
-| 普通 Agent 对话、读取、无自定义启动参数的 `agent.start` | 保留已有独立原生身份、分类和 caller/local grants，不由此开关默认禁用 |
+| 普通 Agent 文本对话、读取、无自定义启动参数的 `agent.start` | 保留已有独立原生门禁、分类和 caller/local grants，不由此开关默认禁用；Herdr 的 Agent 按键继续保留其原生运行进程检查 |
 
 准确的方法/参数集合由 [共享判定](../src/connector/terminal-execution.ts)维护；目录对直接
 方法使用 `requiresTerminalExecution(kind, method)`，具体参数预检使用
@@ -38,6 +41,11 @@ Luvus adapter 在发现前检查，在原 Wire、安装、peer、最终帧预算
 `createHerdrRuntime` 第四个可选同步读取器有同样用途，检查位于原
 `exchangeHerdr.prepare.current()` 和 `beforeWrite()`。读取失败或非 `true` 不授予许可。
 没有读取器时使用本轮已 pin 的本地配置，变更须重建对应宿主资源；不得只更新目录。
+
+Luvus `is_agent_pane` 接纳报告和 session 标记，不是当前前台进程证明。故按键入口即使
+面向真正 Agent，也须先开启此开关；不通过一次检查或旧报告发放后续按键许可。文本
+`agent.send/prompt` 仍复用原生目标与 prompt-readiness 门禁；Connector 不将该门禁、
+返回的状态或终端画面称为独立的实时前台身份核验，也不承诺隔离 Agent 内部工具。
 
 ## 执行环境与结果
 
@@ -67,6 +75,10 @@ Add the optional boolean `allow_terminal_execution` to the trusted Connector loc
 It defaults to `false`; only literal `true` enables direct terminal inputs and custom launch or
 restore commands. Existing Agent conversations retain their separate native and caller/local
 authorization. This switch is not an OS sandbox for Agent tools.
+Luvus raw `agent.keys` requires the switch even with existing report/session labels, because
+those labels do not prove the current foreground program. Ordinary native text prompts keep
+their own admission path. Nonblank task gates, custom task worker commands, and task completion
+or retry paths that can execute saved commands are also covered; plain task records remain usable.
 
 Both adapters recheck the current local switch immediately before their existing native write.
 Catalog filtering must use the same shared predicate. The CLI loader and joint catalog integration
@@ -77,5 +89,7 @@ after dispatch remains unknown and is not replayed. No existing real machine is 
 ## 原生研究依据
 
 - [Luvus 固定版本 Agent 判断与输入](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch/agents.rs)：Agent 输入不回退到普通 pane；报告状态也影响 `is_agent_pane`。
+- [Luvus 固定版本任务分派](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/dispatch/orchestration.rs)：`task.add` 保存 gate，`task.start` 可提交自定义 agent 命令；`task.update` 不接收 gate。
+- [Luvus 固定版本任务执行](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/board.rs)：任务完成可启动 shell gate，automation task retry 可重启原运行；不能仅从本次请求有无命令判断其可执行性。
 - [Luvus 固定版本终端生命周期](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/src/app/backend.rs)：create 完成与短命令退出存在竞态，退出事件来自原生进程回收。
 - [Herdr 固定版本 Agent 输入](https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/app/api/agents.rs)：Agent target、运行态与输入成功独立检查，输入 ack 不提供 shell 命令退出证据。
