@@ -10,6 +10,12 @@
 当前预览的 runtime 要求 **Linux x64**。尚无公开安装包，请从管理员取得已批准的
 单文件程序并放入 PATH。先运行 `rovloom --version` 和 `rovloom --help` 检查程序。
 
+以下首次引导需在 Connector 机器安装官方 **Luvus**。程序只搜索 `/usr/bin:/bin`，
+不继承 shell PATH。安装在其它目录时，先运行一次 `rovloom connector` 生成角色文件，
+把可选 `native.runtime_bin_dir` 设为单个绝对安装目录，再运行。Agent 安装在其它目录时，
+原生初始化前也需设置 `native.agent_bin_dir`，见[安装目录设置](CONFIGURATION-zh.md#agent-安装目录)。
+安装 Agent 和完成模型认证是对话的独立前提。
+
 Gateway 机器运行：
 
 ```sh
@@ -22,19 +28,26 @@ rovloom gateway
 rovloom connector
 ```
 
-第一条命令会创建缺失的 `~/.config/rovloom/gateway.json`，启动本地 Gateway，输出
-`gateway_listening` 和 `pairing_required`。默认 MCP 为 `http://127.0.0.1:9444/mcp`，
+两条命令都在真实本地终端运行。第一条创建缺失的 `~/.config/rovloom/gateway.json`，
+启动 Gateway 并询问是否允许配对一个 Connector。输入 `y` 后，终端私下显示有效期
+五分钟的一次性配对码。默认 MCP 为 `http://127.0.0.1:9444/mcp`，
 设备 WS 监听为 `127.0.0.1:9443`，本地管理页为 `http://127.0.0.1:9445/`。
 未配对 Gateway 不授予 MCP 身份或管理员权限，打开页面不等于默认管理员登录。
 
-第二条命令会创建缺失的 `~/.config/rovloom/connector.json`，然后以
-`configuration_required`（2）退出。**输入地址/配对码的交互引导、一次性配对交付和
-自动原生初始化尚未接通。** 本预览还不能让全新设备完成部署。既有安装仍需要已准备的
-程序管理配对身份、provider 状态及 MCP caller 接入；编辑 JSON 或看到配对进度不代表
-这些资源已建立。不要手工构造摘要、绑定或凭据。
+Connector 创建缺失的 `~/.config/rovloom/connector.json` 后，输入 Gateway 地址
+（同机为 `ws://127.0.0.1:9443`）、粘贴不回显的一次性码，并确认信任该 Gateway。
+程序先持久保存设备身份，再确认交付。随后确认发现本机 Luvus 并初始化隔离状态；
+回到 Gateway 终端，批准这台设备的实测安装及已审核的普通窗口/Agent 权限。
 
-非交互输入下 Connector 会立即返回，不等待 stdin。产品没有 `init` 或 `pair` 命令。
-后续步骤适用于管理员已提供可用安装的情况，不表示全新设备已完成初始化。
+Gateway 私下显示 MCP Bearer 与完整 Target，然后重开 provider。等待 Gateway 输出
+**`connector_ready`**；它来自实际认证连接和在线原生 provider，不表示模型已认证或
+Agent 已回复。不要手工构造摘要、绑定或凭据。
+
+此首次引导只初始化**一个 Luvus provider**。Herdr/混合首次初始化、引导恢复和续期仍缺失；
+已准备好的 Herdr 安装可使用后续客户端步骤。配对交付或原生创建结果不确定时，保留
+原始数据并由所有者核查，不删除账本、不另注册身份，也不假定可安全重试。
+非 TTY 输入始终不等待 stdin；缺少初始化返回 `configuration_required`（2）。
+产品没有 `init` 或 `pair` 命令，service 安装仍不可用。
 
 ## 2. 配置与网络
 
@@ -52,6 +65,8 @@ JSON 内路径必须是规范绝对路径，不展开 `~`、变量或相对配�
 完整示例和所有参数见[配置参考](CONFIGURATION-zh.md)。文件权限为 `0600`，所在私有
 目录为 `0700`，属于角色用户。程序管理的状态、数据库和凭据位于角色数据目录，
 无需准备用户 `runtime.json`、ref 清单、CA 或证书文件。
+Luvus 首次初始化要求 `<data.directory>/n` 最多 **52 个 UTF-8 字节**，以适配原生
+Unix socket 路径。需要时在配对前选择较短数据目录；程序会在兑换身份之前拒绝过长路径。
 
 另一台设备接入时，为 Gateway 的 `devices.hostname` 设置合适的监听地址，并把
 Connector 的 `gateway.url` 设为可达的 `ws://host:port` 或 `wss://host:port` origin，
@@ -74,8 +89,10 @@ Connector 机器使用 `--role connector`。无选项检查读取两份默认用
 ## 3. 准备原生程序
 
 安装已批准的官方 Luvus 或 Herdr，以及计划使用的 Agent。兼容性按实际协议和方法能力判断，版本仅用于诊断。实际安装身份与
-受控 PATH 见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。Rovloom 尚未自动
-安装这些程序或配置模型访问。Gateway 已启动或配置通过不代表原生 provider 可用。
+受控 PATH 见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。Rovloom 经首次明确
+批准后会发现并初始化已安装的 Luvus，不安装 binary 或配置 Agent/模型访问。
+原生进程使用全新的私有 HOME/XDG，不复制普通 home 中的登录。本预览还没有模型登录
+引导；预期对话前需由机器所有者准备该私有 Agent 环境。原生 ready 不证明此前提已满足。
 
 ## 4. 配置 AI Agent 的 MCP 客户端
 
@@ -87,15 +104,16 @@ Connector 机器使用 `--role connector`。无选项检查读取两份默认用
 | URL | `http://127.0.0.1:9444/mcp` |
 | Authorization header | `Bearer <EXISTING_MCP_BEARER>` |
 
-使用为精确端点和 caller 提供的既有 Bearer，将它保存在客户端秘密存储中。
-Gateway 在程序管理的身份状态中保存其摘要和有效期。管理证明和设备凭据是另外的凭据。
+使用 Gateway 批准后私下显示的 Bearer，或为精确端点和 caller 提供的既有 Bearer，
+将它保存在客户端秘密存储中。首次引导将原值保留于私有 `managed/mcp-client.json`，
+有效期30天，同时保存摘要和有效期。管理证明和设备凭据是另外的凭据。
 MCP 仅监听 loopback，远程客户端需要管理员安排本地/隧道访问方式。CLI 不是 stdio MCP 服务。
 
 让客户端完成 MCP 初始化并加载**全部工具页**。在工具运行界面执行，或要求 Agent 依次完成：
 
 1. 用 `machines_list`、`providers_list`、`providers_get` 选择实际 `machine_id` / `provider_id`，
    核对当前 `binding_revision` 和就绪状态。
-2. 向管理员取得该 provider 的完整 Target：`machine_id`、`provider_id`、`profile`，
+2. 使用首次引导显示的完整 Target，或向管理员取得：`machine_id`、`provider_id`、`profile`，
    session profile 还须有精确的 `session`。`providers_list` / `providers_get` 不返回
    `profile` 或 `session`，不要猜测或从 provider 名称推导 session。核对交付的设备/provider
    ID 与选择一致，再用此 Target 和实测 revision（作为 `expected_binding_revision`）
@@ -124,8 +142,8 @@ Herdr 使用自身 schema 和 `validation:"strict"`。不要复制其他设备�
 `agent.send`、`agent.wait`、`agent.keys` 使用 strict 校验，其余已审普通方法需要 raw 授权。
 本地 `allow_terminal_execution` 默认 false，关闭时仍可使用严格文本对话；自定义 argv/env
 和直接终端输入需要明确本地许可。Agent 必须位于原生 runtime 的受控 PATH，并在私有 HOME 配好模型访问。
-默认 PATH 是 `/usr/bin:/bin`。既有原生集成支持所有者选择一个 Agent 安装目录，
-但新的用户初始化流程尚未接通这份本地 runtime 配置的创建。不要用任意 argv/env
+默认 PATH 是 `/usr/bin:/bin`。Agent 在其它目录时，首次原生初始化前在 Connector
+用户文件设置可选 `native.agent_bin_dir`。不要用任意 argv/env
 绕过 `allow_terminal_execution:false`。见[原生安装要求](CONFIGURATION-zh.md#原生安装与-pins)。
 
 发送含独特短语的无害首条消息，读取真实回复，再请同一个 Agent 回忆该短语。
@@ -146,11 +164,12 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 
 | 问题 | 处理 |
 |---|---|
-| `pairing_required` / `configuration_required` | Gateway 可以本地等待，但全新配对/原生初始化仍是产品缺口；只填写地址无法完成配对。 |
+| `pairing_required` / `configuration_required` | 在真实本地终端完成地址、一次性码、Luvus 安装和两次所有者批准；只填写地址不建立身份。结果不确定时保留原 attempt，不另注册或删除状态。 |
+| `native_state_path_too_long` | 配对前选择较短 `data.directory`；`<data.directory>/n` 须≤52个UTF-8字节。 |
 | home/路径/配置/角色错误 | 检查进程用户、精确角色文件和绝对路径，使用 `--config` 与配置检查；已有坏文件会保留。 |
 | 不可读或权限不安全 | 检查所有者、私有目录与文件权限，避免链接；产品不会静默修复已有权限。 |
 | 监听失败 | 检查端口、地址可用性和数据目录所有者。 |
-| HTTP 401 | 检查精确 `/mcp` URL、既有 Bearer 与期限；未配对 Gateway 拒绝全部 caller。 |
+| HTTP 401 | 检查精确 `/mcp` URL、已签发 Bearer 与期限；未配对 Gateway 拒绝全部 caller。续期引导尚未实现。 |
 | 离线/provider 未就绪 | 检查 WS/WSS 可达性、系统 TLS 信任、配对、所选安装身份及所需方法/协议能力。 |
 | 权限/契约/revision 错误 | 刷新 provider/方法描述并核实授权。 |
 | 找不到 Agent 程序 | 检查 runtime 受控 PATH 和私有 HOME 中的模型访问，不绕过终端开关。 |

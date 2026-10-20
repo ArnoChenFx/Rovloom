@@ -4,6 +4,7 @@ import { dirname, posix, win32 } from 'node:path'
 import { userInfo } from 'node:os'
 import { canonical } from '../contracts.js'
 import { parseNativeJson } from '../native-contract/json.js'
+import { agentSearchPath } from '../connector/local/agent-path.js'
 
 export type GatewayConfig = Readonly<{
   schema_version: 1
@@ -24,6 +25,7 @@ export type ConnectorConfig = Readonly<{
   state_dir: string
   gateway_url: string
   provider_config_refs: readonly string[]
+  native?: Readonly<{ runtime_bin_dir?: string; agent_bin_dir?: string }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
 
@@ -175,17 +177,29 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
         authentication_ref: 'mcp-callers'
       })
     }
-    exact(input, ['schema_version', 'role', 'data', 'gateway'])
+    exact(input, ['schema_version', 'role', 'data', 'gateway'], ['native'])
     const gateway = exact(input.gateway, ['url'])
     if (gateway.url !== '' && !gatewayUrl(gateway.url)) {
       return fail()
+    }
+    const native =
+      input.native === undefined ? undefined : exact(input.native, [], ['runtime_bin_dir', 'agent_bin_dir'])
+    if (native) {
+      for (const directory of Object.values(native)) {
+        if (!fixedPath(directory, platform)) {
+          return fail()
+        }
+        agentSearchPath(directory as string, '/usr/bin:/bin', platform)
+      }
+      Object.freeze(native)
     }
     return Object.freeze({
       schema_version: 1,
       role: 'connector',
       state_dir: data.directory,
       gateway_url: gateway.url as string,
-      provider_config_refs: Object.freeze([])
+      provider_config_refs: Object.freeze([]),
+      ...(native ? { native } : {})
     })
   } catch {
     return fail()
@@ -204,7 +218,8 @@ export function configDocument(config: RoleConfig): Record<string, unknown> {
       }
     : {
         ...common,
-        gateway: { url: config.gateway_url }
+        gateway: { url: config.gateway_url },
+        ...(config.native ? { native: config.native } : {})
       }
 }
 

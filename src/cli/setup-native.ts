@@ -1,0 +1,236 @@
+// 从实际安装发现Luvus并初始化既有受保护root/持久账本；不启动Agent、调用模型或根据固定发行版猜pin。
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { discoverLuvusInstallation } from '../runtime/native-control.js'
+import { initializeManagedLuvusRoot } from '../runtime/native-root.js'
+import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from '../runtime/native-source.js'
+import type { LuvusProductionOwnerConfig } from '../runtime/production-luvus.js'
+import type { LuvusProductionRemoteConfig } from '../runtime/remote-luvus.js'
+import { localLimits, verifyInstallation } from '../connector/luvus/local.js'
+import { runFixedProcess } from '../connector/luvus/io.js'
+import { LuvusDispatchClaims } from '../connector/luvus/claims.js'
+import { ConnectorAdmissionReceipts } from '../transport/admission-receipts.js'
+import type { DeviceCredential } from '../transport/identity.js'
+import { boundedJson, fields, hash, id, object, validatePolicies } from '../wire/index.js'
+import type { ProviderPolicies } from '../wire/types.js'
+import { CliError, type ConnectorConfig } from './config.js'
+import { privateDirectory } from './first-config.js'
+import { readSetupJson, writeSetupJson } from './setup-files.js'
+import { runtimeReference } from './runtime-files.js'
+import { setupReference, setupTarget } from './setup-policy.js'
+import { SetupTerminal } from './setup-terminal.js'
+
+export type PreparedSetupNative = Readonly<{
+  schema_version: 1
+  attempt_id: string
+  machine_id: string
+  phase: 'prepared'
+  settings: NonNullable<ConnectorConfig['native']>
+  reference: string
+  local: LuvusProductionOwnerConfig
+  remote: LuvusProductionRemoteConfig
+}>
+
+// 首次兑换前即可核对Unix socket所需短路径，不先创建身份再要求用户迁移内部状态。
+export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTerminal): void {
+  if (Buffer.byteLength(join(config.state_dir, 'n')) > 52) {
+    terminal.show(
+      'native_state_path_too_long: choose a shorter data.directory before initialization (Luvus state path maximum 52 UTF-8 bytes). / 初始化前请缩短 data.directory（Luvus 状态路径最多52个UTF-8字节）。\n'
+    )
+    throw new CliError('configuration_required')
+  }
+}
+
+// 仅搜索受控系统目录及所有者显式业务配置的单目录，不继承shell PATH、argv或请求环境。
+function luvusBinary(config: ConnectorConfig): string {
+  for (const directory of [
+    ...(config.native?.runtime_bin_dir ? [config.native.runtime_bin_dir] : []),
+    '/usr/bin',
+    '/bin'
+  ]) {
+    const path = join(directory, 'luvus')
+    if (existsSync(path)) {
+      return path
+    }
+  }
+  throw new CliError('configuration_required')
+}
+
+// 恢复只能使用同一配对的完整已准备记录；未完成创建不猜测缺失账本可重建。
+function prepared(value: unknown, attempt: string, machine: string, config: ConnectorConfig): PreparedSetupNative {
+  const row = object(value)
+  fields(row, ['schema_version', 'attempt_id', 'machine_id', 'phase', 'settings', 'reference', 'local', 'remote'])
+  if (
+    row.schema_version !== 1 ||
+    row.attempt_id !== attempt ||
+    row.machine_id !== machine ||
+    row.phase !== 'prepared' ||
+    row.reference !== setupReference(attempt) ||
+    boundedJson(row.settings) !== boundedJson(config.native ?? {})
+  ) {
+    throw new CliError('configuration_required')
+  }
+  // 这些数据不会反序列化为可信句柄；正式生产工厂仍重开root并实测native和原始schema。
+  return row as PreparedSetupNative
+}
+
+// 先取得本机明确确认再调用PR107正式发现接口；持久创建开始前故障可原attempt重试，之后保留位置等待核查。
+export async function prepareSetupNative(
+  config: ConnectorConfig,
+  terminal: SetupTerminal,
+  credential: DeviceCredential,
+  attempt: string,
+  authorization: Readonly<{ principal_id: string; policies: ProviderPolicies }>
+): Promise<PreparedSetupNative> {
+  terminal.assertOwner()
+  id(attempt)
+  id(authorization.principal_id)
+  validatePolicies(authorization.policies)
+  const path = runtimeReference(config.state_dir, 'native-setup')
+  const existing = readSetupJson(path, 1_048_576)
+  if (existing !== undefined) {
+    return prepared(existing, attempt, credential.machine_id, config)
+  }
+  const binary = luvusBinary(config)
+  if (
+    !(await terminal.confirm(
+      'Discover this Luvus installation and create its isolated local state (terminal execution disabled)? / 发现 Luvus 并创建隔离状态（关闭终端执行）？'
+    ))
+  ) {
+    throw new CliError('configuration_required')
+  }
+  const control = join(config.state_dir, 'control')
+  const stateRoot = join(config.state_dir, 'n')
+  const home = join(config.state_dir, 'h')
+  const work = join(config.state_dir, 'w')
+  // 官方socket超过Unix地址长度后会退到root外；在创建root/账本前明确拒绝，不能绕过原endpoint门禁。
+  assertSetupNativePath(config, terminal)
+  for (const directory of [
+    control,
+    stateRoot,
+    home,
+    work,
+    ...['config', 'data', 'cache', 'runtime'].map(/* HOME下固定的独立XDG目录。 */ (name) => join(home, name))
+  ]) {
+    privateDirectory(directory)
+  }
+  const reference = setupReference(attempt)
+  const target = setupTarget(credential.machine_id)
+  const discovered = await discoverLuvusInstallation(
+    {
+      target,
+      config_ref: reference,
+      binding_revision: 1,
+      binary,
+      state_root: stateRoot,
+      home,
+      cwd: work,
+      transport: 'ipc',
+      allow_terminal_execution: false,
+      ...(config.native?.agent_bin_dir ? { agent_bin_dir: config.native.agent_bin_dir } : {})
+    },
+    { revision: MANAGED_LUVUS_REVISION, signal: terminal.io.signal }
+  )
+  // 正式发现返回opaque compiled而不返回原字节；只用现有固定schema命令读取并与该实际编译身份交叉核对。
+  const schema = await runFixedProcess(
+    discovered.config,
+    localLimits(discovered.config.limits),
+    'schema',
+    terminal.io.signal
+  )
+  if (schema.exit_code !== 0 || hash(schema.stdout) !== discovered.compiled.identity.schema_sha256) {
+    throw new CliError('configuration_required')
+  }
+  await verifyInstallation(discovered.config)
+  const remote: LuvusProductionRemoteConfig = {
+    kind: 'luvus',
+    authentication: 'remote_connector',
+    binding: {
+      machine_id: target.machine_id,
+      provider_id: target.provider_id,
+      kind: 'luvus',
+      config_ref: reference,
+      binding_revision: 1,
+      enabled: true
+    },
+    target,
+    contract: {
+      binary_version: discovered.binaryVersion,
+      binary_sha256: discovered.config.binary_sha256,
+      schema_sha256: discovered.compiled.identity.schema_sha256,
+      adapter_revision: MANAGED_LUVUS_REVISION,
+      classification_revision: MANAGED_LUVUS_CLASSIFICATION,
+      schema_bundle: schema.stdout.toString('utf8')
+    },
+    peer_policy_revision: authorization.policies.local.revision,
+    raw_grant: {
+      principal_id: authorization.principal_id,
+      methods: [...authorization.policies.caller.grants[0]!.methods]
+    }
+  }
+  boundedJson(remote, 1_048_576)
+  terminal.assertOwner()
+  // journal先持久发布；此后任何失败保留证据，不能通过重跑create清除原native或账本历史。
+  writeSetupJson(path, {
+    schema_version: 1,
+    attempt_id: attempt,
+    machine_id: credential.machine_id,
+    phase: 'initializing'
+  })
+  const rootRecord = join(control, 'luvus-root.json')
+  const root = await initializeManagedLuvusRoot({
+    record_path: rootRecord,
+    config: discovered.config,
+    custody_policy: { scopes: ['read'], methods: ['automation.list'], max_token_ttl_s: 300 }
+  })
+  try {
+    const ledgerId = hash(boundedJson([reference, root.root_id, root.root_revision, root.config.target]))
+    const claims = new LuvusDispatchClaims({
+      path: join(control, 'luvus-claims.db'),
+      mode: 'create',
+      ledger_id: ledgerId,
+      limits: { entries: 1024, bytes: 4_194_304 },
+      now: Date.now
+    })
+    try {
+      const receipts = new ConnectorAdmissionReceipts({
+        path: join(control, 'luvus-admissions.json'),
+        mode: 'create',
+        ledger_id: ledgerId,
+        limits: { entries: 1024, bytes: 4_194_304 },
+        now: Date.now,
+        routes: [{ target, principal_id: authorization.principal_id }]
+      })
+      receipts.close()
+    } finally {
+      claims.close()
+    }
+    const result: PreparedSetupNative = {
+      schema_version: 1,
+      attempt_id: attempt,
+      machine_id: credential.machine_id,
+      phase: 'prepared',
+      settings: config.native ?? {},
+      reference,
+      local: {
+        kind: 'luvus',
+        authentication: 'local_owner',
+        native: {
+          mode: 'managed',
+          root_record: rootRecord,
+          expected_root_id: root.root_id,
+          expected_root_revision: root.root_revision
+        },
+        peer_policy_revision: remote.peer_policy_revision,
+        principal_id: authorization.principal_id,
+        policies: authorization.policies,
+        storage_mode: 'open'
+      },
+      remote
+    }
+    writeSetupJson(path, result, true, 1_048_576)
+    return result
+  } finally {
+    root.close()
+  }
+}

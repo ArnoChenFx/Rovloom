@@ -37,7 +37,7 @@ Connector, normally `~/.config/rovloom/connector.json`:
 Replace `/home/your-user` with your actual home when saving an example. The
 program substitutes the real home on first creation. Gateway can start locally
 with these defaults and no identities; Connector's blank address is a valid
-saved configuration but startup returns `configuration_required` (2).
+saved configuration; a real local terminal prompts for it, while non-TTY startup returns `configuration_required` (2).
 Setting an address does not establish pairing or install a native provider.
 
 ## Every user parameter
@@ -59,12 +59,17 @@ Setting an address does not establish pairing or install a native provider.
 | `management.port` | Integer 1–65535, required even when disabled | `9445`; listener hostname is fixed to `127.0.0.1`. |
 | Connector `gateway` | Object, required | Contains only `url`. |
 | `gateway.url` | String, required | `""` while setup is pending; otherwise WS/WSS origin, ≤2048 characters, e.g. `ws://192.0.2.10:9443` or `wss://gateway.example`. No credentials/query/fragment/path except optional trailing `/`. Product selects `/connector`. |
+| Connector `native` | Object, optional | Absent by default. Contains only the two installation-directory settings below; applied at first Luvus initialization. |
+| `native.runtime_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: search `/usr/bin:/bin` for `luvus`. When set, search this directory first, then those fixed system directories. No PATH lists, shell expansion or executable argv. |
+| `native.agent_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: native/Agent PATH is `/usr/bin:/bin`. When set, prepend this one directory to that fixed PATH. It does not install or authenticate an Agent. |
 
 Enabled Gateway listeners must use different ports. Unknown fields, old flat
 fields, runtime/ref selectors, TLS/CA paths, schema hashes, binary pins and
 credential values are rejected. There are no user parameters for native roots,
-ledgers, bindings or identity digests. This slice has no native-discovery or
-Agent-directory knob whose effect is only promised for later setup.
+ledgers, bindings or identity digests. After native initialization, changing its
+installation settings is rejected; this preview has no guided native reconfiguration.
+Changing an initialized Connector's Gateway URL is also rejected before its saved
+device credential can be sent to another origin.
 
 Paths are absolute and normalized, not relative to the JSON location. JSON does
 not expand `~` or environment variables. The default role path always uses the
@@ -94,27 +99,43 @@ layout is shown for identification, not as a list of files to prepare:
   managed/            private program-managed provider/caller/management state
 <Connector data.directory>/
   managed/            private paired credential and provider state, when provisioned
+  control/            protected Luvus root record, claims and admission ledgers
+  n/                  isolated Luvus state; this full path must be ≤52 UTF-8 bytes
+  h/                  isolated HOME with config/data/cache/runtime XDG children
+  w/                  isolated native working directory
 ```
 
 Databases may have WAL/lock/control companions. Preserve the directory as a whole;
 do not edit records, fabricate credentials or reconstruct missing ledgers. Native
 runtime-owned state and installation directories are not user configuration.
-Automatic preparation of that native state is still missing from the user flow.
+First-run local terminal approval prepares those Luvus resources. The first-run
+Herdr/mixed flow is not implemented. Partial creation and uncertain delivery retain
+their original non-secret attempt journal; missing ledgers are never recreated
+to make a restart succeed. Guided recovery is not yet available.
 Old `runtime.json` and `refs/` are not loaded; there is no legacy-format migration
 in this unreleased preview. No self-managed certificate/CA paths remain.
 
 A Gateway with no caller state runs in a **pairing required** state. MCP returns
 401 and the management page does not create an administrator session. Existing
 MCP access still comes from a caller's already issued Bearer for the exact
-`http://<MCP-host>:<port>/mcp` resource; store the original only in the MCP client's
-secret storage. Gateway holds its digest/expiry in private managed state. Device
+`http://<MCP-host>:<port>/mcp` resource. First native approval creates one local
+caller for the exact reviewed Target; its Bearer is displayed only to the verified
+local terminal and kept in private `managed/mcp-client.json` (0600). Copy it into
+the MCP client's secret storage. It expires after 30 days; this preview has no
+renewal wizard. Gateway's `managed/mcp-callers.json` holds its digest/expiry. Device
 credentials, MCP Bearers and independent management proofs are distinct. Existing
 management authentication still uses its independent principal/proof; an MCP
-Bearer cannot log in as administrator. No CLI currently issues those credentials.
+Bearer cannot log in as administrator; first setup creates no management cookie
+or default administrator.
 
 Connector needs both a reachable Gateway address and completed pairing/native
-state. The interactive address/code flow and automatic native setup are not yet
-connected, so a fresh user cannot finish deployment from these files alone.
+state. In a genuine local TTY, Gateway approval issues a five-minute one-time code;
+Connector asks for the address/code without echoing the code, exchanges the existing
+enrollment, saves its device credential in `managed/device.json`, then acknowledges
+that exact durable delivery. Only a separate owner approval of the measured native
+installation permits provider/caller configuration. Non-TTY startup never waits
+for input or creates these permissions. Native initialization does not log in to a
+model provider, create an Agent or prove a model reply.
 Missing provider state is setup-required; corrupt or unsafe state is rejected.
 `config check-runtime` checks the existing managed provider registry, not caller
 credentials, TLS trust, native binaries or a model connection.
@@ -152,9 +173,21 @@ Install the official Agent, such as OpenCode, in a directory controlled by the
 machine owner. Existing native integration runs with `/usr/bin:/bin`, not the
 login shell's PATH. An owner-selected `agent_bin_dir` can prepend one normalized
 absolute directory; it is a native installation setting, not an executable path,
-PATH list, MCP argument or `--agent-bin-dir` flag. The new single-file user setup
-does not yet create that native installation setting, so adding it to the role
-JSON is rejected. Do not edit a managed root record or its digest to force it in.
+PATH list, MCP argument or `--agent-bin-dir` flag. Set it before first native
+initialization in the single Connector user file:
+
+```json
+{
+  "native": {
+    "runtime_bin_dir": "/home/your-user/.local/bin",
+    "agent_bin_dir": "/home/your-user/.local/bin"
+  }
+}
+```
+
+This is an optional fragment of the complete Connector document. Keep the selected
+installation directories under the owner's control. Do not edit a managed root
+record or its digest to change an initialized installation.
 
 Configure Agent/model access in the runtime's private HOME/XDG locations.
 Ordinary strict text conversation can keep local `allow_terminal_execution:false`.
@@ -199,8 +232,8 @@ The selected file must have the matching role. A missing file is generated on
 Linux at the selected path; an existing file is never overwritten. Defaults are
 resolved for the process user. Stop a foreground
 role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
-Network ports are JSON fields, not flags. Provider/Agent initialization is not yet
-available as a user setup flow.
+Network ports are JSON fields, not flags. Provider initialization is limited to
+the first local-terminal Luvus flow described above; Agent/model login is separate.
 
 ### Service command syntax and current availability
 

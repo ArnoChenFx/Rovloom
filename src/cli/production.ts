@@ -17,6 +17,8 @@ import { CliError, type ConnectorConfig, type GatewayConfig } from './config.js'
 import { openCallerSource } from './caller-source.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { createRuntimeCliRuntime } from './runtime.js'
+import type { CliSetup } from './setup-runtime.js'
+import { boundedJson, object, fields } from '../wire/index.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import { loadProductManagementAssets } from './management-assets.js'
 import { openProtectedManagementSource } from './management-source.js'
@@ -128,16 +130,20 @@ function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySou
     throw error
   }
   const hostname = config.mcp_hostname === '::1' ? '[::1]' : config.mcp_hostname
-  return { ...openCallerSource(path, `http://${hostname}:${config.mcp_port}/mcp`, administrator), setupRequired: false }
+  return {
+    ...openCallerSource(path, new URL(`http://${hostname}:${config.mcp_port}/mcp`).href, administrator),
+    setupRequired: false
+  }
 }
 
 // 默认Gateway打开真实双库并可等待首次配对；程序管理的provider仍由固定工厂核验。
-export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
-  return createRuntimeCliRuntime({
+export function createProductionCliRuntime(sources: ProductionCliSources = {}, setup?: CliSetup) {
+  const runtime = createRuntimeCliRuntime({
     gateway: /* 常规启动只打开已配置资源，不注册设备、签发enrollment/token或bootstrap管理cookie。 */ async (config) => {
       privateDirectory(config.state_dir)
       privateDirectory(join(config.state_dir, 'managed'))
       const settings = readRuntimeConfig(config)
+      const onboarding = setup?.gateway(config)
       if (settings.provider_config_refs.length && !sources.gateway) {
         throw new CliError('backend_unavailable', 3)
       }
@@ -180,7 +186,13 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
         closing ??= Promise.resolve().then(
           /* shutdown始终撤去会话和caller来源，外部provider仍须报告其真实物理释放结果。 */ async () => {
             try {
-              await provider?.release()
+              try {
+                if (state) {
+                  await onboarding?.detach(state)
+                }
+              } finally {
+                await provider?.release()
+              }
             } finally {
               authority.close()
               protectedManagement?.close()
@@ -223,12 +235,22 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
         state = openGatewayState({
           state_directory: config.state_dir,
           identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-          authorizeIdentity:
-            protectedManagement?.authorizeIdentity ??
-            sources.authorizeIdentity ??
-            /* 缺独立动作级批准时不提供默认身份变更。 */ (() => {
-              throw new CliError('backend_unavailable', 3)
-            }),
+          authorizeIdentity: onboarding
+            ? /* 本机明确确认只批准该次精确install，其余身份变更全部拒绝。 */ (intent) =>
+                onboarding.approval.authorizeIdentity(intent)
+            : (protectedManagement?.authorizeIdentity ??
+              sources.authorizeIdentity ??
+              /* 缺独立动作级批准时不提供默认身份变更。 */ (() => {
+                throw new CliError('backend_unavailable', 3)
+              })),
+          ...(onboarding
+            ? {
+                store: {
+                  management: /* 正式Store消费该次provider/action/fence一次性确认。 */ (request) =>
+                    onboarding.approval.authorizeManagement(request)
+                }
+              }
+            : {}),
           changed: /* 只在身份提交后断开同一runtime的设备通道，正常启动不调用它。 */ (machine) => {
             if (!gateway) {
               throw new CliError('backend_unavailable', 3)
@@ -236,6 +258,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
             gateway.transport.disconnect(machine)
           }
         })
+        const pairing = onboarding?.attach(state)
         const anonymousManagement: ProductionManagementHost | undefined =
           config.management_enabled && !protectedManagement && !sources.management
             ? {
@@ -279,12 +302,26 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
           listener: {
             hostname: settings.device_listener.hostname,
             port: settings.device_listener.port,
-            offer: offer(provider?.admission_context)
+            offer: offer(provider?.admission_context),
+            ...(pairing
+              ? {
+                  setupRequest: /* 固定同一设备listener的专用配对handler，不替换WebSocket认证。 */ (request: Request) =>
+                    pairing.handle(request)
+                }
+              : {})
           },
           release
         }
         const common = {
           setupRequired: caller.setupRequired,
+          ...(onboarding
+            ? {
+                reconfigure: onboarding.reconfigure,
+                listening: /* 真实MCP地址和已建立Gateway同时存在后才开始本地问答。 */ async (url: string) => {
+                  await onboarding.listening(gateway!, url)
+                }
+              }
+            : {}),
           authentication: caller.authentication,
           catalog: provider?.catalog,
           management,
@@ -336,7 +373,57 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
       }
       // 先验证静态认证输入，缺失或非法时不得启动provider所属的native child。
       credential()
-      const resource = await sources.connector(config, settings.providers)
+      const control = join(config.state_dir, 'control')
+      const managedRoot = join(control, 'luvus-root.json')
+      const isolated =
+        settings.providers.length === 1 &&
+        settings.providers.every(
+          /* 只对首次引导的固定控制记录选择独立账本目录，native仍由既有root工厂逐项复验。 */ (entry) =>
+            !!entry.value &&
+            typeof entry.value === 'object' &&
+            'native' in entry.value &&
+            !!entry.value.native &&
+            typeof entry.value.native === 'object' &&
+            'root_record' in entry.value.native &&
+            entry.value.native.root_record === managedRoot
+        )
+      if (isolated) {
+        const paired = object(readRuntimeJson(runtimeReference(config.state_dir, 'pairing')))
+        fields(paired, ['schema_version', 'attempt_id', 'machine_id', 'gateway_url', 'phase'])
+        const prepared = object(readRuntimeJson(runtimeReference(config.state_dir, 'native-setup'), 1_048_576))
+        fields(prepared, [
+          'schema_version',
+          'attempt_id',
+          'machine_id',
+          'phase',
+          'settings',
+          'reference',
+          'local',
+          'remote'
+        ])
+        const device = credential()
+        // 已保管的设备secret不得因修改业务URL发送给另一origin；安装设置变更也不能静默忽略或重建root。
+        if (
+          paired.schema_version !== 1 ||
+          paired.phase !== 'configured' ||
+          paired.gateway_url !== config.gateway_url ||
+          paired.machine_id !== device.machine_id ||
+          prepared.schema_version !== 1 ||
+          prepared.phase !== 'prepared' ||
+          prepared.attempt_id !== paired.attempt_id ||
+          prepared.machine_id !== paired.machine_id ||
+          boundedJson(prepared.settings) !== boundedJson(config.native ?? {})
+        ) {
+          throw new CliError('configuration_required')
+        }
+      }
+      let resource: ProductionConnectorResources
+      try {
+        resource = await sources.connector(isolated ? { ...config, state_dir: control } : config, settings.providers)
+      } catch (error) {
+        setup?.nativeFailed(error)
+        throw error
+      }
       try {
         // 资源准备可能跨异步边界；期间撤去凭据也必须立即释放本次资源并退出。
         credential()
@@ -381,4 +468,8 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}) {
       }
     }
   })
+  if (setup) {
+    runtime.prepare = setup.prepare.bind(setup)
+  }
+  return runtime
 }
