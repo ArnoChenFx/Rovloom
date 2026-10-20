@@ -48,7 +48,8 @@ Linux Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文
 真实本地TTY可批准Gateway一次性配对，并由Connector输入地址/隐藏码、持久保存身份及发现初始化Luvus。
 首次引导仅接入一个Luvus provider；Herdr引导、Agent模型认证与已有配置恢复管理仍未接通。
 非TTY缺地址/身份/provider时返回configuration_required；不读取stdin，不假报Agent或模型就绪。
-service 操作须注入受信监管宿主；默认配置仅由其已验证身份 resolver 提供，不猜测提权前用户。
+service 已接原生监管宿主；install 使用当前单文件和目标服务账户配置，不猜测提权前用户。
+当前产品角色运行时限 Linux；macOS/Windows 安装返回 backend_unavailable，详见 service --help。
 update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
 角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
 `
@@ -196,9 +197,9 @@ export async function runCli(
       const code = await handleServiceCommand(args, {
         ...host,
         resolveDefaultConfig: host.resolveDefaultConfig
-          ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role) => {
+          ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role, account) => {
               try {
-                return host.resolveDefaultConfig!(role)
+                return host.resolveDefaultConfig!(role, account)
               } catch (error) {
                 if (error instanceof CliError && error.code === 'config_home_unavailable') {
                   throw new ServiceError('config_path_required')
