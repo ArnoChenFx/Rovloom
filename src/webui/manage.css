@@ -76,8 +76,8 @@ main:focus { outline: none; }
 .operation-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; overflow: auto; color: var(--text); background: var(--surface); border: 1px solid var(--control-border); border-radius: 6px; }
 .operation-dialog::backdrop { background: rgb(15 18 24 / 50%); }
 .operation-dialog > code { display: block; margin-block: 8px 16px; }
-.operation-form label { display: grid; gap: 8px; }
-.operation-form input { width: 100%; min-width: 0; font-weight: 400; }
+.operation-form label, .pairing-form label { display: grid; gap: 8px; }
+.operation-form input, .pairing-form input { width: 100%; min-width: 0; font-weight: 400; }
 .operation-dialog .facts { grid-template-columns: 1fr; margin-bottom: 24px; }
 .operation-dialog dd { white-space: pre-wrap; }
 .operation-controls { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -242,3 +242,9 @@ footer { padding-block: 24px; border-top: 1px solid var(--border); font-size: 12
   .state-panel, .empty { padding: 40px 24px; }
   .state-panel h1 { font-size: 22px; }
 }
+
+/* 配对引用面板复用现有主题与表单基准，窄屏保留稳定输入和触控尺寸。 */
+.pairing-progress { max-width: 1232px; margin: 24px auto; padding: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow-wrap: anywhere; }
+.pairing-progress > button { margin: 16px 8px 0 0; }
+.pairing-progress .pairing-form { max-width: 560px; }
+@media (max-width: 480px) { .pairing-progress { margin: 16px; padding: 16px; } .pairing-progress button, .pairing-progress input { min-height: 48px; } }

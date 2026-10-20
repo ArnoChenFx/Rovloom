@@ -1,7 +1,7 @@
 # 管理会话适配与浏览器确认逻辑
 
 本切片接在 [管理写服务](MANAGEMENT-WRITES.md) 的既有事务和 HTTP handler 上，语义沿用
-[DESIGN](DESIGN.md) 与 [GATEWAY-WEBUI](GATEWAY-WEBUI.md)。仅提供改名、显式断开和持久撤销的
+[DESIGN](DESIGN.md) 与 [GATEWAY-WEBUI](GATEWAY-WEBUI.md)。提供设备三动作、provider禁用、pending注册/配对/取消及原申请进度的
 可复用逻辑。生产 CLI 可接收既有受保护宿主的管理页面交付接口；默认入口不配置管理员或签发秘密。
 生产 `browser.ts` 已通过 `mountWebUi` 的第四参数消费既有写客户端；首次用户认证及真实会话来源仍由现有宿主负责。
 没有生产会话来源时不能启用写操作。测试里的临时管理员、cookie 与 CSRF 不是生产身份。
@@ -99,7 +99,7 @@ loopback、Host、Origin、OS 用户、普通 header、MCP bearer 或固定管�
 组合器复用唯一 Gateway 的 Store、authority 与身份来源，将页面初始化纳入原 HTTP handler 的
 Host/Origin 检查、16 项在途上限及五秒预算。仅无查询的 `GET /` 和 `GET /index.html` 初始化；
 普通静态资源、HEAD、查询参数及跨站请求不调用会话来源。`null` 返回不含秘密的原页面。
-有效既有 lease 经 `authority.bootstrap(lease, { signal, rotate: false })` 验证后，最多交付五分钟：
+有效既有 lease 首次经 `authority.bootstrap(lease, { signal, rotate: false })` 验证后，建立最多五分钟的本地窗口：
 
 - cookie 为随机不透明值，host-only、`HttpOnly; SameSite=Strict; Path=/admin/v1`，到期使用实际固定租期。
   Cookie 不按端口隔离；同 host 其它服务仍能接收匹配路径的 cookie，必须属于同一管理员信任边界。
@@ -107,10 +107,16 @@ Host/Origin 检查、16 项在途上限及五秒预算。仅无查询的 `GET /`
 - CSRF 原值仅出现在无缓存 HTML 的 `meta[name="rovloom-management-bootstrap"]`，
   `content` 为 base64url 原值，`data-expires-at` 为服务器毫秒截止。
   HTML 不包含 cookie、principal 或 session 引用，JSON、日志和监听地址不携带秘密。
-- 同 caller/session 的后续初始化返回 401，无 Set-Cookie，不旋转或撤销原交付。
-  这是服务端至多一次签发；提交后断开可能消耗机会，不保证浏览器收到。
-  刷新或重开需要宿主另行交付新的真实受保护 session，不接受仅改旧引用时间的恢复方式。
-  请求取消、listener 停止或截止后不提交迟到签发；尚未结束的来源继续占用额度。
+- 刷新、新标签、首响应丢失与并发加载均再次核验根请求的独立上游证明及当前管理员，
+  然后恢复同一有效 Cookie/CSRF 和原截止；不因页面加载旋转或滑动期限。
+  initializer 为此只在有界进程内存保留交付原值，最多4096个与authority容量同时约束的引用；
+  authority仍只用摘要解析。对应交付解析失效时删除缓存，initializer释放时由进程回收；无磁盘、URL、日志、JSON或浏览器持久存储副本。
+- 本地五分钟窗口到期，管理API和旧Cookie仍401。根页面必须再次由`resolveLease`核验独立证明，
+  才以`reauthenticate: true`建立新Cookie/CSRF；新截止不超过首次绑定的上游`expires_at`及当前时间后五分钟。
+  单凭Cookie或修改旧lease时间不能续期。并发重认证复用同一新交付，旧Cookie/CSRF永不复活。
+- 显式撤销、观察到的管理员/政策失效、原来源变更、上游到期、时钟回退及关闭继续fail closed；
+  恢复页面不会解除这些墓碑。请求取消、listener停止或截止后不提交迟到签发，
+  尚未结束的来源继续占用额度。浏览器过期后需刷新并重新通过根页面认证，不自动重放任何管理写入。
 
 浏览器端使用现有写客户端所需的唯一回调：
 
@@ -154,7 +160,7 @@ const reconciled = await flow.checkReceipt()
    恢复代次不符或断开目标没有当前 epoch 则拒绝；此步骤不执行业务变更。
 2. 页面从 `state().review` 展示原动作、机器 ID、名称或 epoch、原因、截止与受影响 provider。
    `confirm` 只在 awaiting_confirmation 状态有效，后台确认必须保持同一摘要、原截止与完整影响集合，
-   然后最多提交一次设备动作。
+   然后最多提交一次原管理动作。
    点击状态不构成授权，所有权限与 fence 仍由服务器事务核对。
 3. 只有匹配原 request/history/generation、动作、目标与 operation_digest 的 `current_durable` 回执
    可以表示当前提交；备份证据或 outcome_unknown 保持 unconfirmed。
@@ -166,7 +172,7 @@ const reconciled = await flow.checkReceipt()
 客户端无自动重试，也不在 localStorage、URL、普通 DTO 或日志保存 cookie、CSRF、设备凭据或 enrollment。
 CSRF 提供函数必须只返回既有受保护 bootstrap 的内存结果；不能用测试常量或任意 bearer 代替生产来源。
 
-客户端只有固定八项 POST 操作，使用 same-origin credentials、拒绝重定向、禁缓存，输入和回复均严格校验字段、
+客户端只有固定十二项 POST 操作（包括原 `pairings_get`，不开放 `providers_enable`），使用 same-origin credentials、拒绝重定向、禁缓存，输入和回复均严格校验字段、
 关联、枚举与大小。请求最大 16 KiB、回复最大 32 KiB、并发八项、等待最多五秒；取消但未收尾的任务仍占额度。
 未知/超大/非 UTF-8 回复和错误正文仅变成固定错误分类。返回的状态是冻结 JSON 快照，不包含管理 session 引用。
 回执的 native_work 始终保留 may_continue；断开保留身份且可重连，撤销阻止旧身份重新接入。
@@ -178,6 +184,6 @@ CSRF 提供函数必须只返回既有受保护 bootstrap 的内存结果；不�
 验证三个动作、明确确认、重复点击、取消/迟到、丢响应后原回执对账、过期与伪造/备份证据。
 备份证据测试是受控协议回复，不声称执行真实恢复；socket 断开/重连仍由原双 Connector 集成覆盖。
 `write-browser-bundle.test.mjs` 只验证浏览器模块构建，不构成真实登录、按钮、浏览器端到端或用户设备验收。
-`test/cli/management-page.test.ts` 验证真实 adapter/authority/Store 的一次交付、取消、并发与拒绝边界；
+`test/cli/management-page.test.ts` 验证真实 adapter/authority/Store 的固定交付、取消、并发与拒绝边界；`test/cli/management-recovery.test.ts`覆盖真实受保护文件来源的刷新、首响应丢失、本地到期重认证、并发轮换及上游/撤销截止；
 `production.test.ts` 的页面闭环使用显式合成会话来源，经实际产品工厂及同一双库完成确认改名和撤权。
 `bootstrap.test.ts` 的 DOM 为明确端口 fixture，不构成真实浏览器验收；真实账户配置与凭据仍须另行授权。

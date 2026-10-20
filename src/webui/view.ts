@@ -312,11 +312,20 @@ function deviceActions(page: PageView, freshness: Freshness, connected: boolean)
           decision.action === grants[index] && decision.allowed && decision.reason_code === 'allowed'
       )
   }
+  const pair = buttons[1]!
+  pair.dataset.pairingAction = 'create'
+  pair.textContent = freshness.i18n.t('pairing.new')
+  pair.disabled = !allowed || page.device?.persisted_state !== 'pending'
+  const progress = node('button', freshness.i18n.t('pairing.lookup'))
+  progress.type = 'button'
+  progress.dataset.pairingAction = 'lookup'
+  progress.disabled = !allowed
+  section.append(progress, node('p', freshness.i18n.t('pairing.repairUnavailable'), 'muted'))
   return section
 }
 
 /** 列表只展示后端返回的授权页，不将页长宣称为设备总数。 */
-function deviceList(page: PageView, freshness: Freshness): PageSection {
+function deviceList(page: PageView, freshness: Freshness, management = false): PageSection {
   const { i18n } = freshness
   const { t } = i18n
   const heading = node('header', '', 'page-heading')
@@ -384,7 +393,19 @@ function deviceList(page: PageView, freshness: Freshness): PageSection {
     list.append(row)
   }
   section.append(list)
-  section.append(unavailableActions('list', i18n))
+  const actions = unavailableActions('list', i18n)
+  const register = actions.querySelector('button')!
+  register.dataset.pairingAction = 'create'
+  register.disabled = !management
+  const progress = node('button', t('pairing.lookup'))
+  progress.type = 'button'
+  progress.dataset.pairingAction = 'lookup'
+  progress.disabled = !management
+  actions.append(progress)
+  if (management) {
+    actions.querySelector('p')!.textContent = t('pairing.createNote')
+  }
+  section.append(actions)
   if (page.devices.next_cursor !== undefined) {
     const next = node('a', t('devices.next'), 'button-link')
     next.href = routeHref({ machineId: null, cursor: page.devices.next_cursor, providerCursor: null })
@@ -394,7 +415,7 @@ function deviceList(page: PageView, freshness: Freshness): PageSection {
 }
 
 /** 已配置 provider 的启停、readiness 与原生观测分别来自共享 DTO。 */
-function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshness): HTMLElement {
+function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshness, management: boolean): HTMLElement {
   const { i18n } = freshness
   const { t } = i18n
   const section = node('section', '', 'providers-section')
@@ -493,9 +514,22 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
         'provider-facts'
       )
     )
+    const actions = node('div', '', 'actions')
+    const disable = node('button', t('provider.disable'))
+    disable.type = 'button'
+    disable.dataset.providerAction = 'disable'
+    disable.dataset.providerId = provider.provider_id
+    disable.disabled = !management || !registryCurrent || !current(device.observed_at, freshness) || !provider.enabled
+    const enable = node('button', t('provider.enable'))
+    enable.type = 'button'
+    enable.disabled = true
+    const note = node('p', t('provider.unavailable'), 'muted')
+    note.id = `provider-unavailable-${provider.provider_id}`
+    enable.setAttribute('aria-describedby', note.id)
+    actions.append(disable, enable, note)
+    row.append(actions)
     section.append(row)
   }
-  section.append(unavailableActions('provider', i18n))
   if (page.providers.next_cursor !== undefined) {
     const next = node('a', t('providers.next'), 'button-link')
     next.href = routeHref({ machineId: device.machine_id, cursor: null, providerCursor: page.providers.next_cursor })
@@ -580,7 +614,7 @@ function deviceDetail(page: PageView, freshness: Freshness, management = false):
       )
     )
   }
-  section.append(providerList(page, device, freshness), deviceActions(page, freshness, management))
+  section.append(providerList(page, device, freshness, management), deviceActions(page, freshness, management))
   return { heading, body: section }
 }
 
@@ -728,7 +762,7 @@ export function renderPage(
     if (status.mode !== 'recovery_quarantined') {
       const section =
         route.machineId === null
-          ? deviceList(page, freshness)
+          ? deviceList(page, freshness, management && status.mode === 'active' && !state.stale)
           : deviceDetail(page, freshness, management && status.mode === 'active' && !state.stale)
       view.append(section.heading, gateway, section.body)
     } else {
