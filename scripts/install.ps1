@@ -158,7 +158,8 @@ function Install-Rovloom {
         if ($actual -cne $expected) { throw 'Release checksum mismatch; existing program was kept.' }
         # File.Replace 在同一卷原子替换；目标正运行或并发改变时直接失败，不删除旧文件重试。
         if ([IO.File]::Exists($destination)) {
-            [IO.File]::Replace($candidate, $destination, $null)
+            # Windows PowerShell 5 对 string 参数须显式传.NET null，避免将 $null 转成空路径。
+            [IO.File]::Replace($candidate, $destination, ([System.Management.Automation.Language.NullString]::Value))
         } else {
             [IO.File]::Move($candidate, $destination)
         }
