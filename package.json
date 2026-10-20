@@ -1,6 +1,6 @@
 {
   "name": "luvus-mcp",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "private": true,
   "license": "MIT",
   "description": "Rovloom: planned multi-machine MCP gateway and connector for Luvus/Herdr (foundation only)",

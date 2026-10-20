@@ -34,8 +34,8 @@ jobs:
           target: ${{ matrix.target }}
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - name: Verify ordinary files, atomic config, locks and unknown recovery
-        run: bun --no-env-file test ./test/storage/file-platforms.test.ts
+      - name: Verify ordinary files, schema provenance, atomic config, locks and unknown recovery
+        run: bun --no-env-file test ./test/storage/file-platforms.test.ts ./test/connector/herdr/gateway-schema.test.ts
       - name: Build actual standalone product
         run: bun --no-env-file run release:build
       - name: Run actual standalone and production Gateway twice with persistent state

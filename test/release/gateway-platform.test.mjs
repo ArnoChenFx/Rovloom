@@ -179,6 +179,10 @@ test(
       if (process.platform !== 'win32') {
         chmodSync(search, 0o700)
       }
+      if (process.platform === 'win32') {
+        // 子进程已结束后才回收本例临时对象，不影响真实关闭和崩溃锁的前置断言。
+        Bun.gc(true)
+      }
       rmSync(home, { recursive: true, force: true })
     }
   }
@@ -277,6 +281,10 @@ test(
         }
       }
     } finally {
+      // 生产关闭接口及写锁释放已断言，再释放Bun延迟回收的statement包装以删除自有fixture。
+      if (process.platform === 'win32') {
+        Bun.gc(true)
+      }
       rmSync(home, { recursive: true, force: true })
     }
   }

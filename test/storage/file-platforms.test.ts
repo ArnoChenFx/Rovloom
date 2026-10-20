@@ -25,12 +25,18 @@ import { setupFileStamp, writeSetupFile } from '../../src/cli/setup-files.js'
 import { Store } from '../../src/store.js'
 import { connected, management, options } from './helpers.js'
 
+declare const Bun: { gc(full: boolean): void }
+
 // 使用真实系统临时根，清理只涉及本例创建的对象。
 function temporary(check: (directory: string) => void): void {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'rovloom-file-platform-'))
   try {
     check(directory)
   } finally {
+    // 业务断言及Store.close已结束，再释放Bun未回收的prepared statement包装；不绕过写锁或事务。
+    if (process.platform === 'win32') {
+      Bun.gc(true)
+    }
     rmSync(directory, { recursive: true, force: true })
   }
 }
