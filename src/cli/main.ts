@@ -8,6 +8,10 @@ const stop = new AbortController()
 const onSignal = /* 将进程终止信号转换为前端关闭请求，不直接取消原生工作。 */ () => stop.abort()
 process.once('SIGINT', onSignal)
 process.once('SIGTERM', onSignal)
+// 锁定Bun在Windows把控制台WM_CLOSE映射为SIGHUP；接入同一Abort清理，避免正常任务停止留下DB锁。
+if (process.platform === 'win32') {
+  process.once('SIGHUP', onSignal)
+}
 let runtime: CliRuntime | undefined
 let setup: import('./setup-runtime.js').CliSetup | undefined
 // 仅角色命令加载真实静态工厂和TTY引导；同一进程复用本机确认对象，重开不重复签发。
@@ -48,4 +52,7 @@ try {
   setup?.close()
   process.off('SIGINT', onSignal)
   process.off('SIGTERM', onSignal)
+  if (process.platform === 'win32') {
+    process.off('SIGHUP', onSignal)
+  }
 }

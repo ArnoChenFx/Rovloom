@@ -66,8 +66,9 @@ Starting a configured service is distinct from native-provider or Agent readines
 
 System requests have bounded output/time; state observation is bounded and requires
 one continuous second of running state. Results report `readiness: not_checked`.
-POSIX uses the supervisor's normal termination policy; Windows stop/restart can
-terminate the task directly. Unknown command cleanup retains the role lock and
+POSIX uses the supervisor's normal termination policy. Windows console close
+enters the existing shutdown path through SIGHUP; the OS can still terminate an
+unresponsive task. Unknown command cleanup retains the role lock and
 returns a failure rather than silently retrying. Cross-process role locks prevent
 duplicate controller operations; stale locks require explicit inspection.
 
@@ -117,7 +118,7 @@ Windows自动传入`--non-interactive`，即使Task Scheduler非交互桌面提�
 
 卸载不删除用户配置、数据库、日志、凭据或目录。仅清理所选角色的精确登记；同名异物拒绝
 覆盖。保留普通排他创建、fsync、数据库事务和必要互斥，防止重复操作与误删数据。
-Windows 显式 stop/restart 可能直接终止任务，不应称为原生工作的回滚。
+Windows控制台关闭经SIGHUP进入既有资源关停；操作系统仍可能强制终止无响应任务，不应称为原生工作的回滚。
 
 命令时间/输出和监管等待均有界；未知回收返回失败并保留角色锁，不静默重试。
 `service --help` 可离线使用。云端原生生命周期回归只在显式启用的 GitHub-hosted 临时 VM
