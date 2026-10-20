@@ -15,6 +15,50 @@ function responseOfSize(bytes: number) {
   return response
 }
 
+// 仅隔离门面容量的完整正文切片端口；真实Store/Router授权及过期另由本文件其余用例与结果层回归覆盖。
+function bufferedResultFixture(content: Buffer) {
+  const f = projectionFixture()
+  const hash = digest(content.toString())
+  let reads = 0
+  const service = new RuntimeGatewayService({
+    ...f,
+    runtime: {
+      ...f.runtime,
+      results: {
+        ...f.runtime.results,
+        read: /** 返回完整fixture的真实切片，不跳过或伪造任何页；身份仍来自真实请求作用域。 */ (
+          id,
+          offset = 0,
+          bytes = 65_536
+        ) => {
+          assert.equal(f.runtime.principal().id, 'alice')
+          assert.equal(id, 'result_fixture')
+          reads++
+          return {
+            result_id: id,
+            data: content.subarray(offset, offset + bytes).toString('base64'),
+            encoding: 'base64' as const,
+            bytes: content.length,
+            hash,
+            expires: 1_060_000,
+            next_cursor: Math.min(content.length, offset + bytes),
+            eof: offset + bytes >= content.length
+          }
+        }
+      }
+    }
+  })
+  return {
+    ...f,
+    service,
+    reads: /** 仅计量实际逐页请求，防止以跳页伪造完成。 */ () => reads,
+    close: /** 两个门面共用真实请求作用域与Store，由原fixture统一回收。 */ () => {
+      service.close()
+      f.close()
+    }
+  }
+}
+
 describe(
   '最大原生结果的同一次默认分页下载',
   /** 连续分段仍读取全部256页，每段保留原5秒期限并共享同一下载位置。 */ () => {
@@ -96,44 +140,15 @@ describe(
 test(
   '共享Wire最大8MiB结果的2048页不累积服务游标，逐页返回实际字节',
   /** 仅替换结果页端口来隔离门面容量，完整原文存在；不声称验证原生8MiB能力。 */ async () => {
-    const f = projectionFixture()
     const content = Buffer.from(JSON.stringify(responseOfSize(LIMITS.object_bytes)))
     const hash = digest(content.toString())
-    let reads = 0
-    const service = new RuntimeGatewayService({
-      ...f,
-      runtime: {
-        ...f.runtime,
-        results: {
-          ...f.runtime.results,
-          read: /** 返回完整fixture的真实切片，不跳过或伪造任何页；身份仍来自真实请求作用域。 */ (
-            id,
-            offset = 0,
-            bytes = 65_536
-          ) => {
-            assert.equal(f.runtime.principal().id, 'alice')
-            assert.equal(id, 'result_fixture')
-            reads++
-            return {
-              result_id: id,
-              data: content.subarray(offset, offset + bytes).toString('base64'),
-              encoding: 'base64' as const,
-              bytes: content.length,
-              hash,
-              expires: 1_060_000,
-              next_cursor: Math.min(content.length, offset + bytes),
-              eof: offset + bytes >= content.length
-            }
-          }
-        }
-      }
-    })
+    const f = bufferedResultFixture(content)
     try {
       const chunks: Buffer[] = []
       let cursor: string | undefined
       do {
         const page = (
-          await service.execute(
+          await f.service.execute(
             'runtime_result_read',
             { result_id: 'result_fixture', ...(cursor ? { cursor } : {}) },
             f.context
@@ -145,10 +160,9 @@ test(
         cursor = page.next_cursor
         assert.equal(page.eof, cursor === undefined)
       } while (cursor)
-      assert.equal(reads, 2048)
+      assert.equal(f.reads(), 2048)
       assert.deepEqual(Buffer.concat(chunks), content)
     } finally {
-      service.close()
       f.close()
     }
   }
@@ -157,7 +171,7 @@ test(
 test(
   '完成超过128次下载不占容量，EOF和同cursor重试保持原页与后继',
   /** 多个下载交错进行，旧下载与完成重试都不能阻止新下载。 */ async () => {
-    const f = projectionFixture({ response: responseOfSize(8_195) })
+    const f = bufferedResultFixture(Buffer.from(canonical(responseOfSize(8_195))))
     try {
       const first = (await f.service.execute('runtime_result_read', { result_id: 'result_fixture' }, f.context)).data
       assert(first.next_cursor)
