@@ -8,7 +8,7 @@ import { spawn, type SpawnOptions } from 'node:child_process'
 import { renderDefinition } from '../../src/service/render.js'
 import { createSystemCommandRunner, runSystemCommand, type CommandPlan } from '../../src/service/runner.js'
 import { sampleSpec } from './helpers.js'
-import { taskCall, TASK_DEFINITION_FUNCTIONS } from '../../src/service/windows.js'
+import { taskCall } from '../../src/service/windows.js'
 
 // 只观察本次桥已有的stderr和子进程阶段；不另起观察进程，不注册任务，也不重试失败操作。
 async function bridgeProbe(plan: CommandPlan) {
@@ -18,12 +18,6 @@ async function bridgeProbe(plan: CommandPlan) {
   // 所有接收事件共用同一单调时钟，避免混用子进程创建和脚本执行时长。
   const elapsed = () => Math.round(performance.now() - began)
   const times: Record<string, number> = {}
-  // 只读既定系统工具的PE标头，区分本机ARM64与模拟执行，不通过PATH选择其他Shell。
-  const image = readFileSync(plan.executable)
-  const header = image.readUInt32LE(0x3c)
-  assert.equal(image.readUInt32LE(header), 0x00004550)
-  const machine = image.readUInt16LE(header + 4)
-  const toolArch = machine === 0xaa64 ? 'arm64' : machine === 0x8664 ? 'x64' : machine === 0x14c ? 'x86' : 'unknown'
   const diagnosticDirectory = mkdtempSync(join(tmpdir(), 'rovloom-powershell-timing-'))
   const firstStatement = join(diagnosticDirectory, 'first-statement.txt')
   let phase = 'not_started'
@@ -35,8 +29,7 @@ async function bridgeProbe(plan: CommandPlan) {
     ['  if ($p.name', 'input_read'],
     ['[IO.File]::WriteAllText($p.PhasePath,', 'input_read'],
     ["[IO.File]::WriteAllText($p.PhasePath,'connected')", 'scheduler_connected'],
-    ['  $folder = ', 'scheduler_connected'],
-    ["[Console]::Write('native_format_valid')", 'validated']
+    ['  $folder = ', 'scheduler_connected']
   ]) {
     script = script.replace(before!, `[Console]::Error.WriteLine('rovloom_probe_${stage}')\n${before}`)
   }
@@ -104,6 +97,21 @@ async function bridgeProbe(plan: CommandPlan) {
     throw new Error('native_powershell_phase_' + phase, { cause: error })
   } finally {
     // 只输出固定工具选择、架构和时长；不输出账户、PID、参数、系统正文或stdin数据。
+    const elapsedMs = elapsed()
+    let toolArch = 'unknown'
+    let toolMachine: number | undefined
+    try {
+      // 操作结束后才只读PE，避免诊断提前预热系统可执行文件或计入功能耗时。
+      const image = readFileSync(plan.executable)
+      const header = image.readUInt32LE(0x3c)
+      if (image.readUInt32LE(header) === 0x00004550) {
+        toolMachine = image.readUInt16LE(header + 4)
+        toolArch =
+          toolMachine === 0xaa64 ? 'arm64' : toolMachine === 0x8664 ? 'x64' : toolMachine === 0x14c ? 'x86' : 'unknown'
+      }
+    } catch {
+      // 工具不存在或不是可读PE时保留原操作错误，不让附加诊断覆盖其结果。
+    }
     let scriptStatementObserved = false
     let scriptFirstStatementMs: number | undefined
     try {
@@ -121,7 +129,8 @@ async function bridgeProbe(plan: CommandPlan) {
         tool: 'System32/WindowsPowerShell/v1.0/powershell.exe',
         bunArch: process.arch,
         toolArch,
-        elapsedMs: elapsed(),
+        toolMachine,
+        elapsedMs,
         times,
         scriptStatementObserved,
         scriptFirstStatementMs
@@ -146,13 +155,8 @@ test(
     const directory = mkdtempSync(join(tmpdir(), 'rovloom-service-parse-'))
     try {
       if (platform === 'win32') {
-        const script = `
-$ErrorActionPreference = 'Stop'
-${TASK_DEFINITION_FUNCTIONS}
-[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
-[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
-$json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
-$p=$json.DeserializeObject([Console]::In.ReadToEnd())
+        // 在生产authorize分支内复用同一COM连接检查格式，不另起第二个PowerShell冷启动。
+        const formatAssertions = `
 [IO.File]::WriteAllText($p.PhasePath,'input_read')
 if (!$env:USERPROFILE -or !$env:TEMP) { exit 2 }
 [IO.File]::WriteAllText($p.PhasePath,'environment_ready')
@@ -162,9 +166,6 @@ $xml=[IO.File]::ReadAllText($p.XmlPath,[Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText($p.PhasePath,'xml_read')
 $null=[object]::new()
 [IO.File]::WriteAllText($p.PhasePath,'clr_ready')
-$s=[Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service',$true))
-[IO.File]::WriteAllText($p.PhasePath,'connecting')
-$s.Connect()
 [IO.File]::WriteAllText($p.PhasePath,'connected')
 $t=$s.NewTask(0)
 [IO.File]::WriteAllText($p.PhasePath,'definition_created')
@@ -193,26 +194,31 @@ $copy.Actions.Item(1).Arguments += ' --foreign'
 if ((declaration $copy) -ceq $reference) { exit 1 }
 $null=$copy.Actions.Create(0)
 try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 'service_conflict') { throw } }
-[Console]::Write('native_format_valid')
+[Console]::Error.WriteLine('rovloom_probe_validated')
 [IO.File]::WriteAllText($p.PhasePath,'validated')
 `
         // 与生产一致使用EncodedCommand及stdin JSON，XML仍从自有UTF-8文件读取；不执行临时脚本文件。
         const xmlFile = join(directory, 'task.xml')
         const phaseFile = join(directory, 'phase.txt')
         writeFileSync(xmlFile, renderDefinition(spec), 'utf8')
-        const result = await bridgeProbe({
-          executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-          args: [
-            '-NoLogo',
-            '-NoProfile',
-            '-NonInteractive',
-            '-STA',
-            '-EncodedCommand',
-            Buffer.from(script, 'utf16le').toString('base64')
-          ],
-          input: JSON.stringify({ XmlPath: xmlFile, PhasePath: phaseFile }),
-          timeout: 10000
-        }).catch(
+        const result = await taskCall(
+          /* 仍执行生产固定JSON桥，只在已授权分支插入常量格式断言；路径仍作为stdin数据。 */ async (plan) => {
+            const script = Buffer.from(plan.args.at(-1)!, 'base64').toString('utf16le')
+            const authorization = "if ($p.op -eq 'authorize') { emit @{ok=$true}; exit 0 }"
+            assert.equal(script.split(authorization).length, 2)
+            const combined = script.replace(
+              authorization,
+              `if ($p.op -eq 'authorize') { ${formatAssertions} emit @{ok=$true}; exit 0 }`
+            )
+            return bridgeProbe({
+              ...plan,
+              args: [...plan.args.slice(0, -1), Buffer.from(combined, 'utf16le').toString('base64')],
+              input: JSON.stringify({ ...JSON.parse(plan.input!), XmlPath: xmlFile, PhasePath: phaseFile })
+            })
+          },
+          'authorize',
+          'gateway'
+        ).catch(
           /* 失败只报告固定阶段，临时诊断随 fixture 清理，不反射路径或系统错误正文。 */ (error) => {
             let phase = 'not_started'
             try {
@@ -239,8 +245,8 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
             throw new Error('native_format_phase_' + phase, { cause: error })
           }
         )
-        assert.equal(result.code, 0, result.stderr)
-        assert.equal(result.stdout, 'native_format_valid')
+        assert.deepEqual(result, { ok: true })
+        assert.equal(readFileSync(phaseFile, 'utf8'), 'validated')
       } else {
         const file = join(directory, platform === 'linux' ? 'rovloom-connector.service' : 'io.rovloom.connector.plist')
         writeFileSync(file, renderDefinition(spec))
@@ -256,14 +262,3 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
     }
   }
 )
-
-// 独立调用验证stdin JSON与只读COM授权，不能把两次工具预算塞进同一个格式探针外层期限。
-if (process.platform === 'win32') {
-  test(
-    'Windows固定JSON桥独立完成只读授权，不注册任务',
-    { timeout: 37000 },
-    /* 测试限定自身工具预算十秒，生产默认期限不变；失败照常让整体CI失败。 */ async () => {
-      assert.deepEqual(await taskCall(bridgeProbe, 'authorize', 'gateway'), { ok: true })
-    }
-  )
-}
