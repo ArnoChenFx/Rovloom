@@ -18,6 +18,10 @@ SQLite 继续使用事务、同步落盘和单 writer 排他锁。崩溃锁不�
 重开后保留为 unknown，不能重新派发。容量统计计入普通文件与文件链接目标，
 不递归进入目录链接，避免成环。网络身份、凭据内容及角色能力校验沿用原实现。
 
+数据库打开时将软链接和目录别名解析为实际路径，使数据库、journal和写锁使用
+同一文件名；数据库硬链接因不能确定唯一sidecar路径而拒绝。这个限制只用于
+SQLite单writer互斥，普通配置及状态文件仍可通过硬链接读取，不要求UID或ACL条件。
+
 [Gateway platforms](../.github/workflows/gateway-platforms.yml) 在 Linux、macOS、
 Windows 的 x64/arm64 原生 runner 上构建实际单文件候选，并验证配置读写、原子
 发布、SQLite 关闭重开、锁与 unknown 不重派。跨平台支持以对应原生任务结果为准，

@@ -8,10 +8,11 @@ import {
   openSync,
   readSync,
   readdirSync,
+  realpathSync,
   statSync,
   writeFileSync
 } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { GatewayError } from '../contracts.js'
 
 // 固定存储位置须为规范绝对路径且父级是目录；访问能力遵循操作系统正常文件权限。
@@ -28,6 +29,27 @@ export function privateFile(path: string): void {
   if (!statSync(path).isFile()) {
     throw new GatewayError('invalid_storage_file')
   }
+}
+// SQLite的数据库、journal及写锁须使用同一实际文件名；硬链接没有唯一sidecar路径，不能作为数据库入口。
+export function databasePath(path: string): string {
+  privatePath(path)
+  let canonical: string
+  try {
+    canonical = realpathSync(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error
+    }
+    return join(realpathSync(dirname(path)), basename(path))
+  }
+  const file = statSync(canonical)
+  if (!file.isFile()) {
+    throw new GatewayError('invalid_storage_file')
+  }
+  if (file.nlink !== 1) {
+    throw new GatewayError('database_hardlink_unsupported')
+  }
+  return canonical
 }
 // 排他创建并写完、同步同一文件；默认权限只用于新文件，不修改任何已有对象。
 export function createPrivate(path: string, content = ''): void {
