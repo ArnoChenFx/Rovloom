@@ -1,7 +1,11 @@
 // 只将既有受保护管理员租期交付同源根页面，复用原authority，不建立身份库或公开bootstrap端点。
 import { ReadError } from '../webui/reader.js'
 import type { ManagementHttpOptions } from '../admin/read-http.js'
-import type { ManagementSessionAuthority, ManagementSessionLease } from '../runtime/management-session.js'
+import type {
+  ManagementSessionAuthority,
+  ManagementSessionLease,
+  ManagementSessionBootstrap
+} from '../runtime/management-session.js'
 
 export const MANAGEMENT_COOKIE_NAME = 'rovloom_management'
 export const MANAGEMENT_BOOTSTRAP_META = 'rovloom-management-bootstrap'
@@ -19,6 +23,8 @@ export function createManagementPageInitializer(
   if (typeof resolveLease !== 'function') {
     throw new Error('management_page_source_required')
   }
+  // 只在本initializer内存保留有界交付，authority仍仅按摘要查验；每次取回均重新认证来源和当前cookie。
+  const deliveries = new Map<string, { upstream: ManagementSessionLease; bootstrap: ManagementSessionBootstrap }>()
   return /* 原handler先检查固定Origin并建立取消范围；无有效既有lease时仅交付原只读页面。 */ async (
     request,
     page,
@@ -47,7 +53,45 @@ export function createManagementPageInitializer(
         }
         return new Response(html, { status: page.status, headers: page.headers })
       }
-      const bootstrap = authority.bootstrap(lease, { signal, rotate: false })
+      const name = JSON.stringify([lease.caller.principal_id, lease.management_session_ref])
+      const previous = deliveries.get(name)
+      let bootstrap: ManagementSessionBootstrap
+      if (previous) {
+        if (lease.issued_at !== previous.upstream.issued_at || lease.expires_at !== previous.upstream.expires_at) {
+          throw new ReadError('unauthenticated')
+        }
+        const current = await authority.sessions.resolveCookie(previous.bootstrap.cookie, signal)
+        if (signal.aborted) {
+          throw new ReadError('unavailable')
+        }
+        if (current) {
+          bootstrap = await authority.runAuthenticated(
+            previous.bootstrap.cookie,
+            signal,
+            /** 返回同一交付，不旋转或延长任何截止。 */ () => previous.bootstrap
+          )
+        } else {
+          const latest = deliveries.get(name)
+          if (latest && latest !== previous) {
+            // 同轮并发请求已完成重认证时复用新交付，旧响应不得删除它或再旋转。
+            bootstrap = await authority.runAuthenticated(
+              latest.bootstrap.cookie,
+              signal,
+              /** 验证当前代次后复用同一结果。 */ () => latest.bootstrap
+            )
+          } else {
+            deliveries.delete(name)
+            bootstrap = authority.bootstrap(lease, { signal, reauthenticate: true })
+            deliveries.set(name, { upstream: structuredClone(lease), bootstrap })
+          }
+        }
+      } else {
+        if (deliveries.size >= 4096) {
+          throw new ReadError('unavailable')
+        }
+        bootstrap = authority.bootstrap(lease, { signal, rotate: false })
+        deliveries.set(name, { upstream: structuredClone(lease), bootstrap })
+      }
       if (signal.aborted) {
         throw new ReadError('unavailable')
       }

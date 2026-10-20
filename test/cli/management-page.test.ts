@@ -122,21 +122,17 @@ test(
 )
 
 test(
-  '并发根页面至多一次签发，刷新与index别名不旋转既有cookie',
-  /** 后到/失败响应不覆盖cookie；原交付在同一authority里仍有效。 */ async () => {
+  '并发根页面与刷新恢复同一固定交付，不旋转既有cookie',
+  /** 后到响应和首响应丢失不会破坏其它页面；每个请求仍由原来源认证。 */ async () => {
     const f = fixture()
     try {
       const responses = await Promise.all([f.handler.fetch(f.request()), f.handler.fetch(f.request('/index.html'))])
-      assert.deepEqual(
-        responses.map(/** 只比较固定状态，不输出任何交付秘密。 */ (response) => response.status).sort(),
-        [200, 401]
-      )
-      const successful = responses.find(/** 找到唯一签发响应。 */ (response) => response.status === 200)!
-      const rejected = responses.find(/** 重复交付必须无秘密。 */ (response) => response.status === 401)!
-      assert.equal(rejected.headers.get('set-cookie'), null)
-      assert.equal(await rejected.text(), '{"error":"unauthenticated"}')
-      const rawCookie = /^rovloom_management=([\w-]{43});/.exec(successful.headers.get('set-cookie')!)![1]!
-      assert.equal((await f.handler.fetch(f.request())).status, 401)
+      assert(responses.every((response) => response.status === 200))
+      const first = responses[0]!
+      const rawCookie = /^rovloom_management=([\w-]{43});/.exec(first.headers.get('set-cookie')!)![1]!
+      const nextCookie = /^rovloom_management=([\w-]{43});/.exec(responses[1]!.headers.get('set-cookie')!)![1]!
+      assert.ok(rawCookie === nextCookie)
+      assert.equal((await f.handler.fetch(f.request())).status, 200)
       assert(await f.authority.sessions.resolveCookie(rawCookie, new AbortController().signal))
       assert.equal((await f.handler.fetch(f.request('/browser.js'))).status, 200)
       assert.equal(f.state.calls, 3)
