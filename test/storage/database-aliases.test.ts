@@ -25,6 +25,20 @@ function temporary(check: (root: string) => void): void {
   }
 }
 
+test(
+  '数据库软链接循环有界拒绝且不创建写锁',
+  /* 只构造本例自引用文件名，不修改系统链接。 */ () => {
+    temporary(
+      /* 失败必须发生在任何SQLite打开或恢复之前。 */ (root) => {
+        const path = join(root, 'loop.db')
+        symlinkSync(path, path, 'file')
+        assert.throws(/* 文件系统坏输入不能无限解析。 */ () => new Store(path), { code: 'database_symlink_loop' })
+        assert.equal(existsSync(path + '.lock'), false)
+      }
+    )
+  }
+)
+
 for (const aliasKind of ['hardlink', 'symlink'] as const) {
   test(
     '数据库别名' + aliasKind + '不能创建第二writer或改变在线设备与在途调用',
@@ -60,6 +74,10 @@ for (const aliasKind of ['hardlink', 'symlink'] as const) {
               encoding: 'utf8',
               timeout: 5000
             })
+            if (aliasKind === 'hardlink') {
+              // SQLite不支持多名称数据库；先移除测试别名，再核对原连接和持久业务状态。
+              rmSync(alias)
+            }
             // 必须先检查业务未被另一个构造器恢复；只拒绝后续写入不足以修复这个问题。
             assert.equal(store.machine(device.machine_id).status, 'online')
             assert.equal(store.call('alice', call.call_id).state, 'dispatching')
@@ -76,7 +94,9 @@ for (const aliasKind of ['hardlink', 'symlink'] as const) {
           } finally {
             store.close()
           }
-          rmSync(alias)
+          if (existsSync(alias)) {
+            rmSync(alias)
+          }
           new Store(path).close()
         }
       )
