@@ -279,13 +279,15 @@ if (process.platform !== 'win32') {
 if (process.platform === 'win32') {
   test(
     'PowerShell installer verifies native Windows selection, atomic replace and failure preservation',
+    { timeout: 30_000 },
     /** 本例须由 Windows CI 原生执行；其他宿主不据文本检查宣称通过 Windows 安装验收。 */ () => {
       const result = spawnSync(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-File', join(root, 'test/release/install-windows.ps1')],
         {
           encoding: 'utf8',
-          timeout: 30_000
+          // 外层覆盖进程启动和整组真实文件事务；子进程先到期，给close与清理留出余量，不改产品预算。
+          timeout: 25_000
         }
       )
       assert.equal(result.status, 0, result.stderr)
