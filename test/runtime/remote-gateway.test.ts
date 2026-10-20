@@ -1,7 +1,7 @@
 // 用真实设备认证和 Wire 验证远端 Gateway 装配；对端是明确合成 peer，不冒充双机或正式原生执行。
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
@@ -28,10 +28,13 @@ import type { AuthenticatedEnvelope, ProviderSnapshot, ProviderPolicy, Direction
 import type { Adapter, Connection, ConnectorWireSession } from '../../src/transport/index.js'
 import { envelope } from '../../src/transport/common.js'
 import { until } from '../transport/helpers.js'
+import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
 
 /** Gateway 只建立自身状态目录；没有 binary、HOME、native root 或 socket 输入。 */
 async function fixture(mixed = false) {
-  const root = mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.remote-gateway-'))
+  const root = mixed
+    ? privateHerdrTestRoot('.remote-gateway-')
+    : mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.remote-gateway-'))
   const directory = join(root, 'gateway')
   mkdirSync(directory, { mode: 0o700 })
   const active: { gateway?: Awaited<ReturnType<typeof createGatewayRuntime>> } = {}
@@ -100,6 +103,10 @@ async function fixture(mixed = false) {
   if (mixed) {
     try {
       const herdrTarget = { ...target, provider_id: 'herdr_snapshot' }
+      const schema = join(root, 'herdr-schema.json')
+      writeFileSync(schema, readFileSync(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url)), {
+        mode: 0o600
+      })
       herdr = await createHerdrGatewayResources({
         config: {
           version: 1,
@@ -107,7 +114,7 @@ async function fixture(mixed = false) {
           binding_revision: 1,
           config_ref: 'herdr_snapshot',
           expected_source: fixedHerdrSource(),
-          schema_path: fileURLToPath(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url)),
+          schema_path: schema,
           peer_policy_revision: local.revision
         }
       })
