@@ -71,7 +71,7 @@ docker compose down       # Remove containers and networks; retain named volumes
 
 ## Where to run the Connector
 
-Keep the Connector on the Linux host running Luvus/Herdr. It must verify the actual native binary/schema, process ownership, private file permissions, Unix socket peer, and instance lifecycle. Container users, PIDs, and paths differ from those of the host; mounting a host socket does not establish those guarantees.
+Keep the Connector on a supported Linux x64 host running Luvus/Herdr. The native process owners currently reject other architectures; the Linux arm64 Gateway image does not establish support for an arm64 native Connector. It must verify the actual native binary/schema, process ownership, private file permissions, Unix socket peer, and instance lifecycle. Container users, PIDs, and paths differ from those of the host; mounting a host socket does not establish those guarantees.
 
 The default Compose file therefore has no Connector, `/var/run/docker.sock` mount, `privileged` flag, host PID namespace, or additional capabilities. A containerized Connector would need a correctly installed and managed native application in the same container and separate acceptance. That path is not currently claimed as available.
 

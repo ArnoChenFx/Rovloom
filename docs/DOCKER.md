@@ -71,7 +71,7 @@ docker compose down       # 删除容器和网络，保留命名卷
 
 ## Connector 运行位置
 
-本方案将 Connector 留在 Luvus/Herdr 所在的 Linux 主机。Connector 必须验证真实原生 binary/schema、进程归属、私有文件权限、Unix socket peer 和实例生命周期。容器中的用户、PID 和路径空间与主机不同，单独挂载宿主 socket 不能证明这些条件成立。
+本方案将 Connector 留在 Luvus/Herdr 所在的受支持 Linux x64 主机。当前原生进程所有者对其它架构仍明确拒绝；Linux arm64 Gateway 镜像不代表 arm64 原生 Connector 已可运行。Connector 必须验证真实原生 binary/schema、进程归属、私有文件权限、Unix socket peer 和实例生命周期。容器中的用户、PID 和路径空间与主机不同，单独挂载宿主 socket 不能证明这些条件成立。
 
 因此，默认 Compose 不包含 Connector、不挂载 `/var/run/docker.sock`，也不要求 `privileged`、主机 PID 或额外 capability。要在容器内运行 Connector，需要在同一容器内正确安装和管理原生程序并完成独立验收；当前没有将该路径宣称为可用。
 
