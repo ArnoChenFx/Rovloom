@@ -48,6 +48,9 @@ def check_gateway(name):
     parsed = json.loads(config)
     assert parsed['data']['directory'] == '/home/rovloom/.local/share/rovloom/gateway'
     assert 'authentication_ref' not in parsed and 'tls' not in config
+    # 无TTY运行不能创建首次初始化计划、身份或provider授权；只检查自有临时卷的程序管理目录。
+    managed = '/home/rovloom/.local/share/rovloom/gateway/managed'
+    assert command('exec', name, 'find', managed, '-mindepth', '1', '-maxdepth', '1', '-printf', 'x') == ''
     return hashlib.sha256(config.encode()).hexdigest()
 
 
@@ -70,6 +73,7 @@ def smoke(image, sha256, version):
                 '--mount', 'type=volume,source=' + data_volume + ',target=/home/rovloom/.local/share/rovloom', image)
         created = True
         assert command('inspect', '--format', '{{.Config.User}}', name) == '10001:10001'
+        assert command('inspect', '--format', '{{.Config.Tty}}:{{.Config.OpenStdin}}', name) == 'false:false'
         # 仅以Docker exec读取准确字节摘要；版本使用同一个已编译产品的固定诊断通道。
         command('start', name)
         healthy(name)
@@ -90,8 +94,8 @@ def smoke(image, sha256, version):
         # 日志不打印或保存，且只接受未配对的固定诊断，不接受配置/凭据泄漏。
         logs = subprocess.run(['docker', 'logs', name], capture_output=True, text=True, timeout=5)
         expected_diagnostic = ('gateway_listening http://127.0.0.1:9444/mcp\npairing_required\n'
-                               'Gateway is running; first-time pairing is not connected yet.\n'
-                               'Gateway 已启动，尚需配对；首次配对流程尚未接通。\n')
+                               'Gateway is running; complete local pairing and native setup before using an Agent.\n'
+                               'Gateway 已启动；使用 Agent 前仍需完成本地配对和原生初始化。\n')
         assert logs.returncode == 0 and logs.stdout == '' and logs.stderr == expected_diagnostic * 2
         return {'scope': 'native-linux-container', 'user': 10001, 'binary': 'exact', 'gateway': 'unpaired',
                 'mcpAuthentication': 'required', 'embeddedWebui': 'pass', 'persistentVolumes': 'pass',
