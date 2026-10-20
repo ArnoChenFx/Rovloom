@@ -36,6 +36,7 @@ export type RuntimeGatewayServiceOptions = Omit<StoreGatewayOptions, 'store' | '
 type Request = { [K in ToolName]: { name: K; args: ToolArguments[K] } }[ToolName]
 const errors: Record<string, ServiceErrorCode> = {
   runtime_closed: 'unavailable',
+  machine_offline: 'unavailable',
   connection_unavailable: 'unavailable',
   provider_binding_mismatch: 'binding_revision_conflict',
   call_not_found: 'not_found',
