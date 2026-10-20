@@ -8,7 +8,7 @@ import { PRODUCT_VERSION } from '../../src/mcp/version.ts'
 
 test(
   'standalone product runs real Gateway, authenticated MCP, management writes and both schema factories',
-  { timeout: 60_000, skip: !['linux', 'darwin'].includes(process.platform) },
+  { timeout: 60_000, skip: !['linux', 'darwin', 'win32'].includes(process.platform) },
   /** 只复制本次二进制，空PATH/HOME不能提供Bun、Node、源码或WebUI补包。 */ async () => {
     const output = await buildStandalone(product)
     const accepted = await smokeGatewayProduct(output.binary, PRODUCT_VERSION)
