@@ -16,11 +16,33 @@ import { runCli, type GatewayRuntime } from '../../src/cli/run.js'
 import { configTemplate } from '../../src/cli/config.js'
 import type { GatewayIdentitySource } from '../../src/mcp/management.js'
 
+// 同时观察监听通知和真实CLI退出；提前退出立即报告其退出码与诊断，不用用例超时替代错误。
+function waitForCliListener(
+  listening: Promise<string>,
+  role: Promise<number>,
+  diagnostic: () => string
+): Promise<string> {
+  return Promise.race([
+    listening,
+    role.then(
+      /* CLI退出前已写完stderr，保留实际结果供失败定位。 */ (code) => {
+        assert.fail(`CLI exited before listening: code=${code}; stderr=${diagnostic().trim()}`)
+      }
+    )
+  ])
+}
+
 test(
   '唯一CLI实际组合角色双库、MCP查询与管理handler，终止和管理启动失败均释放同一writer',
   { timeout: 30_000 },
   /* 空provider配置只验证真实组合和资源所有权，不伪称已完成原生调用或管理身份交付。 */ async () => {
-    for (const mode of ['callbacks', 'session', 'source_mismatch', 'notification_failure'] as const) {
+    for (const mode of [
+      'callbacks',
+      'session',
+      'source_mismatch',
+      'notification_failure',
+      'listener_failure'
+    ] as const) {
       const failedMount = mode === 'source_mismatch' || mode === 'notification_failure'
       const directory = mkdtempSync(join(tmpdir(), 'rovloom-cli-runtime-'))
       const stop = new AbortController()
@@ -134,8 +156,9 @@ test(
       stderr.on('data', /* 核对失败只报告固定代码。 */ (chunk) => (diagnostics += chunk))
       let role: Promise<number> | undefined
       let client: Client | undefined
+      let reservation: ReturnType<typeof startHttpFacade> | undefined
       try {
-        const reservation = startHttpFacade({
+        reservation = startHttpFacade({
           service: {
             execute: /* 端口预留不执行任何业务动作。 */ async () => {
               throw new Error('unused_port_stub')
@@ -145,7 +168,22 @@ test(
           port: 0
         })
         const port = Number(new URL(reservation.url).port)
-        await reservation.close()
+        if (mode !== 'listener_failure') {
+          await reservation.close()
+          reservation = undefined
+        } else {
+          assert.throws(
+            /* 保留真实预留端口，先核对同一监听器确实得到EADDRINUSE，不伪造CLI或Gateway失败。 */ () =>
+              startHttpFacade({
+                service: {
+                  execute: /* 只验证监听失败，不执行业务。 */ async () => assert.fail()
+                },
+                authentication: { authenticate: /* 端口冲突fixture没有身份。 */ () => null },
+                port
+              }),
+            { code: 'EADDRINUSE' }
+          )
+        }
         const path = join(directory, 'gateway.json')
         writeFileSync(
           path,
@@ -164,11 +202,19 @@ test(
           },
           runtime
         )
-        if (failedMount) {
+        if (mode === 'listener_failure') {
+          await assert.rejects(
+            /* 真实CLI启动失败必须立即拒绝监听等待，并保留它的实际错误结果。 */ () =>
+              waitForCliListener(listening, role!, /* 读取本例实际CLI诊断。 */ () => diagnostics),
+            { message: 'CLI exited before listening: code=1; stderr=runtime_failed' }
+          )
+          assert.equal(await role, 1)
+          assert.equal(diagnostics, 'runtime_failed\n')
+        } else if (failedMount) {
           assert.equal(await role, 1)
           assert.equal(diagnostics, 'runtime_failed\n')
         } else {
-          const url = await listening
+          const url = await waitForCliListener(listening, role, /* 读取本例实际CLI诊断。 */ () => diagnostics)
           client = new Client({ name: 'cli-runtime-fixture', version: '1' })
           await client.connect(new StreamableHTTPClientTransport(new URL(url)))
           const reply = await client.callTool({ name: 'machines_list', arguments: {} })
@@ -231,6 +277,7 @@ test(
         stop.abort()
         await client?.close()
         await role
+        await reservation?.close()
         rmSync(directory, { recursive: true, force: true })
       }
     }

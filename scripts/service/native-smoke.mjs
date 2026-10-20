@@ -82,6 +82,7 @@ function command(file, args) {
 // 只解析唯一产品CLI的固定监管结果；不把systemctl/launchctl成功误作HTTP可用。
 function service(action, install = false) {
   phase = action
+  const began = performance.now()
   const result = command(executable, [
     'service',
     action,
@@ -89,7 +90,11 @@ function service(action, install = false) {
     'gateway',
     ...(install ? ['--config', config, '--workdir', root, '--user', user.username] : [])
   ])
-  assert.equal(result.status, 0, result.stderr)
+  assert.equal(
+    result.status,
+    0,
+    `native_service_${action}_failed_after_${Math.round(performance.now() - began)}ms: ${result.stderr}`
+  )
   assert.equal(result.stdout, '')
   return JSON.parse(result.stderr)
 }
