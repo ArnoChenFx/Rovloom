@@ -53,6 +53,8 @@ type GatewayResources = {
   authentication: HttpAuthenticationProvider
   catalog?: GatewayCatalog
   management?: RuntimeCliManagement
+  reconfigure?: Promise<void>
+  listening?(url: string): void | Promise<void>
   // 资源所有者在唯一工厂建立后绑定已提交身份变更通知，不能创建第二个Gateway。
   started?(gateway: RuntimeCliGateway): void
 }
@@ -169,6 +171,8 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
           service,
           authentication: resource.authentication,
           setupRequired: resource.setupRequired,
+          reconfigure: resource.reconfigure,
+          listening: resource.listening?.bind(resource),
           closed: gateway.closed,
           close
         }

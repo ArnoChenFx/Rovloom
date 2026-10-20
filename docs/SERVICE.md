@@ -53,7 +53,11 @@ A partial install that created its declaration but failed to enable can converge
 declarations and stale locks require administrator inspection.
 
 Commands have bounded output (1 MiB combined) and time (normally 35 s per system request, 5 s for status
-queries). The controller then observes status for at most 30 s, requiring one continuous second of
+queries). After a failed request the controller gives its own direct child at most one second to
+close; it tracks OS spawn, exit and stream-close separately. Missing exit/close proof returns
+`service_recovery_required`, keeps the role's recovery lock and does not retry the system action.
+An observed exit with unclosed streams remains a timeout. No-input tools use the null device;
+JSON tools close their own stdin after writing. The controller then observes status for at most 30 s, requiring one continuous second of
 running status. A system request can consume its own bounded time before the observation deadline.
 Results explicitly say `readiness: "not_checked"`: process supervision does not establish network,
 application or provider readiness. Early exit/nonzero status and timeouts are failures. POSIX shutdown
@@ -216,7 +220,10 @@ Gateway URL 必须非空；预检不证明 provider 就绪。
 再按 root/LocalService 的 HOME 展开；不会为适配默认路径修改 ACL 或复制秘密。Windows 另需 `verifyWindowsInstallation` 及预先准备的管理员/SYSTEM 专有控制目录；
 本模块不把目录叶节点 ACL 检查冒充全部有效权限证明，也不自动设置 ACL。
 
-系统命令有独立超时和输出上限；状态观测最多 30 秒，运行状态须连续稳定至少一秒。返回值明确
+系统命令有独立超时和输出上限；失败后仅对本次直接工具进程进行最多一秒的有界回收，分别观察
+系统已接受启动、进程退出与输出流关闭。无法证明退出/关闭时返回 `service_recovery_required`，保留
+角色恢复锁且不重试系统动作；已经退出但输出流不关闭仍为超时。无输入工具使用空设备，JSON 输入
+写完关闭自有写端。状态观测最多 30 秒，运行状态须连续稳定至少一秒。返回值明确
 `readiness: not_checked`，系统监管状态不证明业务、网络或 provider 已就绪。非零退出、早退或
 超时不会被当作启动成功。POSIX 由监管器先发 SIGTERM，必要时强制停止；**Windows 的 stop、
 restart 可能直接终止任务，不能称为优雅关闭或原生工作的回滚**。uninstall 永不停止实例。未新增网络控制入口。

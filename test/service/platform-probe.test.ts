@@ -95,7 +95,6 @@ if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t
         )
         assert.equal(result.code, 0, result.stderr)
         assert.equal(result.stdout, 'native_format_valid')
-        assert.deepEqual(await taskCall(runSystemCommand, 'authorize', 'gateway'), { ok: true })
       } else {
         const file = join(directory, platform === 'linux' ? 'rovloom-connector.service' : 'io.rovloom.connector.plist')
         writeFileSync(file, renderDefinition(spec))
@@ -111,3 +110,21 @@ if ($t.Actions.Count -ne 1 -or $t.Settings.ExecutionTimeLimit -ne 'PT0S' -or !$t
     }
   }
 )
+
+// 独立调用验证stdin JSON与只读COM授权，不能把两次工具预算塞进同一个格式探针外层期限。
+if (process.platform === 'win32') {
+  test(
+    'Windows固定JSON桥独立完成只读授权，不注册任务',
+    { timeout: 12000 },
+    /* 测试限定自身工具预算十秒，生产默认期限不变；失败照常让整体CI失败。 */ async () => {
+      assert.deepEqual(
+        await taskCall(
+          /* 一个测试只持有一次工具的启动、操作和回收预算。 */ (plan) => runSystemCommand({ ...plan, timeout: 10000 }),
+          'authorize',
+          'gateway'
+        ),
+        { ok: true }
+      )
+    }
+  )
+}

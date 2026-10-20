@@ -53,6 +53,34 @@ test(
 )
 
 test(
+  'service五项动作不进入角色prepare、TTY配对或业务宿主',
+  /* 防止新首次引导在服务控制命令中被隐式触发。 */ async () => {
+    const stub = model()
+    let preparations = 0
+    const runtime: CliRuntime = {
+      service: { platform: 'linux', manager: new ServiceManager(stub.backend, stub.clock) },
+      prepare: /* 如被调用会立刻失败，不从非交互控制器发起任何配对。 */ async () => {
+        preparations++
+        throw new Error(marker)
+      },
+      gateway: /* 服务控制不启动当前CLI进程内的Gateway。 */ async () => assert.fail(),
+      connector: /* 服务控制不启动当前CLI进程内的Connector。 */ async () => assert.fail()
+    }
+    for (const args of [
+      install('gateway', '/explicit/config.json'),
+      ...['start', 'restart', 'stop', 'uninstall'].map(
+        /* 所有后续动作都仍选择同一角色。 */ (action) => ['service', action, '--role', 'gateway']
+      )
+    ]) {
+      const result = await capture(args, runtime)
+      assert.equal(result.code, 0)
+      assert.equal(result.stdout, '')
+    }
+    assert.equal(preparations, 0)
+  }
+)
+
+test(
   'service安装复用唯一角色路径helper，显式配置优先且只注册不启动',
   /* 两角色各用独立内存stub和真实监管状态机，核对CLI未自行解析提权身份。 */ async () => {
     for (const role of ['gateway', 'connector'] as const) {

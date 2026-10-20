@@ -12,6 +12,14 @@ This preview's runtime requires **Linux x64**. There is no published installatio
 package yet; obtain the approved standalone executable from your administrator
 and place it on your PATH. Check `rovloom --version` and `rovloom --help`.
 
+For the first-run flow below, install official **Luvus** on the Connector machine.
+Rovloom searches `/usr/bin:/bin`, not your shell PATH. If it is elsewhere, first run
+`rovloom connector` to create its role file, then set optional
+`native.runtime_bin_dir` to the single absolute installation directory and rerun.
+For an Agent installed elsewhere, also set `native.agent_bin_dir` before native
+initialization. See the [directory settings](CONFIGURATION.md#agent-installation-directory).
+Agent installation and model authentication are separate prerequisites for conversation.
+
 On the Gateway machine:
 
 ```sh
@@ -24,24 +32,32 @@ On the runtime machine:
 rovloom connector
 ```
 
-The first command creates a missing `~/.config/rovloom/gateway.json`, opens the
-local Gateway and reports `gateway_listening` and `pairing_required`. Its MCP URL
+Run both commands in real local terminals. The first creates a missing
+`~/.config/rovloom/gateway.json`, opens the Gateway and asks permission to pair
+one Connector. Enter `y` to display a private one-time code valid for five minutes. Its MCP URL
 is `http://127.0.0.1:9444/mcp`; the device WS listener is on `127.0.0.1:9443` and
 the local management page is `http://127.0.0.1:9445/`. The unpaired Gateway grants
 no MCP identity or administrator access. Its page is not a default administrator login.
 
-The second command creates a missing `~/.config/rovloom/connector.json` and exits
-with `configuration_required` (2). **The interactive address/code wizard,
-one-time pairing delivery and automatic native setup are not connected yet.**
-There is no complete fresh-device deployment path in this preview. An existing
-installation still needs its program-managed paired identity, provider state and
-MCP caller access; changing JSON or receiving a pairing-progress display does
-not create those resources. Do not construct hashes, bindings or credentials by hand.
+The Connector creates `~/.config/rovloom/connector.json` if missing. Enter the
+Gateway address (`ws://127.0.0.1:9443` for the same machine), paste the one-time
+code without echo, and confirm trust in that Gateway. It saves its device identity
+before acknowledging delivery. Then confirm discovery and isolated initialization
+of the installed Luvus. Return to the Gateway terminal and approve that device's
+measured installation and reviewed workspace/Agent permissions.
 
-On non-interactive input the Connector returns immediately; it does not wait for
-stdin. There is no `init` or `pair` command. The remaining steps apply after an
-administrator has supplied a working installation, and do not claim fresh setup
-has completed.
+The Gateway privately displays the MCP Bearer and complete Target, then reopens
+its providers. Wait for its **`connector_ready`** message: this comes from the
+actual authenticated connection and live native provider. It proves neither model
+authentication nor an Agent reply. Do not construct hashes, bindings or credentials.
+
+This first-run flow initializes **one Luvus provider**. Herdr/mixed first-run
+initialization and guided recovery/renewal are still missing. Existing provisioned
+Herdr installations use the remaining client steps. If pairing delivery or native
+creation has an uncertain outcome, preserve the original data and seek owner
+review; do not delete ledgers, register another identity or assume a retry is safe.
+Non-TTY input never waits for stdin; missing setup returns `configuration_required`
+(2). There is no `init` or `pair` command. Service installation remains unavailable.
 
 ## 2. Configuration and network
 
@@ -63,6 +79,9 @@ Use the [complete examples and parameter tables](CONFIGURATION.md). File mode is
 `0600`, its private directory is `0700`, owned by the role user. Program-managed
 state, databases and credentials belong under the role's data directory. There is
 no user `runtime.json`, ref list, CA or certificate file to prepare.
+For first Luvus initialization, `<data.directory>/n` must fit within **52 UTF-8
+bytes** because of the native Unix socket path limit. Choose a shorter data
+directory before pairing if required; the CLI rejects a longer path before redemption.
 
 For another device, set Gateway `devices.hostname` to an appropriate listener and
 Connector `gateway.url` to its reachable `ws://host:port` or `wss://host:port` origin,
@@ -93,8 +112,12 @@ Install the approved official Luvus or Herdr and the Agent you intend to use.
 Compatibility uses actual protocols and interfaces; version labels are diagnostic.
 Actual installation identity and controlled PATH are described in
 [native installation](CONFIGURATION.md#native-installation-and-pins).
-Rovloom does not yet install them or configure model access. A running Gateway
-or an accepted configuration does not establish a usable native provider.
+Rovloom discovers and initializes the installed Luvus after explicit first-run
+approvals. It does not install binaries or configure Agent/model access. Its native
+process uses a fresh private HOME/XDG; a login in your ordinary home is not copied.
+This preview has no guided model-login step: arrange that private Agent setup
+with the machine owner before expecting conversation. Native readiness alone does
+not prove this prerequisite is met.
 
 ## 4. Connect your AI Agent's MCP client
 
@@ -106,8 +129,10 @@ In a client supporting **Streamable HTTP**, enter:
 | URL | `http://127.0.0.1:9444/mcp` |
 | Authorization header | `Bearer <EXISTING_MCP_BEARER>` |
 
-Use the existing Bearer supplied for this exact endpoint and caller, stored in
-the client's secret storage. The Gateway stores its digest and expiry in
+Use the Bearer displayed privately after Gateway approval, or the existing Bearer
+supplied for this exact endpoint and caller, stored in the client's secret storage.
+First setup retains its original in the private `managed/mcp-client.json`, expires
+it after 30 days, and keeps its digest/expiry in
 program-managed identity state. Management proof and device credentials are different
 credentials. MCP binds to loopback; remote clients need your administrator's
 local/tunnel access arrangement. The CLI is not a stdio MCP server.
@@ -118,7 +143,7 @@ runner, or by asking the Agent to perform these steps:
 1. Use `machines_list`, then `providers_list` and `providers_get`, to choose an
    actual `machine_id` / `provider_id` and check the current `binding_revision`
    and readiness.
-2. Obtain that provider's complete Target from your administrator: `machine_id`,
+2. Use the complete Target displayed by first setup, or obtain it from your administrator: `machine_id`,
    `provider_id`, `profile` and, for a session profile, the exact `session`.
    `providers_list` / `providers_get` do not return `profile` or `session`; do not
    guess them or derive a session from the provider name. Check that the supplied
@@ -156,9 +181,8 @@ other reviewed ordinary methods require raw authorization. The local
 can remain available with it off. Custom argv/env and direct terminal input need
 explicit local permission. The Agent must be available in the native runtime's controlled PATH and have model
 access configured in its private HOME. The default PATH is `/usr/bin:/bin`.
-An owner-selected Agent installation directory is supported by the existing
-native integration, but the new user setup flow does not yet create that local
-runtime configuration. Do not bypass `allow_terminal_execution:false` with
+Set optional `native.agent_bin_dir` in the Connector user file before its first
+native initialization when the Agent is elsewhere. Do not bypass `allow_terminal_execution:false` with
 arbitrary argv/env. See [native installation](CONFIGURATION.md#native-installation-and-pins).
 
 Send a harmless message with a unique phrase, read the actual reply, then ask
@@ -187,12 +211,14 @@ not connected.
 
 | Problem | Next action |
 |---|---|
-| `pairing_required` / `configuration_required` | Gateway can wait locally, but fresh pairing/native setup is still a product gap. Address JSON alone cannot complete pairing. |
+| `pairing_required` / `configuration_required` | Complete the local-terminal address/code flow, Luvus installation and both owner approvals. Address JSON alone grants no identity. Preserve uncertain attempts instead of registering again or deleting state. |
+| `config_changed` | The role file changed during a prompt. Your edits are preserved; restart the role to load them before continuing setup. |
+| `native_state_path_too_long` | Choose a shorter `data.directory` before pairing; `<data.directory>/n` must be ≤52 UTF-8 bytes. |
 | Home/path/configuration/role error | Check process user, exact role file and absolute paths; use `--config` and configuration checks. Existing bad files are preserved. |
 | Configuration unreadable/not protected | Check owner, private directory and file permissions; avoid links. Existing permissions are not silently repaired. |
 | Listener failure | Check selected ports, address availability and data directory ownership. |
-| HTTP 401 | Check exact `/mcp` URL, existing Bearer and expiry. An unpaired Gateway rejects every caller. |
-| Offline / provider not ready | Check WS/WSS reachability, system TLS trust, pairing and native installation. |
+| HTTP 401 | Check exact `/mcp` URL, issued Bearer and expiry. An unpaired Gateway rejects every caller. Renewal guidance is not implemented. |
+| Offline / provider not ready | Check WS/WSS reachability, system TLS trust, pairing, selected installation identity and required method/protocol capabilities. |
 | Permission/contract/revision error | Refresh provider/method descriptions and verify grants. |
 | Agent executable missing | Verify the Agent is in the runtime's controlled PATH with model access in its private HOME; do not bypass the terminal switch. |
 | Uncertain call / storage failure | Preserve original call and state; do not delete ledgers or blindly resend. |

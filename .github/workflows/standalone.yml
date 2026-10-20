@@ -40,7 +40,7 @@ jobs:
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Check service lifecycle models and native definition parsing without installing services
-        run: bun --no-env-file test ./test/service/platform-probe.test.ts ./test/service/manager.test.ts ./test/service/command.test.ts ./test/cli/service-host.test.ts ./test/cli/service-runtime.test.ts
+        run: bun --no-env-file test ./test/service/platform-probe.test.ts ./test/service/runner-lifecycle.test.ts ./test/service/manager.test.ts ./test/service/command.test.ts ./test/cli/service-host.test.ts ./test/cli/service-runtime.test.ts
       - name: Exercise user installers with isolated downloads and native replacement
         run: bun --no-env-file test ./test/release/install.test.mjs
       - name: Check exact precompiled assets and corruption/provenance regressions

@@ -1,0 +1,9 @@
+# 只发送固定运行文件；配置、状态、源码、依赖及凭据不能进入构建上下文。
+**
+!Dockerfile
+!dist/
+!dist/container/
+!dist/container/rovloom
+!scripts/
+!scripts/container/
+!scripts/container/healthcheck.sh

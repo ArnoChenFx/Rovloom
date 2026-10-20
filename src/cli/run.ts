@@ -12,6 +12,7 @@ import { readOrCreateRoleConfig } from './first-config.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import {
   CLI_ERROR_CODES,
+  CliCancelled,
   CliError,
   configTemplate,
   configDocument,
@@ -44,8 +45,9 @@ check既无role也无路径时分别检查两份；检查始终只读，不为�
 check-runtime核对单份角色配置及程序管理状态，不读取凭据或宣称原生Agent就绪。
 Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdout 不承载 MCP 协议。
 Linux Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文件，WSS客户端保持系统证书验证。
-Gateway首次启动真实监听并提示待配对；Connector缺地址或配对时明确返回configuration_required。
-首次配对与自动发现引导尚未接通；缺失原生资源仍明确拒绝，不假报Agent就绪。
+真实本地TTY可批准Gateway一次性配对，并由Connector输入地址/隐藏码、持久保存身份及发现初始化Luvus。
+首次引导仅接入一个Luvus provider；Herdr引导、Agent模型认证与已有配置恢复管理仍未接通。
+非TTY缺地址/身份/provider时返回configuration_required；不读取stdin，不假报Agent或模型就绪。
 service 已接原生监管宿主；install 使用当前单文件和目标服务账户配置，不猜测提权前用户。
 当前产品角色运行时限 Linux；macOS/Windows 安装返回 backend_unavailable，详见 service --help。
 update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
@@ -54,6 +56,7 @@ update只检查官方稳定发行；当前预发行版本按SemVer比较，缺�
 
 export type RunningConnector = {
   closed: Promise<void>
+  transport?: Pick<ReturnType<typeof import('../transport/connector.js').createConnector>, 'status'>
   // 释放本地宿主资源并报告关闭失败，不伪造原生取消结果。
   close(): Promise<void>
 }
@@ -62,8 +65,9 @@ export type GatewayRuntime = {
   authentication: HttpAuthenticationProvider
   closed?: Promise<void>
   setupRequired?: boolean
+  reconfigure?: Promise<void>
   // 宿主可观察实际MCP地址以发布本机就绪状态；此回调不提供认证或权限。
-  listening?(url: string): void
+  listening?(url: string): void | Promise<void>
   // 在前端关闭后释放宿主拥有的资源，保留可能已送达工作的历史证据。
   close(): Promise<void>
 }
@@ -73,6 +77,8 @@ export type CliServiceHost = Omit<ServiceCommandHost, 'diagnostic'>
 export type CliRuntime = {
   service?: CliServiceHost
   update?: CliUpdateHost
+  // 只在角色启动调用本机引导；help/check/template不创建状态或读取stdin。
+  prepare?(config: GatewayConfig | ConnectorConfig, path: string, io: CliIo): Promise<GatewayConfig | ConnectorConfig>
   // 建立受信服务及 caller 绑定并交出资源所有权；未提供时角色启动明确拒绝。
   gateway?: (config: GatewayConfig) => Promise<GatewayRuntime>
   // 启动受信出站宿主并返回其生命周期；具体认证和传输不由 CLI 补造。
@@ -249,12 +255,16 @@ export async function runCli(
     if (!('path' in command)) {
       throw new CliError('invalid_arguments')
     }
-    const config = readOrCreateRoleConfig(command.action, command.path, environment)
+    let config = readOrCreateRoleConfig(command.action, command.path, environment)
     if (config.role !== command.action) {
       throw new CliError('config_role_mismatch')
     }
     if (io.signal.aborted) {
       return 0
+    }
+    config = (await runtime.prepare?.(config, command.path, io)) ?? config
+    if (config.role !== command.action) {
+      throw new CliError('config_role_mismatch')
     }
     if (config.role === 'connector') {
       if (!config.gateway_url) {
@@ -269,44 +279,66 @@ export async function runCli(
     if (!runtime.gateway) {
       throw new CliError('backend_unavailable', 3)
     }
-    const gateway = await runtime.gateway(config)
-    try {
-      // 只有宿主建立后才加载HTTP SDK；stdin EOF和客户端断开均不结束Gateway。
-      const { startHttpFacade } = await import('../mcp/http.js')
-      const http = startHttpFacade({
-        service: gateway.service,
-        authentication: gateway.authentication,
-        hostname: config.mcp_hostname,
-        port: config.mcp_port,
-        diagnostic: /* 只把受限诊断码写入stderr，不输出凭据、URL或协议正文。 */ (code) => io.stderr.write(code + '\n')
-      })
+    let reload = false
+    do {
+      reload = false
+      const gateway = await runtime.gateway(config)
       try {
-        gateway.listening?.(http.url)
-        if (gateway.setupRequired) {
-          io.stderr.write(
-            'gateway_listening ' +
-              http.url +
-              '\npairing_required\nGateway is running; first-time pairing is not connected yet.\nGateway 已启动，尚需配对；首次配对流程尚未接通。\n'
+        // 只有宿主建立后才加载HTTP SDK；stdin EOF和客户端断开均不结束Gateway。
+        const { startHttpFacade } = await import('../mcp/http.js')
+        const http = startHttpFacade({
+          service: gateway.service,
+          authentication: gateway.authentication,
+          hostname: config.mcp_hostname,
+          port: config.mcp_port,
+          diagnostic: /* 只把受限诊断码写入stderr，不输出凭据、URL或协议正文。 */ (code) => io.stderr.write(code + '\n')
+        })
+        try {
+          await gateway.listening?.(http.url)
+          if (gateway.setupRequired) {
+            io.stderr.write(
+              'gateway_listening ' +
+                http.url +
+                '\npairing_required\nGateway is running; complete local pairing and native setup before using an Agent.\nGateway 已启动；使用 Agent 前仍需完成本地配对和原生初始化。\n'
+            )
+          }
+          await untilStopped(
+            {
+              closed: Promise.race([
+                http.closed,
+                ...(gateway.closed ? [gateway.closed] : []),
+                ...(gateway.reconfigure
+                  ? [
+                      gateway.reconfigure.then(
+                        /* 新配置提交后只唤醒本轮关闭，不复用旧provider或epoch。 */ () => {
+                          reload = true
+                        }
+                      )
+                    ]
+                  : [])
+              ]),
+              close: http.close
+            },
+            io.signal
           )
+        } finally {
+          await http.close()
         }
-        await untilStopped(
-          gateway.closed ? { closed: Promise.race([http.closed, gateway.closed]), close: http.close } : http,
-          io.signal
-        )
       } finally {
-        await http.close()
+        await gateway.close()
       }
-    } finally {
-      await gateway.close()
-    }
+    } while (reload && !io.signal.aborted)
     return 0
   } catch (error) {
+    if (error instanceof CliCancelled && io.signal.aborted) {
+      return 0
+    }
     if (error instanceof CliError && CLI_ERROR_CODES.includes(error.code)) {
       // 错误只由固定代码组成，绝不打印 argv、配置内容、异常 message 或 stack。
       io.stderr.write(error.code + '\n')
       if (error.code === 'configuration_required') {
         io.stderr.write(
-          'Connector requires a Gateway address and completed pairing; first-time pairing is not connected yet.\nConnector 仍需 Gateway 地址和配对；首次配对流程尚未接通。\n'
+          'Setup requires a local terminal, a reachable Gateway, completed pairing and a compatible installed Luvus. Preserve uncertain setup state for owner review.\n初始化需本地终端、可达 Gateway、完整配对及兼容 Luvus 安装；结果不确定时保留原状态并由所有者核查。\n'
         )
       }
       return error.exitCode
