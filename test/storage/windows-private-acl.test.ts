@@ -55,5 +55,13 @@ test(
     assert.throws(
       /* 未知访问掩码必须拒绝。 */ () => checkWindowsPrivateAcl(sid, [{ ...mine, mask: -1 }], sid, true, false)
     )
+    assert.throws(
+      /* 缺少已验证私有父目录时，不接受未保护文件DACL。 */ () => checkWindowsPrivateAcl(sid, [mine], sid, false, false)
+    )
+    checkWindowsPrivateAcl(sid, [mine], sid, false, false, true)
+    assert.throws(
+      /* journal继承只适用于文件，不能以父级证明放宽目录保护。 */ () =>
+        checkWindowsPrivateAcl(sid, [mine], sid, false, true, true)
+    )
   }
 )

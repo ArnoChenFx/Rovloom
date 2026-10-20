@@ -1,4 +1,4 @@
-// Windows Gateway 私有数据的 ACL 判定；原生句柄读取及数据库 lease 尚未接线，不授予平台支持。
+// Windows Gateway 私有数据的 ACL 判定；句柄层须另外证明真实路径、文件身份和私有父目录。
 import { GatewayError } from '../contracts.js'
 import type { WindowsAce } from '../update/windows/security.js'
 
@@ -10,9 +10,15 @@ export function checkWindowsPrivateAcl(
   entries: readonly WindowsPrivateAce[],
   current: string,
   protectedDacl: boolean,
-  directory: boolean
+  directory: boolean,
+  privateParent = false
 ): void {
-  if (!/^S-1-(?:\d+-)*\d+$/u.test(current) || owner !== current || !protectedDacl || entries.length > 1024) {
+  if (
+    !/^S-1-(?:\d+-)*\d+$/u.test(current) ||
+    owner !== current ||
+    (!protectedDacl && !(privateParent && !directory)) ||
+    entries.length > 1024
+  ) {
     throw new GatewayError('unsafe_storage_acl')
   }
   const trusted = new Set([current, 'S-1-5-18', 'S-1-5-32-544'])

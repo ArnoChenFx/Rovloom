@@ -3,13 +3,21 @@ import { createHash } from 'node:crypto'
 import { UpdateError } from '../contract.js'
 import { WindowsNativeError, windowsFfi, windowsLibrary, windowsPointer, windowsWide } from './native.js'
 
-export type WindowsAce = Readonly<{ kind: 'allow' | 'deny'; sid: string; mask: number; inheritOnly: boolean }>
+export type WindowsAce = Readonly<{
+  kind: 'allow' | 'deny'
+  sid: string
+  mask: number
+  inheritOnly: boolean
+  fileInherit?: boolean
+  directoryInherit?: boolean
+}>
 export type WindowsSecuritySnapshot = Readonly<{
   owner: string
   group: string
   entries: readonly WindowsAce[]
   canonical: string
   digest: string
+  protectedDacl: boolean
 }>
 type Security = {
   ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -32,6 +40,7 @@ type Security = {
   ): number
   GetAclInformation(acl: number, bytes: Buffer, size: number, information: number): number
   GetAce(acl: number, index: number, entry: Buffer): number
+  GetSecurityDescriptorControl(descriptor: number, control: Buffer, revision: Buffer): number
   GetLengthSid(sid: number): number
   IsValidSid(sid: number): number
   ConvertSidToStringSidW(sid: number, text: Buffer): number
@@ -73,6 +82,7 @@ function api(): { security: Security; kernel: Kernel } {
     GetSecurityInfo: { args: ['u64', 'u32', 'u32', 'buffer', 'buffer', 'buffer', 'ptr', 'buffer'], returns: 'u32' },
     GetAclInformation: { args: ['ptr', 'buffer', 'u32', 'u32'], returns: 'i32' },
     GetAce: { args: ['ptr', 'u32', 'buffer'], returns: 'i32' },
+    GetSecurityDescriptorControl: { args: ['ptr', 'buffer', 'buffer'], returns: 'i32' },
     GetLengthSid: { args: ['ptr'], returns: 'u32' },
     IsValidSid: { args: ['ptr'], returns: 'i32' },
     ConvertSidToStringSidW: { args: ['ptr', 'buffer'], returns: 'i32' },
@@ -286,7 +296,9 @@ export function inspectWindowsFileSecurity(handle: bigint, ancestor: boolean): W
         kind: type === 0 ? 'allow' : 'deny',
         sid: sidText(pointer + 8),
         mask: header.readUInt32LE(4),
-        inheritOnly: (flags & 8) !== 0
+        inheritOnly: (flags & 8) !== 0,
+        fileInherit: (flags & 1) !== 0,
+        directoryInherit: (flags & 2) !== 0
       })
     }
     const ownerSid = sidText(windowsPointer(owner.readBigUInt64LE()))
@@ -307,12 +319,17 @@ export function inspectWindowsFileSecurity(handle: bigint, ancestor: boolean): W
       throw new UpdateError('unsafe_installation')
     }
     const sddl = Buffer.from(windowsFfi().toArrayBuffer(pointer, 0, characters * 2))
+    const control = Buffer.alloc(2)
+    if (!a.GetSecurityDescriptorControl(windowsPointer(allocation), control, Buffer.alloc(4))) {
+      throw new WindowsNativeError(k.GetLastError())
+    }
     result = Object.freeze({
       owner: ownerSid,
       group: groupSid,
       entries: Object.freeze(entries.map(/* 固定只读权限事实，不返回原生指针。 */ (entry) => Object.freeze(entry))),
       canonical: sddl.toString('utf16le'),
-      digest: createHash('sha256').update(sddl).digest('hex')
+      digest: createHash('sha256').update(sddl).digest('hex'),
+      protectedDacl: (control.readUInt16LE() & 0x1000) !== 0
     })
   } catch (error) {
     failure = error
