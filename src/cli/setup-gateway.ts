@@ -174,7 +174,7 @@ export class GatewaySetup {
               entry.binary_sha256
           )
           .join('; ') +
-        ') for reviewed workspace/Agent operations and one local MCP caller? Terminal execution stays disabled. / 批准这些实测原生来源、各自窗口/Agent 操作及一个本机 MCP caller（终端执行关闭）？',
+        `) for reviewed workspace/Agent operations and one local MCP caller? Terminal execution is controlled by the Connector machine owner's local configuration. / 批准这些实测原生来源、各自窗口/Agent 操作及一个本机 MCP caller（终端执行由 Connector 本机所有者配置决定）？`,
       request.signal
     )
     this.terminal.assertOwner()

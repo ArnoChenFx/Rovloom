@@ -1,8 +1,6 @@
-// 在既有受保护控制目录内保存及锁定注册文件；删除范围仅为指定项目文件。
-import { lstat, open, unlink } from 'node:fs/promises'
-import { constants } from 'node:fs'
+// 在普通服务控制目录内保存及锁定注册文件；删除范围仅为指定项目文件。
+import { lstat, open, unlink, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { protectedPath } from './security.js'
 import { ServiceError } from './types.js'
 import type { FileHandle } from 'node:fs/promises'
 
@@ -20,9 +18,9 @@ async function closeLockHandle(file: FileHandle): Promise<void> {
 }
 
 export type RegistrationFiles = {
-  // 验证控制目录的管理员所有权及不可替换性。
+  // 准备普通控制目录，不修改已有目录权限。
   verify(): Promise<void>
-  // 有界读取普通注册文件，不跟随符号链接。
+  // 用普通文件API有界读取登记内容。
   read(name: string): Promise<string | undefined>
   // 独占创建新文件，不覆盖既有注册。
   create(name: string, content: string): Promise<void>
@@ -33,11 +31,8 @@ export type RegistrationFiles = {
 }
 
 // 固定根目录由宿主选择，所有相对文件名须由模块内部固定身份生成。
-export function registrationFiles(
-  directory: string,
-  windows = false,
-  verifyPermissions?: (paths: readonly string[]) => Promise<void>
-): RegistrationFiles {
+// 历史windows标志仅为调用兼容保留，不再选择本机权限策略。
+export function registrationFiles(directory: string, _windows = false): RegistrationFiles {
   // 拒绝目录穿越，内部文件名不允许成为其它路径。
   function path(name: string): string {
     if (!/^[a-z0-9._-]+$/u.test(name)) {
@@ -46,41 +41,39 @@ export function registrationFiles(
     return join(directory, name)
   }
   const files: RegistrationFiles = {
-    // POSIX 权限在本模块验证，Windows ACL 由原生宿主验证。
+    // 服务目录按普通平台规则创建；权限不足由文件系统明确报错。
     async verify() {
-      if (!windows) {
-        await protectedPath(directory, 0, false)
-      }
-      await verifyPermissions?.([directory])
+      await mkdir(directory, { recursive: true })
     },
-    // lstat 后以 O_NOFOLLOW 打开，且核对 inode，阻断检查与打开之间的替换。
+    // 仅解析普通登记文件，保留大小限制；不验证本机所有权、权限或祖先。
     async read(name) {
-      const target = path(name)
-      let stat
+      let fd
       try {
-        stat = await lstat(target)
+        fd = await open(path(name), 'r')
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           return undefined
         }
         throw error
       }
-      if (
-        !stat.isFile() ||
-        stat.isSymbolicLink() ||
-        stat.size > 131072 ||
-        (!windows && (stat.uid !== 0 || (stat.mode & 0o022) !== 0))
-      ) {
-        throw new ServiceError('service_conflict')
-      }
-      await verifyPermissions?.([target])
-      const fd = await open(target, windows ? 'r' : constants.O_RDONLY | constants.O_NOFOLLOW)
       try {
-        const actual = await fd.stat()
-        if (actual.ino !== stat.ino || actual.dev !== stat.dev) {
+        const stat = await fd.stat()
+        if (!stat.isFile() || stat.size > 131072) {
           throw new ServiceError('service_conflict')
         }
-        return await fd.readFile('utf8')
+        const bytes = Buffer.alloc(131073)
+        let length = 0
+        while (length < bytes.length) {
+          const { bytesRead } = await fd.read(bytes, length, bytes.length - length, null)
+          if (!bytesRead) {
+            break
+          }
+          length += bytesRead
+        }
+        if (length > 131072) {
+          throw new ServiceError('service_conflict')
+        }
+        return bytes.toString('utf8', 0, length)
       } finally {
         await fd.close()
       }
@@ -102,7 +95,7 @@ export function registrationFiles(
       }
       await unlink(path(name))
     },
-    // 通过管理员目录内的独占文件实现跨进程锁，并在 finally 中只释放自有 inode。
+    // 通过控制目录内的独占文件实现跨进程互斥，并在 finally 中只释放自有 inode。
     async lock(name, operation) {
       const target = path(`.${name}.lock`)
       let fd

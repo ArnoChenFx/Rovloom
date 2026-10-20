@@ -1,7 +1,6 @@
 // 固定ref只解析到角色私有目录；受保护数据不能选择模块、shell或新的信任来源。
-import { constants, closeSync, fstatSync, openSync, readSync } from 'node:fs'
 import { join } from 'node:path'
-import { privateFile, privatePath } from '../storage/files.js'
+import { readPrivateBytes } from '../storage/files.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { CliError } from './config.js'
 
@@ -13,40 +12,10 @@ export function runtimeReference(directory: string, reference: unknown, suffix =
   return join(directory, 'managed', reference + suffix)
 }
 
-// 复用存储模块的Linux目录/文件保护检查，并在实际descriptor上再次限制单链接、大小及权限。
+// 共用普通跨平台有界文件读取，不以本机权限、所有权或平台作为状态加载门禁。
 export function readRuntimeFile(path: string, maximum: number): Buffer {
-  if (process.platform !== 'linux') {
-    throw new CliError('config_platform_unsupported')
-  }
-  let descriptor: number | undefined
   try {
-    privatePath(path)
-    privateFile(path)
-    descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
-    const stat = fstatSync(descriptor)
-    if (
-      !stat.isFile() ||
-      stat.nlink !== 1 ||
-      stat.uid !== process.getuid?.() ||
-      (stat.mode & 0o777) !== 0o600 ||
-      stat.size > maximum
-    ) {
-      throw new CliError('config_not_protected')
-    }
-    const bytes = Buffer.alloc(maximum + 1)
-    let length = 0
-    while (length < bytes.length) {
-      const count = readSync(descriptor, bytes, length, bytes.length - length, null)
-      if (!count) {
-        break
-      }
-      length += count
-    }
-    if (length > maximum) {
-      bytes.fill(0)
-      throw new CliError('invalid_config')
-    }
-    return bytes.subarray(0, length)
+    return readPrivateBytes(path, maximum)
   } catch (error) {
     if (error instanceof CliError) {
       throw error
@@ -55,10 +24,6 @@ export function readRuntimeFile(path: string, maximum: number): Buffer {
       throw new CliError('backend_unavailable', 3)
     }
     throw new CliError('config_unreadable')
-  } finally {
-    if (descriptor !== undefined) {
-      closeSync(descriptor)
-    }
   }
 }
 

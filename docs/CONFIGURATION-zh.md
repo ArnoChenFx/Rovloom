@@ -2,7 +2,9 @@
 
 [English](CONFIGURATION.md) · **简体中文** · [快速开始](QUICK-START-zh.md)
 
-每个角色在默认位置只有一份用户 JSON，不区分另一份defaults文件与用户文件。启动仅在文件缺失时生成；已有文件严格解析，永不重置。
+每个角色只有**一份用户 JSON 文件**：`~/.config/rovloom/gateway.json` 或
+`~/.config/rovloom/connector.json`。默认文件和用户文件就是同一份。
+启动时自动创建缺失的文件，无需复制模板或准备其他配置文件；已有文件严格读取，永不重置。
 下列字段除特别说明均为必填。默认值表示新生成文档的值，不是已有文件遗漏字段时的
 隐式补值。全部示例均不含凭据。
 
@@ -28,7 +30,8 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
   "schema_version": 1,
   "role": "connector",
   "data": {"directory": "/home/your-user/.local/share/rovloom/connector"},
-  "gateway": {"url": ""}
+  "gateway": {"url": ""},
+  "allow_terminal_execution": false
 }
 ```
 
@@ -55,8 +58,9 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `management.port` | integer 1–65535，关闭时也必填 | `9445`；监听地址固定 `127.0.0.1`。 |
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
+| Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |
 | Connector `native` | object，可选 | 默认省略，只接受以下来源选择及安装目录字段，在首次原生初始化时应用。 |
-| `native.provider` | string enum，可选 | 省略时为 `luvus`；`herdr` 仅选 Herdr，`mixed` 选择各一个。须在首次设置前选定；已初始化选择的变更仍需未来的重配置流程。 |
+| `native.provider` | string enum，可选 | 省略时为 `luvus`；`herdr` 仅选 Herdr，`mixed` 各选一个。首次初始化前选定；已初始化选择的变更仍需未来的重配置流程。 |
 | `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找所选 `luvus`/`herdr` 程序；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
 | `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
 
@@ -70,62 +74,52 @@ Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、
 绝对文件路径，仅覆盖该文件位置；新生成数据目录仍按角色用户 home 选择。已有显式
 文件不要求解析 home，缺失文件生成默认值时需要 home。
 
-首次文件创建和 runtime 目前要求 Linux。受保护角色文件检查支持 POSIX，在 Windows
-返回 `config_platform_unsupported`。模板使用目标平台路径分隔符。文件保持 `0600`，
-所在私有目录保持 `0700`，属于进程用户；新建时使用这些权限，不自动修复已有权限或
+首次文件创建、角色文件检查和 Gateway 启动支持 Linux/macOS/Windows；首次配对审批和原生
+Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用性与状态检查)。
+模板使用目标平台路径分隔符，文件访问沿用操作系统权限。新建文件/目录在支持的平台
+请求 `0600`/`0700`，这是默认值，不是对已有文件的校验要求；不自动修复已有权限或
 损坏文件。用户 JSON 上限 16 KiB，不支持注释，拒绝非法编码和重复键。
 
 ## 程序管理的数据与认证
 
-用户只编辑角色文件。Gateway 启动创建缺失的私有数据/控制目录并打开真实数据库。
-下列布局仅用于识别，不是需要手工准备的文件清单：
+用户只编辑角色文件。`data.directory` 指定 Rovloom 保存数据库、设备凭据和原生状态
+的位置，默认是 `~/.local/share/rovloom/gateway` 或
+`~/.local/share/rovloom/connector`；加载器内部将此值称为 `state_dir`。
+程序在启动和批准的初始化中准备自己的数据，无需手工准备 `runtime.json`、`refs/`
+目录、provider JSON 或凭据文件。它们不是额外的用户配置；旧 `runtime.json`/`refs/`
+格式不再加载或迁移。
 
-```text
-<Gateway data.directory>/
-  gateway.db          设备、provider、调用和结果
-  identity.db         设备身份状态
-  managed/            私有程序管理 provider/caller/管理状态
-<Connector data.directory>/
-  managed/            已准备时的私有配对凭据和provider状态
-  control/            受保护Luvus root记录、claims和admission账本
-  n/                  隔离Luvus状态；该完整路径最多52个UTF-8字节
-  h/                  隔离HOME及config/data/cache/runtime XDG子目录
-  w/                  隔离原生工作目录
-  hr/                 所选Herdr的私有h/c/s/k/t/w/control目录
-```
-
-数据库可有 WAL/锁/控制附属文件，保留整个目录。不要编辑记录、编造凭据或重建缺失
-账本。原生 runtime 自有状态及安装目录不属于用户配置；首次本地终端批准会准备上述
-所选 Luvus/Herdr 资源。Herdr 的 `hr/control/` 保存原 schema、claims 和 receipt 账本，
-`managed/herdr-setup.json` 保留原 attempt；Gateway 原 schema 路径由本机程序选择。
-这些路径和摘要都不由用户填写。部分创建和不确定交付保留原非秘密 attempt
-记录，不为启动成功而重建缺失账本；引导恢复尚不可用。
-旧 `runtime.json` 和 `refs/` 不再加载，未发布预览不保留旧格式迁移。
-已移除自管证书/CA 路径。
+保留整个数据目录，包括数据库附属文件。不要修改内部记录，也不要为重试不确定的
+初始化而删除数据。Herdr 在 `<data.directory>/hr/` 管理隔离的 `h/c/s/k/t/w/control` 目录及原 schema、claims、receipts；
+这些不是额外用户配置。引导恢复尚不可用。
+首次 Luvus 设置要求 `data.directory` 路径加 `/n` 不超过52个 UTF-8 字节，
+如有需要，请在配对前选择更短的目录。
 
 没有 caller 状态的 Gateway 以**待配对**状态运行，MCP 返回 401，管理页不创建管理员
 会话。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
-首次原生批准为全部精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
-原值保留于私有 `managed/mcp-client.json`（0600）；复制到 MCP 客户端秘密存储。
-有效期30天，本预览没有续期引导。`managed/mcp-callers.json` 保存摘要和期限。设备凭据、
+首次原生批准为精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
+原值由 Rovloom 私密保留；复制到 MCP 客户端秘密存储。
+有效期30天，本预览没有续期引导。设备凭据、
 MCP Bearer 与独立管理证明互不替代。既有管理认证仍使用独立 principal/proof，
 MCP Bearer 不能登录管理员；首次引导不创建管理 cookie 或默认管理员。
 
 Connector 需要可达 Gateway 地址和已完成的配对/原生状态。真实本地 TTY 上，Gateway
 批准后签发五分钟一次性码；Connector 输入地址及不回显的码，兑换既有 enrollment，
-先把设备身份持久保存到 `managed/device.json`，再确认该次准确交付。实测安装还需独立
+先私密持久保存设备身份，再确认该次准确交付。实测安装还需独立
 所有者确认，才建立 provider/caller 配置。非 TTY 不等待输入或创建这些权限；初始化
 不会登录模型、创建 Agent 或证明模型回复。缺少 provider 状态表示待配置，
 损坏或不安全状态会拒绝。`config check-runtime` 检查已有程序管理 provider registry，
 不检查 caller 凭据、TLS 信任、原生 binary 或模型连接。
+
+## 网络访问
 
 Gateway 在本机/可信网络使用普通 HTTP/WS，公网 TLS 由外部标准 HTTPS/WSS 反向代理
 终止。Connector WSS 始终使用系统证书验证，没有自定义 CA 或跳过验证选项。
 
 ## 原生安装与 pins
 
-通过官方 [Luvus](https://github.com/RizRiyz/luvus) 或
-[Herdr](https://github.com/herdrdev/herdr/releases) 分发安装。兼容性按安装版协议、完整请求/响应
+通过官方 [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest) 或
+[latest Herdr](https://github.com/herdrdev/herdr/releases/latest) 分发安装。兼容性按安装版协议、完整请求/响应
 schema 和实际方法能力判断；版本标签只用于诊断，不要求固定原生发行版或预设 binary/schema
 摘要。缺少或不兼容的可选接口仅使依赖操作不可用。
 
@@ -161,54 +155,17 @@ schema 输出保留原字节。已知预编译摘要只用于缓存命中，未�
 这是完整 Connector 文档中的可选片段。安装目录应由机器所有者控制；不要修改 managed
 root 记录或摘要来更换已初始化的安装。
 
-Agent/模型访问配置位于 runtime 私有 HOME/XDG，按下列步骤配置。普通严格文本对话可保持本地
+Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次设置的 HOME 为
+`<data.directory>/h`（Luvus）或 `<data.directory>/hr/h`（Herdr），不会复制普通 home 中的登录。本预览没有这个隔离环境的模型
+登录引导，因此全新模型设置仍需机器所有者准备。普通严格文本对话可保持本地
 `allow_terminal_execution:false`，不要用任意 argv/env 或终端输入绕过缺失 PATH。
 终端开关不会沙箱化 Agent 自身工具；binary/schema 校验或 `ready` 不证明模型已回复。
 
-### 在原生私有环境中登录 Agent
-
-首次原生设置完成后停止 Connector，由相同角色用户亲自登录；Rovloom 不复制普通 home
-凭据，也不代替用户登录。现有原生安装检查要求 binary 归该用户所有、路径受保护且不是
-符号链接；可用 `native.runtime_bin_dir` 指向这样的安装目录。
-
-下表 `D` 表示 Connector 的绝对 `data.directory`：
-
-| Runtime | HOME | XDG_CONFIG_HOME | XDG_DATA_HOME | 其他私有目录 |
-|---|---|---|---|---|
-| Luvus | `D/h` | `D/h/config` | `D/h/data` | cache `D/h/cache`；runtime `D/h/runtime` |
-| Herdr | `D/hr/h` | `D/hr/c` | 不设置，回落到其私有 HOME | state `D/hr/s`；cache `D/hr/k`；temporary `D/hr/t` |
-
-以下是**用户亲自执行**的 Herdr 私有环境登录示例。将两个绝对占位路径换成自己的配置；
-Agent 目录应与 `native.agent_bin_dir` 一致，或使用包含它的固定系统目录。
-
-```sh
-rovloom_data='/absolute/connector/data'
-agent_bin='/absolute/approved/agent/bin'
-cd "$rovloom_data/hr/w"
-env -i HOME="$rovloom_data/hr/h" PATH="$agent_bin:/usr/bin:/bin" \
-  XDG_CONFIG_HOME="$rovloom_data/hr/c" XDG_STATE_HOME="$rovloom_data/hr/s" \
-  XDG_CACHE_HOME="$rovloom_data/hr/k" TMPDIR="$rovloom_data/hr/t" \
-  TERM=xterm-256color SHELL=/bin/sh LANG=C.UTF-8 \
-  "$agent_bin/opencode" auth login
-```
-
-同一前缀配合 `auth list` 可检查已配置 provider。Luvus 按表设置，包括 XDG_DATA_HOME，
-不设置 Herdr 的 state/TMPDIR。命令见 [OpenCode 登录说明](https://opencode.ai/docs/cli/#auth)。
-Luvus 工作目录使用 `D/w`。
-在选定 XDG_CONFIG_HOME 下的 `opencode/opencode.json` 合并自己的授权 provider/model，
-参数见[官方模型配置](https://opencode.ai/docs/config/#models)，例如：
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "model": "your-provider/your-model",
-  "small_model": "your-provider/your-model"
-}
-```
-
-这是 Agent 自己的配置，不是 Rovloom JSON 字段。其他 Agent 使用其支持的方式，在同一
-私有环境中完成认证。runtime 不继承 shell API key 或代理变量；需要额外进程环境的 Agent
-接入暂不能在此配置。完成后重启 Connector；认证检查和原生 ready 都不验证模型调用或聊天完成。
+直接终端操作复用原生方法：Luvus `pane.run` 接受显式 `pane` 与 `command`，随后用
+`pane.read` 读取终端输出。`ok` 仅确认 PTY 输入，不表示命令完成或 shell 退出码。
+当前认证 Gateway 目录在本地开关关闭或未知时隐藏直接输入，保留并标明严格文本变体的
+参数限制。已有初始化策略可能未包含 `pane.run`，开启本地开关不会修改它们。执行环境、
+输出和未知结果语义见[终端执行](TERMINAL-EXECUTION.md)。
 
 ## 完整 CLI 参考
 
@@ -239,20 +196,22 @@ Luvus 工作目录使用 `D/w`。
 | `rovloom gateway [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/gateway.json`，启动前台 Gateway。 | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
 | `rovloom connector [--config ABS]` | `--config`：可选路径 string | 默认使用当前用户 `~/.config/rovloom/connector.json`，启动前台 Connector。 | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
 
-显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux 在所选位置生成缺失文件，不覆盖已有文件；
+显式路径优先，无效时不会回退。所选文件必须匹配角色。Linux/macOS/Windows 在所选位置生成缺失文件，不覆盖已有文件；
 默认路径按进程用户解析。Ctrl-C 停止前台角色，没有独立的顶层
 `start`、`stop` 或 `restart`。网络端口是 JSON 字段，不是 CLI 选项；provider 初始化仅接通
-上述所选原生来源的本地终端流程，Agent/模型登录仍需独立准备。
+上述所选 Luvus/Herdr 的本地终端流程，Agent/模型登录仍需独立准备。
 
 ### Service 命令语法与当前可用性
 
-`rovloom service --help` 可离线使用。服务接口识别下列五种动作，但**当前产品未连接
-服务后端**，均返回 `backend_unavailable`、退出码 **3**，不会安装或管理系统服务。
-下列示例用于说明语法，不是本预览可成功执行的安装教程；管理员权限也不能消除此限制。
+`rovloom service --help` 可离线使用。Gateway产品入口已连接Linux systemd与macOS系统LaunchDaemon；安装要求当前
+Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
+缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
+Windows产品服务生命周期仍不可用；原生格式解析不等于生命周期验收。
+见[服务前提与平台限制](SERVICE.md)。
 
-| 命令形状 | 必填参数 | 动作含义 | 语法示例（当前不可用） |
+| 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
 |---|---|---|---|
-| `rovloom service install` | `--role`、`--executable`、`--workdir`、`--user`；`--config` 可选 | 加入/启用开机自动启动，**不会立即启动**。 | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
+| `rovloom service install` | `--role`、`--workdir`、`--user`；`--executable`、`--config` 可选 | 加入/启用开机自动启动，**不会立即启动**。 | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
 | `rovloom service start` | 仅 `--role` | 立即启动已安装角色，不自动安装。 | `rovloom service start --role gateway` |
 | `rovloom service restart` | 仅 `--role` | 停止已安装实例，再启动。 | `rovloom service restart --role connector` |
 | `rovloom service stop` | 仅 `--role` | 立即停止，保留下次开机自动启动。 | `rovloom service stop --role connector` |
@@ -264,15 +223,17 @@ Luvus 工作目录使用 `D/w`。
 | 服务选项 | 类型 / 必需性 / 默认 | 用途 |
 |---|---|---|
 | `--role` | 必填 enum `gateway` 或 `connector`，无默认 | 选择要管理其自启/实例的角色。 |
-| `--executable` | 仅 install，必填绝对路径 string，≤4096 字符，无默认 | Rovloom 单文件程序，不是 shell 命令或解释器；Windows 路径须以 `.exe` 结尾。 |
-| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 显式角色配置。省略时需要已验证用户的 `~/.config/rovloom/gateway.json` 或 `connector.json`；无法验证身份时必须显式传入（`config_path_required`），不根据环境变量猜测提权前 home。 |
+| `--executable` | 仅 install，可选绝对路径 string，≤4096 字符，默认当前单文件程序 | 必须等于当前规范可执行路径；拒绝另一安装、shell 或解释器。Windows 路径须以 `.exe` 结尾。 |
+| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 显式角色配置。省略时从所选 `--user` 服务账户的系统记录取得 home，再复用共享的 `~/.config/rovloom/gateway.json` 或 `connector.json` 规则；无法验证身份时必须显式传入（`config_path_required`），不根据环境变量猜测提权前 home。 |
 | `--workdir` | 仅 install，必填绝对目录 string，≤4096 字符，无默认 | 服务工作目录，不设置或替代 JSON 的 `data.directory`。 |
 | `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
-POSIX 安装要求 root 持有的受保护程序，以及属于所选非 root 账户的配置/工作目录；
-不会创建账户或放宽权限。Windows 要求独立的受保护安装和 LocalService 访问权限。
-这些检查不会使尚未连接的产品服务后端变为可用。
+安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
+不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
+Linux宿主从系统账户记录选择默认配置路径，不读取安装管理员HOME。安装不启动角色，
+不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
+Linux 工作目录不得以空白或反斜杠结尾。
 
 服务动作将安装和运行状态分开：install 后再 start 才分别请求开机自启和立即运行；
 uninstall 后再 stop 才分别请求不再开机自启和立即停止。重复 start 不应产生重复实例，
@@ -284,9 +245,12 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | 命令类别 | Linux | macOS | Windows |
 |---|---|---|---|
 | 帮助/版本/模板输出 | 可用 | 可用 | 可用 |
-| `config check` | 受保护 POSIX 读取器 | 受保护 POSIX 读取器 | 拒绝：`config_platform_unsupported` |
-| `config check-runtime`、真实角色启动 | 当前部署指引覆盖 Linux x64 | runtime 加载器拒绝该平台 | runtime 加载器拒绝该平台 |
-| Service 动作 | 当前产品 CLI 不可用 | 不可用，runtime 也未支持 | 不可用，runtime/配置及安装 ACL 支持也未完成 |
+| `config check` | 普通操作系统文件访问 | 普通操作系统文件访问 | 普通操作系统文件访问 |
+| 缺失角色文件创建 | 可用 | 可用 | 可用 |
+| Gateway 启动 / `config check-runtime` | 可用 | 可用 | 可用 |
+| 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
+| 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | 产品服务生命周期不可用；在系统访问前拒绝 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，
@@ -313,14 +277,15 @@ stdout 不是 MCP 传输。任何命令都不接受 Bearer、TLS 秘密、模型
 
 | 退出码 | 角色/配置/服务含义 | Update 含义 |
 |---|---|---|
-| `0` | 帮助/模板/检查成功、角色正常关闭；服务帮助可成功 | 检查成功或无需替换，实际替换目前未接通。 |
+| `0` | 帮助/模板/检查成功、角色正常关闭；服务操作成功或幂等 | 检查成功或无需替换，实际替换目前未接通。 |
 | `1` | 运行/关闭失败；已接后端时的服务操作失败 | 未预期的更新失败。 |
 | `2` | 参数/配置错误；已接服务后端时的选项错误或缺少可信默认配置 | 参数/当前版本无效或平台不支持。 |
-| `3` | 后端不可用，当前产品的服务动作均返回此码 | 网络/发行/manifest/下载核验失败。 |
+| `3` | 后端/运行时不可用或服务平台不支持 | 网络/发行/manifest/下载核验失败。 |
 | `4` | 不是角色/配置/服务成功码 | 权限/暂存/锁/安装或 IO/清理未完成，不是成功。 |
 | `5` | 这些命令不使用 | 替换后端不可用。 |
 | `6` | 这些命令不使用 | 更新已回滚（替换模块结果）。 |
 | `7` | 这些命令不使用 | 需要恢复（替换模块结果）。 |
 
-未接通服务后端的检查发生在动作参数解析之前，所以当前即使传入畸形 service 动作也会返回
-`backend_unavailable`，不能据此认为选项合法。求助时保留错误码，不上传真实配置或秘密。
+产品先解析 service 选项，再校验授权。非法选项返回 `invalid_arguments`（2），Linux 权限
+不足返回 `permission_denied`（1），不会调用 sudo。成功诊断以固定 JSON 写入 stderr，分别报告
+`bootEnabled`、`controlRetained` 与 `readiness: "not_checked"`。求助时保留错误码，不上传真实配置或秘密。

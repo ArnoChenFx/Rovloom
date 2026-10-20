@@ -10,8 +10,8 @@
 Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构，
 让 runtime 留在各自机器上，AI Agent / AI Bot 通过同一入口访问。
 
-**当前可用范围：** 面向管理员已完成配置环境的 Linux x64 Gateway/Connector 技术预览。
-尚无公开安装包；全新设备设置和真实模型对话仍需部署验收。
+**当前可用范围：** Linux/macOS/Windows Gateway 与 Linux x64 Connector 设置的技术预览。
+首次配对审批要求 Linux。尚无公开安装包和 Agent/模型登录引导，参见[快速开始](docs/QUICK-START-zh.md)。
 
 ## 核心能力
 
@@ -73,8 +73,8 @@ flowchart TB
 
 从[快速开始](docs/QUICK-START-zh.md)了解安装前提、Gateway/Connector 配置路径、启动、
 HTTP MCP 接入与 Agent 使用。[配置参考](docs/CONFIGURATION-zh.md)列出精确参数和完整无秘密模板。
-本地终端引导可配对一个 Connector，并初始化已安装的 Luvus、Herdr 或两者。
-Agent/模型登录仍须由用户在各 runtime 的私有环境中明确完成。
+本地终端引导可配对一个 Connector 并初始化已安装的 Luvus、Herdr 或两者；
+Agent/模型仍需独立准备。
 
 ```sh
 rovloom --version

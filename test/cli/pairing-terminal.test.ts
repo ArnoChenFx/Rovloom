@@ -472,7 +472,14 @@ async function nativeProbe(
       database.close()
     }
     const user = JSON.parse(readFileSync(connectorPath, 'utf8'))
-    assert.deepEqual(Object.keys(user).sort(), ['data', 'gateway', 'native', 'role', 'schema_version'])
+    assert.deepEqual(Object.keys(user).sort(), [
+      'allow_terminal_execution',
+      'data',
+      'gateway',
+      'native',
+      'role',
+      'schema_version'
+    ])
     assert.deepEqual(user.native, { runtime_bin_dir: binaryDirectory, ...(provider !== 'luvus' ? { provider } : {}) })
   } finally {
     rmSync(root, { recursive: true, force: true })

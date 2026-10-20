@@ -155,14 +155,14 @@ export function createProviderResultAccess(options: ProviderResultAccessOptions)
     return value
   }
 
-  /** 仅转接原 Wire 的当前读取及独立保留门禁，不从分类 JSON 或持久数据恢复原 permit。 */
+  /** 原保留门禁同时核验当前读取；保留时不重复读校验，仍不从持久数据恢复原 permit。 */
   function nativeResult(
     original: ProviderOriginalRead,
     binding: AttemptBinding,
     response: JsonObject,
     retain: boolean
   ): void {
-    if (synchronous(original.wire.checkResult(binding, response)) !== undefined) {
+    if (!retain && synchronous(original.wire.checkResult(binding, response)) !== undefined) {
       throw new GatewayError('result_port_invalid')
     }
     if (retain) {

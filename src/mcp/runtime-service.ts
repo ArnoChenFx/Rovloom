@@ -29,13 +29,14 @@ export type RuntimeGateway =
 export type RuntimeGatewayPort = Pick<
   RuntimeGateway,
   'router' | 'principal' | 'runAuthenticated' | 'admit' | 'get' | 'cancel' | 'results' | 'originalAttempt'
-> & { store: Store }
+> & { store: Store; terminalExecutionState?: RuntimeGateway['terminalExecutionState'] }
 export type RuntimeGatewayServiceOptions = Omit<StoreGatewayOptions, 'store' | 'router'> & {
   runtime: RuntimeGatewayPort
 }
 type Request = { [K in ToolName]: { name: K; args: ToolArguments[K] } }[ToolName]
 const errors: Record<string, ServiceErrorCode> = {
   runtime_closed: 'unavailable',
+  machine_offline: 'unavailable',
   connection_unavailable: 'unavailable',
   provider_binding_mismatch: 'binding_revision_conflict',
   call_not_found: 'not_found',
@@ -75,7 +76,12 @@ export class RuntimeGatewayService implements GatewayService {
 
   // 同一宿主已拥有Store/Router，查询服务不再创建第二个writer或transport。
   constructor(private readonly options: RuntimeGatewayServiceOptions) {
-    this.reads = new StoreGatewayService({ ...options, store: options.runtime.store, router: options.runtime.router })
+    this.reads = new StoreGatewayService({
+      ...options,
+      store: options.runtime.store,
+      router: options.runtime.router,
+      terminalExecutionState: options.terminalExecutionState ?? options.runtime.terminalExecutionState
+    })
     this.management = this.reads.management
   }
 

@@ -453,3 +453,39 @@ schema、启动、目录或原生请求失败都会使整个 CLI 验收非零退
 [SDK 流程测试](../../test/mcp/luvus-cli-flow.test.mjs)独立使用明确服务 stub，覆盖分页、原 call
 轮询、未派发 created 的 null 契约、已绑定契约倒退、稳定 ID、单次输入、结果摘要及 terminal/Target
 漂移拒绝。它只证明协议和流程断言可执行，不能代替上述真实 CLI/native 验收。
+
+<a id="client-call-sequence"></a>
+
+## 客户端调用顺序
+
+本节面向 MCP 客户端实现者；普通安装操作见[快速开始](../QUICK-START-zh.md)。
+可接受的参数由[实际 MCP schema](../../src/mcp/schema.ts)定义。
+
+1. 使用已签发的 Bearer 初始化 Streamable HTTP，并加载全部工具页。
+2. 通过 `machines_list`、`providers_list` 和 `providers_get` 查看设备、provider、
+   就绪状态及当前 `binding_revision`。
+3. 使用初始化时显示或管理员提供的完整 Target：`machine_id`、`provider_id`、
+   `profile`，以及 session profile 所需的 `session`。
+   provider 列表不提供 `profile`/`session`，不得猜测。
+4. 将该 Target 和观察到的 revision 作为 `expected_binding_revision` 传给
+   `runtime_discover`，逐页跟随 `next_cursor`。用 `runtime_describe` 描述精确方法，
+   并保留其返回的 `contract_ref` 和原生参数 schema。
+5. 携带该 Target/revision/contract 和 `native_request:{method,params}`，
+   只提交一次 `runtime_call`。`deadline` 是未来的 Unix 毫秒绝对时间；
+   可选的 `wait_ms` 为0–5000，只控制前端等待。
+6. 保留 `call_id`，通过 `runtime_call_get` 查询原调用。取得可用的 `result.result_id`
+   后，用 `runtime_result_read` 读取结果，跟随 `next_cursor` 至 `eof`，并遵循
+   `encoding`。超时不代表获准重新提交。
+
+先调用 `workspace.list`，再使用该 provider 描述的 tab/pane 列表方法。
+Luvus 的 `workspace.list` 等通用方法要求 `validation:"raw-contract"` 和 raw 授权。
+Luvus 的 `pane.list`、`agent.prompt`、`agent.send`、`agent.wait` 和 `agent.keys`
+使用严格校验；Herdr 使用其实际 schema 和严格校验。
+不得复用其他 provider 的 ID、revision 或契约摘要。
+
+对话前，先描述 `agent.list/get/explain/read`，再选择实际观察到的 Agent/窗格。
+启动已安装的 Agent 时，Luvus 的 `agent.start` 接受 `pane`，Herdr 接受 `pane_id`；
+其余字段按各自原生 schema 填写。Luvus 的 `agent.prompt` 使用 `target`、`text`、
+观察到的 `terminal_id` 和 `strict:true`；Herdr 使用 `target`、`text`，以及可选的
+对象型 `wait`。按已描述的 `agent.get/wait/read` 操作读取真实回复，并保持同一段
+原生会话。不得用任意可执行参数或环境变量绕过已禁用的终端执行。

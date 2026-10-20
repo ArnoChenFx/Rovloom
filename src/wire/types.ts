@@ -36,6 +36,7 @@ export type Capability =
   | 'provider_fence'
   | 'dispatch_refusal'
   | 'provider_snapshot'
+  | 'terminal_execution_state'
   | 'admission_receipt'
   | 'admission_context'
   | 'history_scope'
@@ -123,8 +124,10 @@ export type RequestPayload = {
   validation: ValidationMode
 }
 export type DispatchRefusalCode = 'terminal_execution_disabled'
+export type TerminalExecutionState = Readonly<{ binding: ProviderBinding; enabled: boolean }>
 export type Payloads = {
   provider_fenced: { binding: ProviderBinding }
+  terminal_execution_state: TerminalExecutionState
   provider_snapshot: {
     binding: ProviderBinding
     target: V2Target

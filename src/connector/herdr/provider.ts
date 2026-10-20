@@ -2,7 +2,7 @@
 import { constants, closeSync, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
 import { dirname, isAbsolute, normalize } from 'node:path'
 import { GatewayError } from '../../contracts.js'
-import { privateFile } from '../../storage/files.js'
+import { privateFile, readPrivateBytes } from '../../storage/files.js'
 import { ConnectorAttemptBook } from '../../runtime/connector-attempts.js'
 import { createConnectorAdmissionLedger } from '../../runtime/connector-admission-ledger.js'
 import type { GatewayProviderServices, RuntimeProviderBinding } from '../../runtime/types.js'
@@ -225,7 +225,6 @@ function fileOperation<T>(operation: () => T): T {
     fail('herdr_provider_file_unavailable')
   }
 }
-
 /** 从同一不跟随链接的私有 fd 有界读取并固定身份，原文和路径不进入公共错误。 */
 function protectedFile(file: string, maximum: number) {
   return fileOperation(
@@ -281,7 +280,6 @@ function protectedFile(file: string, maximum: number) {
     }
   )
 }
-
 /** #8 的显式 ref loader 可直接调用；不解释 executable module 或在导入配置时启动服务。 */
 export function readHerdrProviderRefConfig(file: string): HerdrProviderRefConfig {
   const opened = protectedFile(path(file), 65_536)
@@ -302,19 +300,24 @@ function provider(config: HerdrProviderRefConfig): ProviderBinding {
   })
 }
 
-/** Gateway 只编译受保护的已 pin schema；远端 binary/endpoint 来源仍属于 Connector 本机安装所有者。 */
+/** Gateway校验实际schema字节并保留编译快照；远端binary/endpoint仍由Connector安装所有者交付。 */
 export async function createHerdrGatewayResources(
   input: Readonly<{ config: unknown; signal?: AbortSignal; now?: () => number }>
 ): Promise<HerdrGatewayResources> {
   const config = parseHerdrProviderRefConfig(input.config)
-  const document = protectedFile(config.schema_path, 16_777_216)
-  if (hash(document.bytes) !== config.expected_source.schema_sha256) {
+  // Gateway加载普通文件的有界字节快照；运行中的编译契约不依赖文件所有者、权限或inode。
+  const bytes = fileOperation(
+    /** 路径已由角色配置解析器核对。 */ () => readPrivateBytes(config.schema_path, 16_777_216)
+  )
+  if (!bytes.length) {
+    fail('herdr_provider_file_invalid')
+  }
+  if (hash(bytes) !== config.expected_source.schema_sha256) {
     fail('herdr_schema_unreviewed')
   }
-  const schemas = await compileHerdrSchemas(document.bytes, input.signal)
-  document.assertCurrent()
+  const schemas = await compileHerdrSchemas(bytes, input.signal)
   const codec = createHerdrCodec(config.expected_source, schemas)
-  const schemaDocument = object(JSON.parse(document.bytes.toString('utf8')))
+  const schemaDocument = object(JSON.parse(bytes.toString('utf8')))
   const record: HerdrContractRecord = Object.freeze({
     wire: Object.freeze({ source: config.expected_source, support_status: 'validated' }),
     schemas
@@ -330,7 +333,6 @@ export async function createHerdrGatewayResources(
     if (closed) {
       fail('herdr_provider_closed')
     }
-    document.assertCurrent()
   }
   /** 同一来源的公开描述每次重验；没有 caller 的此端口本身不发行目录或执行权限。 */
   function describeCurrent(): ReturnType<typeof describeHerdrContract> {
@@ -550,6 +552,8 @@ export async function createHerdrConnectorResources(
     policies(principal: string): ProviderPolicies
     releaseOwner(): Promise<void>
     release_timeout_ms?: number
+    /** 与最终写入共用的本机开关读取器；省略时使用原安装配置。 */
+    terminalExecution?(): boolean
   }>
 ): Promise<HerdrConnectorResources> {
   const config = parseHerdrProviderRefConfig(input.config)
@@ -698,7 +702,7 @@ export async function createHerdrConnectorResources(
             })
           })
           const backend: HerdrReadonlyBackend = { ...services, ...ledger }
-          runtime = createHerdrRuntime(installed, backend, sendClaims)
+          runtime = createHerdrRuntime(installed, backend, sendClaims, input.terminalExecution)
           const current = runtime
           session = {
             admissions: reader,
@@ -708,6 +712,14 @@ export async function createHerdrConnectorResources(
                 ledger.decode(raw, direction, current.adapter.decode)
             },
             executeWire: current.executeWire,
+            terminalExecutionState: /** 目录使用同一个本机配置源；最终写入仍由原runtime再检查。 */ () => [
+              {
+                binding,
+                enabled: input.terminalExecution
+                  ? input.terminalExecution()
+                  : installed.config.allow_terminal_execution === true
+              }
+            ],
             readiness: /** 只有真实本机安装与当前双端配置均有效才报告该 provider 可用。 */ () => {
               if (closed) {
                 fail('herdr_provider_closed')

@@ -20,6 +20,7 @@ import { assertSetupNativePath, setupBinary } from './setup-native.js'
 import { setupReference, setupTarget } from './setup-policy.js'
 import { runtimeReference } from './runtime-files.js'
 import type { SetupTerminal } from './setup-terminal.js'
+import { connectorNativePrompt } from './setup-prompts.js'
 
 export type HerdrSetupRemote = Readonly<{
   kind: 'herdr'
@@ -99,11 +100,7 @@ export async function prepareSetupHerdr(
     return prepared(existing, config, attempt, credential.machine_id)
   }
   const binary = setupBinary(config, 'herdr')
-  if (
-    !(await terminal.confirm(
-      'Discover this Herdr installation and create its isolated local state (terminal execution disabled)? / 发现 Herdr 并创建隔离状态（关闭终端执行）？'
-    ))
-  ) {
+  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Herdr')))) {
     throw new CliError('configuration_required')
   }
   assertSetupNativePath(config, terminal)

@@ -1,7 +1,7 @@
 // 独立管理来源使用真实私有文件/摘要/authority；principal和既有批准均为明确合成fixture。
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { chmodSync, unlinkSync } from 'node:fs'
+import { chmodSync, statSync, unlinkSync } from 'node:fs'
 import { createManagementSessionAuthority } from '../../src/runtime/management-session.js'
 import { openCallerSource } from '../../src/cli/caller-source.js'
 import { openProtectedManagementSource } from '../../src/cli/management-source.js'
@@ -54,12 +54,12 @@ test(
 )
 
 test(
-  '管理来源字段与凭据摘要独立，文件变更/权限丢失/删除后的旧cookie不会恢复',
+  '管理来源字段与凭据摘要独立，普通权限不撤销cookie，内容变更或删除仍永久拒绝',
   /** 使用正式caller和authority读取同一文件后端；不注入管理员成功回调。 */ async () => {
     if (process.platform !== 'linux') {
       return
     }
-    for (const mutation of ['changed', 'permissions', 'missing'] as const) {
+    for (const mutation of ['changed', 'missing'] as const) {
       const f = await managementSourceFixture()
       const source = openProtectedManagementSource(f.config, 'management', { assets: f.assets })
       const caller = openCallerSource(f.callerPath, f.callers.resource, source.administrator)
@@ -70,11 +70,11 @@ test(
         assert(lease)
         const cookie = authority.bootstrap(lease).cookie
         assert(await authority.sessions.resolveCookie(cookie, new AbortController().signal))
+        chmodSync(f.sourcePath, 0o644)
+        assert(await authority.sessions.resolveCookie(cookie, new AbortController().signal))
+        assert.equal(statSync(f.sourcePath).mode & 0o777, 0o644)
         if (mutation === 'changed') {
           f.save(f.sourcePath, { ...f.source, pairing_policy_refs: ['changed'] })
-        }
-        if (mutation === 'permissions') {
-          chmodSync(f.sourcePath, 0o644)
         }
         if (mutation === 'missing') {
           unlinkSync(f.sourcePath)

@@ -716,7 +716,7 @@ test(
 )
 
 test(
-  '只读caller源拒绝过期、错误资源、额外权限及链接文件，失败不输出秘密或创建身份',
+  '只读caller源沿用普通文件和链接，仍拒绝过期、错误资源及额外身份字段',
   /* 直接验证正式读取/authentication代码，全部摘要来自本例合成token。 */ async () => {
     const f = await fixture()
     try {
@@ -738,14 +738,15 @@ test(
       assert.equal(expired.authentication.authenticate(request, signal), null)
       assert.equal(expired.identities.principal({ principal_id: 'fixture_caller' }), null)
       chmodSync(f.auth, 0o644)
-      assert.throws(/* 宽松权限在解析前拒绝。 */ () => readRuntimeJson(f.auth))
+      assert.doesNotThrow(/* 普通读取权限不赋予有效网络身份。 */ () => readRuntimeJson(f.auth))
+      assert.equal(expired.authentication.authenticate(request, signal), null)
       chmodSync(f.auth, 0o600)
       const alias = join(f.refs, 'alias.json')
       linkSync(f.auth, alias)
-      assert.throws(/* 多硬链接不能成为唯一受保护源。 */ () => readRuntimeJson(f.auth))
+      assert.deepEqual(readRuntimeJson(alias), readRuntimeJson(f.auth))
       unlinkSync(alias)
       symlinkSync(f.auth, alias)
-      assert.throws(/* 符号链接不能替代固定源文件。 */ () => readRuntimeJson(alias))
+      assert.deepEqual(readRuntimeJson(alias), readRuntimeJson(f.auth))
       assert.equal(existsSync(join(f.state, 'gateway.db')), false)
       source.close()
       expired.close()

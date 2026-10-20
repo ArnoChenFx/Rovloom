@@ -60,6 +60,10 @@ export function validateSpec(value: unknown): ServiceSpec {
   ) {
     throw new ServiceError('invalid_arguments')
   }
+  // WorkingDirectory 是单值原文，非 argv；行尾空白和续行反斜杠不能无损表达，因此明确拒绝。
+  if (spec.platform === 'linux' && (spec.directory.trimEnd() !== spec.directory || spec.directory.endsWith('\\'))) {
+    throw new ServiceError('invalid_arguments')
+  }
   if (spec.platform === 'win32') {
     if (spec.account !== LOCAL_SERVICE || !spec.executable.toLowerCase().endsWith('.exe')) {
       throw new ServiceError('invalid_arguments')

@@ -1,7 +1,7 @@
 // 通过系统自带 PowerShell 的固定脚本调用 Task Scheduler COM；数据走 stdin，绝不生成脚本表达式。
 import { manifest, parseManifest, serviceName } from './spec.js'
 import { renderTask } from './render.js'
-import { checkedCommand, type CommandRunner } from './runner.js'
+import { type CommandRunner } from './runner.js'
 import { ServiceError, type ServiceRole, type ServiceSnapshot, type ServiceSpec } from './types.js'
 
 // 脚本只接受固定项目角色与动作；TASK_CREATE 防止检查后竞态覆盖其它任务。
@@ -9,27 +9,31 @@ export const TASK_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+# 固定CLR序列化器绕开cmdlet自动加载；JSON始终为数据，不执行表达式。
+function emit($value) { [Console]::Write($json.Serialize($value)) }
 try {
-  $p = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  $p = $json.DeserializeObject([Console]::In.ReadToEnd())
   if ($p.name -notmatch '^rovloom-(gateway|connector)$') { throw 'service_conflict' }
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = [Security.Principal.WindowsPrincipal]::new($identity)
   if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'permission_denied' }
-  $s = New-Object -ComObject 'Schedule.Service'
+  $s = [Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service', $true))
   $s.Connect()
   $folder = $s.GetFolder('\\')
-  if ($p.op -eq 'authorize') { @{ok=$true} | ConvertTo-Json -Compress; exit 0 }
+  if ($p.op -eq 'authorize') { emit @{ok=$true}; exit 0 }
   $t = $null
   try { $t = $folder.GetTask($p.name) }
   catch { if ($_.Exception.HResult -ne -2147024894) { throw } }
   if ($p.op -eq 'read') {
-    if ($null -eq $t) { @{absent=$true} | ConvertTo-Json -Compress; exit 0 }
-    @{marker=$t.Definition.RegistrationInfo.Description} | ConvertTo-Json -Compress; exit 0
+    if ($null -eq $t) { emit @{absent=$true}; exit 0 }
+    emit @{marker=$t.Definition.RegistrationInfo.Description}; exit 0
   }
   if ($p.op -eq 'create') {
     if ($null -ne $t) { throw 'service_conflict' }
-    $null = $folder.RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5, 'D:P(A;;FA;;;SY)(A;;FA;;;BA)')
-    @{ok=$true} | ConvertTo-Json -Compress; exit 0
+    $null = $folder.RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5, $null)
+    emit @{ok=$true}; exit 0
   }
   if ($null -eq $t) { throw 'service_conflict' }
   $expected = $s.NewTask(0)
@@ -58,19 +62,19 @@ try {
     'start' { $null = $t.Run($null) }
     'stop' { $t.Stop(0) }
     'remove' {
-      if ([int]$t.State -notin @(1,3) -or $t.GetInstances(0).Count -ne 0) { @{retained=$true} | ConvertTo-Json -Compress; exit 0 }
+      if ([int]$t.State -notin @(1,3) -or $t.GetInstances(0).Count -ne 0) { emit @{retained=$true}; exit 0 }
       if ($t.Definition.Triggers.Item(1).Enabled) { throw 'service_conflict' }
       $folder.DeleteTask($p.name, 0)
-      @{absent=$true} | ConvertTo-Json -Compress; exit 0
+      emit @{absent=$true}; exit 0
     }
     default { throw 'invalid_arguments' }
   }
-  @{state=[int]$t.State; instances=[int]$t.GetInstances(0).Count; enabled=[bool]$t.Definition.Triggers.Item(1).Enabled; exitCode=[long]$t.LastTaskResult} | ConvertTo-Json -Compress
+  emit @{state=[int]$t.State; instances=[int]$t.GetInstances(0).Count; enabled=[bool]$t.Definition.Triggers.Item(1).Enabled; exitCode=[long]$t.LastTaskResult}
 } catch {
   $code = 'system_command_failed'
   if ($_.Exception.Message -in @('permission_denied','service_conflict','service_busy','invalid_arguments')) { $code = $_.Exception.Message }
   elseif ($_.Exception.HResult -eq -2147024891) { $code = 'permission_denied' }
-  @{error=$code} | ConvertTo-Json -Compress
+  emit @{error=$code}
   exit 1
 }
 `
@@ -89,6 +93,7 @@ export async function taskCall(
       '-NoLogo',
       '-NoProfile',
       '-NonInteractive',
+      '-STA',
       '-EncodedCommand',
       Buffer.from(TASK_SCRIPT, 'utf16le').toString('base64')
     ],
@@ -146,31 +151,4 @@ export async function inspectTask(run: CommandRunner, role: ServiceRole): Promis
           ? 'stopped'
           : 'failed'
   return { spec, state, enabled: actual.enabled, exitCode: actual.exitCode as number }
-}
-
-// 校验预先准备的 Windows 控制目录仅由管理员/SYSTEM 管理；不创建目录或修改 ACL。
-export async function verifyWindowsControlDirectory(run: CommandRunner, directory: string): Promise<void> {
-  const script = `
-$ErrorActionPreference='Stop'
-$p=[Console]::In.ReadToEnd() | ConvertFrom-Json
-$acl=Get-Acl -LiteralPath $p.directory
-$trusted=@('S-1-5-18','S-1-5-32-544')
-if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $trusted) { exit 1 }
-foreach ($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
- if ($ace.AccessControlType -eq 'Allow' -and $ace.IdentityReference.Value -notin $trusted) { exit 1 }
-}
-$item=Get-Item -Force -LiteralPath $p.directory
-if (!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { exit 1 }
-`
-  await checkedCommand(run, {
-    executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-    args: [
-      '-NoLogo',
-      '-NoProfile',
-      '-NonInteractive',
-      '-EncodedCommand',
-      Buffer.from(script, 'utf16le').toString('base64')
-    ],
-    input: JSON.stringify({ directory })
-  })
 }

@@ -24,11 +24,17 @@ function freeze<T>(value: T): T {
 }
 
 /** 同一合成设备的两个原 provider 有独立 Wire/owner，只共享生产 transport 的认证连接。 */
-export function providerIsolationFixture(discovered?: NativeContractRecord) {
+export function providerIsolationFixture(discovered?: NativeContractRecord, terminalState?: Map<string, boolean>) {
   const offer = {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'provider_snapshot', 'provider_fence', 'dispatch_refusal'],
+    capabilities: [
+      'rpc',
+      'provider_snapshot',
+      'provider_fence',
+      'dispatch_refusal',
+      ...(terminalState ? ['terminal_execution_state'] : [])
+    ],
     required: ['rpc', 'provider_snapshot', 'provider_fence', 'dispatch_refusal']
   }
   const state = {
@@ -165,6 +171,13 @@ export function providerIsolationFixture(discovered?: NativeContractRecord) {
         const initial = snapshot(binding, target)
         const replacement = snapshot(binding, target, 'f'.repeat(32))
         const session: ConnectorWireSession = {
+          ...(side === 'connector' && terminalState
+            ? {
+                terminalExecutionState: /** 只报告受测原owner的合成本地配置，不生成许可。 */ () => [
+                  { binding, enabled: terminalState.get(target.provider_id) === true }
+                ]
+              }
+            : {}),
           adapter: {
             ...base.adapter,
             /** 仅记录已走原 encoder 的响应，不伪造发送或改变原帧。 */ encode(frame, direction) {

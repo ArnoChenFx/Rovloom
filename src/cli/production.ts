@@ -95,6 +95,7 @@ function offer(context: true | undefined): VersionOffer {
     capabilities: [
       'rpc',
       'provider_fence',
+      'terminal_execution_state',
       'dispatch_refusal',
       'history_scope',
       'admission_receipt',

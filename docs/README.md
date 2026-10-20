@@ -5,8 +5,8 @@
 | 需要了解 | 唯一维护职责/入口 |
 |---|---|
 | 安装前提、角色配置路径、启动连接、HTTP MCP 与 Agent 使用 | [Quick Start](QUICK-START.md) · [快速开始](QUICK-START-zh.md) |
-| 单份角色配置、全部参数、程序管理数据与原生安装要求 | [Configuration](CONFIGURATION.md) · [配置参考](CONFIGURATION-zh.md) |
-| GHCR 镜像、Linux Gateway Compose 部署、持久卷与容器运行边界 | [Docker deployment](DOCKER.en.md) · [Docker 部署](DOCKER.md) |
+| 每角色唯一用户配置、全部参数与安装要求 | [Configuration](CONFIGURATION.md) · [配置参考](CONFIGURATION-zh.md) |
+| GHCR 镜像、Linux Gateway Compose 部署、持久卷与容器运行边界 | [Docker deployment](DOCKER.md) · [Docker 部署](DOCKER-zh.md) |
 | 开机注册、服务启停、账户/路径权限与 CLI 接缝 | [SERVICE](SERVICE.md) |
 | 系统目标、角色、Target/provider、授权、结果、去重、恢复和默认预算 | [DESIGN](DESIGN.md) |
 | 尚需交付的能力、依赖和联合验收 | [IMPLEMENTATION-PLAN](IMPLEMENTATION-PLAN.md) |
@@ -14,6 +14,7 @@
 | Wire 帧、协商、精确字段、编码、方向和协议限额 | [Wire 协议](protocol/WIRE-PROTOCOL.md) |
 | Native validator、handle、可信宿主与调用顺序 | [原生契约](protocol/NATIVE-CONTRACT.md)；准确签名见对应源码类型 |
 | SQLite 宿主接线、保留/预算、备份隔离恢复与 unknown 对账 | [存储运行指引](STORAGE.md) |
+| Gateway 普通配置文件、持久化与六平台原生单文件验收 | [Gateway 平台边界](GATEWAY-PLATFORMS.md) |
 | WSS/loopback 通道、ready、配对 custody、重连与 transport 限额 | [通道接线](TRANSPORT.md) |
 | MCP Streamable HTTP、受信 caller/服务接口、双角色 CLI 与预览限制 | [MCP Streamable HTTP 契约](protocol/MCP-HTTP.md) |
 | 通用 provider 角色、原 caller/锚点与结果预算接缝 | [Provider 角色](PROVIDER-RUNTIME.md) |
