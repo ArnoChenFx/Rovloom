@@ -264,8 +264,21 @@ export class HerdrSchemaCompiler {
         (reply.result as { ok?: boolean })?.ok === true ? ['ok', 'value'] : ['ok', 'reason']
       )
       if (result.ok === false && typeof result.reason === 'string' && HERDR_WORKER_FAILURES.includes(result.reason)) {
-        // 输入只可能是固定已审核原文；Worker 返回编译失败时不自动恢复或补建。
-        this.#retire(result.reason)
+        // 原生 schema 不可用只拒绝本任务；基础设施故障仍永久退役，绝不补建 Worker。
+        if (
+          [
+            'schema_input_limit',
+            'schema_digest_mismatch',
+            'schema_identity_mismatch',
+            'schema_root_unavailable',
+            'schema_compile_failed',
+            'generated_code_limit'
+          ].includes(result.reason)
+        ) {
+          this.#settle(undefined, fault(result.reason))
+        } else {
+          this.#retire(result.reason)
+        }
         return
       }
       if (result.ok !== true) {

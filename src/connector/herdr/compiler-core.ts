@@ -50,9 +50,15 @@ export function compileHerdrArtifact(bytes: Uint8Array | string): HerdrCompileRe
       !Number.isSafeInteger(bundle.schema_version) ||
       bundle.schema_version < 1 ||
       !bundle.schemas ||
-      HERDR_ROOTS.some(/** 只有 RPC 必需的完整根缺失才拒绝该传输。 */ (root) => !Object.hasOwn(bundle.schemas, root))
+      typeof bundle.schemas !== 'object' ||
+      Array.isArray(bundle.schemas)
     ) {
       return { ok: false, reason: 'schema_identity_mismatch' }
+    }
+    if (
+      HERDR_ROOTS.some(/** 只有 RPC 必需的完整根缺失才拒绝该传输。 */ (root) => !Object.hasOwn(bundle.schemas, root))
+    ) {
+      return { ok: false, reason: 'schema_root_unavailable' }
     }
     const ajv = new Ajv2020({
       ...HERDR_AJV_OPTIONS,

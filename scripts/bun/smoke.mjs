@@ -1,5 +1,6 @@
 /** 验证构建后核心、认证通道与管理页边界及 SQLite 重开；不建立真实设备或管理员身份。 */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -56,7 +57,6 @@ assert.equal(typeof providerRuntime.createProviderConnectorRuntime, 'function')
 assert.equal(typeof providerRuntime.createConnectorAdmissionLedger, 'function')
 assert.equal(typeof providerRuntime.createProviderResultAccess, 'function')
 // 官方 schema 在产物内通过固定 Worker 编译；这些离线值不构造真实安装或原生身份。
-await assert.rejects(herdrCompiler.compileHerdrSchemas('{}'), /herdr_schema_schema_digest_mismatch/u)
 const herdrSchemaBytes = readFileSync(new URL('../../test/fixtures/herdr/0.9.5/schema.json', import.meta.url))
 const herdrSchemaDocument = JSON.parse(herdrSchemaBytes.toString('utf8'))
 const herdrWorkflowBranches = herdrSchemaDocument.schemas.request.oneOf.filter(
@@ -86,6 +86,19 @@ for (const exchange of JSON.parse(
   assert.equal(herdrSchemas.request(exchange.request), true)
   assert.equal(herdrSchemas.response(exchange.response), true)
 }
+// 缺少 RPC 必需根才拒绝本次编译；后续合法未知原字节必须经过实际 Worker 编译并可用。
+const missingHerdrRoot = structuredClone(herdrSchemaDocument)
+delete missingHerdrRoot.schemas.request
+await assert.rejects(
+  herdrCompiler.compileHerdrSchemas(JSON.stringify(missingHerdrRoot)),
+  /herdr_schema_schema_root_unavailable/u
+)
+const unknownHerdrBytes = Buffer.concat([herdrSchemaBytes, Buffer.from('\n')])
+const unknownHerdrSchemas = await herdrCompiler.compileHerdrSchemas(unknownHerdrBytes)
+assert.equal(unknownHerdrSchemas.schema_sha256, createHash('sha256').update(unknownHerdrBytes).digest('hex'))
+assert.notEqual(unknownHerdrSchemas.schema_sha256, herdrSchemas.schema_sha256)
+assert(unknownHerdrSchemas.request({ id: 'built-unknown', method: 'ping', params: {} }))
+assert(!unknownHerdrSchemas.request({ id: 'built-unknown', method: 'agent.prompt', params: {} }))
 assert.equal(herdrSchemas.request({ id: 'built', method: 'future.method', params: {} }), false)
 assert.equal(herdrSchemas.response({ id: 'built', result: {} }), false)
 assert.throws(

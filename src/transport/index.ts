@@ -11,6 +11,7 @@ export type {
   WireExecutionResult
 } from './connector.js'
 export type { IdentityHost, DeviceCredential } from './identity.js'
+export type { DispatchRefusalLedger } from './dispatch-refusal.js'
 export { PairingAdmin } from './pairing.js'
 export type { ManagementHost, ManagementAction } from './pairing.js'
 export { loadCredential, saveCredential, createFileCredentialSink } from './credentials.js'

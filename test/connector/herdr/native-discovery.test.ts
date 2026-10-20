@@ -89,3 +89,33 @@ test(
     }
   }
 )
+
+test(
+  'Herdr missing required RPC roots rejects only that schema and leaves the same Worker usable',
+  /** 实际未知输入必须创建 Worker；普通 schema 拒绝不污染其它安装的健康编译。 */ async () => {
+    const raw = readFileSync(new URL('../../fixtures/herdr/0.9.5/schema.json', import.meta.url))
+    const document = JSON.parse(raw.toString('utf8'))
+    delete document.schemas.request
+    let starts = 0
+    const compiler = new HerdrSchemaCompiler(
+      /** 所有本例任务共用真实 Worker，不靠补建掩盖退役。 */ () => {
+        starts++
+        return createHerdrCompilerWorker()
+      }
+    )
+    try {
+      await assert.rejects(compiler.compile(JSON.stringify(document)), {
+        message: 'herdr_schema_schema_root_unavailable'
+      })
+      assert.equal(starts, 1)
+      const changed = Buffer.concat([raw, Buffer.from('\n')])
+      const schemas = await compiler.compile(changed)
+      assert.equal(starts, 1)
+      assert.equal(schemas.schema_sha256, createHash('sha256').update(changed).digest('hex'))
+      assert(schemas.request({ id: 'synthetic', method: 'ping', params: {} }))
+      assert(!schemas.request({ id: 'synthetic', method: 'agent.prompt', params: {} }))
+    } finally {
+      compiler.close()
+    }
+  }
+)
