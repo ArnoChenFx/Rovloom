@@ -1,13 +1,13 @@
 # 通用 provider 的角色接缝
 
-本片在既有认证通道和唯一 Store/Router 上增加通用装配接口；公开 CLI/HTTP MCP、
-配置解析和生产资源 loader 继续由唯一入口维护。旧 `createGatewayRuntime`与
-新 `createProviderGatewayRuntime`调用同一装配核心，旧 Luvus result factory 仍是兼容 wrapper。
-本片自身不包含 Herdr backend，也不解除 Store 对尚未合入 provider 的候选门禁。
+通用 runtime 在既有认证通道和唯一 Store/Router 上提供 Gateway/Connector 装配接口；
+公开 CLI/HTTP MCP、配置解析和资源 loader 由唯一入口负责。`createGatewayRuntime`与
+`createProviderGatewayRuntime`调用同一 Gateway 装配核心，Luvus result factory 保留兼容接口。
+各 provider 交付自己的原生来源、校验、会话与执行能力；装配仍须通过当前 Store/provider 门禁。
 
 ## 宿主接口
 
-`src/runtime/index.ts`公开以下端口：
+精确导出与类型见 [runtime 入口](../src/runtime/index.ts)及[宿主类型](../src/runtime/types.ts)：
 
 | 接口 | 受保护宿主须交付的实际资源 |
 |---|---|
@@ -48,7 +48,7 @@ Connector 的 `ConnectorAdmissionReceipts`须配置完整受保护 routes，先�
 
 网络状态更新是认证有序异步消息，既不是瞬时远端撤权，也不是执行许可。
 实际写入仍须经 provider 自己的当前身份/策略/安装/真实 socket peer、原 Wire 和持久发送 claims 门禁。
-同一 Connector epoch 的首切片路由只允许一个明确原 caller；缺失或多主体歧义保持拒绝。
+同一 Connector epoch 的当前路由只允许一个明确原 caller；缺失或多主体歧义保持拒绝。
 
 ## 结果与预算
 
@@ -62,16 +62,24 @@ Connector 的 `ConnectorAdmissionReceipts`须配置完整受保护 routes，先�
 当前授权、原内容状态/期限与原 Wire 读及独立保留门禁。
 所有 provider 的正文、句柄与分页继续由同一 Store 全局预算计量，不按 provider 复制资源池。
 
-## 与生产 loader、Herdr 的组合
+## 与 Luvus、Herdr 资源工厂的组合
 
-生产 Luvus loader 用 `openManagedLuvusRoot → startManagedLuvus`取得受控实例；
+受控 Luvus 来源用 `openManagedLuvusRoot → startManagedLuvus`取得实例；
 动作批准与 `issueRestricted`成功后，才用实际 custody 的 `contract`构造 `createManagedLuvusProvider`。
 受控 process 的初始探测 contract 不替代受限 custody contract。
 管理面共用 `ManagementSessionAuthority.identities/sessions`，MCP caller 与设备身份各走独立来源。
 真实用户的登录、持久凭据与动作批准仍由产品流程明确完成，测试不能配置替代品。
 
-Herdr 的异步 `HerdrInstallation.open`、`createHerdrHostServices`、`persistentHerdrBackend`
-与 `createHerdrRuntime`由其独立切片维护。它们按上述结构组合即可消费通用角色，
-不需要另一套 Herdr backend/Store/协议。实际 H1 安装与生产路由门禁仍须对应切片合入后验收。
-官方 Luvus 的隔离构建模块复核另见 [可复现入口 PR74](https://github.com/ArnoChenFx/Rovloom/pull/74)，
-其成功不能代替公开 CLI/HTTP 或 Herdr 原生运行验收。
+Herdr 的[资源工厂](../src/connector/herdr/provider.ts)提供
+`createHerdrGatewayResources`与 `createHerdrConnectorResources`。
+Gateway 资源交付 `providers/session/catalog/describe/release`，通过
+`persistentHerdrBackend(services.store, ...)`复用外部唯一 Store；Connector 资源消费
+宿主持有的真实 `HerdrInstallation`、当前策略与独立 receipts/claims，再交给通用 Connector runtime。
+安装/schema 编译须在角色启动前完成；双端协商须包含 `rpc/admission_receipt/admission_context`，
+Gateway 的原 `providers[].preflightRequest`须随配置传入，保留同一完整根的登记预检与最终派发复验。
+释放责任与原生帧预算见[Herdr 资源接线](TRANSPORT.md#herdr-资源工厂)。
+
+隔离构建和验证入口见[开发指引](DEVELOPMENT.md#隔离验收)，Herdr 专用验证见
+[原生验证](DEVELOPMENT.md#专用原生验证)及[普通 RPC 与资源工厂](DEVELOPMENT.md#herdr-普通-rpc-与资源工厂)。
+模块构建和静态回归不证明公开 CLI/HTTP MCP 联合运行、真实原生管理或同会话两轮回答；
+剩余验收见[实施计划](IMPLEMENTATION-PLAN.md#36-herdr-普通-rpc-与剩余验收)。
