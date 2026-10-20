@@ -1,8 +1,7 @@
 // 定义双角色无密钥配置及严格只读加载边界；不解析凭据、不创建状态或连接。
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
-import { dirname, posix, win32 } from 'node:path'
-import { userInfo } from 'node:os'
-import { canonical } from '../contracts.js'
+import { posix, win32 } from 'node:path'
+import { canonical, GatewayError } from '../contracts.js'
+import { readPrivateBytes } from '../storage/files.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { agentSearchPath } from '../connector/local/agent-path.js'
 
@@ -265,28 +264,13 @@ export function readProtectedJson(path: string): unknown {
   if (!fixedPath(path)) {
     throw new CliError('invalid_config_path')
   }
-  let fd: number | undefined
+  let bytes: Buffer | undefined
   try {
-    const os = userInfo()
-    if (process.platform === 'win32' || os.uid < 0) {
+    if (!['linux', 'darwin'].includes(process.platform)) {
       throw new CliError('config_platform_unsupported')
     }
-    const parent = lstatSync(dirname(path))
-    if (!parent.isDirectory() || parent.uid !== os.uid || (parent.mode & 0o077) !== 0) {
-      throw new CliError('config_not_protected')
-    }
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
-    const stat = fstatSync(fd)
-    if (!stat.isFile() || stat.uid !== os.uid || (stat.mode & 0o077) !== 0 || stat.size > 16_384) {
-      throw new CliError('config_not_protected')
-    }
-    // 按 descriptor 有界读取，避免读取过程中增长的文件耗尽内存。
-    const buffer = Buffer.alloc(16_385)
-    const length = readSync(fd, buffer, 0, buffer.length, 0)
-    if (length > 16_384) {
-      throw new CliError('invalid_config')
-    }
-    const parsed = parseNativeJson(buffer.subarray(0, length), {
+    bytes = readPrivateBytes(path, 16_384, true)
+    const parsed = parseNativeJson(bytes, {
       object_bytes: 16_384,
       object_depth: 16,
       object_nodes: 4096
@@ -302,11 +286,12 @@ export function readProtectedJson(path: string): unknown {
     if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new CliError('config_not_found')
     }
+    if (error instanceof GatewayError) {
+      throw new CliError('config_not_protected')
+    }
     throw new CliError('config_unreadable')
   } finally {
-    if (fd !== undefined) {
-      closeSync(fd)
-    }
+    bytes?.fill(0)
   }
 }
 

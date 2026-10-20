@@ -1,0 +1,44 @@
+# 独立验收纯 Gateway 文件层和真实单文件入口；不注册服务或放宽原生 Connector Owner。
+name: Gateway private platforms
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gateway:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: bun-linux-x64
+          - runner: ubuntu-24.04-arm
+            target: bun-linux-arm64
+          - runner: macos-15-intel
+            target: bun-darwin-x64
+          - runner: macos-15
+            target: bun-darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: ${{ matrix.target }}
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Verify private files, actual Darwin ACL, locks and unknown recovery
+        run: bun --no-env-file test ./test/storage/private-platforms.test.ts
+      - name: Build actual standalone product
+        run: bun --no-env-file run release:build
+      - name: Run actual standalone unpaired Gateway twice with private state
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          export ROVLOOM_GATEWAY_EXECUTABLE="$PWD/dist/release/$TARGET/candidate/rovloom"
+          bun --no-env-file test ./test/release/gateway-platform.test.mjs
