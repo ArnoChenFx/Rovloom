@@ -1,10 +1,8 @@
-// 为唯一产品入口组合真实开机监管器；只读预检当前产物和目标账户配置，不提权、不修复权限或启动角色。
+// 为唯一产品入口组合正常系统服务；检查当前产物与配置格式，不修改权限或自动提权。
 import { execFileSync } from 'node:child_process'
-import { constants, closeSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs'
 import { createNativeServiceBackend } from '../service/native.js'
 import { ServiceManager } from '../service/manager.js'
-import { protectedPath } from '../service/security.js'
-import { checkedCommand, runSystemCommand, type CommandRunner } from '../service/runner.js'
 import { ServiceError, type ServiceRole, type ServiceSpec } from '../service/types.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { parseConfig } from './config.js'
@@ -36,7 +34,7 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
   if (spec.platform !== environment.platform || spec.executable !== environment.executable) {
     throw new ServiceError('unsafe_installation')
   }
-  // 受保护角色状态尚限 Linux，本机 native owner 另限 x64；不能以成功注册冒充运行时可用。
+  // 本机native Connector仍限Linux x64；macOS服务入口由独立接线提供。
   if (environment.platform !== 'linux' || (spec.role === 'connector' && environment.arch !== 'x64')) {
     throw new ServiceError('backend_unavailable')
   }
@@ -91,62 +89,58 @@ function accountRecord(account: string): string {
   })
 }
 
-// 安装器以 root 只读目标账户的无密钥配置；描述符核验限制所有权、链接、大小和路径替换。
-async function serviceConfig(spec: ServiceSpec, verifyStatePath: typeof protectedPath): Promise<void> {
-  const fd = openSync(spec.config, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+// 已有配置只做普通文件/JSON/角色检查；缺失配置留给角色正常首次启动生成，不核对UID/mode/ACL或状态目录。
+export async function verifyProductServiceRuntime(
+  spec: ServiceSpec,
+  environment: ProductServiceEnvironment
+): Promise<void> {
+  assertServiceProduct(spec, environment)
+  if (!statSync(spec.directory).isDirectory()) {
+    throw new ServiceError('invalid_arguments')
+  }
+  let fd: number
+  try {
+    fd = openSync(spec.config, 'r')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return
+    }
+    throw error
+  }
   const bytes = Buffer.alloc(16385)
   try {
     const stat = fstatSync(fd)
-    if (!stat.isFile() || stat.nlink !== 1 || stat.uid === 0 || (stat.mode & 0o777) !== 0o600 || stat.size > 16384) {
-      throw new ServiceError('unsafe_installation')
+    if (!stat.isFile() || stat.size > 16384) {
+      throw new ServiceError('invalid_arguments')
     }
-    const length = readSync(fd, bytes, 0, bytes.length, 0)
+    let length = 0
+    while (length < bytes.length) {
+      const count = readSync(fd, bytes, length, bytes.length - length, null)
+      if (!count) {
+        break
+      }
+      length += count
+    }
     const parsed = parseNativeJson(bytes.subarray(0, length), {
       object_bytes: 16384,
       object_depth: 16,
       object_nodes: 4096
     })
     if (length > 16384 || !parsed.ok) {
-      throw new ServiceError('unsafe_installation')
+      throw new ServiceError('invalid_arguments')
     }
-    const config = parseConfig(parsed.value)
-    if (config.role !== spec.role || (config.role === 'connector' && !config.gateway_url)) {
-      throw new ServiceError('unsafe_installation')
+    let role: string
+    try {
+      role = parseConfig(parsed.value).role
+    } catch {
+      throw new ServiceError('invalid_arguments')
     }
-    await verifyStatePath(config.state_dir, stat.uid, true)
+    if (role !== spec.role) {
+      throw new ServiceError('invalid_arguments')
+    }
   } finally {
     bytes.fill(0)
     closeSync(fd)
-  }
-}
-
-// 原生路径预检通过后，以实际目标账户运行同一产物的只读检查；不打开角色、listener 或 writer。
-export async function verifyProductServiceRuntime(
-  spec: ServiceSpec,
-  environment: ProductServiceEnvironment,
-  run: CommandRunner = runSystemCommand,
-  verifyStatePath: typeof protectedPath = protectedPath
-): Promise<void> {
-  assertServiceProduct(spec, environment)
-  await serviceConfig(spec, verifyStatePath)
-  const check = await checkedCommand(run, {
-    executable: '/usr/sbin/runuser',
-    args: [
-      '--user',
-      spec.account,
-      '--',
-      spec.executable,
-      'config',
-      'check-runtime',
-      '--role',
-      spec.role,
-      '--config',
-      spec.config
-    ],
-    timeout: 10000
-  })
-  if (check.stdout !== '' || check.stderr !== 'runtime_config_valid\n') {
-    throw new ServiceError('unsafe_installation')
   }
 }
 
@@ -161,8 +155,12 @@ export function createProductServiceHost(): CliServiceHost {
   const backend = {
     ...native,
     // 当前不能运行角色的平台在接触系统控制目录、权限或注册之前明确拒绝。
-    async authorize() {
-      if (environment.platform !== 'linux' || !environment.standalone) {
+    async authorize(role?: ServiceRole) {
+      if (
+        environment.platform !== 'linux' ||
+        !environment.standalone ||
+        (role === 'connector' && environment.arch !== 'x64')
+      ) {
         throw new ServiceError('backend_unavailable')
       }
       await native.authorize()

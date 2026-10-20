@@ -198,9 +198,9 @@ Agent/模型访问配置位于 runtime 私有 HOME/XDG。普通严格文本对�
 ### Service 命令语法与当前可用性
 
 `rovloom service --help` 可离线使用。产品入口已连接 Linux systemd 后端；安装要求当前
-Rovloom 单文件、root 授权、既有非 root 服务账户，以及准备好的受保护配置、数据与工作目录。
-后端不创建这些资源或修改权限。macOS/Windows 产品服务动作仍返回 `backend_unavailable`（3）：
-受保护角色运行时尚不支持；原生格式解析不能代替生命周期验收。
+Rovloom单文件、正常系统服务授权、既有非root账户及存在的工作目录。已有配置检查JSON/角色，
+缺失配置留给正常首次启动生成；安装器不要求UID/mode/ACL或祖先防替换证明，不修改既有权限。
+macOS产品接线单独交付，Windows等待普通角色启动接口；原生格式解析不等于生命周期验收。
 见[服务前提与平台限制](SERVICE.md)。
 
 | 命令形状 | 必填参数 | 动作含义 | Linux 语法示例 |
@@ -225,9 +225,8 @@ Rovloom 单文件、root 授权、既有非 root 服务账户，以及准备好�
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
 POSIX 安装要求 root 持有的受保护程序，以及属于所选非 root 账户的配置/工作目录；
 不会创建账户或放宽权限。Windows 要求独立的受保护安装和 LocalService 访问权限。
-Linux 宿主读取系统 passwd 数据库，再通过 `/usr/sbin/runuser` 以目标账户执行同一产物的
-只读 `config check-runtime --role ROLE --config ABS`，安装期间不启动角色。Connector 要求
-非空 Gateway URL；注册不证明 native 就绪。数据目录须已存在并由该账户私有持有。
+Linux宿主从系统账户记录选择默认配置路径，不读取安装管理员HOME。安装不启动角色，
+不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
 Linux 工作目录不得以空白或反斜杠结尾。
 
 服务动作将安装和运行状态分开：install 后再 start 才分别请求开机自启和立即运行；
@@ -242,7 +241,7 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | 帮助/版本/模板输出 | 可用 | 可用 | 可用 |
 | `config check` | 受保护 POSIX 读取器 | 受保护 POSIX 读取器 | 拒绝：`config_platform_unsupported` |
 | `config check-runtime`、真实角色启动 | 当前部署指引覆盖 Linux x64 | runtime 加载器拒绝该平台 | runtime 加载器拒绝该平台 |
-| Service 动作 | 生产 systemd 后端已连接；Gateway 限 Linux，Connector 本机 owner 限 x64；仍需生命周期/开机验收 | 产品在系统访问前拒绝；runtime 未支持 | 产品在系统访问前拒绝；runtime/配置及安装 ACL 未完成 |
+| Service 动作 | 生产 systemd 后端已连接；Gateway 限 Linux，Connector 本机 owner 限 x64；仍需生命周期/开机验收 | 产品在系统访问前拒绝；runtime 未支持 | 产品在系统访问前拒绝；普通角色文件与启动接线未完成 |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，

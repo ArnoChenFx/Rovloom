@@ -78,6 +78,16 @@ jobs:
             echo 'CLI product wiring pending; only the packaging probe was accepted.'
             echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
+      - name: Verify real systemd lifecycle in disposable GitHub-hosted VM with explicit sudo -n
+        if: runner.os == 'Linux' && steps.product.outputs.present == 'true'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          ROVLOOM_NATIVE_SERVICE_CI: '1'
+        run: |
+          set -euo pipefail
+          export ROVLOOM_SERVICE_EXECUTABLE="$PWD/dist/release/$TARGET/candidate/rovloom"
+          bun --no-env-file scripts/service/native-smoke.mjs
       - name: Upload packaging probe evidence
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:

@@ -1,7 +1,7 @@
 // 通过系统自带 PowerShell 的固定脚本调用 Task Scheduler COM；数据走 stdin，绝不生成脚本表达式。
 import { manifest, parseManifest, serviceName } from './spec.js'
 import { renderTask } from './render.js'
-import { checkedCommand, type CommandRunner } from './runner.js'
+import { type CommandRunner } from './runner.js'
 import { ServiceError, type ServiceRole, type ServiceSnapshot, type ServiceSpec } from './types.js'
 
 // 脚本只接受固定项目角色与动作；TASK_CREATE 防止检查后竞态覆盖其它任务。
@@ -32,7 +32,7 @@ try {
   }
   if ($p.op -eq 'create') {
     if ($null -ne $t) { throw 'service_conflict' }
-    $null = $folder.RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5, 'D:P(A;;FA;;;SY)(A;;FA;;;BA)')
+    $null = $folder.RegisterTask($p.name, $p.xml, 2, 'S-1-5-19', $null, 5, $null)
     emit @{ok=$true}; exit 0
   }
   if ($null -eq $t) { throw 'service_conflict' }
@@ -151,31 +151,4 @@ export async function inspectTask(run: CommandRunner, role: ServiceRole): Promis
           ? 'stopped'
           : 'failed'
   return { spec, state, enabled: actual.enabled, exitCode: actual.exitCode as number }
-}
-
-// 校验预先准备的 Windows 控制目录仅由管理员/SYSTEM 管理；不创建目录或修改 ACL。
-export async function verifyWindowsControlDirectory(run: CommandRunner, directory: string): Promise<void> {
-  const script = `
-$ErrorActionPreference='Stop'
-$p=[Console]::In.ReadToEnd() | ConvertFrom-Json
-$acl=Get-Acl -LiteralPath $p.directory
-$trusted=@('S-1-5-18','S-1-5-32-544')
-if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $trusted) { exit 1 }
-foreach ($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
- if ($ace.AccessControlType -eq 'Allow' -and $ace.IdentityReference.Value -notin $trusted) { exit 1 }
-}
-$item=Get-Item -Force -LiteralPath $p.directory
-if (!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { exit 1 }
-`
-  await checkedCommand(run, {
-    executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-    args: [
-      '-NoLogo',
-      '-NoProfile',
-      '-NonInteractive',
-      '-EncodedCommand',
-      Buffer.from(script, 'utf16le').toString('base64')
-    ],
-    input: JSON.stringify({ directory })
-  })
 }

@@ -218,7 +218,7 @@ export class ServiceManager {
     if (!isRole(request.role) || !['install', 'uninstall', 'start', 'restart', 'stop'].includes(request.action)) {
       throw new ServiceError('invalid_arguments')
     }
-    await this.backend.authorize()
+    await this.backend.authorize(request.role)
     return this.backend.lock(
       request.role,
       /* 在角色锁内完成整个状态转换。 */ async () => {
@@ -281,7 +281,7 @@ export class ServiceManager {
             ) {
               // 撤销自启后，Linux 显式 stop 仍须取消待启动 Job；macOS 则释放 loaded job。卸载分支不走这里。
               stopRequested = true
-              await this.backend.stop(spec)
+              await this.backend.stop(spec, request.action === 'restart')
               current = await this.settle(spec, false)
               changed = true
             }

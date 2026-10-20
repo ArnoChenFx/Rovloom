@@ -199,7 +199,7 @@ Shutdown does not promise native rollback. Preserve data if shutdown fails.
 
 The Linux product CLI connects systemd install/uninstall/start/restart/stop.
 Use the current standalone binary with root authorization and an existing non-root
-service account; prepare its protected configuration/data/work directories first.
+service account and an existing working directory; normal startup handles missing config/data.
 `service --help` documents the options. Install enables boot startup without
 starting now; uninstall removes future boot startup without stopping now.
 macOS/Windows product service actions remain unavailable (`backend_unavailable`, 3).

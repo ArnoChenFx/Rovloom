@@ -158,7 +158,7 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 关闭失败时保留数据。
 
 Linux 产品 CLI 已连接 systemd install/uninstall/start/restart/stop。
-使用当前单文件、root 授权和既有非 root 服务账户；先准备其受保护配置、数据与工作目录。
+使用当前单文件、正常系统服务授权、既有非root账户和工作目录；缺失配置/数据由正常首次启动处理。
 `service --help` 说明选项。install 加入开机自启但不立即启动，uninstall 取消未来开机自启但不立即停止。
 macOS/Windows 产品服务动作仍不可用（`backend_unavailable`，3），尚不宣称开机/生命周期验收通过。
 见[完整 CLI 参考](CONFIGURATION-zh.md#完整-cli-参考)和[服务前提](SERVICE.md)。

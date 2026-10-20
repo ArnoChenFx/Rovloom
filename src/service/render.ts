@@ -39,8 +39,6 @@ TimeoutStartSec=30
 TimeoutStopSec=30
 KillMode=control-group
 KillSignal=SIGTERM
-NoNewPrivileges=yes
-UMask=0077
 StandardInput=null
 StandardOutput=journal
 StandardError=journal
@@ -67,7 +65,6 @@ export function renderLaunchd(spec: ServiceSpec): string {
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><false/>
 <key>ExitTimeOut</key><integer>30</integer>
-<key>Umask</key><integer>63</integer>
 </dict></plist>
 `
 }
