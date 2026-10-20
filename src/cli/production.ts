@@ -421,7 +421,11 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
       try {
         resource = await sources.connector(isolated ? { ...config, state_dir: control } : config, settings.providers)
       } catch (error) {
-        setup?.nativeFailed(error)
+        try {
+          setup?.nativeFailed(error)
+        } catch {
+          // TTY取消、权限或输出故障只影响补充诊断，不能替换原工厂失败及其未完成清理owner。
+        }
         throw error
       }
       try {
