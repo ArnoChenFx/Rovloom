@@ -212,3 +212,39 @@ test(
     }
   }
 )
+
+test(
+  '独立身份观察只执行一次当前 guard，writer 重入仍执行 guard 且只看已提交状态',
+  /** 门禁计数仅限本测试实例；拒绝、重入和重启回拨不能因去重失去原来的封锁边界。 */
+  () => {
+    const f = persistentFixture()
+    try {
+      const device = f.install()
+      const guard = f.options.guard
+      let guards = 0
+      f.options.guard = /** 保留真实 fixture 门禁，只记录此次实际观察次数。 */ () => {
+        guards++
+        return guard()
+      }
+      const identity = host(f)
+      assert.equal(identity.usableCommitted(device.machine_id, device.recovery_generation), true)
+      assert.equal(guards, 1)
+      f.options.fault = /** writer 已暂存 blocked，独立连接仍须观察原 active 行并执行当前门禁。 */ () => {
+        guards = 0
+        assert.equal(identity.usableCommitted(device.machine_id, device.recovery_generation), true)
+        assert.equal(guards, 1)
+      }
+      identity.blockCommitted(device.machine_id, device.recovery_generation, null)
+      f.options.fault = undefined
+      assert.equal(identity.usableCommitted(device.machine_id, device.recovery_generation), false)
+      f.degraded = true
+      assert.throws(
+        /** 入口 guard 原来向调用者抛出的错误仍须直接传播，不能被读取 catch 吞掉。 */ () =>
+          f.store.committed(device.machine_id, device.recovery_generation),
+        /storage_degraded/
+      )
+    } finally {
+      f.close()
+    }
+  }
+)

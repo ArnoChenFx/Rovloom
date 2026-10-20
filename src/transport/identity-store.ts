@@ -187,14 +187,15 @@ export class IdentityStore {
     return { security_bytes, audit_bytes, reserved_bytes: 16_384 }
   }
   /** 串行提交身份事务并维持拒绝时也持久化的时间高水位；异常回滚且存储故障保持封锁。 */
-  private transaction<T>(fn: (now: number) => T): T {
+  private transaction<T>(fn: (now: number) => T, guarded = false): T {
     if (this.closed || this.degraded) {
       fail('identity_unavailable')
     }
     if (this.busy) {
       fail('identity_reentrancy')
     }
-    if (this.options.guard() !== undefined) {
+    // committed 紧邻调用前已执行同一门禁；不复用时间、身份快照或预算结果。
+    if (!guarded && this.options.guard() !== undefined) {
       fail('identity_host_required')
     }
     this.busy = true
@@ -291,7 +292,8 @@ export class IdentityStore {
       if (!this.busy) {
         this.transaction(
           /** 独立观察也先持久推进时间高水位，防止重启回拨使已过期凭据复活。 */
-          () => undefined
+          () => undefined,
+          true
         )
       }
       reader = new DatabaseSync(this.path, { readOnly: true })

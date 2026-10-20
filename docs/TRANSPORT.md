@@ -230,6 +230,12 @@ provider 项包含稳定 ID、当前 `binding_revision` 和 `dispatch_ready`；�
 不会删崩溃锁或自动解除拒绝标记。管理操作须由宿主核实精确 action/target/revision/epoch，
 一次性 confirmation 最多有效五分钟，消费记录跨重启保留至原确认期限结束。
 
+生命周期 backend 每次连接观察由同一接线完成当前身份快照及 Store fence 核对，避免随后在
+通用持久 backend 中再次执行紧邻的 Store 检查。独立身份观察的入口 guard 与其紧邻事务
+共用一次门禁调用；事务仍重新采样并持久提交身份时间、检查预算，再从独立连接读取已提交
+状态。writer 内重入观察仍执行入口 guard。此去重不缓存跨轮权限或时钟，原生来源回调前后
+及结果交付末次的 Wire/身份/双端 ACL/实际句柄期限检查保持逐次执行。
+
 轮换最多两份凭据，旧凭据重叠至 min(原期限, now + overlap)，重叠最多十分钟；显式结束轮换
 即时使旧凭据失效。显式 takeover 绑定原 epoch、签发只交给新 custody 的新凭据，并立即废止
 旧凭据；旧 Connector 或复制者不能通过自动重连抢回连接。默认凭据期限为一天，宿主可在
