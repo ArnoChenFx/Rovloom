@@ -12,7 +12,6 @@ import {
   HERDR_DIALECT,
   HERDR_FORMAT_CODE,
   HERDR_GENERATOR,
-  HERDR_IDENTITY,
   HERDR_INPUT_LIMIT,
   HERDR_ROOTS,
   HERDR_SCHEMA_ID
@@ -24,7 +23,7 @@ function hash(bytes: Uint8Array | string): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-/** 先固定原字节摘要和元数据，再将五个原生 schemas 按原始路径注册。 */
+/** 测量实际原字节和协议元数据，按原路径注册完整 schemas 并编译 RPC 必需根。 */
 export function compileHerdrArtifact(bytes: Uint8Array | string): HerdrCompileResult {
   try {
     if (
@@ -34,9 +33,6 @@ export function compileHerdrArtifact(bytes: Uint8Array | string): HerdrCompileRe
         : bytes.byteLength > HERDR_INPUT_LIMIT)
     ) {
       return { ok: false, reason: 'schema_input_limit' }
-    }
-    if (hash(bytes) !== HERDR_IDENTITY.schema_sha256) {
-      return { ok: false, reason: 'schema_digest_mismatch' }
     }
     if (ajvPackage.version !== HERDR_AJV_VERSION) {
       return { ok: false, reason: 'compiler_version_mismatch' }
@@ -49,14 +45,20 @@ export function compileHerdrArtifact(bytes: Uint8Array | string): HerdrCompileRe
       typeof bundle !== 'object' ||
       Array.isArray(bundle) ||
       bundle.$schema !== HERDR_DIALECT ||
-      bundle.protocol !== HERDR_IDENTITY.protocol ||
-      bundle.schema_version !== HERDR_IDENTITY.schema_version ||
-      bundle.title !== 'Herdr API' ||
+      !Number.isSafeInteger(bundle.protocol) ||
+      bundle.protocol < 0 ||
+      !Number.isSafeInteger(bundle.schema_version) ||
+      bundle.schema_version < 1 ||
       !bundle.schemas ||
-      Object.keys(bundle.schemas).sort().join(',') !==
-        'error_response,event,request,subscription_event,success_response'
+      typeof bundle.schemas !== 'object' ||
+      Array.isArray(bundle.schemas)
     ) {
       return { ok: false, reason: 'schema_identity_mismatch' }
+    }
+    if (
+      HERDR_ROOTS.some(/** 只有 RPC 必需的完整根缺失才拒绝该传输。 */ (root) => !Object.hasOwn(bundle.schemas, root))
+    ) {
+      return { ok: false, reason: 'schema_root_unavailable' }
     }
     const ajv = new Ajv2020({
       ...HERDR_AJV_OPTIONS,
@@ -100,7 +102,12 @@ export function compileHerdrArtifact(bytes: Uint8Array | string): HerdrCompileRe
         version: HERDR_COMPILER_VERSION,
         generator: HERDR_GENERATOR,
         ajv: HERDR_AJV_VERSION,
-        identity: { ...HERDR_IDENTITY },
+        identity: {
+          schema_sha256: hash(bytes),
+          protocol: bundle.protocol,
+          schema_version: bundle.schema_version,
+          dialect: HERDR_DIALECT
+        },
         roots: [...HERDR_ROOTS],
         code,
         code_sha256: hash(code),

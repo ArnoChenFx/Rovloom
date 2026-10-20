@@ -80,12 +80,12 @@ test(
 )
 
 test(
-  'native response requires exact id, method result and runtime version',
+  'native response requires exact id, method result and observed protocol',
   /** 逐项破坏响应 ID、结果类型和版本，检查响应关联与来源约束。 */ () => {
     for (const patch of [
       { id: 'other' },
       { result: { type: 'ok' } },
-      { result: { type: 'pong', version: 'future', protocol: 22 } }
+      { result: { type: 'pong', version: 'future', protocol: 23 } }
     ]) {
       const { request, response } = fixture()
       assert.throws(
@@ -124,9 +124,7 @@ test(
   'source pin, classification, schema provenance and claimed generation cannot drift',
   /** 逐项改变固定来源和分类，验证研究值不能替代安装来源。 */ () => {
     for (const patch of [
-      { binary_sha256: 'a'.repeat(64) },
       { schema_sha256: 'b'.repeat(64) },
-      { binary_version: '0.9.6' },
       { native_protocol_version: '23' },
       { classification_revision: 'unreviewed' },
       { runtime_generation: 'fabricated' },

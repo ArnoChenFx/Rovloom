@@ -6,7 +6,6 @@ import { dirname, isAbsolute, join, normalize, sep } from 'node:path'
 import { boundedJson, validateTarget } from '../../wire/index.js'
 import type { V2Target } from '../../wire/types.js'
 import type { NativePeer } from '../local/linux-peer.js'
-import { HERDR_READONLY_REVIEW } from './review.js'
 import { pinTerminalExecution } from '../terminal-execution.js'
 import { agentSearchPath } from '../local/agent-path.js'
 
@@ -183,13 +182,14 @@ export function herdrEnvironment(config: HerdrLocalConfig): NodeJS.ProcessEnv {
 }
 
 /** 通过不跟随链接的同一 fd 求 hash，前后 stat 与路径身份均保持不变才接受安装。 */
-export function verifyHerdrInstallation(config: HerdrLocalConfig): string {
+export function measureHerdrInstallation(config: HerdrLocalConfig): Readonly<{ stamp: string; sha256: string }> {
   if (process.platform !== 'linux' || process.arch !== 'x64') {
     throw new HerdrLocalError('herdr_local_platform_unsupported')
   }
   try {
     const before = inspectHerdrPath(config.binary, 'binary')
     const fd = openSync(config.binary, constants.O_RDONLY | constants.O_NOFOLLOW)
+    let digest: string
     try {
       const initial = fstatSync(fd, { bigint: true })
       const hash = createHash('sha256')
@@ -207,8 +207,8 @@ export function verifyHerdrInstallation(config: HerdrLocalConfig): string {
         hash.update(chunk.subarray(0, size))
       }
       const after = fstatSync(fd, { bigint: true })
+      digest = hash.digest('hex')
       if (
-        hash.digest('hex') !== HERDR_READONLY_REVIEW.binary_sha256 ||
         before !== inspectHerdrPath(config.binary, 'binary') ||
         initial.dev !== after.dev ||
         initial.ino !== after.ino ||
@@ -231,10 +231,19 @@ export function verifyHerdrInstallation(config: HerdrLocalConfig): string {
     ]) {
       inspectHerdrPath(path, 'directory')
     }
-    return before
+    return { stamp: before, sha256: digest }
   } catch (cause) {
     throw cause instanceof HerdrLocalError ? cause : new HerdrLocalError('herdr_installation_untrusted')
   }
+}
+
+/** 核对实际安装身份，可选摘要来自受保护的本机配置，绝不使用预设发行版白名单。 */
+export function verifyHerdrInstallation(config: HerdrLocalConfig, expectedSha256?: string): string {
+  const measured = measureHerdrInstallation(config)
+  if (expectedSha256 !== undefined && expectedSha256 !== measured.sha256) {
+    throw new HerdrLocalError('herdr_binary_identity_changed')
+  }
+  return measured.stamp
 }
 
 const processBindingToken = Object.freeze({})

@@ -195,26 +195,37 @@ function aliases(bundle: JsonObject, docs: Record<string, unknown>): void {
     }
   }
   for (const key of ['request', 'response', 'event', 'event_catalog']) {
+    if ((key === 'event' || key === 'event_catalog') && bundle[key] === undefined) {
+      continue
+    }
     const value = object(bundle[key], 'schema_unavailable')
     same(text(value.$id, 'schema_unavailable'), value)
   }
-  const terminal = object(bundle.terminal, 'schema_unavailable')
-  for (const [uri, value] of Object.entries(object(terminal.documents, 'schema_unavailable'))) {
-    same(uri, value)
+  const terminal = bundle.terminal === undefined ? undefined : object(bundle.terminal, 'schema_unavailable')
+  if (terminal) {
+    for (const [uri, value] of Object.entries(object(terminal.documents, 'schema_unavailable'))) {
+      same(uri, value)
+    }
+    for (const key of ['request', 'response', 'event', 'control_frame']) {
+      const value = object(terminal[key], 'schema_unavailable')
+      same(text(value.$id, 'schema_unavailable'), value)
+    }
+    for (const [name, value] of Object.entries(object(terminal.methods, 'schema_unavailable'))) {
+      same(`${UHP}schema/terminal/methods/${name.replace(/_/g, '-')}.schema.json`, value)
+    }
   }
-  for (const key of ['request', 'response', 'event', 'control_frame']) {
-    const value = object(terminal[key], 'schema_unavailable')
-    same(text(value.$id, 'schema_unavailable'), value)
+  if (bundle.access !== undefined) {
+    const access = object(bundle.access, 'schema_unavailable')
+    const descriptor = object(access.descriptor, 'schema_unavailable')
+    same(text(descriptor.$id, 'schema_unavailable'), descriptor)
   }
-  for (const [name, value] of Object.entries(object(terminal.methods, 'schema_unavailable'))) {
-    same(`${UHP}schema/terminal/methods/${name.replace(/_/g, '-')}.schema.json`, value)
-  }
-  const access = object(bundle.access, 'schema_unavailable')
-  const descriptor = object(access.descriptor, 'schema_unavailable')
-  same(text(descriptor.$id, 'schema_unavailable'), descriptor)
+  const protocol = object(bundle.protocol, 'schema_unavailable')
   if (
-    !equal(bundle.protocol, { name: 'luvus-uhp', major: 1, minor: 0 }) ||
-    !equal(terminal.protocol, bundle.protocol)
+    protocol.name !== 'luvus-uhp' ||
+    protocol.major !== 1 ||
+    !Number.isSafeInteger(protocol.minor) ||
+    (protocol.minor as number) < 0 ||
+    (terminal && !equal(terminal.protocol, bundle.protocol))
   ) {
     fail('schema_unavailable', 'compile', 'incompatible_protocol')
   }
@@ -322,7 +333,8 @@ export function compileArtifact(
           }
           validators.set(uri, validate)
         }
-        const catalog = object(bundle.event_catalog, 'schema_unavailable')
+        const catalog: JsonObject =
+          bundle.event_catalog === undefined ? { properties: {} } : object(bundle.event_catalog, 'schema_unavailable')
         for (const name of Object.keys(object(catalog.properties, 'schema_unavailable'))) {
           // 片段只编译一次，standalone 复用同一缓存；全部完整根仍已编译。
           const check = ajv.getSchema(`${text(catalog.$id, 'schema_unavailable')}#/properties/${escaped(name)}`)
@@ -372,7 +384,8 @@ export function compileArtifact(
       }
       const exports: Record<string, string> = {}
       const schemas: Array<[string, string]> = []
-      const catalog = object(bundle.event_catalog, 'schema_unavailable')
+      const catalog: JsonObject =
+        bundle.event_catalog === undefined ? { properties: {} } : object(bundle.event_catalog, 'schema_unavailable')
       for (const key of validators.keys()) {
         const name = 'v' + schemas.length
         exports[name] = key.startsWith('event:')

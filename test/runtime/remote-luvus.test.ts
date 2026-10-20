@@ -179,12 +179,10 @@ test(
 )
 
 test(
-  'remote 静态 pin 拒绝 hash、版本、修订、重编码 schema、错误引用和额外 raw 方法',
+  'remote 静态配置拒绝摘要不符、错误修订/引用和越界 raw 方法',
   /** 摘要相同的声明不能替代原字节；raw 只接受独立显式的已审方法集合。 */ () => {
     for (const [field, value] of [
-      ['binary_sha256', 'a'.repeat(64)],
       ['schema_sha256', 'b'.repeat(64)],
-      ['binary_version', '0.14.4'],
       ['adapter_revision', 'other_adapter'],
       ['classification_revision', 'other_classification'],
       ['schema_bundle', JSON.stringify(JSON.parse(schema))]
@@ -309,9 +307,6 @@ test(
         },
         /** 设备不能更改安装 schema pin。 */ (value) => {
           value.source.schema_sha256 = 'b'.repeat(64)
-        },
-        /** server 版本也必须维持已审事实。 */ (value) => {
-          value.source.server_version = '0.14.4'
         },
         /** 原能力摘要必须匹配完整 result。 */ (value) => {
           value.capability_revision = 'c'.repeat(64)
@@ -580,6 +575,54 @@ test(
       if (!expired.result.ok) {
         assert.equal(expired.result.error.code, 'raw_contract_grant_expired')
       }
+    } finally {
+      factory.close()
+    }
+  }
+)
+
+test(
+  'remote 实际安装可使用陌生版本/摘要，缺少可选方法仍保留健康 RPC',
+  /** 独立 Gateway 从未知原字节真实编译并接纳实际快照；不把版本标签作为门禁或扩大 raw 授权。 */ async () => {
+    const configured = input({ principal_id: 'alice', methods: ['workspace.rename'] })
+    configured.contract.binary_version = 'configured-diagnostic-version'
+    configured.contract.binary_sha256 = 'd'.repeat(64)
+    configured.contract.schema_bundle += '\n'
+    configured.contract.schema_sha256 = hash(configured.contract.schema_bundle)
+    const factory = await createPinnedRemoteLuvus(checkedRemoteLuvusConfig(reference, configured))
+    try {
+      const observed = snapshot()
+      observed.source.binary_version = 'observed-future-version'
+      observed.source.server_version = 'different-server-version'
+      observed.source.binary_sha256 = configured.contract.binary_sha256
+      observed.source.schema_sha256 = configured.contract.schema_sha256
+      observed.capabilities.result.methods = observed.capabilities.result.methods.filter(
+        /** 实际安装缺少一个已接入的可选方法。 */ (name: string) => name !== 'agent.wait'
+      )
+      observed.capabilities.result.method_contracts = observed.capabilities.result.method_contracts.filter(
+        /** 同一实际目录同步删除对应描述，不伪造残缺快照。 */ (row: { method: string }) => row.method !== 'agent.wait'
+      )
+      if (observed.capabilities.result.access) {
+        observed.capabilities.result.access.allowed_methods =
+          observed.capabilities.result.access.allowed_methods.filter(
+            /** 本轮访问提示也来自同一实际方法目录。 */ (name: string) => name !== 'agent.wait'
+          )
+      }
+      observed.capability_revision = hash(boundedJson(observed.capabilities.result))
+      const epoch = factory.provider.open(connection(), /** 合成连接 guard 不授予真实认证。 */ () => {})
+      const live = epoch.accept(observed)
+      assert(live.ready())
+      assert.equal(live.contract.wire.source.binary_version, 'observed-future-version')
+      assert.equal(dispatch(live, attempt(live)).result.ok, true)
+      const request = attempt(live)
+      const view = createNativeValidator(live.contract.compiled).bindCapabilities(
+        live.contract.capabilities,
+        live.source(request.binding)!
+      )
+      assert(view.ok)
+      assert(
+        !view.value.methods.some(/** 缺失方法不可被目录或调用冒称可用。 */ (method) => method.method === 'agent.wait')
+      )
     } finally {
       factory.close()
     }

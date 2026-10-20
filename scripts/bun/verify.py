@@ -25,6 +25,120 @@ import xml.etree.ElementTree as ET
 TIMEOUT_LOG_BYTES = 131_072
 TIMEOUT_TRACE_BYTES = 1_048_576
 FAILURE_CONSOLE_BYTES = 12_000
+TRACE_SYSCALLS = ('execve', 'execveat', 'clone', 'clone3', 'fork', 'vfork',
+                  'exit', 'exit_group', 'kill', 'tkill', 'tgkill', 'wait4', 'waitid')
+
+
+# 追踪器故障与预期非零退出独立判定；只有观察到根进程正常按预期退出才接纳完整审计。
+def trace_completion_error(traced, stderr, returncode, expected):
+    if re.search(r'(?m)^(?:/[^\n]*/)?strace:|ptrace\(PTRACE_', stderr):
+        return 'tracer diagnostic; incomplete execution audit'
+    if returncode != expected:
+        return 'unexpected tracer exit'
+    root, root_executed, pending, status = None, False, set(), None
+    for line in traced.splitlines():
+        prefix = re.match(r'^([0-9]{1,10})\s+(.*)$', line)
+        if not prefix:
+            continue
+        tid, event = int(prefix[1]), prefix[2]
+        if root is None:
+            root = tid
+        execution = event.startswith('execve(')
+        if execution:
+            pending.add(tid)
+        if tid in pending and (execution or event.startswith('<... execve resumed>')):
+            if re.search(r'= 0\s*$', event):
+                if tid == root:
+                    root_executed = True
+                pending.discard(tid)
+            elif '= -1 ' in event:
+                pending.discard(tid)
+        if tid == root and event.startswith('+++ '):
+            status = re.fullmatch(r'\+\+\+ exited with ([0-9]{1,3}) \+\+\+', event)
+    if not root_executed or status is None or int(status[1]) != expected:
+        return 'root process did not observably exit normally as expected'
+    return None
+
+
+# 追踪失败仍阻断验收；只输出数值身份、固定程序名与冻结源码参数，区分追踪器异常和已观察退出。
+def trace_failure_summary(traced, stderr, returncode, source_files):
+    programs, pending, sources, parents, exits, signals = {}, {}, {}, {}, {}, {}
+    root = None
+    known_programs = {'/isolated/bin/bun': 'bun', '/verified/bun': 'bun',
+                      '/bin/sh': 'sh', '/usr/bin/sh': 'sh', '/bin/bash': 'bash',
+                      '/usr/bin/bash': 'bash', '/bin/sleep': 'sleep', '/usr/bin/sleep': 'sleep',
+                      '/bin/cat': 'cat', '/usr/bin/cat': 'cat', '/usr/bin/python3': 'python3',
+                      '/isolated/bin/python3': 'python3', '/isolated/bin/sh': 'sh'}
+    for line in traced.splitlines():
+        prefix = re.match(r'^([0-9]{1,10})\s+(.*)$', line)
+        if not prefix:
+            continue
+        tid, event = int(prefix[1]), prefix[2]
+        if root is None:
+            root = tid
+        execution = re.match(r'execve\("([^"\\\n]{1,1024})"', event)
+        if execution:
+            arguments = []
+            for quoted in re.findall(r'"([^"\\\n]{1,512})"', event):
+                relative = quoted.removeprefix('/isolated/project/')
+                if (len(relative) <= 256 and relative in source_files and relative not in arguments
+                        and re.fullmatch(r'(?:src|test|scripts)/[A-Za-z0-9_./-]+\.(?:[cm]?[jt]s|[jt]sx|py)',
+                                         relative)):
+                    arguments.append(relative)
+            pending[tid] = (known_programs.get(execution[1], 'unrecognized'), arguments[:2])
+        if tid in pending and (execution or event.startswith('<... execve resumed>')):
+            if re.search(r'= 0\s*$', event):
+                programs[tid], sources[tid] = pending.pop(tid)
+            elif '= -1 ' in event:
+                pending.pop(tid)
+        child = re.search(r'^(?:clone3?|fork|vfork)\(.*\)\s*= ([0-9]{1,10})\s*$', event)
+        child = child or re.search(r'^<\.\.\. (?:clone3?|fork|vfork) resumed>.*= ([0-9]{1,10})\s*$', event)
+        if child:
+            parents[int(child[1])] = tid
+        exited = re.fullmatch(r'\+\+\+ exited with ([0-9]{1,3}) \+\+\+', event)
+        killed = re.fullmatch(r'\+\+\+ killed by (SIG[A-Z0-9]{1,12})(?: \(core dumped\))? \+\+\+', event)
+        if exited:
+            exits[tid] = {'kind': 'exit', 'code': int(exited[1])}
+        elif killed:
+            exits[tid] = {'kind': 'signal', 'signal': killed[1]}
+        stopped = re.match(r'--- (SIG[A-Z0-9]{1,12})\b', event)
+        if stopped:
+            signals[tid] = (signals.get(tid, []) + [stopped[1]])[-4:]
+
+    # 这里只描述实际观察的身份和状态；缺失退出不能依据全绿用例推断为成功。
+    def identity(tid):
+        return {'tid': tid, 'program': programs.get(tid, 'unobserved'),
+                'sourceArguments': sources.get(tid, []), 'exit': exits.get(tid),
+                'signalsTail': signals.get(tid, [])[-4:]}
+
+    errors = []
+    pattern = r'ptrace\((PTRACE_[A-Z_]{1,32}),pid:([0-9]{1,10}),sig:([0-9]{1,3})\): ([^\n]*)'
+    for error in re.finditer(pattern, stderr):
+        if len(errors) == 3:
+            break
+        tid, lineage, seen = int(error[2]), [], set()
+        current = tid
+        while current is not None and current not in seen and len(lineage) < 8:
+            seen.add(current)
+            lineage.append(identity(current))
+            current = parents.get(current)
+        errors.append({'operation': error[1], 'tid': tid,
+                       'errno': {'Input/output error': 'EIO', 'No such process': 'ESRCH',
+                                 'Operation not permitted': 'EPERM'}.get(error[4], 'unclassified'),
+                       'lineage': lineage})
+    summary = {'status': 'failed', 'completeAudit': False, 'tracerExit': returncode,
+               'root': identity(root) if root is not None else None, 'ptraceErrors': errors}
+    encoded = json.dumps(summary, ensure_ascii=True, indent=2)
+    while len(encoded.encode()) > FAILURE_CONSOLE_BYTES:
+        summary['truncated'] = True
+        if errors and errors[-1]['lineage']:
+            errors[-1]['lineage'].pop()
+        elif errors:
+            errors.pop()
+        else:
+            summary['root'] = None
+        encoded = json.dumps(summary, ensure_ascii=True, indent=2)
+    return encoded
 
 
 # 失败控制台只保留可核对的仓库位置、固定阶段和数字总计，不转发断言值、源码或错误正文。
@@ -215,6 +329,11 @@ def main():
         raise SystemExit('Bun 1.4.3 and Linux strace must be available')
     bun = Path(args.bun).resolve(strict=True)
     trace_tool = str(Path(shutil.which('strace')).resolve())
+    trace_version = subprocess.run([trace_tool, '--version'], capture_output=True, text=True,
+                                   check=True, timeout=5, env={'LANG': 'C'}).stdout.splitlines()[0][:256]
+    trace_identity = {'version': trace_version, 'sha256': sha(Path(trace_tool)),
+                      'kernel': os.uname().release, 'machine': os.uname().machine}
+    print('tracer: ' + json.dumps(trace_identity, ensure_ascii=True), flush=True)
     repo = Path(__file__).resolve().parents[2]
     output = Path(args.output).resolve()
     if output.is_relative_to(repo):
@@ -282,7 +401,8 @@ def main():
             started = time.monotonic()
             # 全套回归的聚合预算覆盖增长与追踪开销，不改变产品或单例自身的时限。
             seconds = 600 if label == 'foundation' else 180
-            process = subprocess.Popen([trace_tool, '-f', '-q', '-s', '256', '-e', 'trace=execve,execveat',
+            process = subprocess.Popen([trace_tool, '-f', '-q', '-s', '256', '-e',
+                                        'trace=' + ','.join(TRACE_SYSCALLS),
                                         '-o', str(trace), *arguments], cwd=project, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             try:
@@ -312,7 +432,9 @@ def main():
                 raise RuntimeError(f'{label}: Node/npm/npx execution attempted')
             if (root / 'blocked.log').exists():
                 raise RuntimeError(f'{label}: blocked executable invoked')
-            if process.returncode != expected:
+            completion_error = trace_completion_error(traced, stderr, process.returncode, expected)
+            if completion_error is not None:
+                print(trace_failure_summary(traced, stderr, process.returncode, source_files), file=sys.stderr)
                 if label == 'foundation':
                     print(foundation_failure_summary(project, combined, source_files), file=sys.stderr)
                 # 完整保留两条脱敏流，不能让大量通过项覆盖较早的 hook/strace 错误。
@@ -326,7 +448,8 @@ def main():
                 print(f'{label}: initial exec\n' + '\n'.join(trace_lines[:1]), file=sys.stderr)
                 statuses = [line for line in trace_lines if re.search(r'\+\+\+ (?:exited with|killed by)', line)]
                 print(f'{label}: process exit tail\n' + '\n'.join(statuses[-64:]), file=sys.stderr)
-                raise RuntimeError(f'{label}: exit {process.returncode}, expected {expected}; see {output}')
+                raise RuntimeError(f'{label}: {completion_error}; '
+                                   f'exit {process.returncode}, expected {expected}; see {output}')
             records.append({'label': label, 'command': arguments, 'exit': process.returncode,
                             'timeoutSeconds': seconds,
                             'elapsedSeconds': round(time.monotonic() - started, 3),
@@ -386,6 +509,7 @@ def main():
         if before != {name: sha(project / name) for name in before}:
             raise RuntimeError('verification mutated package metadata')
         report = {'runtime': 'Bun 1.4.3', 'platform': 'Linux', 'bunBinarySha256': sha(bun),
+                  'tracer': trace_identity,
                   'nodeNpmNpxBlockingProbeExit': 99, 'workflowNodeNpmNpxInvocations': 0,
                   'emptyInstallCache': True, 'frozenInstallChangedMetadata': False,
                   'platformNetworkSettingNames': network_keys,
