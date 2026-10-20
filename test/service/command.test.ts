@@ -111,6 +111,7 @@ a=plistlib.loads(p['plist'].encode())
 assert a['ProgramArguments']==p['argv']
 assert a['RunAtLoad'] is True and a['KeepAlive'] is False
 assert a['UserName']=='rovloom'
+assert a['StandardInPath']=='/dev/null'
 b=E.fromstring(p['task']); n={'t':'http://schemas.microsoft.com/windows/2004/02/mit/task'}
 assert len(b.findall('t:Triggers/*',n))==1
 assert b.find('t:Triggers/t:BootTrigger',n) is not None

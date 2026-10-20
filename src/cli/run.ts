@@ -46,7 +46,8 @@ Gateway 持续提供 Streamable HTTP MCP；客户端退出不停止服务，stdo
 Linux Gateway使用HTTP/WS及唯一双库；用户不维护runtime/ref/证书文件，WSS客户端保持系统证书验证。
 Gateway首次启动真实监听并提示待配对；Connector缺地址或配对时明确返回configuration_required。
 首次配对与自动发现引导尚未接通；缺失原生资源仍明确拒绝，不假报Agent就绪。
-service 操作须注入受信监管宿主；默认配置仅由其已验证身份 resolver 提供，不猜测提权前用户。
+service 已接原生监管宿主；install 使用当前单文件和目标服务账户配置，不猜测提权前用户。
+当前产品角色运行时限 Linux；macOS/Windows 安装返回 backend_unavailable，详见 service --help。
 update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
 角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
 `
@@ -190,9 +191,9 @@ export async function runCli(
       const code = await handleServiceCommand(args, {
         ...host,
         resolveDefaultConfig: host.resolveDefaultConfig
-          ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role) => {
+          ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role, account) => {
               try {
-                return host.resolveDefaultConfig!(role)
+                return host.resolveDefaultConfig!(role, account)
               } catch (error) {
                 if (error instanceof CliError && error.code === 'config_home_unavailable') {
                   throw new ServiceError('config_path_required')

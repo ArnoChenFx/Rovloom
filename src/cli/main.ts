@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // 提供同一产物的双角色命令入口，将进程信号接到本地桥接关闭并设置退出码。
 import { runCli } from './run.js'
+import { createProductServiceHost } from './service-host.js'
 
 const stop = new AbortController()
 const onSignal = /* 将进程终止信号转换为前端关闭请求，不直接取消原生工作。 */ () => stop.abort()
@@ -16,6 +17,8 @@ try {
       signal: stop.signal
     },
     {
+      // 只有显式服务动作才装配控制器；构造不授权、不读写注册或配置。
+      ...(process.argv[2] === 'service' && process.argv[3] !== '--help' ? { service: createProductServiceHost() } : {}),
       gateway: /* 只有角色启动才加载静态工厂；help/version/template保持离线且不打开状态。 */ async (config) => {
         const { createProductSources } = await import('./product-sources.js')
         return (await import('./production.js')).createProductionCliRuntime(createProductSources()).gateway!(config)

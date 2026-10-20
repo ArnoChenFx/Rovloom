@@ -1,9 +1,13 @@
 # Boot service module / 开机服务模块
 
-This module supplies `install`, `uninstall`, `start`, `restart`, and `stop` for a trusted CLI host.
-It is an independent implementation slice, **not a deployable CLI release**. The single CLI remains
-owned by its existing implementation; this change adds no second executable or parser for role commands.
-Production background hosts, Windows runtime/config ACL validation and native OS acceptance remain required.
+The product CLI connects `install`, `uninstall`, `start`, `restart`, and `stop` to the
+Linux systemd backend. Installation uses the current standalone executable and an
+explicit existing non-root service account. macOS/Windows product actions fail with
+`backend_unavailable` before accessing system controls: their protected role runtime
+is unsupported, and Windows installation ACL validation remains incomplete.
+The reusable backend has all three native plans below. Native format parsing and
+isolated lifecycle models are distinct from actual install/boot/lifecycle acceptance;
+that acceptance has not been performed. No additional role executable is introduced.
 
 ## English
 
@@ -70,28 +74,38 @@ as the command exit code; `undefined` leaves all unrelated commands to the exist
 The unique CLI performs this delegation through the optional `CliRuntime.service` host, containing
 `platform`, `manager` and optional `resolveDefaultConfig`. It owns diagnostics and sends them to stderr;
 Gateway stdout is not an MCP transport. `service --help` works without this host; all other service actions
-return `backend_unavailable` (exit 3) when no host is supplied. The standalone entry does not construct a
-native backend or approve runtime/ACL checks. A trusted composition may combine the role factory result
-with `{ service: serviceHost }`; it must provide the real runtime verification and platform ACL ports.
+return `backend_unavailable` (exit 3) when no host is supplied. The product entry now
+constructs [the production service host](../src/cli/service-host.ts) only for service
+actions. It binds `--executable` to the current canonical standalone path (also its
+default), rejecting source/interpreter execution and another installation. On Linux,
+`--user` is looked up in the system passwd database; the shared config-path helper
+selects that account's role file. No HOME/SUDO_USER inference occurs. The host verifies
+the role, account-owned private data directory, then uses `/usr/sbin/runuser` to run
+the same binary's read-only `config check-runtime --role ROLE --config ABS` under the
+actual target account. No role starts during preflight and no missing configuration
+is generated. The target must have prepared configuration/data/work directories;
+Connector also needs a nonempty Gateway URL. Neither preflight nor registration
+proves provider readiness. Linux needs systemd, getent and runuser. macOS/Windows
+production authorization fails closed before accessing the native backend.
 The CLI validates diagnostic codes and the complete fixed supervision-result shape again at runtime;
 unknown codes/states fail without printing backend text. The shared path helper's unavailable-home error
 maps to `config_path_required`; other resolver failures retain their failure semantics.
 
-Supported parser forms (actions require the trusted host described above):
+Product command forms (Linux, with the prerequisites above):
 
 ```text
-service install --role connector --executable /opt/rovloom/rovloom [--config /var/lib/rovloom/config.json] --workdir /var/lib/rovloom --user rovloom
+service install --role connector [--executable /opt/rovloom/rovloom] [--config /home/rovloom/.config/rovloom/connector.json] --workdir /var/lib/rovloom --user rovloom
 service start --role connector
 service restart --role connector
 service stop --role connector
 service uninstall --role connector
 ```
 
-`--config` is optional only when the host supplies `resolveDefaultConfig(role)` from the **unique CLI's
-verified identity/default-path helper**. The required default is `<verified-home>/.config/rovloom/gateway.json`
+`--config` is optional only when the host supplies `resolveDefaultConfig(role, account)` from the **unique CLI's
+verified target-account identity/default-path helper**. The required default is `<verified-home>/.config/rovloom/gateway.json`
 or `connector.json`, including Windows `<verified-home>\.config\rovloom\{role}.json`. An explicit path
 wins without invoking the default resolver. The module never reads HOME/SUDO_USER to infer an original
-user across elevation: a missing/unverifiable identity requires explicit `--config` (`config_path_required`, exit 2).
+user across elevation: a missing/unverifiable target account home requires explicit `--config` (`config_path_required`, exit 2).
 The resolved absolute path is frozen into the manifest before account/path preflight; boot/start/restart
 never resolve it again using root/LocalService's home. No secret is copied or ACL adjusted to make a default work.
 
@@ -105,7 +119,11 @@ configuration boolean or a caller-provided approval token.
 
 POSIX native preflight independently checks the account's real UID, root-controlled executable and
 ancestors, no symlinks or group/other-writable ancestors, private account-owned config and its parent,
-and private account-owned working directory. All paths are absolute and canonical. It creates no users
+and private account-owned working directory. All paths are absolute and canonical.
+WorkingDirectory is a single raw systemd path, with percent specifiers escaped;
+it is not argv-quoted. Linux rejects trailing whitespace/backslash in this path.
+The native parser probe covers spaces and Unicode. Standard input is null for
+systemd and `/dev/null` for launchd; Task Scheduler uses noninteractive service-account logon. It creates no users
 and does not chmod/chown existing paths. macOS additionally inspects `ls -lde` for every relevant file,
 control declaration and ancestor. The conservative default rejects **all extended ACLs**, including benign
 deny entries; safe BSD mode alone is insufficient. A trusted host may provide `verifyMacosPermissions`
@@ -137,15 +155,23 @@ preserves available native command/process exit status without printing private 
 
 `bun test ./test/service` uses in-memory backends and controlled runner mocks for all three OS plans,
 plus temporary file locks, independent Python XML/plist parsing and a retained official XSD enum/cardinality semantic fragment (not a full XSD validation engine) and real isolated Bun subprocesses.
-Those tests do not register services, reboot a system, prove PowerShell/COM XML normalization on Windows,
-or prove current macOS `launchctl` output compatibility. Native acceptance must use separately approved,
+[Native parser probes](../test/service/platform-probe.test.ts) use actual
+systemd-analyze on Linux, plutil on macOS or an unregistered in-memory Task Scheduler
+COM definition on Windows. The standalone CI matrix runs the applicable probe and
+isolated model/parser tests on native runners. These probes never register a task,
+load a unit or change system permissions. They do not prove boot startup, actual
+launchctl output compatibility, registration XML normalization or full lifecycle. Native acceptance must use separately approved,
 recoverable disposable OS instances with a real background executable and verified account/filesystem
 setup. Production readiness requires CLI/role assembly, Windows ACL/runtime integration and real
 install/boot-without-login/start/restart/stop/uninstall acceptance on every supported OS.
 
 ## 简体中文
 
-本模块提供供可信 CLI 宿主组合的五项操作，不增加第二入口。Linux 使用 systemd **系统**单元，
+产品唯一 CLI 已连接 Linux systemd 后端，五项操作不增加第二入口；安装绑定当前单文件、
+所选非 root 服务账户及单文件角色配置。macOS/Windows 产品动作在接触系统控制前返回
+`backend_unavailable`：受保护角色运行时尚不支持，Windows 安装有效 ACL 验证也未完成。
+底层模块仍提供三平台原生计划，不能把模块或原生格式解析当作三平台运行验收。
+Linux 使用 systemd **系统**单元，
 macOS 使用 `/Library/LaunchDaemons` 的 **system** 域，Windows 使用原生 Task Scheduler 的
 **BootTrigger**；均为无需交互登录的开机启动。user unit、LaunchAgent 和 ONLOGON 不等价。
 普通 Bun exe 不满足 SCM dispatcher 协议，不能直接通过 `sc create` 变成 Windows 服务。
@@ -179,7 +205,12 @@ UID、可执行文件/祖先不可被普通用户替换、目标账户私有配�
 `verifyRuntime` 必须核实真实单文件 Rovloom 产物、角色配置、固定状态根和无登录会话的后台能力，
 拒绝 Bun 解释器、任意第三方程序及缺后端角色。Gateway 必须核验唯一 CLI 注入的持久
 Streamable HTTP MCP 宿主，不依赖 stdin EOF，stdout 不承载 MCP；不保留 stdio 兼容，不另建
-MCP 服务或监听配置。未接线前不能注册。`--config` 可省略，但须复用唯一 CLI 的受信身份/默认路径 resolver，默认是已验证 home 下
+MCP 服务或监听配置。生产接线位于 `src/cli/service-host.ts`，仅在显式 service 动作时构造。
+`--executable` 可省略，默认当前规范单文件路径；显式值也必须为同一程序。解释器及另一安装拒绝。
+Linux 通过 getent 查询所选 `--user` 的系统 passwd 记录，并通过 runuser 以目标账户执行同一程序的
+只读 config check-runtime；不会启动角色或生成缺失配置。数据目录必须已私有准备，Connector 的
+Gateway URL 必须非空；预检不证明 provider 就绪。
+`--config` 可省略，但须复用唯一 CLI 的目标服务账户身份/默认路径 resolver，默认是该账户已验证 home 下
 `.config/rovloom/gateway.json` 或 `connector.json`，Windows 同样如此；显式路径优先。不能确定提升前
 真实用户时要求 `--config`，不盲信 HOME/SUDO_USER。解析后的绝对路径在安装时固化，开机/重启不会
 再按 root/LocalService 的 HOME 展开；不会为适配默认路径修改 ACL 或复制秘密。Windows 另需 `verifyWindowsInstallation` 及预先准备的管理员/SYSTEM 专有控制目录；
@@ -190,8 +221,10 @@ MCP 服务或监听配置。未接线前不能注册。`--config` 可省略，�
 超时不会被当作启动成功。POSIX 由监管器先发 SIGTERM，必要时强制停止；**Windows 的 stop、
 restart 可能直接终止任务，不能称为优雅关闭或原生工作的回滚**。uninstall 永不停止实例。未新增网络控制入口。
 
-验证仅包括三平台模型/命令计划、临时锁文件、独立 XML/plist 解析和受控 Bun 子进程；没有实装
-系统启动项或重启验收。完整可用功能仍依赖受信 CLI 宿主装配、真实后台角色、Windows 配置/ACL 接线，
+验证包括三平台模型/命令计划、临时锁文件、独立 XML/plist 解析和受控 Bun 子进程。
+原生 CI 矩阵增加本机只读格式探针：Linux systemd-analyze、macOS plutil、Windows 未注册的
+Task Scheduler COM 内存定义。探针不注册任务、不加载单元、不提权或修改系统权限；
+没有实装启动项或重启验收。完整可用功能仍依赖跨平台受保护角色运行时、Windows 配置/ACL 接线，
 以及获授权可恢复的一次性 Linux/macOS/Windows 环境中的无登录开机及全生命周期实测。
 
 ## Official references / 官方依据

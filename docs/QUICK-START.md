@@ -172,10 +172,14 @@ failures without automatically resending or switching models.
 Stop Connector with Ctrl-C and wait for exit, then stop Gateway with Ctrl-C.
 Shutdown does not promise native rollback. Preserve data if shutdown fails.
 
-Service install/uninstall/start/restart/stop remain unavailable in the product
-CLI (`backend_unavailable`, 3). `service --help` documents their syntax;
-installation enables boot startup and does not mean start now, while uninstall
-removes boot startup and does not stop now. See the [complete CLI reference](CONFIGURATION.md#complete-cli-reference).
+The Linux product CLI connects systemd install/uninstall/start/restart/stop.
+Use the current standalone binary with root authorization and an existing non-root
+service account; prepare its protected configuration/data/work directories first.
+`service --help` documents the options. Install enables boot startup without
+starting now; uninstall removes future boot startup without stopping now.
+macOS/Windows product service actions remain unavailable (`backend_unavailable`, 3).
+No boot/lifecycle acceptance is claimed. See the [complete CLI reference](CONFIGURATION.md#complete-cli-reference)
+and [service prerequisites](SERVICE.md).
 `update --check` checks official stable releases over the network; no published
 release may produce `release_unavailable`. An operational replacement backend is
 not connected.

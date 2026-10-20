@@ -138,9 +138,11 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 先 Ctrl-C 停止 Connector 并等待退出，再停止 Gateway。关闭不保证原生工作回滚；
 关闭失败时保留数据。
 
-产品 CLI 的 service install/uninstall/start/restart/stop 仍不可用
-（`backend_unavailable`，3）。`service --help` 仅说明语法；install 表示开机自启，
-不表示立即启动，uninstall 表示取消开机自启，不会立即停止。见[完整 CLI 参考](CONFIGURATION-zh.md#完整-cli-参考)。
+Linux 产品 CLI 已连接 systemd install/uninstall/start/restart/stop。
+使用当前单文件、root 授权和既有非 root 服务账户；先准备其受保护配置、数据与工作目录。
+`service --help` 说明选项。install 加入开机自启但不立即启动，uninstall 取消未来开机自启但不立即停止。
+macOS/Windows 产品服务动作仍不可用（`backend_unavailable`，3），尚不宣称开机/生命周期验收通过。
+见[完整 CLI 参考](CONFIGURATION-zh.md#完整-cli-参考)和[服务前提](SERVICE.md)。
 `update --check` 通过网络检查官方稳定发行，无已发布版本时可能返回
 `release_unavailable`；实际替换升级后端尚未连接。
 

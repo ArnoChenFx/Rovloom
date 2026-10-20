@@ -177,8 +177,8 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
       if (typeof options.verifyRuntime !== 'function') {
         throw new ServiceError('backend_unavailable')
       }
-      await options.verifyRuntime(spec)
       if (platform === 'win32') {
+        await options.verifyRuntime(spec)
         if (!options.verifyWindowsInstallation) {
           throw new ServiceError('backend_unavailable')
         }
@@ -188,6 +188,8 @@ export function createNativeServiceBackend(options: NativeServiceOptions): Servi
         if (platform === 'darwin') {
           await macPermissions([spec.executable, spec.config, spec.directory])
         }
+        // 在执行任何产物自检前先证明程序与路径不可由普通账户替换。
+        await options.verifyRuntime(spec)
       }
     },
     // 同时验证磁盘声明与实际系统来源；未知覆盖、同名异物均作为冲突。

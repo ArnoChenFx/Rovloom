@@ -202,16 +202,18 @@ available as a user setup flow.
 
 ### Service command syntax and current availability
 
-`rovloom service --help` is available offline. The five action forms below are
-recognized by the service interface, but **the current product has no connected
-service backend**: they return `backend_unavailable` and exit **3** without
-installing or managing a system service. The examples document syntax; they are
-not a working installation procedure for this preview. Administrator privilege
-does not remove this limitation.
+`rovloom service --help` is available offline. The product entry connects the
+Linux systemd backend. Installation requires the current standalone Rovloom
+binary, root authorization, an existing non-root service account and prepared
+protected configuration, data and working directories. The backend does not
+provision these resources or change permissions. macOS/Windows product service
+actions still return `backend_unavailable` (3): their protected role runtime is
+not supported. Native definition parsing does not establish lifecycle acceptance.
+See [service prerequisites and platform limits](SERVICE.md).
 
-| Command form | Required arguments | Meaning of the action | Syntax example (currently unavailable) |
+| Command form | Required arguments | Meaning of the action | Linux syntax example |
 |---|---|---|---|
-| `rovloom service install` | `--role`, `--executable`, `--workdir`, `--user`; optional `--config` | Add/enable startup at boot; **does not start now**. | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
+| `rovloom service install` | `--role`, `--workdir`, `--user`; optional `--executable`, `--config` | Add/enable startup at boot; **does not start now**. | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
 | `rovloom service start` | `--role` only | Start an installed role now; does not create its installation. | `rovloom service start --role gateway` |
 | `rovloom service restart` | `--role` only | Stop the installed instance, then start it. | `rovloom service restart --role connector` |
 | `rovloom service stop` | `--role` only | Stop now; retain startup at the next boot. | `rovloom service stop --role connector` |
@@ -224,8 +226,8 @@ role. There is no default role, `all` role, `--now`, `--force`, `--purge` or
 | Service option | Type / required / default | Purpose |
 |---|---|---|
 | `--role` | Required enum `gateway` or `connector`; no default | Select the role whose startup/instance is managed. |
-| `--executable` | Install-only, required absolute path string, at most 4096 characters; no default | Standalone Rovloom program, not a shell command or interpreter. Windows path must end in `.exe`. |
-| `--config` | Install-only, optional absolute path string, at most 4096 characters | Explicit role configuration. If omitted, requires the verified user's `~/.config/rovloom/gateway.json` or `connector.json`; an unavailable verified identity requires an explicit path (`config_path_required`). Do not infer a pre-elevation home from environment variables. |
+| `--executable` | Install-only, optional absolute path string, at most 4096 characters; defaults to the current standalone binary | Must equal the current canonical executable. Another installation, shell or interpreter is rejected. Windows path must end in `.exe`. |
+| `--config` | Install-only, optional absolute path string, at most 4096 characters | Explicit role configuration. If omitted, uses the selected `--user` account's verified home and the shared `~/.config/rovloom/gateway.json` or `connector.json` rule; an unavailable verified identity requires an explicit path (`config_path_required`). Do not infer a pre-elevation home from environment variables. |
 | `--workdir` | Install-only, required absolute directory string, at most 4096 characters; no default | Working directory of the service; does not set or replace JSON `data.directory`. |
 | `--user` | Install-only, required account string; no default | Existing non-root account on Linux/macOS. Windows accepts only LocalService SID `S-1-5-19`, without a password. |
 
@@ -234,7 +236,7 @@ recorded absolute role configuration, rather than resolving a new home. POSIX
 installation requires a root-owned protected executable and configuration/work
 directories belonging to the chosen non-root account; it does not create accounts
 or relax permissions. Windows requires its own protected installation and
-LocalService access. Those checks do not make the unconnected product backend usable.
+LocalService access. The Linux host reads the target account from the system passwd database, then runs the same binary's read-only `config check-runtime --role ROLE --config ABS` under that account via `/usr/sbin/runuser`. It does not start a role during installation. Configured Connector requires a nonempty Gateway URL; registration does not prove native readiness. The chosen data directory must already be private and account-owned. Linux working directories cannot end in whitespace or a backslash.
 
 The service action semantics keep installation and running state separate:
 install then start would request both boot startup and immediate running;
@@ -250,7 +252,7 @@ stop/restart may terminate the task directly; do not treat it as native rollback
 | Help/version/template output | Available | Available | Available |
 | `config check` | Protected POSIX reader | Protected POSIX reader | Rejected: `config_platform_unsupported` |
 | `config check-runtime`, real role startup | Current deployment guide covers Linux x64 | Runtime loader rejects this platform | Runtime loader rejects this platform |
-| Service actions | Unavailable in current product CLI | Unavailable; runtime also unsupported | Unavailable; runtime/configuration and installation ACL support also incomplete |
+| Service actions | Production systemd backend connected; Gateway on Linux, Connector native owner on x64; lifecycle/boot acceptance still required | Product rejects before system access; runtime unsupported | Product rejects before system access; runtime/configuration and installation ACL support incomplete |
 | `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
 
 There is no working Rovloom service-status query in this preview.
@@ -282,16 +284,17 @@ variables as CLI options. Commands such as `init`, `pair`, `status`, `--token`,
 
 | Exit code | Role/configuration/service meaning | Update meaning |
 |---|---|---|
-| `0` | Help/template/check success, normal role shutdown; service help succeeds | Check succeeded or no replacement needed; actual replacement is not currently connected. |
+| `0` | Help/template/check success, normal role shutdown; successful/idempotent service operation | Check succeeded or no replacement needed; actual replacement is not currently connected. |
 | `1` | Runtime/shutdown failure; service operation failure with a connected backend | Unexpected update failure. |
 | `2` | Invalid arguments/configuration; with a connected service backend, invalid options or missing verified default config | Invalid arguments/current version or unsupported platform. |
-| `3` | Backend unavailable; every current product service action returns this | Network/release/manifest/download verification failure. |
+| `3` | Backend/runtime unavailable or unsupported service platform | Network/release/manifest/download verification failure. |
 | `4` | Not a role/configuration/service success code | Permission/staging/lock/installation or incomplete-I/O/cleanup condition; not success. |
 | `5` | Not used for these commands | Replacement backend unavailable. |
 | `6` | Not used for these commands | Update rolled back (replacement module outcome). |
 | `7` | Not used for these commands | Recovery required (replacement module outcome). |
 
-The unconnected service backend is checked before its action arguments are
-parsed: even a malformed service action currently reports `backend_unavailable`.
-Do not interpret that as proof that its options were valid. Keep error codes
-when asking for help; do not upload real configuration or secrets.
+The product parses service options before authorization. Invalid options return
+`invalid_arguments` (2); insufficient Linux privilege returns `permission_denied`
+(1), without invoking sudo. Successful service diagnostics are fixed JSON on
+stderr with separate `bootEnabled`, `controlRetained` and `readiness: "not_checked"`.
+Keep error codes when asking for help; do not upload real configuration or secrets.

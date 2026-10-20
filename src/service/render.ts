@@ -32,7 +32,7 @@ After=network.target
 [Service]
 Type=exec
 User=${spec.account}
-WorkingDirectory=${unitQuote(spec.directory)}
+WorkingDirectory=${spec.directory.replaceAll('%', '%%')}
 ExecStart=:${[spec.executable, ...launchArguments(spec)].map(unitQuote).join(' ')}
 Restart=no
 TimeoutStartSec=30
@@ -63,6 +63,7 @@ export function renderLaunchd(spec: ServiceSpec): string {
 <key>ProgramArguments</key><array>${args}</array>
 <key>UserName</key><string>${xmlText(spec.account)}</string>
 <key>WorkingDirectory</key><string>${xmlText(spec.directory)}</string>
+<key>StandardInPath</key><string>/dev/null</string>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><false/>
 <key>ExitTimeOut</key><integer>30</integer>
