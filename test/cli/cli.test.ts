@@ -2,7 +2,7 @@
 import { CliCancelled, configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -124,22 +124,22 @@ test(
 )
 
 test(
-  '只读配置使用受保护 regular file 和有界 descriptor，拒绝 symlink 及宽松权限',
+  '只读配置沿用普通文件权限和链接，仍拒绝无界内容及非法编码',
   { timeout: 30_000 },
-  /* 在隔离文件系统中验证最终文件类型、权限、编码与大小限制。 */ async () => {
+  /* 在隔离文件系统中验证普通读取、编码与大小限制。 */ async () => {
     await temporary(
-      /* 依次改变配置权限和内容，确认只读加载失败且不改写文件。 */ (directory) => {
+      /* 依次改变自有配置权限和内容，确认读取不改写文件权限。 */ (directory) => {
         const path = configFile(directory)
         assert.equal(readConfig(path).role, 'gateway')
         chmodSync(path, 0o644)
-        assert.throws(/* 读取宽松权限文件，核对配置保护门禁。 */ () => readConfig(path), /Rovloom command failed/)
-        chmodSync(path, 0o600)
+        assert.equal(readConfig(path).role, 'gateway')
+        assert.equal(statSync(path).mode & 0o777, 0o644)
         const link = join(directory, 'link.json')
         symlinkSync(path, link)
-        assert.throws(/* 读取最终符号链接，核对 descriptor 不跟随链接。 */ () => readConfig(link))
+        assert.deepEqual(readConfig(link), readConfig(path))
         chmodSync(directory, 0o755)
-        assert.throws(/* 读取宽松父目录中的配置，核对目录保护门禁。 */ () => readConfig(path))
-        chmodSync(directory, 0o700)
+        assert.equal(readConfig(path).role, 'gateway')
+        assert.equal(statSync(directory).mode & 0o777, 0o755)
         writeFileSync(path, 'x'.repeat(16_385))
         assert.throws(/* 读取超大文件，确认不会无界收集配置内容。 */ () => readConfig(path))
         writeFileSync(path, Buffer.from([0xff]))

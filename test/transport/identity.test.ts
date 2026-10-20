@@ -230,7 +230,7 @@ test(
 )
 
 test(
-  'Connector 安全输入只读专用 Linux 0700/0600 文件，失凭据不按名称接管',
+  'Connector 凭据保留文件输入检查和固定身份，父目录沿用普通权限',
   /** 在新建私有目录中检查凭据创建、替换、权限、符号链接和丢失后的拒绝。 */
   () => {
     const f = fixture()
@@ -251,9 +251,8 @@ test(
       const link = join(root, 'link')
       symlinkSync(path, link)
       assert.throws(
-        /** 读取符号链接或不安全权限的凭据文件，确认启动输入校验拒绝。 */
-        () => loadCredential(link),
-        /unsafe_storage_file/
+        /** 原凭据读取器仍以no-follow打开文件，不依赖共享文件层拒绝链接。 */
+        () => loadCredential(link)
       )
       chmodSync(path, 0o644)
       assert.throws(
@@ -263,11 +262,8 @@ test(
       )
       chmodSync(path, 0o600)
       chmodSync(root, 0o755)
-      assert.throws(
-        /** 从非私有父目录读取凭据，确认不会自动放宽目录安全边界。 */
-        () => loadCredential(path),
-        /private_storage_directory_required/
-      )
+      assert.deepEqual(loadCredential(path), rotated)
+      assert.equal(statSync(root).mode & 0o777, 0o755)
       chmodSync(root, 0o700)
       rmSync(path)
       assert.throws(

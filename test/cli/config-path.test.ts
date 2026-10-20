@@ -2,7 +2,7 @@
 import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -135,8 +135,8 @@ test(
 )
 
 test(
-  '默认与显式文件继续核对role和私有权限，文件名不能赋予另一角色能力',
-  /* 相同读取边界覆盖角色冲突和宽松权限，不调用任何角色后端。 */ async () => {
+  '默认与显式文件继续核对role和内容，文件名不能赋予另一角色能力',
+  /* 相同读取边界覆盖角色冲突和损坏配置，不调用任何角色后端。 */ async () => {
     await temporary(
       /* 用完整有效的Connector配置覆盖Gateway文件，区分角色冲突与普通语法错误。 */ async (home) => {
         const gateway = configFile(home, 'gateway')
@@ -153,11 +153,11 @@ test(
           })
         }
         configFile(home, 'gateway')
-        chmodSync(gateway, 0o644)
+        writeFileSync(gateway, '{"incomplete":')
         assert.deepEqual(await capture(['gateway'], { home, platform: process.platform }), {
           code: 2,
           stdout: '',
-          stderr: 'config_not_protected\n'
+          stderr: 'invalid_config\n'
         })
       }
     )

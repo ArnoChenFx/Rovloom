@@ -1,8 +1,8 @@
-/** Gateway schema 的跨 POSIX 私有来源回归；只编译公开 fixture，不建立 native 安装或真实凭据。 */
+// Gateway从普通文件加载实际schema字节并保留编译快照；只用公开离线fixture，不建立身份或原生会话。
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import {
   chmodSync,
+  linkSync,
   mkdtempSync,
   realpathSync,
   renameSync,
@@ -18,7 +18,7 @@ import { test } from 'node:test'
 import { createHerdrGatewayResources } from '../../../src/connector/herdr/provider.js'
 import { raw, source } from './helpers.js'
 
-/** Gateway 测试使用真实系统临时根；macOS 的系统别名只在创建 fixture 前规范化。 */
+// 临时根及schema均归本例拥有，路径使用真实系统表示。
 function schemaFixture() {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'rovloom-gateway-schema-'))
   const schema = join(root, 'schema.json')
@@ -39,113 +39,81 @@ function schemaFixture() {
 }
 
 test(
-  'Gateway schema uses POSIX private storage and keeps replacement, permission and symlink changes fenced',
-  { skip: process.platform === 'win32' },
-  /** 在真实 fd 与文件系统上改变来源，不伪造平台或替换存储校验器。 */ async () => {
-    for (const mutation of ['replacement', 'permissions', 'symlink']) {
-      const fixture = schemaFixture()
-      let resources: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined
-      try {
-        resources = await createHerdrGatewayResources({ config: fixture.config })
-        assert.equal(resources.describe().source_basis, 'configured_connector_contract')
-        const ready = resources.providers[0]!.ready!
-        assert.equal(ready(), true)
-        if (mutation === 'replacement') {
-          const replacement = join(fixture.root, 'replacement.json')
-          writeFileSync(replacement, raw, { mode: 0o600 })
-          renameSync(replacement, fixture.schema)
-          assert.throws(ready, /herdr_provider_file_changed/)
-        } else if (mutation === 'permissions') {
-          chmodSync(fixture.schema, 0o644)
-          assert.throws(ready, /unsafe_storage_file/)
-          chmodSync(fixture.schema, 0o600)
-          assert.throws(ready, /herdr_provider_file_changed/)
-        } else {
-          const original = join(fixture.root, 'original.json')
-          renameSync(fixture.schema, original)
-          symlinkSync(original, fixture.schema)
-          assert.throws(ready, /unsafe_storage_file/)
+  'Gateway schema沿用普通权限和文件链接，读取不改变现有对象',
+  /* 六平台均使用正式编译和读取入口。 */ async () => {
+    const f = schemaFixture()
+    try {
+      if (process.platform !== 'win32') {
+        chmodSync(f.schema, 0o644)
+        chmodSync(f.root, 0o755)
+      }
+      const modes = [statSync(f.root).mode, statSync(f.schema).mode]
+      const hard = join(f.root, 'hard.json')
+      linkSync(f.schema, hard)
+      const alias = join(f.root, 'alias')
+      symlinkSync(f.root, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      const paths = [f.schema, hard, join(alias, 'schema.json')]
+      if (process.platform !== 'win32') {
+        const link = join(f.root, 'linked.json')
+        symlinkSync(f.schema, link)
+        paths.push(link)
+      }
+      for (const schema_path of paths) {
+        const resources = await createHerdrGatewayResources({ config: { ...f.config, schema_path } })
+        try {
+          assert.equal(resources.describe().source_basis, 'configured_connector_contract')
+          assert.equal(resources.providers[0]!.ready!(), true)
+        } finally {
+          await resources.release()
         }
-        assert.throws(/** 公共描述也必须重新验证固定来源，不能只在 readiness 处撤销。 */ () => resources!.describe())
-      } finally {
-        await resources?.release()
-        rmSync(fixture.root, { recursive: true, force: true })
       }
+      assert.deepEqual([statSync(f.root).mode, statSync(f.schema).mode], modes)
+    } finally {
+      rmSync(f.root, { recursive: true, force: true })
     }
   }
 )
 
 test(
-  'Gateway schema rejects links, public permissions and invalid size before compilation',
-  { skip: process.platform === 'win32' },
-  /** 反例都使用原始官方 pin，不能依靠 hash 不匹配掩盖文件边界缺失。 */ async () => {
-    const fixture = schemaFixture()
+  'Gateway schema仍拒绝目录、空文件、超限及摘要错误的实际字节',
+  /* 正常文件权限不能替代内容、类型与预算校验。 */ async () => {
+    const f = schemaFixture()
     try {
-      const linked = join(fixture.root, 'linked.json')
-      symlinkSync(fixture.schema, linked)
       await assert.rejects(
-        createHerdrGatewayResources({ config: { ...fixture.config, schema_path: linked } }),
-        /unsafe_storage_file/
+        createHerdrGatewayResources({ config: { ...f.config, schema_path: f.root } }),
+        /invalid_storage_file/
       )
-      const alias = join(fixture.root, 'alias')
-      symlinkSync(fixture.root, alias)
-      await assert.rejects(
-        createHerdrGatewayResources({ config: { ...fixture.config, schema_path: join(alias, 'schema.json') } }),
-        /unsafe_storage_path/
-      )
-      chmodSync(fixture.schema, 0o644)
-      await assert.rejects(createHerdrGatewayResources({ config: fixture.config }), /unsafe_storage_file/)
-      chmodSync(fixture.schema, 0o600)
-      chmodSync(fixture.root, 0o755)
-      await assert.rejects(
-        createHerdrGatewayResources({ config: fixture.config }),
-        /private_storage_directory_required/
-      )
-      chmodSync(fixture.root, 0o700)
-      truncateSync(fixture.schema, 0)
-      await assert.rejects(createHerdrGatewayResources({ config: fixture.config }), /herdr_provider_file_invalid/)
-      truncateSync(fixture.schema, 16_777_217)
-      await assert.rejects(createHerdrGatewayResources({ config: fixture.config }), /herdr_provider_file_invalid/)
+      truncateSync(f.schema, 0)
+      await assert.rejects(createHerdrGatewayResources({ config: f.config }), /herdr_provider_file_invalid/)
+      truncateSync(f.schema, 16_777_217)
+      await assert.rejects(createHerdrGatewayResources({ config: f.config }), /invalid_storage_file/)
+      writeFileSync(f.schema, '{}')
+      await assert.rejects(createHerdrGatewayResources({ config: f.config }), /herdr_schema_unreviewed/)
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true })
+      rmSync(f.root, { recursive: true, force: true })
     }
   }
 )
 
 test(
-  'Gateway compilation rejects a same-byte schema replacement while awaiting the real compiler',
-  { skip: process.platform === 'win32' },
-  /** 在工厂首次同步读取后立即替换 inode，真实 Worker 完成仍不能发布旧来源。 */ async () => {
-    const fixture = schemaFixture()
+  'Gateway编译使用已读取的schema快照，后续文件更新在显式重载时校验',
+  /* 文件变化不改写已核对的内存字节或远端契约来源。 */ async () => {
+    const f = schemaFixture()
+    let resources: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined
     try {
-      const pending = createHerdrGatewayResources({ config: fixture.config })
-      const replacement = join(fixture.root, 'replacement.json')
-      writeFileSync(replacement, raw, { mode: 0o600 })
-      renameSync(replacement, fixture.schema)
-      await assert.rejects(pending, /herdr_provider_file_changed/)
+      const pending = createHerdrGatewayResources({ config: f.config })
+      const replacement = join(f.root, 'replacement.json')
+      writeFileSync(replacement, Buffer.concat([raw, Buffer.from(' ')]))
+      renameSync(replacement, f.schema)
+      resources = await pending
+      assert.equal(resources.providers[0]!.ready!(), true)
+      assert.equal(resources.describe().source_basis, 'configured_connector_contract')
+      await assert.rejects(createHerdrGatewayResources({ config: f.config }), /herdr_schema_unreviewed/)
+      await resources.release()
+      assert.throws(resources.providers[0]!.ready!, /herdr_provider_closed/)
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true })
+      await resources?.release()
+      rmSync(f.root, { recursive: true, force: true })
     }
   }
 )
-
-if (process.platform === 'darwin') {
-  test(
-    'macOS Gateway schema rejects an actual ACL grant even when mode remains 0600',
-    /** 只给自有 fixture 添加读取 ACL；初读与后续来源复核都必须走实际 fd ACL。 */ async () => {
-      const fixture = schemaFixture()
-      let resources: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined
-      try {
-        resources = await createHerdrGatewayResources({ config: fixture.config })
-        const grant = spawnSync('/bin/chmod', ['+a', 'everyone allow read', fixture.schema], { encoding: 'utf8' })
-        assert.equal(grant.status, 0, grant.stderr)
-        assert.equal(statSync(fixture.schema).mode & 0o777, 0o600)
-        assert.throws(resources.providers[0]!.ready!, /unsafe_storage_acl/)
-        await assert.rejects(createHerdrGatewayResources({ config: fixture.config }), /unsafe_storage_acl/)
-      } finally {
-        await resources?.release()
-        rmSync(fixture.root, { recursive: true, force: true })
-      }
-    }
-  )
-}

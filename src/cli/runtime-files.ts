@@ -12,11 +12,8 @@ export function runtimeReference(directory: string, reference: unknown, suffix =
   return join(directory, 'managed', reference + suffix)
 }
 
-// 复用 Gateway 同描述符私有文件读取器，保留 Linux/macOS 的实际权限与大小检查。
+// 共用普通跨平台有界文件读取，不以本机权限、所有权或平台作为状态加载门禁。
 export function readRuntimeFile(path: string, maximum: number): Buffer {
-  if (!['linux', 'darwin'].includes(process.platform)) {
-    throw new CliError('config_platform_unsupported')
-  }
   try {
     return readPrivateBytes(path, maximum)
   } catch (error) {

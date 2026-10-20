@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, statSync, unlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { createPrivate, privateFile, privatePath } from '../storage/files.js'
+import { createPrivate, databasePath } from '../storage/files.js'
 import { fail, id, WireError } from '../wire/index.js'
 
 export type IdentityAction = 'install' | 'rotate' | 'finish_rotation' | 'revoke' | 're_pair' | 'takeover'
@@ -88,10 +88,8 @@ export class IdentityStore {
     ) {
       fail('identity_limit')
     }
-    privatePath(path)
-    if (existsSync(path)) {
-      privateFile(path)
-    }
+    path = databasePath(path)
+    this.path = path
     createPrivate(path + '.lock')
     this.locked = true
     try {

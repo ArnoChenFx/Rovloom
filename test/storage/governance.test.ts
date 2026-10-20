@@ -11,6 +11,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync
 } from 'node:fs'
@@ -541,36 +542,28 @@ test(
     )
 )
 test(
-  'SQLite private paths, symlinks, corruption and abandoned crash locks fail closed',
-  /* 验证公开目录、符号链接、异常锁、公开文件权限和损坏数据库都使打开操作失败。 */ () =>
+  'SQLite accepts ordinary paths and permissions; corruption and abandoned locks still reject',
+  /* 普通目录及文件链接可以使用，残留写锁和损坏数据库仍阻止打开。 */ () =>
     disk(
-      /* 逐项构造不安全路径、残留锁与损坏文件，并确认打开失败不会自动删锁。 */ (root, path) => {
+      /* 只更改本例自有目录，核对正常读取与锁、损坏数据的拒绝。 */ (root, path) => {
         const open = new Store(path)
         open.close()
         const publicDirectory = join(root, 'public')
         mkdirSync(publicDirectory, { mode: 0o755 })
         chmodSync(publicDirectory, 0o755)
-        assert.throws(
-          /* 在公开目录中打开数据库，检查存储要求父目录具有私有权限。 */ () => new Store(join(publicDirectory, 'db')),
-          /private_storage_directory_required/
-        )
+        new Store(join(publicDirectory, 'db')).close()
+        assert.equal(statSync(publicDirectory).mode & 0o777, 0o755)
         const link = join(root, 'linked')
         symlinkSync(join(root, 'state'), link)
-        assert.throws(
-          /* 经符号链接路径打开数据库，检查路径规范化不能绕过链接拒绝规则。 */ () => new Store(join(link, 'db')),
-          /unsafe_storage_path/
-        )
+        new Store(join(link, 'db')).close()
         const lock = path + '.lock'
         writeFileSync(lock, 'crash', { mode: 0o600 })
         assert.throws(/* 在残留写锁存在时打开数据库，检查操作失败并保留锁文件。 */ () => new Store(path), /EEXIST/)
         assert(existsSync(lock))
         rmSync(lock)
         chmodSync(path, 0o644)
-        assert.throws(
-          /* 打开已改成公开可读的数据库文件，检查文件权限约束。 */ () => new Store(path),
-          /unsafe_storage_file/
-        )
-        chmodSync(path, 0o600)
+        new Store(path).close()
+        assert.equal(statSync(path).mode & 0o777, 0o644)
         writeFileSync(path, 'corrupt SQLite')
         assert.throws(
           /* 打开被替换为非 SQLite 字节的数据库，检查损坏不会被静默重建。 */ () => new Store(path),
