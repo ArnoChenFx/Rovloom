@@ -382,8 +382,8 @@ test(
 )
 
 test(
-  'asynchronous receipt hooks close the channel without accepted, execution or unhandled rejection',
-  /** 两个同步 hook 误返回拒绝 Promise 时都必须消费晚到拒绝，且不能继续进入派发。 */ async () => {
+  'asynchronous receipt hooks close their original session across immediate reconnect without execution',
+  /** 零抖动重连不能掩盖旧epoch的关闭；两个异步错误均不得越过同步派发门禁。 */ async () => {
     const unhandled: unknown[] = []
     /** 只记录测试期间是否出现未消费拒绝，不输出可能包含私有上下文的错误。 */
     function rejection(error: unknown): void {
@@ -400,6 +400,8 @@ test(
         let checks = 0
         let accepted = 0
         let executions = 0
+        let faulted: { epoch: string; closed: boolean } | undefined
+        const events: string[] = []
         const client = createConnector({
           url: f.gateway.url,
           developmentLoopback: true,
@@ -411,11 +413,20 @@ test(
             required: ['rpc', 'admission_receipt']
           },
           limits: { heartbeat_ms: 30, idle_ms: 1500, reconnect_ms: 10_000 },
+          random: /** 确定性覆盖合法零抖动，不能假设配置的退避上限就是最短断开时间。 */ () => 0,
           /** 每次实际 welcome 交付真实 Wire，只在指定同步端口注入错误返回类型。 */
           session(connection) {
             const session = f.session(connection)
+            const state = { epoch: connection.connection_epoch, closed: false }
+            events.push('session_open')
             return {
               ...session,
+              /** 记录故障所属原会话的真实释放，后续新会话不能替代此关闭事实。 */
+              close() {
+                state.closed = true
+                events.push('session_close')
+                session.close()
+              },
               adapter: {
                 ...session.adapter,
                 /** accepted 仍经原 codec 编码；计量能证明错误端口没有越过派发边界。 */
@@ -431,6 +442,8 @@ test(
                 accept() {
                   accepts++
                   if (faulty === 'accept') {
+                    faulted = state
+                    events.push('accept_rejected')
                     return Promise.reject(new Error('isolated_async_accept_failure'))
                   }
                 },
@@ -438,6 +451,8 @@ test(
                 assertRequest() {
                   checks++
                   if (faulty === 'assertRequest') {
+                    faulted = state
+                    events.push('assert_request_rejected')
                     return Promise.reject(new Error('isolated_async_check_failure'))
                   }
                 }
@@ -451,13 +466,22 @@ test(
         })
         try {
           await until(/** 等实际认证通道进入 ready 才派发。 */ () => client.status().phase === 'ready')
+          const originalEpoch = client.status().connection_epoch
           const call = f.call(device.target)
           f.gateway.dispatch(call.call_id)
           await until(
-            /** 错误 hook 必须关闭当前连接并把原派发保守收敛 unknown。 */ () =>
-              client.status().phase === 'disconnected' &&
-              f.store.call('synthetic', call.call_id).state === 'outcome_unknown'
+            /** 等新epoch已ready再复核原会话关闭和原调用unknown，不依赖短暂的全局disconnected采样。 */ () => {
+              const status = client.status()
+              return (
+                faulted?.closed === true &&
+                status.phase === 'ready' &&
+                status.connection_epoch !== originalEpoch &&
+                f.store.call('synthetic', call.call_id).state === 'outcome_unknown'
+              )
+            }
           )
+          assert.equal(faulted?.epoch, originalEpoch)
+          events.push('reconnected_with_original_unknown')
           await new Promise<void>(
             /** 让晚到 rejection 完成一个事件循环，避免只检查同步计数。 */ (resolve) => setImmediate(resolve)
           )
@@ -466,6 +490,29 @@ test(
           assert.equal(accepted, 0)
           assert.equal(executions, 0)
           assert.deepEqual(unhandled, [])
+          assert.deepEqual(events, [
+            'session_open',
+            faulty === 'accept' ? 'accept_rejected' : 'assert_request_rejected',
+            'session_close',
+            'session_open',
+            'reconnected_with_original_unknown'
+          ])
+        } catch (error) {
+          // 失败仅交付合成事件与计数，帮助区分未进hook、未关闭和重连；不输出帧、凭据或epoch。
+          console.error(
+            JSON.stringify({
+              kind: 'async_receipt_test_failure',
+              faulty,
+              phase: client.status().phase,
+              original_closed: faulted?.closed ?? false,
+              accepts,
+              checks,
+              accepted,
+              executions,
+              events
+            })
+          )
+          throw error
         } finally {
           client.stop()
           f.stop()

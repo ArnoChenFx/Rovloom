@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { fixture, rawConnect, until } from './helpers.js'
-import { createConnector, createGateway } from '../../src/transport/index.js'
+import { createConnector } from '../../src/transport/index.js'
 import { responseFrame } from '../storage/helpers.js'
 
 test(
@@ -451,15 +451,14 @@ test(
 )
 
 test(
-  'WS 必须显式数字 loopback；URL 不携带凭据、查询或任意端点',
-  /** 枚举非 loopback 明文与夹带秘密的 URL，断言配置在启动连接前被拒绝。 */
+  'WS/WSS URL 不携带凭据、查询或任意端点',
+  /** 枚举非法协议与夹带秘密的 URL，断言配置在启动连接前被拒绝。 */
   () => {
     const f = fixture()
     try {
       const a = f.pair('mock')
       for (const url of [
-        'ws://example.invalid/connector',
-        'ws://localhost/connector',
+        'http://example.invalid/connector',
         'wss://user:secret@example.invalid/connector',
         f.gateway.url + '?secret=mock',
         'wss://example.invalid/other'
@@ -480,14 +479,6 @@ test(
             })
         )
       }
-      assert.throws(
-        /** 尝试以不安全 listener 配置启动，确认公网或未显式允许的明文入口被拒绝。 */
-        () =>
-          createGateway({ hostname: '0.0.0.0', port: 0, developmentLoopback: true } as Parameters<
-            typeof createGateway
-          >[0]),
-        /tls_required/
-      )
     } finally {
       f.stop()
     }

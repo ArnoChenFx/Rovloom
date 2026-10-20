@@ -51,7 +51,6 @@ export type ConnectorWireSession = Session & {
 type ConnectorBaseOptions = {
   url: string
   developmentLoopback?: boolean
-  ca?: string
   /** 从受保护启动输入取得稳定设备凭据，不能按自报 hostname 创建身份。 */
   credential(): DeviceCredential
   offer?: VersionOffer
@@ -548,7 +547,7 @@ export function createConnector(options: ConnectorOptions) {
     const messageId = randomUUID()
     let current: Socket
     try {
-      current = socket(url, options.ca)
+      current = socket(url)
     } catch {
       close()
       return

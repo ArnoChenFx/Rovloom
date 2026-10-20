@@ -5,7 +5,7 @@
 | 需要了解 | 唯一维护职责/入口 |
 |---|---|
 | 安装前提、角色配置路径、启动连接、HTTP MCP 与 Agent 使用 | [Quick Start](QUICK-START.md) · [快速开始](QUICK-START-zh.md) |
-| 用户可配置参数、完整无秘密模板、runtime/refs 布局与原生安装要求 | [Configuration](CONFIGURATION.md) · [配置参考](CONFIGURATION-zh.md) |
+| 单份角色配置、全部参数、程序管理数据与原生安装要求 | [Configuration](CONFIGURATION.md) · [配置参考](CONFIGURATION-zh.md) |
 | 开机注册、服务启停、账户/路径权限与 CLI 接缝 | [SERVICE](SERVICE.md) |
 | 系统目标、角色、Target/provider、授权、结果、去重、恢复和默认预算 | [DESIGN](DESIGN.md) |
 | 尚需交付的能力、依赖和联合验收 | [IMPLEMENTATION-PLAN](IMPLEMENTATION-PLAN.md) |

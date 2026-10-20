@@ -99,7 +99,7 @@ export type GatewayRuntimeOptions = Readonly<{
   localPolicies: LocalPolicies
   providers: readonly (RuntimeProvider | RemoteLuvusRuntimeProvider)[]
   hosted?: readonly GatewayHostedProviders[]
-  listener: Pick<GatewayOptions, 'hostname' | 'port' | 'tls' | 'developmentLoopback' | 'limits' | 'offer'>
+  listener: Pick<GatewayOptions, 'hostname' | 'port' | 'developmentLoopback' | 'limits' | 'offer'>
   // 仅在显式关闭角色时释放所交付的 Store/身份库；HTTP 客户端断开不调用此端口。
   release(): Promise<void>
 }>

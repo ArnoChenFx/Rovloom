@@ -7,14 +7,10 @@ import { CliError } from './config.js'
 
 // 引用只构造固定文件名，拒绝路径、URL及目录跳转。
 export function runtimeReference(directory: string, reference: unknown, suffix = '.json'): string {
-  if (
-    typeof reference !== 'string' ||
-    !/^[a-zA-Z0-9_-]{1,128}$/.test(reference) ||
-    !['.json', '.cert.pem', '.key.pem', '.ca.pem'].includes(suffix)
-  ) {
+  if (typeof reference !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(reference) || !['.json'].includes(suffix)) {
     throw new CliError('invalid_config')
   }
-  return join(directory, 'refs', reference + suffix)
+  return join(directory, 'managed', reference + suffix)
 }
 
 // 复用存储模块的Linux目录/文件保护检查，并在实际descriptor上再次限制单链接、大小及权限。
@@ -67,10 +63,10 @@ export function readRuntimeFile(path: string, maximum: number): Buffer {
 }
 
 // 私有JSON同样使用现有重复键/UTF8/深度门禁；不以JSON.parse绕过正式字节契约。
-export function readRuntimeJson(path: string): unknown {
-  const bytes = readRuntimeFile(path, 16_384)
+export function readRuntimeJson(path: string, maximum = 16_384): unknown {
+  const bytes = readRuntimeFile(path, maximum)
   try {
-    const parsed = parseNativeJson(bytes, { object_bytes: 16_384, object_depth: 16, object_nodes: 4096 })
+    const parsed = parseNativeJson(bytes, { object_bytes: maximum, object_depth: 32, object_nodes: 100_000 })
     if (!parsed.ok) {
       throw new CliError('invalid_config')
     }

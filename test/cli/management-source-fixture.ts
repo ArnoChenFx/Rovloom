@@ -5,7 +5,7 @@ import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { configTemplate, type GatewayConfig } from '../../src/cli/config.js'
+import { configDocument, configTemplate, type GatewayConfig } from '../../src/cli/config.js'
 
 export const managementProof = 'SYNTHETIC_MANAGEMENT_PROOF_'.padEnd(64, 'm')
 export const mcpProof = 'SYNTHETIC_MCP_PROOF_'.padEnd(64, 'c')
@@ -29,7 +29,7 @@ async function port(): Promise<number> {
 export async function managementSourceFixture() {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-management-source-'))
   const state = join(root, 'gateway')
-  const refs = join(state, 'refs')
+  const refs = join(state, 'managed')
   mkdirSync(state, { mode: 0o700 })
   mkdirSync(refs, { mode: 0o700 })
   const ports = new Set<number>()
@@ -37,7 +37,13 @@ export async function managementSourceFixture() {
     ports.add(await port())
   }
   const [mcpPort, devicePort, managementPort] = [...ports] as [number, number, number]
-  const config = { ...configTemplate('gateway'), state_dir: state, mcp_port: mcpPort } as GatewayConfig
+  const config = {
+    ...configTemplate('gateway'),
+    state_dir: state,
+    mcp_port: mcpPort,
+    device_port: devicePort,
+    management_port: managementPort
+  } as GatewayConfig
   const configPath = join(root, 'gateway.json')
   const sourcePath = join(refs, 'management.json')
   const callerPath = join(refs, config.authentication_ref + '.json')
@@ -95,18 +101,10 @@ export async function managementSourceFixture() {
   }
   const save = /** 只覆写本例自有JSON，权限恢复必须显式操作，不能作为生产自动修复。 */ (path: string, value: unknown) =>
     writeFileSync(path, JSON.stringify(value), { mode: 0o600 })
-  save(configPath, config)
+  save(configPath, configDocument(config))
   save(callerPath, callers)
   save(sourcePath, source)
   save(approvalPath, { schema_version: 1, kind: 'identity-approval-source', approvals: [] })
-  save(join(state, 'runtime.json'), {
-    schema_version: 1,
-    role: 'gateway',
-    authentication_ref: config.authentication_ref,
-    device_listener: { hostname: '127.0.0.1', port: devicePort, tls_ref: 'fixture_tls' },
-    provider_config_refs: [],
-    management_ref: 'management'
-  })
   return {
     root,
     state,
