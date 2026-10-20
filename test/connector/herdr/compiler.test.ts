@@ -441,6 +441,7 @@ test(
   '编译器协议或未知故障永久退役服务',
   /** 只有已知固定原因可暴露，任何失败后都不补建 Worker。 */ async () => {
     for (const [reason, expected] of [
+      ['precompiled_asset_invalid', 'precompiled_asset_invalid'],
       ['compiler_timeout', 'compiler_protocol_invalid'],
       ['synthetic-private', 'compiler_protocol_invalid']
     ]) {

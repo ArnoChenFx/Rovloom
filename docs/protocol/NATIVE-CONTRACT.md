@@ -41,6 +41,8 @@ JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不�
 配置交付的同一固定资料，本地 Worker 编译，不要求安装或运行 Luvus；不自动信任 Wire 重组对象、远端 URL 或 caller
 提交的 schema。公共工厂只收原字节、安装身份/限额和可选取消信号，不接收代码、路径或
 Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；构建时内嵌 Worker 模块。
+能力广告可携带额外诊断字段；方法描述仅投影 method/access/scope/idempotent，无法理解的授权语义只隔离对应方法。
+server_version 缺失时保留 null，Wire 快照仍核对真实协议、运行代次及目标绑定。Herdr 目录只解析原文内可准确描述的引用分支，未知或不兼容分支不阻断健康方法；执行始终校验完整原生根。
 Worker 每次先完成原字节摘要、文档、方言、关键字、引用闭包、alias 与当前预算检查，
 再以精确 binary/schema SHA 查询受保护的内嵌资产目录。命中时核对编译器、锁定 Ajv、
 代码、完整元数据及独立资产摘要，只缓存冻结产物数据，宿主仍逐次登记独立 opaque handle。

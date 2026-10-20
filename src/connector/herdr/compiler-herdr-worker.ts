@@ -1,4 +1,5 @@
-/** 私有 Herdr Worker 按实际 schema 完整编译必需根；不执行 RPC 或输出底层异常原文。 */
+/** 私有 Herdr Worker 优先使用已核对资产，未知 schema 真实完整编译；不执行 RPC。 */
+import { precompiledHerdrArtifact } from './precompiled.js'
 import { compileHerdrArtifact } from './compiler-core.js'
 import { HERDR_COMPILER_VERSION } from './compiler-protocol.js'
 import type { HerdrCompileJob } from './compiler-protocol.js'
@@ -34,6 +35,6 @@ channel.onmessage = /** 严格校验字段和版本后编译本条任务，返�
   channel.postMessage({
     version: HERDR_COMPILER_VERSION,
     job_id: job.job_id,
-    result: compileHerdrArtifact(job.bytes)
+    result: precompiledHerdrArtifact(job.bytes) ?? compileHerdrArtifact(job.bytes)
   })
 }

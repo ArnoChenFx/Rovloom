@@ -86,7 +86,6 @@ export function validateProviderSnapshot(value: unknown): asserts value is Provi
     source.protocol_family !== 'uhp' ||
     source.schema_command !== 'luvus uhp schema' ||
     source.support_basis !== 'live_catalog' ||
-    source.server_version === null ||
     source.native_protocol_version === null ||
     source.runtime_generation === null ||
     source.classification_revision === null

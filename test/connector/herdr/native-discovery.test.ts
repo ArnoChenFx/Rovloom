@@ -11,6 +11,57 @@ import { describeHerdrContract } from '../../../src/connector/herdr/discovery.js
 import { parseHerdrProviderRefConfig } from '../../../src/connector/herdr/provider.js'
 
 test(
+  'Herdr discovers healthy methods beside local reference branches',
+  /** 完整编译接受的未知引用分支不应阻断已知方法，已知本地引用仍携带实际参数。 */ async () => {
+    const document = JSON.parse(
+      readFileSync(new URL('../../fixtures/herdr/0.9.5/schema.json', import.meta.url), 'utf8')
+    )
+    const request = document.schemas.request
+    const index = request.oneOf.findIndex(
+      /** 把可选等待分支替换成未知扩展。 */ (branch: any) => branch.properties.method.const === 'agent.wait'
+    )
+    const extension = request.oneOf.splice(index, 1)[0]
+    extension.properties.method.const = 'future.extension'
+    request.$defs.independentFuture = extension
+    request.oneOf.push({ $ref: '#/schemas/request/$defs/independentFuture' })
+    const pingIndex = request.oneOf.findIndex(
+      /** 健康的已知方法也可由原生本地引用表达。 */ (branch: any) => branch.properties?.method?.const === 'ping'
+    )
+    request.$defs.independentPing = request.oneOf[pingIndex]
+    request.oneOf[pingIndex] = { $ref: '#/schemas/request/$defs/independentPing' }
+    const bytes = JSON.stringify(document)
+    const compiler = new HerdrSchemaCompiler(createHerdrCompilerWorker)
+    try {
+      const schemas = await compiler.compile(bytes)
+      const source = observedHerdrSource(
+        'synthetic-diagnostic',
+        'e'.repeat(64),
+        createHash('sha256').update(bytes).digest('hex'),
+        schemas.protocol
+      )
+      const codec = createHerdrCodec(source, schemas)
+      assert(codec.encode({ id: 'synthetic', method: 'ping', params: {} }).length > 0)
+      const catalog = describeHerdrContract({
+        target: {
+          machine_id: 'synthetic-machine',
+          provider_id: 'synthetic-provider',
+          profile: 'session',
+          session: 'synthetic'
+        },
+        binding_revision: 1,
+        source,
+        document,
+        source_basis: 'configured_connector_contract'
+      })
+      assert(catalog.methods.some(/** 引用的健康 ping 仍可发现。 */ (method) => method.method === 'ping'))
+      assert(!catalog.methods.some(/** 被移除的方法不冒称支持。 */ (method) => method.method === 'agent.wait'))
+    } finally {
+      compiler.close()
+    }
+  }
+)
+
+test(
   'Herdr discovers changed protocol/schema bytes and keeps healthy methods when an optional method is absent',
   /** 原字节未命中历史摘要；完整编译、实际目录和 codec 共用同一协议/方法事实。 */ async () => {
     const document = JSON.parse(

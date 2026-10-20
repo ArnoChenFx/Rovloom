@@ -60,7 +60,18 @@ export function createLuvusOperationsAuthority(
     const live = methods.filter(
       /** 仅审核本次依赖的方法，缺少或变化不使其它健康方法失效。 */ (row) => row.method === attempt.method
     )
-    if (live.length !== 1 || !isDeepStrictEqual(live[0], descriptor.native)) {
+    if (
+      live.length !== 1 ||
+      !isDeepStrictEqual(
+        {
+          method: live[0]!.method,
+          access: live[0]!.access,
+          scope: live[0]!.scope,
+          idempotent: live[0]!.idempotent
+        },
+        descriptor.native
+      )
+    ) {
       throw new LuvusAdapterError('luvus_operations_contract_mismatch')
     }
     validateLuvusOperationParams(attempt.method, attempt.native_request.params)

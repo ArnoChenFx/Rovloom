@@ -168,7 +168,7 @@ test(
 test(
   'shared Luvus method compatibility rejects only the dependent operation',
   /** 缺少或变化的可选方法不阻断 provider；相关方法独立失败，健康方法继续产生原授权。 */ () => {
-    for (const change of ['missing', 'duplicate', 'access', 'scope', 'idempotent', 'extra']) {
+    for (const change of ['missing', 'duplicate', 'access', 'scope', 'idempotent']) {
       const input = fixture()
       const caps = input.contract.capabilities as { result: { method_contracts: Record<string, unknown>[] } }
       const rows = caps.result.method_contracts
@@ -184,8 +184,6 @@ test(
         row.scope = 'admin'
       } else if (change === 'idempotent') {
         row.idempotent = true
-      } else {
-        row.extra = true
       }
       assert.doesNotThrow(/** provider 保留其它能力的来源。 */ () => assertLuvusOperationsContract(input.contract))
       const authority = createLuvusOperationsAuthority(
@@ -205,6 +203,39 @@ test(
     input.wire.source.server_version = 'different-server-version'
     assert.doesNotThrow(/** 版本标签不参与接口兼容判断。 */ () => assertLuvusOperationsContract(input))
     assert.equal(LUVUS_OPERATION_METHODS.length, 34)
+  }
+)
+
+test(
+  'shared Luvus authority ignores diagnostic fields while preserving native grant checks',
+  /** 兼容扩展穿过真实 gate；已知授权字段变化仍只拒绝对应操作。 */ () => {
+    const input = fixture()
+    const caps = input.contract.capabilities as { result: { method_contracts: Record<string, unknown>[] } }
+    const row = caps.result.method_contracts.find(
+      /** 对本次窗口操作添加非授权诊断字段。 */ (entry) => entry.method === 'workspace.rename'
+    )!
+    row.future_diagnostic = 'optional'
+    assert.equal(dispatch(input, true).ok, true)
+    assert.equal(dispatch(input, false).ok, false)
+    for (const [field, value] of [
+      ['access', 'read'],
+      ['scope', 'admin'],
+      ['idempotent', true]
+    ]) {
+      const changed = fixture()
+      const rows = (changed.contract.capabilities as typeof caps).result.method_contracts
+      Object.assign(
+        rows.find(/** 仅改变本次方法。 */ (entry) => entry.method === 'workspace.rename')!,
+        {
+          [field as string]: value
+        }
+      )
+      assert.throws(/** 原 gate 前的逐方法审核保持拒绝。 */ () => dispatch(changed, true), /contract_mismatch/)
+      changed.attempt.method = 'pane.list'
+      changed.attempt.mode = 'strict'
+      changed.attempt.native_request = { id: 'request1', method: 'pane.list', params: {} }
+      assert.equal(dispatch(changed, false).ok, true)
+    }
   }
 )
 

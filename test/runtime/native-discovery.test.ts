@@ -12,6 +12,7 @@ import { observedLuvusContract, MANAGED_LUVUS_REVISION } from '../../src/runtime
 import { compileBundle, createNativeValidator } from '../../src/native-contract/index.js'
 import type { LuvusLocalConfig } from '../../src/connector/luvus/types.js'
 import { unknownSchemaBundle } from '../native-contract/unknown-schema-fixture.js'
+import { validateProviderSnapshot } from '../../src/wire/index.js'
 
 /** 为被测安装生成原字节摘要，与任何内嵌发行版摘要无关。 */
 function hash(value: string | Uint8Array): string {
@@ -95,6 +96,33 @@ test(
       assert.equal(observed.wire.source.binary_version, 'synthetic-future-version')
       assert.equal(observed.wire.source.server_version, null)
       assert.equal(observed.wire.source.schema_sha256, hash(f.schema))
+      const snapshot = {
+        binding: {
+          machine_id: f.config.target.machine_id,
+          provider_id: f.config.target.provider_id,
+          kind: 'luvus',
+          config_ref: f.config.config_ref,
+          binding_revision: f.config.binding_revision,
+          enabled: true
+        },
+        target: f.config.target,
+        source: observed.wire.source,
+        capabilities: observed.capabilities,
+        capability_revision: observed.capability_revision
+      }
+      assert.doesNotThrow(/** 缺少诊断版本不妨碍真实自动发现结果进入 Wire。 */ () => validateProviderSnapshot(snapshot))
+      for (const field of ['native_protocol_version', 'runtime_generation', 'classification_revision']) {
+        assert.throws(
+          /** 必需协议、运行代次与分类事实仍不能省略。 */ () =>
+            validateProviderSnapshot({ ...snapshot, source: { ...snapshot.source, [field]: null } }),
+          /provider_snapshot_source_invalid/
+        )
+      }
+      assert.throws(
+        /** 快照目标必须继续绑定同一台机器。 */ () =>
+          validateProviderSnapshot({ ...snapshot, target: { ...snapshot.target, machine_id: 'other-machine' } }),
+        /provider_snapshot_binding_mismatch/
+      )
     } finally {
       rmSync(f.root, { recursive: true, force: true })
     }

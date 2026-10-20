@@ -40,6 +40,38 @@ const document = JSON.parse(
   readFileSync(new URL('../../fixtures/herdr/0.9.5/schema.json', import.meta.url), 'utf8')
 ) as JsonObject
 
+test(
+  'Herdr discovery isolates unresolved and constrained reference branches without changing the document',
+  /** 展示提取不读取外部引用、不递归循环，也不丢弃引用旁的额外断言。 */ () => {
+    for (const replacement of [
+      { $ref: 'https://synthetic.invalid/request.json' },
+      { $ref: '#/schemas/request/$defs/missing' },
+      { $ref: '#/schemas/request/$defs/cycle' },
+      { $ref: '#/schemas/request/$defs/original', not: {} }
+    ]) {
+      const changed: any = structuredClone(document)
+      const request = changed.schemas.request
+      const index = request.oneOf.findIndex(
+        /** 只替换可选等待方法。 */ (branch: any) => branch.properties.method.const === 'agent.wait'
+      )
+      request.$defs.original = request.oneOf[index]
+      request.$defs.cycle = { $ref: '#/schemas/request/$defs/cycle' }
+      request.oneOf[index] = replacement
+      const before = JSON.stringify(changed)
+      const catalog = describeHerdrContract({
+        target: { machine_id: 'synthetic', provider_id: 'synthetic', profile: 'session', session: 'synthetic' },
+        binding_revision: 1,
+        source,
+        document: changed,
+        source_basis: 'configured_connector_contract'
+      })
+      assert(catalog.methods.some(/** 健康方法不受不可解析分支影响。 */ (method) => method.method === 'ping'))
+      assert(!catalog.methods.some(/** 无法准确描述的方法不进入目录。 */ (method) => method.method === 'agent.wait'))
+      assert.equal(JSON.stringify(changed), before)
+    }
+  }
+)
+
 for (const [method, valid, invalid] of [
   [
     'agent.prompt',

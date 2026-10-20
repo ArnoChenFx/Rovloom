@@ -36,6 +36,47 @@ function capabilities(profile: 'session' | 'host' = 'session') {
 }
 
 test(
+  '能力方法允许诊断扩展并隔离不兼容的单个方法',
+  /** 完整响应校验后只投影授权字段，未知诊断字段不污染方法描述或影响健康方法。 */ () => {
+    const response = capabilities()
+    const row = response.result.method_contracts.find(
+      /** 仅扩展 Agent 提示方法。 */ (entry: any) => entry.method === 'agent.prompt'
+    )
+    row.future_diagnostic = 'optional'
+    assert(validator.checkResponseShape(response).ok)
+    assert(validator.checkCapabilitiesShape(response, expected()).ok)
+    const bound = unwrap(validator.bindCapabilities(response, source()))
+    const descriptor = unwrap(validator.describe(bound, 'agent.prompt'))
+    assert.equal(Object.hasOwn(descriptor.native_contract, 'future_diagnostic'), false)
+    for (const [field, value] of [
+      ['scope', 'future-scope'],
+      ['access', 'future-access'],
+      ['idempotent', null]
+    ]) {
+      const changed = structuredClone(response)
+      const method = changed.result.method_contracts.find(
+        /** 每轮只破坏一个方法的授权语义。 */ (entry: any) => entry.method === 'agent.prompt'
+      )
+      method[field as string] = value
+      assert(validator.checkResponseShape(changed).ok)
+      assert(validator.checkCapabilitiesShape(changed, expected()).ok)
+      const isolated = unwrap(validator.bindCapabilities(changed, source()))
+      assert(!validator.describe(isolated, 'agent.prompt').ok)
+      assert(validator.describe(isolated, 'pane.list').ok)
+      rejects(
+        validator.checkRawRequest(isolated, {
+          id: 'synthetic',
+          method: 'agent.prompt',
+          params: { target: 'synthetic', text: 'synthetic' }
+        }),
+        'method_not_advertised'
+      )
+      assert(validator.checkRawRequest(isolated, { id: 'synthetic', method: 'pane.list', params: {} }).ok)
+    }
+  }
+)
+
+test(
   '197 项 session 与 17 项 host 能力仅校验 shape，不读取认证标志或创建私有句柄',
   /** 真登记表计数应始终为零；成功的 Check<void> 和同形 JSON 都不是可用能力视图。 */ () => {
     let registrations = 0
