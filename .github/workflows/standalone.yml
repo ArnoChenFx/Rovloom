@@ -74,6 +74,15 @@ jobs:
             echo 'CLI product wiring pending; only the packaging probe was accepted.'
             echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
+      - name: Accept real standalone Gateway with isolated HTTP, MCP, WebUI and schema factories
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
+          bun --no-env-file scripts/release/gateway-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom" "$version"
       - name: Upload packaging probe evidence
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:

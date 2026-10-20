@@ -3,7 +3,7 @@
 Rovloom 使用固定 **Bun 1.4.3** 的 `bun build --compile` 分发单文件可执行程序。
 源码开发的模块构建仍用 `bun run build`。发行构建直接使用 `src/cli/main.ts`，
 不会生成替代 CLI 或装配第二套 Gateway/Connector。
-该入口未合入时，`bun run release:build` 明确失败；设施探针通过不能证明产品可用。
+当前真实入口已接入；设施探针通过不能证明产品角色可用。
 
 ## 构建与验收
 
@@ -26,6 +26,14 @@ WebUI 原字节及内存 SQLite，并用漏掉 Worker 的反例验证缺包失�
 探针不代表生产 Ajv 工厂或宿主接线。真实入口存在时另行上传 `cli-preview-candidate`。
 该 CI 只上传短期 Actions artifacts，不签名、不发布 GitHub Release。
 
+Linux 原生 runner 另运行 [Gateway 产品 smoke](../scripts/release/gateway-smoke.mjs)：
+只复制真实 `rovloom` 到空 cwd/PATH/HOME，使用短期合成身份和离线 schema，
+验证实际认证 MCP、管理页完整白名单资源、确认改名持久化、撤权、正常关闭，
+以及同一产品内 Luvus/Herdr schema 工厂。漏掉 Worker 插件的产物必须失败。
+Herdr 沿用真实祖先路径检查，临时私有目录创建在受信 harness 根或 checkout 父目录；
+不放宽 `/tmp` 等可写祖先限制。测试种子、临时证书和数据库在 child 真正 close 后清理。
+该切片返回 `connector: pending`，不代表双角色、真实原生执行或跨机验收。
+
 ## Tag 发行门禁
 
 [发行 workflow](../.github/workflows/release.yml)仅由用户推送 `v*` tag 触发，没有手工发布入口。
@@ -42,8 +50,9 @@ Linux 真实产品打包 smoke 通过后才启动六项矩阵；每项都重新�
 任何步骤失败都不公开 Release。仅最后的 publish job 具有 `contents: write`，其他 job
 仅 `contents: read`；checkout 不保留凭据。不需要 PAT、长期秘密、签名服务或 OIDC 权限。
 
-产品入口尚未交付时发行不可用。[产品清单](../scripts/release/product.mjs)的 `releaseSmoke`
-当前为 `null`，必须由真实 HTTP 产品接线改为受维护的 `scripts/release/<name>.mjs`。
+产品入口已经交付，但完整产品验收仍未接线。[产品清单](../scripts/release/product.mjs)的 `releaseSmoke`
+当前仍为 `null`；`gatewaySmoke` 只记录上述局部验收，不能替代该门禁。
+完整单产物双角色验收交付后才能将 `releaseSmoke` 改为受维护的 `scripts/release/<name>.mjs`。
 该程序由固定 Bun 调用，收到两个参数：绝对 binary 路径与不含 `v` 的精确版本，
 成功退出才允许产生发行收据。它必须只复制此 binary 到空 cwd/PATH、新用户目录，
 用临时配置启动真实持久 Gateway，验证 HTTP 就绪、同一入口的实际 MCP 通道、
@@ -71,7 +80,10 @@ Linux 真实产品打包 smoke 通过后才启动六项矩阵；每项都重新�
 工具链 SHA256 来自 [Bun 1.4.3 官方校验和](https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/SHASUMS256.txt)，
 安装器先核对归档字节与成员，再使用原生 executable；官方归档的 `aarch64` 在产品契约统一写作 `arm64`。
 不提供 musl、32 位、其它 arch 或模拟执行的发行资产；runner 系统版本不代表已验证所有更旧系统。
-支持目标须在该次 tag 的原生产品 smoke 全部通过后才实际交付。
+此表是编译/原生探针矩阵。当前真实私有存储、runtime文件和原生Owner仍限制Linux；
+macOS/Windows的CLI或schema探针通过不能证明Gateway/Connector已可运行。
+Linux x64已有实际Gateway隔离验收，arm64由原生CI验收；真实Connector与多机验收仍待完成。
+支持目标须在该次 tag 的相应真实产品 smoke 全部通过后才实际交付。
 Windows 两种 arch 均要求原生 Windows 图标资源检查；不能用跨编译代替。
 
 ### 资产与更新器契约
