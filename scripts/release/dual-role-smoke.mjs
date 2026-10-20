@@ -149,6 +149,48 @@ function sameNativeChildAlive(child) {
   }
 }
 
+/** 仅在smoke的fetch拒绝时附加安全诊断，页面原失败分类与请求期限保持不变。 */
+export function createDualRoleManagementRead(fetcher) {
+  const codes = new Set([
+    'ABORT_ERR',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_SOCKET'
+  ])
+  return /* 每次读取独占诊断，不把此前失败附加到后续请求。 */ async (operation, args, signal) => {
+    let diagnostic
+    const read = createManagementHttpRead(
+      /* 不记录URL、headers、正文或原始异常；只投影固定错误码和单调耗时。 */ async (path, init) => {
+        const started = performance.now()
+        try {
+          return await fetcher(path, init)
+        } catch (error) {
+          diagnostic = {
+            elapsed_ms: Math.round(performance.now() - started),
+            aborted: signal.aborted,
+            code: codes.has(error?.code) ? error.code : codes.has(error?.cause?.code) ? error.cause.code : null
+          }
+          throw error
+        }
+      }
+    )
+    try {
+      return await read(operation, args, signal)
+    } catch (error) {
+      if (diagnostic) {
+        Object.assign(error, { smoke_fetch: diagnostic })
+      }
+      throw error
+    }
+  }
+}
+
 /** runtime调用与结果必须来自真实MCP；错误不能变成合成pong或绕过保留许可。 */
 async function call(client, name, args) {
   const result = await client.callTool({ name, arguments: args }, CallToolResultSchema)
@@ -208,7 +250,7 @@ export async function smokeDualRoleProduct(binary, options = {}) {
     const cookie = /^rovloom_management=[\w-]{43}/u.exec(management.headers.get('set-cookie'))?.[0]
     assert(cookie, 'dual_role_management_cookie_missing')
     await management.body?.cancel()
-    const read = createManagementHttpRead(
+    const read = createDualRoleManagementRead(
       /** 与真实页面复用同源cookie，绝不注入管理员对象。 */ (path, init) =>
         fetch(f.managementOrigin + path, {
           ...init,

@@ -49,7 +49,7 @@ Linux真实本地TTY可批准Gateway一次性配对，并由Connector输入地�
 首次引导按Connector的native.provider选择luvus（默认）、herdr或mixed；每种最多一个provider。
 Agent模型认证与已有配置恢复管理仍需独立准备，不把原生ready当作聊天成功。
 非TTY缺地址/身份/provider时返回configuration_required；不读取stdin，不假报Agent或模型就绪。
-service 已接原生监管宿主；install 使用当前单文件和目标服务账户配置，不猜测提权前用户。
+service 已接原生监管宿主；install 固定当前单文件及与前台相同的角色配置绝对路径，后台不另选home。
 Gateway服务支持Linux/macOS；本机Connector限Linux x64，Windows服务仍拒绝，详见service --help。
 update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
 角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。

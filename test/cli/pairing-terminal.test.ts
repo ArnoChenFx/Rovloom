@@ -107,6 +107,11 @@ def native_read(phase='initial'):
    if call['state']=='responded':break
    call=tool('runtime_call_get',{'call_id':call['call_id'],'wait_ms':500})
   if call['state']!='responded':raise RuntimeError('fixture_native_result_not_responded')
+  if luvus and phase=='restarted':
+   # 复核原失败的已落盘Luvus重复查询，必须复用同一结果句柄，不重新派发。
+   for _ in range(2):
+    observed=tool('runtime_call_get',{'call_id':call['call_id'],'wait_ms':500})
+    if observed['state']!='responded' or observed['result']!=call['result']:raise RuntimeError('fixture_repeated_result_changed')
   result=tool('runtime_result_read',{'result_id':call['result']['result_id'],'max_bytes':4096})
   if not result['eof']:raise RuntimeError('fixture_native_result_incomplete')
   raw=base64.b64decode(result['chunk']) if result['encoding']=='base64' else result['chunk'].encode()
