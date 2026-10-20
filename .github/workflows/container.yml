@@ -1,0 +1,195 @@
+# PR只在原生Linux runner构建和测试；正式镜像仅继承已成功公开的tag产品发行。
+name: GHCR product images
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [Tagged product release]
+    types: [completed]
+permissions: {}
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.repository == 'ArnoChenFx/Rovloom' &&
+      github.event.workflow_run.head_repository.full_name == 'ArnoChenFx/Rovloom' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      commit: ${{ steps.verify.outputs.commit }}
+    steps:
+      # 首次验证只执行默认分支维护脚本，不执行workflow_run提供的任意checkout。
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: bun-linux-x64
+      - id: verify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-env-file scripts/container/release.mjs verify
+  native:
+    if: >-
+      always() &&
+      (github.event_name != 'workflow_run' || needs.release.result == 'success')
+    needs: release
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            bunArch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            bunArch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.release.outputs.commit || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: bun-linux-${{ matrix.bunArch }}
+      - name: Check native CPU and Docker Engine
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          actual=$(docker info --format '{{.Architecture}}')
+          case "$EXPECTED_ARCH:$actual" in amd64:x86_64|amd64:amd64|arm64:aarch64|arm64:arm64) ;; *) exit 1 ;; esac
+          docker compose config --quiet
+      - name: Stage exact published binary and verify Release provenance
+        if: github.event_name == 'workflow_run'
+        id: asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          bun --no-env-file scripts/container/release.mjs stage dist/container
+      - name: Compile product candidate for read-only PR/main acceptance
+        if: github.event_name != 'workflow_run'
+        env:
+          BUN_ARCH: ${{ matrix.bunArch }}
+        run: |
+          set -euo pipefail
+          bun --no-env-file install --frozen-lockfile --ignore-scripts
+          bun --no-env-file run release:build
+          bun --no-env-file run release:smoke "$PWD/dist/release/bun-linux-$BUN_ARCH/candidate/rovloom"
+          mkdir -p dist/container
+          install -m 0755 "dist/release/bun-linux-$BUN_ARCH/candidate/rovloom" dist/container/rovloom
+      - name: Build once and exercise that exact image natively
+        env:
+          RELEASE_VERSION: ${{ needs.release.outputs.version }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          version=${RELEASE_VERSION:-$(bun --no-env-file -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')}
+          binary_sha=$(sha256sum dist/container/rovloom | cut -d' ' -f1)
+          docker build --platform "linux/$EXPECTED_ARCH" \
+            --build-arg "VERSION=$version" --build-arg "COMMIT=$(git rev-parse HEAD)" \
+            --build-arg "BINARY_SHA256=$binary_sha" -t "rovloom-container:$EXPECTED_ARCH" .
+          python3 scripts/container/smoke.py "rovloom-container:$EXPECTED_ARCH" "$binary_sha" "$version" --compose compose.yaml
+          docker image save --output "$RUNNER_TEMP/container-$EXPECTED_ARCH.tar" "rovloom-container:$EXPECTED_ARCH"
+      - name: Upload only tested image bytes for the trusted publisher
+        if: github.event_name == 'workflow_run'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: container-${{ matrix.arch }}
+          path: ${{ runner.temp }}/container-${{ matrix.arch }}.tar
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+  publish:
+    if: github.event_name == 'workflow_run'
+    needs: [release, native]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: ghcr-rovloom-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/arnochenfx/rovloom
+      VERSION: ${{ needs.release.outputs.version }}
+      COMMIT: ${{ needs.release.outputs.commit }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.release.outputs.commit }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-bun
+        with:
+          target: bun-linux-x64
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: container-*
+          path: ${{ runner.temp }}/container-images
+          merge-multiple: true
+      - name: Authenticate to GHCR with this job's short-lived token
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Recheck trusted release and inspect immutable version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bun --no-env-file scripts/container/release.mjs available
+      - name: Push exact tested images under unique build references
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          stem="build-$COMMIT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "BUILD_STEM=$stem" >> "$GITHUB_ENV"
+          for arch in amd64 arm64; do
+            docker image load --input "$RUNNER_TEMP/container-images/container-$arch.tar"
+            docker image tag "rovloom-container:$arch" "$IMAGE:$stem-$arch"
+            docker image push "$IMAGE:$stem-$arch"
+            config=$(docker image inspect --format '{{.Id}}' "rovloom-container:$arch")
+            if [[ "$arch" == amd64 ]]; then echo "AMD64_CONFIG=$config" >> "$GITHUB_ENV";
+            else echo "ARM64_CONFIG=$config" >> "$GITHUB_ENV"; fi
+          done
+      - name: Reuse an existing version only when both exact tested descriptors match
+        id: version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-env-file scripts/container/release.mjs version
+      - name: Create the immutable version only when absent
+        if: steps.version.outputs.existing == 'false'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bun --no-env-file scripts/container/release.mjs verify
+          docker manifest create "$IMAGE:$VERSION" "$IMAGE:$BUILD_STEM-amd64" "$IMAGE:$BUILD_STEM-arm64"
+          docker manifest push "$IMAGE:$VERSION"
+      - name: Decide latest from the current official stable Release
+        id: latest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun --no-env-file scripts/container/release.mjs latest
+      - name: Move latest only for the official latest stable version
+        if: steps.latest.outputs.latest == 'true'
+        run: |
+          set -euo pipefail
+          docker manifest create "$IMAGE:latest" "$IMAGE:$BUILD_STEM-amd64" "$IMAGE:$BUILD_STEM-arm64"
+          docker manifest push "$IMAGE:latest"
+      - name: Remove temporary GHCR authentication
+        if: always()
+        run: docker logout ghcr.io

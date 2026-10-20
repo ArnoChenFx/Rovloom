@@ -1,0 +1,22 @@
+# Linux Docker Engine：产品监听保持宿主回环；不将管理/MCP端口转成公网监听。
+services:
+  gateway:
+    image: ghcr.io/arnochenfx/rovloom:${ROVLOOM_VERSION:-0.1.0}
+    command: [gateway]
+    network_mode: host
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    volumes:
+      - gateway-config:/home/rovloom/.config/rovloom
+      - gateway-data:/home/rovloom/.local/share/rovloom
+    environment:
+      ROVLOOM_HEALTH_PORT: "${ROVLOOM_MCP_PORT:-9444}"
+    stop_grace_period: 15s
+    restart: unless-stopped
+volumes:
+  gateway-config:
+  gateway-data:
