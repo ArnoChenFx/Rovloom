@@ -223,7 +223,7 @@ SDK 运行报告打印到 stdout，不写回仓库快照。
 `bun run native:check` 在独立 Worker 重新完整编译并逐字节比较，正式模块与单文件构建
 强制执行该检查，失败不会自动重建。原生 fixture 字节不规范化，生成器实现摘要只统一源码 LF。
 构建观察上限独立于产品 2 秒接纳期限；运行时完整检查和精确失配回退见
-[原生契约](protocol/NATIVE-CONTRACT.md#受信预编译资产)。
+[原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 更新输入时显式生成并审查差异；日常 CI 只重算比对，不修改版本化输入。
 `dist/`、Python 缓存、工具执行日志及逐轮验收报告不提交。所有采集和验证输出使用
 checkout 外的全新私有路径；SDK/工具链运行元数据也只进入 CI/PR 或临时目录。

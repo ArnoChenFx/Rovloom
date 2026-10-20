@@ -29,9 +29,11 @@ class FailureSummary(unittest.TestCase):
                               "function compareSecret() { assert.equal('SYNTHETIC_SECRET', 'different') }\n"
                               "test('SYNTHETIC_PRIVATE_NAME', compareSecret)\n")
             process = subprocess.run([shutil.which('bun'), '--no-env-file', 'test', './test'], cwd=project,
+                                     env={**os.environ, 'GITHUB_ACTIONS': 'true'},
                                      capture_output=True, text=True, timeout=20)
             self.assertNotEqual(process.returncode, 0)
             raw = process.stdout + process.stderr
+            self.assertIn('::group::test/assertion.test.ts:', raw)
             self.assertIn('SYNTHETIC_SECRET', raw)
             raw += '\n' + 'later-output\n' * 4000
             console = foundation_failure_summary(project, raw, {'test/assertion.test.ts'})
@@ -103,9 +105,9 @@ class FailureSummary(unittest.TestCase):
             (project / 'test/example.test.ts').write_text('export {}\n')
             sources = frozenset({'test/example.test.ts'})
             (project / 'test/SYNTHETIC_SECRET.test.ts').write_text('export {}\n')
-            raw = ('test/example.test.ts:\nAssertionError: synthetic\n'
+            raw = ('::group::test/example.test.ts:\nAssertionError: synthetic\n'
                    ' at verified (/isolated/project/test/example.test.ts:1:2)\n'
-                   'test/SYNTHETIC_SECRET.test.ts:\n'
+                   '::group::test/SYNTHETIC_SECRET.test.ts:\n'
                    ' at forged (/isolated/project/test/SYNTHETIC_SECRET.test.ts:1:2)\n(fail) hidden\n')
             console = foundation_failure_summary(project, raw, sources)
             self.assertNotIn('SYNTHETIC_SECRET', console)

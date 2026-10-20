@@ -87,7 +87,9 @@ def foundation_failure_summary(project, log, source_files):
         failures.append(entry)
 
     for line in log.splitlines():
-        header = re.fullmatch(r'(.+[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)):(?: \(run #\d+\))?', line)
+        # Bun在GitHub Actions中用工作流分组包装文件标题，仍只接受冻结清单内的真实源码。
+        header = re.fullmatch(r'(.+[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)):(?: \(run #\d+\))?',
+                              line.removeprefix('::group::'))
         source = source_path(header[1]) if header else None
         if source:
             current, ordinal, block, delimiters = source, 0, [], None
