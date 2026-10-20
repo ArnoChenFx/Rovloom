@@ -5,6 +5,7 @@ import { createNativeServiceBackend } from '../service/native.js'
 import { ServiceManager } from '../service/manager.js'
 import { ServiceError, type ServiceRole, type ServiceSpec } from '../service/types.js'
 import { parseNativeJson } from '../native-contract/json.js'
+import { windowsServiceHome } from '../service/windows-home.js'
 import { parseConfig } from './config.js'
 import { resolveRoleConfigPath } from './config-path.js'
 import type { CliServiceHost } from './run.js'
@@ -50,6 +51,19 @@ export function serviceAccountConfig(
   lookup?: (account: string) => string,
   platform: string = process.platform
 ): string {
+  if (platform === 'win32') {
+    if (account !== 'S-1-5-19') {
+      throw new ServiceError('invalid_arguments')
+    }
+    try {
+      const home = lookup
+        ? windowsServiceHome(/* 受控查询仍经过普通路径校验。 */ () => lookup(account))
+        : windowsServiceHome()
+      return resolveRoleConfigPath(role, undefined, { home, platform: 'win32' })
+    } catch {
+      throw new ServiceError('config_path_required')
+    }
+  }
   if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/u.test(account) || account === 'root') {
     throw new ServiceError('invalid_arguments')
   }
@@ -158,7 +172,7 @@ export async function verifyProductServiceRuntime(
     }
     let role: string
     try {
-      role = parseConfig(parsed.value).role
+      role = parseConfig(parsed.value, spec.platform).role
     } catch {
       throw new ServiceError('invalid_arguments')
     }
