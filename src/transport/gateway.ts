@@ -577,7 +577,7 @@ export function createGateway(options: GatewayOptions) {
     }
   })
   /** 只清理指定调用的失效读取引用；在途调用仍保留原 Wire 自身的仅响应补证状态。 */
-  function pruneOriginalRead(call: string): void {
+  function pruneOriginalRead(call: string, checkWire = true): void {
     const original = reads.get(call)
     if (!original) {
       return
@@ -590,7 +590,7 @@ export function createGateway(options: GatewayOptions) {
         !original.wire.stats().closed &&
         anchor.content_status === 'available' &&
         options.store.clock() < original.expires
-      if (usable) {
+      if (usable && checkWire) {
         try {
           original.wire.checkResult(original.binding)
         } catch (error) {
@@ -1180,10 +1180,11 @@ export function createGateway(options: GatewayOptions) {
         close(peer)
       }
     },
-    /** 受保护宿主按当前 caller 解析仍存活的原请求 Wire，任何缺上下文、失效或读取拒绝均返回 undefined。 */
-    resolveOriginalRead(callId: string): OriginalRead | undefined {
+    /** 默认完整复验原 Wire；受保护结果层可将检查留在正文门禁，解析仍逐次核对 caller/peer/锚点与期限。 */
+    resolveOriginalRead(callId: string, checkWire = true): OriginalRead | undefined {
       try {
-        pruneOriginalRead(callId)
+        // 受保护结果层已在本次读取前后执行带正文的原 Wire 门禁；解析本身只核对当前引用元数据。
+        pruneOriginalRead(callId, checkWire)
         options.router.get(options.principal(), callId)
         let original: (OriginalRead & { peer: Peer }) | undefined = reads.get(callId)
         if (!original) {
@@ -1206,7 +1207,9 @@ export function createGateway(options: GatewayOptions) {
           return undefined
         }
         assertPeer(original.peer)
-        original.wire.checkResult(original.binding)
+        if (checkWire) {
+          original.wire.checkResult(original.binding)
+        }
         return { binding: structuredClone(original.binding), wire: original.wire }
       } catch {
         return undefined
