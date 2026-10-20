@@ -162,7 +162,7 @@ export function createProductServiceHost(): CliServiceHost {
     ...native,
     // 当前不能运行角色的平台在接触系统控制目录、权限或注册之前明确拒绝。
     async authorize() {
-      if (environment.platform !== 'linux') {
+      if (environment.platform !== 'linux' || !environment.standalone) {
         throw new ServiceError('backend_unavailable')
       }
       await native.authorize()
