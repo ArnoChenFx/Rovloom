@@ -15,8 +15,42 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts/bun'))
 
 from verify import (foundation_failure_summary, FAILURE_CONSOLE_BYTES, save_timeout_diagnostics,
-                    TIMEOUT_LOG_BYTES, TIMEOUT_TRACE_BYTES, TRACE_SYSCALLS, trace_failure_summary, validate_tests)
+                    TIMEOUT_LOG_BYTES, TIMEOUT_TRACE_BYTES, TRACE_SYSCALLS, trace_completion_error,
+                    trace_failure_summary, validate_tests)
 
+
+class TraceCompletion(unittest.TestCase):
+    # 类型检查预期1不能与追踪器故障1碰撞；即使已输出两项预期诊断或根退出1仍须拒绝。
+    def test_expected_one_never_accepts_tracer_failure(self):
+        start = '10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
+        errors = ('error TS2322: synthetic strict error\nerror TS2532: synthetic strict error\n'
+                  '/usr/bin/strace: ptrace(PTRACE_LISTEN,pid:10,sig:0): Input/output error\n')
+        for ending in ('', '10 +++ killed by SIGTERM +++\n', '10 +++ exited with 1 +++\n'):
+            with self.subTest(ending=ending):
+                self.assertIn('tracer diagnostic', trace_completion_error(start + ending, errors, 1, 1))
+        for diagnostic in ('strace: detach: synthetic failure\n',
+                           '/usr/bin/strace: synthetic fatal failure\n',
+                           'ptrace(PTRACE_LISTEN,pid:10,sig:0): Input/output error\n'):
+            self.assertIsNotNone(trace_completion_error(start + '10 +++ exited with 1 +++\n',
+                                                       diagnostic, 1, 1))
+
+    # 根身份、正常退出和两层退出码均必须完整；子进程的预期退出不能替代根进程状态。
+    def test_missing_signalled_and_mismatched_root_exits_fail_closed(self):
+        start = '10 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
+        child = ('10 clone(child_stack=NULL, flags=SIGCHLD) = 11\n'
+                 '11 execve("/isolated/bin/bun", ["bun"], 0x0) = 0\n'
+                 '11 +++ exited with 1 +++\n')
+        for trace, outer in (('', 1), (start, 1), (start + child, 1),
+                             (child + '10 +++ killed by SIGTERM +++\n', 1),
+                             (start + '10 +++ killed by SIGTERM +++\n', 1),
+                             (start + '10 +++ exited with 0 +++\n', 1),
+                             (start + '10 +++ exited with 1 +++\n', 0)):
+            with self.subTest(trace=trace, outer=outer):
+                self.assertIsNotNone(trace_completion_error(trace, '', outer, 1))
+        resumed = ('10 execve("/missing", ["bun"], 0x0) = -1 ENOENT (No such file)\n'
+                   '10 execve("/isolated/bin/bun", ["bun"], 0x0 <unfinished ...>\n'
+                   '10 <... execve resumed>) = 0\n' + child + '10 +++ exited with 1 +++\n')
+        self.assertIsNone(trace_completion_error(resumed, '', 1, 1))
 
 class TraceFailureDiagnostics(unittest.TestCase):
     # 追踪器异常可发生在业务用例全部通过后；仍保持失败并保留错误线程和创建链，不反射秘密参数。

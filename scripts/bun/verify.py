@@ -29,6 +29,37 @@ TRACE_SYSCALLS = ('execve', 'execveat', 'clone', 'clone3', 'fork', 'vfork',
                   'exit', 'exit_group', 'kill', 'tkill', 'tgkill', 'wait4', 'waitid')
 
 
+# 追踪器故障与预期非零退出独立判定；只有观察到根进程正常按预期退出才接纳完整审计。
+def trace_completion_error(traced, stderr, returncode, expected):
+    if re.search(r'(?m)^(?:/[^\n]*/)?strace:|ptrace\(PTRACE_', stderr):
+        return 'tracer diagnostic; incomplete execution audit'
+    if returncode != expected:
+        return 'unexpected tracer exit'
+    root, root_executed, pending, status = None, False, set(), None
+    for line in traced.splitlines():
+        prefix = re.match(r'^([0-9]{1,10})\s+(.*)$', line)
+        if not prefix:
+            continue
+        tid, event = int(prefix[1]), prefix[2]
+        if root is None:
+            root = tid
+        execution = event.startswith('execve(')
+        if execution:
+            pending.add(tid)
+        if tid in pending and (execution or event.startswith('<... execve resumed>')):
+            if re.search(r'= 0\s*$', event):
+                if tid == root:
+                    root_executed = True
+                pending.discard(tid)
+            elif '= -1 ' in event:
+                pending.discard(tid)
+        if tid == root and event.startswith('+++ '):
+            status = re.fullmatch(r'\+\+\+ exited with ([0-9]{1,3}) \+\+\+', event)
+    if not root_executed or status is None or int(status[1]) != expected:
+        return 'root process did not observably exit normally as expected'
+    return None
+
+
 # 追踪失败仍阻断验收；只输出数值身份、固定程序名与冻结源码参数，区分追踪器异常和已观察退出。
 def trace_failure_summary(traced, stderr, returncode, source_files):
     programs, pending, sources, parents, exits, signals = {}, {}, {}, {}, {}, {}
@@ -43,6 +74,8 @@ def trace_failure_summary(traced, stderr, returncode, source_files):
         if not prefix:
             continue
         tid, event = int(prefix[1]), prefix[2]
+        if root is None:
+            root = tid
         execution = re.match(r'execve\("([^"\\\n]{1,1024})"', event)
         if execution:
             arguments = []
@@ -56,8 +89,6 @@ def trace_failure_summary(traced, stderr, returncode, source_files):
         if tid in pending and (execution or event.startswith('<... execve resumed>')):
             if re.search(r'= 0\s*$', event):
                 programs[tid], sources[tid] = pending.pop(tid)
-                if root is None:
-                    root = tid
             elif '= -1 ' in event:
                 pending.pop(tid)
         child = re.search(r'^(?:clone3?|fork|vfork)\(.*\)\s*= ([0-9]{1,10})\s*$', event)
@@ -401,7 +432,8 @@ def main():
                 raise RuntimeError(f'{label}: Node/npm/npx execution attempted')
             if (root / 'blocked.log').exists():
                 raise RuntimeError(f'{label}: blocked executable invoked')
-            if process.returncode != expected:
+            completion_error = trace_completion_error(traced, stderr, process.returncode, expected)
+            if completion_error is not None:
                 print(trace_failure_summary(traced, stderr, process.returncode, source_files), file=sys.stderr)
                 if label == 'foundation':
                     print(foundation_failure_summary(project, combined, source_files), file=sys.stderr)
@@ -416,7 +448,8 @@ def main():
                 print(f'{label}: initial exec\n' + '\n'.join(trace_lines[:1]), file=sys.stderr)
                 statuses = [line for line in trace_lines if re.search(r'\+\+\+ (?:exited with|killed by)', line)]
                 print(f'{label}: process exit tail\n' + '\n'.join(statuses[-64:]), file=sys.stderr)
-                raise RuntimeError(f'{label}: exit {process.returncode}, expected {expected}; see {output}')
+                raise RuntimeError(f'{label}: {completion_error}; '
+                                   f'exit {process.returncode}, expected {expected}; see {output}')
             records.append({'label': label, 'command': arguments, 'exit': process.returncode,
                             'timeoutSeconds': seconds,
                             'elapsedSeconds': round(time.monotonic() - started, 3),
