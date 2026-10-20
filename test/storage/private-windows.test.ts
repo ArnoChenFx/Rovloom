@@ -31,10 +31,54 @@ import {
 } from '../../src/storage/private-windows.js'
 import { windowsLibrary, windowsPointer, windowsWide } from '../../src/update/windows/native.js'
 import { windowsCurrentSid } from '../../src/update/windows/security.js'
+import { windowsStorageAncestors } from '../../src/storage/windows-path.js'
+
+// 只读核对测试临时根的 Win32 长名称；失败回执仅包含 CI 受控路径，不读取正文或修改祖先。
+function temporaryRoot(): string {
+  const kernel = windowsLibrary<{
+    GetLongPathNameW(input: Buffer, output: Buffer, size: number): number
+    CreateFileW(
+      path: Buffer,
+      access: number,
+      share: number,
+      attributes: number,
+      creation: number,
+      flags: number,
+      template: bigint
+    ): bigint
+    GetFinalPathNameByHandleW(handle: bigint, output: Buffer, size: number, flags: number): number
+    CloseHandle(handle: bigint): number
+  }>('kernel32', {
+    GetLongPathNameW: { args: ['buffer', 'buffer', 'u32'], returns: 'u32' },
+    CreateFileW: { args: ['buffer', 'u32', 'u32', 'ptr', 'u32', 'u32', 'u64'], returns: 'u64' },
+    GetFinalPathNameByHandleW: { args: ['u64', 'buffer', 'u32', 'u32'], returns: 'u32' },
+    CloseHandle: { args: ['u64'], returns: 'i32' }
+  })
+  const output = Buffer.alloc(65536)
+  const count = kernel.GetLongPathNameW(windowsWide(realpathSync(tmpdir())), output, 32768)
+  assert(count > 0 && count < 32768, 'fixture_long_path_unavailable')
+  const directory = output.toString('utf16le', 0, count * 2)
+  for (const path of windowsStorageAncestors(directory)) {
+    const handle = kernel.CreateFileW(windowsWide(path), 0x20080, 3, 0, 3, 0x02200000, 0n)
+    assert(handle !== 0n && handle !== 0xffffffffffffffffn, 'fixture_ancestor_open_failed')
+    try {
+      const units = kernel.GetFinalPathNameByHandleW(handle, output, 32768, 0)
+      assert(units > 0 && units < 32768, 'fixture_final_path_unavailable')
+      assert.equal(
+        output.toString('utf16le', 0, units * 2).toLowerCase(),
+        ('\\\\?\\' + path).toLowerCase(),
+        'fixture_normalized_ancestor'
+      )
+    } finally {
+      assert.notEqual(kernel.CloseHandle(handle), 0)
+    }
+  }
+  return directory
+}
 
 // 根目录由待测原生 API 直接新建私有 DACL，不能将默认继承的 mkdtemp 目录修复成成功fixture。
 function temporary(check: (root: string) => void): void {
-  const root = join(realpathSync(tmpdir()), 'rovloom-win-private-' + randomUUID())
+  const root = join(temporaryRoot(), 'rovloom-win-private-' + randomUUID())
   ensureWindowsPrivateDirectory(root)
   try {
     check(root)
