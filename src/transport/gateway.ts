@@ -32,7 +32,6 @@ import {
   discardProviderFrame,
   envelope,
   fenceSessionProvider,
-  loopback,
   OFFER,
   positive,
   providerHealth,
@@ -93,7 +92,6 @@ export type GatewayOptions = {
   hostname: string
   port: number
   developmentLoopback?: boolean
-  tls?: { cert: string; key: string }
   identity: IdentityHost
   channels?: ChannelRegistry
   store: Store & Partial<DispatchRefusalLedger>
@@ -123,9 +121,6 @@ export type GatewayOptions = {
 
 /** 建立 Gateway listener 并组合可信认证、ready 与持久 RPC 账本；任何未提交的派发许可都不写出。 */
 export function createGateway(options: GatewayOptions) {
-  if (!options.tls && !(options.developmentLoopback && loopback(options.hostname))) {
-    fail('tls_required')
-  }
   const limits = {
     connections: 64,
     unauthenticated: 8,
@@ -944,7 +939,6 @@ export function createGateway(options: GatewayOptions) {
   const listener: Listener = runtime().serve<Peer>({
     hostname: options.hostname,
     port: options.port,
-    ...(options.tls ? { tls: options.tls } : {}),
     /** 限制升级路径、Origin、总连接和未认证额度，仅为允许的请求建立有界 peer 状态。 */
     fetch(request, server) {
       const url = new URL(request.url)
@@ -1124,7 +1118,7 @@ export function createGateway(options: GatewayOptions) {
         return undefined
       }
     },
-    url: `${options.tls ? 'wss' : 'ws'}://${options.hostname.includes(':') ? '[' + options.hostname + ']' : options.hostname}:${listener.port}/connector`,
+    url: `ws://${options.hostname.includes(':') ? '[' + options.hostname + ']' : options.hostname}:${listener.port}/connector`,
     /** 返回有界连接和 provider 健康状态；失效认证会触发关闭且不输出内容或 secret。 */
     status() {
       pruneOriginalReads()

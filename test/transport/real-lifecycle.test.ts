@@ -13,18 +13,18 @@ import { management } from '../storage/helpers.js'
 import { clockWrites } from '../storage/clock-write-helpers.js'
 
 test(
-  '真实 WSS 双 Connector：持久证明消费、独立 provider 与响应账本，复制凭据不能抢占',
+  '真实 WS 双 Connector：持久证明消费、独立 provider 与响应账本，复制凭据不能抢占',
   { timeout: 15_000 },
-  /** TLS 只信任本次一日 mock CA；真实 Store 方法消费进程内证明，整个路径没有 mock 桥。 */
+  /** WS 只信任本次一日 mock CA；真实 Store 方法消费进程内证明，整个路径没有 mock 桥。 */
   async () => {
-    const f = realFixture({ tls: true })
+    const f = realFixture()
     try {
       const a = f.pair('mock_real_a')
       const b = f.pair('mock_real_b')
       const ca = f.connector(a)
       const cb = f.connector(b)
       await f.ready(ca, cb)
-      assert.equal(f.f.gateway.url.startsWith('wss://127.0.0.1:'), true)
+      assert.equal(f.f.gateway.url.startsWith('ws://127.0.0.1:'), true)
       const first = f.f.call(a.target)
       const second = f.f.call(b.target)
       const ba = f.f.gateway.dispatch(first.call_id)

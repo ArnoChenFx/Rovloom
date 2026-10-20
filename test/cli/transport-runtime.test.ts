@@ -1,9 +1,9 @@
 // 验证CLI确实组合现有transport及关闭资源；身份、原生回调和历史全部是隔离fixture，不证明native闭环。
+import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
 import { PassThrough } from 'node:stream'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -29,35 +29,6 @@ function notification() {
     }
   )
   return { promise, resolve }
-}
-
-// 生成仅用于本例loopback握手的一日自签证书，不修改系统信任或生产证书。
-function certificate(directory: string) {
-  const cert = join(directory, 'mock.crt')
-  const key = join(directory, 'mock.key')
-  const result = spawnSync(
-    '/usr/bin/openssl',
-    [
-      'req',
-      '-x509',
-      '-newkey',
-      'rsa:2048',
-      '-nodes',
-      '-days',
-      '1',
-      '-subj',
-      '/CN=mock-only',
-      '-addext',
-      'subjectAltName=IP:127.0.0.1',
-      '-out',
-      cert,
-      '-keyout',
-      key
-    ],
-    { stdio: 'ignore' }
-  )
-  assert.equal(result.status, 0)
-  return { cert: readFileSync(cert, 'utf8'), key: readFileSync(key, 'utf8') }
 }
 
 // 默认拒绝所有设备，只开放真实listener测试；没有认证或native会话可被这套fixture接受。
@@ -170,7 +141,7 @@ test(
     })
     const config = { ...configTemplate('gateway'), state_dir: f.directory } as GatewayConfig
     const path = join(f.directory, 'gateway.json')
-    writeFileSync(path, JSON.stringify(config), { mode: 0o600 })
+    writeFileSync(path, JSON.stringify(configDocument(config)), { mode: 0o600 })
     const stdin = new PassThrough()
     const stdout = new PassThrough()
     const stderr = new PassThrough()
@@ -296,25 +267,23 @@ test(
 )
 
 test(
-  'CLI Wire模式Connector复用严格WSS且终止后关闭，启动失败也释放宿主资源',
-  /* 真实TLS socket只进入拒绝认证路径，无配对、凭据签发、native执行或用户会话。 */ async () => {
+  'CLI Wire模式Connector复用本地WS且终止后关闭，启动失败也释放宿主资源',
+  /* 真实WS socket只进入拒绝认证路径，无配对、凭据签发、native执行或用户会话。 */ async () => {
     const f = storeFixture()
     const authentication = notification()
     const stop = new AbortController()
     let gatewayPorts!: GatewayTransportPorts
     let connectorCloses = 0
     let invalidCloses = 0
-    const tls = certificate(f.directory)
     const base = resources(f)
     const runtime = createTransportCliRuntime({
-      gateway: /* 真实listener仅信任临时测试证书；设备认证保持拒绝。 */ async () => ({
+      gateway: /* 真实listener仅信任本地回环地址；设备认证保持拒绝。 */ async () => ({
         ...base,
         transport: {
           ...base.transport,
-          tls,
           identity: {
             ...base.transport.identity,
-            authenticate: /* 到达此回调证明Connector走过实际TLS与认证握手，随后必定拒绝。 */ () => {
+            authenticate: /* 到达此回调证明Connector走过实际WS与认证握手，随后必定拒绝。 */ () => {
               authentication.resolve()
               throw new Error('mock_denied')
             }
@@ -327,7 +296,6 @@ test(
       }),
       connector: /* 专用回调只返回不可用于生产的固定mock输入，不从argv或URL读取秘密。 */ async () => ({
         transport: {
-          ca: tls.cert,
           credential: /* mock握手会被Gateway拒绝，不执行任何凭据安装或签发动作。 */ () => ({
             machine_id: 'mock_denied',
             recovery_generation: f.store.generation(),
@@ -349,7 +317,7 @@ test(
       gateway_url: new URL(gatewayPorts.transport.url).origin
     } as ConnectorConfig
     const path = join(f.directory, 'connector.json')
-    writeFileSync(path, JSON.stringify(config), { mode: 0o600 })
+    writeFileSync(path, JSON.stringify(configDocument(config)), { mode: 0o600 })
     const stdin = new PassThrough()
     const stdout = new PassThrough()
     const stderr = new PassThrough()
@@ -362,9 +330,9 @@ test(
       assert.equal(stdout.read(), null)
       assert.equal(stderr.read(), null)
       const invalid = createTransportCliRuntime({
-        gateway: /* 缺TLS且非开发loopback的真实transport启动必须拒绝并清理。 */ async () => ({
+        gateway: /* 非法端口的真实transport启动必须拒绝并清理。 */ async () => ({
           ...resources(f),
-          transport: { ...base.transport, developmentLoopback: false },
+          transport: { ...base.transport, port: -1 },
           close: /* 此失败宿主只计数，不提前关闭仍由上方Gateway持有的同一测试Store。 */ async () => {
             invalidCloses++
           }

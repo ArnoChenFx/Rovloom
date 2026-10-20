@@ -13,6 +13,10 @@ export type GatewayConfig = Readonly<{
   mcp_hostname: '127.0.0.1' | '::1'
   mcp_port: number
   authentication_ref: string
+  device_hostname: '127.0.0.1' | '::1' | '0.0.0.0' | '::'
+  device_port: number
+  management_enabled: boolean
+  management_port: number
 }>
 export type ConnectorConfig = Readonly<{
   schema_version: 1
@@ -31,6 +35,7 @@ export const CLI_ERROR_CODES = [
   'config_unreadable',
   'config_not_found',
   'config_home_unavailable',
+  'configuration_required',
   'invalid_arguments',
   'config_role_mismatch',
   'backend_unavailable'
@@ -67,12 +72,7 @@ function fixedPath(value: unknown, platform: NodeJS.Platform = process.platform)
   )
 }
 
-// 限制引用为非秘密标识符，不把路径或 URI 当作本机配置引用。
-function ref(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
-}
-
-// 只接纳无凭据的 WSS origin，端点路径仍由受信宿主固定。
+// 只接纳无凭据的 WS/WSS origin，端点路径仍由受信宿主固定。
 function gatewayUrl(value: unknown): value is string {
   if (
     typeof value !== 'string' ||
@@ -87,9 +87,9 @@ function gatewayUrl(value: unknown): value is string {
   }
   try {
     const url = new URL(value)
-    // 连接地址只能是无凭据 WSS origin；endpoint 路径由受信 transport 宿主固定。
+    // 连接地址只能是无凭据 WS/WSS origin；endpoint 路径由受信 transport 宿主固定。
     return (
-      url.protocol === 'wss:' &&
+      ['ws:', 'wss:'].includes(url.protocol) &&
       !!url.hostname &&
       !url.username &&
       !url.password &&
@@ -103,63 +103,118 @@ function gatewayUrl(value: unknown): value is string {
   }
 }
 
-// 创建独立配置快照并检查角色字段、路径和引用，不创建任何状态。
+// 严格核对单份用户配置的功能分组；旧扁平字段、ref、TLS/CA路径及运行时来源均不作为用户输入。
 export function parseConfig(value: unknown, platform: NodeJS.Platform = process.platform): RoleConfig {
-  let snapshot: Record<string, unknown>
+  let input: Record<string, unknown>
   try {
-    snapshot = JSON.parse(canonical(value)) as Record<string, unknown>
+    input = JSON.parse(canonical(value)) as Record<string, unknown>
+    const exact = /* 每层仅接纳明确的业务字段。 */ (
+      raw: unknown,
+      required: string[],
+      optional: string[] = []
+    ): Record<string, unknown> => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return fail()
+      }
+      const row = raw as Record<string, unknown>
+      if (
+        required.some(/* 必需字段不得遗漏。 */ (key) => !Object.hasOwn(row, key)) ||
+        Object.keys(row).some(/* 未知字段不能扩张能力。 */ (key) => ![...required, ...optional].includes(key))
+      ) {
+        return fail()
+      }
+      return row
+    }
+    const port = /* 监听端口必须是可用范围内的整数。 */ (raw: unknown): number => {
+      if (!Number.isSafeInteger(raw) || (raw as number) < 1 || (raw as number) > 65535) {
+        return fail()
+      }
+      return raw as number
+    }
+    const listener = /* MCP只接纳回环，设备通道可显式监听全部地址。 */ (raw: unknown, local: boolean) => {
+      const row = exact(raw, ['hostname', 'port'])
+      const hosts = local ? ['127.0.0.1', '::1'] : ['127.0.0.1', '::1', '0.0.0.0', '::']
+      if (!hosts.includes(row.hostname as string)) {
+        return fail()
+      }
+      return { hostname: row.hostname as GatewayConfig['device_hostname'], port: port(row.port) }
+    }
+    if (input.schema_version !== 1 || !['gateway', 'connector'].includes(input.role as string)) {
+      return fail()
+    }
+    const data = exact(input.data, ['directory'])
+    if (!fixedPath(data.directory, platform)) {
+      return fail()
+    }
+    if (input.role === 'gateway') {
+      exact(input, ['schema_version', 'role', 'data', 'mcp', 'devices', 'management'])
+      const mcp = listener(input.mcp, true)
+      const devices = listener(input.devices, false)
+      const management = exact(input.management, ['enabled', 'port'])
+      if (typeof management.enabled !== 'boolean') {
+        return fail()
+      }
+      const managementPort = port(management.port)
+      if (
+        new Set([mcp.port, devices.port, ...(management.enabled ? [managementPort] : [])]).size !==
+        (management.enabled ? 3 : 2)
+      ) {
+        return fail()
+      }
+      return Object.freeze({
+        schema_version: 1,
+        role: 'gateway',
+        state_dir: data.directory,
+        mcp: 'http',
+        mcp_hostname: mcp.hostname as GatewayConfig['mcp_hostname'],
+        mcp_port: mcp.port,
+        device_hostname: devices.hostname,
+        device_port: devices.port,
+        management_enabled: management.enabled,
+        management_port: managementPort,
+        authentication_ref: 'mcp-callers'
+      })
+    }
+    exact(input, ['schema_version', 'role', 'data', 'gateway'])
+    const gateway = exact(input.gateway, ['url'])
+    if (gateway.url !== '' && !gatewayUrl(gateway.url)) {
+      return fail()
+    }
+    return Object.freeze({
+      schema_version: 1,
+      role: 'connector',
+      state_dir: data.directory,
+      gateway_url: gateway.url as string,
+      provider_config_refs: Object.freeze([])
+    })
   } catch {
     return fail()
   }
-  if (
-    !snapshot ||
-    Array.isArray(snapshot) ||
-    snapshot.schema_version !== 1 ||
-    !fixedPath(snapshot.state_dir, platform)
-  ) {
-    return fail()
-  }
-  if (snapshot.role === 'gateway') {
-    const allowed = ['schema_version', 'role', 'state_dir', 'mcp', 'mcp_hostname', 'mcp_port', 'authentication_ref']
-    if (
-      Object.keys(snapshot).length !== allowed.length ||
-      Object.keys(snapshot).some(
-        /* 识别 Gateway 配置中未声明的字段，拒绝额外身份或秘密参数。 */ (key) => !allowed.includes(key)
-      ) ||
-      snapshot.mcp !== 'http' ||
-      !['127.0.0.1', '::1'].includes(snapshot.mcp_hostname as string) ||
-      !Number.isSafeInteger(snapshot.mcp_port) ||
-      (snapshot.mcp_port as number) < 1 ||
-      (snapshot.mcp_port as number) > 65_535 ||
-      !ref(snapshot.authentication_ref)
-    ) {
-      return fail()
-    }
-    return Object.freeze(snapshot) as GatewayConfig
-  }
-  if (snapshot.role === 'connector') {
-    const allowed = ['schema_version', 'role', 'state_dir', 'gateway_url', 'provider_config_refs']
-    const refs = snapshot.provider_config_refs
-    if (
-      Object.keys(snapshot).length !== allowed.length ||
-      Object.keys(snapshot).some(
-        /* 识别 Connector 配置中未声明的字段，保持角色配置严格分离。 */ (key) => !allowed.includes(key)
-      ) ||
-      !gatewayUrl(snapshot.gateway_url) ||
-      !Array.isArray(refs) ||
-      refs.length > 32 ||
-      refs.some(/* 逐项检查 provider 引用，防止混入本地路径或任意模块入口。 */ (entry) => !ref(entry)) ||
-      new Set(refs).size !== refs.length
-    ) {
-      return fail()
-    }
-    Object.freeze(refs)
-    return Object.freeze(snapshot) as ConnectorConfig
-  }
-  return fail()
 }
 
-// 生成经过同一校验器检查的无密钥角色模板。
+// 内部宿主视图只用于现有工厂装配；序列化时只能输出此用户分组文档，不能把内部字段写回配置。
+export function configDocument(config: RoleConfig): Record<string, unknown> {
+  const common = { schema_version: 1, role: config.role, data: { directory: config.state_dir } }
+  return config.role === 'gateway'
+    ? {
+        ...common,
+        mcp: { hostname: config.mcp_hostname, port: config.mcp_port },
+        devices: { hostname: config.device_hostname, port: config.device_port },
+        management: { enabled: config.management_enabled, port: config.management_port }
+      }
+    : {
+        ...common,
+        gateway: { url: config.gateway_url }
+      }
+}
+
+// 模板使用实际分组解析器；没有用户可配置的ref、证书路径、schema hash或运行时身份字段。
+export function configTemplate(role: 'gateway', platform?: NodeJS.Platform): GatewayConfig
+// Connector模板保留待输入的地址，不假定远端Gateway存在。
+export function configTemplate(role: 'connector', platform?: NodeJS.Platform): ConnectorConfig
+// 动态角色使用同一模板入口。
+export function configTemplate(role: 'gateway' | 'connector', platform?: NodeJS.Platform): RoleConfig
+// 实际模板统一经过严格解析器。
 export function configTemplate(
   role: 'gateway' | 'connector',
   platform: NodeJS.Platform = process.platform
@@ -171,18 +226,16 @@ export function configTemplate(
       ? {
           schema_version: 1,
           role,
-          state_dir: paths.join(base, 'gateway'),
-          mcp: 'http',
-          mcp_hostname: '127.0.0.1',
-          mcp_port: 9444,
-          authentication_ref: 'mcp-http'
+          data: { directory: paths.join(base, role) },
+          mcp: { hostname: '127.0.0.1', port: 9444 },
+          devices: { hostname: '127.0.0.1', port: 9443 },
+          management: { enabled: true, port: 9445 }
         }
       : {
           schema_version: 1,
           role,
-          state_dir: paths.join(base, 'connector'),
-          gateway_url: 'wss://localhost:9443',
-          provider_config_refs: []
+          data: { directory: paths.join(base, role) },
+          gateway: { url: '' }
         },
     platform
   )
