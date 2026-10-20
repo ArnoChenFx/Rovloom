@@ -192,7 +192,7 @@ export async function verifyLuvusMcpOperations(
   }
   return {
     checks,
-    verification_scope: 'selected_window_and_agent_input_output',
+    verification_scope: agentInputOutput ? 'selected_window_and_agent_input_output' : 'selected_window_read_only',
     native_calls: calls.length,
     agent_count: agents.result.agents.length,
     agent_state_exercised: !!agentInputOutput,

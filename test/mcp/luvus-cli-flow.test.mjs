@@ -202,13 +202,16 @@ async function isolated(mode, check) {
   const fixture = httpFixture(stub.service)
   try {
     await fixture.client.connect(fixture.transport, { timeout: 5000 })
-    const run = /* 与真实CLI脚本共享同一SDK流程和固定截止，不执行原生替身程序。 */ (minimum = false) =>
+    const run = /* 与真实CLI脚本共享同一SDK流程和固定截止，不执行原生替身程序。 */ (
+      minimum = false,
+      opencode = !minimum
+    ) =>
       verifyLuvusMcpOperations(fixture.client, {
         target,
-        opencode: !minimum,
+        opencode,
         minimum,
         signal: new AbortController().signal,
-        deadline: Date.now() + (minimum ? 1 : 11) * LUVUS_FLOW_INTENT_MS,
+        deadline: Date.now() + (minimum ? 1 : opencode ? 11 : 6) * LUVUS_FLOW_INTENT_MS,
         observe: /* 仅保存脱敏阶段投影，用于核对计数与期限；这里仍是明确服务stub。 */ (event) =>
           observations.push(event),
         progress: /* fixture不打印业务阶段或合成正文。 */ () => {}
@@ -289,6 +292,27 @@ test(
       /* 到期结果应在发送读取前被拒绝，原生意图仍仅一次。 */ async (run, stub) => {
         await assert.rejects(run, { message: 'native_flow_deadline' })
         assert.equal(stub.nativeRequests.length, 1)
+      }
+    )
+  }
+)
+
+test(
+  '六次只读SDK流程不报告Agent输入输出或模型成功（服务stub）',
+  /** 业务为明确stub，实际HTTP SDK验证默认窗口模式没有start/prompt和错误范围标记。 */ async () => {
+    await isolated(
+      'normal',
+      /** 六个读取必须保持精确方法集合且不产生任何输入意图。 */ async (run, stub) => {
+        const result = await run(false, false)
+        assert.equal(result.verification_scope, 'selected_window_read_only')
+        assert.equal(result.native_calls, 6)
+        assert.equal(result.agent_state_exercised, false)
+        assert.equal(result.agent_input_output, undefined)
+        assert.equal(result.conversation_verified, false)
+        assert.deepEqual(
+          stub.nativeRequests.map(/** 只比较固定方法名，不输出业务参数。 */ (row) => row.method),
+          ['pane.list', 'pane.get', 'workspace.get', 'tab.get', 'agent.list', 'agent.sessions']
+        )
       }
     )
   }

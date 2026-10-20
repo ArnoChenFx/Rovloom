@@ -398,6 +398,7 @@ bun --no-env-file scripts/mcp/verify-luvus-cli.mjs \
 ```
 
 `--opencode-binary` 可省略；提供时复用固定官方 binary 摘要及隔离 OpenCode 配置，
+省略时只执行六个窗口/Agent目录读取，报告`verification_scope: selected_window_read_only`，不提交Agent输入。
 只操作本轮新建 root、短期合成身份和原代理环境。省略 `--built-cli` 使用源码入口；
 `--standalone-cli` 使用现有 `release:build` 生成的 Linux x64 候选，两种产物选项互斥。
 三者均进入同一产品 main，不提供另一套 parser、native adapter 或成功后端。
