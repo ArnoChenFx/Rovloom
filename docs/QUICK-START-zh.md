@@ -129,9 +129,11 @@ Herdr 使用自身 schema 和 `validation:"strict"`。不要复制其他设备�
 先描述方法，再通过 `runtime_call` 执行。Luvus 的 `pane.list`、`agent.prompt`、
 `agent.send`、`agent.wait`、`agent.keys` 使用 strict 校验，其余已审普通方法需要 raw 授权。
 本地 `allow_terminal_execution` 默认 false，关闭时仍可使用严格文本对话；自定义 argv/env
-和直接终端输入需要明确本地许可。两种原生 runtime 均使用 `PATH=/usr/bin:/bin` 和私有
-HOME/XDG。仅在登录 shell 安装的 Agent 可能无法找到，请让管理员核对官方 Agent 的可用性和私有
-HOME 配置。此版本没有用户可配置的 Agent 路径；不要修改系统权限或用自定义 argv/env 绕过。
+和直接终端输入需要明确本地许可。官方 Agent 安装在用户目录时，将本地 `agent_bin_dir`
+设为其安装目录；各 provider 的配置位置见 [Agent 安装目录](CONFIGURATION-zh.md#agent-安装目录)。
+它会将一个目录前置到 `/usr/bin:/bin`，省略时保持默认。Luvus 的初始本地配置仍须由管理员
+交付。Agent/模型配置放在 runtime 的私有 HOME；选择 Agent 目录无需安装到系统目录或
+使用自定义 argv/env，`allow_terminal_execution` 可以保持 false。
 
 发送含独特短语的无害首条消息，读取真实回复，再请同一个 Agent 回忆该短语。
 保持完整 Target、generation、pane/Agent、terminal ID 及有返回时的原生 Agent session 一致。
@@ -157,7 +159,7 @@ Herdr 不保证 prompt completion 或原生取消。模型失败时如实报告�
 | HTTP 401 | 核对精确 `/mcp` URL、既有 Bearer 和有效期；管理证明是独立的。 |
 | 设备离线 / provider 未就绪 | 检查 WSS 可达性、TLS 名称/CA、配对及原生 binary/schema 匹配。 |
 | 权限/契约/revision 错误 | 刷新 provider 和方法描述，请管理员检查 grants。 |
-| 找不到 Agent 程序 | 检查受控 PATH 和私有 HOME；自定义 args/env 不能用来绕过 PATH。 |
+| 找不到 Agent / `agent_bin_dir_invalid` | 核对本地 `agent_bin_dir` 为单个规范绝对安装目录，Agent/模型配置位于私有 HOME；重启已配置的 runtime。 |
 | 调用结果不确定 / 存储错误 | 保留原调用及状态，请管理员恢复，不删除账本或盲目重发。 |
 
 诊断输出到 stderr。角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，

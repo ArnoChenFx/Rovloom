@@ -154,11 +154,14 @@ Use each method through `runtime_call` after describing it. Luvus `pane.list`,
 other reviewed ordinary methods require raw authorization. The local
 `allow_terminal_execution` switch defaults to false; strict text conversation
 can remain available with it off. Custom argv/env and direct terminal input need
-explicit local permission. Both native runtimes use `PATH=/usr/bin:/bin` and
-private HOME/XDG locations. An Agent installed only in your login shell may not
-be found. Ask your administrator to verify official Agent availability and its
-private HOME configuration. There is no user-configurable Agent path in this
-version; do not modify system permissions or bypass it with custom argv/env.
+explicit local permission. For an official Agent installed in a user directory,
+set the local `agent_bin_dir` to its installation directory; see
+[Agent installation directory](CONFIGURATION.md#agent-installation-directory)
+for each provider's configuration location. This prepends one directory to
+`/usr/bin:/bin`; omitting it keeps that default. Luvus's initial local setup must
+still be supplied by the administrator. Keep Agent/model configuration in the
+runtime's private HOME. No system-directory installation or custom argv/env is
+needed to select the Agent directory; `allow_terminal_execution` can stay false.
 
 Send a harmless message with a unique phrase, read the actual reply, then ask
 the same Agent to recall the phrase. Keep the same complete Target, generation,
@@ -188,7 +191,7 @@ requires network; with no published release it may return `release_unavailable`.
 | HTTP 401 | Check exact `/mcp` URL, existing Bearer and expiry; management proof is separate. |
 | Device offline / provider not ready | Check WSS reachability, TLS name/CA, pairing and native binary/schema match. |
 | Permission/contract/revision error | Refresh provider and method descriptions; ask the administrator to check grants. |
-| Agent executable missing | Check controlled PATH and private HOME configuration; custom args/env are not a PATH workaround. |
+| Agent executable missing / `agent_bin_dir_invalid` | Check the local `agent_bin_dir` points to one normalized absolute installation directory and the Agent/model configuration uses the private HOME; restart the configured runtime. |
 | Uncertain call / storage error | Keep the original call and state; ask the administrator to recover it, without deleting ledgers or resending blindly. |
 
 Diagnostics use stderr. Role exit codes: 0 success/normal shutdown, 2 arguments or

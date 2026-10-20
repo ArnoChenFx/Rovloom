@@ -94,7 +94,8 @@ runtime 读取要求 Linux。
 | Connector `credential_ref` | ref，必填 | 模板为 `device`，引用已配对设备凭据。 |
 | Connector `ca_ref` | ref，必填 | 模板为 `gateway`，Gateway 证书信任锚。 |
 
-CLI 没有 MCP 超时、Agent PATH、自定义环境、服务监管或更新替换事务的 JSON 配置项。
+角色/runtime JSON 没有 MCP 超时、自定义环境、服务监管或更新替换事务的配置项。
+`agent_bin_dir` 位于下文的本地 provider 设置中，不应添加到这些角色/runtime 文档。
 固定命令形状见 `rovloom --help`；
 没有 `init`、`pair`、`--token` 或通用 shell-RPC 命令。
 
@@ -181,10 +182,34 @@ binary。使用为该安装批准的官方 [Luvus](https://github.com/RizRiyz/lu
 schema 输出须保持原始字节，不能 JSON 解析后重新序列化。这些 pins 不暗示未经核验的
 包管理器安装命令。
 
-两种原生 runtime 当前均使用固定 `PATH=/usr/bin:/bin` 和私有 HOME/XDG。
-官方 Agent（如 OpenCode）若只安装在用户目录中，可能无法找到。此版本没有用户可配置的
-Agent 可执行路径，请让管理员核对可用性；不要修改系统权限或用自定义 argv/env 绕过。
-模型访问配置放在 runtime 的私有 HOME，终端执行开关不隔离 Agent 自身工具。
+## Agent 安装目录
+
+将官方 Agent（如 OpenCode）安装在机器所有者控制的目录中。如果它不在默认
+`/usr/bin:/bin` 中，可在**本地 provider 配置**使用可选的 `agent_bin_dir` 指定安装目录：
+
+| Provider | 配置位置 |
+|---|---|
+| Luvus | 管理员交付的本地 root 中的 `config.agent_bin_dir`，在初始本地设置时选定。当前仍没有完整用户初始化流程，请由管理员准备此设置。不要手工给已有 root 记录补字段或修改 digest。 |
+| Herdr | `<connector state_dir>/refs/<provider-ref>.json` 中的 `config.connector.local.agent_bin_dir`。启动 Connector 前保存；更改后重启 Connector。 |
+
+以下只是本地设置**片段**，不是完整 provider 文件：
+
+```json
+{
+  "agent_bin_dir": "/home/your-user/.local/bin",
+  "allow_terminal_execution": false
+}
+```
+
+`agent_bin_dir` 是可选的 1–4096 字符 string，须为单个规范绝对**目录**，不是可执行
+文件路径或 PATH 列表。请换成真实目录；不会展开 `~` 和环境变量，Linux 下不接受相对
+路径、仅根目录、`.`/`..`、重复分隔符、控制字符和包含 `:` 的 PATH 列表。空格和 Unicode 保留。
+
+设置后 Linux PATH 为 `<agent_bin_dir>:/usr/bin:/bin`；省略时仍为 `/usr/bin:/bin`，
+不继承登录 shell 的 PATH。目录内同名程序优先，因此只使用所有者控制的安装目录。
+Rovloom 不创建目录或安装 Agent。此设置不会开启终端执行，也不是 MCP/RPC 参数。
+普通严格文本对话可保持 `allow_terminal_execution:false`。模型访问配置放在 runtime
+的私有 HOME/XDG，终端执行开关不隔离 Agent 自身工具。
 
 ## Luvus provider 参数
 
@@ -210,6 +235,7 @@ root，或使用远端 pin；同一 machine 不能混用 attach 和 remote。
 | `binary`、`binary_sha256` | 必填绝对路径 / SHA-256 | 已审核可执行文件及上述精确 pin。 |
 | `state_root`、`home`、`cwd` | 必填绝对路径 string | 分离的私有原生状态、HOME、工作目录，并与控制目录分离；HOME 下有私有 `config`、`data`、`cache`、`runtime` 目录。 |
 | `transport` | 必填 string | managed runtime 要求 `ipc`，请使用交付值。 |
+| `agent_bin_dir` | 可选绝对目录 string，1–4096 字符，默认缺省 | 将一个 Agent 安装目录前置到 `/usr/bin:/bin`，在初始本地设置时选定。 |
 | `allow_terminal_execution` | 可选 boolean，默认 `false` | 直接终端输入/自定义启动的本地许可，不扩大 caller ACL。 |
 | `limits` | 可选 object，默认见下文 | 各项只能设为收紧默认值的正 safe integer。 |
 
@@ -246,6 +272,7 @@ Gateway ref 封套准确为 `{kind:"herdr",config:{...}}`；Connector 封套准�
 | `connector` | Gateway 可选，Connector 必填 | 本地安装、固定 caller 和持久账本。 |
 | `connector.principal_id` | ID string | 固定既有 caller。 |
 | `connector.local` | object | 必填且匹配外层的 `target`、`binding_revision`、`config_ref`；绝对路径 `binary`、`home`、`config_home`、`state_home`、`cache_home`、`temporary_home`、`cwd`；可选 boolean `allow_terminal_execution` 默认 false。所有目录为私有 0700。 |
+| `connector.local.agent_bin_dir` | 可选绝对目录 string，1–4096 字符，默认缺省 | 将一个 Agent 安装目录前置到 `/usr/bin:/bin`，不改变终端执行许可。 |
 | `connector.receipts`、`.claims` | 路径不同的 ledger object | 必填 `path`（绝对路径）、`mode`（`create`/`open`）、`ledger_id`（ID）、`limits:{entries,bytes}`。receipts entries 1–1024，claims entries 1–4096；bytes 262144–16777216。 |
 
 `expected_source` 必须是以下精确无秘密对象，包括 JSON null：

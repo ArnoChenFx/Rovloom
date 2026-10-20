@@ -98,8 +98,10 @@ The role reader supports POSIX, rejects Windows; runtime reading requires Linux.
 | Connector `credential_ref` | ref, required | `device` in template; existing device credential. |
 | Connector `ca_ref` | ref, required | `gateway` in template; Gateway certificate trust anchors. |
 
-The CLI has no JSON settings for MCP timeouts, Agent PATH, custom environment,
-service supervision or updater replacement. See `rovloom --help` for the fixed command shapes;
+The role/runtime JSON has no settings for MCP timeouts, custom environment,
+service supervision or updater replacement. `agent_bin_dir` belongs in the local
+provider settings described below, not in these role/runtime documents.
+See `rovloom --help` for the fixed command shapes;
 there is no `init`, `pair`, `--token` or generic shell-RPC command.
 
 ## Provisioned resources
@@ -198,13 +200,40 @@ The following are the actual currently accepted Linux x64 pins:
 Preserve schema output as original bytes, not parsed/reserialized JSON. These
 pins do not imply an unverified package-manager installation command.
 
-Both native runtimes currently use fixed `PATH=/usr/bin:/bin` and private HOME/XDG
-locations. The official Agent, such as OpenCode, may therefore be unavailable if
-installed only in your user directory. This version has no user-configurable
-Agent executable path. Ask your administrator to verify Agent availability;
-do not change system permissions or supply custom argv/env as a workaround.
-Configure model access in the runtime's private HOME. The terminal-execution
-switch does not sandbox the Agent's own tools.
+## Agent installation directory
+
+Install the official Agent, such as OpenCode, in a directory controlled by the
+machine owner. If it is outside the default `/usr/bin:/bin`, select its directory
+with optional `agent_bin_dir` in the **local provider configuration**:
+
+| Provider | Configuration location |
+|---|---|
+| Luvus | The administrator-supplied local root's `config.agent_bin_dir`, selected during initial local setup. There is still no complete user-facing initialization flow; ask the administrator to prepare this setting. Do not add it to an existing root record or change its digest by hand. |
+| Herdr | `<connector state_dir>/refs/<provider-ref>.json`, at `config.connector.local.agent_bin_dir`. Save the setting before starting Connector, or restart Connector after changing it. |
+
+The following is a local settings **fragment**, not a complete provider file:
+
+```json
+{
+  "agent_bin_dir": "/home/your-user/.local/bin",
+  "allow_terminal_execution": false
+}
+```
+
+`agent_bin_dir` is an optional string of 1–4096 characters: one normalized
+absolute **directory**, not an executable path or PATH list. Substitute the real
+directory; `~` and environment variables are not expanded, and relative paths,
+root-only paths, `.`/`..`, redundant separators, control characters and `:` PATH
+lists are not accepted on Linux. Spaces and Unicode are preserved.
+
+When set, Linux PATH is `<agent_bin_dir>:/usr/bin:/bin`; when omitted, it remains
+`/usr/bin:/bin`. It does not inherit your login shell's PATH. Programs in the
+selected directory take precedence, so use only an owner-controlled installation
+directory. Rovloom does not create it or install the Agent. The setting does not
+enable terminal execution, and is not an MCP/RPC argument. Keep
+`allow_terminal_execution:false` for ordinary strict text conversation.
+Configure model access in the runtime's private HOME/XDG locations. The
+terminal-execution switch does not sandbox the Agent's own tools.
 
 ## Luvus provider parameters
 
@@ -232,6 +261,7 @@ construct or modify its identity, digest or ownership records by hand.
 | `binary`, `binary_sha256` | required absolute path / SHA-256 | Approved executable and exact pin above. |
 | `state_root`, `home`, `cwd` | required absolute path strings | Separate private native state, HOME and work directory; separate from the control directory. HOME contains private `config`, `data`, `cache`, `runtime` directories. |
 | `transport` | required string | Managed runtime requires `ipc`; use the supplied setting. |
+| `agent_bin_dir` | optional absolute-directory string, 1–4096 characters; default absent | Prepends one Agent installation directory to `/usr/bin:/bin`; selected during initial local setup. |
 | `allow_terminal_execution` | optional boolean, default `false` | Local permission for direct terminal input/custom launches; does not broaden caller ACL. |
 | `limits` | optional object; defaults below | May only tighten each positive safe integer. |
 
@@ -270,6 +300,7 @@ are required without defaults unless marked optional.
 | `connector` | optional on Gateway; required on Connector | Local installation, fixed caller and persistent ledgers. |
 | `connector.principal_id` | ID string | Fixed existing caller. |
 | `connector.local` | object | Required `target`, `binding_revision`, `config_ref` matching outer values; absolute `binary`, `home`, `config_home`, `state_home`, `cache_home`, `temporary_home`, `cwd`; optional boolean `allow_terminal_execution` defaults false. All directories private 0700. |
+| `connector.local.agent_bin_dir` | optional absolute-directory string, 1–4096 characters; default absent | Prepends one Agent installation directory to `/usr/bin:/bin`; does not change terminal-execution permission. |
 | `connector.receipts`, `.claims` | distinct ledger objects | Required `path` (absolute), `mode` (`create`/`open`), `ledger_id` (ID), `limits:{entries,bytes}`. Entries 1–1024 for receipts, 1–4096 for claims; bytes 262144–16777216. |
 
 `expected_source` is the following exact non-secret object (including JSON nulls):
