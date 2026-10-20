@@ -243,6 +243,7 @@ export async function smokeGatewayProduct(
     }
     const executable = join(f.root, basename(binary))
     copyFileSync(binary, executable)
+    const productSha256 = createHash('sha256').update(readFileSync(executable)).digest('hex')
     const env = { PATH: emptyPath, HOME: home, TMPDIR: f.root, LANG: 'C.UTF-8', NO_COLOR: '1' }
     const checked = await runSmokeChild(executable, ['--version'], { cwd, env })
     assert.equal(checked.status, 0)
@@ -356,6 +357,7 @@ export async function smokeGatewayProduct(
       scope: 'product-gateway',
       platform: `${process.platform}-${process.arch}`,
       version,
+      product_sha256: productSha256,
       isolatedBinary: true,
       emptyPath: true,
       mcp: true,

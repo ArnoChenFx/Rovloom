@@ -34,6 +34,14 @@ Herdr 沿用真实祖先路径检查，临时私有目录创建在受信 harness
 不放宽 `/tmp` 等可写祖先限制。测试种子、临时证书和数据库在 child 真正 close 后清理。
 该切片返回 `connector: pending`，不代表双角色、真实原生执行或跨机验收。
 
+Linux x64 原生 runner 另运行[完整产品 smoke](../scripts/release/product-smoke.mjs)：
+先验收上述管理面和双 schema 工厂，再从同一 binary 启动真实 Gateway 与 Connector，
+通过回环 WebSocket 接纳短期合成设备身份，调用官方 Herdr 0.9.5 的 `ping`，
+经实际 MCP 通道读取持久化 `pong` 字节、摘要与游标终态。官方 Herdr 下载使用固定 SHA256、
+大小和时间限制，只在本轮私有目录运行；不调用模型、使用真实外部凭据或安装系统服务。
+验收要求 Connector 真实取得并释放原生 Owner、回收自己启动的 Herdr child，
+两个产品角色均收到 SIGTERM 后正常退出。完整结果只有真实往返成功才返回 `connector: passed`。
+
 ## Tag 发行门禁
 
 [发行 workflow](../.github/workflows/release.yml)仅由用户推送 `v*` tag 触发，没有手工发布入口。
@@ -50,9 +58,8 @@ Linux 真实产品打包 smoke 通过后才启动六项矩阵；每项都重新�
 任何步骤失败都不公开 Release。仅最后的 publish job 具有 `contents: write`，其他 job
 仅 `contents: read`；checkout 不保留凭据。不需要 PAT、长期秘密、签名服务或 OIDC 权限。
 
-产品入口已经交付，但完整产品验收仍未接线。[产品清单](../scripts/release/product.mjs)的 `releaseSmoke`
-当前仍为 `null`；`gatewaySmoke` 只记录上述局部验收，不能替代该门禁。
-完整单产物双角色验收交付后才能将 `releaseSmoke` 改为受维护的 `scripts/release/<name>.mjs`。
+产品入口和完整产品验收由[产品清单](../scripts/release/product.mjs)的 `releaseSmoke`
+接到受维护的 `scripts/release/product-smoke.mjs`；`gatewaySmoke` 仍只记录上述局部验收。
 该程序由固定 Bun 调用，收到两个参数：绝对 binary 路径与不含 `v` 的精确版本，
 成功退出才允许产生发行收据。它必须只复制此 binary 到空 cwd/PATH、新用户目录，
 用临时配置启动真实持久 Gateway，验证 HTTP 就绪、同一入口的实际 MCP 通道、
@@ -80,9 +87,11 @@ Linux 真实产品打包 smoke 通过后才启动六项矩阵；每项都重新�
 工具链 SHA256 来自 [Bun 1.4.3 官方校验和](https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/SHASUMS256.txt)，
 安装器先核对归档字节与成员，再使用原生 executable；官方归档的 `aarch64` 在产品契约统一写作 `arm64`。
 不提供 musl、32 位、其它 arch 或模拟执行的发行资产；runner 系统版本不代表已验证所有更旧系统。
-此表是编译/原生探针矩阵。当前真实私有存储、runtime文件和原生Owner仍限制Linux；
+此表是编译/原生探针矩阵。当前真实私有存储和runtime文件限制Linux，原生Owner还要求x64；
 macOS/Windows的CLI或schema探针通过不能证明Gateway/Connector已可运行。
-Linux x64已有实际Gateway隔离验收，arm64由原生CI验收；真实Connector与多机验收仍待完成。
+Linux x64与arm64已有实际Gateway隔离验收；完整双角色原生验收仅接纳Linux x64，
+回环双进程验收不等同双机验收。现有六目标tag门禁会拒绝其余目标的完整验收，
+这些运行平台的实现缺口解决前，不能凭六平台编译成功公开六项发行资产。
 支持目标须在该次 tag 的相应真实产品 smoke 全部通过后才实际交付。
 Windows 两种 arch 均要求原生 Windows 图标资源检查；不能用跨编译代替。
 

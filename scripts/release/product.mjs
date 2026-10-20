@@ -3,8 +3,8 @@ export const product = {
   entrypoint: 'src/cli/main.ts',
   workers: ['src/native-contract/compiler-worker.ts', 'src/connector/herdr/compiler-herdr-worker.ts'],
   assets: [],
-  // Gateway切片独立验收；Connector/真实双角色未完成时不能替代下面的完整发行门禁。
+  // Gateway切片保留独立验收；完整门禁另含同产物Connector和真实原生ping。
   gatewaySmoke: 'scripts/release/gateway-smoke.mjs',
-  // 真实 HTTP 产品须提供隔离二进制验收脚本；未接线的预览入口不能进入 tag 发行。
-  releaseSmoke: null
+  // 原生Owner仅支持Linux x64；其它平台的完整验收会明确失败，不能产生发行收据。
+  releaseSmoke: 'scripts/release/product-smoke.mjs'
 }

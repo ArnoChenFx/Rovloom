@@ -1,11 +1,22 @@
 // 定义通道宿主契约、严格连接地址与帧预算，并提供 provider 健康和有界接收去重。
 import { randomUUID } from 'node:crypto'
-import { boundedJson, fail, hash, id, LIMITS, object, parseJson, validateProvider } from '../wire/index.js'
+import {
+  boundedJson,
+  discardFencedWireFrame,
+  fail,
+  hash,
+  id,
+  LIMITS,
+  object,
+  parseJson,
+  validateProvider
+} from '../wire/index.js'
 import type {
   AuthenticatedContext,
   AuthenticatedEnvelope,
   ProviderBinding,
   ProviderSnapshot,
+  Direction,
   VersionOffer
 } from '../wire/types.js'
 import type { createLuvusWireAdapter } from '../integration/luvus-wire.js'
@@ -34,6 +45,10 @@ export type Readiness = {
 }
 export type Session = {
   adapter: Adapter
+  /** 只失效同 epoch 原配置的一个 provider；不得用此入口接纳新 binding 或复活旧来源。 */
+  fenceProvider?(binding: ProviderBinding): void
+  /** 返回已永久失效的原配置，供 transport 发布有界撤回；不交付原生状态或许可。 */
+  providerFences?(): readonly ProviderBinding[]
   /** Connector 返回稳定、深冻结的每 epoch 快照；getter 只轻量复核真实来源仍活，不重建或刷新 generation。 */
   providerSnapshot?(): readonly ProviderSnapshot[]
   /** Gateway 同步接纳当前 session 收到的快照；可信 pin/能力核验和关闭时失效由该 epoch 宿主负责。 */
@@ -42,6 +57,37 @@ export type Session = {
   readiness(): Readiness
   /** 关闭所属传输或会话资源，不宣称原生动作已停止或回滚。 */
   close(): void
+}
+/** 只消费原会话的同步失效端口；Promise 或缺端口不代表原来源已撤回。 */
+export function fenceSessionProvider(session: Session, binding: ProviderBinding): void {
+  if (!session.fenceProvider) {
+    fail('provider_fence_backend_unavailable')
+  }
+  const value: unknown = session.fenceProvider(structuredClone(binding))
+  if (value !== undefined) {
+    void Promise.resolve(value).catch(/** 违规异步关闭的晚拒绝不复活来源。 */ () => {})
+    fail('synchronous_provider_fence_required')
+  }
+}
+/** 只在原 decoder 拒绝后校验并丢弃失效来源的迟到帧，不重建或交付任何原生许可。 */
+export function discardProviderFrame(
+  raw: string,
+  connection: Connection,
+  direction: Direction,
+  fenced: ReadonlyMap<string, ProviderBinding>
+): boolean {
+  return (
+    fenced.size > 0 &&
+    discardFencedWireFrame(
+      raw,
+      {
+        phase: 'authenticated',
+        connection,
+        direction
+      },
+      [...fenced.values()]
+    )
+  )
 }
 /** 先销毁 adapter 全部上下文并取消账本订阅，再同步关闭宿主资源；任一步失败仍执行另一项清理。 */
 export function closeSession(session: Session | undefined): void {
