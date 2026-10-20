@@ -3,6 +3,8 @@ import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync } from
 import { createNativeServiceBackend } from '../service/native.js'
 import { ServiceManager } from '../service/manager.js'
 import { ServiceError, type ServiceRole, type ServiceSpec } from '../service/types.js'
+import { manifest, serviceControlId } from '../service/spec.js'
+import { requestStopPipe, windowsStopPipe } from '../service/windows-control.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { parseConfig } from './config.js'
 import { resolveRoleConfigPath } from './config-path.js'
@@ -107,6 +109,21 @@ export function createProductServiceHost(): CliServiceHost {
   })
   const backend = {
     ...native,
+    // 运行中Windows角色先正常释放资源；尚未运行的排队任务仍由Scheduler取消，不对运行实例强杀。
+    async stop(spec: ServiceSpec, forRestart?: boolean): Promise<'graceful_request' | void> {
+      if (environment.platform === 'win32') {
+        assertServiceProduct(spec, environment)
+        const current = await native.inspect(spec.role)
+        if (!current || manifest(current.spec) !== manifest(spec)) {
+          throw new ServiceError('service_conflict')
+        }
+        if (current.state === 'running') {
+          await requestStopPipe(windowsStopPipe(spec.role, spec.executable, spec.config, serviceControlId(spec)))
+          return 'graceful_request'
+        }
+      }
+      await native.stop(spec, forRestart)
+    },
     // 当前不能运行角色的平台在接触系统控制目录、权限或注册之前明确拒绝。
     async authorize(role?: ServiceRole) {
       if (

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { handleServiceCommand, parseServiceCommand } from '../../src/service/command.js'
 import { ServiceManager } from '../../src/service/manager.js'
-import { manifest, parseManifest, validateSpec } from '../../src/service/spec.js'
+import { manifest, parseManifest, serviceControlId, validateSpec } from '../../src/service/spec.js'
 import { renderDefinition, renderTask, unitQuote, windowsQuote } from '../../src/service/render.js'
 import { model, sampleSpec } from './helpers.js'
 
@@ -150,7 +150,9 @@ assert b.find('t:Actions/t:Exec/t:Arguments',n).text==p['args']
           account: win.account,
           exe: win.executable,
           cwd: win.directory,
-          args: ['connector', '--config', win.config, '--non-interactive'].map(windowsQuote).join(' ')
+          args: ['connector', '--config', win.config, '--non-interactive', '--service-id', serviceControlId(win)]
+            .map(windowsQuote)
+            .join(' ')
         }),
         encoding: 'utf8'
       }

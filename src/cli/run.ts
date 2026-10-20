@@ -90,7 +90,7 @@ type Command =
   | { action: 'help' | 'version' }
   | { action: 'template'; role: 'gateway' | 'connector' }
   | { action: 'check' | 'check-runtime'; checks: readonly { role?: 'gateway' | 'connector'; path: string }[] }
-  | { action: 'gateway' | 'connector'; path: string; nonInteractive?: true }
+  | { action: 'gateway' | 'connector'; path: string; nonInteractive?: true; serviceId?: string }
 
 // 解析固定命令形状，未知参数只返回稳定错误，不回显 argv。
 export function parseCommand(args: readonly string[], environment?: ConfigPathEnvironment): Command {
@@ -140,8 +140,13 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
             )
     }
   }
-  const nonInteractive = args.at(-1) === '--non-interactive'
-  const roleArgs = nonInteractive ? args.slice(0, -1) : args
+  const serviceId = args.at(-2) === '--service-id' ? args.at(-1) : undefined
+  const serviceArgs = serviceId !== undefined ? args.slice(0, -2) : args
+  const nonInteractive = serviceArgs.at(-1) === '--non-interactive'
+  if (serviceId !== undefined && (!nonInteractive || !/^[a-f0-9]{64}$/u.test(serviceId))) {
+    throw new CliError('invalid_arguments')
+  }
+  const roleArgs = nonInteractive ? serviceArgs.slice(0, -1) : serviceArgs
   if (
     (roleArgs[0] === 'gateway' || roleArgs[0] === 'connector') &&
     (roleArgs.length === 1 || (roleArgs.length === 3 && roleArgs[1] === '--config'))
@@ -149,7 +154,8 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
     return {
       action: roleArgs[0],
       path: resolveRoleConfigPath(roleArgs[0], roleArgs[2], environment),
-      ...(nonInteractive ? { nonInteractive: true } : {})
+      ...(nonInteractive ? { nonInteractive: true } : {}),
+      ...(serviceId ? { serviceId } : {})
     }
   }
   throw new CliError('invalid_arguments')

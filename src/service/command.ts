@@ -17,7 +17,7 @@ Omitted --executable uses the current standalone binary; a different binary is r
 Omitted --config uses the same current-user role file as foreground startup. Installation fixes its absolute path; background startup does not select another home.
 Linux uses systemd system units; macOS uses system LaunchDaemons; Windows uses boot-triggered tasks, not SCM services or login tasks.
 Gateway services support Linux systemd, macOS system LaunchDaemons and Windows boot-triggered tasks; local native Connector remains Linux x64.
-Windows uses the explicitly selected existing user with S4U, without storing a password or requiring login. It does not provide an interactive desktop or Windows network credentials/EFS access. Explicit stop/restart may terminate the task; uninstall never stops it.
+Windows uses the explicitly selected existing user with S4U, without storing a password or requiring login. It does not provide an interactive desktop or Windows network credentials/EFS access. Running services receive a local shutdown request; queued tasks use Scheduler cancellation; uninstall never stops it.
 `
 
 export type ServiceConfigPathResolver = (role: ServiceRole, account: string) => string

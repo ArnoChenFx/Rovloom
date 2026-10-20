@@ -373,8 +373,15 @@ try {
   const restarted = service('restart')
   assert.equal(restarted.state, 'running')
   assert.equal(restarted.bootEnabled, false)
+  if (windows) {
+    assert.equal(restarted.stopMode, 'graceful_request')
+  }
   await reachable(url)
-  assert.equal(service('stop').state, 'absent')
+  const stopped = service('stop')
+  assert.equal(stopped.state, 'absent')
+  if (windows) {
+    assert.equal(stopped.stopMode, 'graceful_request')
+  }
   assert.equal(service('uninstall').changed, false)
   assert.equal(readFileSync(config, 'utf8'), bytes)
   assert.equal(readFileSync(keep, 'utf8'), 'fixture-user-data')

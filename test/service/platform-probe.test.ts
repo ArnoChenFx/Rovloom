@@ -20,6 +20,7 @@ async function bridgeProbe(plan: CommandPlan) {
     ["$ErrorActionPreference = 'Stop'", 'script_started'],
     ['$json = ', 'serializer_loaded'],
     ['  if ($p.name', 'input_read'],
+    ['[IO.File]::WriteAllText($p.PhasePath,', 'input_read'],
     ['  $folder = ', 'scheduler_connected']
   ]) {
     script = script.replace(before!, `[Console]::Error.WriteLine('rovloom_probe_${stage}')\n${before}`)
@@ -52,7 +53,7 @@ async function bridgeProbe(plan: CommandPlan) {
       timeout: 10000
     })
   } catch (error) {
-    throw new Error('native_bridge_phase_' + phase, { cause: error })
+    throw new Error('native_powershell_phase_' + phase, { cause: error })
   }
 }
 
@@ -72,28 +73,29 @@ test(
     try {
       if (platform === 'win32') {
         const script = `
-param([string]$XmlPath,[string]$PhasePath)
-$ErrorActionPreference='Stop'
-[IO.File]::WriteAllText($PhasePath,'script_started')
+$ErrorActionPreference = 'Stop'
 ${TASK_DEFINITION_FUNCTIONS}
+[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
 [void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
-$json=[System.Web.Script.Serialization.JavaScriptSerializer]::new()
+$json = [System.Web.Script.Serialization.JavaScriptSerializer]::new()
+$p=$json.DeserializeObject([Console]::In.ReadToEnd())
+[IO.File]::WriteAllText($p.PhasePath,'input_read')
 if (!$env:USERPROFILE -or !$env:TEMP) { exit 2 }
-[IO.File]::WriteAllText($PhasePath,'environment_ready')
+[IO.File]::WriteAllText($p.PhasePath,'environment_ready')
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
-[IO.File]::WriteAllText($PhasePath,'encoding_set')
-$xml=[IO.File]::ReadAllText($XmlPath,[Text.UTF8Encoding]::new($false))
-[IO.File]::WriteAllText($PhasePath,'xml_read')
+[IO.File]::WriteAllText($p.PhasePath,'encoding_set')
+$xml=[IO.File]::ReadAllText($p.XmlPath,[Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($p.PhasePath,'xml_read')
 $null=[object]::new()
-[IO.File]::WriteAllText($PhasePath,'clr_ready')
+[IO.File]::WriteAllText($p.PhasePath,'clr_ready')
 $s=[Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service',$true))
-[IO.File]::WriteAllText($PhasePath,'connecting')
+[IO.File]::WriteAllText($p.PhasePath,'connecting')
 $s.Connect()
-[IO.File]::WriteAllText($PhasePath,'connected')
+[IO.File]::WriteAllText($p.PhasePath,'connected')
 $t=$s.NewTask(0)
-[IO.File]::WriteAllText($PhasePath,'definition_created')
+[IO.File]::WriteAllText($p.PhasePath,'definition_created')
 $t.XmlText=$xml
-[IO.File]::WriteAllText($PhasePath,'xml_parsed')
+[IO.File]::WriteAllText($p.PhasePath,'xml_parsed')
 $t.Principal.LogonType=2
 $sid=$t.Principal.UserId
 if ($sid -notmatch '^S-1-') { $sid=([Security.Principal.NTAccount]::new($sid)).Translate([Security.Principal.SecurityIdentifier]).Value }
@@ -118,28 +120,23 @@ if ((declaration $copy) -ceq $reference) { exit 1 }
 $null=$copy.Actions.Create(0)
 try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 'service_conflict') { throw } }
 [Console]::Write('native_format_valid')
-[IO.File]::WriteAllText($PhasePath,'validated')
+[IO.File]::WriteAllText($p.PhasePath,'validated')
 `
-        // 原生格式探针从自有 UTF-8 文件读取，参数单独传递；不依赖 PowerShell 的 stdin 文本宿主。
+        // 与生产一致使用EncodedCommand及stdin JSON，XML仍从自有UTF-8文件读取；不执行临时脚本文件。
         const xmlFile = join(directory, 'task.xml')
-        const scriptFile = join(directory, 'parse.ps1')
         const phaseFile = join(directory, 'phase.txt')
         writeFileSync(xmlFile, renderDefinition(spec), 'utf8')
-        writeFileSync(scriptFile, script, 'utf8')
-        const result = await runSystemCommand({
+        const result = await bridgeProbe({
           executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
           args: [
             '-NoLogo',
             '-NoProfile',
             '-NonInteractive',
             '-STA',
-            '-File',
-            scriptFile,
-            '-XmlPath',
-            xmlFile,
-            '-PhasePath',
-            phaseFile
+            '-EncodedCommand',
+            Buffer.from(script, 'utf16le').toString('base64')
           ],
+          input: JSON.stringify({ XmlPath: xmlFile, PhasePath: phaseFile }),
           timeout: 10000
         }).catch(
           /* 失败只报告固定阶段，临时诊断随 fixture 清理，不反射路径或系统错误正文。 */ (error) => {
@@ -148,7 +145,7 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
               const value = readFileSync(phaseFile, 'utf8')
               if (
                 [
-                  'script_started',
+                  'input_read',
                   'environment_ready',
                   'encoding_set',
                   'xml_read',
@@ -163,7 +160,7 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
                 phase = value
               }
             } catch {
-              // 缺少阶段表示 PowerShell 尚未执行探针第一条语句。
+              // 缺少文件阶段时仍保留固定stderr进度及工具cause，不能直接断言脚本未启动。
             }
             throw new Error('native_format_phase_' + phase, { cause: error })
           }

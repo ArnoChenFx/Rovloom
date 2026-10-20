@@ -1,5 +1,6 @@
 // 规范化固定服务身份与路径，并验证注册内嵌的非秘密清单。
 import { posix, win32 } from 'node:path'
+import { createHash } from 'node:crypto'
 import { ServiceError, type ServicePlatform, type ServiceRole, type ServiceSpec } from './types.js'
 
 export const OWNER = 'Rovloom managed boot service v1:'
@@ -125,5 +126,15 @@ export function serviceName(role: ServiceRole, platform: ServicePlatform): strin
 // 固定复用现有角色命令；后台能力须由 CLI 宿主在 preflight 中确认。
 export function launchArguments(spec: ServiceSpec): string[] {
   // Task Scheduler的非交互桌面也可能提供TTY句柄，必须显式关闭本地交互引导。
-  return [spec.role, '--config', spec.config, ...(spec.platform === 'win32' ? ['--non-interactive'] : [])]
+  return [
+    spec.role,
+    '--config',
+    spec.config,
+    ...(spec.platform === 'win32' ? ['--non-interactive', '--service-id', serviceControlId(spec)] : [])
+  ]
+}
+
+// 非秘密标识精确绑定整份登记清单；普通前台非交互启动没有此标识，不创建服务停止端点。
+export function serviceControlId(spec: ServiceSpec): string {
+  return createHash('sha256').update(manifest(spec)).digest('hex')
 }
