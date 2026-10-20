@@ -33,8 +33,8 @@ bun run smoke
 覆盖检查纳入 CI。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、runtime、Herdr、webui、admin、Luvus connector、mcp、cli、service、update 模块及 CLI main 共十九个 Bun ESM 入口、共享 chunk 与外部
-source maps，依赖外置。共享 chunk 保持错误类型和内存 handle 身份。
+native-contract、wire、integration、persistence、transport、runtime、Herdr、webui、admin、Luvus connector、mcp、cli、service、update 模块及 CLI main 的 Bun ESM 入口、共享 chunk 与外部
+source maps，依赖外置；准确入口清单由`scripts/bun/build.mjs`维护。共享 chunk 保持错误类型和内存 handle 身份。
 原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv 与精确绑定的完整预编译资产；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
@@ -346,6 +346,8 @@ config ref、固定 expected source、schema 路径及独立 peer policy revisio
 
 可复用检查入口：
 
+MCP组件回归统一使用`createMcpFacade`与`RuntimeGatewayService`；没有单独的六工具构建入口。
+
 ```sh
 bun run typecheck
 bun run build
@@ -363,6 +365,10 @@ python3 -B scripts/herdr/audit_methods.py --source-tree /absolute/path/to/pinned
 [provenance](../test/fixtures/herdr/0.9.5/provenance.json)和[许可证说明](../test/fixtures/herdr/0.9.5/LICENSE)。
 独立原生与模型验收仍需在自有实例另行实测。
 `scripts/herdr/verify-runtime.ts`只在显式提供自有 binary 和新报告路径时验收管理工作流；
+其stdio宿主复用创建runtime时同一identities、localPolicies和原Herdr owner目录，遵循
+[统一MCP契约](protocol/MCP-HTTP.md)。SDK枚举三页通用工具；自有私有目录中的`mcp-target.json`
+只交付非秘密Target/revision/contract提示，目录与每次准入仍重新授权。调用使用绝对deadline，
+原生响应经原结果句柄和不透明游标分页还原，保留完整原生error及其data。
 可选 Agent/模型验收还需明确的 OpenCode binary、私有配置和 model，不继承用户凭据。
 启动或 `interactive_ready`不证明模型调用；同会话两轮须独立关联 user/assistant 消息与回答。
 局部组件、注释套件或构建通过均不能替代完整测试和实际宿主验收。

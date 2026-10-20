@@ -30,7 +30,6 @@ const result = await Bun.build({
     'src/connector/herdr/runtime.ts',
     'src/connector/herdr/discovery.ts',
     'src/connector/herdr/provider.ts',
-    'src/mcp/runtime.ts',
     'src/webui/index.ts',
     'src/admin/index.ts',
     'src/mcp/index.ts',

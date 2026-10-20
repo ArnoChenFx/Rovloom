@@ -6,26 +6,27 @@ import { join } from 'node:path'
 import { createHerdrGatewayResources } from '../../src/connector/herdr/provider.js'
 import { fixedHerdrSource } from '../../src/connector/herdr/review.js'
 import { authorizedProviderCatalog } from '../../src/mcp/provider-catalog.js'
-import { FacadeServiceError, StoreGatewayService } from '../../src/mcp/index.js'
+import { FacadeServiceError, RuntimeGatewayService } from '../../src/mcp/index.js'
 import type { ProviderCatalogProvider } from '../../src/mcp/native-catalog.js'
 import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
-import { storeFixture, target } from './store-fixture.js'
+import { target } from './store-fixture.js'
+import { projectionFixture } from './runtime-service-fixture.js'
 
 test(
   '真实Herdr resolver跨时钟描述和分页仍保持稳定身份，旧观察期限与授权漂移继续拒绝',
   /** 使用官方schema及真实Worker/目录；只包装时钟推进和明确的撤权反例，不提供执行替身。 */ async () => {
     const root = privateHerdrTestRoot('.herdr-mcp-catalog-')
-    const f = storeFixture(
-      'active',
-      /** 仅在writer关闭的fixture阶段设置Herdr绑定。 */ (db) => {
+    const f = projectionFixture({
+      mutateSeed: /** 仅在writer关闭的fixture阶段设置Herdr绑定；派发stub不会被本例调用。 */ (db) => {
         db.prepare('UPDATE providers SET kind=? WHERE machine_id=? AND provider_id=?').run(
           'herdr',
           target.machine_id,
           target.provider_id
         )
       }
-    )
+    })
     let resource: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined
+    let service: RuntimeGatewayService | undefined
     try {
       const schemaPath = join(root, 'schema.json')
       writeFileSync(schemaPath, readFileSync(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url)), {
@@ -49,7 +50,7 @@ test(
         .methods.slice(0, 3)
         .map(/** 精确使用真实Herdr schema中的三个方法，不猜测或扩大授权集合。 */ (entry) => entry.method)
       assert.equal(methods.length, 3)
-      const grants = [{ target, methods, actions: ['read' as const] }]
+      const grants = [{ target, methods: [...methods, 'agent.prompt'], actions: ['read' as const] }]
       f.setCaller({ id: 'alice', policy: { revision: 'caller_catalog', grants } })
       f.setLocal({ revision: 'local_catalog', grants })
       let resolutions = 0
@@ -73,19 +74,39 @@ test(
       const catalog = authorizedProviderCatalog(options)
       assert.equal(catalog.describe(methods[0]!).method, methods[0])
       assert(resolutions >= 4)
-      const service = new StoreGatewayService({
-        store: f.store,
+      service = new RuntimeGatewayService({
+        runtime: f.runtime,
         identities: f.identities,
         localPolicies: f.localPolicies,
         catalog: provider
       })
       const context = { caller: { principal_id: 'alice' }, wait_signal: new AbortController().signal }
+      const described = (
+        await service.execute(
+          'runtime_describe',
+          {
+            target,
+            expected_binding_revision: 1,
+            method: 'agent.prompt'
+          },
+          context
+        )
+      ).data
+      const original = owner
+        .describe()
+        .methods.find(/** 取同一真实owner的完整原生描述，不重写schema。 */ (entry) => entry.method === 'agent.prompt')!
+      assert.deepEqual(described.params_schema, original.params_schema)
       const first = await service.execute(
         'runtime_discover',
         { target, expected_binding_revision: 1, limit: 1 },
         context
       )
       assert(first.data.next_cursor)
+      assert(
+        first.data.items.every(
+          /** discover仅摘要，完整schema只在describe交付。 */ (entry) => !Object.hasOwn(entry, 'params_schema')
+        )
+      )
       f.advance(100)
       const second = await service.execute(
         'runtime_discover',
@@ -167,6 +188,7 @@ test(
         assert.throws(checked, new FacadeServiceError('contract_unavailable'))
       }
     } finally {
+      service?.close()
       await resource?.release()
       f.close()
       rmSync(root, { recursive: true, force: true })

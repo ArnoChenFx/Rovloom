@@ -140,6 +140,17 @@ test(
           )
           assert.equal(cancelled.cancellation, 'unsupported')
           assert.equal(f.native.state.responses, 1)
+          f.allowRead(false)
+          assert.equal(
+            await f.gateway.runAuthenticated(
+              f.caller,
+              /** 只撤销read，当前主体仍真实有效。 */ () => f.gateway.principal().id
+            ),
+            f.caller.principal_id
+          )
+          const unreadable = await invoke({ name: 'runtime_result_read', arguments: { result_id: result.result_id } })
+          assert.deepEqual(unreadable.structuredContent, { gateway_error: { code: 'forbidden' } })
+          f.allowRead(true)
           f.authorize(false)
           lifecycle.phase('revoked_read')
           const denied = await invoke({

@@ -1,108 +1,11 @@
-// 真实Store/Router/请求作用域验证MCP投影；runtime派发/原Wire结果端口明确为stub，不替代native SDK回归。
+// 真实Store/Router/请求作用域验证MCP投影；派发/原Wire端口为标明的组件stub，不替代native SDK回归。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Router } from '../../src/router.js'
 import { GatewayError } from '../../src/contracts.js'
-import { createTrustedRequestScope } from '../../src/runtime/request-scope.js'
-import { RuntimeGatewayService, type RuntimeGateway, type RuntimeGatewayPort } from '../../src/mcp/runtime-service.js'
 import { StoreGatewayService } from '../../src/mcp/store-service.js'
-import type { ServiceContext, ToolArguments } from '../../src/mcp/types.js'
 import type { ManagementPermission } from '../../src/mcp/management.js'
 import { storeFixture, target } from './store-fixture.js'
-
-// 此stub只测试参数/回执投影，原生结果权限仍须由runtime-sdk.test.ts中的实际Wire验证。
-function projectionFixture() {
-  const f = storeFixture()
-  const scope = createTrustedRequestScope(f.identities)
-  const router = new Router(f.store, f.localPolicies)
-  const calls: Parameters<RuntimeGateway['admit']>[0][] = []
-  let cancelled = 0
-  let override: Partial<ReturnType<RuntimeGateway['get']>> = {}
-  let readFailure: Error | undefined
-  let openFailure: (() => Error) | undefined
-  let originalFailure: (() => Error) | undefined
-  const runtime: RuntimeGatewayPort = {
-    store: f.store,
-    router,
-    runAuthenticated: scope.runAuthenticated,
-    principal: scope.principal,
-    get: /* 返回真实授权元数据；override只用于模拟两次快照间的状态推进。 */ (id: string) => ({
-      ...router.get(scope.principal(), id),
-      ...override
-    }),
-    admit: /* 明确的准入stub只记录投影并指向人工历史，不执行或假称真实派发。 */ (
-      input: Parameters<RuntimeGateway['admit']>[0]
-    ) => {
-      calls.push(input)
-      return { call: router.get(scope.principal(), 'call_fixture'), created: true }
-    },
-    cancel: /* 调用实际Router取消授权，再返回本例指定的保守监管状态。 */ (id: string) => {
-      cancelled++
-      return { ...router.cancel(scope.principal(), id), ...override }
-    },
-    originalAttempt: /* 本投影stub没有原Wire许可，不从人工历史补造attempt。 */ () => {
-      if (originalFailure) {
-        throw originalFailure()
-      }
-      return undefined
-    },
-    results: {
-      open: /* 人工历史的Store句柄仅供分页投影，不代表真实原生读取许可。 */ (id: string) => {
-        if (openFailure) {
-          throw openFailure()
-        }
-        return router.saveResult(scope.principal(), id)
-      },
-      read: /* 记录后的页仍由真实Router/Store检查主体、期限与当前双端ACL。 */ (
-        id: string,
-        offset = 0,
-        bytes = 65_536
-      ) => {
-        if (readFailure) {
-          throw readFailure
-        }
-        return router.readResult(scope.principal(), id, offset, bytes)
-      },
-      discard: /* 明确使用实际专门discard权限，不把读权限当删除权限。 */ (id: string) =>
-        router.discardResponse(scope.principal(), id)
-    }
-  }
-  const service = new RuntimeGatewayService({ runtime, identities: f.identities, localPolicies: f.localPolicies })
-  const context: ServiceContext = { caller: { principal_id: 'alice' }, wait_signal: new AbortController().signal }
-  const args: ToolArguments['runtime_call'] = {
-    target,
-    expected_binding_revision: 1,
-    contract_ref: 'a'.repeat(64),
-    native_request: { method: 'pane.read', params: { value: 'fixture' } },
-    deadline: f.store.clock() + 20_000
-  }
-  return {
-    ...f,
-    runtime,
-    service,
-    context,
-    args,
-    calls,
-    cancelled: /* 观察显式取消调用数，取消前端等待不能增加该计数。 */ () => cancelled,
-    override: /* 模拟真实宿主后来观察到的新元数据，不修改Store生产状态机。 */ (value: typeof override) => {
-      override = value
-    },
-    readFailure: /* 注入未知宿主错误，确认固定公共映射不会回显原文。 */ (value: Error) => {
-      readFailure = value
-    },
-    openFailure: /* 模拟正文句柄失败而不改动真实Store准入/状态机。 */ (failure: () => Error) => {
-      openFailure = failure
-    },
-    originalFailure: /* 模拟原连接查找失败，保留只读runtime端口的实际契约。 */ (failure: () => Error) => {
-      originalFailure = failure
-    },
-    close: /* 回收门面、作用域及本例真实临时库。 */ () => {
-      service.close()
-      scope.close()
-      f.close()
-    }
-  }
-}
+import { projectionFixture } from './runtime-service-fixture.js'
 
 test(
   '原attempt连接失效仍返回重新授权后的unknown元数据，不交付旧结果且不重派',
