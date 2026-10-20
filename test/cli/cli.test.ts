@@ -1,5 +1,5 @@
 // 使用临时配置、内存流和真实 Bun bundle 验证 CLI 拒绝、脱敏与关闭行为，不启动生产后端。
-import { configDocument } from '../../src/cli/config.js'
+import { CliCancelled, configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -272,6 +272,50 @@ test(
           })
         })
         assert.deepEqual(failure, { code: 1, stdout: '', stderr: 'runtime_failed\n' })
+      }
+    )
+  }
+)
+
+test(
+  '问答取消沿原Gateway关闭路径正常退出，取消后的真正关闭失败仍报告运行失败',
+  /* 两种结果共享明确的本机取消，仅关闭故障不同；不能把signal.aborted当作所有异常的成功开关。 */ async () => {
+    await temporary(
+      /* 实际HTTP生命周期由runCli打开并关闭，宿主只提供无业务权限的清理结果。 */ async (directory) => {
+        for (const failed of [false, true]) {
+          const stop = new AbortController()
+          let closed = 0
+          const result = await capture(
+            ['gateway', '--config', configFile(directory)],
+            {
+              gateway: /* 仅验证取消和清理，不提供原生或身份成功替身。 */ async () => ({
+                service: {
+                  execute: /* 禁止生命周期测试派发业务。 */ async () => {
+                    throw new Error('unused_stub')
+                  }
+                },
+                authentication: { authenticate: /* 拒绝所有HTTP身份。 */ () => null },
+                listening: /* 与真实问答相同，先确认进程signal已取消再抛专用取消标记。 */ () => {
+                  stop.abort()
+                  throw new CliCancelled()
+                },
+                close: /* 失败分支保留真实关闭错误，不能被先前取消标记压掉。 */ async () => {
+                  closed++
+                  if (failed) {
+                    throw new Error(marker)
+                  }
+                }
+              })
+            },
+            stop
+          )
+          assert.equal(closed, 1)
+          assert.deepEqual(result, {
+            code: failed ? 1 : 0,
+            stdout: '',
+            stderr: failed ? 'runtime_failed\n' : ''
+          })
+        }
       }
     )
   }
