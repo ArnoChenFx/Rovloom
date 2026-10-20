@@ -81,6 +81,7 @@ function fixture(handleBytes = 4096, contentBytes?: number) {
     }
   }
   return {
+    path,
     store,
     state,
     first,
@@ -109,6 +110,108 @@ function fixture(handleBytes = 4096, contentBytes?: number) {
       rmSync(directory, { recursive: true, force: true })
     }
   }
+}
+
+test(
+  '结果预检不构造正文页，每页仅在末次授权后构造一次且字节不变',
+  /** 只包装本 fixture Store 的真实读页入口，记录成功页；不替换 SQL、Buffer 或任何授权。 */ (t) => {
+    const f = fixture()
+    t.after(/** 释放本测试持有的 Wire 与文件库。 */ () => f.close())
+    const meta = f.access.open(f.calls[0]!.call_id)
+    const read = f.store.readResult.bind(f.store)
+    let pages = 0
+    f.store.readResult = /** 返回原实现实际构造的页，不产生另一份正文。 */ (...args) => {
+      const page = read(...args)
+      pages++
+      return page
+    }
+    const chunks: Buffer[] = []
+    let cursor = 0
+    while (cursor < meta.bytes) {
+      const page = f.access.read(meta.result_id, cursor, 32)
+      chunks.push(Buffer.from(page.data, 'base64'))
+      assert.equal(pages, chunks.length)
+      assert.equal(page.expires, meta.expires)
+      cursor = page.next_cursor
+      if (page.eof) {
+        break
+      }
+    }
+    assert.equal(pages, Math.ceil(meta.bytes / 32))
+    assert.equal(Buffer.concat(chunks).toString('utf8'), f.calls[0]!.response)
+    assert.equal(f.handles(), 1)
+  }
+)
+
+for (const [cursor, maxBytes] of [
+  [-1, 32],
+  [0.5, 32],
+  [NaN, 32],
+  [Infinity, 32],
+  [1000, 32],
+  [0, 0],
+  [0, 0.5],
+  [0, 65_537]
+]) {
+  test(
+    `结果预检保留分页参数拒绝：${cursor}/${maxBytes}`,
+    /** 无效分页仍在原 Wire 回调之前拒绝，不借后续授权兜底或交付正文。 */ (t) => {
+      const f = fixture()
+      t.after(/** 回收本例资源。 */ () => f.close())
+      const meta = f.access.open(f.calls[0]!.call_id)
+      let resolutions = 0
+      const access = createProviderResultAccess({
+        ...f.ports,
+        /** 计数真实原 Wire 解析，失败的前置检查不得推进到此处。 */ resolveOriginalRead(callId) {
+          resolutions++
+          return f.ports.resolveOriginalRead(callId)
+        }
+      })
+      assert.throws(/** 保留原错误码及前置拒绝次序。 */ () => access.read(meta.result_id, cursor, maxBytes), {
+        message: 'invalid_result_cursor'
+      })
+      assert.equal(resolutions, 0)
+    }
+  )
+}
+
+for (const change of ['delete', 'expiry'] as const) {
+  test(
+    '末次原 Wire 门禁后仍重新读取实际句柄：' + change,
+    /** 真实原 Wire 成功后交错删除或推进到期，禁止用预检快照交付正文。 */ (t) => {
+      const f = fixture()
+      t.after(/** 回收本例资源。 */ () => f.close())
+      const call = f.calls[0]!
+      const meta = f.access.open(call.call_id)
+      const original = f.originals.get(call.call_id)!
+      let checks = 0
+      f.originals.set(call.call_id, {
+        ...original,
+        wire: {
+          ...f.first.adapter,
+          /** 最后一次原生门禁通过后，由独立连接清理或可信时钟触发真实过期。 */ checkResult(binding, frame) {
+            f.first.adapter.checkResult(binding, frame)
+            if (++checks === 2) {
+              if (change === 'expiry') {
+                f.state.now = meta.expires
+              } else {
+                const cleanup = new DatabaseSync(f.path)
+                try {
+                  cleanup.prepare('DELETE FROM results WHERE result_id=?').run(meta.result_id)
+                } finally {
+                  cleanup.close()
+                }
+              }
+            }
+          }
+        }
+      })
+      assert.throws(/** 末次新读必须看见本次句柄失效。 */ () => f.access.read(meta.result_id), {
+        message: 'result_not_found'
+      })
+      assert.equal(checks, 2)
+    }
+  )
 }
 
 test(
@@ -254,6 +357,39 @@ test(
 )
 
 for (const change of ['identity', 'local', 'wire', 'source', 'budget'] as const) {
+  test(
+    '复用已有句柄元数据仍重验末次 provider/Wire ' + change,
+    /** 重复 open 命中已有句柄也必须运行前后完整原生门禁，不能凭固定 ID 免授权。 */ (t) => {
+      const f = fixture()
+      t.after(/** 回收本例实际资源。 */ () => f.close())
+      const meta = f.access.open(f.calls[0]!.call_id)
+      let reads = 0
+      const access = createProviderResultAccess({
+        ...f.ports,
+        /** 第二次 readable 的最后一道 provider 回调位于复用元数据之后。 */ provider(target) {
+          if (++reads === 4) {
+            if (change === 'identity') {
+              f.principal.id = 'other'
+            } else if (change === 'local') {
+              f.local.grants = []
+            } else if (change === 'wire') {
+              f.first.adapter.close()
+            } else if (change === 'source') {
+              f.first.state.sourceVerified = false
+            } else {
+              const configured = f.providers.get(target.provider_id)!
+              f.configure(target.provider_id, { ...configured, max_response_bytes: 1 })
+            }
+          }
+          return f.ports.provider(target)
+        }
+      })
+      assert.throws(/** 命中旧句柄也不能交付撤权前的元数据。 */ () => access.open(f.calls[0]!.call_id))
+      assert.equal(reads, 4)
+      assert.equal(f.handles(), 1)
+      assert.equal(meta.expires, 110)
+    }
+  )
   test(
     'protected provider callback cannot invalidate final result ' + change + ' facts silently',
     /** 最后一次配置回调同步撤权或关闭后，必须重验原 Wire 与当前身份及策略。 */ (t) => {
