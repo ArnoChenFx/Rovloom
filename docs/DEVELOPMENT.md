@@ -232,7 +232,7 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 ## Herdr 离线输入
 
 [方法表](../src/connector/herdr/methods.ts)实现固定来源的 65 个普通 RPC，参数由安装 schema 完整根验证。
-[静态 policy](../test/fixtures/herdr/0.9.5/method-policy.json)记录条件与风险，不发行派发权限；完整版本已随限定的三文件包恢复，仍保持 `authorizes_dispatch: false`。
+[静态 policy](../test/fixtures/herdr/0.9.5/method-policy.json)已覆盖这 65 个方法，记录条件与风险，保持 `authorizes_dispatch: false`，不发行派发权限。
 离线回放仍只接纳 `ping {}` 和 `session.snapshot {}`，且 `authorizes_dispatch:false`。
 离线工具不运行 Herdr、不发现或连接 socket，也不创建凭据。
 真实采集须另有预先准备并获授权的专用实例及官方 binary。
@@ -345,11 +345,12 @@ python3 -B scripts/herdr/audit_methods.py --source-tree /absolute/path/to/pinned
 ```
 
 静态方法矩阵可由固定官方源码和现有 `build()/audit()`确定性重建；policy 没有整文件生成器。
-矩阵、policy 与 `agent-startup.json/workflow.json` 用于离线结构校验和回放。三份文件已按交接包
-SHA-256 `c5dfd2e62d591e2af99134620d44d819cd46ffcbb8830ee1f3c1e47669dd70df` 原样恢复，
-并核对各文件哈希。作者限定本次交付为静态/合成回归数据；文件内的 capture、native 或
-Store-verified provenance 文本是包内声明，本轮未独立核实其原生执行来源，不能据此报告
-真实管理、模型请求或同会话多轮成功。独立原生与模型验收仍需在自有实例另行实测。
+矩阵、policy 与[启动输入](../test/fixtures/herdr/0.9.5/agent-startup.json)、
+[工作流输入](../test/fixtures/herdr/0.9.5/workflow.json)均已在库，用于静态/合成回归、离线结构校验和回放。
+输入中的 capture、native 或 Store-verified provenance 声明尚未经独立原生验收，不能据此报告
+真实管理、模型请求或同会话多轮成功。固定协议来源、摘要与许可证见
+[provenance](../test/fixtures/herdr/0.9.5/provenance.json)和[许可证说明](../test/fixtures/herdr/0.9.5/LICENSE)。
+独立原生与模型验收仍需在自有实例另行实测。
 `scripts/herdr/verify-runtime.ts`只在显式提供自有 binary 和新报告路径时验收管理工作流；
 可选 Agent/模型验收还需明确的 OpenCode binary、私有配置和 model，不继承用户凭据。
 启动或 `interactive_ready`不证明模型调用；同会话两轮须独立关联 user/assistant 消息与回答。
