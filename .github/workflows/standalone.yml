@@ -39,6 +39,8 @@ jobs:
           target: ${{ matrix.target }}
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Exercise user installers with isolated downloads and native replacement
+        run: bun --no-env-file test ./test/release/install.test.mjs
       - name: Check exact precompiled assets and corruption/provenance regressions
         run: |
           bun --no-env-file run native:check
