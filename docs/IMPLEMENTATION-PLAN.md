@@ -7,19 +7,16 @@
 | 边界 | 可复用能力 | 尚须交付 |
 |---|---|---|
 | 原生证据 | 固定 Luvus Linux 契约、RPC/Host/事件/终端输入及离线回放；Linux x64 同机双角色 Herdr `ping` 产品 smoke | 各目标版本/平台、实际客户端、HTTP/OAuth、真实双机及 Herdr 模型对话验收 |
-| 工具链 | Bun、严格类型检查、冻结依赖、模块 build/smoke、单文件 CLI、六目标编译/Gateway 工作流及 tag 发行配置 | Windows tag 产品 smoke；各次发行仍须通过实际目标门禁，见 [发行指引](DISTRIBUTION.md) |
+| 工具链 | Bun、严格类型检查、冻结依赖、模块 build/smoke、单文件 CLI、六目标编译/Gateway 产品 smoke 工作流及 tag 发行配置 | 各次发行仍须通过实际目标门禁，见 [发行指引](DISTRIBUTION.md) |
 | Native validator | Bun Worker 完整预检、standalone 资产复用与完整编译、期限/取消/迟到拒绝、完整 schema 校验、多轴分类/权限、raw 范围 grant、opaque permit；Luvus/Herdr 来源工厂已接产品宿主 | 各目标原生来源验证；任意外部 schema 自动接纳及硬 CPU/heap 隔离不在首版范围 |
-| Wire 2 | 严格 codec/协商、provider/context、重复抑制、对象重组、流状态、持久 history/晚到事务，以及认证 WSS RPC 宿主接线 | 剩余流能力的产品接线、真实多机故障验收；Herdr 普通拒绝消息仍待完整 codec 接入 |
+| Wire 2 | 严格 codec/协商、provider/context、重复抑制、对象重组、流状态、持久 history/晚到事务、Herdr 普通拒绝消息 codec，以及认证 WSS RPC 宿主接线 | 剩余流能力的产品接线、真实多机故障验收 |
 | Luvus 集成 | 生产原生来源与远端 Gateway 接线、真实 NativeValidator、准入/发送/账本提交、独立 input permit/ack、frame 读取门禁、有界响应上下文及回收 | 真实跨网络双机、各目标原生环境与完整事件/终端工作流验收 |
 | Store/Router | 规范 v5 SQLite、provider/binding 账本与 grant、固定内容期限、持久 history、全库/子额/预约、降级、隔离快照、事务晚到接线；产品身份/管理来源与跨平台普通文件接入；列表与结果无状态分页 | 列表查询和完整结果读取成本；备份/隔离恢复的服务级运维入口 |
-| 设备通道 | 生产 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效、原生 adapter/CLI 接线及 Luvus 首次配对 | offline/revoked 重配重置、凭据轮换的完整产品流程与真实多机验收 |
+| 设备通道 | 生产 WSS/loopback RPC、持久 hash 身份、一次性证明/socket 失效、原生 adapter/CLI 接线及 Linux x64 所选 Luvus/Herdr 来源的首次配对与初始化 | offline/revoked 重配重置、凭据轮换的完整产品流程与真实多机验收 |
 | 产品服务 | 双角色 CLI、MCP Streamable HTTP、Store/Router 查询及清理、请求认证、生产管理 session/CSRF/custody、原子准入与持久 claim、Luvus/Herdr catalog、WebUI 确认/回执及认证后恢复 | provider 重新启用证明、所选实际 MCP Host/OAuth、完整工作流与发行部署验收 |
-| 开机服务 | Linux systemd、macOS 系统域 LaunchDaemon 生产角色宿主；Windows BootTrigger 状态机和原生后端；前后台共用角色配置；见 [SERVICE](SERVICE.md) | Windows 产品宿主接线、三平台真实开机及全生命周期验收 |
-| Herdr | 最多 65 个普通 RPC、独立原生来源/Worker、Store/Wire/结果锚点与持久 claim；唯一 CLI loader、mixed runtime 和 HTTP MCP 目录接线 | Herdr/mixed 首次配置向导、同会话真实两轮及模型出口、其余 37 方法、原生跨平台和实际双机部署验收 |
-| 直接终端执行 | 本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派、单文件 CLI 开关；见[终端执行](TERMINAL-EXECUTION.md) | 目录状态在通用宿主中的完整转发、Herdr 普通拒绝闭环；隔离原生命令、逐命令退出证据和独立双向控制验收 |
-
-本表只计入已合并主线。Herdr/mixed 首次配置向导（#122）、Windows 产品服务（#135）和
-终端目录状态/Herdr 普通拒绝修复（#137）仍在未合并 PR 中，不计为现有能力。
+| 开机服务 | Linux systemd、macOS 系统域 LaunchDaemon 与 Windows 既有用户 BootTrigger 的 Gateway 生产宿主；Linux x64 Connector 服务；前后台共用角色配置；见 [SERVICE](SERVICE.md) | 三平台重启开机实测及部署环境验收 |
+| Herdr | 最多 65 个普通 RPC、独立原生来源/Worker、Store/Wire/结果锚点与持久 claim；唯一 CLI loader、mixed runtime、HTTP MCP 目录及 Herdr/mixed 首次配置向导 | 同会话真实两轮及模型出口、其余 37 方法、原生跨平台和实际双机部署验收 |
+| 直接终端执行 | 本地布尔开关、共享方法/参数判定、Luvus/Herdr 最终写入复查、持久 claim 后关闭及断连不重派、单文件 CLI 开关、通用宿主目录状态转发及 Herdr 普通拒绝闭环；见[终端执行](TERMINAL-EXECUTION.md) | 隔离原生命令、逐命令退出证据和独立双向控制验收 |
 
 Store/Router 使用 Wire V2Target 与完整 tuple grant；native validator 仍由 integration 显式投影
 profile Target，provider fence 独立核对。生产宿主必须注入真实认证、双端本机 binding、原生
@@ -128,11 +125,11 @@ claim、公共发现/结果分页或真实HTTP/MCP 联合验收；各层继续�
 普通 RPC、原始完整 schema 校验、当前双端策略与完整 Target、原 Store 内容/响应锚点、
 独立 Connector 准入记录及持久唯一 claims。模块不添加第二套设备、CLI、provider registry 或 Store。
 
-- 唯一 CLI 已接入两个资源工厂和 provider 目录，复用现有 MCP/管理宿主；继续以实际原生环境联合验证单设备多 provider。
-- 完整 65 方法静态 policy 及启动/工作流回归输入已在库；确定性方法矩阵只证明源码/schema 覆盖，不授予执行。输入中的原生采集声明尚待独立验收，真实启动/管理流程仍须实测。
+- 唯一 CLI 已接入两个资源工厂和 provider 目录，复用现有 MCP/管理宿主；Linux x64 首次配置支持 Herdr/mixed，继续以实际原生环境联合验证单设备多 provider。
+- 完整 65 方法静态 policy 及启动/工作流回归输入已在库；确定性方法矩阵只证明源码/schema 覆盖，不授予执行。输入中的原生采集声明与完整管理工作流仍须逐项实测。
 - 待在允许的模型出口完成同一真实会话两轮；Agent 启动、prompt 提交、状态等待与真实回答分别验收。
 - 待其余 37 方法及独立事件/流、Host、raw 能力的设计和交付；不以名称猜测开放。
-- 待 Herdr/mixed 首次配置向导、原生跨平台、实际双机与发行部署验收；保留未通过的完整回归结论，局部通过不替代。
+- 待原生跨平台、实际双机与发行部署验收；保留未通过的完整回归结论，局部通过不替代。
 
 observer 被动读、原生 cancel、原子 terminal fence、共同事件序号/replay 和 per-turn receipt
 继续保持未提供，不能由静态盘点、schema 成功或 `agent.wait`状态补造。
