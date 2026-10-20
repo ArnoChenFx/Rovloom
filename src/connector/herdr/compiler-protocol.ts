@@ -1,4 +1,4 @@
-/** 固定 Herdr 原始 schema 的私有编译协议、生成选项及预算，不携带原生执行许可。 */
+/** Herdr 实际安装 schema 的私有编译协议、生成选项及预算，不携带原生执行许可。 */
 import type { Options } from 'ajv'
 import { HERDR_READONLY_REVIEW as review } from './review.js'
 
@@ -6,7 +6,7 @@ export const HERDR_COMPILER_VERSION = 1
 export const HERDR_GENERATOR = 'herdr-standalone-1'
 export const HERDR_AJV_VERSION = '8.20.0'
 export const HERDR_DIALECT = 'https://json-schema.org/draft/2020-12/schema'
-export const HERDR_SCHEMA_ID = 'urn:rovloom:herdr:0.9.5'
+export const HERDR_SCHEMA_ID = 'urn:rovloom:herdr:schema'
 export const HERDR_INPUT_LIMIT = 512 * 1024
 export const HERDR_CODE_LIMIT = 8 * 1024 * 1024
 export const HERDR_COMPILE_TIMEOUT = 2000
@@ -18,6 +18,7 @@ export const HERDR_WORKER_FAILURES: readonly string[] = Object.freeze([
   'schema_root_unavailable',
   'generated_code_limit',
   'schema_compile_failed',
+  'precompiled_asset_invalid',
   'compiler_protocol_invalid'
 ])
 export const HERDR_ROOTS = Object.freeze(['request', 'success_response', 'error_response'] as const)
@@ -54,7 +55,12 @@ export type HerdrCompilerArtifact = {
   version: number
   generator: string
   ajv: string
-  identity: typeof HERDR_IDENTITY
+  identity: {
+    schema_sha256: string
+    protocol: number
+    schema_version: number
+    dialect: typeof HERDR_DIALECT
+  }
   roots: string[]
   code: string
   code_sha256: string

@@ -22,7 +22,7 @@ const reviewed: Readonly<Record<string, { native: NativeMethodContract; effect: 
   }
 })
 
-/** 仅共用已审分类与固定版本检查；provider 注册、来源证明和 caller/local grants 继续独立完成。 */
+/** 仅共用已接入分类与实际安装身份检查；provider 注册、来源证明和 caller/local grants 继续独立完成。 */
 export function createReviewedLuvusProvider(
   instance: Pick<OwnedLuvusInstance, 'config' | 'contract' | 'issuance' | 'source' | 'ready'>,
   peerPolicyRevision: string,
@@ -33,8 +33,7 @@ export function createReviewedLuvusProvider(
   const contract = instance.contract
   const origin = contract.wire.source
   if (
-    config.binary_sha256 !== expected.binary ||
-    origin.binary_sha256 !== expected.binary ||
+    origin.binary_sha256 !== config.binary_sha256 ||
     origin.classification_revision !== expected.classification ||
     origin.adapter_revision !== expected.revision ||
     contract.compiled.identity.revision !== expected.revision

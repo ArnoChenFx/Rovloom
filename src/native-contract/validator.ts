@@ -209,7 +209,13 @@ function shapeCapabilities(
   value: JsonObject,
   binding: Pick<NativeBinding, 'target' | 'server_generation'>
 ): Map<string, NativeMethodContract> {
-  if (!equal(value.protocol, { name: 'luvus-uhp', major: 1, minor: 0 })) {
+  const protocol = object(value.protocol, 'capability_invalid')
+  if (
+    protocol.name !== 'luvus-uhp' ||
+    protocol.major !== 1 ||
+    !Number.isSafeInteger(protocol.minor) ||
+    (protocol.minor as number) < 0
+  ) {
     fail('capability_invalid', 'discovery', 'protocol')
   }
   if (
@@ -238,22 +244,28 @@ function shapeCapabilities(
     fail('capability_invalid', 'discovery', 'profile')
   }
   const result = new Map<string, NativeMethodContract>()
+  const seen = new Set<string>()
   for (const raw of value.method_contracts) {
     const row = object(raw, 'capability_invalid')
-    if (!equal(Object.keys(row).sort(), ['access', 'idempotent', 'method', 'scope'])) {
-      fail('capability_invalid', 'discovery', 'unknown_method_contract_field')
+    if (typeof row.method !== 'string' || !value.methods.includes(row.method) || seen.has(row.method)) {
+      fail('capability_invalid', 'discovery', 'method_contract')
     }
+    seen.add(row.method)
     if (
-      typeof row.method !== 'string' ||
-      !value.methods.includes(row.method) ||
-      result.has(row.method) ||
       !SCOPES.has(row.scope as string) ||
       !['read', 'write'].includes(row.access as string) ||
       typeof row.idempotent !== 'boolean'
     ) {
-      fail('capability_invalid', 'discovery', 'method_contract')
+      // 未理解的授权语义只隔离此方法；不能把它投影成已审核能力。
+      continue
     }
-    result.set(row.method, row as unknown as NativeMethodContract)
+    // 诊断扩展不参与授权；描述和分类仅比较明确理解的原生字段。
+    result.set(row.method, {
+      method: row.method,
+      access: row.access,
+      scope: row.scope,
+      idempotent: row.idempotent
+    } as NativeMethodContract)
   }
   if (value.access !== undefined) {
     const access = object(value.access, 'capability_invalid')
@@ -270,7 +282,13 @@ function shapeCapabilities(
     }
   }
   if (binding.target.profile === 'session') {
-    validateTerminalCapabilities(value)
+    const limits = object(value.limits, 'capability_invalid')
+    if (!Number.isSafeInteger(limits.frame_bytes) || (limits.frame_bytes as number) <= 0) {
+      fail('capability_invalid', 'discovery', 'frame_limit')
+    }
+    if (value.terminal !== undefined) {
+      validateTerminalCapabilities(value)
+    }
   }
   return result
 }

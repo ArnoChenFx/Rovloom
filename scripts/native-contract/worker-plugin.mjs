@@ -1,6 +1,6 @@
 // 将两种固定编译 Worker 内嵌进 Bun 产物，避免打包后定位器引用源码或外部入口。
 import { fileURLToPath } from 'node:url'
-import { precompile } from './precompile.mjs'
+import { precompileHerdr } from './precompile-herdr.mjs'
 
 const entries = [
   {
@@ -48,7 +48,7 @@ async function embeddedWorker(entry) {
 // 保留原 Luvus 构建插件接口，并仅对两个受维护的固定定位模块提供同源内嵌代码。
 export async function compilerWorkerPlugin() {
   // 构建先在独立 Worker 重新完整编译并逐字节核对，过期资产不能进入模块或单文件。
-  await precompile()
+  await precompileHerdr()
   const contents = await Promise.all(entries.map(/* 分别生成两个固定入口的 Worker 代码。 */ embeddedWorker))
   return {
     name: 'rovloom-schema-worker',

@@ -13,7 +13,7 @@ Rovloom 是一个多机器 MCP 网关项目，同一发行产物提供 Gateway �
 - 一个 runtime provider binding 对应一个 Luvus 或 Herdr 实例；同 kind 的多个实例也各有独立 provider_id。runtime provider 与 LLM/model provider 是不同概念。
 - 每次调用使用显式 Target 和预期 binding revision；权限、契约、原生身份、去重、结果与流都隔离到该实例，禁止跨 provider 自动 failover。
 - 对外提供少量通用 MCP 工具，按目标发现和描述原生方法；普通 RPC、Host 与持续/双向流分别适配。
-- Luvus 的目标范围是受支持版本内获授权的 UHP 能力。Herdr 在固定 Linux x86_64、0.9.5/protocol 22 下实现 65 个普通 RPC，覆盖状态、workspace/tab/pane 管理、终端输入与 Agent 启动、prompt 和等待；其余 37 个原生方法尚未接入，更强保证须独立验证。
+- Luvus 的目标范围是协议与实际接口兼容且获授权的 UHP 能力。Herdr 当前在 Linux x86_64 接入最多 65 个普通 RPC（以实际安装 schema 为准），覆盖状态、workspace/tab/pane 管理、终端输入与 Agent 启动、prompt 和等待；其余 37 个原生方法尚未接入，更强保证须独立验证。
 
 ## 2. 用户需求与边界
 
@@ -50,7 +50,7 @@ Connector A                   Connector B
 三条边界独立认证：caller → Gateway；设备 Connector → Gateway；Connector → 本地原生实例。machine_id 不由 hostname/name 自报产生，epoch 或 welcome 也不能自行证明通道已认证。原生来源必须由本机受保护配置、endpoint 归属及平台身份核验建立；收到的消息、设备广告和 caller 参数不能自证 `authenticated/source_verified`。
 
 原生 binary/socket/进程核验属于 Connector。独立 Gateway 可只持受保护的完整 binding/Target
-与固定 binary/schema/adapter/classification pin，本地编译已审安装版 schema 原字节；不要求
+与本机实际安装的 binary/schema 身份及 adapter/classification 修订，本地编译安装版 schema 原字节；不要求
 本机 Luvus、HOME 或 native root。经既有认证 WSS 的同 epoch 实测快照与 canonical binding
 共同建立 Gateway 侧来源，信任范围是配置指定的 Connector 测量职责，不把远端报告称为本机
 内核测量。静态 pin 初始不就绪；断连、撤权、重绑或关闭使 live source 失效，新 epoch
@@ -168,11 +168,11 @@ Luvus 安装 schema 与 session/Host 在线能力分别核对；Herdr 安装 sch
 
 有效派发集合是以下约束的交集：原生支持依据、完整可信安全分类、已实现传输/子能力、适用的原生接入 scope、Gateway caller grant、Connector 本地 grant，以及独立管理/确认/秘密交付要求。参数校验另轴判断。每方必须存在同一个完整 Target + method + action 的授权组合，不能把独立 machines/providers/sessions/methods 数组拼成未授权的笛卡尔积。设备权限不自动授权新 provider。
 
-安全分类绑定确切 binary/schema/契约、目标与评审 revision，覆盖作用/副作用/幂等性/传输、高权限/确认、结果敏感性/交付/保留，控制或通用分派还须分类具体 action。原生 method_contracts 是核对输入，不是本地授权。缺失、未知、冲突或来源不可信一律拒绝；schema、方法前缀、caller、设备广告、Owner/raw 都不能补齐分类。Herdr 无等价完整分类时须固定版本的可信本地评审补足。
+安全分类绑定确切 binary/schema/契约、目标与评审 revision，覆盖作用/副作用/幂等性/传输、高权限/确认、结果敏感性/交付/保留，控制或通用分派还须分类具体 action。原生 method_contracts 是核对输入，不是本地授权。缺失、未知、冲突或来源不可信一律拒绝；schema、方法前缀、caller、设备广告、Owner/raw 都不能补齐分类。Herdr 无等价在线分类时使用已接入操作的可信本地分类；单方法缺失或不兼容只拒绝依赖操作，不能据此拒绝其它健康方法。
 
 strict 必须应用完整根、条件和离线引用闭包，并有方法参数约束；generic/unavailable 不能标完整。Owner 显式选择 raw-contract 且有绑定 principal、完整目标、精确方法、版本/revisions/期限的独立 grant 时，只可放宽明确的参数覆盖缺口。保留所有已有约束、有界 envelope、保留字段、来源、传输、安全分类、权限和结果边界；已知参数不合法不能降格放行。整个 bundle 不可用且没有独立受信最小 request/response 契约时仍拒绝；完全无 bundle 的 raw 路径待另行设计。
 
-schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。首版 Luvus 只接纳已审核并精确 pin 的安装版 schema 原字节：每次在同版本 Bun Worker 内完整预检后，精确 binary/schema SHA 可复用经独立摘要核对的内嵌官方资产，其余继续完整 Ajv 编译与 standalone 生成。固定资产由独立构建 Worker 全量编译产生，每次构建重新生成核对，不通过现有资产自证；宿主只加载受控生成函数，不重编译 schema，并逐次登记独立 opaque handle。编译接纳期限为 2 秒，覆盖启动、预检、资产核对或生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
+schema 只从接纳的本地 bundle 闭包解析，URL 是索引，不联网/读任意文件补 `$ref`；缺引用、未知方言或无法应用的约束失败关闭。不补默认值、不类型转换、不删字段。describe 裁剪只用于展示，执行仍检查完整根。兼容性按实际协议、完整 schema 与方法能力判断，版本仅作提示和诊断，不设原生版本或预设 binary/schema 摘要白名单。安装摘要仍用于真实来源绑定及防替换；可选接口缺失只影响依赖功能。安装版 schema 使用实际原字节：每次在同版本 Bun Worker 内完整预检后，精确 binary/schema SHA 可复用经独立摘要核对的内嵌官方资产，其余继续完整 Ajv 编译与 standalone 生成。固定资产由独立构建 Worker 全量编译产生，每次构建重新生成核对，不通过现有资产自证；宿主只加载受控生成函数，不重编译 schema，并逐次登记独立 opaque handle。编译接纳期限为 2 秒，覆盖启动、预检、资产核对或生成、消息和宿主代码初始化；取消或超时立即撤销任务代次、请求终止 Worker 并拒绝迟到产物，故障后不自动补建。每进程至多一个在途任务、无排队；输入、引用闭包及生成源码分别有界。首版不承诺 64 MiB 硬 heap 隔离或线程在指定时刻物理退出；Worker 终止、`smol`、结构计量及定时器均不证明这些能力。宿主代码解析和后续同步校验也没有硬实时 CPU/heap 隔离。准确 API、生成物接纳和资源边界见 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
 派发与流输入前核对当前双端 binding、策略、分类、能力、epoch、generation 及 deadline；任一失效拒绝，不能透明降级。缓存按完整来源和上下文失效。发现、安全分类、参数覆盖、传输与支持状态分别呈现，不合成一个“支持”标记。
 

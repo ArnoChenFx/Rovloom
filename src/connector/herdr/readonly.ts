@@ -42,7 +42,7 @@ import type { HerdrSource } from './source.js'
 
 /** 宿主从安装 schema 完整根编译的校验器；编译须先满足独立 worker 的资源门禁。 */
 export interface HerdrSchemas {
-  readonly binary_sha256: string
+  readonly protocol: number
   readonly schema_sha256: string
   readonly dialect: 'https://json-schema.org/draft/2020-12/schema'
   /** 校验完整 request 根，不使用 describe 裁剪或仅 method/params 分支。 */
@@ -74,13 +74,13 @@ export interface HerdrReadonlyBackend extends Pick<
   subscribeInvalidation(listener: (event: LedgerInvalidation) => void): () => void
 }
 
-/** 校验固定外部来源与分类 revision；未知版本、原生 generation 或 catalog 声明均拒绝。 */
+/** 核对实际 schema/协议与适配分类修订；版本只作诊断，不接受虚构 generation 或 catalog 声明。 */
 function reviewedSource(source: ContractSource, schemas: HerdrSchemas): void {
   validateContractSource(source)
   if (
     !isReviewedHerdrSource(source) ||
-    schemas.binary_sha256 !== source.binary_sha256 ||
     schemas.schema_sha256 !== source.schema_sha256 ||
+    String(schemas.protocol) !== source.native_protocol_version ||
     schemas.dialect !== 'https://json-schema.org/draft/2020-12/schema'
   ) {
     fail('herdr_contract_unreviewed')
@@ -148,7 +148,7 @@ function responseFrame(
     }
     if (result.type === 'pong' || result.type === 'session_snapshot') {
       const state = result.type === 'pong' ? result : object(result.snapshot)
-      if (state.version !== source.server_version || state.protocol !== HERDR_READONLY_REVIEW.protocol) {
+      if (String(state.protocol) !== source.native_protocol_version) {
         fail('herdr_native_response_invalid')
       }
     }

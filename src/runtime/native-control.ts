@@ -1,4 +1,4 @@
-/** 内部控制口只启动固定 Luvus child 并执行有限来源/凭据引导 RPC，不是公开 native 调用通道。 */
+/** 内部控制口只启动本机配置指定的 Luvus child 并执行有限来源/凭据引导 RPC，不是公开 native 调用通道。 */
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { compileBundle, createNativeValidator, parseNativeJson } from '../native-contract/index.js'
@@ -9,14 +9,16 @@ import type { EndpointIdentity, LuvusLocalConfig } from '../connector/luvus/inde
 import {
   localLimits,
   pinConfig,
+  measureLuvusInstallation,
   verifyInstallation,
   inspectEndpoint,
   recheckEndpoint
 } from '../connector/luvus/local.js'
-import { runFixedProcess, runSocket } from '../connector/luvus/io.js'
+import { deadline, runFixedProcess, runSocket } from '../connector/luvus/io.js'
 import { parseRpcFrame } from '../connector/luvus/adapter.js'
 import { OwnedNativeProcess, ownedPathStamp } from './native-process.js'
 
+// 历史离线证据与预编译缓存标识，不用于安装接纳。
 export const FIXED_LUVUS_SHA256 = '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9'
 export const FIXED_LUVUS_SCHEMA_SHA256 = '00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6'
 const controlBrand = Symbol('controlled-luvus-session')
@@ -25,10 +27,69 @@ export interface ControlledLuvusSession {
   readonly config: LuvusLocalConfig & { readonly transport: 'ipc' }
   readonly process: OwnedNativeProcess
   readonly endpoint: EndpointIdentity
+  readonly binaryVersion: string
   readonly compiled: CompiledContract
 }
 type ControlState = Readonly<{ assertOwnership(): void; endpointStamp: string }>
 const sessions = new WeakMap<ControlledLuvusSession, ControlState>()
+
+/** 读取版本仅供诊断；命令不支持或格式未知不影响其它兼容接口，身份与取消错误照常保留。 */
+export async function readLuvusVersion(config: LuvusLocalConfig, signal: AbortSignal): Promise<string> {
+  const scope = deadline(signal, Math.min(1000, localLimits(config.limits).timeout_ms))
+  try {
+    const output = await runFixedProcess(config, localLimits(config.limits), 'version', scope.signal)
+    const value = output.stdout
+      .toString('utf8')
+      .trim()
+      .replace(/^luvus\s+/i, '')
+    return output.exit_code === 0 &&
+      value.length > 0 &&
+      value.length <= 128 &&
+      [...value].every(
+        /** 诊断标签不得携带终端控制字符。 */ (character) =>
+          character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127
+      )
+      ? value
+      : 'unavailable'
+  } catch (error) {
+    if (error instanceof LuvusAdapterError && error.code === 'native_timeout' && !signal.aborted) {
+      return 'unavailable'
+    }
+    throw error
+  } finally {
+    scope.close()
+  }
+}
+
+/** 从实际本机安装准备内部配置与完整编译契约；调用方不需要提供发行版 pin，不启动 server。 */
+export async function discoverLuvusInstallation(
+  input: Omit<LuvusLocalConfig, 'binary_sha256'>,
+  options: Readonly<{ revision: string; signal: AbortSignal }>
+): Promise<Readonly<{ config: LuvusLocalConfig; binaryVersion: string; compiled: CompiledContract }>> {
+  const measured = await measureLuvusInstallation(input.binary)
+  const config = pinConfig({ ...input, binary_sha256: measured.sha256 })
+  const binaryVersion = await readLuvusVersion(config, options.signal)
+  const schema = await runFixedProcess(config, localLimits(config.limits), 'schema', options.signal)
+  if (schema.exit_code !== 0) {
+    throw new LuvusAdapterError('native_schema_unavailable')
+  }
+  const compiled = await compileBundle(
+    schema.stdout,
+    {
+      identity: {
+        binary_sha256: measured.sha256,
+        schema_sha256: createHash('sha256').update(schema.stdout).digest('hex'),
+        revision: options.revision
+      }
+    },
+    options.signal
+  )
+  if (!compiled.ok) {
+    throw new LuvusAdapterError(compiled.error.code)
+  }
+  await verifyInstallation(config)
+  return Object.freeze({ config, binaryVersion, compiled: compiled.value })
+}
 
 /** 每次核验真实受控 child、endpoint 与独立目录所有权；控制 handle 不从 JSON 重建。 */
 export function assertControlledLuvus(session: ControlledLuvusSession): void {
@@ -43,18 +104,13 @@ export function assertControlledLuvus(session: ControlledLuvusSession): void {
   }
 }
 
-/** 从受保护固定安装启动本轮 child；失败清理也须确认真实退出，绝不从发现 PID 认领或补杀。 */
+/** 从受保护的实际安装启动本轮 child；失败清理也须确认真实退出，绝不从发现 PID 认领或补杀。 */
 export async function startControlledLuvus(
   config: LuvusLocalConfig,
   options: Readonly<{ revision: string; signal: AbortSignal; assertOwnership(): void }>
 ): Promise<ControlledLuvusSession> {
   const fixed = pinConfig(config)
-  if (
-    fixed.transport !== 'ipc' ||
-    fixed.binary_sha256 !== FIXED_LUVUS_SHA256 ||
-    process.arch !== 'x64' ||
-    !process.versions.bun
-  ) {
+  if (fixed.transport !== 'ipc' || process.arch !== 'x64' || !process.versions.bun) {
     throw new LuvusAdapterError('native_control_installation_unsupported')
   }
   const limits = localLimits(fixed.limits)
@@ -62,27 +118,7 @@ export async function startControlledLuvus(
   try {
     options.assertOwnership()
     await verifyInstallation(fixed)
-    const schema = await runFixedProcess(fixed, limits, 'schema', options.signal)
-    if (
-      schema.exit_code !== 0 ||
-      createHash('sha256').update(schema.stdout).digest('hex') !== FIXED_LUVUS_SCHEMA_SHA256
-    ) {
-      throw new LuvusAdapterError('native_control_schema_mismatch')
-    }
-    const compiled = await compileBundle(
-      schema.stdout,
-      {
-        identity: {
-          binary_sha256: fixed.binary_sha256,
-          schema_sha256: FIXED_LUVUS_SCHEMA_SHA256,
-          revision: options.revision
-        }
-      },
-      options.signal
-    )
-    if (!compiled.ok) {
-      throw new LuvusAdapterError(compiled.error.code)
-    }
+    const discovery = await discoverLuvusInstallation(fixed, options)
     options.assertOwnership()
     child = new OwnedNativeProcess(fixed)
     await child.started()
@@ -126,7 +162,8 @@ export async function startControlledLuvus(
       config: fixed as LuvusLocalConfig & { readonly transport: 'ipc' },
       process: child,
       endpoint,
-      compiled: compiled.value
+      binaryVersion: discovery.binaryVersion,
+      compiled: discovery.compiled
     })
     sessions.set(session, {
       assertOwnership: options.assertOwnership,
