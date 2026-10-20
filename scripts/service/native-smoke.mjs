@@ -180,6 +180,24 @@ async function startDiagnostic() {
   assert.equal(observed.state, 'failed')
   const resultFile = join(root, 'start-diagnostic-result.json')
   const requestFile = join(root, 'start-diagnostic-request.json')
+  const argvFile = join(root, 'argv-diagnostic.json')
+  const argvExecutable = join(root, 'argv-probe.exe')
+  // 独立小型Bun样例只观测同一原生任务的argv/stdio，不修改或重编产品二进制。
+  const argvBuild = await Bun.build({
+    entrypoints: [fileURLToPath(new URL('../../test/service/windows-argv-fixture.ts', import.meta.url))],
+    target: 'bun',
+    env: 'disable',
+    define: { WINDOWS_ARGV_REPORT: JSON.stringify(argvFile) },
+    compile: {
+      outfile: argvExecutable,
+      autoloadDotenv: false,
+      autoloadBunfig: false,
+      autoloadTsconfig: false,
+      autoloadPackageJson: false,
+      windows: { hideConsole: false }
+    }
+  })
+  assert.equal(argvBuild.success, true)
   const argumentsText = ['gateway', '--config', config].map(windowsQuote).join(' ')
   writeFileSync(
     requestFile,
@@ -195,7 +213,7 @@ async function startDiagnostic() {
         { operation: 'version', arguments: windowsQuote('--version'), timeout: 2000 },
         {
           operation: 'config_check',
-          arguments: ['config', 'check', '--path', config].map(windowsQuote).join(' '),
+          arguments: ['config', 'check', '--config', config].map(windowsQuote).join(' '),
           timeout: 2000
         },
         { operation: 'gateway', arguments: argumentsText, timeout: 3000 }
@@ -215,30 +233,41 @@ $s.Connect()
 $folder=$s.GetFolder('\\')
 $original=$folder.GetTask('rovloom-gateway')
 if ($original.Definition.RegistrationInfo.Description -cne $p.marker -or [int]$original.State -notin @(1,3) -or $original.GetInstances(0).Count -ne 0) { exit 1 }
-$definition=$s.NewTask(0)
-$definition.XmlText=$original.Xml
-$definition.RegistrationInfo.Description=$p.diagnosticMarker
-$definition.Triggers.Clear()
-$definition.Actions.Clear()
-$definition.Settings.ExecutionTimeLimit='PT20S'
-$action=$definition.Actions.Create(0)
-$action.Path='C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-$action.Arguments=$p.arguments
-$action.WorkingDirectory=$p.directory
-$task=$folder.RegisterTaskDefinition($p.name,$definition,2,$definition.Principal.UserId,$null,2,$null)
-try {
-  $null=$task.Run($null)
-  $until=[DateTime]::UtcNow.AddSeconds(15)
-  while (![IO.File]::Exists($p.result) -and [DateTime]::UtcNow -lt $until) { [Threading.Thread]::Sleep(100) }
-  if ([IO.File]::Exists($p.result)) { [Console]::Write([IO.File]::ReadAllText($p.result,[Text.UTF8Encoding]::new($false))) }
-  else { [Console]::Write($json.Serialize(@{phase='diagnostic_result_missing';state=[int]$task.State;exitCode=[long]$task.LastTaskResult})) }
-} finally {
-  # 只回收本次TASK_CREATE成功且仍持有同一诊断清单的任务，不触碰同名未知对象。
-  $current=$folder.GetTask($p.name)
-  if ($current.Definition.RegistrationInfo.Description -cne $p.diagnosticMarker) { throw 'diagnostic_task_conflict' }
-  if ($current.GetInstances(0).Count -gt 0 -or [int]$current.State -in @(2,4)) { $current.Stop(0) }
-  if ($current.GetInstances(0).Count -eq 0 -and [int]$current.State -in @(1,3)) { $folder.DeleteTask($p.name,0) }
+# 两份一次性手动任务共用原账户和目录；仅回收TASK_CREATE成功且清单仍完全相同的任务。
+function capture($operation,$executable,$arguments,$resultPath) {
+  $name=$p.name+'-'+$operation
+  $marker=$p.diagnosticMarker+'-'+$operation
+  $definition=$s.NewTask(0)
+  $definition.XmlText=$original.Xml
+  $definition.RegistrationInfo.Description=$marker
+  $definition.Triggers.Clear()
+  $definition.Actions.Clear()
+  $definition.Settings.ExecutionTimeLimit='PT20S'
+  $action=$definition.Actions.Create(0)
+  $action.Path=$executable
+  $action.Arguments=$arguments
+  $action.WorkingDirectory=$p.directory
+  $task=$folder.RegisterTaskDefinition($name,$definition,2,$definition.Principal.UserId,$null,2,$null)
+  $report=@{phase='diagnostic_result_missing'}
+  try {
+    $null=$task.Run($null)
+    $until=[DateTime]::UtcNow.AddSeconds(15)
+    while (![IO.File]::Exists($resultPath) -and [DateTime]::UtcNow -lt $until) { [Threading.Thread]::Sleep(100) }
+    if ([IO.File]::Exists($resultPath)) { $report=$json.DeserializeObject([IO.File]::ReadAllText($resultPath,[Text.UTF8Encoding]::new($false))) }
+    elseif ([IO.File]::Exists($resultPath+'.phase')) { $report=$json.DeserializeObject([IO.File]::ReadAllText($resultPath+'.phase',[Text.UTF8Encoding]::new($false))) }
+    $report['taskState']=[int]$task.State
+    $report['taskResult']=[long]$task.LastTaskResult
+  } finally {
+    $current=$folder.GetTask($name)
+    if ($current.Definition.RegistrationInfo.Description -cne $marker) { throw 'diagnostic_task_conflict' }
+    if ($current.GetInstances(0).Count -gt 0 -or [int]$current.State -in @(2,4)) { $current.Stop(0) }
+    if ($current.GetInstances(0).Count -eq 0 -and [int]$current.State -in @(1,3)) { $folder.DeleteTask($name,0) }
+  }
+  return $report
 }
+$argv=capture 'argv' $p.argvExecutable $p.roleArguments $p.argvResult
+$product=capture 'product' 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' $p.arguments $p.result
+[Console]::Write($json.Serialize(@{argvProbe=$argv;product=$product}))
 `
   const result = await runSystemCommand({
     executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
@@ -256,6 +285,9 @@ try {
       name: 'rovloom-start-diagnostic-' + root.split(/[\\/]/u).at(-1),
       directory: root,
       result: resultFile,
+      argvExecutable,
+      argvResult: argvFile,
+      roleArguments: argumentsText,
       arguments: [
         '-NoLogo',
         '-NoProfile',
@@ -269,7 +301,7 @@ try {
         .map(windowsQuote)
         .join(' ')
     }),
-    timeout: 20000
+    timeout: 35000
   })
   if (result.stdout) {
     process.stderr.write(
