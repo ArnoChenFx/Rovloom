@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import type { ChildProcess, SpawnOptions, spawn } from 'node:child_process'
-import { createSystemCommandRunner } from '../../src/service/runner.js'
+import { createSystemCommandRunner, SystemCommandError } from '../../src/service/runner.js'
 
 class Child extends EventEmitter {
   stdin = new PassThrough()
@@ -63,10 +63,18 @@ test(
   /* 合成模型永久缺失exit/close，不能把未知执行洗成普通超时。 */ async () => {
     const child = new Child()
     const run = runner(child)
-    await assert.rejects(/* 完整await证明Promise在回收期限内结算。 */ () => run(plan), {
-      code: 'service_recovery_required',
-      phase: 'cleanup_unknown'
-    })
+    await assert.rejects(
+      /* 完整await证明Promise在回收期限内结算。 */ () => run(plan),
+      /* 恢复保护保留最初期限及其阶段，不能只剩一个无法定位的回收错误。 */ (error: unknown) => {
+        assert(error instanceof SystemCommandError)
+        assert.equal(error.code, 'service_recovery_required')
+        assert.equal(error.phase, 'cleanup_unknown')
+        assert(error.cause instanceof SystemCommandError)
+        assert.equal(error.cause.code, 'service_timeout')
+        assert.equal(error.cause.phase, 'starting')
+        return true
+      }
+    )
     assert.equal(child.kills, 1)
     assert.equal(child.detached, true)
     // 晚到close只清理模型引用，不得再次结算、重发动作或按PID恢复。
