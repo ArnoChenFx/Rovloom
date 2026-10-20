@@ -4,10 +4,57 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
+import { spawn, type SpawnOptions } from 'node:child_process'
 import { renderDefinition } from '../../src/service/render.js'
-import { runSystemCommand } from '../../src/service/runner.js'
+import { createSystemCommandRunner, runSystemCommand, type CommandPlan } from '../../src/service/runner.js'
 import { sampleSpec } from './helpers.js'
 import { taskCall, TASK_DEFINITION_FUNCTIONS } from '../../src/service/windows.js'
+
+// 只观察本次桥已有的stderr和子进程阶段；不另起观察进程，不注册任务，也不重试失败操作。
+async function bridgeProbe(plan: CommandPlan) {
+  const stages = ['script_started', 'serializer_loaded', 'input_read', 'scheduler_connected']
+  let phase = 'not_started'
+  let progress = ''
+  let script = Buffer.from(plan.args.at(-1)!, 'base64').toString('utf16le')
+  for (const [before, stage] of [
+    ["$ErrorActionPreference = 'Stop'", 'script_started'],
+    ['$json = ', 'serializer_loaded'],
+    ['  if ($p.name', 'input_read'],
+    ['  $folder = ', 'scheduler_connected']
+  ]) {
+    script = script.replace(before!, `[Console]::Error.WriteLine('rovloom_probe_${stage}')\n${before}`)
+  }
+  const run = createSystemCommandRunner({
+    start: /* 仅在测试中读取固定进度标记，不记录系统正文、路径或输入JSON。 */ ((
+      file: string,
+      args: readonly string[],
+      options: SpawnOptions
+    ) => {
+      const child = spawn(file, args, options)
+      child.stderr?.on(
+        'data',
+        /* 进度观察有界，失败时只保留固定阶段。 */ (bytes: Buffer) => {
+          progress = (progress + bytes.toString('utf8')).slice(-512)
+          for (const stage of stages) {
+            if (progress.includes('rovloom_probe_' + stage)) {
+              phase = stage
+            }
+          }
+        }
+      )
+      return child
+    }) as typeof spawn
+  })
+  try {
+    return await run({
+      ...plan,
+      args: [...plan.args.slice(0, -1), Buffer.from(script, 'utf16le').toString('base64')],
+      timeout: 10000
+    })
+  } catch (error) {
+    throw new Error('native_bridge_phase_' + phase, { cause: error })
+  }
+}
 
 test(
   '实际宿主原生解析器接受开机声明且不执行注册或启动',
@@ -31,6 +78,8 @@ $ErrorActionPreference='Stop'
 ${TASK_DEFINITION_FUNCTIONS}
 [void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
 $json=[System.Web.Script.Serialization.JavaScriptSerializer]::new()
+if (!$env:USERPROFILE -or !$env:TEMP) { exit 2 }
+[IO.File]::WriteAllText($PhasePath,'environment_ready')
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText($PhasePath,'encoding_set')
 $xml=[IO.File]::ReadAllText($XmlPath,[Text.UTF8Encoding]::new($false))
@@ -100,6 +149,7 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
               if (
                 [
                   'script_started',
+                  'environment_ready',
                   'encoding_set',
                   'xml_read',
                   'clr_ready',
@@ -142,14 +192,7 @@ if (process.platform === 'win32') {
     'Windows固定JSON桥独立完成只读授权，不注册任务',
     { timeout: 12000 },
     /* 测试限定自身工具预算十秒，生产默认期限不变；失败照常让整体CI失败。 */ async () => {
-      assert.deepEqual(
-        await taskCall(
-          /* 一个测试只持有一次工具的启动、操作和回收预算。 */ (plan) => runSystemCommand({ ...plan, timeout: 10000 }),
-          'authorize',
-          'gateway'
-        ),
-        { ok: true }
-      )
+      assert.deepEqual(await taskCall(bridgeProbe, 'authorize', 'gateway'), { ok: true })
     }
   )
 }

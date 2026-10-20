@@ -7,8 +7,9 @@ import { userInfo } from 'node:os'
 import { createServer } from 'node:net'
 import { once } from 'node:events'
 import { join } from 'node:path'
-import { configDocument, configTemplate } from '../../src/cli/config.ts'
-import { renderDefinition } from '../../src/service/render.ts'
+import { CLI_ERROR_CODES, configDocument, configTemplate } from '../../src/cli/config.ts'
+import { renderDefinition, windowsQuote } from '../../src/service/render.ts'
+import { fileURLToPath } from 'node:url'
 import { createNativeServiceBackend } from '../../src/service/native.ts'
 import { manifest } from '../../src/service/spec.ts'
 import { runSystemCommand } from '../../src/service/runner.ts'
@@ -172,6 +173,112 @@ $e.Principal.LogonType=2
   }
 }
 
+// 仅原任务已退出且清单完全一致时，在同一S4U账户启动一次手动诊断任务；不重试原service动作。
+async function startDiagnostic() {
+  const observed = await native.inspect('gateway')
+  assert.equal(manifest(observed.spec), manifest(spec))
+  assert.equal(observed.state, 'failed')
+  const resultFile = join(root, 'start-diagnostic-result.json')
+  const requestFile = join(root, 'start-diagnostic-request.json')
+  const argumentsText = ['gateway', '--config', config].map(windowsQuote).join(' ')
+  writeFileSync(
+    requestFile,
+    JSON.stringify({
+      scope: 'disposable-native-service-start',
+      executable,
+      config,
+      directory: root,
+      arguments: argumentsText,
+      result: resultFile,
+      errorCodes: [...CLI_ERROR_CODES, 'runtime_failed', 'config_valid', 'pairing_required'],
+      plans: [
+        { operation: 'version', arguments: windowsQuote('--version'), timeout: 2000 },
+        {
+          operation: 'config_check',
+          arguments: ['config', 'check', '--path', config].map(windowsQuote).join(' '),
+          timeout: 2000
+        },
+        { operation: 'gateway', arguments: argumentsText, timeout: 3000 }
+      ]
+    }),
+    'utf8'
+  )
+  const script = `
+$ErrorActionPreference='Stop'
+[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$json=[System.Web.Script.Serialization.JavaScriptSerializer]::new()
+$p=$json.DeserializeObject([Console]::In.ReadToEnd())
+$s=[Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service',$true))
+$s.Connect()
+$folder=$s.GetFolder('\\')
+$original=$folder.GetTask('rovloom-gateway')
+if ($original.Definition.RegistrationInfo.Description -cne $p.marker -or [int]$original.State -notin @(1,3) -or $original.GetInstances(0).Count -ne 0) { exit 1 }
+$definition=$s.NewTask(0)
+$definition.XmlText=$original.Xml
+$definition.RegistrationInfo.Description=$p.diagnosticMarker
+$definition.Triggers.Clear()
+$definition.Actions.Clear()
+$definition.Settings.ExecutionTimeLimit='PT20S'
+$action=$definition.Actions.Create(0)
+$action.Path='C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+$action.Arguments=$p.arguments
+$action.WorkingDirectory=$p.directory
+$task=$folder.RegisterTaskDefinition($p.name,$definition,2,$definition.Principal.UserId,$null,2,$null)
+try {
+  $null=$task.Run($null)
+  $until=[DateTime]::UtcNow.AddSeconds(15)
+  while (![IO.File]::Exists($p.result) -and [DateTime]::UtcNow -lt $until) { [Threading.Thread]::Sleep(100) }
+  if ([IO.File]::Exists($p.result)) { [Console]::Write([IO.File]::ReadAllText($p.result,[Text.UTF8Encoding]::new($false))) }
+  else { [Console]::Write($json.Serialize(@{phase='diagnostic_result_missing';state=[int]$task.State;exitCode=[long]$task.LastTaskResult})) }
+} finally {
+  # 只回收本次TASK_CREATE成功且仍持有同一诊断清单的任务，不触碰同名未知对象。
+  $current=$folder.GetTask($p.name)
+  if ($current.Definition.RegistrationInfo.Description -cne $p.diagnosticMarker) { throw 'diagnostic_task_conflict' }
+  if ($current.GetInstances(0).Count -gt 0 -or [int]$current.State -in @(2,4)) { $current.Stop(0) }
+  if ($current.GetInstances(0).Count -eq 0 -and [int]$current.State -in @(1,3)) { $folder.DeleteTask($p.name,0) }
+}
+`
+  const result = await runSystemCommand({
+    executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    args: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-STA',
+      '-EncodedCommand',
+      Buffer.from(script, 'utf16le').toString('base64')
+    ],
+    input: JSON.stringify({
+      marker: manifest(spec),
+      diagnosticMarker: 'Rovloom disposable start diagnostic ' + root,
+      name: 'rovloom-start-diagnostic-' + root.split(/[\\/]/u).at(-1),
+      directory: root,
+      result: resultFile,
+      arguments: [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-STA',
+        '-File',
+        fileURLToPath(new URL('./windows-start-diagnostic.ps1', import.meta.url)),
+        '-RequestPath',
+        requestFile
+      ]
+        .map(windowsQuote)
+        .join(' ')
+    }),
+    timeout: 20000
+  })
+  if (result.stdout) {
+    process.stderr.write(
+      JSON.stringify({ scope: 'disposable-native-service-start', ...JSON.parse(result.stdout) }) + '\n'
+    )
+  }
+  assert.equal(result.code, 0)
+}
+
 try {
   if (native) {
     await native.authorize()
@@ -269,6 +376,13 @@ try {
     } catch {
       // 只读诊断失败不替代最初失败；未知任务不输出或修改。
     }
+    if (phase === 'start') {
+      try {
+        await startDiagnostic()
+      } catch {
+        process.stderr.write('disposable_native_start_diagnostic_failed\n')
+      }
+    }
   }
 }
 
@@ -289,9 +403,9 @@ try {
   } else if (native ? (await native.inspect('gateway')) === undefined : !existsSync(definition)) {
     cleaned = true
   }
-  if (cleaned) {
+  if (cleaned && !failure) {
     rmSync(root, { recursive: true, force: true })
-  } else {
+  } else if (!cleaned) {
     throw new Error('native_service_cleanup_unconfirmed_fixture_retained')
   }
 } catch (error) {
