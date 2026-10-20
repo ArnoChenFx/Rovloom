@@ -44,8 +44,11 @@ rovloom service stop --role gateway
 
 Installation records the current standalone executable and absolute role config.
 An explicit `--executable` must refer to that same product. Without `--config`,
-the shared role-path helper uses the selected account's home, not the installer
-HOME. `--workdir` must exist. Existing configuration is checked for JSON/role
+installation selects the same current-user role file as foreground startup and
+stores its absolute path. Background startup does not resolve another home.
+When invoking through sudo, pass the original user's absolute config path explicitly.
+`--user` selects the runtime account, not another configuration directory.
+`--workdir` must exist. Existing configuration is checked for JSON/role
 errors; missing configuration is left for normal first startup to generate.
 The service installer does not impose UID/mode, ACL, ancestor or file-ID rules,
 change existing permissions, create accounts or automatically elevate itself.
@@ -98,7 +101,8 @@ Linux 使用系统 unit，macOS 使用 system LaunchDaemon，Windows 使用 Loca
 开机任务，不使用登录任务或把普通控制台程序冒充 SCM 服务。系统服务需要正常 OS 授权；
 CLI 不自动提权、不创建账户、不修改已有系统权限。
 
-登记引用当前单文件及绝对角色配置；缺省配置路径按所选服务账户 home 复用唯一 helper。
+登记引用当前单文件及与前台相同的角色配置绝对路径；后台不再按运行账户另选home。
+通过sudo安装时显式传入原用户配置绝对路径。`--user`只选择运行账户，不另建配置目录。
 工作目录应存在。已有文件检查 JSON/角色错误，缺失配置由正常首次启动生成。安装器不以
 UID/mode、ACL、祖先防替换或文件 ID 作为前提。服务不进入交互配对/初始化；stdin 为空。
 本机 native Connector 仍限 Linux x64，监管 running 不证明 provider/Agent 就绪。

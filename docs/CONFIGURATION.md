@@ -270,7 +270,7 @@ role. There is no default role, `all` role, `--now`, `--force`, `--purge` or
 |---|---|---|
 | `--role` | Required enum `gateway` or `connector`; no default | Select the role whose startup/instance is managed. |
 | `--executable` | Install-only, optional absolute path string, at most 4096 characters; defaults to the current standalone binary | Must equal the current canonical executable. Another installation, shell or interpreter is rejected. Windows path must end in `.exe`. |
-| `--config` | Install-only, optional absolute path string, at most 4096 characters | Explicit role configuration. If omitted, uses the selected `--user` account's verified home and the shared `~/.config/rovloom/gateway.json` or `connector.json` rule; an unavailable verified identity requires an explicit path (`config_path_required`). Do not infer a pre-elevation home from environment variables. |
+| `--config` | Install-only, optional absolute path string, at most 4096 characters | Uses the same current-user role file as foreground startup when omitted. Installation fixes this absolute path; background startup does not select another home. Pass the original user's absolute file explicitly when invoking through sudo. |
 | `--workdir` | Install-only, required absolute directory string, at most 4096 characters; no default | Working directory of the service; does not set or replace JSON `data.directory`. |
 | `--user` | Install-only, required account string; no default | Existing non-root account on Linux/macOS. Windows accepts only LocalService SID `S-1-5-19`, without a password. |
 
@@ -278,8 +278,8 @@ Service path values are fixed at install time; later boot/start/restart uses the
 recorded absolute role configuration, rather than resolving a new home. The installer
 checks normal product, account, working-directory and existing JSON/role inputs;
 it does not impose ownership/permission or ACL rules. Missing state/config files
-are handled by normal role startup. Linux uses the selected system account's home,
-not the controller HOME. Linux working directories cannot end in whitespace or a backslash.
+are handled by normal role startup. The runtime account does not select a second
+configuration directory. Linux working directories cannot end in whitespace or a backslash.
 
 The service action semantics keep installation and running state separate:
 install then start would request both boot startup and immediate running;

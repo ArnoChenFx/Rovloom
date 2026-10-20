@@ -222,14 +222,14 @@ Windows产品服务生命周期仍不可用；原生格式解析不等于生命�
 |---|---|---|
 | `--role` | 必填 enum `gateway` 或 `connector`，无默认 | 选择要管理其自启/实例的角色。 |
 | `--executable` | 仅 install，可选绝对路径 string，≤4096 字符，默认当前单文件程序 | 必须等于当前规范可执行路径；拒绝另一安装、shell 或解释器。Windows 路径须以 `.exe` 结尾。 |
-| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 显式角色配置。省略时从所选 `--user` 服务账户的系统记录取得 home，再复用共享的 `~/.config/rovloom/gateway.json` 或 `connector.json` 规则；无法验证身份时必须显式传入（`config_path_required`），不根据环境变量猜测提权前 home。 |
+| `--config` | 仅 install，可选绝对路径 string，≤4096 字符 | 省略时与前台使用当前用户同一份角色文件。安装固定其绝对路径，后台不另选home；通过sudo执行时显式传原用户文件的绝对路径。 |
 | `--workdir` | 仅 install，必填绝对目录 string，≤4096 字符，无默认 | 服务工作目录，不设置或替代 JSON 的 `data.directory`。 |
 | `--user` | 仅 install，必填账户 string，无默认 | Linux/macOS 上既有非 root 账户；Windows 仅接受 LocalService SID `S-1-5-19`，不使用密码。 |
 
 服务路径在安装时固定，后续开机/start/restart 使用已记录的绝对角色配置，不重新解析 home。
 安装使用正常系统服务授权与明确的运行账户，不增加文件UID/mode/ACL或祖先限制；
 不创建账户、不修改已有权限。Windows使用LocalService，不自动切换为SYSTEM。
-Linux宿主从系统账户记录选择默认配置路径，不读取安装管理员HOME。安装不启动角色，
+运行账户不决定第二套配置目录。安装不启动角色，
 不预先要求状态目录存在；角色正常启动继续处理配置与连接错误。
 Linux 工作目录不得以空白或反斜杠结尾。
 
