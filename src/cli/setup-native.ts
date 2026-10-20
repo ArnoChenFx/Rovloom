@@ -19,6 +19,7 @@ import { readSetupJson, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
 import { setupReference, setupTarget } from './setup-policy.js'
 import { SetupTerminal } from './setup-terminal.js'
+import { connectorNativePrompt } from './setup-prompts.js'
 
 export type PreparedSetupNative = Readonly<{
   schema_version: 1
@@ -92,13 +93,7 @@ export async function prepareSetupNative(
     return prepared(existing, attempt, credential.machine_id, config)
   }
   const binary = luvusBinary(config)
-  if (
-    !(await terminal.confirm(
-      config.allow_terminal_execution === true
-        ? 'Discover Luvus and create isolated state (terminal execution ENABLED in user config)? / 发现 Luvus 并创建隔离状态（用户配置已开启终端执行）？'
-        : 'Discover this Luvus installation and create its isolated local state (terminal execution disabled)? / 发现 Luvus 并创建隔离状态（关闭终端执行）？'
-    ))
-  ) {
+  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution)))) {
     throw new CliError('configuration_required')
   }
   const control = join(config.state_dir, 'control')
