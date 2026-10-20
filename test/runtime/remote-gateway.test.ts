@@ -38,11 +38,13 @@ import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
 import { RuntimeGatewayService } from '../../src/mcp/runtime-service.js'
 import { httpFixture } from '../mcp/http-fixture.js'
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
-import type { ReplyData } from '../../src/mcp/types.js'
+import { SERVICE_ERROR_CODES, type ReplyData, type ServiceErrorCode } from '../../src/mcp/types.js'
 
 /** Gateway 只建立自身状态目录；没有 binary、HOME、native root 或 socket 输入。 */
-async function fixture(options: { mixed?: boolean; isolated?: boolean; historyScope?: boolean } = {}) {
-  const { mixed = false, isolated = false, historyScope = false } = options
+async function fixture(
+  options: { mixed?: boolean; isolated?: boolean; historyScope?: boolean; fastObservation?: boolean } = {}
+) {
+  const { mixed = false, isolated = false, historyScope = false, fastObservation = false } = options
   const root = mixed
     ? privateHerdrTestRoot('.remote-gateway-')
     : mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.remote-gateway-'))
@@ -204,7 +206,8 @@ async function fixture(options: { mixed?: boolean; isolated?: boolean; historySc
                 ...(historyScope ? ['history_scope' as const] : [])
               ]
             },
-            ...(isolated ? { limits: { heartbeat_ms: 30, idle_ms: 3000 } } : {})
+            // 仅心跳/生命周期观察显式使用加速计时；隔离协商本身不改变连接租期。
+            ...(fastObservation ? { limits: { heartbeat_ms: 30, idle_ms: 3000 } } : {})
           }
         : {})
     },
@@ -393,7 +396,7 @@ for (const isolated of [false, true]) {
     `mixed Connector publishes original sources through one channel (provider isolation: ${isolated})`,
     { timeout: 45_000 },
     /** 实际角色transport、组合codec和远端pin接纳均执行；不配对真实设备或调用native/model。 */ async () => {
-      const f = await fixture({ mixed: true, isolated })
+      const f = await fixture({ mixed: true, isolated, fastObservation: isolated })
       let connector: Awaited<ReturnType<typeof createProviderConnectorRuntime>> | undefined
       let combined: ConnectorWireSession | undefined
       let connected: Connection | undefined
@@ -598,7 +601,7 @@ test(
   'Herdr 启动前不可用声明经真实通道撤回，Gateway 的健康 Luvus pin 仍在同 epoch 就绪',
   { timeout: 45_000 },
   /** Herdr 没有构造替代session；Luvus合成peer只发布原快照，不执行native或模型。 */ async () => {
-    const f = await fixture({ mixed: true, isolated: true })
+    const f = await fixture({ mixed: true, isolated: true, fastObservation: true })
     let connector: Awaited<ReturnType<typeof createProviderConnectorRuntime>> | undefined
     try {
       const snapshots = structuredClone([f.snapshot])
@@ -672,9 +675,13 @@ test(
   }
 )
 
-for (const isolated of [false, true]) {
+for (const { isolated, disconnectBeforeRead } of [
+  { isolated: false, disconnectBeforeRead: false },
+  { isolated: true, disconnectBeforeRead: false },
+  { isolated: false, disconnectBeforeRead: true }
+]) {
   test(
-    `真实 MCP SDK 的非法 agent.wait 在登记前回复 not_dispatched，不关闭原 WSS 或污染健康调用（Herdr隔离组合: ${isolated}）`,
+    `真实 MCP SDK ${disconnectBeforeRead ? '结果元数据不替代断连后读取许可' : '非法 agent.wait 拒绝保留原连接和健康调用'}（Herdr隔离组合: ${isolated}）`,
     { timeout: 45_000 },
     /** 真实 pinned schema、双库、Gateway、Wire 和 HTTP SDK；peer 仅为明确合成回包，无 native/model。 */ async () => {
       const f = await fixture({ mixed: isolated, isolated, historyScope: true })
@@ -795,14 +802,42 @@ for (const isolated of [false, true]) {
         const retained = CallToolResultSchema.parse(
           await http.client.callTool({ name: 'runtime_call_get', arguments: { call_id: healthyId } })
         )
-        const retainedData = retained.structuredContent!.data as { result: { result_id: string } }
+        assert.equal(retained.isError, undefined)
+        const retainedData = retained.structuredContent!.data as { result: { result_id: string; expires_at: number } }
+        assert(retainedData.result.expires_at > f.state.store.clock())
+        if (disconnectBeforeRead) {
+          peer.socket.close()
+          await until(
+            /** 真实旧连接消失，不能用结果元数据代替原读取许可。 */ () =>
+              f.runtime.transport.currentConnection(f.target.machine_id) === undefined
+          )
+          assert.equal(f.state.store.call('remote_reader', healthyId).state, 'responded')
+          assert.equal(f.state.store.call('remote_reader', healthyId).content_status, 'available')
+          assert(input.deadline > f.state.store.clock())
+        }
         const page = CallToolResultSchema.parse(
           await http.client.callTool({
             name: 'runtime_result_read',
             arguments: { result_id: retainedData.result.result_id, max_bytes: 4096 }
           })
         )
-        assert.equal(page.isError, undefined)
+        if (disconnectBeforeRead) {
+          assert.equal(page.isError, true)
+          assert.deepEqual(page.structuredContent, { gateway_error: { code: 'content_unavailable' } })
+          const afterLoss = CallToolResultSchema.parse(
+            await http.client.callTool({ name: 'runtime_call_get', arguments: { call_id: healthyId } })
+          )
+          assert.equal(afterLoss.isError, undefined)
+          assert.equal((afterLoss.structuredContent!.data as { state: string }).state, 'responded')
+          assert.equal(f.writes(), before)
+          return
+        }
+        const code = (page.structuredContent?.gateway_error as { code?: unknown })?.code
+        const reason =
+          typeof code === 'string' && SERVICE_ERROR_CODES.includes(code as ServiceErrorCode)
+            ? code
+            : 'unexpected_tool_error'
+        assert.equal(page.isError, undefined, reason)
         const delivered = page.structuredContent!.data as ReplyData['runtime_result_read']
         assert.equal(delivered.eof, true)
         assert.equal(delivered.encoding, 'base64')
