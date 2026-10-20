@@ -10,6 +10,7 @@ import type { JsonObject } from '../../src/wire/types.js'
 import { realFixture } from './real-helpers.js'
 import { until } from './helpers.js'
 import { management } from '../storage/helpers.js'
+import { clockWrites } from '../storage/clock-write-helpers.js'
 
 test(
   '真实 WSS 双 Connector：持久证明消费、独立 provider 与响应账本，复制凭据不能抢占',
@@ -442,6 +443,39 @@ test(
         db.close()
         store.close()
       }
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  '生命周期 backend 每次连接观察只持久校验一次身份门禁和一次 Store fence，期限仍逐次生效',
+  /** 真实双库和具体 socket 统计时钟 SQL；随后在同一 backend 跨凭据期限，禁止借去重缓存权限。 */
+  async () => {
+    const f = realFixture()
+    try {
+      const device = f.pair('mock_backend_clock')
+      const client = f.connector(device)
+      await f.ready(client)
+      const record = f.records[0]!
+      const first = clockWrites(
+        f.f.store,
+        /** 原 backend 完整执行身份、代次和 epoch 校验。 */ () => record.native.backend.connection()
+      )
+      assert.equal(first.updates, 2)
+      assert.deepEqual(first.result, record.connection)
+      f.f.now++
+      const next = clockWrites(
+        f.f.store,
+        /** 下一轮重新推进时钟，不能沿用上轮连接许可。 */ () => record.native.backend.connection()
+      )
+      assert.equal(next.updates, 2)
+      f.f.now += 24 * 3_600_000
+      assert.throws(
+        /** 到期时独立身份快照拒绝，即使具体 socket 仍保存相同连接上下文。 */ () => record.native.backend.connection(),
+        /authentication_required/
+      )
     } finally {
       f.close()
     }

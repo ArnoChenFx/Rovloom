@@ -58,8 +58,31 @@ prompt-readiness 门禁；不改写已验权、计算摘要及持久登记的参
 
 ## 执行环境与结果
 
+本地可选字段 `agent_bin_dir` 用于按原生命令名查找已安装在用户目录的 Agent。Luvus 在
+首次 `initializeManagedLuvusRoot` 的 `config` 输入中设置，随受保护 root record 及摘要
+保存；正式 CLI 通过原 `native.root_record` 加载。Herdr 在 provider ref 的
+`config.connector.local` 中设置。两处本地配置的字段片段相同：
+
+```json
+{
+  "agent_bin_dir": "/home/owned/.local/bin",
+  "allow_terminal_execution": false
+}
+```
+
+填写单个规范绝对目录，不是可执行文件或 PATH 列表。相对路径、`~`、变量展开、路径
+折叠、控制字符和平台 PATH 分隔符均不作为目录解析；空格和 Unicode 保留。Windows
+路径使用 JSON 转义的反斜线及分号分隔，当前原生 owner 的验收范围仍仅为 Linux。
+Rovloom 不创建目录、不安装 Agent，也不把安装目录当作终端执行许可。
+
+Linux 启动 PATH 为 `<agent_bin_dir>:/usr/bin:/bin`，省略时保持 `/usr/bin:/bin`。
+目录内同名程序优先，所以应使用机器所有者控制的安装目录。配置在 native owner 启动
+前生效，启动后加载的 Agent 服务环境不能替代它。归属检查使用同一环境构造器；改变
+配置须重启对应 owner，不能将存活进程重新解释为新配置。Luvus 首次登记时设置该值，
+不手工给已登记 root record 补字段或修改其摘要。MCP/RPC 不接受这个本地配置入口。
+
 Connector 的发现、schema 和代理子进程继续使用受保护的绝对 `cwd`、固定
-`PATH=/usr/bin:/bin` 和显式最小环境，不复制 Connector 父进程的模型密钥、SSH 或其它
+系统 PATH（可由上述目录前置）和显式最小环境，不复制 Connector 父进程的模型密钥、SSH 或其它
 凭据。原生终端命令仍在目标 Luvus/Herdr 进程的 OS 账号及原生 shell 环境中执行；向已
 运行的终端输入时，cwd/PATH 由该终端当前状态决定。`terminal.backend.create` 的 cwd
 及 workspace/pane 的原生 cwd/env 语义不被重写，执行前应读取目标信息并明确指定需要
@@ -84,6 +107,11 @@ Add the optional boolean `allow_terminal_execution` to the trusted Connector loc
 It defaults to `false`; only literal `true` enables direct terminal inputs and custom launch or
 restore commands. Existing Agent conversations retain their separate native and caller/local
 authorization. This switch is not an OS sandbox for Agent tools.
+Optional local `agent_bin_dir` prepends one canonical absolute installation directory to the
+native owner's fixed PATH. Set it in Luvus root registration config or Herdr provider
+`config.connector.local`; omit it to retain the default PATH. It is not an RPC option, does not
+install software, and does not enable terminal execution. Restart the owner after a supported
+configuration change; existing Luvus root records remain bound to their original config digest.
 Luvus raw `agent.keys` requires the switch even with existing report/session labels, because
 those labels do not prove the current foreground program. With the switch off, Luvus text
 `agent.send/prompt` requires explicit `strict:true`; omitted or false needs the switch enabled.
