@@ -14,6 +14,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { privateFile, privatePath } from '../storage/files.js'
+import { assertPrivateDescriptor } from '../storage/private-posix.js'
 import { boundedJson } from '../wire/index.js'
 import { CliError } from './config.js'
 import { readRuntimeJson } from './runtime-files.js'
@@ -54,6 +55,7 @@ export function writeSetupFile(
     fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
     created = true
     fchmodSync(fd, 0o600)
+    assertPrivateDescriptor(fd, false)
     writeFileSync(fd, bytes)
     fsyncSync(fd)
     const complete = fd
