@@ -425,37 +425,7 @@ export async function officialIpc(binaryPath) {
         assert(view.ok, 'owned_capability_source_invalid')
         const description = validator.describe(view.value, attempt.method)
         assert(description.ok && description.value.schema_status === 'conditional_branch')
-        return {
-          classification_source_verified: true,
-          classifications: [
-            {
-              method: attempt.method,
-              revision: origin.classification_revision,
-              contract: compiled.value.identity,
-              native: description.value.native_contract,
-              transport: 'single_request_rpc',
-              effect: effects[attempt.method],
-              requires_owner: false,
-              management_permission: null,
-              confirmation_required: false,
-              result: {
-                boundary: 'ordinary',
-                sensitivity: 'potentially_sensitive',
-                read_authorization: 'required',
-                retention: 'caller_policy',
-                delivery: 'ordinary'
-              }
-            }
-          ],
-          permissions: [],
-          owner: false,
-          confirmation_verified: false,
-          custody_available: false,
-          result_channel: 'ordinary',
-          raw_requested: false,
-          supported_transports: ['single_request_rpc'],
-          supported_control_actions: []
-        }
+        return { owner: false, raw_requested: false }
       },
       currentPrincipal: /* 原许可和当前本地进程身份必须一致。 */ () => principal().id
     })

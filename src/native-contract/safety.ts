@@ -1,134 +1,14 @@
-// 独立执行调用、结果读取与结果保留的安全门禁，校验可信分类及策略后登记内存派发许可。
+// 独立执行调用与结果读取门禁：按静态方法表、双端策略和 raw 授权校验后登记内存派发许可。
 import { authorize } from '../contracts.js'
-import { candidates, permits, SCOPES, views } from './internal.js'
-import { attempt, ContractFault, equal, fail, object, pointer, snapshot } from './json.js'
+import { candidates, permits, views } from './internal.js'
+import { luvusMethod } from './methods.js'
+import { attempt, equal, fail, object, snapshot } from './json.js'
 import { verifySource } from './validator.js'
-import type {
-  Check,
-  DispatchAuthorization,
-  DispatchCandidate,
-  DispatchPermit,
-  JsonObject,
-  NativeRequestGate,
-  ResultAuthorization,
-  SafetyClassification
-} from './types.js'
+import type { Check, DispatchAuthorization, DispatchCandidate, DispatchPermit, ResultAuthorization } from './types.js'
 
 // 抛出来源与阶段均为授权的失败信息。
 function reject(code: string, reason?: string): never {
   return fail(code, 'authorization', reason, 'authorization')
-}
-const TOKENS = new Set(['uhp.token.create', 'uhp.token.list', 'uhp.token.revoke'])
-
-// 从可信分类快照中选出唯一匹配当前方法、控制动作与子动作的记录。
-function selectClassification(candidate: DispatchCandidate, context: DispatchAuthorization): JsonObject {
-  if (context.classification_source_verified !== true) {
-    reject('safety_classification_untrusted')
-  }
-  if (!Array.isArray(context.classifications)) {
-    reject('safety_classification_missing')
-  }
-  const rows = snapshot(context.classifications) as readonly JsonObject[]
-  const selected = rows.filter(
-    // 筛选方法匹配的分类。
-    (row) => row && typeof row === 'object' && row.method === candidate.method
-  )
-  if (!selected.length) {
-    reject('safety_classification_missing')
-  }
-  // 同一请求只能命中一条分类；缺少匹配或多条同时命中都拒绝。
-  const matching = selected.filter(
-    /* 匹配分类的可选子动作指针；缺失路径或非法选择器均视为不匹配。 */ (row) => {
-      if (row.sub_action === undefined) {
-        return true
-      }
-      try {
-        const selector = object(row.sub_action)
-        return (
-          typeof selector.pointer === 'string' && equal(pointer(candidate.request, selector.pointer), selector.value)
-        )
-      } catch {
-        return false
-      }
-    }
-  )
-  if (!matching.length) {
-    reject('safety_classification_missing', 'sub_action')
-  }
-  if (matching.length !== 1) {
-    reject('safety_classification_invalid', 'conflict')
-  }
-  return matching[0]!
-}
-
-// 验证分类的完整字段、绑定身份和安全语义，拒绝未知或互相冲突的要求。
-function classification(candidate: DispatchCandidate, context: DispatchAuthorization): SafetyClassification {
-  const row = selectClassification(candidate, context)
-  const required = [
-    'method',
-    'revision',
-    'contract',
-    'native',
-    'transport',
-    'effect',
-    'requires_owner',
-    'management_permission',
-    'confirmation_required',
-    'result'
-  ]
-  if (
-    required.some(/* 检测分类缺少的必填字段。 */ (key) => !Object.hasOwn(row, key)) ||
-    Object.keys(row).some(/* 检测分类声明了未受支持的额外字段。 */ (key) => ![...required, 'sub_action'].includes(key))
-  ) {
-    reject('safety_classification_invalid', 'incomplete_or_unknown_field')
-  }
-  const native = object(row.native, 'safety_classification_invalid')
-  const result = object(row.result, 'safety_classification_invalid')
-  if (!equal(Object.keys(result).sort(), ['boundary', 'delivery', 'read_authorization', 'retention', 'sensitivity'])) {
-    reject('safety_classification_invalid', 'incomplete_or_unknown_result_field')
-  }
-  if (
-    !['read', 'write', 'execute', 'external'].includes(row.effect as string) ||
-    !['single_request_rpc', 'host_stdio_proxy', 'persistent_local_stream'].includes(row.transport as string) ||
-    !SCOPES.has(native.scope as string) ||
-    !['read', 'write'].includes(native.access as string) ||
-    !['ordinary', 'protected_secret'].includes(result.boundary as string) ||
-    !['public', 'potentially_sensitive', 'credential'].includes(result.sensitivity as string) ||
-    !['caller_policy', 'none'].includes(result.retention as string) ||
-    !['ordinary', 'custody'].includes(result.delivery as string)
-  ) {
-    reject('safety_classification_unknown')
-  }
-  // 分类绑定当前契约、原生广告和 revision；原生 read/write 提示不能自行授予安全许可。
-  const stored = candidates.get(candidate)!
-  if (
-    row.revision !== candidate.binding.classification_revision ||
-    !equal(row.contract, candidate.binding.contract) ||
-    !equal(native, stored.descriptor.native_contract) ||
-    (stored.descriptor.transport !== 'unclassified' && row.transport !== stored.descriptor.transport) ||
-    typeof row.requires_owner !== 'boolean' ||
-    typeof row.confirmation_required !== 'boolean' ||
-    !(
-      row.management_permission === null ||
-      (typeof row.management_permission === 'string' && row.management_permission.length > 0)
-    ) ||
-    result.read_authorization !== 'required' ||
-    typeof native.idempotent !== 'boolean' ||
-    (native.access === 'write' && row.effect === 'read') ||
-    (native.access === 'read' && row.effect !== 'read') ||
-    (native.scope === 'admin' && row.management_permission === null) ||
-    (candidate.method === 'module.action.invoke' && row.sub_action === undefined)
-  ) {
-    reject('safety_classification_invalid', 'incomplete_or_conflicting')
-  }
-  if (
-    (result.boundary === 'protected_secret') !== (result.delivery === 'custody') ||
-    (result.sensitivity === 'credential' && result.boundary !== 'protected_secret') ||
-    (TOKENS.has(candidate.method) && (result.boundary !== 'protected_secret' || row.management_permission === null))
-  ) {
-    reject('safety_classification_invalid', 'secret_boundary')
-  }
-  return row as unknown as SafetyClassification
 }
 
 // 核验候选句柄、来源和主体时间字段，并冻结授权输入以防后续变更。
@@ -156,27 +36,26 @@ function checkedAuthorization(candidate: DispatchCandidate, input: DispatchAutho
   return context
 }
 
-// 要求当前适配器支持描述中的传输，并独立检查控制帧动作支持情况。
-function checkTransport(
-  candidate: DispatchCandidate,
-  context: DispatchAuthorization,
-  row?: SafetyClassification
-): void {
+// 方法必须在静态表中，且实际安装契约广告的原生提示与表逐字段一致；表外方法一律拒绝。
+function checkListed(candidate: DispatchCandidate): void {
   const stored = candidates.get(candidate)!
-  const transport = stored.descriptor.transport === 'unclassified' ? row?.transport : stored.descriptor.transport
+  const listed = luvusMethod(candidate.method)
+  if (!listed) {
+    reject('method_not_listed')
+  }
+  if (!equal(listed, stored.descriptor.native_contract)) {
+    reject('method_contract_mismatch')
+  }
   if (
-    !transport ||
-    !Array.isArray(context.supported_transports) ||
-    !context.supported_transports.includes(transport) ||
-    (stored.descriptor.transport === 'unclassified' &&
-      transport !== (candidate.binding.target.profile === 'host' ? 'host_stdio_proxy' : 'single_request_rpc'))
+    candidate.binding.target.profile !== 'session' ||
+    (stored.descriptor.transport !== 'unclassified' && stored.descriptor.transport !== 'single_request_rpc')
   ) {
     reject('unsupported_transport')
   }
 }
 
-// 同时检查原生访问列表、双方策略及分类要求的 Owner、管理权限和确认。
-function checkPolicies(candidate: DispatchCandidate, context: DispatchAuthorization, row: SafetyClassification): void {
+// 检查原生访问列表与双方策略；调用方与本机都必须授权该方法。
+function checkPolicies(candidate: DispatchCandidate, context: DispatchAuthorization): void {
   const stored = candidates.get(candidate)!
   const capabilities = views.get(stored.view)!.capabilities
   if (capabilities.access !== undefined) {
@@ -209,31 +88,6 @@ function checkPolicies(candidate: DispatchCandidate, context: DispatchAuthorizat
     authorize(candidate.binding.target, candidate.method, context.caller_policy, context.local_policy)
   } catch {
     reject('forbidden', 'policy')
-  }
-  if (row.requires_owner && context.owner !== true) {
-    reject('forbidden', 'owner_required')
-  }
-  if (!Array.isArray(context.permissions)) {
-    reject('invalid_authorization_context')
-  }
-  if (row.management_permission && !context.permissions.includes(row.management_permission)) {
-    reject('management_forbidden')
-  }
-  if (row.confirmation_required && context.confirmation_verified !== true) {
-    reject('confirmation_required')
-  }
-}
-
-// 要求秘密结果走 custody，并验证选用的 custody 通道当前可用。
-function checkSecret(context: DispatchAuthorization, row: SafetyClassification): void {
-  if (
-    (row.result.boundary === 'protected_secret' && context.result_channel !== 'custody') ||
-    (context.result_channel === 'custody' && context.custody_available !== true)
-  ) {
-    reject('secret_boundary_required')
-  }
-  if (!['ordinary', 'custody'].includes(context.result_channel)) {
-    reject('invalid_authorization_context')
   }
 }
 
@@ -274,13 +128,11 @@ function checkRaw(candidate: DispatchCandidate, context: DispatchAuthorization):
 export function checkDispatch(candidate: DispatchCandidate, input: DispatchAuthorization): Check<DispatchPermit> {
   return attempt(
     'authorization',
-    /* 验证当前授权上下文并执行各项门禁，最后登记许可及其主体和分类。 */ () => {
+    /* 验证当前授权上下文并执行各项门禁，最后登记许可及其主体。 */ () => {
       const context = checkedAuthorization(candidate, input)
-      const row = classification(candidate, context)
-      checkTransport(candidate, context, row)
-      checkPolicies(candidate, context, row)
-      checkSecret(context, row)
-      // raw 只放宽参数 schema 覆盖要求；前面的分类、传输、策略和秘密边界仍须全部通过。
+      checkListed(candidate)
+      checkPolicies(candidate, context)
+      // raw 只放宽参数 schema 覆盖要求；方法表、策略和传输门禁仍须全部通过。
       if (context.mode === 'strict') {
         if (candidate.validation === 'generic') {
           reject('parameter_schema_incomplete')
@@ -299,101 +151,30 @@ export function checkDispatch(candidate: DispatchCandidate, input: DispatchAutho
         method: candidate.method,
         mode: context.mode,
         validation: candidate.validation,
-        classification_revision: row.revision,
         ...(context.mode === 'raw_contract' ? { raw_grant_id: context.raw_grant!.id } : {})
       })
-      permits.set(permit, {
-        candidate,
-        principal: context.principal_id,
-        classification: row,
-        supportedActions: Object.freeze([])
-      })
+      permits.set(permit, { candidate, principal: context.principal_id })
       return permit
     }
   )
 }
 
-// 分别报告分类、参数、传输和授权门禁状态，供调用方解释拒绝原因。
-export function inspectRequestGate(
-  candidate: DispatchCandidate,
-  input: DispatchAuthorization
-): Check<NativeRequestGate> {
-  return attempt(
-    'request_gate',
-    /* 在保留可诊断分类状态的同时，独立评估每项门禁而不签发许可。 */ () => {
-      const context = checkedAuthorization(candidate, input)
-      let row: SafetyClassification | undefined
-      let classification_status: NativeRequestGate['classification_status'] = 'trusted_complete'
-      try {
-        row = classification(candidate, context)
-      } catch (error) {
-        if (!(error instanceof ContractFault)) {
-          throw error
-        }
-        const status = error.failure.code.replace('safety_classification_', '')
-        if (!['missing', 'unknown', 'invalid', 'untrusted'].includes(status)) {
-          throw error
-        }
-        classification_status = status as NativeRequestGate['classification_status']
-      }
-      return Object.freeze({
-        classification_status,
-        schema_status:
-          candidate.validation === 'schema'
-            ? 'complete'
-            : candidate.validation === 'generic'
-              ? 'incomplete'
-              : 'unavailable',
-        transport_status: attempt(
-          'transport_gate',
-          /* 独立检查当前传输能否用于此候选。 */ () => checkTransport(candidate, context, row)
-        ).ok
-          ? 'supported'
-          : 'unsupported',
-        authorized:
-          !!row &&
-          attempt(
-            'policy_gate',
-            /* 独立检查双方策略及分类要求的附加权限。 */ () => checkPolicies(candidate, context, row!)
-          ).ok,
-        secret_result_authorized:
-          !!row && attempt('secret_gate', /* 独立检查结果通道是否满足秘密边界。 */ () => checkSecret(context, row!)).ok,
-        raw_contract_authorized:
-          context.mode === 'raw_contract' &&
-          attempt('raw_gate', /* 独立检查 raw grant 是否授权当前候选。 */ () => checkRaw(candidate, context)).ok
-      })
-    }
-  )
-}
-
-// 在结果读取时重新核验许可主体、当前策略、分类版本与交付通道。
+// 在结果读取时重新核验许可主体、当前双端策略与内容状态。
 export function checkResultBoundary(permit: DispatchPermit, input: ResultAuthorization): Check<void> {
   return attempt(
     'result',
-    /* 读取真实许可并检查结果仍可用，拒绝过时分类或不合适的交付通道。 */ () => {
+    /* 读取真实许可并检查结果仍可用，拒绝其它主体或已撤权的读取。 */ () => {
       const stored = permits.get(permit)
       if (!stored) {
         reject('invalid_permit_handle')
       }
       const context = snapshot(input) as unknown as ResultAuthorization
-      if (context.classification_source_verified !== true) {
-        reject('safety_classification_untrusted')
-      }
-      if (context.classification_revision !== stored.classification.revision) {
-        reject('capability_stale')
-      }
       if (
         stored.principal !== context.principal_id ||
         context.caller_policy_allowed !== true ||
         context.local_policy_allowed !== true
       ) {
         reject('forbidden')
-      }
-      if (stored.classification.result.boundary === 'protected_secret' && context.channel !== 'custody') {
-        reject('secret_boundary_required')
-      }
-      if (!['ordinary', 'custody'].includes(context.channel)) {
-        reject('invalid_authorization_context')
       }
       if (context.content_status !== 'available') {
         reject('content_unavailable')
@@ -402,22 +183,18 @@ export function checkResultBoundary(permit: DispatchPermit, input: ResultAuthori
   )
 }
 
-// 保留门禁独立于读取；同时服从派发时和当前可信分类，不能用新分类复活禁存原文。
+// 保存门禁独立于读取：只有派发时的同一主体、同一当前来源才能保留原文。
 export function checkResultRetention(permit: DispatchPermit, input: DispatchAuthorization): Check<void> {
   return attempt(
     'result',
-    /* 重新验证当前授权及分类，并要求派发时与当前分类都允许保留结果。 */ () => {
+    /* 重新验证当前授权来源，并要求仍是派发时的主体。 */ () => {
       const stored = permits.get(permit)
       if (!stored) {
         reject('invalid_permit_handle')
       }
       const context = checkedAuthorization(stored.candidate, input)
-      const current = classification(stored.candidate, context)
       if (stored.principal !== context.principal_id) {
         reject('forbidden')
-      }
-      if (stored.classification.result.retention !== 'caller_policy' || current.result.retention !== 'caller_policy') {
-        reject('content_retention_forbidden')
       }
     }
   )

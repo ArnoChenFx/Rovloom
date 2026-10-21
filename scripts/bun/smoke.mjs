@@ -181,11 +181,13 @@ assert.deepEqual(
   Object.keys(native).sort(),
   [
     'DEFAULT_LIMITS',
+    'LUVUS_TABLE_METHODS',
     'checkDispatch',
     'checkResultBoundary',
+    'checkResultRetention',
     'compileBundle',
     'createNativeValidator',
-    'inspectRequestGate',
+    'luvusMethod',
     'parseNativeJson'
   ].sort()
 )
@@ -327,40 +329,8 @@ const adapter = integration.createLuvusWireAdapter({
     caller: { revision: 'caller', grants },
     local: { revision: 'local', grants }
   }),
-  /** 为固定 task.add fixture 提供合成分类和权限边界，验证产物间许可身份一致。 */
-  authority: () => ({
-    classification_source_verified: true,
-    classifications: [
-      {
-        method: 'task.add',
-        revision: 'review',
-        contract: compiled.value.identity,
-        native: capabilities.result.method_contracts.find(
-          /** 从固定能力表选择 task.add 的原生契约，避免使用其它方法的来源。 */
-          (row) => row.method === 'task.add'
-        ),
-        transport: 'single_request_rpc',
-        effect: 'execute',
-        requires_owner: false,
-        management_permission: null,
-        confirmation_required: false,
-        result: {
-          boundary: 'ordinary',
-          sensitivity: 'potentially_sensitive',
-          read_authorization: 'required',
-          retention: 'caller_policy',
-          delivery: 'ordinary'
-        }
-      }
-    ],
-    permissions: [],
-    owner: false,
-    confirmation_verified: false,
-    custody_available: false,
-    result_channel: 'ordinary',
-    raw_requested: false,
-    supported_transports: ['single_request_rpc']
-  }),
+  /** 为固定 task.add fixture 提供合成授权事实，方法表与双端策略仍由原生模块检查。 */
+  authority: () => ({ owner: false, raw_requested: false }),
   /** 提供 smoke 专用 caller ID，不从业务输入构造 principal。 */
   currentPrincipal: () => 'principal',
   /** 固定 smoke 可信时间，使许可和期限判断可重复。 */

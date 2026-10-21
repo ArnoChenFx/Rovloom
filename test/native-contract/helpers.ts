@@ -11,7 +11,6 @@ import type {
   NativeBinding,
   CheckedRequest,
   RawRequestCandidate,
-  SafetyClassification,
   TrustedNativeContext
 } from '../../src/native-contract/index.js'
 
@@ -75,41 +74,6 @@ export function view(profile: 'session' | 'host' = 'session', generation = G): C
   }
   return unwrap(validator.bindCapabilities(response, source(profile, generation)))
 }
-// 根据候选的方法描述构造测试评审分类，补齐管理、确认和秘密结果要求。
-export function reviewed(candidate: DispatchCandidate): SafetyClassification {
-  const descriptor = unwrap(validator.describe(candidateView(candidate), candidate.method))
-  const admin = descriptor.native_contract.scope === 'admin'
-  const credential = candidate.method.startsWith('uhp.token.')
-  return {
-    method: candidate.method,
-    revision: candidate.binding.classification_revision,
-    contract: clone(candidate.binding.contract),
-    native: clone(descriptor.native_contract),
-    transport:
-      descriptor.transport === 'unclassified'
-        ? candidate.binding.target.profile === 'host'
-          ? 'host_stdio_proxy'
-          : 'single_request_rpc'
-        : descriptor.transport,
-    effect: descriptor.native_contract.access === 'read' ? 'read' : 'execute',
-    requires_owner: false,
-    management_permission: admin ? 'admin-test' : null,
-    confirmation_required: [
-      'host.update.install',
-      'integration.install',
-      'integration.uninstall',
-      'skill.enable',
-      'skill.disable'
-    ].includes(candidate.method),
-    result: {
-      boundary: credential ? 'protected_secret' : 'ordinary',
-      sensitivity: credential ? 'credential' : 'potentially_sensitive',
-      read_authorization: 'required',
-      retention: credential ? 'none' : 'caller_policy',
-      delivery: credential ? 'custody' : 'ordinary'
-    }
-  }
-}
 // 只在测试工厂登记，不向生产 handle 注入可伪造字段。
 const candidateViews = new WeakMap<object, CapabilityView>()
 // 在测试专用映射中登记候选来源视图，并原样返回候选。
@@ -134,19 +98,12 @@ export function auth(candidate: DispatchCandidate): DispatchAuthorization {
   return {
     source: { authenticated: true, source_verified: true, binding: candidate.binding },
     principal_id: 'synthetic',
-    classification_source_verified: true,
-    classifications: [reviewed(candidate)],
     caller_policy: clone(policy),
     local_policy: clone(policy),
-    permissions: [],
     owner: false,
-    confirmation_verified: false,
-    custody_available: false,
-    result_channel: 'ordinary',
     mode: 'strict',
     raw_requested: false,
-    now: 100,
-    supported_transports: ['single_request_rpc', 'host_stdio_proxy', 'persistent_local_stream']
+    now: 100
   }
 }
 // 在默认上下文上开启 Owner 显式 raw 模式，并授予当前候选范围的限时 grant。

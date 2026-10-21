@@ -268,7 +268,6 @@ type NativeValidationContext = {
   native_handle?: unknown; trusted_source?: unknown;
 };
 interface NativePayloadValidator {
-  requestGate(fullNativeRequest: JsonObject, context: NativeValidationContext): RequestGate;
   validateRequest(fullNativeRequest: JsonObject, context: NativeValidationContext): void;
   validateResponse(response: JsonObject, context: NativeValidationContext): void;
 }
@@ -284,14 +283,13 @@ handle 由原生 checkRequest/permit 流程生成，按完整 AttemptBinding 保
 本模块不发明 native handle，也不把不可序列化验证器对象冒充持久化记录。
 原生 generation/terminal identity/lease 语义仍由 adapter 保留。流（stream）机制未接入产品，已从 Wire 删除；流类原生方法按 RPC 分类直接拒绝。
 
-RequestGate 由原生多轴 gate 提供：classification_status、schema_status(complete/generic/unavailable)、
-transport_status、authorized、secret_result_authorized、raw_contract_authorized。
-只有 trusted_complete 分类、支持传输、当前授权及秘密交付路径可执行；strict 对 generic/unavailable 分别报参数契约不完整/不可用。
+授权只有一个入口：`validateRequest` 内的静态方法表 + 双端策略 + raw 授权检查（没有独立的逐帧 gate）。
+表外方法一律拒绝；strict 对 generic/unavailable 分别报参数契约不完整/不可用。
 只有独立显式 raw 授权可放宽参数 schema；原生 permit 的 generic/unavailable 状态必须保留，不映成 complete。
-Owner 身份、raw 选择、未来方法或未知子动作不绕过分类/高权限/秘密门禁。
+Owner 身份、raw 选择或未来方法不能绕过方法表。
 
 `createLuvusWireAdapter` 已实现 NativeValidator 的 Check/handle 适配：从 backend 取得原登记请求、双端 provider 和独立 nativeSource，私有保存最初 DispatchPermit，并逐次重新授权结果读取。精确 native 签名见 [原生校验与宿主接口](NATIVE-CONTRACT.md)。
-集成测试使用真实 native 模块编译固定 Luvus fixture 的 29 个离线 documents；认证、分类及 provider 来源由明确的 synthetic backend 提供，不构成生产来源证明。
+集成测试使用真实 native 模块编译固定 Luvus fixture 的 29 个离线 documents；认证及 provider 来源由明确的 synthetic backend 提供，不构成生产来源证明。
 
 ## Provider scope 权限
 

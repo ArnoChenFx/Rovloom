@@ -166,8 +166,8 @@ test(
     const selection = context()
     selection.validators!.herdr = {
       ...fixtureValidator(),
-      // 记录意外的原生门禁调用并立即抛错，确保前置检查未被绕过。
-      requestGate() {
+      // 记录意外的原生校验调用并立即抛错，确保前置检查未被绕过。
+      validateRequest() {
         called = true
         throw Error('不得调用')
       }
@@ -280,7 +280,6 @@ test(
     const noRead = context('connector_to_gateway')
     noRead.policies!.caller.grants[0]!.actions = ['dispatch']
     const plan = planResponseEvidence(response, noRead, responseAnchor, 400, {
-      classification_status: 'trusted_complete',
       retain_content_authorized: true
     })
     assert.equal(plan.content.delivery, 'metadata_only')
@@ -454,11 +453,6 @@ test(
   /* 验证旧 Wire 帧与缺失 provider 的 v2 请求拒绝，不能触发原生校验或默认派发。 */ () => {
     let nativeCalls = 0
     const validator = fixtureValidator()
-    const requestGate = validator.requestGate
-    validator.requestGate = /* 累计原生门禁调用次数并继续执行原门禁。 */ (...args) => {
-      nativeCalls++
-      return requestGate(...args)
-    }
     validator.validateRequest = /* 记录请求参数校验是否被错误触发。 */ () => {
       nativeCalls++
     }

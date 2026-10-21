@@ -100,27 +100,28 @@ access_machines 分开，machine.* 不用作 Gateway 设备注册。数据及审
 
 `checkRequestShape` 使用原有有界复制：已收录方法检查完整已编译请求根，未知方法只检查
 既有 raw 最小信封。成功返回 void，不表示参数覆盖完整或获得 raw 授权；不登记
-能力视图、候选、来源或执行许可，不检查在线能力及分类授权。Gateway 可将它接入既有
+能力视图、候选、来源或执行许可，不检查在线能力及方法表授权。Gateway 可将它接入既有
 Store 首次登记事务的同步 preflight，非法参数回滚登记；后续原 Wire 与实际 IO 门禁仍完整复验。
 
-`checkRequest`/`checkRawRequest` 建立候选，`inspectRequestGate` 独立报告分类、
-schema、传输及授权状态，`checkDispatch` 成功才产生不可从 JSON 复制的
-DispatchPermit。strict 拒绝 generic/unavailable；raw_contract 只在 Owner
-显式选择、可信精确范围 grant 有效且其它门禁均满足时放宽参数覆盖，保留实际
-validation。缺失/未知/不完整/不可信分类、管理权限、真实确认及 secret custody
-在所有模式中仍强制检查；不能借 raw 绕过已存在的 schema 约束。
+`checkRequest`/`checkRawRequest` 建立候选，`checkDispatch` 成功才产生不可从 JSON 复制的
+DispatchPermit。方法必须在静态方法表（`src/native-contract/methods.ts`）中，且实际安装契约
+广告的 access/scope/idempotent 提示与表项逐字段一致，否则拒绝（`method_not_listed` /
+`method_contract_mismatch`）；表中没有的方法（含流、token、host/server 管理）一律拒绝。
+strict 拒绝 generic/unavailable；raw_contract 只在 Owner 显式选择、可信精确范围 grant 有效且
+其它门禁均满足时放宽参数覆盖，保留实际 validation；不能借 raw 让表外方法或已存在的 schema
+约束失效。
 
 raw 的 validation=unavailable 仅适用于已有可信、可编译 bundle 及可用 response
 边界，但在线方法未收录于该 bundle 的方法 schema 的情形。整个 bundle 编译失败仍为
 schema_unavailable，不能建立 validator/许可，也不能借 raw 作为无 schema 执行入口。
-原生 method_contracts 仅用于核对受信本地分类，不单独授权；通用分派还必须分类
-具体子动作，raw grant 绑定 principal、完整目标、精确方法、契约/revisions 与时效。
+原生 method_contracts 仅用于核对静态方法表，不单独授权；raw grant 绑定 principal、完整目标、
+精确方法、契约/revisions 与时效。表只是上限，具体 provider 仍用自己的白名单进一步收窄。
 
 `checkResponseShape` 仅证明结构；`checkResponse` 再关联原候选/permit、native ID、
 方法结果及可信来源。RPC 可由真实 permit 的 `sealResponseContext` 固定最小结果约束、
 原生 ID、完整 NativeBinding 与含 LF 的在线响应帧预算；独立 opaque 上下文不保留请求参数、
 原 permit/candidate 或完整 capabilities。`releaseRequestContext` 撤销同一 RPC 候选的全部许可，
-一并断开原请求及分类登记；持有先前 CheckedResponse 也不能通过内部关联反向保留原请求。
+一并断开原请求登记；持有先前 CheckedResponse 也不能通过内部关联反向保留原请求。
 宿主同步丢弃自己的原文引用。`checkResponseOnly` 只返回 `Check<void>`，复验同一契约和来源，
 不返回载荷、不授予读取/派发/开流能力；`releaseResponseContext` 释放它。没有 JSON 恢复工厂，
 不能让旧 epoch 或恢复代次重新有效。
@@ -128,7 +129,7 @@ Luvus adapter 把内容清理后的 RPC 切换为这种上下文；仅响应状�
 只允许原固定去重期限内的 metadata-only 证据提交。Store 提交后通知与 adapter 独立内存期限维护
 共同回收原文；断连、撤销、provider fence、关闭或去重到期释放句柄。证据提交失败不变更已提交
 结果，也不触发重发；存储恢复后仍须使用原存活句柄及当前独立来源复验。
-流（open/event/control 帧）机制未接入任何产品入口，已删除；流类方法在分类中保留为拒绝项，不进入 RPC 派发。
+流（open/event/control 帧）机制未接入任何产品入口，已删除；流类方法不在方法表中，不进入 RPC 派发。
 保留完整原生 error/data，网关错误不写回原生 error。
 
 ## 宿主必须提供的可信来源
@@ -141,33 +142,29 @@ Luvus adapter 把内容清理后的 RPC 切换为这种上下文；仅响应状�
 | connection / currentPrincipal | 当前已认证且 active 的连接、恢复代次、epoch 与读取身份 |
 | attempt | 原登记完整 AttemptBinding、请求、principal、method/mode |
 | provider / localProvider | 双端独立受保护配置，完整 binding 精确一致 |
-| contract | 不可变 ContractSource、真实编译 handle、能力/分类 revision；重算 ref 并核对 binary/schema |
+| contract | 不可变 ContractSource、真实编译 handle、能力 revision；重算 ref 并核对 binary/schema |
 | nativeSource | 独立 endpoint/身份实证，authenticated/source_verified 成立且完整 NativeBinding 匹配 |
-| policies / authority | 当前双方精确 Target grant、可信分类、Owner/raw grant、管理权限、真实确认与 custody |
+| policies / authority | 当前双方精确 Target grant、Owner/raw grant（方法表是静态常量，不由宿主提供） |
 | now / contentStatus / responseAnchor | 受信时钟、固定内容状态与 durable 原派发锚点；不从回复补建 |
 
 direction 来自宿主角色。v2 Target 显式投影为原生 Target，kind/provider/revision/
 contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数字转换。
 组合 contract_ref 不能强转为 schema hash。完整 provider tuple 求双方权限交集
-后才投影给原生 Policy，不从独立数组拼笛卡尔授权。原生 supported_transports
-必须显式提供，未知未来流不自动适配。
+后才投影给原生 Policy，不从独立数组拼笛卡尔授权。方法表只含单请求 RPC，流类方法不自动适配。
 `contract` resolver 只能返回已接纳的 handle。opaque handle、permit 和来源 token 均不能跨进程/重启序列化后恢复为原凭证。
 
 ## 请求、控制与交付生命周期
 
 - 每帧重新读取原 attempt、双端 binding、契约和原生来源，核对原请求；caller 的
   id/auth 拒绝，native ID 从登记绑定注入，auth 仅由 Connector 受保护注入。
-  requestGate 不生成 permit，validateRequest 再 checkDispatch；Check 失败只转
-  code/reason，不记录 payload。backend 异常返回 native_adapter_unavailable。
+  validateRequest 即 checkDispatch；Check 失败只转 code/reason，不记录 payload。backend 异常返回 native_adapter_unavailable。
 - adapter 按完整 AttemptBinding 私有保存最初 permit，重复编解码不替换。
   高级图片/上传无 adapter 证明时不启用。
 - `checkResult(binding, nativeFrame?)` 检查实际 response；省略 frame 仅核对当前读取权限。
   解码/顺序校验成功不授予内容读取权限。
-- checkResultBoundary 另验当前 reader、分类 revision、双方 read grant、custody
-  和内容状态；分类变更不能沿用旧 ordinary 分类。planEvidence 只返回待持久化
-  意图，原分类和当前分类 retention 均为 caller_policy 才能包含 payload。
-  retention:none 可允许即时读取，证据仅元数据。过期/discarded/unavailable 或
-  撤权不得输出原文、生成句柄或延长期限；事务成功前不能发布 durable responded。
+- checkResultBoundary 另验当前 reader、双方 read grant 和内容状态。planEvidence 只返回待持久化
+  意图，仅当前读取者仍是派发主体且双端读权限有效时才能包含 payload。
+  过期/discarded/unavailable 或撤权不得输出原文、生成句柄或延长期限；事务成功前不能发布 durable responded。
 - 宿主须先 observeMessage 过滤重复，重复不得
   再执行。
   内存 handle/source token 不序列化，关闭、到期、撤权须 release；恢复缺 handle
@@ -180,8 +177,8 @@ handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离�
 响应必须放入单个 Wire 帧（1 MiB）；超限响应不分片，Connector 写出时以预算错误失败，调用保持 outcome_unknown。发送与受保护的活读取解析见 [transport 接线](../TRANSPORT.md#响应与原始读取)。
 
 结果层创建句柄前使用原 adapter 的 `checkResultRetention(binding, nativeFrame): void`。
-它先核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发时及当前分类的保留许可；
-`retention:none` 即使可读也拒绝保存，当前放宽不能复活派发时禁存内容。无原上下文时拒绝，
+它先核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发主体与当前来源；
+无原上下文时拒绝，
 不从账本或响应 JSON 创建 permit；证据计划与该 port 共用这一检查。
 
 宿主能力的交付范围与后续门禁见 [issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。

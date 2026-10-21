@@ -2,13 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import {
-  checkDispatch,
-  checkResultBoundary,
-  compileBundle,
-  inspectRequestGate,
-  parseNativeJson
-} from '../../src/native-contract/index.js'
+import { checkDispatch, checkResultBoundary, compileBundle, parseNativeJson } from '../../src/native-contract/index.js'
 import { DEFAULT_LIMITS, snapshot } from '../../src/native-contract/json.js'
 import {
   auth,
@@ -17,7 +11,6 @@ import {
   G,
   identity,
   json,
-  raw,
   rejects,
   request,
   sourceFor,
@@ -28,15 +21,12 @@ import {
 } from './helpers.js'
 
 test(
-  '聚焦复核：Check 成功但 Gate 拒绝不能转成候选/permit',
-  /* 验证 Gate 的诊断成功不产生候选或派发许可。 */ () => {
-    const candidate = request(view(), { id: 'review-gate', method: 'ping', params: {} })
-    const gate = unwrap(inspectRequestGate(candidate, auth(candidate)))
-    assert.equal(gate.schema_status, 'incomplete')
+  '聚焦复核：Check 成功但派发门禁拒绝不能转成候选/permit',
+  /* 验证参数检查成功不产生派发许可，同形对象也不能冒充候选或许可。 */ () => {
+    const candidate = request(view(), { id: 'review-gate', method: 'workspace.list', params: {} })
     rejects(checkDispatch(candidate, auth(candidate)), 'parameter_schema_incomplete')
-    rejects(checkDispatch(gate as any, auth(candidate)), 'invalid_request_handle')
     rejects(checkDispatch({ ...candidate } as any, auth(candidate)), 'invalid_request_handle')
-    rejects(checkResultBoundary(gate as any, {} as any), 'invalid_permit_handle')
+    rejects(checkResultBoundary({ ...candidate } as any, {} as any), 'invalid_permit_handle')
   }
 )
 
@@ -45,11 +35,11 @@ test(
   /* 逐项修改来源锚点，确认响应与派发均拒绝身份混用。 */ () => {
     const candidate = request(view(), {
       id: 'review-source',
-      method: 'terminal.backend.validate',
-      params: { server_generation: G, terminal_id: T, pane_id: '3' }
+      method: 'agent.prompt',
+      params: { target: '3', text: 'synthetic' }
     })
     const permit = unwrap(checkDispatch(candidate, auth(candidate)))
-    const response = { id: 'review-source', result: { type: 'terminal_backend_validation', state: 'alive' } }
+    const response = { id: 'review-source', result: {} }
     for (const [field, value] of [
       ['provider_id', 'p2'],
       ['binding_revision', 2],
@@ -64,36 +54,6 @@ test(
     }
     const untrusted = { ...sourceFor(candidate.binding), source_verified: false }
     rejects(validator.checkResponse(permit, response, untrusted), 'native_source_untrusted')
-  }
-)
-
-test(
-  '聚焦复核：raw grant 不能替代分类、管理或 custody',
-  /* 验证有效 raw grant 仍须同时满足可信分类、管理权限和 custody 要求。 */ () => {
-    const candidate = request(view(), {
-      id: 'review-token',
-      method: 'uhp.token.create',
-      params: { scopes: ['read'] }
-    })
-    const context = { ...raw(candidate), permissions: ['admin-test'] }
-    const gate = unwrap(inspectRequestGate(candidate, context))
-    assert.equal(gate.raw_contract_authorized, true)
-    assert.equal(gate.secret_result_authorized, false)
-    rejects(checkDispatch(candidate, context), 'secret_boundary_required')
-    rejects(checkDispatch(candidate, { ...context, classifications: [] }), 'safety_classification_missing')
-    rejects(
-      checkDispatch(candidate, { ...context, classification_source_verified: false }),
-      'safety_classification_untrusted'
-    )
-    rejects(
-      checkDispatch(candidate, {
-        ...context,
-        custody_available: true,
-        result_channel: 'custody',
-        permissions: []
-      }),
-      'management_forbidden'
-    )
   }
 )
 

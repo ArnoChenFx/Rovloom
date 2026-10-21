@@ -11,11 +11,11 @@ import { createConnector, createGateway } from '../../src/transport/index.js'
 import type { Connection, DeviceCredential, Session, SocketChannel } from '../../src/transport/index.js'
 import type { NativeConnectorOptions } from '../../src/transport/connector.js'
 import type { GatewayOptions } from '../../src/transport/gateway.js'
-import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js'
+import type { NativeBinding } from '../../src/native-contract/index.js'
 import type { CompiledContract } from '../../src/native-contract/index.js'
 import type { ContractSource, ProviderBinding, ProviderPolicy, V2Target, VersionOffer } from '../../src/wire/types.js'
 import { contractRef } from '../../src/wire/index.js'
-import { auth, compiled, G, identity, json, request, view } from '../native-contract/helpers.js'
+import { compiled, G, identity, json } from '../native-contract/helpers.js'
 import { source } from '../wire/helpers.js'
 import { management } from '../storage/helpers.js'
 
@@ -93,18 +93,6 @@ export function fixture(
   )
   const origin = host.contract?.source ?? { ...source, runtime_generation: G, classification_revision: 'review1' }
   const installedIdentity = host.contract?.identity ?? identity
-  const baseline = auth(request(view(), { id: 'unused', method: 'task.add', params: { title: 'synthetic' } }))
-  const reviewed = {
-    ...baseline,
-    classifications: baseline.classifications.map(
-      /** 保留 fixture 的原授权分类，只绑定本次隔离安装的实际二进制与 schema 身份。 */
-      (classification) => ({
-        ...(classification as SafetyClassification),
-        contract: installedIdentity,
-        revision: origin.classification_revision ?? (classification as SafetyClassification).revision
-      })
-    )
-  }
   const capabilities = json('session-capabilities.json')
   capabilities.result.session = 'synthetic'
   capabilities.result.server_generation = G
@@ -162,7 +150,7 @@ export function fixture(
     /** 返回 fixture 当前 caller 与 local 策略，允许测试即时撤权行为。 */
     policies: () => ({ caller: principal.policy, local }),
     /** 提供离线测试分类权限，不在生产入口创建默认授权。 */
-    authority: () => reviewed,
+    authority: () => ({ owner: false, raw_requested: false }),
     /** 取得测试当前 reader ID，验证读取与派发身份分别受控。 */
     currentPrincipal: () => principal.id
   })

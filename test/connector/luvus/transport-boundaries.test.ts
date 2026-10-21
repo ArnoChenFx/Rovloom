@@ -14,8 +14,8 @@ const transports = ['ipc', 'cli'] as const
 
 for (const transport of transports) {
   test(
-    `ordinary RPC refuses persistent native transport before auth, claim or IO: ${transport}`,
-    /* 即使可信 backend 同时支持流且登记为 rpc，也须在本模块的任何本地 IO 前拒绝原生 observe。 */ async (t) => {
+    `persistent native stream methods are refused by the method table before auth, claim or IO: ${transport}`,
+    /* 流方法不在静态方法表中，即使可信 backend 支持流也须在任何本地 IO 前拒绝原生 observe。 */ async (t) => {
       const f = await fixture(transport, 'terminal.backend.observe')
       t.after(/* 释放本用例拥有的 adapter、连接和私有目录。 */ () => f.close())
       let auth = 0
@@ -44,7 +44,7 @@ for (const transport of transports) {
       })
       assert('error' in observed)
       assert(observed.error instanceof LuvusAdapterError)
-      assert.equal(observed.error.code, 'ordinary_rpc_required')
+      assert.equal(observed.error.code, 'method_not_listed')
       assert.equal(observed.error.outcome, 'not_dispatched')
     }
   )

@@ -20,7 +20,6 @@ import {
   request,
   source,
   sourceFor,
-  T,
   unwrap,
   validator,
   view
@@ -161,8 +160,8 @@ test(
 )
 
 test(
-  '终端 RPC 最小 matcher 保留原生 ID 约束与 method-result，不能 seal 流或控制许可',
-  /* 用终端快照核对结果类型和代次，并验证 control 开流许可不能封存或经 RPC 路径释放。 */ () => {
+  '终端 RPC 最小 matcher 保留原生 ID 约束与 method-result',
+  /* 用终端快照核对结果类型和代次，。 */ () => {
     const original = dispatched('terminal.backend.snapshot', {})
     const sealed = unwrap(validator.sealResponseContext(original.permit))
     unwrap(validator.releaseRequestContext(original.permit))
@@ -194,8 +193,5 @@ test(
       'native_result_mismatch'
     )
     unwrap(validator.releaseResponseContext(sealed))
-    const stream = dispatched('terminal.backend.control', { server_generation: G, terminal_id: T, pane_id: '3' })
-    rejects(validator.sealResponseContext(stream.permit), 'response_context_unavailable')
-    rejects(validator.releaseRequestContext(stream.permit), 'response_context_unavailable')
   }
 )

@@ -4,22 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { checkDispatch, compileBundle, parseNativeJson } from '../../src/native-contract/index.js'
-import {
-  auth,
-  clone,
-  G,
-  identity,
-  json,
-  raw,
-  register,
-  request,
-  source,
-  sourceFor,
-  T,
-  unwrap,
-  validator,
-  view
-} from './helpers.js'
+import { auth, clone, G, identity, json, request, source, sourceFor, T, unwrap, validator, view } from './helpers.js'
 
 // 将接口无关场景转为真实内存工厂；不把 JSON 中的可信标志直接当作生产认证。
 const matrix: any = JSON.parse(
@@ -96,7 +81,6 @@ function assertCase(c: any, result: any): void {
   }
 }
 const session = view()
-const host = view('host')
 // 将 bundle 各别名重新指向当前文档表，使单独变更的约束参与真实编译。
 function syncAliases(b: any): void {
   const docs = b.documents
@@ -215,154 +199,23 @@ function responseCase(c: any): any {
   }
   return validator.checkResponseShape(value, c.seed.startsWith('terminal_') ? 'terminal' : 'general')
 }
-// 将矩阵事实转为真实候选与授权上下文，执行完整派发门禁。
-function dispatchCase(c: any): any {
-  const facts = specimen(c)
-  const nativeRequest = clone(facts.request)
-  const profile = facts.profile === 'host' ? 'host' : 'session'
-  let from: any = profile === 'host' ? host : session
-  if (
-    facts.schema_state === 'unavailable' ||
-    !from.methods.some(
-      /* 判断当前能力是否广告了待测方法，以决定是否构造未来方法能力。 */ (entry: any) =>
-        entry.method === nativeRequest.method
-    )
-  ) {
-    if (!nativeRequest.method.startsWith('future.')) {
-      nativeRequest.method = 'future.synthetic'
-    }
-    const caps = json(profile === 'host' ? 'host-capabilities.json' : 'session-capabilities.json')
-    if (profile === 'session') {
-      caps.result.session = 'synthetic'
-      caps.result.server_generation = G
-    }
-    caps.result.methods.push(nativeRequest.method)
-    caps.result.method_contracts.push({
-      method: nativeRequest.method,
-      scope: 'agent',
-      access: 'write',
-      idempotent: false
-    })
-    from = unwrap(validator.bindCapabilities(caps, source(profile)))
-  }
-  if (facts.machine_id !== 'm1') {
-    const caps = json(profile === 'host' ? 'host-capabilities.json' : 'session-capabilities.json')
-    if (profile === 'session') {
-      caps.result.session = 'synthetic'
-      caps.result.server_generation = G
-    }
-    const trusted = clone(source(profile))
-    trusted.binding.target.machine_id = facts.machine_id
-    from = unwrap(validator.bindCapabilities(caps, trusted))
-  }
-  if (!facts.advertised) {
-    const caps = json('session-capabilities.json')
-    caps.result.session = 'synthetic'
-    caps.result.server_generation = G
-    caps.result.methods = caps.result.methods.filter(
-      /* 移除待测方法名，构造未广告方法的反例。 */ (name: string) => name !== nativeRequest.method
-    )
-    caps.result.method_contracts = caps.result.method_contracts.filter(
-      // 移除待测方法对应的原生提示，使方法目录保持同步。
-      (row: any) => row.method !== nativeRequest.method
-    )
-    from = unwrap(validator.bindCapabilities(caps, source()))
-  }
-  const checked = validator.checkRawRequest(from, nativeRequest)
-  if (!checked.ok) {
-    return checked
-  }
-  const candidate = register(checked.value, from)
-  const authorization: any = auth(candidate)
-  authorization.owner = facts.owner
-  authorization.mode = facts.execution_mode
-  authorization.raw_requested = facts.raw_requested
-  authorization.confirmation_verified = facts.confirmation_present
-  authorization.custody_available = facts.custody_available
-  if (!facts.adapter_supported) {
-    authorization.supported_transports = []
-  }
-  if (!facts.caller_allowed) {
-    authorization.caller_policy.methods = []
-  }
-  if (!facts.local_allowed) {
-    authorization.local_policy.methods = []
-  }
-  const hint = facts.trusted_safety
-  if (!hint) {
-    authorization.classifications = []
-  } else {
-    const record: any = authorization.classifications[0]
-    if (hint.state === 'unknown') {
-      record.effect = hint.effect
-    }
-    if (hint.state === 'invalid') {
-      delete record.result
-    }
-    if (hint.source === 'caller_input') {
-      authorization.classification_source_verified = false
-    }
-    if (hint.management_permission) {
-      record.management_permission = hint.management_permission
-    }
-    if (hint.result_boundary === 'protected_secret') {
-      Object.assign(record.result, { boundary: 'protected_secret', delivery: 'custody' })
-    }
-  }
-  if (facts.management_allowed) {
-    authorization.permissions = [authorization.classifications[0]?.management_permission ?? 'admin-test']
-  }
-  if (facts.raw_grant) {
-    const spec = facts.raw_grant
-    const grant: any = clone(raw(candidate).raw_grant!)
-    grant.principal_id = spec.principal_id
-    grant.expires_at = spec.expires_at
-    grant.methods = spec.methods
-    grant.binding.target.machine_id = spec.machine_id
-    for (const key of ['capability_revision', 'caller_policy_revision', 'local_policy_revision'] as const) {
-      if (spec[key] !== facts[key]) {
-        grant.binding[key] = 'stale'
-      }
-    }
-    if (spec.contract_revision !== facts.contract_revision) {
-      grant.binding.contract.revision = 'stale'
-    }
-    if (spec.contract_digest !== facts.contract_digest) {
-      grant.binding.contract.schema_sha256 = '3'.repeat(64)
-    }
-    authorization.raw_grant = grant
-  }
-  return checkDispatch(candidate, authorization)
-}
-// 遍历所有通用参数方法，分别断言请求接受或派发模式的预期结果。
+// 遍历所有通用参数方法，断言请求阶段均被接受（派发授权由静态方法表测试覆盖）。
 function genericCases(c: any): void {
   for (const descriptor of session.methods.filter(
     /* 仅选择缺少方法专用参数 schema 的方法描述。 */ (entry) => entry.schema_status === 'generic_params_only'
   )) {
-    const invoke = descriptor.method === 'module.action.invoke'
     const candidate = request(session, {
       id: 'generic-all',
       method: descriptor.method,
-      params: { unannounced: ['synthetic'], ...(invoke ? { action: 'synthetic' } : {}) }
-    })
-    if (c.stage === 'request') {
-      assertCase(c, { ok: true, value: candidate })
-      continue
-    }
-    const authorization: any = c.context?.execution_mode === 'raw_contract' ? raw(candidate) : auth(candidate)
-    authorization.permissions = ['admin-test']
-    authorization.custody_available = true
-    authorization.result_channel = 'custody'
-    if (invoke) {
-      authorization.classifications[0].sub_action = {
-        pointer: '/params/action',
-        value: 'synthetic'
+      params: {
+        unannounced: ['synthetic'],
+        ...(descriptor.method === 'module.action.invoke' ? { action: 'synthetic' } : {})
       }
-    }
-    assertCase(c, checkDispatch(candidate, authorization))
+    })
+    assertCase(c, { ok: true, value: candidate })
   }
 }
-const implementedStages = new Set(['bundle', 'capabilities', 'request', 'response', 'dispatch', 'parse'])
+const implementedStages = new Set(['bundle', 'capabilities', 'request', 'response', 'parse'])
 export const implementedMatrixIds: string[] = matrix.cases
   .filter(/* 选择当前纯模块已实现阶段的矩阵场景。 */ (c: any) => implementedStages.has(c.stage))
   .map(/* 提取已实现矩阵场景的唯一编号。 */ (c: any) => c.id)
@@ -385,8 +238,6 @@ for (const c of matrix.cases.filter(
         result = validator.checkRequest(session, specimen(c))
       } else if (c.stage === 'response') {
         result = responseCase(c)
-      } else if (c.stage === 'dispatch') {
-        result = dispatchCase(c)
       } else if (c.stage === 'parse') {
         result = parseNativeJson(
           c.generator === 'depth_65' ? '['.repeat(65) + '0' + ']'.repeat(65) : Buffer.from(specimen(c).bytes_hex, 'hex')
@@ -399,10 +250,10 @@ for (const c of matrix.cases.filter(
   )
 }
 test(
-  '120 矩阵的纯模块与后续持久化验收分列，无静默 skip',
-  /* 核对全部矩阵与已实现数量，要求延后场景均明确归属于后续验收阶段。 */ () => {
-    assert.equal(matrix.cases.length, 120)
-    assert.equal(implementedMatrixIds.length, 101)
+  '85 矩阵的纯模块与后续持久化验收分列，无静默 skip',
+  /* 核对全部矩阵与已实现数量，要求延后场景均明确归属于后续验收阶段（派发授权由静态方法表测试覆盖）。 */ () => {
+    assert.equal(matrix.cases.length, 85)
+    assert.equal(implementedMatrixIds.length, 66)
     const deferred = matrix.cases.filter(
       /* 筛出尚未由当前纯模块实现的矩阵场景。 */ (c: any) => !implementedStages.has(c.stage)
     )

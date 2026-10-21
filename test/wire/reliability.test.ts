@@ -103,11 +103,7 @@ test(
       }
     }
     assert.equal(planResponseEvidence(error, context('connector_to_gateway'), anchor, 400).evidence.category, 'error')
-    for (const policy of [
-      undefined,
-      { classification_status: 'trusted_complete' as const, retain_content_authorized: false },
-      { classification_status: 'untrusted' as const, retain_content_authorized: true }
-    ]) {
+    for (const policy of [undefined, { retain_content_authorized: false }]) {
       const plan = planResponseEvidence(response, context('connector_to_gateway'), anchor, 400, policy)
       assert.equal(plan.content.delivery, 'metadata_only')
       assert.equal(plan.content.native_response, undefined)

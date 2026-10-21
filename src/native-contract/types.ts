@@ -67,7 +67,6 @@ export type MethodDescriptor = Readonly<{
   transport: NativeTransport | 'unclassified'
   schema_status: SchemaStatus
   branch_paths: readonly string[]
-  classification_status: 'not_evaluated'
   native_contract: NativeMethodContract
 }>
 // handle 仅由内存工厂建立；反序列化的同形对象不能用作校验或派发凭证。
@@ -102,25 +101,6 @@ export type CheckedResponse = Readonly<{
   bound: boolean
 }>
 
-export type SafetyClassification = Readonly<{
-  method: string
-  revision: string
-  contract: ContractIdentity
-  native: NativeMethodContract
-  transport: NativeTransport
-  effect: 'read' | 'write' | 'execute' | 'external'
-  requires_owner: boolean
-  management_permission: string | null
-  confirmation_required: boolean
-  result: Readonly<{
-    boundary: 'ordinary' | 'protected_secret'
-    sensitivity: 'public' | 'potentially_sensitive' | 'credential'
-    read_authorization: 'required'
-    retention: 'caller_policy' | 'none'
-    delivery: 'ordinary' | 'custody'
-  }>
-  sub_action?: Readonly<{ pointer: string; value: Json }>
-}>
 export type RawContractGrant = Readonly<{
   id: string
   source_verified: boolean
@@ -132,20 +112,13 @@ export type RawContractGrant = Readonly<{
 export type DispatchAuthorization = Readonly<{
   source: TrustedNativeContext
   principal_id: string
-  classification_source_verified: boolean
-  classifications: readonly unknown[]
   caller_policy: Policy
   local_policy: Policy
-  permissions: readonly string[]
   owner: boolean
-  confirmation_verified: boolean
-  custody_available: boolean
-  result_channel: 'ordinary' | 'custody'
   mode: 'strict' | 'raw_contract'
   raw_requested: boolean
   raw_grant?: RawContractGrant
   now: number
-  supported_transports?: readonly NativeTransport[]
 }>
 export type DispatchPermit = Readonly<{
   kind: 'permit'
@@ -153,27 +126,15 @@ export type DispatchPermit = Readonly<{
   method: string
   mode: 'strict' | 'raw_contract'
   validation: ParameterValidation
-  classification_revision: string
   raw_grant_id?: string
 }>
 // 只能由真实非流 RPC permit 封存；独立 WeakMap 校验，不能用于派发、开流或读取原文。
 // retained_bytes 是封存元数据按契约身份编码后的 JSON 字节数，不代表共享编译状态或堆内存大小。
 export type ResponseOnlyContext = Readonly<{ kind: 'response_context'; retained_bytes: number }>
-export type NativeRequestGate = Readonly<{
-  classification_status: 'trusted_complete' | 'missing' | 'unknown' | 'invalid' | 'untrusted'
-  schema_status: 'complete' | 'incomplete' | 'unavailable'
-  transport_status: 'supported' | 'unsupported'
-  authorized: boolean
-  secret_result_authorized: boolean
-  raw_contract_authorized: boolean
-}>
 export type ResultAuthorization = Readonly<{
   principal_id: string
   caller_policy_allowed: boolean
   local_policy_allowed: boolean
-  classification_source_verified: boolean
-  classification_revision: string
-  channel: 'ordinary' | 'custody'
   content_status: 'available' | 'expired' | 'discarded'
 }>
 

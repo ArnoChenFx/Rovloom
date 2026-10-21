@@ -1,7 +1,6 @@
 // 验证 Wire 编解码、协商、独立调用关联、原生门禁与 JSON 边界。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import {
   decodeWireFrame,
   encodeWireFrame,
@@ -25,7 +24,6 @@ import {
   offer,
   rejects,
   fixtureValidator,
-  allowedGate,
   nativeRequest,
   withoutId
 } from './helpers.js'
@@ -481,55 +479,10 @@ test(
 )
 
 test(
-  '分类与 generic/schema 状态独立；raw 需原登记 mode 和独立授权，不能越过根 schema',
-  /* 验证分类与 generic/schema 状态独立；raw 需原登记 mode 和独立授权，不能越过根 schema。 */ () => {
+  '原生校验器拒绝或缺失时请求被拒绝，错误码原样透出且不继续派发',
+  /* 验证 Wire 授权通过后仍由原生校验器决定；缺校验器、schema 不全、方法表外均被拒绝。 */ () => {
     const raw = { ...request, payload: { ...request.payload, validation: 'raw-contract' as const } }
-    for (const classification_status of ['missing', 'unknown', 'invalid', 'untrusted'] as const) {
-      const validator = fixtureValidator({
-        ...allowedGate,
-        classification_status,
-        raw_contract_authorized: true
-      })
-      rejects(
-        /* 提交该用例输入，确认缺少可信完整分类时被拒绝。 */ () =>
-          decode(request, context('gateway_to_connector', validator)),
-        'classification_unavailable'
-      )
-      rejects(
-        /* 提交该用例输入，确认缺少可信完整分类时被拒绝。 */ () => decode(raw, rawContext(validator)),
-        'classification_unavailable'
-      )
-    }
-    for (const schema_status of ['generic', 'unavailable'] as const) {
-      rejects(
-        /* 提交该用例输入，确认参数 schema 不可用时被拒绝。 */ () =>
-          decode(request, context('gateway_to_connector', fixtureValidator({ ...allowedGate, schema_status }))),
-        schema_status === 'generic' ? 'parameter_schema_incomplete' : 'parameter_schema_unavailable'
-      )
-    }
-    rejects(
-      /* 提交该用例输入，确认原始契约模式缺少独立授权时被拒绝。 */ () => decode(raw, rawContext()),
-      'raw_contract_forbidden'
-    )
     rejects(/* 提交该用例输入，确认消息与独立调用锚点不匹配时被拒绝。 */ () => decode(raw), 'attempt_binding_mismatch')
-    const rawGate = {
-      ...allowedGate,
-      schema_status: 'generic' as const,
-      raw_contract_authorized: true
-    }
-    assert.deepEqual(decode(raw, rawContext(fixtureValidator(rawGate))), raw)
-    for (const part of [{ authorized: false }, { secret_result_authorized: false }]) {
-      rejects(
-        /* 提交该用例输入，确认当前主体或双端权限不允许操作时被拒绝。 */ () =>
-          decode(raw, rawContext(fixtureValidator({ ...rawGate, ...part }))),
-        'forbidden'
-      )
-    }
-    rejects(
-      /* 提交该用例输入，确认原生方法不支持该传输时被拒绝。 */ () =>
-        decode(raw, rawContext(fixtureValidator({ ...rawGate, transport_status: 'unsupported' }))),
-      'unsupported_transport'
-    )
     rejects(
       /* 提交该用例输入，确认原生请求未通过完整 schema时被拒绝。 */ () =>
         decode(
@@ -540,7 +493,7 @@ test(
               native_request: { ...raw.payload.native_request, extra: true }
             }
           },
-          rawContext(fixtureValidator(rawGate))
+          rawContext()
         ),
       'native_request_invalid'
     )
@@ -549,37 +502,30 @@ test(
         decode(request, { ...context(), validators: undefined }),
       'native_validator_unavailable'
     )
-    const missing = fixtureValidator()
-    missing.requestGate = /* 模拟缺少可信分类信息的原生门禁结果。 */ () => ({}) as any
-    rejects(
-      /* 提交该用例输入，确认缺少可信完整分类时被拒绝。 */ () =>
-        decode(request, context('gateway_to_connector', missing)),
-      'classification_unavailable'
-    )
-    const coverage = JSON.parse(
-      readFileSync(new URL('../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')
-    )
-    const generic = coverage.methods.filter(
-      /* 筛选仅有通用参数形态的原生方法覆盖记录。 */ (r: any) => r.schema.parameter_detail === 'generic_params_only'
-    )
-    assert.equal(generic.length, 144)
-    for (const row of generic) {
-      const r = { method: row.method, params: { unrelated: true } }
-      assert(nativeRequest({ ...r, id: attempt.native_request_id }))
+    for (const code of [
+      'parameter_schema_incomplete',
+      'parameter_schema_unavailable',
+      'method_not_listed',
+      'raw_contract_not_authorized',
+      'forbidden'
+    ]) {
+      const validator = fixtureValidator()
+      validator.validateRequest = /* 模拟原生校验器按方法表、参数完整度或授权拒绝。 */ () => {
+        throw new WireError(code)
+      }
       rejects(
-        /* 提交该用例输入，确认严格模式所需参数 schema 不完整时被拒绝。 */ () =>
-          decode(
-            { ...request, payload: { ...request.payload, native_request: r } },
-            context(
-              'gateway_to_connector',
-              fixtureValidator({ ...allowedGate, schema_status: 'generic' }),
-              binding,
-              row.method
-            )
-          ),
-        'parameter_schema_incomplete'
+        /* 提交该用例输入，确认原生校验器的固定错误码被原样透出。 */ () =>
+          decode(request, context('gateway_to_connector', validator)),
+        code
       )
     }
+    const garbled = fixtureValidator()
+    garbled.validateRequest = /* 模拟违规的非 undefined 返回值。 */ (() => ({})) as any
+    rejects(
+      /* 提交该用例输入，确认违规返回值被固定错误码拒绝。 */ () =>
+        decode(request, context('gateway_to_connector', garbled)),
+      'invalid_native_validator_result'
+    )
   }
 )
 

@@ -2,7 +2,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import type { NativeContractRecord, NativeWireBackend, TrustedAttempt } from '../integration/luvus-wire.js'
-import type { SafetyClassification, TrustedNativeContext } from '../native-contract/index.js'
+import type { TrustedNativeContext } from '../native-contract/index.js'
 import { object } from '../wire/index.js'
 import type { AttemptBinding } from '../wire/types.js'
 import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from './native-source.js'
@@ -41,8 +41,6 @@ export function createLuvusOperationsAuthority(
   rawAllowed: (attempt: TrustedAttempt) => boolean
 ): NativeWireBackend['authority'] {
   assertLuvusOperationsContract(contract)
-  const classificationRevision = contract.wire.source.classification_revision!
-  const identity = contract.compiled.identity
   const methods = object(object(contract.capabilities).result).method_contracts as Record<string, unknown>[]
   return /** 每个候选重验当前来源、精确方法与参数，不从快照导入 Owner、permit 或新的期限。 */ (attempt, native) => {
     const proven = current(attempt.binding)
@@ -75,34 +73,10 @@ export function createLuvusOperationsAuthority(
       throw new LuvusAdapterError('luvus_operations_contract_mismatch')
     }
     validateLuvusOperationParams(attempt.method, attempt.native_request.params)
-    const classification: SafetyClassification = {
-      method: attempt.method,
-      revision: classificationRevision,
-      contract: identity,
-      native: descriptor.native,
-      transport: 'single_request_rpc',
-      effect: descriptor.effect,
-      requires_owner: false,
-      management_permission: null,
-      confirmation_required: false,
-      result: {
-        boundary: 'ordinary',
-        sensitivity: 'potentially_sensitive',
-        read_authorization: 'required',
-        retention: 'caller_policy',
-        delivery: 'ordinary'
-      }
-    }
     const raw = attempt.mode === 'raw-contract'
     const allowed = raw && rawAllowed(attempt) === true
     return {
-      classification_source_verified: true,
-      classifications: [classification],
-      permissions: [],
       owner: allowed,
-      confirmation_verified: false,
-      custody_available: false,
-      result_channel: 'ordinary',
       raw_requested: raw,
       ...(allowed
         ? {
@@ -115,8 +89,7 @@ export function createLuvusOperationsAuthority(
               expires_at: attempt.binding.registration.deadline
             }
           }
-        : {}),
-      supported_transports: ['single_request_rpc']
+        : {})
     }
   }
 }
