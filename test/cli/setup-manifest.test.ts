@@ -25,7 +25,6 @@ const plan: PairingPlan = {
   created_at: 1,
   expires_at: 2,
   phase: 'paired',
-  identity_confirmation: 'synthetic_confirmation',
   machine_id: 'synthetic_machine'
 }
 

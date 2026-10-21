@@ -142,7 +142,8 @@ test(
       f.store.setProviderEnabled(a.machine_id, 'provider', 1, false)
       assert.equal(device(f, a.machine_id).connection.verification, 'verified')
       assert.equal(device(f, b.machine_id).authentication.verification, 'verified')
-      r.manager.revoke(a.machine_id)
+      r.f.store.revoke(a.machine_id)
+      r.f.gateway.disconnect(a.machine_id)
       const health = f.store.health()
       assert(health.mode === 'active' || health.mode === 'storage_degraded' || health.mode === 'recovery_quarantined')
       const old = createManagementTransportProjection(captured, {

@@ -143,7 +143,8 @@ test(
       owned.assertLive()
       const output = join(f.home, 'agent-env.json')
       const deadline = Date.now() + 2000
-      while (!existsSync(output) && Date.now() < deadline) {
+      // 子进程创建文件与写入内容不是原子的；等到内容非空，避免读到半写入的空文件。
+      while ((!existsSync(output) || readFileSync(output, 'utf8') === '') && Date.now() < deadline) {
         await new Promise<void>(
           /** 等待自有 child 的实际就绪文件，不根据输入 ack 推断启动。 */ (resolve) => setTimeout(resolve, 5)
         )

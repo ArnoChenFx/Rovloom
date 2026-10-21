@@ -78,20 +78,13 @@ try {
         confirmation_id: randomUUID()
       })
     },
-    authorizeIdentity: /* 本验收只向自有身份库安装一次性合成设备凭据。 */ () => ({
-      actor: 'isolated_nonproduction_admin',
-      confirmation_id: randomUUID(),
-      expires_at: Date.now() + 10000
-    }),
-    changed: /* 身份变化立即断开同一测试机器，不变更其它来源。 */ (machine) => gateway?.transport.disconnect(machine),
-    identity_reservation: { security_bytes: 1048576, audit_bytes: 4194304, file_bytes: 8388608 }
+    changed: /* 身份变化立即断开同一测试机器，不变更其它来源。 */ (machine) => gateway?.transport.disconnect(machine)
   })
   const machine = state.store.register('isolated_live')
   const credential = {
     ...state.store.redeem(state.store.issueEnrollment(machine.machine_id)),
     recovery_generation: state.store.generation()
   }
-  state.credentials.install(credential, 120000)
   const target = { machine_id: machine.machine_id, provider_id: 'native_live', profile: 'session', session: 'isolated' }
   const config = {
     target,

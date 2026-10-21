@@ -141,7 +141,6 @@ test(
           assert.equal(denied.status, 401)
           await denied.arrayBuffer()
           assert.equal(existsSync(join(state, 'gateway.db')), true)
-          assert.equal(existsSync(join(state, 'identity.db')), true)
           assert.equal(existsSync(join(state, 'managed', 'mcp-callers.json')), false)
           assert.equal(stdout, '')
           const stored = readFileSync(join(state, 'gateway.db'))
@@ -164,7 +163,7 @@ test(
             assert(code !== null || signal !== null)
           }
         }
-        for (const name of ['gateway.db.lock', 'identity.db.lock']) {
+        for (const name of ['gateway.db.lock']) {
           const lock = join(state, name)
           assert.equal(existsSync(lock), process.platform === 'win32')
           if (process.platform === 'win32') {
@@ -259,7 +258,6 @@ test(
           const denied = await fetch('http://127.0.0.1:' + mcp + '/mcp', { headers: { Connection: 'close' } })
           assert.equal(denied.status, 401)
           await denied.arrayBuffer()
-          assert.equal(existsSync(join(state, 'identity.db')), true)
           assert.equal(existsSync(join(state, 'managed', 'mcp-callers.json')), false)
           assert.equal(stdout.read(), null)
         } finally {
@@ -276,7 +274,7 @@ test(
         assert(stored, 'actual_persisted_generation_missing')
         generation ??= stored
         assert.equal(stored, generation)
-        for (const name of ['gateway.db.lock', 'identity.db.lock']) {
+        for (const name of ['gateway.db.lock']) {
           assert.equal(existsSync(join(state, name)), false)
         }
       }

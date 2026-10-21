@@ -59,20 +59,13 @@ async function fixture(
         confirmation_id: randomUUID()
       })
     },
-    authorizeIdentity: /** 本轮短期非生产设备身份批准，不读取用户凭据。 */ () => ({
-      actor: 'remote_fixture_admin',
-      confirmation_id: randomUUID(),
-      expires_at: Date.now() + 10000
-    }),
-    changed: /** 原身份更改驱动原通道封锁。 */ (machine) => active.gateway?.transport.disconnect(machine),
-    identity_reservation: { security_bytes: 1048576, audit_bytes: 4194304, file_bytes: 8388608 }
+    changed: /** 原身份更改驱动原通道封锁。 */ (machine) => active.gateway?.transport.disconnect(machine)
   })
   const machine = state.store.register('synthetic_remote_device')
   const credential = {
     ...state.store.redeem(state.store.issueEnrollment(machine.machine_id)),
     recovery_generation: state.store.generation()
   }
-  state.credentials.install(credential, 60000)
   const target = {
     machine_id: machine.machine_id,
     provider_id: 'remote_provider',

@@ -1,15 +1,12 @@
-// 汇总 v5 内容、元数据、审计、备份和磁盘占用，将未完成调用的收尾预约计入配额检查。
+// 汇总内容、结果句柄、备份和磁盘占用；未完成调用只按固定的收尾预约计入，不再逐表统计 JSON 字节。
 import type { DatabaseSync } from 'node:sqlite'
 import { statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { GatewayError } from '../contracts.js'
 import type { Retention } from './config.js'
 import { managedBytes } from './files.js'
-import { completionReservation, metadataFields, metadataValue } from './completion.js'
-import type { CompletionCall } from './completion.js'
-// 返回标准 JSON 编码后的 UTF-8 字节数，用于同口径的元数据配额计量。
-const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v))
-// 检查当前占用与待收尾预约；准入时额外保留应急空间，任一分类超限即拒绝。
+
+// 检查当前占用与待收尾预约；准入时额外保留应急空间，任一项超限即拒绝。
 export function assertBudget(
   db: DatabaseSync,
   path: string,
@@ -26,49 +23,8 @@ export function assertBudget(
   if (content > limits.content_bytes) {
     throw new GatewayError('content_quota')
   }
-  if (sum('SELECT COALESCE(SUM(bytes),0) n FROM results') > limits.handle_payload_bytes) {
+  if (sum('SELECT COALESCE(SUM(bytes),0) n FROM results') > limits.content_bytes) {
     throw new GatewayError('result_quota')
-  }
-  const calls = db
-    .prepare(
-      `SELECT ${[...new Set([...metadataFields, 'machine_id', 'provider_id', 'binding_revision', 'provider_kind', 'method', 'reserved', 'epoch', 'attempt_id', 'mode'])].join(',')} FROM calls`
-    )
-    .all() as CompletionCall[]
-  const generation = String(db.prepare('SELECT generation FROM metadata').get()!.generation)
-  const completion = calls.map(
-    /* 从当前调用状态推导仍需履行的审计和元数据预约。 */ (row) => completionReservation(row, limits, generation)
-  )
-  const auditReserved = completion.reduce(/* 累计所有调用尚需的收尾审计字节。 */ (total, row) => total + row.audit, 0)
-  const metadataReserved = completion.reduce(
-    /* 累计所有调用终态可能新增的元数据字节。 */ (total, row) => total + row.metadata,
-    0
-  )
-  const audit = db
-    .prepare('SELECT * FROM audit')
-    .all()
-    .reduce(/* 累加已持久化审计记录的完整 JSON 字节数。 */ (n, row) => n + size(row), 0)
-  if (audit + auditReserved > limits.audit_bytes) {
-    throw new GatewayError('audit_quota')
-  }
-  const histories = db.prepare('SELECT * FROM history').all()
-  if (size(calls.map(metadataValue)) + size(histories) + metadataReserved > limits.call_metadata_bytes) {
-    throw new GatewayError('metadata_quota')
-  }
-  const security = [
-    'machines',
-    'enrollments',
-    'providers',
-    'management',
-    'admin_history',
-    'admin_confirmations',
-    'admin_operations',
-    'admin_pairings'
-  ].reduce(
-    /* 统计各安全与管理表的 JSON 编码占用。 */ (n, table) => n + size(db.prepare(`SELECT * FROM ${table}`).all()),
-    0
-  )
-  if (security > limits.security_metadata_bytes) {
-    throw new GatewayError('security_quota')
   }
   const pages =
     Number(db.prepare('PRAGMA page_count').get()!.page_count) * Number(db.prepare('PRAGMA page_size').get()!.page_size)

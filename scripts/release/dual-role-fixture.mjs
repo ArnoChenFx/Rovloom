@@ -135,18 +135,12 @@ export async function createDualRoleFixture({
     })
     const state = openGatewayState({
       state_directory: gatewayState,
-      identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
       store: {
         management: /** 正式Store仅批准本轮空白状态中的合成设备与provider管理。 */ () => ({
           actor: 'synthetic_smoke_admin',
           confirmation_id: randomUUID()
         })
       },
-      authorizeIdentity: /** 正式身份API只在本轮种子阶段取得一次短期合成批准。 */ () => ({
-        actor: 'synthetic_smoke_admin',
-        confirmation_id: randomUUID(),
-        expires_at: Date.now() + 10_000
-      }),
       changed: /** 种子阶段尚无listener或外部通道可断开。 */ () => {}
     })
     let target
@@ -156,7 +150,6 @@ export async function createDualRoleFixture({
         ...state.store.redeem(state.store.issueEnrollment(machine.machine_id)),
         recovery_generation: state.store.generation()
       }
-      state.credentials.install(credential, 120_000)
       saveCredential(join(connectorRefs, 'device.json'), credential)
       target = { machine_id: machine.machine_id, provider_id: 'synthetic_herdr', profile: 'session', session: 'smoke' }
       state.store.defineProvider({
@@ -206,13 +199,7 @@ export async function createDualRoleFixture({
           }
         }
       ],
-      pairing_policy_refs: [],
-      identity_approvals_ref: 'identity_approvals'
-    })
-    save(join(gatewayRefs, 'identity_approvals.json'), {
-      schema_version: 1,
-      kind: 'identity-approval-source',
-      approvals: []
+      pairing_policy_refs: []
     })
     const resource = `http://127.0.0.1:${mcpPort}/mcp`
     save(join(gatewayRefs, 'mcp-callers.json'), {

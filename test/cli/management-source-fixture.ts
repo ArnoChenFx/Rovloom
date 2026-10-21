@@ -47,7 +47,6 @@ export async function managementSourceFixture() {
   const configPath = join(root, 'gateway.json')
   const sourcePath = join(refs, 'management.json')
   const callerPath = join(refs, config.authentication_ref + '.json')
-  const approvalPath = join(refs, 'identity_approvals.json')
   const clock = { now: Date.now() }
   const target = {
     machine_id: 'fixture_machine',
@@ -82,8 +81,7 @@ export async function managementSourceFixture() {
     sessions: [
       { credential_sha256: createHash('sha256').update(managementProof).digest('hex'), lease, administrator: admin }
     ],
-    pairing_policy_refs: [],
-    identity_approvals_ref: 'identity_approvals'
+    pairing_policy_refs: []
   }
   const callers = {
     schema_version: 1,
@@ -104,7 +102,6 @@ export async function managementSourceFixture() {
   save(configPath, configDocument(config))
   save(callerPath, callers)
   save(sourcePath, source)
-  save(approvalPath, { schema_version: 1, kind: 'identity-approval-source', approvals: [] })
   return {
     root,
     state,
@@ -113,7 +110,6 @@ export async function managementSourceFixture() {
     configPath,
     sourcePath,
     callerPath,
-    approvalPath,
     clock,
     target,
     lease,

@@ -268,7 +268,6 @@ test(
           const denied = await fetch(`http://127.0.0.1:${mcp}/mcp`)
           assert.equal(denied.status, 401)
           assert.equal(existsSync(join(state, 'gateway.db')), true)
-          assert.equal(existsSync(join(state, 'identity.db')), true)
           assert.equal(existsSync(join(state, 'runtime.json')), false)
           assert.equal(existsSync(join(state, 'refs')), false)
           assert.equal(existsSync(join(state, 'managed', 'mcp-callers.json')), false)

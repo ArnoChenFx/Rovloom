@@ -106,8 +106,8 @@ test(
       )
       assert.throws(
         /** 直接使用旧设备长期材料请求认证仍被同一Store门禁拒绝。 */ () =>
-          r.f.store.connectVerifiedDevice(a.machine_id, r.f.store.generation()),
-        /invalid_device_state/
+          r.f.store.connect(a.machine_id, 'x'.repeat(43)),
+        /invalid_device_credential/
       )
       await until(
         /** 允许旧Connector实际重试并保持拒绝，而非只检查本地数据库状态。 */ () => ca.status().reconnects >= 2,

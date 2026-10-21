@@ -1,23 +1,26 @@
 # ADR 0003：Bun 执行与开发工具链
 
-状态：采纳。工具链命令与精确锁定值由 [开发指引](../DEVELOPMENT.md)、[.bun-version](../../.bun-version)、package/lock 及 CI 维护；本 ADR 记录运行时与构建选择的理由。
+状态：采纳（已修订：不再固定精确版本）。
 
 ## 决策
 
-使用官方 Bun 执行安装、TypeScript、测试、P0 JavaScript harness 和 Bun 目标 ESM 构建，使用冻结文本 lock；不依赖 Node/npm/npx 回退。不把 Bun 转译/打包成功当严格类型检查，独立由锁定的 TypeScript 编译器检查。
+使用 Bun 执行安装、TypeScript、测试和构建，使用提交的文本 lock（`bun.lock`）保证 CI 可复现；不依赖 Node/npm/npx 回退。类型检查由 TypeScript 编译器独立执行，Bun 的转译或打包成功不代替它。
 
-保留 `node:sqlite` 接口，由 Bun 提供实现，避免同时维护两套存储后端。SQLite 文件、事务、migration、绑定、分页和 writer 语义须在实际执行运行时验证；`process.version` 的 Node 兼容字符串不是 Node 执行证据。
+保留 `node:sqlite` 接口，由 Bun 提供实现，避免同时维护两套存储后端。SQLite 文件、事务、绑定和 writer 语义须在实际运行时验证；`process.version` 的 Node 兼容字符串不是 Node 执行证据。
 
-构建按源码入口列表输出模块，依赖外置，共享 chunk 保持错误/handle 所需模块身份一致，先清理旧产物，再执行真实文件数据库和跨模块 smoke。模块入口清单以构建脚本为准，不在文档复制易失效的入口数量；模块产物不等于服务 CLI。
+**版本策略**：
 
-禁用自动 `.env` 加载与 install lifecycle scripts，验证使用新临时项目、空缓存和新 HOME，不复制用户状态/凭据。质量命令直接由固定 Bun 执行，以真实子进程退出码、JUnit 与源码执行覆盖验收；平台 proxy/CA 可以按验证器规则继承，凭据和值不写日志。
+- `package.json` 的 `engines.bun` 只声明**最低**版本；依赖与 devDependencies 使用 `^` 范围，不固定补丁版本，也不使用 `packageManager` 精确 pin。
+- CI 同时在最低版本与最新版本上跑 lint、format、typecheck、test、build、smoke。最低版本通过才允许提高 `engines.bun`。
+- 发行构建使用构建当时的最新 Bun；实际版本写入 release manifest 的 `bun` 字段，仅作记录，不参与校验。
+- 依赖升级通过常规升级 PR 完成，由 CI 把关。
 
-验证范围调整：全进程树追踪与 Node/npm/npx 拒绝探针不再属于普通质量门禁。既有追踪失败仍是历史失败证据，不因本次范围调整改判成功；运行记录只描述实际执行的命令和测试。
+构建按源码入口列表输出模块，依赖外置；禁用自动 `.env` 加载与 install lifecycle scripts。
 
-## 理由与边界
+## 理由
 
-单一执行工具链减少运行/构建差异，保留既有 SQLite API 和依赖锁可以缩小迁移面。独立类型检查和构建 smoke 分别覆盖转译无法保证的类型正确性及产物行为，不能互相替代。
+原先把 Bun、TypeScript 和全部依赖锁到精确版本，并在测试里断言版本号。这样换一个补丁版本就会出现与代码无关的失败，升级成本高，却没有换来额外的安全性：供应链风险由 lockfile 与 CI 控制，运行时版本差异由最低/最新矩阵暴露。
 
-外部发行来源、binary hash/revision 和不可变测试 provenance 保留在 [工具链来源](../../scripts/bun/provenance.json)；每轮输出与验收状态留在 CI/PR。历史 Node 原生采集不改写成 Bun 采集，两条路径的原始证据独立维护。
+## 边界
 
-工具链验证只证明其平台与测试范围，不证明其它 OS、商业 MCP Host、OAuth、多 provider 生产后端或服务部署已完成。系统架构与待交付项分别以 DESIGN、实施计划为准。
+工具链验证只证明其平台与测试范围，不证明其它 OS、商业 MCP Host、OAuth 或服务部署已完成；这些由端到端验收单独负责。

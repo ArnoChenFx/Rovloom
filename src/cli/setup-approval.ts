@@ -1,7 +1,6 @@
 // 把本地所有者的明确确认绑定到既有注册、身份安装和provider管理接口，普通请求不能构造批准。
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { PairingAdmin } from '../transport/pairing.js'
-import type { IdentityApproval, IdentityIntent } from '../transport/identity-store.js'
 import type { ManagementRequest } from '../storage/model.js'
 import type { openGatewayState } from '../runtime/state.js'
 import { boundedJson, fields, id, object, sha } from '../wire/index.js'
@@ -33,7 +32,6 @@ export type PairingPlan = Readonly<{
     | 'unknown'
   machine_id?: string
   enrollment_sha256?: string
-  identity_confirmation: string
   native_fingerprint?: string
   providers?: readonly NativeProviderKind[]
 }>
@@ -55,28 +53,10 @@ function plan(value: unknown): PairingPlan {
     const row = object(value)
     fields(
       row,
-      [
-        'schema_version',
-        'attempt_id',
-        'actor',
-        'uid',
-        'generation',
-        'name',
-        'created_at',
-        'expires_at',
-        'phase',
-        'identity_confirmation'
-      ],
+      ['schema_version', 'attempt_id', 'actor', 'uid', 'generation', 'name', 'created_at', 'expires_at', 'phase'],
       ['machine_id', 'enrollment_sha256', 'native_fingerprint', 'providers']
     )
-    for (const key of [
-      'attempt_id',
-      'actor',
-      'generation',
-      'name',
-      'identity_confirmation',
-      ...(row.machine_id ? ['machine_id'] : [])
-    ]) {
+    for (const key of ['attempt_id', 'actor', 'generation', 'name', ...(row.machine_id ? ['machine_id'] : [])]) {
       id(row[key])
     }
     if (
@@ -112,7 +92,6 @@ function plan(value: unknown): PairingPlan {
 }
 
 export class SetupApproval {
-  readonly #installed = new Set<string>()
   readonly #providers = new Map<string, { confirmation: string; expires: number; generation: string }>()
   #state: State | undefined
 
@@ -215,8 +194,7 @@ export class SetupApproval {
         name: 'connector-' + attempt.slice(0, 8),
         created_at: now,
         expires_at: now + 300_000,
-        phase: 'registering',
-        identity_confirmation: randomUUID()
+        phase: 'registering'
       },
       false
     )
@@ -265,26 +243,6 @@ export class SetupApproval {
       throw new CliError('configuration_required')
     }
     return this.save({ ...current, phase: 'redeeming' }, true)
-  }
-
-  // 原IdentityStore仍消费自己的精确一次性确认；只批准当前操作的首份install，不能轮换/接管/扩大作用域。
-  authorizeIdentity(intent: IdentityIntent): IdentityApproval {
-    const current = this.active()
-    if (
-      !current ||
-      current.phase !== 'redeeming' ||
-      current.machine_id !== intent.machine_id ||
-      current.generation !== intent.recovery_generation ||
-      intent.action !== 'install' ||
-      intent.revision !== 0 ||
-      intent.connection_epoch !== null ||
-      Date.now() >= current.expires_at ||
-      this.#installed.has(current.identity_confirmation)
-    ) {
-      throw new CliError('configuration_required')
-    }
-    this.#installed.add(current.identity_confirmation)
-    return { actor: current.actor, confirmation_id: current.identity_confirmation, expires_at: current.expires_at }
   }
 
   // 交付只按原结果推进；unknown永不自动重新签发，paired也不能倒退成issued。

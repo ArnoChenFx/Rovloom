@@ -1,5 +1,4 @@
 // 用自建 Unix listener、合成非生产身份和真实双库/Wire 工厂建立隔离回归，不接触用户原生实例。
-import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -35,20 +34,12 @@ export async function runtimeFixture(
   const state = openGatewayState({
     state_directory: stateDirectory,
     store: { management },
-    identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-    /** 只有本回归的合成管理员生成短期确认，生产宿主不能导入此工厂。 */
-    authorizeIdentity: () => ({
-      actor: 'isolated_fixture_administrator',
-      confirmation_id: randomUUID(),
-      expires_at: state.store.clock() + 1000
-    }),
     /** 身份提交后正常断开当前真实 socket；从未调用 Store.connect。 */
     changed: (machine) => gateway?.transport.disconnect(machine)
   })
   const machine = state.store.register('isolated_runtime')
   const redeemed = state.store.redeem(state.store.issueEnrollment(machine.machine_id))
   const credential = { ...redeemed, recovery_generation: state.store.generation() }
-  state.credentials.install(credential, 60_000)
   const target = { ...native.config.target, machine_id: machine.machine_id }
   const binding = {
     machine_id: machine.machine_id,

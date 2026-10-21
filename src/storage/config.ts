@@ -6,14 +6,10 @@ export const DEFAULT_RETENTION = Object.freeze({
   content_ttl: 3_600_000,
   content_bytes: 128 * MiB,
   handle_ttl: 3_600_000,
-  handle_payload_bytes: 16 * MiB,
   call_metadata_ttl: 30 * 86_400_000,
   dedup_ttl: 30 * 86_400_000,
-  call_metadata_bytes: 64 * MiB,
   history_epoch_max_age: 86_400_000,
   audit_ttl: 30 * 86_400_000,
-  audit_bytes: 64 * MiB,
-  security_metadata_bytes: 16 * MiB,
   backup_ttl: 7 * 86_400_000,
   backup_max_count: 2,
   backup_bytes: 128 * MiB,
@@ -30,10 +26,9 @@ export function retention(overrides: Partial<Retention> = {}): Retention {
     Object.values(c).some(/* 检测不是正安全整数的保留期或容量配置。 */ (v) => !Number.isSafeInteger(v) || v <= 0) ||
     c.call_metadata_ttl < c.dedup_ttl ||
     c.history_epoch_max_age > c.dedup_ttl ||
-    c.handle_payload_bytes > c.content_bytes ||
     c.storage_reserve_bytes >= c.storage_total_bytes ||
     c.attempt_reserve_bytes > c.storage_reserve_bytes ||
-    ['content_bytes', 'call_metadata_bytes', 'audit_bytes', 'security_metadata_bytes', 'backup_bytes'].some(
+    ['content_bytes', 'backup_bytes'].some(
       /* 检测任一独立分类预算是否超过存储总量。 */ (k) => c[k as keyof Retention] > c.storage_total_bytes
     )
   ) {

@@ -18,7 +18,7 @@ import { configTemplate } from '../../src/cli/config.js'
 import { createProductionCliRuntime } from '../../src/cli/production.js'
 import { writeSetupJson } from '../../src/cli/setup-files.js'
 
-// 只替代用户问答，不替代正式Store、IdentityStore、credential proof或持久文件sink。
+// 只替代用户问答，不替代正式Store、credential或持久文件sink。
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-pairing-http-'))
   const directory = join(root, 'gateway')
@@ -47,9 +47,6 @@ function fixture() {
   const approval = new SetupApproval(terminal as unknown as SetupTerminal, directory)
   const state = openGatewayState({
     state_directory: directory,
-    identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-    authorizeIdentity: /* 实际安装仍调用受精确intent约束的生产批准对象。 */ (intent) =>
-      approval.authorizeIdentity(intent),
     store: {
       management: /* 实际Store仍消费精确provider/action/fence确认。 */ (request) =>
         approval.authorizeManagement(request)
@@ -132,16 +129,6 @@ test(
       await assert.rejects(f.approval.issue())
       assert.equal(f.machines(), 0)
       assert.deepEqual(readdirSync(f.managed), [])
-      assert.throws(
-        /* 未经明确确认，任意安装intent均拒绝。 */ () =>
-          f.approval.authorizeIdentity({
-            action: 'install',
-            machine_id: 'fixture_machine',
-            recovery_generation: f.state.store.generation(),
-            revision: 0,
-            connection_epoch: null
-          })
-      )
     } finally {
       await f.close()
     }

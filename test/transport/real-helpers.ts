@@ -1,39 +1,24 @@
-// 在私有临时目录组合真实 Store 桥、唯一 IdentityStore、实际 socket 与真实 Wire/native adapter。
+// 在私有临时目录组合真实 Store 设备凭据、实际 socket 与真实 Wire/native adapter。
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/store.js'
-import {
-  ChannelRegistry,
-  IdentityStore,
-  PersistentIdentity,
-  PersistentProofIdentity,
-  createStoreDeviceLedger,
-  createStoreIdentityFacts,
-  createDeviceLifecycleWiring,
-  createDeviceLifecycleAdapter
-} from '../../src/transport/index.js'
-import type { Connection, DeviceLifecycleVerifier, IdentityHost, SocketChannel } from '../../src/transport/index.js'
-import type { IdentityIntent } from '../../src/transport/identity-store.js'
+import { ChannelRegistry, createDeviceLifecycle, createDeviceLifecycleAdapter } from '../../src/transport/index.js'
+import type { Connection, IdentityHost, SocketChannel } from '../../src/transport/index.js'
 import type { NativeConnectorOptions } from '../../src/transport/connector.js'
 import { boundedJson, fail } from '../../src/wire/index.js'
 import { fixture, until } from './helpers.js'
 import { management } from '../storage/helpers.js'
 
-/** 初始化真实双 SQLite 与双端 loopback，独立管理确认、凭据及 native 来源均仅为本次 mock fixture。 */
+/** 初始化真实 Store 与双端 loopback，管理确认及 native 来源均仅为本次 mock fixture。 */
 export function realFixture() {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-real-bridge-mock-'))
   const storePath = join(root, 'store.sqlite')
-  const identityPath = join(root, 'identity.sqlite')
   const channels = new ChannelRegistry()
-  let verify: DeviceLifecycleVerifier | undefined
   let approval: { machine: string; fence: string; id: string } | undefined
   let failStore = false
   let beforeStoreCommit: (() => void) | undefined
-  let failIdentity = false
-  let allowIdentity = true
-  let identityChanges = 0
   const records: {
     connection: Connection
     channel: SocketChannel
@@ -43,10 +28,10 @@ export function realFixture() {
   const identityProxy: IdentityHost = {
     /** 仅在创建完真实接线后读取主 Store 代次。 */
     generation: () => lifecycle.identityHost.generation(),
-    /** 真实桥同步消费 PersistentProofIdentity 私有证明；不存在原始 Store 凭据代理。 */
+    /** 真实 Store 事务核对凭据摘要并分配 fresh epoch。 */
     authenticate: (machine, generation, credential) =>
       lifecycle.identityHost.authenticate(machine, generation, credential),
-    /** 每次复验该原 socket 的持久租期与真实 Store epoch。 */
+    /** 每次复验该原 socket 的凭据摘要与真实 Store epoch。 */
     assert: (current, lease) => lifecycle.identityHost.assert(current, lease),
     /** 普通断连使用真实 Store 精确 epoch 操作。 */
     disconnect: (current) => lifecycle.identityHost.disconnect(current)
@@ -69,9 +54,7 @@ export function realFixture() {
         }
         return { actor: 'mock_admin', confirmation_id: approval.id }
       },
-      /** 真实 Store 事务同步进入受保护验证器，不接受 Wire 或普通 JSON 的 verified 自证。 */
-      deviceLifecycle: (request) => verify?.(request) === true,
-      /** 在真实业务 COMMIT 前制造失败，独立身份提交不受本库回滚影响。 */
+      /** 在真实业务 COMMIT 前制造失败，整个事务回滚。 */
       fault(point) {
         if (point === 'before_commit' && beforeStoreCommit) {
           const callback = beforeStoreCommit
@@ -94,64 +77,7 @@ export function realFixture() {
       }
     }
   )
-  const facts = createStoreIdentityFacts(f.store)
-  const db = new IdentityStore(identityPath, {
-    generation: f.store.generation(),
-    guard: facts.guard,
-    /** 真实身份库和业务库共用可控可信测试时间。 */
-    now: () => f.now,
-    /** 明确为同一测试身份库分配安全及审计份额，不建立第二身份真相。 */
-    checkBudget(usage) {
-      if (usage.security_bytes + usage.audit_bytes + usage.reserved_bytes > 2_000_000) {
-        fail('identity_quota')
-      }
-    },
-    /** 在身份提交前制造落盘失败，保证 Store 和 socket 不能假报认证成功。 */
-    fault() {
-      if (failIdentity) {
-        throw new Error('mock_identity_commit_failure')
-      }
-    }
-  })
-  /** 为本 fixture 管理操作给出独立短期确认，重配还必须匹配与 Store 相同的精确 fence。 */
-  const authorize = (intent: IdentityIntent) => {
-    if (
-      !allowIdentity ||
-      (intent.action === 're_pair' &&
-        (!approval ||
-          approval.machine !== intent.machine_id ||
-          approval.fence !==
-            boundedJson({
-              recovery_generation: intent.recovery_generation,
-              connection_epoch: intent.connection_epoch
-            })))
-    ) {
-      fail('identity_forbidden')
-    }
-    identityChanges++
-    return { actor: 'mock_admin', confirmation_id: randomUUID(), expires_at: f.now + 1000 }
-  }
-  const identity = new PersistentProofIdentity(db, authorize)
-  const lifecycle = createDeviceLifecycleWiring(
-    /** 只注入回调并返回真实 Store；这里没有 Object.assign 桥方法、私有 SQL 或原始凭据后门。 */
-    (callback) => {
-      verify = callback
-      return f.store
-    },
-    identity
-  )
-  const manager = new PersistentIdentity(db, {
-    ledger: createStoreDeviceLedger(f.store),
-    authorize,
-    /** prepare 仅关闭实际通道，不能在主 Store 事务中重入断连。 */
-    block: (machine) => {
-      channels.blockAndClose(machine)
-    },
-    /** 身份操作提交后走正常断连，轮换后的新凭据才能建立 fresh epoch。 */
-    changed: (machine) => {
-      f.gateway.disconnect(machine)
-    }
-  })
+  const lifecycle = createDeviceLifecycle(f.store)
   const unsubscribe = f.store.subscribeInvalidation(
     /** 收集真实 COMMIT 后的最小设备作用域回收事件，不收集请求或凭据。 */
     (event) => {
@@ -160,20 +86,31 @@ export function realFixture() {
   )
   return {
     f,
-    db,
-    identity,
-    manager,
     lifecycle,
     channels,
     records,
     events,
     root,
     storePath,
-    identityPath,
-    /** 原子消费 mock enrollment 后只向真实身份库安装摘要，连接完全依赖真实已合并桥。 */
+    /** 使用 fixture 的注册与配对流程，但把凭据换成真实 Store 兑换得到的原始值。 */
     pair(name: string) {
-      const device = f.pair(name)
-      manager.install(device.credential)
+      const original = f.store.redeem.bind(f.store)
+      let real: { machine_id: string; credential: string } | undefined
+      f.store.redeem = /** 捕获真实兑换结果，仅用于本测试把凭据交给 Connector。 */ (token) => {
+        real = original(token)
+        return real
+      }
+      let device: ReturnType<typeof f.pair>
+      try {
+        device = f.pair(name)
+      } finally {
+        f.store.redeem = original
+      }
+      device.credential = {
+        machine_id: real!.machine_id,
+        recovery_generation: f.store.generation(),
+        credential: real!.credential
+      }
       return device
     },
     /** 使用当前设备启动配置创建真实 loopback Connector，不运行任何真实原生进程。 */
@@ -207,7 +144,7 @@ export function realFixture() {
         id: randomUUID()
       }
     },
-    /** 按当前记录的精确 epoch 调用真实跨库重配协调，结果由两个真实库判断。 */
+    /** 按当前记录的精确 epoch 调用真实重配协调：Store 事务提交后关闭该设备全部旧 socket。 */
     reset(machine: string, epoch: string | null) {
       const record = records.findLast(
         /** 只取此设备实际认证 socket 的作用域，绝不从 Wire 帧构造 connection。 */
@@ -218,31 +155,18 @@ export function realFixture() {
       }
       lifecycle.reset(record.channel, machine, f.store.generation(), epoch)
     },
-    /** 返回独立管理确认消费计数，验证旧 fence 不触发身份副作用。 */
-    get identityChanges() {
-      return identityChanges
-    },
     /** 开关真实主 Store 提交故障，不改变任何生产配置。 */
     set failStore(value: boolean) {
       failStore = value
     },
-    /** 在下次真实 Store 提交前同步重入一次管理操作，验证提交后的认证复验。 */
+    /** 在下次真实 Store 提交前同步重入一次管理操作。 */
     set beforeStoreCommit(callback: (() => void) | undefined) {
       beforeStoreCommit = callback
     },
-    /** 开关真实身份库提交故障，观察 socket/epoch 是否保持拒绝。 */
-    set failIdentity(value: boolean) {
-      failIdentity = value
-    },
-    /** 模拟身份管理员拒绝，检查主库即使先授权也不能替代独立身份确认。 */
-    set allowIdentity(value: boolean) {
-      allowIdentity = value
-    },
-    /** 幂等停止本 fixture 的网络、adapter、Store 和唯一身份库，然后清除新建目录。 */
+    /** 幂等停止本 fixture 的网络、adapter 和 Store，然后清除新建目录。 */
     close() {
       unsubscribe()
       f.stop()
-      db.close()
       rmSync(root, { recursive: true, force: true })
     }
   }

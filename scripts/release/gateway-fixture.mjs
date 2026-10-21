@@ -58,7 +58,6 @@ export async function gatewaySmokeFixture() {
   const configPath = join(root, 'gateway.json')
   const sourcePath = join(refs, 'management.json')
   const callerPath = join(refs, config.authentication_ref + '.json')
-  const approvalPath = join(refs, 'identity_approvals.json')
   const clock = { now: Date.now() }
   const target = {
     machine_id: 'fixture_machine',
@@ -93,8 +92,7 @@ export async function gatewaySmokeFixture() {
     sessions: [
       { credential_sha256: createHash('sha256').update(managementProof).digest('hex'), lease, administrator: admin }
     ],
-    pairing_policy_refs: [],
-    identity_approvals_ref: 'identity_approvals'
+    pairing_policy_refs: []
   }
   const callers = {
     schema_version: 1,
@@ -120,7 +118,6 @@ export async function gatewaySmokeFixture() {
   save(configPath, legacyRuntime ? config : configSchema.configDocument(config))
   save(callerPath, callers)
   save(sourcePath, source)
-  save(approvalPath, { schema_version: 1, kind: 'identity-approval-source', approvals: [] })
   const runtimeManifest = {
     schema_version: 1,
     role: 'gateway',
@@ -170,7 +167,6 @@ export async function gatewaySmokeFixture() {
     configPath,
     sourcePath,
     callerPath,
-    approvalPath,
     clock,
     target,
     lease,

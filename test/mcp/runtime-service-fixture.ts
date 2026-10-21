@@ -30,7 +30,7 @@ export function projectionFixture(settings: ProjectionFixtureOptions = {}) {
     }
   )
   if (settings.pending) {
-    // 仅为组件人工hash模拟设备在线；没有真实配对、IdentityStore或原生通道，不产生派发许可。
+    // 仅为组件人工hash模拟设备在线；没有真实配对或原生通道，不产生派发许可。
     f.store.connect(target.machine_id, syntheticCredential)
   }
   const scope = createTrustedRequestScope(f.identities)

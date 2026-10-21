@@ -1,9 +1,7 @@
-// 将配对、轮换和接管凭据交给独立授权的专用 sink，严格核对交付确认并隔离普通返回值。
+// 将配对凭据交给独立授权的专用 sink，严格核对交付确认并隔离普通返回值。
 import { randomUUID } from 'node:crypto'
 import { fail, hash, id } from '../wire/index.js'
 import type { DeviceCredential } from './identity.js'
-import type { PersistentIdentity } from './persistent-identity.js'
-import type { ConnectionIdentity } from '../wire/types.js'
 
 export type PairingRequest = { registration_id: string; enrollment: string }
 export type CredentialDeliveryContext = { delivery_id: string; revision: number }
@@ -13,6 +11,12 @@ export interface PairingBackend {
   redeem(enrollment: string): { machine_id: string; credential: string }
   /** 读取受信账本当前恢复代次，禁止从消息字段建立当前来源。 */
   generation(): string
+}
+export interface DeliveryLedger {
+  /** 交付失败或结果未知时拒绝该精确凭据摘要，设备须经确认重新配对。 */
+  rejectDelivery(machine: string, digest: string): void
+  /** 读取当前凭据的交付关联序号，不返回 secret。 */
+  credentialRevision(machine: string): number
 }
 export interface CredentialSink {
   /** 只供已认证宿主创建的专用 sink；禁止请求指定路径或 principal，完成 custody 后才返回精确交付确认。 */
@@ -29,13 +33,9 @@ type Receipt = { machine_id: string; delivery_id: string; state: 'delivered' }
 /** 组合一次性 Store 兑换、持久 hash 变更和专用 sink，普通调用方只收到非秘密 receipt。 */
 export function createPairingDelivery(options: {
   backend: PairingBackend
-  identities: PersistentIdentity
+  identities: DeliveryLedger
   /** 根据独立渠道身份和精确操作/目标创建专用 sink，不允许业务输入指定路径或 principal。 */
-  authorizeChannel(context: {
-    machine_id: string
-    delivery_id: string
-    operation: 'enroll' | 'rotate' | 'takeover'
-  }): CredentialSink
+  authorizeChannel(context: { machine_id: string; delivery_id: string; operation: 'enroll' }): CredentialSink
   timeout_ms?: number
   concurrency?: number
 }) {
@@ -61,11 +61,7 @@ export function createPairingDelivery(options: {
   >()
   let closed = false
   /** 在并发和超时预算内交付单次凭据；确认匹配全部关联轴，失败按精确 hash 跨 revision 拒绝。 */
-  async function transfer(
-    machine: string,
-    operation: 'enroll' | 'rotate' | 'takeover',
-    issue: () => DeviceCredential
-  ): Promise<Receipt> {
+  async function transfer(machine: string, operation: 'enroll', issue: () => DeviceCredential): Promise<Receipt> {
     if (closed || pending.size >= concurrency) {
       fail('pairing_unavailable')
     }
@@ -174,34 +170,14 @@ export function createPairingDelivery(options: {
       return transfer(
         request.registration_id,
         'enroll',
-        /** 复用 Store 的原子兑换，核对注册目标，并在交付前提交独立身份 hash。 */
+        /** 复用 Store 的原子兑换（凭据摘要在同一事务保存），核对注册目标后才交付。 */
         () => {
           const device = options.backend.redeem(request.enrollment)
           if (device.machine_id !== request.registration_id) {
             fail('pairing_target_mismatch')
           }
-          const credential = { ...device, recovery_generation: options.backend.generation() }
-          options.identities.install(credential)
-          return credential
+          return { ...device, recovery_generation: options.backend.generation() }
         }
-      )
-    },
-    /** 在专用渠道和管理员门禁下交付轮换凭据，返回值只表示交付 receipt。 */
-    async rotate(machine: string, overlapMs: number, ttlMs?: number): Promise<Receipt> {
-      return transfer(
-        machine,
-        'rotate',
-        /** 先生成并持久提交轮换状态；transfer 记录精确凭据后才读取确认 revision。 */
-        () => options.identities.rotate(machine, overlapMs, ttlMs)
-      )
-    },
-    /** 向明确授权的新 custody 交付 takeover 凭据，旧 epoch 和旧凭据不再可用。 */
-    async takeover(identity: ConnectionIdentity, ttlMs?: number): Promise<Receipt> {
-      return transfer(
-        identity.machine_id,
-        'takeover',
-        /** 执行绑定原 epoch 的接管，先记录新凭据再关联专用交付确认。 */
-        () => options.identities.takeover(identity, ttlMs)
       )
     },
     /** 只报告服务是否关闭和未完成发送数量，不暴露任何凭据内容。 */

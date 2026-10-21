@@ -251,7 +251,7 @@ export class GatewayPairingHttp {
           throw new Error('setup_channel_refused')
         }
         return {
-          // 原IdentityStore已完成install后才交付secret；客户端持久确认必须在原5秒范围内返回。
+          // 凭据摘要已随兑换事务提交后才交付secret；客户端持久确认必须在原5秒范围内返回。
           deliver: async (credential, signal, delivery) => {
             if (
               this.#closed ||
@@ -341,7 +341,7 @@ export class GatewayPairingHttp {
     return setupReply({ ...receipt, attempt_id: attempt })
   }
 
-  // 关闭必须等所有原transfer收尾、拒绝不确定凭据后才允许产品关闭IdentityStore。
+  // 关闭必须等所有原transfer收尾、拒绝不确定凭据后才允许产品关闭Store。
   async close(): Promise<void> {
     this.#closed = true
     this.#stop.abort()

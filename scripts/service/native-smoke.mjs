@@ -368,7 +368,6 @@ try {
   const url = `http://127.0.0.1:${mcp}/mcp`
   await reachable(url)
   assert.equal(existsSync(join(state, 'gateway.db')), true)
-  assert.equal(existsSync(join(state, 'identity.db')), true)
   const removed = service('uninstall')
   assert.equal(removed.state, 'running')
   assert.equal(removed.bootEnabled, false)
@@ -391,9 +390,7 @@ try {
   assert.equal(readFileSync(config, 'utf8'), bytes)
   assert.equal(readFileSync(keep, 'utf8'), 'fixture-user-data')
   assert.equal(existsSync(join(state, 'gateway.db')), true)
-  assert.equal(existsSync(join(state, 'identity.db')), true)
   assert.equal(existsSync(join(state, 'gateway.db.lock')), false)
-  assert.equal(existsSync(join(state, 'identity.db.lock')), false)
   assert.equal(await owned(), false)
   cleaned = true
 } catch (error) {
@@ -408,8 +405,7 @@ try {
           phase,
           state: observed?.state ?? 'absent',
           exitCode: observed?.exitCode ?? null,
-          gatewayLock: existsSync(join(state, 'gateway.db.lock')),
-          identityLock: existsSync(join(state, 'identity.db.lock'))
+          gatewayLock: existsSync(join(state, 'gateway.db.lock'))
         }) + '\n'
       )
     } catch {

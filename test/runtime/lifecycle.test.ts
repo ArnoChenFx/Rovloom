@@ -52,11 +52,6 @@ function gatewayFixture() {
         return { actor: 'isolated_lifecycle_admin', confirmation_id: randomUUID() }
       }
     },
-    identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-    /** 这些关闭回归不需要身份管理；意外请求必须立即失败。 */
-    authorizeIdentity() {
-      throw new Error('unexpected_identity_management')
-    },
     /** 没有安装凭据或设备连接，不应发生身份变更通知。 */
     changed() {
       throw new Error('unexpected_identity_change')
@@ -204,7 +199,6 @@ test(
       assert.equal(runtime.close(), first)
       assert.equal(releases, 1)
       assert.equal(existsSync(join(fixture.root, 'gateway.db.lock')), false)
-      assert.equal(existsSync(join(fixture.root, 'identity.db.lock')), false)
     } finally {
       try {
         await runtime.close()
@@ -247,7 +241,6 @@ test(
       assert.equal(releases, 1)
       assert.equal(runtime.transport.status().stopped, true)
       assert.equal(existsSync(join(fixture.root, 'gateway.db.lock')), false)
-      assert.equal(existsSync(join(fixture.root, 'identity.db.lock')), false)
     } finally {
       fixture.close()
     }
@@ -346,7 +339,6 @@ test(
         await assert.rejects(startup, /runtime_provider_conflict/)
         assert.equal(releases, 1)
         assert.equal(existsSync(join(fixture.root, 'gateway.db.lock')), false)
-        assert.equal(existsSync(join(fixture.root, 'identity.db.lock')), false)
       } finally {
         try {
           await unexpected?.close()

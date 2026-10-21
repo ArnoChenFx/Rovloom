@@ -33,4 +33,4 @@ and availability information outside the diagrams, in the README introduction.
 
 Normative references: [DESIGN](../../DESIGN.md),
 [ADR 0004](../../adr/0004-multi-runtime-provider.md),
-[implementation plan](../../IMPLEMENTATION-PLAN.md), [Web UI plan](../../GATEWAY-WEBUI.md).
+[issues](https://github.com/ArnoChenFx/Rovloom/issues), [Web UI plan](../../GATEWAY-WEBUI.md).

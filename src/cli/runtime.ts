@@ -28,7 +28,6 @@ import {
 } from '../admin/index.js'
 import type { ConnectorConfig, GatewayConfig } from './config.js'
 import type { CliRuntime, CliServiceHost } from './run.js'
-import type { CliUpdateHost } from './update.js'
 
 export type RuntimeCliManagement = Pick<ManagementWriteOptions, 'pairingPolicy' | 'providerEnable'> & {
   port: number
@@ -73,12 +72,11 @@ export type RuntimeCliHost = {
   gateway?(config: GatewayConfig): Promise<RuntimeCliGatewayResources>
   connector?(config: ConnectorConfig): Promise<RuntimeCliConnectorResources | RuntimeCliProviderResources>
   service?: CliServiceHost
-  update?: CliUpdateHost
 }
 
 // 只把可信资源交给已存在的角色工厂；Gateway监听设备通道，MCP listener继续由runCli唯一持有。
 export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
-  const runtime: CliRuntime = { service: host.service, update: host.update }
+  const runtime: CliRuntime = { service: host.service }
   if (host.gateway) {
     runtime.gateway = /* 先建立唯一常驻宿主，再装配MCP及独立管理面；失败时释放已交付资源。 */ async (config) => {
       const resource = await host.gateway!(config)

@@ -1,5 +1,5 @@
 /** 真实 Herdr 工作流的隔离宿主：合成身份只用于本次自有资源，角色、准入和结果均复用生产工厂。 */
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { chmodSync, constants, copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
@@ -181,13 +181,6 @@ export async function createHerdrWorkflowHost(options: HerdrWorkflowHostOptions)
       state_directory: join(root, 'gateway'),
       now,
       store: { management },
-      identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-      /** 仅为本隔离测试创建合成一次性动作确认，不暴露为生产管理员入口。 */
-      authorizeIdentity: () => ({
-        actor: 'owned_fixture_administrator',
-        confirmation_id: randomUUID(),
-        expires_at: now() + 10_000
-      }),
       /** 身份提交后交给同一 Gateway 关闭所属连接，不直接修改业务连接状态。 */
       changed: (machine) => runtime?.transport.disconnect(machine)
     })
@@ -195,7 +188,6 @@ export async function createHerdrWorkflowHost(options: HerdrWorkflowHostOptions)
     const machine = opened.store.register('owned-herdr-workflow')
     const redeemed = opened.store.redeem(opened.store.issueEnrollment(machine.machine_id))
     const credential = { ...redeemed, recovery_generation: opened.store.generation() }
-    opened.credentials.install(credential, 3_600_000)
     const target = Object.freeze({
       machine_id: machine.machine_id,
       provider_id: 'owned_herdr',

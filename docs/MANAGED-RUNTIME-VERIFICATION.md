@@ -7,7 +7,7 @@
 
 ## 环境与命令
 
-需要 Linux x86_64、仓库固定 Bun 1.4.3、`/usr/bin/openssl`，以及用户已安装的官方
+需要 Linux x86_64、Bun（见 package.json 的最低版本）、`/usr/bin/openssl`，以及用户已安装的官方
 Luvus 0.14.3 binary。脚本不下载软件。binary 的 SHA-256 必须匹配代码固定值
 `895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9`；
 请以 `src/runtime/native-control.ts` 的 `FIXED_LUVUS_SHA256` 为准。

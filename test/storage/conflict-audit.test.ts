@@ -8,8 +8,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/store.js'
 import type { StoreOptions } from '../../src/store.js'
-import type { Row } from '../../src/storage/model.js'
-import { completionReservation } from '../../src/storage/completion.js'
 import { nativeBackend } from './native-backend.js'
 import { management, responseFrame } from './helpers.js'
 import { commitLuvusResponse } from '../../src/integration/persistence.js'
@@ -35,12 +33,6 @@ import { commitLuvusResponse } from '../../src/integration/persistence.js'
       rmSync(root, { recursive: true, force: true })
     }
   }
-}
-/* 计算当前审计行的 JSON 字节总量，供剩余审计配额测算使用。 */ function auditBytes(db: DatabaseSync) {
-  return db
-    .prepare('SELECT * FROM audit')
-    .all()
-    .reduce(/* 累计每条审计记录编码后的字节数。 */ (total, row) => total + Buffer.byteLength(JSON.stringify(row)), 0)
 }
 
 test(
@@ -142,49 +134,6 @@ test(
         /response_evidence_conflict/
       )
       assert.equal(f.inspect.prepare("SELECT COUNT(*) n FROM audit WHERE action='response_conflict'").get()!.n, 1)
-    } finally {
-      f.close()
-    }
-  }
-)
-
-test(
-  'conflict audit cannot borrow another attempt reservation; the protected attempt can still finish after recovery',
-  /* 验证冲突审计不能借用另一在途尝试的预留，恢复后受保护尝试仍能完成。 */ () => {
-    const f = fixture({ retention: { audit_bytes: 18_000 } })
-    try {
-      const original = f.native.create()
-      const first = f.native.dispatch(original.call_id)
-      f.native.respond(first)
-      const pending = f.native.create()
-      const second = f.native.dispatch(pending.call_id)
-      const reservation = completionReservation(
-        f.inspect.prepare('SELECT * FROM calls WHERE call_id=?').get(pending.call_id) as Row,
-        f.store.limits,
-        f.store.generation()
-      )
-      let index = 0
-      while (f.store.limits.audit_bytes - auditBytes(f.inspect) - reservation.audit > 900) {
-        f.store.register('filler-' + index++)
-      }
-      const before = f.inspect.prepare('SELECT COUNT(*) n FROM audit').get()!.n
-      assert.throws(
-        /* 在自由审计配额耗尽时制造冲突，检查另一尝试的完成预留不被侵占。 */ () =>
-          f.native.respond(first, { id: 'conflict' }),
-        /storage_degraded/
-      )
-      assert.equal(f.inspect.prepare('SELECT COUNT(*) n FROM audit').get()!.n, before)
-      assert.equal(f.inspect.prepare("SELECT COUNT(*) n FROM audit WHERE action='response_conflict'").get()!.n, 0)
-      assert.equal(
-        f.inspect.prepare('SELECT reserved FROM calls WHERE call_id=?').get(pending.call_id)!.reserved,
-        f.store.limits.attempt_reserve_bytes
-      )
-      f.store.resumeStorage()
-      f.store.accepted(second)
-      f.store.stop('synthetic', pending.call_id)
-      assert.equal(f.native.respond(second).state, 'responded')
-      assert.equal(f.inspect.prepare('SELECT SUM(reserved) n FROM calls').get()!.n, 0)
-      assert(auditBytes(f.inspect) <= f.store.limits.audit_bytes)
     } finally {
       f.close()
     }

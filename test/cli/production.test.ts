@@ -164,10 +164,6 @@ test(
     const state = /** 同一个真实双库只在种子阶段或产品角色中独占打开。 */ () =>
       openGatewayState({
         state_directory: f.state,
-        identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-        authorizeIdentity: /** 本例没有设备配对或凭据签发，意外身份动作必须拒绝。 */ () => {
-          throw new Error('unused_identity_fixture')
-        },
         changed: /** 合成离线设备不存在活动通道。 */ () => {}
       })
     let active: Awaited<ReturnType<NonNullable<ReturnType<typeof createProductionCliRuntime>['gateway']>>> | undefined
@@ -305,10 +301,6 @@ test(
     try {
       const initial = openGatewayState({
         state_directory: f.state,
-        identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-        authorizeIdentity: /** 本例不需要任何设备身份动作，意外调用必须失败。 */ () => {
-          throw new Error('unused_fixture_identity_action')
-        },
         changed: /** 没有运行中的设备连接。 */ () => {}
       })
       initial.close()
@@ -457,10 +449,6 @@ test(
     const state = /* 初始化/重开同一真实双库，测试种子只在全部writer关闭时写入。 */ () =>
       openGatewayState({
         state_directory: f.state,
-        identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-        authorizeIdentity: /* 没有真实凭据动作，也不批准任何身份变更。 */ () => {
-          throw new Error('unused_identity_fixture')
-        },
         changed: /* 没有设备连接需要通知。 */ () => {}
       })
     let source: ProviderCatalogSource = {
@@ -666,7 +654,6 @@ test(
       assert.equal(reply.isError, undefined)
       assert.deepEqual(reply.structuredContent, { data: { items: [] } })
       assert(existsSync(join(f.state, 'gateway.db')))
-      assert(existsSync(join(f.state, 'identity.db')))
       assert.deepEqual(await client.ping({ timeout: 5000 }), {})
       assert.equal(child.exitCode, null)
       writeFileSync(f.auth, JSON.stringify({ ...f.source, callers: [] }))
@@ -697,10 +684,6 @@ test(
       assert(!errors.includes(syntheticToken))
       const reopened = openGatewayState({
         state_directory: f.state,
-        identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-        authorizeIdentity: /* 重新打开只验证writer释放，绝不批准真实或合成设备身份变更。 */ () => {
-          throw new Error('unused_fixture_identity_action')
-        },
         changed: /* 本例没有任何身份变更。 */ () => {}
       })
       reopened.close()
@@ -899,7 +882,6 @@ test(
       assert.equal(result.stdout, '')
       assert.equal(result.stderr, 'runtime_failed\n')
       assert.equal(existsSync(join(f.state, 'gateway.db')), false)
-      assert.equal(existsSync(join(f.state, 'identity.db')), false)
     } finally {
       rmSync(f.root, { recursive: true, force: true })
     }
@@ -928,7 +910,6 @@ test(
         assert.equal(result.stdout, '')
         assert.match(result.stderr, role === 'gateway' ? /^runtime_failed\n$/ : /^configuration_required\n/)
         assert.equal(existsSync(join(f.state, 'gateway.db')), false)
-        assert.equal(existsSync(join(f.state, 'identity.db')), false)
       }
     } finally {
       rmSync(f.root, { recursive: true, force: true })

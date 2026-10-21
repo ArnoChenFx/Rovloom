@@ -1,6 +1,6 @@
 # Rovloom 管理 UI：最小管理面设计
 
-本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[实施计划](IMPLEMENTATION-PLAN.md)，文档职责见[导航](README.md)。以下是目标契约，不表示 HTTP 服务与页面已交付。当前共享服务类型见 [management.ts](../src/mcp/management.ts)，
+本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)，文档职责见[导航](README.md)。以下是目标契约，不表示 HTTP 服务与页面已交付。当前共享服务类型见 [management.ts](../src/mcp/management.ts)，
 实际 Store 只读接线与尚未开放的写端口见 [MCP/管理宿主契约](protocol/MCP-HTTP.md#实际-store-服务与独立管理接口)。
 
 ## 可本地验证的展示模块
@@ -192,7 +192,7 @@ Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动
 
 设备详情展开已配置 provider 行：provider_id、kind=luvus|herdr、binding_revision、非秘密 config_ref、enabled、ready/unreachable/binding_mismatch/migration_unresolved、观测时间和来源；可显示已核实 binary/server/protocol/schema 摘要、classification/schema/transport/support 状态及恢复保证，未知则标未核实。config_ref 不展开本地路径/环境或秘密。未授权 provider 不进入摘要、计数或 API。每行状态来自该 binding 的观测；一个 Herdr adapter 故障不把设备或 Luvus 行改成离线，LLM/model 错误另列任务层。
 
-UI 可只读查看已配置 bindings；实例新建/替换与受信配置变更遵循 [DESIGN §5.2](DESIGN.md#52-runtime-provider-binding--session)，由受保护本机配置与后端管理审批完成，不能原地修改 kind 或换成另一实例。最小 UI 不提供 binary/root/endpoint、任意路径或命令输入。旧来源不明的 migration_unresolved 行保持禁用，不能点选同名 Herdr 代替旧 Luvus。
+UI 可只读查看已配置 bindings；实例新建/替换与受信配置变更遵循 [DESIGN §4.1](DESIGN.md#41-machine-与-provider)，由受保护本机配置与后端管理审批完成，不能原地修改 kind 或换成另一实例。最小 UI 不提供 binary/root/endpoint、任意路径或命令输入。旧来源不明的 migration_unresolved 行保持禁用，不能点选同名 Herdr 代替旧 Luvus。
 
 默认可见页面每 5 秒读取快照，隐藏页面暂停轮询，回到前台立即刷新；单次读取超时 5 秒。距最后成功快照 15 秒或发生 epoch/恢复代次变化即标记过期，显示观测时间/心跳年龄，禁用基于该快照的变更直到刷新。显示年龄使用服务时间及本次请求后的单调经过时间，不因浏览器时钟回退而“变新”。断网保留带过期标记的只读视图，不伪装实时数据；后续可选 SSE 优化不替代快照，无需另建流系统。
 

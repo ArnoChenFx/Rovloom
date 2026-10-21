@@ -415,10 +415,6 @@ test(
             storage_total_bytes: 1_048_576,
             storage_reserve_bytes: 65_536,
             content_bytes: 100_000,
-            handle_payload_bytes: 10_000,
-            call_metadata_bytes: 100_000,
-            audit_bytes: 100_000,
-            security_metadata_bytes: 100_000,
             backup_bytes: 100_000
           }
         })
@@ -597,7 +593,7 @@ test(
       { history_epoch_max_age: 3_000_000_000 },
       { call_metadata_ttl: 1 },
       { storage_reserve_bytes: 536_870_912 },
-      { content_bytes: 1 },
+      { content_bytes: 536_870_913 },
       { dedup_ttl: NaN }
     ]) {
       assert.throws(
@@ -710,11 +706,16 @@ test(
         const auditPath = path + '-audit'
         const limited = new Store(auditPath, /* 提供固定测试时钟，避免配额和事务断言受真实时间影响。 */ () => 100, {
           management,
-          retention: { audit_bytes: 10 }
+          retention: {
+            storage_total_bytes: 20_000,
+            storage_reserve_bytes: 17_000,
+            content_bytes: 10_000,
+            backup_bytes: 10_000
+          }
         })
         try {
           assert.throws(
-            /* 在审计配额不足的存储中注册设备，检查写入被拒绝并进入降级。 */ () => limited.register('blocked'),
+            /* 在总存储不足的存储中注册设备，检查写入被拒绝并进入降级。 */ () => limited.register('blocked'),
             /storage_degraded/
           )
           assert.equal(limited.health().mode, 'storage_degraded')

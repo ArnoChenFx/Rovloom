@@ -82,9 +82,6 @@ function seed(f) {
   f.save(f.callerPath, f.callers)
   const initial = openGatewayState({
     state_directory: f.state,
-    identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-    authorizeIdentity: /** smoke不执行任何身份动作，也不发行设备凭据。 */ () =>
-      assert.fail('unexpected_identity_action'),
     changed: /** 所有设备种子离线，未建立任何原生或远程连接。 */ () => {}
   })
   initial.close()
@@ -371,7 +368,7 @@ export async function smokeGatewayProduct(
         writer = undefined
       }
     )
-    for (const name of ['gateway.db.lock', 'identity.db.lock']) {
+    for (const name of ['gateway.db.lock']) {
       assert.equal(existsSync(join(f.state, name)), false, 'product_gateway_lock_not_released')
     }
     const database = new DatabaseSync(join(f.state, 'gateway.db'), { readOnly: true })

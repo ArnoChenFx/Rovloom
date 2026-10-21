@@ -1,14 +1,14 @@
 # SQLite 运行治理
 
 本文说明当前 Store/Router 的本机宿主接口和操作边界。系统保留默认值与安全语义以
-[DESIGN §12](DESIGN.md#12-事件结果与保留)为准，精确类型见
+[DESIGN §6](DESIGN.md#6-持久化与默认限额)为准，精确类型见
 [Store](../src/store.ts)、[Router](../src/router.ts)与
 [持久化接线](../src/integration/persistence.ts)。产品 CLI 和管理服务通过 runtime 宿主使用这些
 接口；本节说明进程内存储边界，不把本机维护接口自动开放为远程 API。
 
 ## 状态库与宿主信任
 
-Store 创建规范 schema v5，只接收全新库或同版本库，拒绝未发布的 v1/v2/v3/v4，且不修改其
+Store 创建规范 schema v6，只接收全新库或同版本库，拒绝未发布的 v1–v5，且不修改其
 源文件。现存旧库应保留在隔离目录供人工核对；不要靠重命名版本号、补默认 provider 或
 导入旧 key 继续执行。不提供旧库迁移或隐式升级入口。
 
@@ -30,45 +30,28 @@ Store 是受信进程内接口。认证、当前双端策略、精确本地 bind
 和一次性真实确认；Store 在同一事务消费 confirmation_id，阻止重复使用。该回调不是管理员
 身份服务的替代品。注册与普通 enrollment 签发也只能置于受保护的本机管理面。
 
-## 独立身份库的设备生命周期桥
+## 设备凭据与生命周期
 
-`connectVerifiedDevice(machineId, recoveryGeneration): string` 只由独立身份库完成凭据校验的
-受保护宿主调用。在同一 Store writer 事务内，核对 active、当前 generation、已配对 offline、
-无现存 epoch 且无待完成的恢复确认，再消费宿主的一次性校验证明。只有 epoch、预算与审计
-成功提交后才返回；pending、撤销、重复在线、隔离或降级均拒绝。它不接收凭据，也不依赖旧
-credential hash；普通 caller 的设备 ID 或 `verified=true` 不构成证明。
+设备凭据的 SHA-256 摘要与设备状态、连接 epoch、`credential_revision` 同在 `machines` 行，所有变化都在
+Store 的单个 writer 事务内完成，没有第二个数据库或外部确认桥。
 
-宿主创建 Store 时必须注入同步 `deviceLifecycle(request): boolean`，缺省拒绝。连接分支的
-request 为 `{ action: 'connect', machine_id, recovery_generation }`：回调必须核实独立身份未
-blocked、已配对且当前请求的凭据确已验证，并同步消费绑定该设备和 generation 的一次性证明。
-只查询“设备存在”或返回默认 true 不合格。证明消费成功而 Store 随后失败时，不返回 epoch，
-不复用该证明；连接保持未就绪，新的认证须重新验证凭据。返回 epoch 仍不代表 provider ready。
+`redeem(token)` 在一个事务内消费 enrollment、生成凭据、保存摘要并递增 `credential_revision`；
+`connect(machine, credential)` 在一个事务内核对摘要、拒绝 revoked、待确认和重复在线设备，并分配 fresh
+epoch 与审计；`assertConnection(connection, lease?)` 核对当前代次、在线状态、epoch 以及（可选）该
+连接认证时的凭据摘要。返回 epoch 不代表 provider ready。凭据不过期，直到撤销或重配。
 
-`resetDeviceEnrollment(machineId, recoveryGeneration, expectedEpoch, prepare): void` 供受保护
-的同 ID 重配使用，`expectedEpoch` 必须为当前 epoch 或离线时的 null。独立 `management`
-确认的 action 是 `device_enrollment_reset`，target 是 machineId；fence 是按 `boundedJson`
-序列化的 `{ recovery_generation, connection_epoch: expectedEpoch }`，不能仅按设备名确认。
-事务清除旧 credential hash、enrollment 和 epoch，设备变为同 ID pending；该设备所有 providers
-的未派发调用变为 not_dispatched，未完成的已派发调用收敛为 outcome_unknown，不重放旧调用。
-本库成功 COMMIT 后发布设备级 fence，释放该设备全部 provider、旧 epoch 的执行/仅响应上下文及
-尚无法归属调用的在途分片；即使没有调用行也发布。回收通知带可信设备作用域，不清理其它设备的
-在途分片。Store 回滚不发布这个成功通知，不能用它替代宿主在 prepare 阶段的同步业务阻断。
+`resetDeviceEnrollment(machineId, recoveryGeneration, expectedEpoch): void` 供受保护的同 ID 重配使用，
+`expectedEpoch` 必须为当前 epoch 或离线时的 null。独立 `management` 确认的 action 是
+`device_enrollment_reset`，target 是 machineId；fence 是按 `boundedJson` 序列化的
+`{ recovery_generation, connection_epoch: expectedEpoch }`，不能仅按设备名确认。事务清除旧
+credential hash、enrollment 和 epoch，设备变为同 ID pending；该设备所有 providers 的未派发调用变为
+not_dispatched，未完成的已派发调用收敛为 outcome_unknown，不重放旧调用。本库成功 COMMIT 后发布设备级
+fence，释放该设备全部 provider、旧 epoch 的执行/仅响应上下文及尚无法归属调用的在途分片；即使没有调用行
+也发布。回收通知带可信设备作用域，不清理其它设备的在途分片。缺少确认、代次或 epoch 不符、预算或最终提交
+失败均整体回滚且不发布通知；宿主在成功返回后关闭该设备的实际 socket。
 
-两个数据库不构成原子事务。Store 在调用 prepare 前检查管理确认、fence 并预检本库变更预算；
-prepare 在本次调用内同步执行恰好一次，只能将独立身份库按本次 fence 持久化为 blocked，不能
-激活新身份或解除阻断。返回值必须是 undefined，Promise 返回拒绝。随后宿主回调收到
-`{ action: 'reset_enrollment', machine_id, recovery_generation, expected_epoch }`，独立核对
-该精确 fence 的 blocked 确已提交，才允许 Store 最终提交。须从独立事务/连接观察提交事实，
-不能把 prepare 同一未提交事务中的读取或内存标志当作 durable。缺少确认、fence 错误或前置预算失败
-不调用 prepare；prepare 抛错、阻断复核失败或最终提交失败都回滚 Store。prepare 中不得重入
-Store 的 writer 操作，不提供通用 SQL 或事务回调入口。
-
-身份库已提交后若 Store 失败或进程中止，外部 blocked 必须保留；不得用补偿、自动重试或启动
-恢复解除它。宿主须在受保护重配过程中阻止旧身份的新请求并停止旧连接/订阅；Store 不能替身份库
-或 WSS 保证这一点。失败按实际结论报告并要求新的受保护重配流程；只有 Store 成功返回
-后才能签发新的 enrollment，独立身份库也只能在新的配对完成后解除 blocked。WSS 接线只使用
-此受保护桥，不能缓存原 secret 绕用 `connect`，也不能把“连接库失败”解释为凭据仍有效。
-独立身份库的持久化预算、防回滚、配对/轮换及通道关闭仍由该身份宿主实现。
+`denyDelivery(machine, credentialDigest)` 在凭据交付失败或结果未知时，仅当摘要匹配当前凭据才清除它、断开
+在线 epoch，并把设备置为 pending 且要求确认；之后只能经确认的重新配对恢复。降级时也可执行（收紧权限）。
 
 ## 登记、派发与读取
 
@@ -101,7 +84,7 @@ Store 的可选 `authorize` 是独立可信宿主参数，必须同步返回 und
 
 `createCall` 保存不可变意图和期限；`dispatch` 在同一 writer 事务固定 machine/provider/kind/
 revision、恢复代次、连接 epoch、call/attempt/native ID、契约、登记条件和审计，并预约收尾
-预算。只有事务成功返回的 binding 才可用于实际发送。当前每个调用只允许一次 attempt，
+空间。只有事务成功返回的 binding 才可用于实际发送。当前每个调用只允许一次 attempt，
 不提供自动只读重试；重连、超时、取消或重启均不重派。
 
 宿主可用 persistentBackend 提供账本事实，再注入独立来源创建 Luvus adapter。编码和 native
@@ -152,19 +135,18 @@ scope/key 不存在不等于首次意图：已过期、未知或已清理范围�
 句柄已被清理或到期，分页元数据查询返回 result_not_found。返回期限仅是本次读取的快照，
 后续 discard、设备撤销或策略撤权仍可提前阻止读取，结果读取继续沿用现有授权及分页上限。
 
-Store 持久化观测时间高水位，读取也推进；事务外每次观察仍核对宿主时间与持久锚点，
-仅当时间超过已持久值时更新，同一毫秒重复读取不再写入。事务提交仍持久化固定事务时间，
-不缓存授权、结果或跨操作时钟。时钟回拨进入降级并拒绝相关操作。它不能证明关机
+Store 的时间高水位在内存中随读取推进（读路径不写库），每个写事务提交时持久化该事务时间，
+`close()` 再补写一次，启动时载入。事务外每次观察仍核对宿主时间，不缓存授权、结果或跨操作时钟。时钟回拨进入降级并拒绝相关操作。它不能证明关机
 期间的真实经过时间，也不能自动检测整个数据库与防回滚状态一起回退；恢复必须走隔离流程。
 
 ## 预算与降级
 
 全局预算涵盖 SQLite 已分配/空闲页、事务 journal、状态目录内对象/日志/维护文件，以及配置的
-独立备份目录。内容、句柄、调用/history 元数据、审计、安全元数据和备份分别受子额约束。
-provider 数量不会增加总额。默认 64 MiB 安全预留不用于普通准入；每个实际 dispatch 预约
-至少 16 KiB 最小证据与必要审计容量，并在审计/调用元数据子额内按原调用剩余状态义务预约；
-必要记录较大时全库预约相应增加。其它调用和管理写入不得占用这些子额预约；状态推进只结算
-本调用已完成的义务，事务失败不释放预约。终态提交释放剩余预约，unknown 在保留期内仍占预约。
+独立备份目录，受 `storage_total_bytes` 约束；内容原文与结果句柄共用 `content_bytes`，备份受
+`backup_bytes` 约束。调用/history 元数据、审计与安全元数据不再各设字节子额，由各自 TTL 清理和全库总额约束
+（逐表 JSON 统计已移除，写事务不再全表扫描）。provider 数量不会增加总额。默认 64 MiB 安全预留不用于普通准入；
+每个实际 dispatch 固定预约 `attempt_reserve_bytes`（默认 16 KiB）用于最小证据与必要审计，终态提交释放，
+unknown 在保留期内仍占预约，其它调用和管理写入不得占用该预约；事务失败不释放预约。
 
 容量检查与提交失败都会阻止发送许可返回；SQLite FULL/I/O、审计/元数据或预留耗尽进入
 storage_degraded。内存、数据库模式和尽力写入的 `.degraded` 标记共同保持拒绝；磁盘满时

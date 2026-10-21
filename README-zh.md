@@ -86,9 +86,9 @@ rovloom --help
 
 - [系统架构与部署](docs/DESIGN.md)
 - [Runtime 接口](docs/adr/0004-multi-runtime-provider.md)
-- [实施路线](docs/IMPLEMENTATION-PLAN.md)
+- [路线（issues）](https://github.com/ArnoChenFx/Rovloom/issues)
 - [管理 UI 设计](docs/GATEWAY-WEBUI.md)
-- [开发与验证（Bun 1.4.3）](docs/DEVELOPMENT.md)
+- [开发与验证](docs/DEVELOPMENT.md)
 - [开机服务模块与接线边界](docs/SERVICE.md#简体中文)
 
 ## 许可证

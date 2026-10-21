@@ -5,7 +5,7 @@ import { chmodSync, statSync, unlinkSync } from 'node:fs'
 import { createManagementSessionAuthority } from '../../src/runtime/management-session.js'
 import { openCallerSource } from '../../src/cli/caller-source.js'
 import { openProtectedManagementSource } from '../../src/cli/management-source.js'
-import { managementSourceFixture, mcpProof, managementProof } from './management-source-fixture.js'
+import { managementSourceFixture, mcpProof } from './management-source-fixture.js'
 
 test(
   '受保护管理来源只接受独立证明和固定租期，MCP凭据、URL及伪造来源均不升级为管理员',
@@ -101,99 +101,6 @@ test(
         { code: 'invalid_config' }
       )
     } finally {
-      f.close()
-    }
-  }
-)
-
-test(
-  '身份批准必须来自当前管理cookie作用域及精确预批准tuple，返回原确认而不自动续期或消费',
-  /** 只读取合成批准；持久一次性消费仍由现有IdentityStore负责，本例不签发设备凭据。 */ async () => {
-    if (process.platform !== 'linux') {
-      return
-    }
-    const f = await managementSourceFixture()
-    const source = openProtectedManagementSource(f.config, 'management', {
-      now: /** 与authority一致的测试时钟。 */ () => f.clock.now,
-      assets: f.assets
-    })
-    const caller = openCallerSource(f.callerPath, f.callers.resource, source.administrator)
-    const authority = createManagementSessionAuthority(caller.identities, {
-      now: /** 不使用客户端时间。 */ () => f.clock.now
-    })
-    source.bindAuthority(authority)
-    const signal = new AbortController().signal
-    const intent = {
-      action: 'revoke' as const,
-      machine_id: f.target.machine_id,
-      recovery_generation: 'fixture_generation',
-      revision: 2,
-      connection_epoch: 'fixture_epoch'
-    }
-    const approval = {
-      actor: f.lease.caller.principal_id,
-      confirmation_id: 'fixture_existing_confirmation',
-      expires_at: f.clock.now + 30_000
-    }
-    try {
-      f.save(f.approvalPath, {
-        schema_version: 1,
-        kind: 'identity-approval-source',
-        approvals: [
-          {
-            principal_id: f.lease.caller.principal_id,
-            management_session_ref: f.lease.management_session_ref,
-            intent,
-            approval
-          }
-        ]
-      })
-      assert.throws(/** 普通HTTP/MCP调用没有管理cookie作用域。 */ () => source.authorizeIdentity(intent))
-      const lease = await source.management.resolveLease(f.request(), signal)
-      assert(lease)
-      const cookie = authority.bootstrap(lease).cookie
-      const approved = await authority.runAuthenticated(
-        cookie,
-        signal,
-        /** 实际作用域直接委托配置中的原批准。 */ () => source.authorizeIdentity(intent)
-      )
-      assert.deepEqual(approved, approval)
-      assert.deepEqual(
-        await authority.runAuthenticated(
-          cookie,
-          signal,
-          /** 重读仍返回原确认，不生成新的消费ID。 */ () => source.authorizeIdentity(intent)
-        ),
-        approval
-      )
-      for (const patch of [
-        { action: 'install' as const },
-        { revision: 3 },
-        { connection_epoch: 'other_epoch' },
-        { recovery_generation: 'other_generation' },
-        { machine_id: 'other_machine' }
-      ]) {
-        await assert.rejects(
-          authority.runAuthenticated(
-            cookie,
-            signal,
-            /** 原tuple任何字段变化都不得借用批准。 */ () => source.authorizeIdentity({ ...intent, ...patch })
-          )
-        )
-      }
-      f.clock.now = approval.expires_at
-      await assert.rejects(
-        authority.runAuthenticated(
-          cookie,
-          signal,
-          /** 原批准到期后不依赖会话剩余期限复活。 */ () => source.authorizeIdentity(intent)
-        )
-      )
-      assert.equal(f.source.sessions[0]!.credential_sha256.includes(managementProof), false)
-    } finally {
-      source.close()
-      authority.close()
-      caller.close()
       f.close()
     }
   }

@@ -91,9 +91,9 @@ rovloom --help
 
 - [Architecture and deployment](docs/DESIGN.md)
 - [Runtime interfaces](docs/adr/0004-multi-runtime-provider.md)
-- [Implementation roadmap](docs/IMPLEMENTATION-PLAN.md)
+- [Roadmap (issues)](https://github.com/ArnoChenFx/Rovloom/issues)
 - [Management UI design](docs/GATEWAY-WEBUI.md)
-- [Development and validation (Bun 1.4.3)](docs/DEVELOPMENT.md)
+- [Development and validation](docs/DEVELOPMENT.md)
 - [Boot service module and integration limits](docs/SERVICE.md)
 
 ## License

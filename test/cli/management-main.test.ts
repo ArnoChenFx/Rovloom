@@ -67,10 +67,6 @@ test(
       chmodSync(join(f.refs, 'fixture_tls.key.pem'), 0o600)
       const initial = openGatewayState({
         state_directory: f.state,
-        identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-        authorizeIdentity: /** 种子准备不需要身份动作，任何调用都拒绝。 */ () => {
-          throw new Error('unused_fixture_identity_action')
-        },
         changed: /** 本例没有设备连接或原生实例。 */ () => {}
       })
       initial.close()

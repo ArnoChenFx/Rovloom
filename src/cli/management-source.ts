@@ -3,7 +3,6 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type { Administrator, CallerIdentity, ManagementGrant } from '../mcp/management.js'
 import type { ManagementSessionAuthority, ManagementSessionLease } from '../runtime/management-session.js'
-import type { IdentityApproval, IdentityIntent } from '../transport/identity-store.js'
 import type { ManagementAssets } from '../admin/read-http.js'
 import { boundedJson, fields, object } from '../wire/index.js'
 import { CliError, type GatewayConfig } from './config.js'
@@ -22,7 +21,6 @@ type Source = Readonly<{
   port: number
   sessions: readonly Session[]
   pairing_policy_refs: readonly string[]
-  identity_approvals_ref?: string
 }>
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/
 const digest = /^[a-f0-9]{64}$/
@@ -59,7 +57,7 @@ function grant(input: unknown): ManagementGrant {
 /** 管理证明必须独立于所有MCP凭据摘要；配置只导出现有管理员记录和固定租期。 */
 function parse(input: unknown, config: GatewayConfig): Source {
   const value = object(input)
-  fields(value, ['schema_version', 'kind', 'port', 'sessions', 'pairing_policy_refs'], ['identity_approvals_ref'])
+  fields(value, ['schema_version', 'kind', 'port', 'sessions', 'pairing_policy_refs'])
   if (
     value.schema_version !== 1 ||
     value.kind !== 'management-session-source' ||
@@ -78,9 +76,6 @@ function parse(input: unknown, config: GatewayConfig): Source {
   }
   for (const policy of value.pairing_policy_refs) {
     reference(policy)
-  }
-  if (value.identity_approvals_ref !== undefined) {
-    runtimeReference(config.state_dir, value.identity_approvals_ref)
   }
   const callers = object(readRuntimeJson(runtimeReference(config.state_dir, config.authentication_ref)))
   if (!Array.isArray(callers.callers)) {
@@ -156,25 +151,6 @@ function proof(request: Request): { principal_id: string; sha256: Buffer } | nul
   } finally {
     bytes.fill(0)
   }
-}
-
-/** 逐动作批准只复用现有完整IdentityIntent，字段、代次或revision漂移都不能匹配。 */
-function identityIntent(input: unknown): IdentityIntent {
-  const value = object(input)
-  fields(value, ['action', 'machine_id', 'recovery_generation', 'revision', 'connection_epoch'])
-  if (
-    !['install', 'rotate', 'finish_rotation', 'revoke', 're_pair', 'takeover'].includes(value.action as string) ||
-    !Number.isSafeInteger(value.revision) ||
-    (value.revision as number) < 0
-  ) {
-    throw new CliError('invalid_config')
-  }
-  reference(value.machine_id)
-  reference(value.recovery_generation)
-  if (value.connection_epoch !== null) {
-    reference(value.connection_epoch)
-  }
-  return value as IdentityIntent
 }
 
 /** 从角色私有ref读取独立管理来源；正常启动只验证配置，不bootstrap cookie或消费任何批准。 */
@@ -316,64 +292,6 @@ export function openProtectedManagementSource(
         throw new CliError('invalid_config')
       }
       authority = value
-    },
-    authorizeIdentity: /** 当前管理cookie作用域与精确预批准tuple同时存在才交付原一次性确认。 */ (
-      intent: IdentityIntent
-    ): IdentityApproval => {
-      const at = current()
-      const active = authority?.current()
-      const bound = active ? session(active.session.caller, active.session.management_session_ref) : undefined
-      if (!bound || !source.identity_approvals_ref) {
-        throw new CliError('backend_unavailable', 3)
-      }
-      const document = object(readRuntimeJson(runtimeReference(config.state_dir, source.identity_approvals_ref)))
-      fields(document, ['schema_version', 'kind', 'approvals'])
-      if (
-        document.schema_version !== 1 ||
-        document.kind !== 'identity-approval-source' ||
-        !Array.isArray(document.approvals) ||
-        document.approvals.length > 64
-      ) {
-        throw new CliError('invalid_config')
-      }
-      let approved: IdentityApproval | undefined
-      for (const input of document.approvals) {
-        const entry = object(input)
-        fields(entry, ['principal_id', 'management_session_ref', 'intent', 'approval'])
-        reference(entry.principal_id)
-        reference(entry.management_session_ref)
-        const candidate = identityIntent(entry.intent)
-        const approval = object(entry.approval)
-        fields(approval, ['actor', 'confirmation_id', 'expires_at'])
-        reference(approval.actor)
-        reference(approval.confirmation_id)
-        if (!Number.isSafeInteger(approval.expires_at)) {
-          throw new CliError('invalid_config')
-        }
-        if (
-          entry.principal_id === bound.lease.caller.principal_id &&
-          entry.management_session_ref === bound.lease.management_session_ref &&
-          approval.actor === entry.principal_id &&
-          isDeepStrictEqual(candidate, intent)
-        ) {
-          if (
-            approved ||
-            (approval.expires_at as number) <= at ||
-            (approval.expires_at as number) > Math.min(at + 300_000, bound.lease.expires_at)
-          ) {
-            throw new CliError('backend_unavailable', 3)
-          }
-          approved = approval as IdentityApproval
-        }
-      }
-      if (
-        !approved ||
-        current() >= approved.expires_at ||
-        !administrator(bound.lease.caller, bound.lease.management_session_ref)
-      ) {
-        throw new CliError('backend_unavailable', 3)
-      }
-      return structuredClone(approved)
     },
     close: /** 关闭只撤去内存读取能力；原配置、凭据和持久一次性消费记录保持所属模块所有。 */ () => {
       closed = true

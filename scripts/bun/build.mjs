@@ -35,8 +35,7 @@ const result = await Bun.build({
     'src/mcp/index.ts',
     'src/cli/index.ts',
     'src/cli/main.ts',
-    'src/service/index.ts',
-    'src/update/index.ts'
+    'src/service/index.ts'
   ],
   outdir: 'dist/src',
   root: 'src',

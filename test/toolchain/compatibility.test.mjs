@@ -1,4 +1,4 @@
-// 验证固定 Bun 的 SQLite、存储降级恢复、子进程及环境文件行为满足运行约束。
+// 验证 Bun 的 SQLite、存储降级恢复、子进程及环境文件行为满足运行约束。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
@@ -11,9 +11,9 @@ import { Store } from '../../src/store.ts'
 import { toolchain } from '../../scripts/bun/toolchain.mjs'
 
 test(
-  'pinned Bun reports real SQLite; parameter binding, changes, BLOB and SQL rollback',
+  'Bun reports real SQLite; parameter binding, changes, BLOB and SQL rollback',
   /* 验证 SQLite 绑定、变更计数、二进制往返及失败后的事务回滚。 */ () => {
-    assert.equal(toolchain().version, '1.4.3')
+    assert.equal(toolchain().version, process.versions.bun)
     const db = new DatabaseSync(':memory:')
     try {
       db.exec('CREATE TABLE t(id INTEGER PRIMARY KEY, text TEXT, payload BLOB)')
