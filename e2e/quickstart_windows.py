@@ -179,6 +179,7 @@ def main():
             status = done.returncode
             print(done.stdout, done.stderr, sep='\n', flush=True)
             if status != 0:
+                print('--- gateway tail ---\n' + redact(gateway.clean_log()[-3000:]), flush=True)
                 print('--- connector tail ---\n' + redact(connector.clean_log()), flush=True)
         sys.exit(status)
     finally:
