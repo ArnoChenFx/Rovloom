@@ -58,7 +58,9 @@ async function port() {
 export async function createDualRoleFixture({
   sourceRoot = fileURLToPath(new URL('../../', import.meta.url)),
   herdrBinary,
-  parent = process.env.LUVUS_TEST_ROOT ?? dirname(resolve(sourceRoot))
+  parent = process.env.LUVUS_TEST_ROOT ?? dirname(resolve(sourceRoot)),
+  methods = ['ping'],
+  connectorSettings = {}
 } = {}) {
   assert.equal(process.platform, 'linux', 'dual_role_native_platform_unsupported')
   assert.equal(process.arch, 'x64', 'dual_role_native_arch_unsupported')
@@ -131,7 +133,8 @@ export async function createDualRoleFixture({
       schema_version: 1,
       role: 'connector',
       data: { directory: connectorState },
-      gateway: { url: `ws://127.0.0.1:${devicePort}` }
+      gateway: { url: `ws://127.0.0.1:${devicePort}` },
+      ...connectorSettings
     })
     const state = openGatewayState({
       state_directory: gatewayState,
@@ -166,7 +169,7 @@ export async function createDualRoleFixture({
     const principal = 'synthetic_smoke_caller'
     const callerPolicy = {
       revision: 'synthetic_caller_policy',
-      grants: [{ target, methods: ['ping'], actions: ['dispatch', 'read'] }]
+      grants: [{ target, methods, actions: ['dispatch', 'read'] }]
     }
     const localPolicy = { ...structuredClone(callerPolicy), revision: 'synthetic_local_policy' }
     const proof = randomBytes(48).toString('base64url')

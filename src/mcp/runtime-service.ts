@@ -40,6 +40,7 @@ const errors: Record<string, ServiceErrorCode> = {
   connection_unavailable: 'unavailable',
   provider_binding_mismatch: 'binding_revision_conflict',
   call_not_found: 'not_found',
+  request_key_conflict: 'conflict',
   result_not_found: 'content_unavailable',
   result_not_ready: 'content_unavailable',
   result_quota: 'storage_exhausted',
