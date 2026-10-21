@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { lstatSync, readFileSync, readlinkSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, resolve, sep } from 'node:path'
 import { getSystemErrorName } from 'node:util'
-import { childEnvironment } from '../connector/luvus/local.js'
+import { childEnvironment, withPrivateUmask } from '../connector/luvus/local.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import type { LuvusLocalConfig } from '../connector/luvus/types.js'
 import type { PeerIdentity } from '../connector/luvus/types.js'
@@ -405,12 +405,14 @@ export class OwnedNativeProcess {
     const native = kernel()
     this.#ffi = native.ffi
     this.#libc = native.libc
-    this.#child = spawn(config.binary, ['--session', config.target.session, 'server'], {
-      cwd: config.cwd,
-      env: childEnvironment(config),
-      shell: false,
-      stdio: 'ignore'
-    })
+    this.#child = withPrivateUmask(() =>
+      spawn(config.binary, ['--session', config.target.session, 'server'], {
+        cwd: config.cwd,
+        env: childEnvironment(config),
+        shell: false,
+        stdio: 'ignore'
+      })
+    )
     this.#spawnPid = this.#child.pid
     this.#exited = new Promise(
       /* 永久保留直接 child 退出事实，绝不重启或重新认领。 */ (resolve) => {

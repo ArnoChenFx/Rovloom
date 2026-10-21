@@ -195,7 +195,7 @@ caller 不能注入 principal/admin/discard_response，native_request 只允许 
 原生参数的完整约束及额外秘密/注入字段仍由受信安装契约和服务检查。
 
 `runtime_call` 要求 expected_binding_revision、contract_ref 和绝对毫秒 deadline。
-validation 默认 strict，wait_ms 默认 0、上限 5000；短等与执行期限独立。
+validation 省略时：Herdr 为 strict，Luvus 已审核方法按方法选择固定模式（见下）；wait_ms 默认 0、上限 5000；短等与执行期限独立。
 重送同一意图须使用原 `client_request_key`（可选，同主体内去重，窗口为 `metadata_ttl`）；
 facade 不生成或更换 key。`runtime_response_discard` 是独立动作，服务必须验证归属、
 原方法当前策略和专门 discard_response 权限。设备/provider 公共视图仅输出类型中列出的展示字段。
@@ -475,7 +475,7 @@ schema、启动、目录或原生请求失败都会使整个 CLI 验收非零退
    `encoding`。超时不代表获准重新提交。
 
 先调用 `workspace.list`，再使用该 provider 描述的 tab/pane 列表方法。
-Luvus 的 `workspace.list` 等通用方法要求 `validation:"raw-contract"` 和 raw 授权。
+Luvus 的 `workspace.list` 等通用方法使用 `validation:"raw-contract"` 和 raw 授权；省略 `validation` 时 Gateway 按方法选择，显式给出不符的模式会在登记前以 `native_request_invalid`（`not_dispatched`）拒绝。
 Luvus 的 `pane.list`、`agent.prompt`、`agent.send`、`agent.wait` 和 `agent.keys`
 使用严格校验；Herdr 使用其实际 schema 和严格校验。
 不得复用其他 provider 的 ID、revision 或契约摘要。

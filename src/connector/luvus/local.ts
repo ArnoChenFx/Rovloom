@@ -48,6 +48,18 @@ function uid(): number {
   }
   return process.geteuid()
 }
+/**
+ * 在私有 umask 下派生 Luvus 子进程。Luvus 自建 sessions 等目录时继承父进程 umask（常见 022 → 0755），
+ * 而端点目录门禁要求 0700；umask 仅对 spawn 期间生效（同步 fork），随即还原，不影响本进程其它文件创建。
+ */
+export function withPrivateUmask<T>(spawnChild: () => T): T {
+  const previous = process.umask(0o077)
+  try {
+    return spawnChild()
+  } finally {
+    process.umask(previous)
+  }
+}
 /** 逐级核验路径归属、类型和权限并生成身份戳；拒绝符号链接及可被其他用户改写的路径。 */
 async function inspect(path: string, kind: 'directory' | 'binary' | 'socket') {
   canonical(path)
