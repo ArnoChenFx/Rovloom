@@ -22,14 +22,18 @@ type Acquired = Readonly<{ installation: HerdrInstallation; resources: HerdrConn
 /** 端点上有没有监听者：不存在或连接被拒（遗留的 socket 文件）算无；能连上算有；其它错误不猜测。 */
 export function herdrServerPresent(local: HerdrLocalConfig): Promise<boolean> {
   let address: string
+  let file: string
   try {
-    address = herdrEndpoint(local).address
+    const endpoint = herdrEndpoint(local)
+    address = endpoint.address
+    // Windows：存在性看端点记录文件，连接走命名管道；Linux 上两者是同一个 socket 路径。
+    file = endpoint.file ?? endpoint.address
   } catch {
     // 端点目录或 socket 不存在（或不可信）：没有可附着的实例。已存在但不可信的情形由后续 observe 拒绝。
     return Promise.resolve(false)
   }
   try {
-    lstatSync(address)
+    lstatSync(file)
   } catch {
     return Promise.resolve(false)
   }
@@ -46,7 +50,10 @@ export function herdrServerPresent(local: HerdrLocalConfig): Promise<boolean> {
       finish(() =>
         error.code === 'ECONNREFUSED' || error.code === 'ENOENT'
           ? resolve(false)
-          : reject(new HerdrLocalError('herdr_local_path_untrusted'))
+          : // 管道的所有实例都在使用中（Windows 的 ERROR_PIPE_BUSY）说明服务端存在。
+            process.platform === 'win32' && error.code === 'EBUSY'
+            ? resolve(true)
+            : reject(new HerdrLocalError('herdr_local_path_untrusted'))
       )
     )
   })
@@ -63,7 +70,8 @@ async function startDetachedServer(local: HerdrLocalConfig): Promise<void> {
     env: herdrEnvironment(local),
     shell: false,
     stdio: 'ignore',
-    detached: true
+    detached: true,
+    windowsHide: true
   })
   await new Promise<void>((resolve, reject) => {
     child.once('error', () => reject(new HerdrLocalError('herdr_launch_unavailable')))

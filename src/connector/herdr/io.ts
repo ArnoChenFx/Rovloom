@@ -175,7 +175,10 @@ export function runHerdrCommand(
 
 /** 同一 endpoint 的路径身份在连接前后及回调返回后均须保持不变；peer 另由宿主从实际连接核对。 */
 function assertEndpoint(endpoint: HerdrEndpoint): void {
-  if (endpoint.uid !== process.geteuid?.() || inspectHerdrPath(endpoint.address, 'socket') !== endpoint.stamp) {
+  if (
+    (process.platform !== 'win32' && endpoint.uid !== process.geteuid?.()) ||
+    inspectHerdrPath(endpoint.file ?? endpoint.address, 'socket') !== endpoint.stamp
+  ) {
     throw new HerdrLocalError('herdr_endpoint_identity_changed')
   }
 }

@@ -3,6 +3,7 @@ import { isatty } from 'node:tty'
 import { userInfo } from 'node:os'
 import { Writable } from 'node:stream'
 import { createInterface, type Interface } from 'node:readline/promises'
+import { windowsCurrentUserSid } from '../platform/windows.js'
 import { CliCancelled, CliError, readConfig, type RoleConfig } from './config.js'
 import type { CliIo } from './run.js'
 
@@ -16,6 +17,8 @@ export function hasLocalTerminal(io: CliIo): boolean {
 export class SetupTerminal {
   readonly actor: string
   readonly uid: number
+  // Windows 没有 uid：以进程令牌的用户 SID 作为所有者身份，每个批准边界复验。
+  readonly sid: string | undefined
   readonly #reader: Interface
   readonly #output: Writable
   #muted = false
@@ -29,8 +32,9 @@ export class SetupTerminal {
     readonly config: RoleConfig,
     readonly io: CliIo
   ) {
-    this.uid = userInfo().uid
-    this.actor = 'operator_' + this.uid
+    this.uid = process.platform === 'win32' ? -1 : userInfo().uid
+    this.sid = process.platform === 'win32' ? windowsCurrentUserSid() : undefined
+    this.actor = 'operator_' + (this.sid ?? this.uid)
     this.assertOwner()
     this.#output = new Writable({
       // 配对码输入不回显；只转交固定提示，不转发secret到标准输出或诊断日志。
@@ -56,22 +60,28 @@ export class SetupTerminal {
     if (this.io.signal.aborted) {
       throw new CliCancelled()
     }
-    const user = userInfo()
-    if (
-      this.#closed ||
-      !hasLocalTerminal(this.io) ||
-      process.platform !== 'linux' ||
-      user.uid < 0 ||
-      user.uid !== this.uid ||
-      process.getuid?.() !== this.uid ||
-      process.geteuid?.() !== this.uid
-    ) {
+    if (this.#closed || !hasLocalTerminal(this.io) || !this.#ownerUnchanged()) {
       throw new CliError('configuration_required')
     }
     const current = readConfig(this.configPath)
     if (current.role !== this.config.role || current.state_dir !== this.config.state_dir) {
       throw new CliError('configuration_required')
     }
+  }
+
+  // Linux：真实 uid/euid 未变；Windows：令牌用户 SID 未变。其它平台没有等价证据，一律拒绝。
+  #ownerUnchanged(): boolean {
+    if (process.platform === 'win32') {
+      return this.sid !== undefined && windowsCurrentUserSid() === this.sid
+    }
+    const user = userInfo()
+    return (
+      process.platform === 'linux' &&
+      user.uid >= 0 &&
+      user.uid === this.uid &&
+      process.getuid?.() === this.uid &&
+      process.geteuid?.() === this.uid
+    )
   }
 
   // 串行化本地问题，避免收据回调与启动提示同时消费一行用户输入。

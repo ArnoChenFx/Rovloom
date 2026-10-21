@@ -39,3 +39,8 @@ jobs:
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Win32 platform primitives (path trust, pipe server pid, process facts)
         run: bun --no-env-file test ./test/platform/windows.test.ts
+      - name: Attach to real official Herdr on Windows (named pipe, pipe server pid, image identity)
+        shell: pwsh
+        env:
+          ROVLOOM_HERDR_WINDOWS: ${{ env.HERDR_DIR }}\herdr.exe
+        run: bun --no-env-file test ./test/connector/herdr/attach-windows.test.ts

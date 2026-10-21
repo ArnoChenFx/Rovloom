@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { constants, closeSync, fsyncSync, lstatSync, openSync, unlinkSync } from 'node:fs'
 import { dirname, sep } from 'node:path'
 import { createPrivate, privateFile, privatePath } from '../../storage/files.js'
+import { windowsInspectPath } from '../../platform/windows.js'
 import { currentProcessIdentity } from '../../storage/process-identity.js'
 import { boundedJson, id, validateAttempt } from '../../wire/index.js'
 import type { AttemptBinding } from '../../wire/types.js'
@@ -71,6 +72,15 @@ function claimOptions(input: LuvusClaimLedgerOptions): LuvusClaimLedgerOptions {
 /** 核对路径原有安全规则，再拒绝任何可被其它用户改写的祖先。 */
 function protectedPath(path: string): void {
   privatePath(path)
+  if (process.platform === 'win32') {
+    // Windows：目录链逐级核验属主与 DACL（没有 uid/mode）。
+    try {
+      windowsInspectPath(dirname(path), 'directory')
+    } catch {
+      throw new LuvusAdapterError('claim_path_untrusted')
+    }
+    return
+  }
   const uid = process.geteuid!()
   const rootOwner = lstatSync(sep).uid
   for (let parent = dirname(path); ; parent = dirname(parent)) {

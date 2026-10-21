@@ -15,7 +15,10 @@ import {
 import { dirname, isAbsolute, join, normalize, sep } from 'node:path'
 import { boundedJson, validateTarget } from '../../wire/index.js'
 import type { V2Target } from '../../wire/types.js'
+import type { Socket } from 'node:net'
+import { readLinuxPeer } from '../local/linux-peer.js'
 import type { NativePeer } from '../local/linux-peer.js'
+import { windowsInspectPath, windowsPipeServerPid, windowsProcessFacts } from '../../platform/windows.js'
 import { pinTerminalExecution } from '../terminal-execution.js'
 import { agentSearchPath } from '../local/agent-path.js'
 
@@ -49,7 +52,25 @@ export type HerdrLocalConfig = Readonly<{
   // 实例身份改由对端进程（可执行文件、命令行、启动时间）证明。省略即由产品自己拉起并拥有实例。
   attach?: true
 }>
-export type HerdrEndpoint = Readonly<{ address: string; stamp: string; uid: number }>
+// Windows：address 是命名管道名 `\\.\pipe\<file>`，file 是 Herdr 写入 `<pid>:<时间戳>` 的端点记录文件（路径身份戳取自它）。
+export type HerdrEndpoint = Readonly<{ address: string; stamp: string; uid: number; file?: string }>
+
+/** Windows 没有 uid/gid：对端以管道服务端 pid + 镜像身份证明，用户一致性由路径属主/ACL 与进程镜像保证。 */
+export function peerIsCurrentUser(peer: NativePeer): boolean {
+  return process.platform === 'win32' || (peer.uid === process.geteuid!() && peer.gid === process.getegid!())
+}
+
+/** 从实际连接取得对端：Linux 读内核 SO_PEERCRED；Windows 由管道名向内核查询服务端 pid。 */
+export async function readHerdrPeer(socket: Socket, endpoint: HerdrEndpoint): Promise<NativePeer> {
+  if (process.platform === 'win32') {
+    try {
+      return Object.freeze({ pid: windowsPipeServerPid(endpoint.address), uid: 0, gid: 0 })
+    } catch {
+      throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+  }
+  return readLinuxPeer(socket)
+}
 
 /** 只接受规范绝对路径，不能由方法参数提交路径、状态根或远程地址。 */
 function canonical(path: string): void {
@@ -62,6 +83,9 @@ function canonical(path: string): void {
 export function inspectHerdrPath(path: string, kind: 'directory' | 'shared_directory' | 'binary' | 'socket'): string {
   try {
     canonical(path)
+    if (process.platform === 'win32') {
+      return windowsInspectPath(path, kind === 'binary' ? 'binary' : kind === 'socket' ? 'file' : 'directory')
+    }
     if (process.platform !== 'linux' || !process.geteuid || !process.getegid) {
       throw new HerdrLocalError('herdr_local_platform_unsupported')
     }
@@ -203,11 +227,38 @@ export function herdrEndpoint(config: HerdrLocalConfig): HerdrEndpoint {
   const directory = endpointDirectory(config)
   const address = join(directory, 'herdr.sock')
   inspectHerdrPath(directory, config.attach ? 'shared_directory' : 'directory')
+  if (process.platform === 'win32') {
+    // 端点是以该记录文件完整路径命名的命名管道（官方 Herdr 0.9.5 实测）；路径身份取自记录文件。
+    return Object.freeze({
+      address: '\\\\.\\pipe\\' + address,
+      stamp: inspectHerdrPath(address, 'socket'),
+      uid: -1,
+      file: address
+    })
+  }
   return Object.freeze({ address, stamp: inspectHerdrPath(address, 'socket'), uid: process.geteuid!() })
 }
 
 /** 只导出本次配置的最小环境，普通发现不继承 SSH、模型凭据或 session/socket 覆盖。 */
 export function herdrEnvironment(config: HerdrLocalConfig): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') {
+    const system = process.env.SystemRoot ?? 'C:\\Windows'
+    return {
+      PATH: agentSearchPath(config.agent_bin_dirs, `${system}\\System32;${system}`),
+      // Herdr 在 Windows 上的配置/日志位于 %APPDATA%\herdr；附着/自建的是用户自己的会话，沿用其真实目录。
+      APPDATA: config.config_home,
+      LOCALAPPDATA: config.state_home,
+      USERPROFILE: config.home,
+      HOME: config.home,
+      TEMP: config.temporary_home,
+      TMP: config.temporary_home,
+      SystemRoot: system,
+      windir: system,
+      ComSpec: process.env.ComSpec ?? `${system}\\System32\\cmd.exe`,
+      PATHEXT: process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD',
+      TERM: 'xterm-256color'
+    }
+  }
   return {
     PATH: agentSearchPath(config.agent_bin_dirs, '/usr/bin:/bin'),
     HOME: config.home,
@@ -241,7 +292,10 @@ function userShell(): string {
 
 /** 通过不跟随链接的同一 fd 求 hash，前后 stat 与路径身份均保持不变才接受安装。 */
 export function measureHerdrInstallation(config: HerdrLocalConfig): Readonly<{ stamp: string; sha256: string }> {
-  if (process.platform !== 'linux' || process.arch !== 'x64') {
+  if (
+    !(process.platform === 'linux' && process.arch === 'x64') &&
+    !(process.platform === 'win32' && (process.arch === 'x64' || process.arch === 'arm64'))
+  ) {
     throw new HerdrLocalError('herdr_local_platform_unsupported')
   }
   try {
@@ -373,7 +427,7 @@ export class HerdrProcessBinding {
       this.#process.exitCode !== null ||
       this.#process.signalCode !== null ||
       boundedJson(config) !== boundedJson(this.#config) ||
-      (peer && (peer.pid !== this.#pid || peer.uid !== process.geteuid!() || peer.gid !== process.getegid!()))
+      (peer && (peer.pid !== this.#pid || !peerIsCurrentUser(peer)))
     ) {
       throw new HerdrLocalError('herdr_native_instance_untrusted')
     }
@@ -385,6 +439,14 @@ export type ObservedHerdrProcess = Readonly<{ pid: number; start: string }>
 
 /** 读取 /proc/<pid>/stat 的状态与启动 tick；进程不存在或已成僵尸返回 undefined。 */
 function readProcessStart(pid: number): string | undefined {
+  if (process.platform === 'win32') {
+    // Windows：进程创建时间（FILETIME）在存活期间不变，且与 PID 一起防止复用。
+    try {
+      return windowsProcessFacts(pid)?.created.toString()
+    } catch {
+      return undefined
+    }
+  }
   try {
     const line = readFileSync(`/proc/${pid}/stat`, 'utf8')
     const fields = line
@@ -401,6 +463,24 @@ function readProcessStart(pid: number): string | undefined {
 }
 
 /**
+ * Windows：对端 PID 来自命名管道服务端（内核回答），其镜像必须是已安装 herdr.exe 的同一文件
+ * （按文件身份比较，不信任路径文本），且仍存活；启动前后创建时间不变。命令行在 Windows 上不可靠读取，不作判据。
+ */
+function inspectWindowsHerdrServer(config: HerdrLocalConfig, pid: number): ObservedHerdrProcess {
+  const before = windowsProcessFacts(pid)
+  if (!before) {
+    throw new HerdrLocalError('herdr_native_instance_untrusted')
+  }
+  const image = statSync(before.image, { bigint: true })
+  const installed = statSync(config.binary, { bigint: true })
+  const after = windowsProcessFacts(pid)
+  if (image.dev !== installed.dev || image.ino !== installed.ino || after?.created !== before.created) {
+    throw new HerdrLocalError('herdr_native_instance_untrusted')
+  }
+  return Object.freeze({ pid, start: before.created.toString() })
+}
+
+/**
  * 核对对端 PID 确实是本机已安装 herdr 的服务端进程：
  * 属主是当前用户；/proc/<pid>/exe 与配置的二进制是同一 inode（被替换/删除后的旧映像不接受）；
  * 命令行恰为 `server` 或 `--session <name> server`（用户自行运行 `herdr` 时由客户端拉起的形态）。
@@ -409,6 +489,9 @@ export function inspectHerdrServerProcess(config: HerdrLocalConfig, pid: number)
   try {
     if (!Number.isSafeInteger(pid) || pid <= 0 || config.attach !== true) {
       throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+    if (process.platform === 'win32') {
+      return inspectWindowsHerdrServer(config, pid)
     }
     const start = readProcessStart(pid)
     const owner = statSync(`/proc/${pid}`).uid
@@ -462,7 +545,7 @@ export class HerdrAttachedBinding {
     if (
       boundedJson(config) !== boundedJson(this.#config) ||
       readProcessStart(this.#observed.pid) !== this.#observed.start ||
-      (peer && (peer.pid !== this.#observed.pid || peer.uid !== process.geteuid!() || peer.gid !== process.getegid!()))
+      (peer && (peer.pid !== this.#observed.pid || !peerIsCurrentUser(peer)))
     ) {
       throw new HerdrLocalError('herdr_native_instance_untrusted')
     }
