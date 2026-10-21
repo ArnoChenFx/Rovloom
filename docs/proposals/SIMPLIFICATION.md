@@ -13,6 +13,7 @@
 | S3 存储 | 读路径不写时钟、设备凭据并入单库、`DeviceLedger` 抽出、字节子额与全表扫描删除均已完成；Store 余下拆分与 TTL 收敛待办（#149）。**keyset 分页不再需要**：分页对象是按 ACL 授权的小列表，结果读取早已是无状态游标 |
 | S5a 流机制 | 已完成并合并（#155）：Wire stream 帧、stream 能力/动作、validator 流 API、luvus-wire 流状态均已删除 |
 | S5b 去分片 | `object_chunk` 帧、`objects` 能力、`wire/objects.ts`、adapter 的 `encodeResponseObject/decodeObject/acceptChunk` 与 transport 分片收发均已删除；响应预算收敛到单帧 1 MiB，**超限响应不截断而是写出失败、调用保持 unknown**（避免截断后的原生 JSON 被误认为完整结果）。Wire 单 major、`provider_snapshot` 简化、工具面精简待办（#151） |
+| S5c 工具面 | MCP 工具 14→11：删除 `machines_register/rename/revoke`(真实服务本就返回 backend_unavailable,设备管理只在 UI/CLI)。Wire 能力协商简化、单 provider 失效不关整连接待办（#151） |
 | S4、S6–S8 | 未开始（S4 中一次性证明桥已随 S3 删除） |
 
 ## 1. 为什么要简化

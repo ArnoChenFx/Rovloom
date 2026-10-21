@@ -55,33 +55,15 @@ function pick(data: Record<string, unknown>, keys: string[]): Record<string, unk
   )
 }
 
-// 按工具职责收窄管理视图；注册仅交付非秘密 pending 标识。
+// 按工具职责收窄公开视图，只投影允许字段。
 function publicReply(name: ToolName, data: Record<string, unknown>): Record<string, unknown> {
-  if (name === 'machines_register') {
-    if (
-      typeof data.registration_id !== 'string' ||
-      !/^[a-zA-Z0-9_-]{1,128}$/.test(data.registration_id) ||
-      data.status !== 'pending'
-    ) {
-      throw new Error('invalid_registration_reply')
-    }
-    // 注册结果永不转发服务误带的 enrollment、token 或其它字段。
-    return {
-      registration_id: data.registration_id,
-      status: 'pending',
-      hint: '配对材料仅通过受保护本机管理渠道交付；此工具不返回凭据。'
-    }
-  }
   const machineKeys = ['machine_id', 'name', 'status', 'link']
   const providerKeys = ['machine_id', 'provider_id', 'kind', 'binding_revision', 'enabled', 'readiness']
-  if (name === 'machines_get' || name === 'machines_rename') {
+  if (name === 'machines_get') {
     return pick(data, machineKeys)
   }
   if (name === 'providers_get') {
     return pick(data, providerKeys)
-  }
-  if (name === 'machines_revoke') {
-    return pick(data, ['machine_id', 'status'])
   }
   if (name === 'runtime_response_discard') {
     return pick(data, ['call_id', 'content_status'])

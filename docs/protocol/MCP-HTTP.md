@@ -114,8 +114,7 @@ runtime_call/call_cancel/result_read 尚未完成服务装配，返回 backend_u
 transport 默认在提交后释放执行上下文；显式 retainOriginalRead 的有界保留仍须通过原 resolver，
 不能把仅供晚到元数据核验的 ResponseOnlyContext 当作读取许可。结果页使用 Store.readResult 返回的
 实际句柄 expires（Store 绝对毫秒，now < expires 有效），不能用内容期限代替，或创建新句柄续期。
-机器注册/改名/撤销需要独立管理桥的session、history、确认与fence；普通MCP caller不具备这些上下文时仍拒绝，
-不能把其参数转换为管理员批准，也不调用凭据签发/兑换或伪造管理成功。
+机器注册/改名/撤销只在管理 UI / CLI，MCP 不提供这些工具；MCP caller 无法触达设备凭据签发/兑换或管理确认。
 Store 的设备凭据与重配接口不替代这些管理端口；facade 不调用 resetDeviceEnrollment/denyDelivery，
 也不签发或兑换凭据。
 独立入口仍需受信HTTP认证和真实身份来源，不能自动采用测试工厂。
@@ -189,7 +188,7 @@ Origin存在时须命中显式完整origin白名单，缺Origin允许标准非�
 SDK负责初始化、协议版本、HTTP方法、Accept/Content-Type与标准会话检查。
 SSE响应起始只有刷新响应头的注释，无额外MCP通知；普通诊断只输出固定代码。
 
-工具包括 machines 的 list/get/register/rename/revoke、providers 的 list/get，
+工具共 11 个：machines 的 list/get、providers 的 list/get，
 以及 runtime 的 discover/describe/call/call_get/call_cancel/result_read/response_discard。
 不暴露流、Host 特权捷径、provider 管理或 `luvus_*` 别名；工具存在不证明具体 runtime 已开放。
 所有参数根拒绝未知字段。Target 使用完整 machine/provider/profile/session，Host 分支禁止 session。
@@ -200,8 +199,7 @@ caller 不能注入 principal/admin/discard_response，native_request 只允许 
 validation 默认 strict，wait_ms 默认 0、上限 5000；短等与执行期限独立。
 有 key 的请求必须携带服务发放的 history_epoch、recovery_generation 和原 client_request_key，
 facade 不为重试更换任何范围。`runtime_response_discard` 是独立动作，服务必须验证归属、
-原方法当前策略和专门 discard_response 权限。注册仅投影非秘密 registration_id、pending 和渠道提示，
-不会签发或转发 enrollment。设备/provider 公共视图仅输出类型中列出的展示字段。
+原方法当前策略和专门 discard_response 权限。设备/provider 公共视图仅输出类型中列出的展示字段。
 
 成功结构为 `structuredContent: {data: ...}`，并提供 JSON 文本副本。
 服务若交付已授权内联原生响应，其error保持在 `data.native_response.error`，以 `is_error` 标明工具错误。
@@ -379,7 +377,7 @@ Gateway运行期stdout不承载MCP或身份材料。退出码为 0 正常、2 �
 ## 验证范围
 
 [真实HTTP SDK测试](../../test/mcp/http.test.ts)使用官方StreamableHTTPClientTransport和真实回环listener，
-业务实现仅为明确标注的[服务stub](../../test/mcp/stub-fixture.ts)。它保留14工具、五方法族stub、
+业务实现仅为明确标注的[服务stub](../../test/mcp/stub-fixture.ts)。它保留11工具、五方法族stub、
 参数拒绝、结构化/文本保真、分页、原生error、超响应、history及等待取消断言，不构成生产native证明。
 [HTTP边界测试](../../test/mcp/boundaries.test.ts)覆盖Host/Origin、逐请求认证、跨主体会话、DELETE/断开、
 大小/编码/JSON、容量/过期/deadline、falsey ID、重复关联及等待隔离。
