@@ -89,7 +89,6 @@ def redact(text):
 def user_env(home, extra_path):
     system = os.environ.get('SystemRoot', r'C:\Windows')
     return {
-        'ROVLOOM_DEBUG_ERRORS': '1',
         'USERPROFILE': home, 'HOME': home,
         'APPDATA': os.path.join(home, 'AppData', 'Roaming'),
         'LOCALAPPDATA': os.path.join(home, 'AppData', 'Local'),

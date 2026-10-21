@@ -298,11 +298,6 @@ export class LuvusRpcAdapter {
     let key: string | undefined
     let activeAbort: AbortController | undefined
     let decodedBinding: AttemptBinding | undefined
-    // TEMP-DEBUG（Windows e2e 排查，随后移除）
-    const d0 = Date.now()
-    const dmark = (label: string) =>
-      process.env.ROVLOOM_DEBUG_ERRORS && process.stderr.write(`DBG_DISPATCH ${label} +${Date.now() - d0}ms\n`)
-    dmark('start')
     try {
       if (this.#closed) {
         throw new LuvusAdapterError('adapter_closed')
@@ -364,25 +359,16 @@ export class LuvusRpcAdapter {
       scope = deadline(abort.signal, Math.min(remaining, this.#limits.timeout_ms))
       const activeSignal = scope.signal
       const native = this.#nativeBoundary(binding, request.payload.native_request.method as string)
-      dmark('before-discover')
       const endpoint = await this.#discover(activeSignal)
-      dmark('discovered')
       // 完整摘要验证在打开原生连接之前做完；连接建立后原生对空闲有期限，期间只复核身份戳。
       const installed = await interruptible(verifyInstallation(this.#config), activeSignal)
-      dmark('installed')
       const raw = boundedJson(request)
       const prepare = /* 在已验证传输上获取认证、检查完整帧并申请唯一 claim，返回写入前的同步复核钩子。 */ async (
         evidence: NativeTransportEvidence,
         ioSignal: AbortSignal
       ): Promise<PreparedFrame> => {
-        // TEMP-DEBUG（Windows e2e 排查，随后移除）
-        const t0 = Date.now()
-        const mark = (label: string) =>
-          process.env.ROVLOOM_DEBUG_ERRORS && process.stderr.write(`DBG_PREPARE ${label} +${Date.now() - t0}ms\n`)
-        mark('start')
         aborted(ioSignal)
         const auth = await interruptible(this.#host.nativeAuth(binding, evidence), ioSignal)
-        mark('nativeAuth')
         const bytes = requestFrame(
           request.payload.native_request,
           binding.native_request_id,
@@ -400,14 +386,10 @@ export class LuvusRpcAdapter {
           terminalBoundary()
         }
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
-        mark('recheckEndpoint')
         await interruptible(recheckInstallation(this.#config, installed), ioSignal)
-        mark('verifyInstallation')
         current()
-        mark('current')
         // 完整帧预算通过后才占用 durable dispatch claim；claim 必须拒绝已登记 attempt。
         await interruptible(this.#host.claimDispatch(binding, evidence), ioSignal)
-        mark('claimDispatch')
         // claim 期间可能改变安装来源；写入前同时重验 binary 和 endpoint。
         await interruptible(recheckInstallation(this.#config, installed), ioSignal)
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
@@ -430,12 +412,8 @@ export class LuvusRpcAdapter {
           native.response_bytes,
           activeSignal,
           /* 独立验证同一 socket 的 peer 身份，再为该连接准备受限请求帧。 */ async (socket, ioSignal) => {
-            const v0 = Date.now()
             await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
             const peer = await interruptible(this.#host.verifyPeer!(socket, endpoint, binding), ioSignal)
-            if (process.env.ROVLOOM_DEBUG_ERRORS) {
-              process.stderr.write(`DBG_PREPARE verifyPeer +${Date.now() - v0}ms\n`)
-            }
             if (
               peer.uid !== endpoint.uid ||
               !Number.isSafeInteger(peer.pid) ||
@@ -550,10 +528,6 @@ export class LuvusRpcAdapter {
   }
   /** 将内部异常收敛为无敏感内容的错误，并按是否可能发送保守标记结果。 */
   #safe(error: unknown, dispatched = false): LuvusAdapterError {
-    // TEMP-DEBUG（Windows e2e 排查，随后移除）
-    if (process.env.ROVLOOM_DEBUG_ERRORS) {
-      process.stderr.write('DBG_ADAPTER ' + String((error as Error)?.stack ?? error) + '\n')
-    }
     const code =
       error instanceof LuvusAdapterError || error instanceof WireError ? error.code : 'native_adapter_unavailable'
     const unknown = dispatched || (error instanceof LuvusAdapterError && error.outcome === 'outcome_unknown')
