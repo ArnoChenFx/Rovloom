@@ -118,18 +118,6 @@ test(
           ),
         { code: 'invalid_cursor' }
       )
-      await assert.rejects(
-        /* history代次错误必须在准入stub之前拒绝。 */ () =>
-          f.service.execute(
-            'runtime_call',
-            {
-              ...f.args,
-              history: { history_epoch: 'history', client_request_key: 'same', recovery_generation: 'wrong' }
-            },
-            f.context
-          ),
-        { code: 'dedup_history_unavailable' }
-      )
       assert.equal(f.calls.length, 1)
       f.setCaller(null)
       await assert.rejects(

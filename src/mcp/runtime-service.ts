@@ -225,9 +225,6 @@ export class RuntimeGatewayService implements GatewayService {
           const runtime = this.options.runtime
           if (request.name === 'runtime_call') {
             const input = request.args
-            if (input.history && input.history.recovery_generation !== runtime.store.generation()) {
-              throw new FacadeServiceError('dedup_history_unavailable')
-            }
             const admitted = runtime.admit({
               target: input.target,
               native_request: input.native_request,
@@ -236,14 +233,7 @@ export class RuntimeGatewayService implements GatewayService {
                 contract_ref: input.contract_ref,
                 deadline: input.deadline,
                 ...(input.validation ? { validation: input.validation } : {}),
-                ...(input.history
-                  ? {
-                      history: {
-                        history_epoch: input.history.history_epoch,
-                        client_request_key: input.history.client_request_key
-                      }
-                    }
-                  : {})
+                ...(input.client_request_key ? { client_request_key: input.client_request_key } : {})
               }
             })
             return this.callView(admitted.call.call_id, input.wait_ms, context)

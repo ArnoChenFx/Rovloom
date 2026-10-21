@@ -83,12 +83,11 @@ test(
 )
 test(
   'idempotency binds principal, entire target and canonical request; errors are preserved',
-  /* 验证 history 幂等绑定主体、完整 provider 目标及规范化请求，并保留原生错误结构。 */ () => {
-    const s = new Store(':memory:', /* 固定时钟，避免 history 接纳期限干扰幂等测试。 */ () => 100, { management })
+  /* 验证 key 幂等绑定主体、完整 provider 目标及规范化请求，并保留原生错误结构。 */ () => {
+    const s = new Store(':memory:', /* 固定时钟，避免时间推进干扰幂等测试。 */ () => 100, { management })
     try {
       const d = connected(s)
-      const scope = s.openHistory('alice', d.target, 1)
-      const o = options({ history: { history_epoch: scope.history_epoch, client_request_key: 'k' } })
+      const o = options({ client_request_key: 'k' })
       const request = { method: 'pane.read', params: { pane: 3, lines: 10 } }
       const c = s.createCall('alice', d.target, request, o)
       assert.equal(
@@ -96,13 +95,14 @@ test(
         c.call_id
       )
       assert.throws(
-        /* 同一 history/key 改用另一会话目标，要求意图冲突。 */ () =>
+        /* 同一 key 改用另一会话目标，要求意图冲突。 */ () =>
           s.createCall('alice', { ...d.target, session: 'other' }, request, o),
         /request_key_conflict/
       )
-      assert.throws(
-        /* 其他主体复用原主体 history，要求拒绝不可用的去重作用域。 */ () => s.createCall('bob', d.target, request, o),
-        /dedup_history_unavailable/
+      assert.notEqual(
+        /* 其他主体复用同一 key 只得到自己的独立调用，去重按主体隔离。 */ s.createCall('bob', d.target, request, o)
+          .call_id,
+        c.call_id
       )
       assert.throws(/* 其他主体读取已有调用，要求隐藏记录。 */ () => s.call('bob', c.call_id), /call_not_found/)
       const b = s.dispatch('alice', c.call_id, d.epoch)
@@ -127,8 +127,7 @@ test(
       const a = connected(s, 'a')
       const b = connected(s, 'b')
       const req = { method: 'pane.read', params: { pane: 3 } }
-      const scope = s.openHistory('alice', a.target, 1)
-      const o = options({ history: { history_epoch: scope.history_epoch, client_request_key: 'k' } })
+      const o = options({ client_request_key: 'k' })
       const c = s.createCall('alice', a.target, req, o)
       const unsent = s.createCall('alice', a.target, req, options())
       const anchor = s.dispatch('alice', c.call_id, a.epoch)

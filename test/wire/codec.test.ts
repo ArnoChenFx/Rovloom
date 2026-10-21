@@ -295,8 +295,8 @@ test(
 )
 
 test(
-  '连接、provider、revision、契约、登记 deadline/history/policy 与原生 ID 核对独立锚点',
-  /* 验证连接、provider、revision、契约、登记 deadline/history/policy 与原生 ID 核对独立锚点。 */ () => {
+  '连接、provider、revision、契约、登记 deadline/policy 与原生 ID 核对独立锚点',
+  /* 验证连接、provider、revision、契约、登记 deadline/policy 与原生 ID 核对独立锚点。 */ () => {
     for (const key of ['machine_id', 'recovery_generation', 'connection_epoch'] as const) {
       rejects(
         /* 提交该用例输入，确认消息与当前连接身份不匹配时被拒绝。 */ () =>
@@ -342,7 +342,6 @@ test(
     }
     for (const [key, value] of [
       ['deadline', 2000],
-      ['history', { history_epoch: 'other', client_request_key: 'key_1' }],
       ['caller_policy_revision', 'other'],
       ['local_policy_revision', 'other']
     ] as const) {

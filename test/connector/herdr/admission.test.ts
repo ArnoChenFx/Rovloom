@@ -13,7 +13,7 @@ import { raw, source } from './helpers.js'
 import { privateHerdrTestRoot } from './private-root.js'
 
 test(
-  'native frame boundary is independent of the trusted anchor and oversize rejection preserves history and epoch',
+  'native frame boundary is independent of the trusted anchor and oversize rejection preserves key and epoch',
   /** 合法大文本走完真实派发和回包；超出原生帧一字节的请求在登记前拒绝。 */ async () => {
     const { root, base, target, runtime, client } = await admissionFixture(['ping', 'pane.send_text'])
     try {
@@ -42,12 +42,11 @@ test(
         }) + '\n'
       )
       const maximumText = nativeLimit - overhead
-      const history = base.store.openHistory(base.principal.id, target, 1)
-      const key = { history_epoch: history.history_epoch, client_request_key: 'oversize_text_not_registered' }
+      const key = 'oversize_text_not_registered'
       await assert.rejects(
         runtime.runAuthenticated(
           { principal_id: base.principal.id },
-          /** 多出的一字节必须连同真实 native ID 与 LF 计量，不能消耗 history。 */ () =>
+          /** 多出的一字节必须连同真实 native ID 与 LF 计量，不能消耗 key。 */ () =>
             runtime.admit({
               target,
               native_request: { method: 'pane.send_text', params: { pane_id: 'p', text: 'x'.repeat(maximumText + 1) } },
@@ -55,7 +54,7 @@ test(
                 binding_revision: 1,
                 contract_ref: contractRef(source),
                 deadline: base.now + 10_000,
-                history: key
+                client_request_key: key
               }
             })
         ),
@@ -77,7 +76,7 @@ test(
                 binding_revision: 1,
                 contract_ref: contractRef(source),
                 deadline: base.now + 10_000,
-                ...(length === 65_000 ? { history: key } : {})
+                ...(length === 65_000 ? { client_request_key: key } : {})
               }
             })
         )
@@ -158,7 +157,7 @@ async function admissionFixture(methods: readonly string[]) {
   base.principal.policy.grants.push({ target, methods: [...methods], actions: ['dispatch', 'read'] })
   const provider = resources.providers[0]!
   const preflightRequests: JsonObject[] = []
-  const offer = { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] }
+  const offer = { major: 2, minor: 0, capabilities: ['rpc'], required: ['rpc'] }
   const runtime = await createProviderGatewayRuntime({
     lifecycle: { store: base.store, identityHost: base.credentials },
     identities: {
@@ -209,8 +208,7 @@ test(
       )
       const original = base.store.attempt(good.call.call_id, good.call.attempt_id!)!
       assert.equal(preflightRequests[0]!.id, original.binding.native_request_id)
-      const history = base.store.openHistory(base.principal.id, target, 1)
-      const key = { history_epoch: history.history_epoch, client_request_key: 'invalid_prompt_not_registered' }
+      const key = 'invalid_prompt_not_registered'
       let invalidError: unknown
       let invalidAdmitted = false
       try {
@@ -224,7 +222,7 @@ test(
                 binding_revision: 1,
                 contract_ref: contractRef(source),
                 deadline: base.now + 10_000,
-                history: key
+                client_request_key: key
               }
             })
             invalidAdmitted = true
@@ -278,7 +276,7 @@ test(
               binding_revision: 1,
               contract_ref: contractRef(source),
               deadline: base.now + 10_000,
-              history: key
+              client_request_key: key
             }
           })
       )

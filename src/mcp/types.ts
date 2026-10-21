@@ -1,5 +1,5 @@
 // 定义 MCP 与 CLI 宿主共享的参数、公开 DTO、受信 caller 和服务拒绝契约，不发行身份或权限。
-import type { HistoryReference, JsonObject, ProviderKind, V2Target, ValidationMode } from '../wire/types.js'
+import type { JsonObject, ProviderKind, V2Target, ValidationMode } from '../wire/types.js'
 import type { CallerIdentity, Page, ProviderView } from './management.js'
 export type { CallerIdentity, Page, ProviderView } from './management.js'
 
@@ -18,7 +18,7 @@ export type ToolArguments = {
     deadline: number
     wait_ms?: number
     validation?: ValidationMode
-    history?: HistoryReference & { recovery_generation: string }
+    client_request_key?: string
   }
   runtime_call_get: { call_id: string; wait_ms?: number }
   runtime_call_cancel: { call_id: string }
@@ -103,7 +103,6 @@ export const SERVICE_ERROR_CODES = [
   'contract_unavailable',
   'unsupported',
   'confirmation_required',
-  'dedup_history_unavailable',
   'storage_exhausted',
   'storage_degraded',
   'content_unavailable',

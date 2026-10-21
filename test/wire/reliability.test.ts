@@ -1,110 +1,9 @@
-// 用合成调用验证历史去重准入、迟到响应证据规划和连接内消息去重边界。
+// 用合成调用验证迟到响应证据规划和连接内消息去重边界。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { planHistoryAdmission, planResponseEvidence, MessageWindow, hash, boundedJson } from '../../src/wire/index.js'
-import type { HistoryScope, HistoryRecord, ResponseAnchor } from '../../src/wire/index.js'
+import { planResponseEvidence, MessageWindow, hash, boundedJson } from '../../src/wire/index.js'
+import type { ResponseAnchor } from '../../src/wire/index.js'
 import { response, binding, context, rejects, frame } from './helpers.js'
-
-const reference = { history_epoch: 'history_1', client_request_key: 'key_1' }
-const scope: HistoryScope = {
-  history_epoch: reference.history_epoch,
-  recovery_generation: binding.recovery_generation,
-  scope_created_at: 100,
-  accept_new_until: 200,
-  frozen_dedup_ttl: 1000,
-  status: 'active'
-}
-const record: HistoryRecord = {
-  history_epoch: reference.history_epoch,
-  recovery_generation: binding.recovery_generation,
-  key_digest: hash(reference.client_request_key),
-  request_digest: 'b'.repeat(64),
-  call_id: binding.call_id,
-  call_created_at: 150,
-  dedup_expires_at: 1150
-}
-// 用固定引用和请求摘要规划准入，允许替换时间、范围与墓碑，不执行持久化。
-const admit = (now: number, s: HistoryScope | undefined = scope, r: HistoryRecord | undefined = undefined) =>
-  planHistoryAdmission(reference, binding.recovery_generation, record.request_digest, s, r, now)
-test(
-  'history 范围严格截止、冻结 TTL、退役只返已有 key，未知/旧代次绝不补建',
-  /* 在截止前后比较新登记与墓碑复用，核对退役、代次、时钟和冻结 TTL，且不修改历史引用。 */ () => {
-    assert.deepEqual(admit(199), { action: 'register_new', dedup_expires_at: 1199 })
-    rejects(/* 在范围截止时刻申请新登记，要求拒绝。 */ () => admit(200), 'dedup_history_unavailable')
-    assert.deepEqual(admit(199, scope, record), {
-      action: 'return_existing',
-      call_id: binding.call_id
-    })
-    assert.deepEqual(admit(500, { ...scope, status: 'retired' }, record), {
-      action: 'return_existing',
-      call_id: binding.call_id
-    })
-    rejects(
-      /* 在退役范围申请未登记的键，要求拒绝。 */ () => admit(500, { ...scope, status: 'retired' }),
-      'dedup_history_unavailable'
-    )
-    rejects(
-      /* 不提供历史范围，要求拒绝且不补建范围。 */ () =>
-        planHistoryAdmission(reference, binding.recovery_generation, record.request_digest, undefined, undefined, 199),
-      'dedup_history_unavailable'
-    )
-    rejects(
-      /* 将范围恢复代次设为旧值，要求拒绝跨恢复历史复用。 */ () =>
-        admit(199, { ...scope, recovery_generation: 'previous_recovery' }),
-      'dedup_history_unavailable'
-    )
-    rejects(
-      /* 让范围 epoch 与当前引用不符，要求拒绝。 */ () => admit(199, { ...scope, history_epoch: 'previous_history' }),
-      'dedup_history_unavailable'
-    )
-    rejects(
-      /* 传入空历史 epoch，验证标识格式会先于历史准入检查。 */ () =>
-        planHistoryAdmission(
-          { ...reference, history_epoch: '' },
-          binding.recovery_generation,
-          record.request_digest,
-          scope,
-          undefined,
-          199
-        ),
-      'invalid_frame_id'
-    )
-    rejects(
-      /* 在墓碑到期时重试，要求拒绝且不延长保留期限。 */ () => admit(1150, scope, record),
-      'dedup_history_unavailable'
-    )
-    rejects(/* 让当前时间早于范围创建时刻，要求拒绝不可信时钟。 */ () => admit(99), 'clock_untrusted')
-    rejects(
-      /* 让准入截止超出冻结 TTL 边界，要求拒绝无效范围。 */ () => admit(199, { ...scope, frozen_dedup_ttl: 99 }),
-      'invalid_history_scope'
-    )
-    rejects(
-      /* 使范围创建时间加 TTL 溢出安全整数，要求拒绝。 */ () =>
-        admit(199, { ...scope, frozen_dedup_ttl: Number.MAX_SAFE_INTEGER }),
-      'invalid_history_scope'
-    )
-    rejects(
-      /* 在已有键上提供不同请求摘要，要求报冲突而非复用原调用。 */ () =>
-        planHistoryAdmission(reference, binding.recovery_generation, 'c'.repeat(64), scope, record, 199),
-      'request_key_conflict'
-    )
-    rejects(
-      /* 使墓碑期限偏离创建时刻加冻结 TTL，要求拒绝。 */ () => admit(199, scope, { ...record, dedup_expires_at: 999 }),
-      'invalid_history_record'
-    )
-    rejects(
-      /* 让墓碑键摘要与当前客户端键不符，要求拒绝错配。 */ () =>
-        admit(199, scope, { ...record, key_digest: 'c'.repeat(64) }),
-      'history_record_mismatch'
-    )
-    rejects(
-      /* 把墓碑创建时刻放在准入截止点，要求拒绝范围外记录。 */ () =>
-        admit(199, scope, { ...record, call_created_at: 200, dedup_expires_at: 1200 }),
-      'invalid_history_record'
-    )
-    assert.deepEqual(reference, { history_epoch: 'history_1', client_request_key: 'key_1' })
-  }
-)
 
 const anchor: ResponseAnchor = {
   binding,
@@ -115,6 +14,7 @@ const anchor: ResponseAnchor = {
   content_expires_at: 500,
   dedup_expires_at: 2000
 }
+
 test(
   '同一 unknown attempt 的可靠回复只给追加意图，期限/原 unknown 锚点不改、不重派',
   /* 用结果未知锚点规划追加与重复回复，核对固定期限、锚点不变及冲突证据拒绝。 */ () => {
@@ -253,7 +153,6 @@ test(
         target: { ...binding.target, profile: 'session' as const, session: 'other_session' }
       },
       { ...binding, registration: { ...binding.registration, deadline: 2000 } },
-      { ...binding, registration: { ...binding.registration, history: null } },
       {
         ...binding,
         registration: { ...binding.registration, caller_policy_revision: 'other_policy' }

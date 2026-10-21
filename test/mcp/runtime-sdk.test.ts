@@ -71,7 +71,6 @@ test(
             /** 初始化同样不遗留超过测试期限的默认SDK等待。 */ () =>
               http.client.connect(http.transport, lifecycle.options())
           )
-          const history = f.state.store.openHistory('synthetic', f.target, 1)
           const args = {
             target: f.target,
             expected_binding_revision: 1,
@@ -79,11 +78,7 @@ test(
             native_request: { method: 'task.add', params: { title: 'synthetic_mcp' } },
             deadline: f.state.store.clock() + 25_000,
             wait_ms: 5000,
-            history: {
-              history_epoch: history.history_epoch,
-              client_request_key: 'mcp_one_intent',
-              recovery_generation: f.state.store.generation()
-            }
+            client_request_key: 'mcp_one_intent'
           }
           lifecycle.phase('call')
           const call = data(await invoke({ name: 'runtime_call', arguments: args }))

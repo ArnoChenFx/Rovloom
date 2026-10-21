@@ -87,7 +87,7 @@ export function backendFixture() {
     provider_kind: 'herdr',
     binding_revision: 1,
     contract_ref: contractRef(source),
-    registration: { deadline: 1000, history: null, caller_policy_revision: 'caller1', local_policy_revision: 'local1' }
+    registration: { deadline: 1000, caller_policy_revision: 'caller1', local_policy_revision: 'local1' }
   }
   const { machine_id: _machine, recovery_generation: _recovery, connection_epoch: _epoch, ...identity } = binding
   const record = {

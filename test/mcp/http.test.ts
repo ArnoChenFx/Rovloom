@@ -351,18 +351,14 @@ test(
 )
 
 test(
-  'history 原样传给服务且不补发；SDK 取消只停止等待，不调用业务 cancel',
+  'client_request_key 原样传给服务且不补发；SDK 取消只停止等待，不调用业务 cancel',
   { timeout: 30_000 },
-  /* 验证 history 原样传递及取消只结束等待，不产生业务 cancel 或补发。 */ async () => {
+  /* 验证 client_request_key 原样传递及取消只结束等待，不产生业务 cancel 或补发。 */ async () => {
     await isolated(
       'ordinary',
       /* 重复同一历史意图并取消慢请求，核对执行计数和结束证据。 */ async (client, _transport, directory) => {
-        const history = {
-          history_epoch: 'history-test',
-          recovery_generation: 'recovery-test',
-          client_request_key: 'key-test'
-        }
-        const args = { ...call('task.list'), history }
+        const client_request_key = 'key-test'
+        const args = { ...call('task.list'), client_request_key }
         const first = data(await client.callTool({ name: 'runtime_call', arguments: args }))
         const again = data(await client.callTool({ name: 'runtime_call', arguments: args }))
         assert.equal(first.call_id, again.call_id)
@@ -415,7 +411,7 @@ test(
             /* 寻找执行完成事件，证明等待取消没有被误报为执行回滚。 */ (event) => event.event === 'execution_finished'
           )
         )
-        assert.deepEqual(events[0].args.history, history)
+        assert.equal(events[0].args.client_request_key, client_request_key)
         assert.equal(events[0].args.validation, 'strict')
         assert.equal(events[0].args.wait_ms, 0)
       }

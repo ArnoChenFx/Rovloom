@@ -7,7 +7,6 @@ export const DEFAULT_RETENTION = Object.freeze({
   result_ttl: 3_600_000,
   content_bytes: 128 * MiB,
   metadata_ttl: 30 * 86_400_000,
-  history_epoch_max_age: 86_400_000,
   backup_ttl: 7 * 86_400_000,
   backup_max_count: 2,
   backup_bytes: 128 * MiB,
@@ -22,7 +21,6 @@ export function retention(overrides: Partial<Retention> = {}): Retention {
   const c = { ...DEFAULT_RETENTION, ...overrides }
   if (
     Object.values(c).some(/* 检测不是正安全整数的保留期或容量配置。 */ (v) => !Number.isSafeInteger(v) || v <= 0) ||
-    c.history_epoch_max_age > c.metadata_ttl ||
     c.storage_reserve_bytes >= c.storage_total_bytes ||
     c.attempt_reserve_bytes > c.storage_reserve_bytes ||
     ['content_bytes', 'backup_bytes'].some(

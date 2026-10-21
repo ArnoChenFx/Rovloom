@@ -22,17 +22,10 @@ CREATE TABLE providers (
   kind TEXT NOT NULL, config_ref TEXT NOT NULL, binding_revision INTEGER NOT NULL,
   enabled INTEGER NOT NULL, PRIMARY KEY(machine_id,provider_id)
 );
-CREATE TABLE history (
-  history_epoch TEXT PRIMARY KEY, recovery_generation TEXT NOT NULL,
-  principal TEXT NOT NULL, machine_id TEXT NOT NULL, provider_id TEXT NOT NULL,
-  binding_revision INTEGER NOT NULL, status TEXT NOT NULL,
-  scope_created_at INTEGER NOT NULL, accept_new_until INTEGER NOT NULL,
-  frozen_dedup_ttl INTEGER NOT NULL
-);
 CREATE TABLE calls (
   call_id TEXT PRIMARY KEY, principal TEXT NOT NULL, machine_id TEXT NOT NULL REFERENCES machines,
   provider_id TEXT NOT NULL, binding_revision INTEGER NOT NULL, provider_kind TEXT NOT NULL,
-  request_hash TEXT NOT NULL, key_digest TEXT, history_epoch TEXT REFERENCES history,
+  request_hash TEXT NOT NULL, key_digest TEXT,
   state TEXT NOT NULL, epoch TEXT, attempt_id TEXT, identity_json TEXT NOT NULL,
   binding_json TEXT, target_json TEXT NOT NULL, method TEXT NOT NULL,
   mode TEXT NOT NULL, request_json TEXT, response TEXT,
@@ -40,7 +33,7 @@ CREATE TABLE calls (
   metadata_expires INTEGER NOT NULL, dedup_expires INTEGER NOT NULL,
   content_status TEXT NOT NULL, response_hash TEXT, response_bytes INTEGER,
   response_category TEXT, reserved INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(history_epoch,key_digest)
+  UNIQUE(principal,key_digest)
 );
 CREATE INDEX calls_expiry ON calls(metadata_expires);
 CREATE TABLE results (

@@ -111,8 +111,7 @@ test(
       binding.registration = {
         ...binding.registration,
         caller_policy_revision: long,
-        local_policy_revision: long,
-        history: { history_epoch: long, client_request_key: long }
+        local_policy_revision: long
       }
       f.time(1001)
       const measured = clockWrites(

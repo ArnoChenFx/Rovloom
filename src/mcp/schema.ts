@@ -60,11 +60,7 @@ const schemas: Record<ToolName, Tool['inputSchema']> = {
       deadline: revision,
       wait_ms: wait,
       validation: { enum: ['strict', 'raw-contract'] },
-      history: object({ history_epoch: id, client_request_key: id, recovery_generation: id }, [
-        'history_epoch',
-        'client_request_key',
-        'recovery_generation'
-      ])
+      client_request_key: id
     },
     [...targetRequired, 'contract_ref', 'native_request', 'deadline']
   ),

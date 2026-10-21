@@ -106,16 +106,10 @@ export function validateAttempt(value: unknown): asserts value is AttemptIdentit
   oneOf(a.provider_kind, ['luvus', 'herdr'])
   validateTarget(a.target)
   const r = object(a.registration)
-  fields(r, ['deadline', 'history', 'caller_policy_revision', 'local_policy_revision'])
+  fields(r, ['deadline', 'caller_policy_revision', 'local_policy_revision'])
   uint(r.deadline, true)
   id(r.caller_policy_revision)
   id(r.local_policy_revision)
-  if (r.history !== null) {
-    const h = object(r.history)
-    fields(h, ['history_epoch', 'client_request_key'])
-    id(h.history_epoch)
-    id(h.client_request_key)
-  }
 }
 
 // 从完整连接绑定中提取可随消息传输的调用身份。
@@ -245,9 +239,6 @@ function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeVal
   providerFor(binding, ctx)
   text(anchor.method, 256)
   oneOf(anchor.mode, ['strict', 'raw-contract'])
-  if (binding.registration.history !== null) {
-    capability(ctx, 'history_scope')
-  }
   capability(ctx, 'rpc')
   return {
     binding,

@@ -64,8 +64,7 @@ test(
     fixture(
       /* 用 history/key 登记并跨执行截止时间重送，不触发任何派发。 */ (s, db, advance) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(110, { history: { history_epoch: scope.history_epoch, client_request_key: 'same' } })
+        const o = absolute(110, { client_request_key: 'same' })
         const first = s.admitCall('alice', d.target, { method: 'ping' }, o)
         assert.equal(first.created, true)
         assert.equal(first.call.deadline, 110)
@@ -87,7 +86,7 @@ test(
 
 test(
   'fresh absolute deadlines use exact open and closed boundaries without relative renewal',
-  /* 检查新意图只有未来十分钟内的安全整数 deadline 可登记，未带 history 的意图各自独立。 */ () =>
+  /* 检查新意图只有未来十分钟内的安全整数 deadline 可登记，未带 key 的意图各自独立。 */ () =>
     fixture(
       /* 在固定接收时间逐项验证期限边界与非法混用选项。 */ (s, db) => {
         const d = connected(s)
@@ -131,8 +130,7 @@ test(
     fixture(
       /* 登记一个原始意图，再分别改变每个摘要维度并检查无写入。 */ (s, db, advance) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(110, { history: { history_epoch: scope.history_epoch, client_request_key: 'same' } })
+        const o = absolute(110, { client_request_key: 'same' })
         const first = s.admitCall('alice', d.target, { method: 'ping' }, o)
         advance(120)
         const before = ledger(db)
@@ -160,40 +158,45 @@ test(
             s.admitCall('alice', d.target, { method: 'ping', params: { value: 1 } }, o),
           /request_key_conflict/
         )
-        assert.throws(
-          /* 其它主体没有该 history 范围的查询或登记权。 */ () => s.admitCall('bob', d.target, { method: 'ping' }, o),
-          /dedup_history_unavailable/
-        )
         assert.deepEqual(ledger(db), before)
         assert.equal(s.admitCall('alice', d.target, { method: 'ping' }, o).call.call_id, first.call.call_id)
+        // key 按主体隔离：其它主体使用同一 key 登记的是自己的独立调用，看不到 alice 的。
+        const other = s.admitCall('bob', d.target, { method: 'ping' }, { ...o, deadline: 600 })
+        assert.equal(other.created, true)
+        assert.notEqual(other.call.call_id, first.call.call_id)
       }
     )
 )
 
 test(
-  'absolute and internal relative APIs share history without changing old duration semantics',
+  'absolute and internal relative APIs share the key window without changing old duration semantics',
   /* 验证两种入口共用原事务去重，旧相对入口仍要求首次持续时长相同。 */ () =>
     fixture(
       /* 交叉调用绝对与相对入口，分别核对截止值、返回类型和旧超时校验。 */ (s, db, advance) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const history = { history_epoch: scope.history_epoch, client_request_key: 'relative' }
-        const relative = s.createCall('alice', d.target, { method: 'ping' }, options({ timeoutMs: 20, history }))
+        const client_request_key = 'relative'
+        const relative = s.createCall(
+          'alice',
+          d.target,
+          { method: 'ping' },
+          options({ timeoutMs: 20, client_request_key })
+        )
         advance(105)
-        const absoluteRetry = s.admitCall('alice', d.target, { method: 'ping' }, absolute(120, { history }))
+        const absoluteRetry = s.admitCall('alice', d.target, { method: 'ping' }, absolute(120, { client_request_key }))
         assert.equal(absoluteRetry.created, false)
         assert.equal(absoluteRetry.call.call_id, relative.call_id)
-        const history2 = { ...history, client_request_key: 'absolute' }
-        const first = s.admitCall('alice', d.target, { method: 'ping' }, absolute(125, { history: history2 }))
+        const key2 = 'absolute'
+        const first = s.admitCall('alice', d.target, { method: 'ping' }, absolute(125, { client_request_key: key2 }))
         advance(110)
         const before = ledger(db)
         assert.equal(
-          s.createCall('alice', d.target, { method: 'ping' }, options({ timeoutMs: 20, history: history2 })).call_id,
+          s.createCall('alice', d.target, { method: 'ping' }, options({ timeoutMs: 20, client_request_key: key2 }))
+            .call_id,
           first.call.call_id
         )
         assert.throws(
           /* 相对入口不能把不同原持续时长归一为旧请求。 */ () =>
-            s.createCall('alice', d.target, { method: 'ping' }, options({ timeoutMs: 21, history: history2 })),
+            s.createCall('alice', d.target, { method: 'ping' }, options({ timeoutMs: 21, client_request_key: key2 })),
           /request_key_conflict/
         )
         assert.deepEqual(ledger(db), before)
@@ -202,7 +205,7 @@ test(
             'alice',
             d.target,
             { method: 'ping' },
-            options({ timeoutMs: undefined, history: undefined, validation: undefined })
+            options({ timeoutMs: undefined, client_request_key: undefined, validation: undefined })
           ).deadline,
           30_110
         )
@@ -216,16 +219,14 @@ test(
 )
 
 test(
-  'retired scope and discarded content retain fixed tombstones, then reject unavailable history',
-  /* 验证范围退役、内容丢弃和元数据清理不把旧 key 重新视为新意图。 */ () =>
+  'discarded content retains the fixed tombstone, then the key becomes reusable',
+  /* 验证内容丢弃和元数据清理前 key 仍命中原调用，窗口结束后同 key 才是新意图。 */ () =>
     fixture(
-      /* 退役 scope 后重复旧键并推进到墓碑恰好到期，检查任何阶段都不新增调用。 */ (s, db, advance) => {
+      /* 丢弃内容后重复旧键并推进到墓碑恰好到期，检查窗口内不新增调用。 */ (s, db, advance) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(105, { history: { history_epoch: scope.history_epoch, client_request_key: 'same' } })
+        const o = absolute(105, { client_request_key: 'same' })
         const first = s.admitCall('alice', d.target, { method: 'ping' }, o)
         s.discardResponse('alice', first.call.call_id)
-        s.openHistory('alice', d.target, 1, scope.history_epoch)
         advance(110)
         const before = ledger(db)
         const duplicate = s.admitCall('alice', d.target, { method: 'ping' }, o)
@@ -233,28 +234,14 @@ test(
         assert.equal(duplicate.call.content_status, 'discarded')
         assert.equal(duplicate.call.dedup_expires, 200)
         assert.deepEqual(ledger(db), before)
-        assert.throws(
-          /* 退役范围不能接纳另一新 key。 */ () =>
-            s.admitCall(
-              'alice',
-              d.target,
-              { method: 'ping' },
-              absolute(150, { history: { ...o.history!, client_request_key: 'new' } })
-            ),
-          /dedup_history_unavailable/
-        )
+        advance(199)
+        assert.equal(s.admitCall('alice', d.target, { method: 'ping' }, o).created, false)
         advance(200)
-        assert.throws(
-          /* 墓碑到期同刻即拒绝，不用缺行解释为首次。 */ () => s.admitCall('alice', d.target, { method: 'ping' }, o),
-          /dedup_history_unavailable/
-        )
-        s.expire()
-        assert.throws(
-          /* 清理删除原行和范围后仍拒绝旧请求。 */ () => s.admitCall('alice', d.target, { method: 'ping' }, o),
-          /dedup_history_unavailable/
-        )
+        const fresh = s.admitCall('alice', d.target, { method: 'ping' }, absolute(250, { client_request_key: 'same' }))
+        assert.equal(fresh.created, true)
+        assert.notEqual(fresh.call.call_id, first.call.call_id)
       },
-      { retention: { metadata_ttl: 100, history_epoch_max_age: 20 } }
+      { retention: { metadata_ttl: 100 } }
     )
 )
 
@@ -268,8 +255,7 @@ test(
         let db = new DatabaseSync(path)
         try {
           const d = connected(s)
-          const scope = s.openHistory('alice', d.target, 1)
-          const o = absolute(110, { history: { history_epoch: scope.history_epoch, client_request_key: 'restart' } })
+          const o = absolute(110, { client_request_key: 'restart' })
           const first = s.admitCall('alice', d.target, { method: 'ping' }, o)
           assert.throws(
             /* Store 独占锁仍阻止第二个合法 writer 同时打开同库。 */ () =>
@@ -308,8 +294,7 @@ test(
     fixture(
       /* 在授权回调内争抢写锁并查询行；首次及重复都应已持 BEGIN IMMEDIATE。 */ (s, db) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(200, { history: { history_epoch: scope.history_epoch, client_request_key: 'locked' } })
+        const o = absolute(200, { client_request_key: 'locked' })
         const before = ledger(db)
         let authorized = 0
         const authorize = /* 在真实独立连接上验证 RESERVED writer 锁及提交前可见性。 */ () => {
@@ -337,8 +322,7 @@ test(
     fixture(
       /* 先提交原意图，再以外部真实事务阻止 Store 取写锁并检查无新增行。 */ (s, db) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(200, { history: { history_epoch: scope.history_epoch, client_request_key: 'contended' } })
+        const o = absolute(200, { client_request_key: 'contended' })
         const first = s.admitCall('alice', d.target, { method: 'ping' }, o)
         const before = ledger(db)
         let authorized = false
@@ -379,8 +363,7 @@ test(
     fixture(
       /* 注入各类非法授权回调并检查数据库快照完全不变。 */ (s, db) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(200, { history: { history_epoch: scope.history_epoch, client_request_key: 'auth' } })
+        const o = absolute(200, { client_request_key: 'auth' })
         const before = ledger(db)
         for (const authorize of [
           /* 显式 false 不是此同步端口的许可协议。 */ () => false,
@@ -434,22 +417,14 @@ test(
     fixture(
       /* 在内容满额时分别重送旧键与申请新键。 */ (s, db) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(200, { history: { history_epoch: scope.history_epoch, client_request_key: 'capacity' } })
+        const o = absolute(200, { client_request_key: 'capacity' })
         s.admitCall('alice', d.target, { method: 'ping' }, o)
         const before = ledger(db)
         assert.equal(s.admitCall('alice', d.target, { method: 'ping' }, o).created, false)
         assert.deepEqual(ledger(db), before)
         assert.throws(
           /* 新 key 需要额外内容容量，不能只返回一个未提交的 created。 */ () =>
-            s.admitCall(
-              'alice',
-              d.target,
-              { method: 'ping' },
-              absolute(200, {
-                history: { ...o.history!, client_request_key: 'overflow' }
-              })
-            ),
+            s.admitCall('alice', d.target, { method: 'ping' }, absolute(200, { client_request_key: 'overflow' })),
           /content_quota/
         )
         assert.deepEqual(ledger(db), before)
@@ -465,8 +440,7 @@ test(
     fixture(
       /* 记录每次成功返回的 created，失败不增加任何发送资格。 */ (s, db) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(200, { history: { history_epoch: scope.history_epoch, client_request_key: 'failure' } })
+        const o = absolute(200, { client_request_key: 'failure' })
         const before = ledger(db)
         let created = 0
         fail = true
@@ -517,8 +491,7 @@ test(
             return local
           }
         )
-        const scope = s.openHistory('alice', d.target, 1)
-        const o = absolute(200, { history: { history_epoch: scope.history_epoch, client_request_key: 'router' } })
+        const o = absolute(200, { client_request_key: 'router' })
         const first = router.admit(principal, d.target, { method: 'ping' }, o)
         assert.equal(first.created, true)
         assert.equal(reads, 2)
@@ -548,10 +521,9 @@ test(
       /* 在策略回调中修改原请求及其 history，确认私有快照仍使用登记前输入。 */ (s, db) => {
         const d = connected(s)
         const principal = { id: 'alice', policy: policy(d.target) }
-        const scope = s.openHistory('alice', d.target, 1)
         const target = { ...d.target }
         const request = { method: 'ping', params: { value: 1 } }
-        const o = absolute(200, { history: { history_epoch: scope.history_epoch, client_request_key: 'snapshot' } })
+        const o = absolute(200, { client_request_key: 'snapshot' })
         let mutate = true
         const router = new Router(
           s,
@@ -561,7 +533,7 @@ test(
               request.params.value = 2
               target.session = 'changed'
               o.deadline = 300
-              o.history!.client_request_key = 'changed'
+              o.client_request_key = 'changed'
             }
             received.session = 'resolver_changed'
             return policy(d.target, true)
@@ -580,7 +552,7 @@ test(
             d.target,
             { method: 'ping', params: { value: 1 } },
             absolute(200, {
-              history: { history_epoch: scope.history_epoch, client_request_key: 'snapshot' }
+              client_request_key: 'snapshot'
             })
           ).created,
           false
@@ -678,20 +650,13 @@ test(
     fixture(
       /* 重复登记新 key 直到真实预算拒绝，逐次观察最后一次事务的完整回滚。 */ (s, db) => {
         const d = connected(s)
-        const scope = s.openHistory('alice', d.target, 1)
         let exhausted = false
         for (let i = 0; i < 100; i++) {
           const before = ledger(db)
           try {
             assert.equal(
-              s.admitCall(
-                'alice',
-                d.target,
-                { method: 'ping' },
-                absolute(200, {
-                  history: { history_epoch: scope.history_epoch, client_request_key: `audit_${i}` }
-                })
-              ).created,
+              s.admitCall('alice', d.target, { method: 'ping' }, absolute(200, { client_request_key: `audit_${i}` }))
+                .created,
               true
             )
           } catch (error) {
@@ -721,18 +686,9 @@ test(
     fixture(
       /* 保留 dispatch/cancel 并分别撤销两端 read 权限，用原生 Wire 链路验证旧 key 不泄漏正文。 */ (s, db) => {
         const native = nativeBackend(s)
-        const connection = native.backend.connection
-        native.backend.connection = /* 在该隔离连接显式协商持久 history 能力，保持真实 Wire 校验。 */ () => {
-          const current = connection()
-          return {
-            ...current,
-            negotiated: { ...current.negotiated, capabilities: [...current.negotiated.capabilities, 'history_scope'] }
-          }
-        }
         try {
-          const scope = s.openHistory('synthetic', native.target, 1)
-          const history = { history_epoch: scope.history_epoch, client_request_key: 'read-gate' }
-          const call = native.create({ history, timeoutMs: 50 })
+          const client_request_key = 'read-gate'
+          const call = native.create({ client_request_key, timeoutMs: 50 })
           const binding = native.dispatch(call.call_id)
           native.respond(binding, { text: 'synthetic-private-response' })
           const grants = /* 为真实方法产生完整目标且可独立撤销 read 的策略。 */ (read: boolean) => [
@@ -746,7 +702,7 @@ test(
           let local = { revision: 'local1', grants: grants(true) }
           const router = new Router(s, /* 返回当前本地策略，读取撤权不改变登记 revision。 */ () => local)
           const request = { method: 'task.add', params: { title: 'synthetic' } }
-          const o = absolute(150, { contract_ref: binding.contract_ref, history })
+          const o = absolute(150, { contract_ref: binding.contract_ref, client_request_key })
           const before = ledger(db)
           for (const revoked of ['caller', 'local', 'none']) {
             principal.policy.grants = grants(revoked !== 'caller')
@@ -762,7 +718,7 @@ test(
                 request,
                 options({
                   contract_ref: binding.contract_ref,
-                  history,
+                  client_request_key,
                   timeoutMs: 50
                 })
               ).response,

@@ -75,7 +75,7 @@ function fixture(method = 'workspace.rename', params: Record<string, unknown> = 
       contract_ref: contractRef(contract.wire.source),
       registration: {
         deadline: 200,
-        history: null,
+
         caller_policy_revision: 'caller1',
         local_policy_revision: 'local1'
       }

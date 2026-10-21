@@ -13,14 +13,7 @@ import type { NativeConnectorOptions } from '../../src/transport/connector.js'
 import type { GatewayOptions } from '../../src/transport/gateway.js'
 import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js'
 import type { CompiledContract } from '../../src/native-contract/index.js'
-import type {
-  ContractSource,
-  HistoryReference,
-  ProviderBinding,
-  ProviderPolicy,
-  V2Target,
-  VersionOffer
-} from '../../src/wire/types.js'
+import type { ContractSource, ProviderBinding, ProviderPolicy, V2Target, VersionOffer } from '../../src/wire/types.js'
 import { contractRef } from '../../src/wire/index.js'
 import { auth, compiled, G, identity, json, request, view } from '../native-contract/helpers.js'
 import { source } from '../wire/helpers.js'
@@ -297,7 +290,7 @@ export function fixture(
     return client
   }
   /** 经真实 Router 登记固定目标和契约的新调用，派发仍须另经 Store 锚点。 */
-  function call(target: V2Target, history?: HistoryReference) {
+  function call(target: V2Target, client_request_key?: string) {
     return router.create(
       principal,
       target,
@@ -306,7 +299,7 @@ export function fixture(
         binding_revision: store.provider(target.machine_id, target.provider_id)!.binding_revision,
         contract_ref: contractRef(origin),
         timeoutMs: 10_000,
-        ...(history ? { history } : {})
+        ...(client_request_key ? { client_request_key } : {})
       }
     )
   }

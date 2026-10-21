@@ -37,18 +37,7 @@ export function auditRecord(
         target: JSON.parse(row.target_json),
         method: row.method,
         state: row.state,
-        attempt: /* 复制调用绑定，仅保留历史范围标识并去除客户端重试键。 */ (() => {
-          const binding = JSON.parse(row.binding_json ?? row.identity_json)
-          return {
-            ...binding,
-            registration: {
-              ...binding.registration,
-              history: binding.registration.history
-                ? { history_epoch: binding.registration.history.history_epoch }
-                : null
-            }
-          }
-        })(),
+        attempt: JSON.parse(row.binding_json ?? row.identity_json),
         bytes: row.response_bytes,
         ...extra
       }

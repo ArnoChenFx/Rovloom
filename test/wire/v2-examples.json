@@ -38,10 +38,6 @@
         "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
         "registration": {
           "deadline": 1000,
-          "history": {
-            "history_epoch": "history_1",
-            "client_request_key": "key_1"
-          },
           "caller_policy_revision": "caller_policy_1",
           "local_policy_revision": "local_policy_1"
         }
@@ -78,10 +74,6 @@
         "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
         "registration": {
           "deadline": 1000,
-          "history": {
-            "history_epoch": "history_1",
-            "client_request_key": "key_1"
-          },
           "caller_policy_revision": "caller_policy_1",
           "local_policy_revision": "local_policy_1"
         }
@@ -112,10 +104,6 @@
         "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
         "registration": {
           "deadline": 1000,
-          "history": {
-            "history_epoch": "history_1",
-            "client_request_key": "key_1"
-          },
           "caller_policy_revision": "caller_policy_1",
           "local_policy_revision": "local_policy_1"
         }
@@ -157,10 +145,6 @@
         "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
         "registration": {
           "deadline": 1000,
-          "history": {
-            "history_epoch": "history_1",
-            "client_request_key": "key_1"
-          },
           "caller_policy_revision": "caller_policy_1",
           "local_policy_revision": "local_policy_1"
         }

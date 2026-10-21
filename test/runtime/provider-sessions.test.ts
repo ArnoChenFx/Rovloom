@@ -322,7 +322,7 @@ function group(kind: ProviderKind) {
     provider_kind: kind,
     binding_revision: 1,
     contract_ref: (kind === 'luvus' ? 'a' : 'b').repeat(64),
-    registration: { deadline: 1000, history: null, caller_policy_revision: 'caller1', local_policy_revision: 'local1' }
+    registration: { deadline: 1000, caller_policy_revision: 'caller1', local_policy_revision: 'local1' }
   }
   return { descriptor, state, target, binding, session, attempt }
 }

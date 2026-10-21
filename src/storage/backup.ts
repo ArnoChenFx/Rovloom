@@ -20,7 +20,7 @@ export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now:
       backup.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; BEGIN IMMEDIATE;')
       backup.exec(SCHEMA)
       backup.prepare("INSERT INTO metadata VALUES(1,?,?,'active',?)").run(SCHEMA_VERSION, id('recovery'), now)
-      for (const table of ['machines', 'providers', 'history', 'calls', 'audit', 'management']) {
+      for (const table of ['machines', 'providers', 'calls', 'audit', 'management']) {
         for (const source of sourceDb.prepare(`SELECT * FROM ${table}`).all()) {
           const row = { ...source }
           if (table === 'machines') {
@@ -34,9 +34,6 @@ export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now:
           if (table === 'providers') {
             row.enabled = 0
             row.binding_revision = Number(row.binding_revision) + 1
-          }
-          if (table === 'history') {
-            row.status = 'retired'
           }
           if (table === 'calls') {
             row.request_json = null

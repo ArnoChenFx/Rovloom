@@ -25,7 +25,7 @@ Gateway 是常驻宿主，客户端断开或前端等待结束不调用 `close` 
 进程的显式生命周期控制。模块不写 stdout；唯一入口决定 HTTP 常驻和日志通道。
 
 Gateway 准入仅 `created=true` 才调用真实 transport 派发；重复 key 只返回原元数据，不重新
-发送或延长期限。登记提交后派发失败仍返回同一调用的当前账本元数据，便于无 history 的调用对账；
+发送或延长期限。登记提交后派发失败仍返回同一调用的当前账本元数据，便于无 key 的调用对账；
 锚点前未发送与锚点后 unknown 保留 Store 实际状态，不隐式重试。返回前仍重新核对当前身份及
 read 权限，撤权后不返回新旧调用 ID。`get/cancel` 始终不含原文。`results.open/read` 每次通过当前归属、双端 ACL、
 原请求 Wire 的读取/保留门禁及 Store 固定期限；缺原 Wire 时不从数据库重建许可。
@@ -368,7 +368,7 @@ machine/generation/epoch/call/attempt/native ID 发送既有 Wire cancel。无�
 缺原上下文、关闭、旧 epoch 或发送失败均不重发、不排队，也不回滚已提交的状态。
 原 Wire 响应约束仍受既有容量和固定保留期限限制；取消不主动销毁迟到补证能力。
 取消后在途 accepted 不复活状态或误关共享通道；合法同 attempt 响应仍须协商
-`late_evidence`，经原 `commitLuvusResponse` 事务补证，保留取消历史及原 deadline/history/TTL。
+`late_evidence`，经原 `commitLuvusResponse` 事务补证，保留取消历史及原 deadline/TTL。
 
 Connector 复用原 Wire 的方向、完整 binding、当前双端 cancel 权限及消息去重，再只中止
 同一运行 attempt 的 AbortController。已有 `executeWire` hook 把该 signal 传给实际

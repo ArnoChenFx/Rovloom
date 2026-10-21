@@ -3,10 +3,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { runtimeFixture } from './helpers.js'
 import { until } from '../transport/helpers.js'
-import type { RuntimeCallInput } from '../../src/runtime/types.js'
 
 /** 固定原 deadline，只有显式提供历史 key 时才启用已有的持久去重。 */
-function input(f: Awaited<ReturnType<typeof runtimeFixture>>, history?: RuntimeCallInput['options']['history']) {
+function input(f: Awaited<ReturnType<typeof runtimeFixture>>, client_request_key?: string) {
   return {
     target: f.target,
     native_request: { method: 'task.add', params: { title: 'synthetic' } },
@@ -14,7 +13,7 @@ function input(f: Awaited<ReturnType<typeof runtimeFixture>>, history?: RuntimeC
       binding_revision: 1,
       contract_ref: f.reference,
       deadline: f.state.store.clock() + 30_000,
-      ...(history ? { history } : {})
+      ...(client_request_key ? { client_request_key } : {})
     }
   }
 }
@@ -77,8 +76,7 @@ test(
         /** 第一个调用实际经 Wire/native 消耗一个 claim。 */ () => f.gateway.admit(input(f))
       )
       await until(/** 等待原生 fixture 真正接收首个请求。 */ () => f.native.state.responses === 1)
-      const scope = f.state.store.openHistory('synthetic', f.target, 1)
-      const request = input(f, { history_epoch: scope.history_epoch, client_request_key: 'blocked_by_capacity' })
+      const request = input(f, 'blocked_by_capacity')
       const admitted = await f.gateway.runAuthenticated(
         f.caller,
         /** 并发拒绝发生在本调用派发锚点前，仍返回已提交的登记元数据。 */ () => f.gateway.admit(request)
@@ -110,8 +108,7 @@ test(
     const f = await runtimeFixture({ frame_bytes: 4096 })
     try {
       await f.ready()
-      const scope = f.state.store.openHistory('synthetic', f.target, 1)
-      const request = input(f, { history_epoch: scope.history_epoch, client_request_key: 'unknown_after_anchor' })
+      const request = input(f, 'unknown_after_anchor')
       request.native_request.params.title = 'x'.repeat(8192)
       const admitted = await f.gateway.runAuthenticated(
         f.caller,
@@ -152,11 +149,7 @@ for (const revoked of ['identity', 'read'] as const) {
       try {
         await f.ready()
         f.native.state.active = false
-        const scope = f.state.store.openHistory('synthetic', f.target, 1)
-        const request = input(f, {
-          history_epoch: scope.history_epoch,
-          client_request_key: 'revoked_after_registration'
-        })
+        const request = input(f, 'revoked_after_registration')
         const dispatch = f.gateway.transport.dispatch
         let registered = ''
         f.gateway.transport.dispatch = /** 包住真实派发入口，在其失败后模拟可信身份来源即时撤销。 */ (callId) => {
