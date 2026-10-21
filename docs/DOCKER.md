@@ -18,8 +18,8 @@ Save the maintained Compose file from `main` in an empty directory. It defaults 
 
 ```sh
 mkdir rovloom && cd rovloom
-curl --fail --location --output compose.yaml \
-  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/compose.yaml
+curl --fail --location --output docker-compose.yaml \
+  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/docker-compose.yaml
 docker compose pull
 docker compose up -d
 docker compose ps
