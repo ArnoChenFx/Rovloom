@@ -364,8 +364,14 @@ export class LuvusRpcAdapter {
         evidence: NativeTransportEvidence,
         ioSignal: AbortSignal
       ): Promise<PreparedFrame> => {
+        // TEMP-DEBUG（Windows e2e 排查，随后移除）
+        const t0 = Date.now()
+        const mark = (label: string) =>
+          process.env.ROVLOOM_DEBUG_ERRORS && process.stderr.write(`DBG_PREPARE ${label} +${Date.now() - t0}ms\n`)
+        mark('start')
         aborted(ioSignal)
         const auth = await interruptible(this.#host.nativeAuth(binding, evidence), ioSignal)
+        mark('nativeAuth')
         const bytes = requestFrame(
           request.payload.native_request,
           binding.native_request_id,
@@ -383,10 +389,14 @@ export class LuvusRpcAdapter {
           terminalBoundary()
         }
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
+        mark('recheckEndpoint')
         await interruptible(verifyInstallation(this.#config), ioSignal)
+        mark('verifyInstallation')
         current()
+        mark('current')
         // 完整帧预算通过后才占用 durable dispatch claim；claim 必须拒绝已登记 attempt。
         await interruptible(this.#host.claimDispatch(binding, evidence), ioSignal)
+        mark('claimDispatch')
         // claim 期间可能改变安装来源；写入前同时重验 binary 和 endpoint。
         await interruptible(verifyInstallation(this.#config), ioSignal)
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
@@ -409,8 +419,12 @@ export class LuvusRpcAdapter {
           native.response_bytes,
           activeSignal,
           /* 独立验证同一 socket 的 peer 身份，再为该连接准备受限请求帧。 */ async (socket, ioSignal) => {
+            const v0 = Date.now()
             await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
             const peer = await interruptible(this.#host.verifyPeer!(socket, endpoint, binding), ioSignal)
+            if (process.env.ROVLOOM_DEBUG_ERRORS) {
+              process.stderr.write(`DBG_PREPARE verifyPeer +${Date.now() - v0}ms\n`)
+            }
             if (
               peer.uid !== endpoint.uid ||
               !Number.isSafeInteger(peer.pid) ||
