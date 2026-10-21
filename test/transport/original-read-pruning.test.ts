@@ -14,7 +14,7 @@ function trackedFixture(readContexts = 128) {
       retainOriginalRead: true,
       limits: { heartbeat_ms: 30, idle_ms: 1500, handshake_ms: 150, read_contexts: readContexts }
     },
-    { retention: { content_ttl: 30, handle_ttl: 10 } },
+    { retention: { result_ttl: 10 } },
     {
       /** 为实际认证连接创建独立原 Wire，计数不改变当前主体、授权或内容状态。 */
       adapter(_connection, _channel, services) {

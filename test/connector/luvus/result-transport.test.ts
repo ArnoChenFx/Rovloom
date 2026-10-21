@@ -10,7 +10,7 @@ import { wireFixture } from '../../transport/wire-execution-helpers.js'
 async function completed() {
   const f = await wireFixture({
     frameBytes: 131_072,
-    store: { retention: { handle_ttl: 10, content_ttl: 30 } }
+    store: { retention: { result_ttl: 10 } }
   })
   const data = { text: '你好🌍'.repeat(8_000), nested: [{ preserved: true, code: -7 }] }
   let discardAllowed = false
@@ -101,17 +101,10 @@ test(
       assert.equal(access.read(meta.result_id, 0, 1).expires, 1010)
       f.f.now = 1010
       assert.throws(
-        /** 实际句柄到期立即拒绝，不以正文尚有效为由续期或重开。 */
+        /** 句柄与内容同期限，到期后读取立即拒绝，不以正文尚有效为由续期或重开。 */
         () => access.read(meta.result_id, 0, 1),
-        /result_not_found/
+        /result_not_found|result_not_ready/
       )
-      const next = access.open(call.call_id)
-      assert.notEqual(next.result_id, meta.result_id)
-      assert.equal(next.expires, 1020)
-      f.f.now = 1029
-      const last = access.open(call.call_id)
-      assert.equal(last.expires, 1030)
-      f.f.now = 1030
       f.f.store.expire()
       assert.throws(
         /** 正文固定期限到达后不能新建句柄或恢复原上下文。 */

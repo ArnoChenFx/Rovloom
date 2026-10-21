@@ -224,7 +224,7 @@ export class Store {
           // 管理回执关联的审计事件在同一事务落盘。
           audit: (action, actor, now, details, event) => this.audit(action, actor, now, undefined, details, event)
         },
-        this.limits.audit_ttl
+        this.limits.metadata_ttl
       )
       this.maintenance = setInterval(
         /* 周期推进 deadline 与分层 TTL 清理；降级由具体错误路径处理，后台不输出业务原文。 */ () => {
@@ -440,7 +440,7 @@ export class Store {
     extra: Record<string, unknown> = {},
     eventId = id('event')
   ): void {
-    const record = auditRecord(eventId, action, actor, now, this.limits.audit_ttl, this.generation(), row, extra)
+    const record = auditRecord(eventId, action, actor, now, this.limits.metadata_ttl, this.generation(), row, extra)
     this.db.prepare('INSERT INTO audit VALUES(?,?,?,?,?,?,?)').run(...Object.values(record))
   }
   // 核验受保护宿主的独立授权与一次性确认，绑定精确 fence 并写入审计。
@@ -619,7 +619,7 @@ export class Store {
           status: 'active',
           scope_created_at: now,
           accept_new_until: now + this.limits.history_epoch_max_age,
-          frozen_dedup_ttl: this.limits.dedup_ttl
+          frozen_dedup_ttl: this.limits.metadata_ttl
         }
         this.db
           .prepare('INSERT INTO history VALUES(?,?,?,?,?,?,?,?,?,?)')
@@ -785,7 +785,7 @@ export class Store {
           },
           principal
         )
-        let dedupExpires = now + this.limits.dedup_ttl
+        let dedupExpires = now + this.limits.metadata_ttl
         if (options.history) {
           const scope = this.db
             .prepare(
@@ -880,8 +880,8 @@ export class Store {
             canonical(request),
             now,
             identity.registration.deadline,
-            now + this.limits.content_ttl,
-            Math.max(now + this.limits.call_metadata_ttl, dedupExpires),
+            now + this.limits.result_ttl,
+            Math.max(now + this.limits.metadata_ttl, dedupExpires),
             dedupExpires
           )
         const row = this.row(identity.call_id)
@@ -1312,24 +1312,12 @@ export class Store {
       .get(callId, this.time()) as Pick<ResultPage, 'result_id' | 'bytes' | 'hash' | 'expires'> | undefined
   }
   // 只为已提交且当前可见的响应创建有界结果句柄，拒绝过期、删除或超配额内容。
-  saveResult(
-    principal: string,
-    callId: string,
-    ttlMs = this.limits.handle_ttl,
-    quotaBytes = this.limits.content_bytes
-  ) {
-    if (
-      !Number.isSafeInteger(ttlMs) ||
-      ttlMs <= 0 ||
-      ttlMs > this.limits.handle_ttl ||
-      !Number.isSafeInteger(quotaBytes) ||
-      quotaBytes <= 0 ||
-      quotaBytes > this.limits.content_bytes
-    ) {
+  saveResult(principal: string, callId: string, quotaBytes = this.limits.content_bytes) {
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes <= 0 || quotaBytes > this.limits.content_bytes) {
       throw new GatewayError('invalid_result_limits')
     }
     return this.transaction(
-      /* 核对响应可见性及句柄子额，写入不超过原内容期限的结果句柄。 */ (now) => {
+      /* 核对响应可见性及句柄子额，写入与原内容同期限的结果句柄。 */ (now) => {
         const row = this.owned(principal, callId, now)
         if (
           row.state !== 'responded' ||
@@ -1354,7 +1342,7 @@ export class Store {
           result_id: id('result'),
           bytes,
           hash: row.response_hash!,
-          expires: Math.min(now + ttlMs, row.content_expires)
+          expires: row.content_expires
         }
         this.db
           .prepare('INSERT INTO results VALUES(?,?,?,?,?)')

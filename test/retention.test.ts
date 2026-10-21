@@ -12,19 +12,21 @@ test(
   'deduplicated handles retain expiry; aggregate quota reclaims expired payloads; cursor boundaries',
   /* 验证句柄去重不续期、过期句柄可回收，以及分页游标和页长必须有效。 */ () => {
     let now = 100
-    const s = new Store(':memory:', /* 控制结果有效期边界，避免测试依赖真实等待。 */ () => now, { management })
+    const s = new Store(':memory:', /* 控制结果有效期边界，避免测试依赖真实等待。 */ () => now, {
+      management,
+      retention: { result_ttl: 10 }
+    })
     try {
       const d = connected(s)
       const first = s.createCall('alice', d.target, { method: 'pane.read' }, options())
       const second = s.createCall('alice', d.target, { method: 'pane.read' }, options())
       respond(s, s.dispatch('alice', first.call_id, d.epoch), { result: { text: 'abc' } }, now)
       respond(s, s.dispatch('alice', second.call_id, d.epoch), { result: { text: 'abc' } }, now)
-      const a = s.saveResult('alice', first.call_id, 10)
+      const a = s.saveResult('alice', first.call_id)
       now = 101
-      assert.deepEqual(s.saveResult('alice', first.call_id, 100), a)
+      assert.deepEqual(s.saveResult('alice', first.call_id), a)
       assert.throws(
-        /* 已有句柄占满指定总配额时保存第二个响应，要求拒绝。 */ () =>
-          s.saveResult('alice', second.call_id, 10, a.bytes),
+        /* 已有句柄占满指定总配额时保存第二个响应，要求拒绝。 */ () => s.saveResult('alice', second.call_id, a.bytes),
         /result_quota/
       )
       assert.equal(s.readResult('alice', a.result_id, a.bytes, 1).data, '')
@@ -40,14 +42,16 @@ test(
           /invalid_result_cursor/
         )
       }
-      now = 110
-      const b = s.saveResult('alice', second.call_id, 10)
+      now = 105
+      const b = s.saveResult('alice', second.call_id)
       assert(b.bytes > 0)
+      assert.equal(b.expires, 110)
+      now = 110
       assert.throws(
-        /* 读取已过期的句柄，要求隐藏该句柄但保留尚未过期的原文。 */ () => s.readResult('alice', a.result_id),
+        /* 句柄与内容同期限，到期后句柄不可读且不能为过期内容重新签发。 */ () => s.readResult('alice', a.result_id),
         /result_not_found/
       )
-      assert(s.call('alice', first.call_id).response)
+      assert.throws(() => s.saveResult('alice', first.call_id), /result_not_ready/)
     } finally {
       s.close()
     }
@@ -115,7 +119,7 @@ test(
     const path = join(dir, 'db')
     let s = new Store(path, /* 注入初始可控时钟，将原文截止时间固定为创建后二十毫秒。 */ () => now, {
       management,
-      retention: { content_ttl: 20 }
+      retention: { result_ttl: 20 }
     })
     try {
       const d = connected(s)

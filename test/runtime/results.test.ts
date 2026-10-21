@@ -23,8 +23,7 @@ function fixture(contentBytes?: number) {
   const store = new Store(path, /** 共同结果与原 Wire 使用同一受控可信时钟。 */ () => state.now, {
     management,
     retention: {
-      handle_ttl: 10,
-      content_ttl: 30,
+      result_ttl: 10,
       ...(contentBytes === undefined ? {} : { content_bytes: contentBytes })
     }
   })
@@ -205,9 +204,12 @@ for (const change of ['delete', 'expiry'] as const) {
           }
         }
       })
-      assert.throws(/** 末次新读必须看见本次句柄失效。 */ () => f.access.read(meta.result_id), {
-        message: 'result_not_found'
-      })
+      assert.throws(
+        /** 末次新读必须看见本次句柄失效；到期时内容与句柄同时失效。 */ () => f.access.read(meta.result_id),
+        {
+          message: change === 'expiry' ? 'result_not_ready' : 'result_not_found'
+        }
+      )
       assert.equal(checks, 2)
     }
   )
@@ -220,7 +222,7 @@ test(
     t.after(/** 关闭两个真实测试 provider 的原上下文。 */ () => f.close())
     for (const call of f.calls) {
       const metadata = f.access.open(call.call_id)
-      assert.equal(metadata.expires, f.state.now + 10)
+      assert.equal(metadata.expires, 110)
       const page = f.access.read(metadata.result_id)
       assert.equal(Buffer.from(page.data, 'base64').toString('utf8'), call.response)
       assert.equal(page.bytes, Buffer.byteLength(call.response!))

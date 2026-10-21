@@ -43,7 +43,7 @@ test(
         let now = 100
         let s = new Store(path, /* 返回历史治理测试的当前时间，供用例推进清理期限并注入回拨。 */ () => now, {
           management,
-          retention: { dedup_ttl: 100, call_metadata_ttl: 100, history_epoch_max_age: 20 }
+          retention: { metadata_ttl: 100, history_epoch_max_age: 20 }
         })
         try {
           const d = connected(s)
@@ -115,7 +115,7 @@ test(
         let now = 100
         const s = new Store(path, /* 返回内容 TTL 测试的当前时间，供用例分阶段触发调用超时与原文到期。 */ () => now, {
           management,
-          retention: { content_ttl: 10 }
+          retention: { result_ttl: 10 }
         })
         try {
           const d = connected(s)
@@ -591,10 +591,10 @@ test(
   /* 验证无效保留配置、缺少管理授权和确认标识重放都会阻止相应分配或变更。 */ () => {
     for (const retention of [
       { history_epoch_max_age: 3_000_000_000 },
-      { call_metadata_ttl: 1 },
+      { metadata_ttl: 1 },
       { storage_reserve_bytes: 536_870_912 },
       { content_bytes: 536_870_913 },
-      { dedup_ttl: NaN }
+      { metadata_ttl: NaN }
     ]) {
       assert.throws(
         /* 用违反限制关系的保留配置构造存储，确认初始化拒绝无效限额。 */ () =>
@@ -797,7 +797,7 @@ test(
         let now = 100
         let s = new Store(path, /* 返回用例时钟，供存储在原文到期读取时记录持久时钟上界。 */ () => now, {
           management,
-          retention: { content_ttl: 10 }
+          retention: { result_ttl: 10 }
         })
         try {
           const d = connected(s)
@@ -867,7 +867,7 @@ test(
           const h = s.openHistory('alice', d.target, 1)
           const o = options({ history: { history_epoch: h.history_epoch, client_request_key: 'old-key' } })
           s.createCall('alice', d.target, { method: 'ping' }, o)
-          now = 100 + s.limits.dedup_ttl
+          now = 100 + s.limits.metadata_ttl
           s.expire()
           assert.throws(
             /* 在默认墓碑清理后重用原键，检查不会因记录已删而创建新调用。 */ () =>

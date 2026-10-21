@@ -144,7 +144,7 @@ admin_confirmations、admin_operations、admin_pairings。它们全部属于原 
 全新状态必须在独立新目录建立。恢复快照沿用原隔离流程，不复制有效管理 history、确认、回执或配对申请；
 新 generation 和 recovery_quarantined 阻止旧范围再次使用。普通写服务不能解除隔离。
 
-history 在接收截止加 audit_ttl 后清理，相关确认/回执先清理；配对申请按原期限加 audit_ttl 清理。
+history 在接收截止加 metadata_ttl 后清理，相关确认/回执先清理；配对申请按原期限加 metadata_ttl 清理。
 过期/缺失 history 一律拒绝，不自动重建旧意图。storage_degraded 与 recovery_quarantined 拒绝管理变更。
 
 writer 内会话到期、权限撤销或当前证明返回拒绝，只转换本服务白名单中的已知管理拒绝为 Store 业务错误，

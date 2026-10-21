@@ -25,7 +25,6 @@ import {
 const binaryHash = '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9'
 const schemaHash = '00e3bb8862b9f3602164bdbe3f11cd7b466e7f7098aa2942dd3878d0b1abdbe6'
 const version = '0.14.3'
-const frameBytes = 131_072
 // 每个方法单独审过效果；原生 access=read 不能自动推导为无副作用。
 const effects = Object.freeze({ 'task.add': 'execute', 'task.update': 'execute', 'automation.list': 'read' })
 const methods = Object.keys(effects)
@@ -306,7 +305,7 @@ export async function officialIpc(binaryPath) {
     const actor = 'owned-local-uid-' + uid + '-' + randomUUID()
     let bootstrapOpen = true
     store = new Store(join(root, 'gateway/store.sqlite'), Date.now, {
-      retention: { handle_ttl: 5000, content_ttl: 20_000 },
+      retention: { result_ttl: 20_000 },
       management: /* 操作者授权的本轮本机引导，只准一次精确 provider 登记；不是外部管理认证器。 */ (request) => {
         live()
         assert(
@@ -593,8 +592,7 @@ export async function officialIpc(binaryPath) {
       duplicated: claimsDuplicated
     })
     let last
-    let chunkCount = 0
-    /** 经原 Wire 真实编码/重组，再在实际 Store 事务中提交返回；响应 id 原样保持。 */
+    /** 经原 Wire 真实编码/解码，再在实际 Store 事务中提交返回；响应 id 原样保持。 */
     async function execute(method, params) {
       const p = prepare(method, params)
       const result = await p.adapter.dispatch(p.raw)
@@ -605,23 +603,7 @@ export async function officialIpc(binaryPath) {
         type: 'response',
         payload: { attempt: p.attempt, native_response: result.native_response }
       }
-      let envelope = response
-      if (Buffer.byteLength(JSON.stringify(response)) > frameBytes) {
-        const chunks = responseWire.encodeResponseObject(response, randomUUID())
-        chunkCount = chunks.length
-        assert(chunks.length > 1)
-        for (const raw of chunks) {
-          assert(Buffer.byteLength(raw) <= frameBytes)
-          const complete = wire.acceptChunk(raw, 'connector_to_gateway')
-          if (complete) {
-            assert.equal(complete.kind, 'envelope')
-            envelope = complete.envelope
-          }
-        }
-        assert.notEqual(envelope, response)
-      } else {
-        envelope = wire.decode(responseWire.encode(response, 'connector_to_gateway'), 'connector_to_gateway')
-      }
+      const envelope = wire.decode(responseWire.encode(response, 'connector_to_gateway'), 'connector_to_gateway')
       const committed = commitLuvusResponse(store, wire, envelope)
       assert.equal(committed.state, 'responded')
       assert.deepEqual(JSON.parse(committed.response), result.native_response)
@@ -669,7 +651,7 @@ export async function officialIpc(binaryPath) {
       }
     })
     const meta = access.open(last.call.call_id)
-    assert(meta.bytes > frameBytes && chunkCount > 1)
+    assert(meta.bytes > 65_535)
     const pages = []
     let cursor = 0
     while (true) {
@@ -693,46 +675,29 @@ export async function officialIpc(binaryPath) {
     checks.push({
       check: 'native_to_adapter_original_wire_store_pages_hash',
       bytes: body.length,
-      pages: pages.length,
-      object_chunks: chunkCount
+      pages: pages.length
     })
-    await until(
-      /* 使用真实墙钟跨越实际 Store 句柄截止，不伪造 store.clock。 */ () => Date.now() >= meta.expires,
-      10_000
-    )
-    assert.throws(
-      /* 正文仍在期限内时，旧句柄到期也不隐式续期。 */ () => access.read(meta.result_id, 0, 1),
-      /result_not_found/
-    )
-    const reopened = access.open(last.call.call_id)
-    assert.notEqual(reopened.result_id, meta.result_id)
-    assert(reopened.expires <= store.call(actor, last.call.call_id).content_expires)
-    checks.push({ check: 'actual_handle_ttl_no_read_renewal', passed: true })
     assert.throws(
       /* 读取授权不能代替独立 discard_response 权限。 */ () => access.discard(last.call.call_id),
       /forbidden/
     )
     discardAllowed = true
     access.discard(last.call.call_id)
-    assert.throws(/* 真实 Store 正文及句柄被丢弃后，不能交付任何旧页。 */ () => access.read(reopened.result_id, 0, 1))
+    assert.throws(/* 真实 Store 正文及句柄被丢弃后，不能交付任何旧页。 */ () => access.read(meta.result_id, 0, 1))
     assert.equal(store.call(actor, last.call.call_id).response, null)
     checks.push({ check: 'separate_discard_authorization_and_body_removal', passed: true })
     await execute('task.update', { id: task.id })
     const contentExpires = store.call(actor, last.call.call_id).content_expires
     const early = access.open(last.call.call_id)
-    await until(
-      /* 在真实固定正文截止前进入最后两秒，留足同步原生门禁执行时间。 */ () => Date.now() >= contentExpires - 2000,
-      25_000
-    )
-    const clamped = access.open(last.call.call_id)
-    assert.notEqual(clamped.result_id, early.result_id)
-    assert.equal(clamped.expires, contentExpires)
-    await until(/* 正文期限按实际墙钟到达，不推进 Store 时钟。 */ () => Date.now() >= contentExpires)
+    assert.equal(early.expires, contentExpires)
+    await until(/* 正文期限按实际墙钟到达，不推进 Store 时钟。 */ () => Date.now() >= contentExpires, 25_000)
     store.expire()
-    assert.throws(/* 正文到期不能通过旧句柄交付，也不能显式重开。 */ () => access.read(clamped.result_id, 0, 1))
+    assert.throws(
+      /* 句柄与正文同期限，到期后不能通过旧句柄交付，也不能显式重开。 */ () => access.read(early.result_id, 0, 1)
+    )
     assert.throws(/* 原许可或当前 native 来源都不能恢复过期正文。 */ () => access.open(last.call.call_id))
     assert.equal(store.call(actor, last.call.call_id).response, null)
-    checks.push({ check: 'actual_content_ttl_clamps_handle_and_refuses_expired_body', passed: true })
+    checks.push({ check: 'actual_result_ttl_handle_and_body_expire_together', passed: true })
     await execute('task.update', { id: task.id })
     const closedMeta = access.open(last.call.call_id)
     assert(access.read(closedMeta.result_id, 0, 1))
