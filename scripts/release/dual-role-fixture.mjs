@@ -259,7 +259,6 @@ export async function createDualRoleFixture({
         connector: {
           local: { target, binding_revision: 1, config_ref: config.config_ref, binary, ...native },
           principal_id: principal,
-          receipts: { path: join(ledger, 'receipts.json'), mode: 'create', ledger_id: 'synthetic_receipts', limits },
           claims: { path: join(ledger, 'claims.sqlite'), mode: 'create', ledger_id: 'synthetic_claims', limits }
         }
       }

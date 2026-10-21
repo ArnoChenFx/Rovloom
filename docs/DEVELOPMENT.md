@@ -257,11 +257,11 @@ python3 scripts/herdr/verify_readonly.py --binary /absolute/verified/herdr --out
 受保护 ref 由 `readHerdrProviderRefConfig`读取，字段及精确返回类型以
 [`provider.ts`](../src/connector/herdr/provider.ts)为准；必须提供完整 Target、binding revision、
 config ref、固定 expected source、schema 路径及独立 peer policy revision。Connector 另需
-固定本机路径、principal、独立 receipts/claims 账本；正常重启使用 `open`，不重建丢失墓碑。
+固定本机路径、principal、独立 claims 账本；正常重启使用 `open`，不重建丢失墓碑。
 
 唯一 CLI owner 负责资源解析和角色装配，复用现有 HTTP MCP/管理会话。Luvus 专用工厂与目录类型
 不能强制转换成 Herdr 类型；目录须接通 provider 分支、当前 Store binding 和双方策略。
-双端协商须包含 `rpc/admission_receipt/admission_context`。资源的 `providers[].preflightRequest`必须随原 providers 传入中性 runtime；它在唯一 Store 准入事务中使用本次真实 native request ID 和同一完整编译根预检，错误参数不登记 call/history key、不触碰共享设备连接。真正派发和原生写入前的来源、权限、schema 与持久 claims 复验继续保留。释放责任与预算见[通道接线](TRANSPORT.md)。
+双端协商 `rpc`。资源的 `providers[].preflightRequest`必须随原 providers 传入中性 runtime；它在唯一 Store 准入事务中使用本次真实 native request ID 和同一完整编译根预检，错误参数不登记 call/history key、不触碰共享设备连接。真正派发和原生写入前的来源、权限、schema 与持久 claims 复验继续保留。释放责任与预算见[通道接线](TRANSPORT.md)。
 
 可复用检查入口：
 

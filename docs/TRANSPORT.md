@@ -110,21 +110,13 @@ Linux x64 安装与私有目录，持久记录完整配置、目录身份和独�
 RPC 分类，使用独立契约修订。它不增加方法、scope、raw、Host、终端或秘密结果权限。
 Herdr 的来源、协议、分类与凭据仍由其 provider 实现分别交付。
 
-### 受信原截止交付
+### Connector 本机去重
 
-Wire 可选能力 `admission_receipt`由 Gateway 在原派发事务提交后、原请求之前交付完整
-binding、规范请求摘要和 Store 原 dedup 截止。Connector 经实际认证连接及原 codec 校验后
-才产生一次性 opaque 交付证明，`ConnectorAdmissionReceipts`将其独立持久保存；不读取
-Gateway Store，也不保存请求正文或制造执行许可。缺回执、冲突、旧 epoch、摘要不符或过期
-均拒绝执行。文件、锁、固定期限与时钟高水位逐次复核，崩溃标记不自动接管。
-
-启用此能力的宿主将它列入 required，并把同一持久接收端交给 session 的 `admissions`
-及 `ConnectorAdmissionOptions.receipts`，其 `dedupExpires`交给共享 book 与 claims。
-默认 offer 仍仅 `rpc`。显式 `retention_ms`只证明本机首次固定期限，不代替 Gateway 原值。
-旧 cutoff-only `admission_receipt` 未携带 caller principal，Connector principal 来自受保护单一固定本机路由。
-协商 `admission_context` 时额外交付原 caller、Store 同式摘要和原锚点，并与该完整 Target 路由核对；
-字段与提交后更新规则见 [Provider 角色](PROVIDER-RUNTIME.md)。
-跨 epoch 共享 book/回执与原持久唯一 claims，断连不清墓碑，不续期或重放工作。
+Gateway 在 Store 派发事务提交（持久 `dispatching`）后才发送 `request`，没有额外的“回执”或上下文帧。
+Connector 用内存 attempt book（受保护配置固定的本机保留期，默认 30 天，必须覆盖请求 deadline）记录
+`call_id:attempt_id` 与请求摘要，并以持久 claims 阻止同一 attempt 在任何 epoch、重启后再次写入原生。
+principal 来自受保护的单一固定本机路由，不读取 Gateway Store，也不保存请求正文或制造执行许可。
+跨 epoch 共享 book 与持久唯一 claims，断连不清墓碑、不续期或重放工作。
 
 ### 管理会话与 provider 接缝
 
@@ -160,12 +152,11 @@ Gateway Store，也不保存请求正文或制造执行许可。缺回执、冲�
 响应/内容锚点和固定期限。Gateway 来源仅代表已认证 Connector 通道，不冒充本机 Herdr 安装。
 
 `createHerdrConnectorResources`要求宿主交付真实 `HerdrInstallation`、时钟、当前 policies 与
-`releaseOwner`，返回给 `createProviderConnectorRuntime`的 session。双端须实际协商
-`rpc/admission_receipt/admission_context`，普通 receipt 或 JSON 自报不能补齐完整准入上下文。
-Connector 使用独立 receipts、内存 attempt book 和原持久 claims，不打开 Gateway writer。
+`releaseOwner`，返回给 `createProviderConnectorRuntime`的 session。
+Connector 使用内存 attempt book 和原持久 claims，不打开 Gateway writer。
 正常重启以 `open`重开同一账本；`create`仅用于显式首次初始化。
 
-单个 session 关闭只撤销其 adapter/ledger/桥接等待；长期 receipts/claims 与 child 归资源 owner。
+单个 session 关闭只撤销其 adapter/准入后端/桥接等待；长期 claims 与 child 归资源 owner。
 资源 release 先关闭全部 epoch，再关闭 writers 和 installation，最后只调用一次 `releaseOwner`。
 安装关闭不证明 child 已退出，原 owner 须停止并等待自己持有的进程；Gateway release 不关闭外部 Store。
 所有 provider 仍共享 Store 的正文与句柄总预算。Herdr 当前单条原生 JSON LF 上限 65536 字节，
@@ -176,14 +167,14 @@ Connector 使用独立 receipts、内存 attempt book 和原持久 claims，不�
 
 ### 生产来源边界
 
-当前提供受控 Linux Luvus child 来源、显式有限 custody 与认证原截止交付；外部 supervisor
+当前提供受控 Linux Luvus child 来源与显式有限 custody；外部 supervisor
 的实例交付及跨进程原生来源证明仍未提供。已有端口的来源责任如下：
 
 | 已有消费端口 | 受信来源责任 |
 |---|---|
 | `RuntimeProvider.source/ready/contract`、session 的 `verifyPeer/assertEvidence` | 固定 binary/schema、root/session 和启动配置的受控实例生命周期，以及实际每条 IPC socket 的 peer；退出、路径替换或 generation 变化使来源失效 |
 | session 的 `delegation`、`LuvusBoundDelegation` | 专用 custody 交付的受限 token 与原始签发记录，绑定完整 config/native generation、方法、scope、issued/expires；调用 JSON 不能自报权限，不回退 Owner，不在重连时刷新 |
-| `ConnectorAttemptBookOptions.dedupExpires`、session 的 `dedupExpires` | 唯一 Store 已提交 `responseAnchor(binding)` 的原截止；跨进程来源须独立认证并核对完整 binding、请求摘要和固定期限，本机 retention 不能代替 |
+| `ConnectorAttemptBookOptions.retention_ms`、session 的 `dedupExpires` | Connector 受保护配置固定的本机保留期，必须覆盖请求执行 deadline；首次登记后固定，重连与读取都不刷新 |
 | `GatewayRuntimeOptions.identities`、`runAuthenticated` | 唯一 HTTP 认证 adapter 交付受保护身份引用，逐操作重查当前 principal；设备凭据、管理员 session 和 MCP caller 分别保留各自来源 |
 
 opaque 实例不能经 JSON 序列化成为跨进程归属证明。OS 服务的 `running` 状态、发行文件

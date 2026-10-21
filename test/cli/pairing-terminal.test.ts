@@ -480,7 +480,6 @@ async function nativeProbe(
       const value = entry.value
       if (value.kind === 'herdr') {
         assert.equal(value.config.connector.local.allow_terminal_execution, false)
-        assert.equal(value.config.connector.receipts.mode, 'open')
         assert.equal(value.config.connector.claims.mode, 'open')
         assert.equal(
           createHash('sha256').update(readFileSync(value.config.schema_path)).digest('hex'),

@@ -37,8 +37,6 @@ export type Capability =
   | 'dispatch_refusal'
   | 'provider_snapshot'
   | 'terminal_execution_state'
-  | 'admission_receipt'
-  | 'admission_context'
   | 'history_scope'
   | 'late_evidence'
 export type VersionOffer = {
@@ -117,12 +115,6 @@ export type Payloads = {
     source: ContractSource
     capabilities: JsonObject
     capability_revision: string
-  }
-  admission_receipt: {
-    attempt: AttemptIdentity
-    request_sha256: string
-    dedup_expires_at: number
-    context?: import('./admission.js').AdmissionReceiptContext
   }
   request: RequestPayload
   accepted: { attempt: AttemptIdentity }

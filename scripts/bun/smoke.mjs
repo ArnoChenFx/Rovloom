@@ -49,7 +49,7 @@ assert.equal(typeof herdrProvider.createHerdrGatewayResources, 'function')
 assert.equal(typeof herdrProvider.createHerdrConnectorResources, 'function')
 assert.equal(typeof providerRuntime.createProviderGatewayRuntime, 'function')
 assert.equal(typeof providerRuntime.createProviderConnectorRuntime, 'function')
-assert.equal(typeof providerRuntime.createConnectorAdmissionLedger, 'function')
+assert.equal(typeof providerRuntime.createConnectorAdmissionBackend, 'function')
 assert.equal(typeof providerRuntime.createProviderResultAccess, 'function')
 // 官方 schema 在产物内通过固定 Worker 编译；这些离线值不构造真实安装或原生身份。
 const herdrSchemaBytes = readFileSync(new URL('../../test/fixtures/herdr/0.9.5/schema.json', import.meta.url))

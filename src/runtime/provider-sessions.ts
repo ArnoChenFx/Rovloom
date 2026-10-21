@@ -83,14 +83,12 @@ function compose(
   let adaptersClosed = false
   let operating = false
   let highWater = 0
-  let pendingReceipt: ProviderSessionGroup | undefined
   let snapshots: readonly import('../wire/types.js').ProviderSnapshot[] | undefined
   const snapshotSources = new Map<ProviderSessionGroup, readonly import('../wire/types.js').ProviderSnapshot[]>()
   const isolated = connection.negotiated.capabilities.includes('provider_fence')
   const fenced = new Set<ProviderSessionGroup>()
   const adapterReleased = new Set<ProviderSessionGroup>()
   const ownerReleased = new Set<ProviderSessionGroup>()
-  const epochReleased = new Set<ProviderSessionGroup>()
   const observed = new Map<ProviderSessionGroup, Readiness>()
   const wasReady = new Set<ProviderSessionGroup>()
 
@@ -126,21 +124,6 @@ function compose(
     fenced.add(group)
     snapshotSources.delete(group)
     snapshots = undefined
-    if (pendingReceipt === group) {
-      pendingReceipt = undefined
-    }
-    if (connector && !epochReleased.has(group)) {
-      epochReleased.add(group)
-      try {
-        const value: unknown = (group.session as ConnectorWireSession).admissions?.closeEpoch?.(connection)
-        if (value !== undefined) {
-          void Promise.resolve(value).catch(/** 原持久 fence 的异步拒绝不复活已封锁来源。 */ () => {})
-          cleanupFailed = true
-        }
-      } catch {
-        cleanupFailed = true
-      }
-    }
     for (const release of [releaseAdapter, releaseOwner]) {
       try {
         release(group)
@@ -194,7 +177,6 @@ function compose(
     }
     adaptersClosed = true
     ended = true
-    pendingReceipt = undefined
     windows.clear()
     let failed = false
     for (const group of [...groups].reverse()) {
@@ -279,7 +261,7 @@ function compose(
     }
   }
 
-  /** 同步关联不得被 provider 重入替换；失败不留下可被另一帧消费的 receipt 选择。 */
+  /** 同步关联不得被 provider 重入替换。 */
   function invoke<T>(action: () => T): T {
     if (operating) {
       try {
@@ -294,9 +276,6 @@ function compose(
       const value = action()
       assertOpen()
       return value
-    } catch (error) {
-      pendingReceipt = undefined
-      throw error
     } finally {
       operating = false
     }
@@ -428,10 +407,7 @@ function compose(
       ),
     observeMessage: /** 原去重后再用共享有界窗口拒绝跨provider消息ID冲突，不复制完整对象缓冲。 */ (frame, direction) =>
       invoke(
-        /** 原消息观察后执行共享有界去重并记录同步receipt归属。 */ () => {
-          if (pendingReceipt) {
-            fail('admission_receipt_delivery_pending')
-          }
+        /** 原消息观察后执行共享有界去重。 */ () => {
           const group = control(frame) ? undefined : frameOwner(frame)
           const result = group ? group.session.adapter.observeMessage(frame, direction) : 'new'
           if (!group) {
@@ -453,9 +429,6 @@ function compose(
           )
           if (result === 'duplicate' || shared === 'duplicate') {
             return 'duplicate'
-          }
-          if (connector && frame.type === 'admission_receipt') {
-            pendingReceipt = group
           }
           return 'new'
         }
@@ -694,69 +667,11 @@ function compose(
     const sessions = groups as unknown as readonly ProviderSessionGroup<ConnectorWireSession>[]
     if (
       sessions.some(
-        /** 全部原Connector会话必须实际具备接收和执行端口。 */ (group) =>
-          !group.session.admissions || typeof group.session.executeWire !== 'function'
+        /** 全部原Connector会话必须实际具备执行端口。 */ (group) => typeof group.session.executeWire !== 'function'
       )
     ) {
       closeSession(result)
-      fail('admission_receipt_sink_required')
-    }
-    result.admissions = {
-      accept: /** transport刚完成同步observe后，原proof只交给该帧所属原sink一次，不拆封或重新签名。 */ (proof) =>
-        invoke(
-          /** 同步取走本次receipt的唯一归属，并交付原opaque proof。 */ () => {
-            const group = pendingReceipt as ProviderSessionGroup<ConnectorWireSession> | undefined
-            pendingReceipt = undefined
-            if (!group) {
-              fail('admission_receipt_proof_required')
-            }
-            return group.session.admissions!.accept(proof)
-          }
-        ),
-      assertRequest: /** 请求完整binding再次选同一原持久接收端。 */ (request) =>
-        invoke(
-          /** 完整原请求重新交由对应原持久接收端核验。 */ () => {
-            return (select(request.binding).session as ConnectorWireSession).admissions!.assertRequest(request)
-          }
-        ),
-      closeEpoch: /** 清理不穿过开放fence，原sink仍只收到实际认证连接。 */ (epoch) => {
-        if (
-          boundedJson({
-            machine_id: epoch.machine_id,
-            recovery_generation: epoch.recovery_generation,
-            connection_epoch: epoch.connection_epoch
-          }) !==
-          boundedJson({
-            machine_id: connection.machine_id,
-            recovery_generation: connection.recovery_generation,
-            connection_epoch: connection.connection_epoch
-          })
-        ) {
-          fail('connection_binding_mismatch')
-        }
-        let failed = false
-        for (const group of sessions) {
-          if (epochReleased.has(group)) {
-            continue
-          }
-          epochReleased.add(group)
-          try {
-            const value: unknown = group.session.admissions!.closeEpoch?.(epoch)
-            if (value !== undefined) {
-              failed = true
-              void Promise.resolve(value).catch(
-                /** 原epoch fence违规异步时仍消费晚到拒绝，不能报告持久提交完成。 */ () => {}
-              )
-            }
-          } catch {
-            failed = true
-          }
-        }
-        if (failed || cleanupFailed) {
-          cleanupFailed = true
-          fail('runtime_session_close_failed')
-        }
-      }
+      fail('connector_execution_required')
     }
     result.executeWire = /** 选中原会话后原始字节和signal保持不变；晚到结果仍受组合关闭fence约束。 */ async (
       raw,

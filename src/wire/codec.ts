@@ -1,5 +1,4 @@
 // 校验并编解码 Wire v2 握手、认证消息、原生载荷及有界逻辑对象。
-import { validateAdmissionReceipt } from './admission.js'
 import type {
   AttemptBinding,
   AttemptIdentity,
@@ -44,7 +43,6 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   terminal_execution_state: ['connector_to_gateway'],
   provider_fenced: ['gateway_to_connector', 'connector_to_gateway'],
   request: ['gateway_to_connector'],
-  admission_receipt: ['gateway_to_connector'],
   accepted: ['connector_to_gateway'],
   dispatch_refused: ['connector_to_gateway'],
   response: ['connector_to_gateway'],
@@ -452,38 +450,6 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
         fail('target_machine_mismatch')
       }
       break
-    case 'admission_receipt': {
-      capability(context, 'admission_receipt')
-      fields(p, ['attempt', 'request_sha256', 'dedup_expires_at'], ['context'])
-      const binding = bind(frame, p.attempt)
-      const contextual = context.connection.negotiated.capabilities.includes('admission_context')
-      if (contextual && p.context === undefined) {
-        fail('admission_context_required')
-      }
-      if (!contextual && p.context !== undefined) {
-        fail('unsupported_capability')
-      }
-      const record = {
-        binding,
-        request_sha256: p.request_sha256,
-        dedup_expires_at: p.dedup_expires_at,
-        ...(p.context === undefined ? {} : { context: p.context })
-      }
-      validateAdmissionReceipt(record)
-      // 已提交 fence 必须能封锁已禁用或已删除的 provider；它只收窄能力，不能生成执行许可。
-      if (record.context?.fenced !== true) {
-        providerFor(binding, context)
-      }
-      if (binding.registration.history !== null) {
-        capability(context, 'history_scope')
-      }
-      sha(p.request_sha256)
-      uint(p.dedup_expires_at, true)
-      if (p.dedup_expires_at < binding.registration.deadline) {
-        fail('admission_receipt_deadline_invalid')
-      }
-      break
-    }
     case 'request':
       capability(context, 'rpc')
       validateRequestPayload(frame, p, context)
@@ -561,11 +527,7 @@ export function discardFencedWireFrame(
         boundedJson(binding) === boundedJson(p.binding)
     )
   }
-  if (
-    !['request', 'accepted', 'dispatch_refused', 'response', 'cancel', 'admission_receipt'].includes(
-      frame.type as string
-    )
-  ) {
+  if (!['request', 'accepted', 'dispatch_refused', 'response', 'cancel'].includes(frame.type as string)) {
     return false
   }
   const binding = bind(frame, p.attempt)
@@ -602,16 +564,6 @@ export function discardFencedWireFrame(
     case 'cancel':
       fields(p, ['attempt', 'reason'])
       oneOf(p.reason, ['caller_cancelled', 'deadline_exceeded'])
-      break
-    case 'admission_receipt':
-      capability(context, 'admission_receipt')
-      fields(p, ['attempt', 'request_sha256', 'dedup_expires_at'], ['context'])
-      validateAdmissionReceipt({
-        binding,
-        request_sha256: p.request_sha256,
-        dedup_expires_at: p.dedup_expires_at,
-        ...(p.context === undefined ? {} : { context: p.context })
-      })
       break
   }
   return true

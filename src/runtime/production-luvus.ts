@@ -2,15 +2,15 @@
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { LuvusDispatchClaims, LuvusAdapterError } from '../connector/luvus/index.js'
-import type { NativeWireBackend } from '../integration/luvus-wire.js'
-import { ConnectorAdmissionReceipts } from '../transport/index.js'
+import type {} from '../integration/luvus-wire.js'
 import type { Connection } from '../transport/index.js'
-import type { ProviderPolicies } from '../wire/types.js'
+import type { AttemptBinding, ProviderPolicies } from '../wire/types.js'
 import { boundedJson, contractRef, fields, hash, id, object, uint, validatePolicies } from '../wire/index.js'
+import type { LuvusConnectorAdmissionSource } from './connector-attempts.js'
 import {
   ConnectorAttemptBook,
-  createConnectorAdmissionLedger,
-  bindConnectorAdmissionLedger
+  CONNECTOR_ATTEMPT_RETENTION_MS,
+  createConnectorAdmissionBackend
 } from './connector-attempts.js'
 import { attachExistingLuvus } from './native-attach.js'
 import type { AttachedLuvusInstance } from './native-attach.js'
@@ -183,7 +183,6 @@ export function createLuvusProductionSources() {
     ): Promise<
       Readonly<{
         providers: readonly (RuntimeProvider | RemoteLuvusRuntimeProvider)[]
-        admission_context: true
         release(): Promise<void>
       }>
     > {
@@ -248,7 +247,7 @@ export function createLuvusProductionSources() {
             providers.push(createLuvusOperationsProvider(instance, entry.value.peer_policy_revision))
           }
         }
-        return Object.freeze({ providers: Object.freeze(providers), admission_context: true as const, release })
+        return Object.freeze({ providers: Object.freeze(providers), release })
       } catch (error) {
         return startupFailure(error, release)
       }
@@ -257,7 +256,7 @@ export function createLuvusProductionSources() {
     async connector(
       config: CliState,
       input: readonly LuvusProductionReference[]
-    ): Promise<Omit<ConnectorRuntimeOptions, 'transport'> & { readonly admission_context: true }> {
+    ): Promise<Omit<ConnectorRuntimeOptions, 'transport'>> {
       // CLI单文件开关独立于已登记安装settings；省略时保留底层工厂的原配置契约。
       const terminalExecution =
         config.allow_terminal_execution === undefined
@@ -270,14 +269,13 @@ export function createLuvusProductionSources() {
       const root = openRoot(selected)
       let processOwner: ControlledLuvusProcess | undefined
       let claims: LuvusDispatchClaims | undefined
-      let admissions: ConnectorAdmissionReceipts | undefined
       let unconfirmedStartup: OwnedProcessShutdownError | undefined
-      const sessions = new Set<ReturnType<typeof createConnectorAdmissionLedger>>()
+      const sessions = new Set<ReturnType<typeof createConnectorAdmissionBackend>>()
       let stopping = false
       const release = releaseOnce(
         /** 所有 epoch 停止后释放持久句柄，真实 child 退出确认前保留 root 归属。 */ async () => {
           const errors: unknown[] = []
-          for (const resource of [...sessions, admissions, claims]) {
+          for (const resource of [...sessions, claims]) {
             try {
               resource?.close()
             } catch (error) {
@@ -321,21 +319,8 @@ export function createLuvusProductionSources() {
           limits: { entries: 1024, bytes: 4_194_304 },
           now: Date.now
         })
-        admissions = new ConnectorAdmissionReceipts({
-          path: join(config.state_dir, 'luvus-admissions.json'),
-          mode: selected.value.storage_mode,
-          ledger_id: ledgerId,
-          limits: { entries: 1024, bytes: 4_194_304 },
-          now: Date.now,
-          routes
-        })
-        const receipts = admissions
         const dispatchClaims = claims
-        const book = new ConnectorAttemptBook({
-          dedupExpires: /** 去重截止只取认证原 Store 快照，不用本机 now+TTL 续期。 */ (binding) =>
-            receipts.dedupExpires(binding),
-          now: Date.now
-        })
+        const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: Date.now })
         processOwner = await startManagedLuvus(root)
         const owner = processOwner.localOwner()
         const provider = createLuvusOperationsProvider(owner, selected.value.peer_policy_revision)
@@ -357,39 +342,37 @@ export function createLuvusProductionSources() {
           return structuredClone(selected.value.policies)
         }
         return Object.freeze({
-          admission_context: true as const,
           provider_snapshot: true as const,
-          /** welcome 实际认证连接必须协商完整 receipt；缺能力在原 ledger 内拒绝，不降级为相对保留期。 */
           session(connection: Connection): ReturnType<ConnectorRuntimeOptions['session']> {
             if (stopping) {
               throw new LuvusAdapterError('production_source_closed')
             }
-            const ledger = createConnectorAdmissionLedger({
+            const admitted: {
+              backend?: { attempt(call: string, attempt: string): { binding: AttemptBinding } | undefined }
+            } = {}
+            const backend = createConnectorAdmissionBackend<LuvusConnectorAdmissionSource>({
               connection,
               routes,
-              policies,
-              receipts,
               book,
-              now: Date.now
-            })
-            try {
-              const backend: NativeWireBackend = {
-                ...ledger,
+              source: {
                 provider: /** 仅此真实本机配置的完整 Target 能解析同一 canonical binding。 */ (target) =>
                   isDeepStrictEqual(target, fixed.target) ? provider.binding : undefined,
                 localProvider: /** 本机绑定独立来自 root 配置，不能采信请求中的 provider 广告。 */ (target) =>
                   isDeepStrictEqual(target, fixed.target) ? provider.binding : undefined,
                 contract: /** 每个 epoch 只使用本次真实 native 契约，不按方法名称猜来源。 */ (ref) =>
                   ref === reference ? provider.contract : undefined,
-                nativeSource: /** 只有原 ledger 已核实的候选或锚点才能取得同源 native context。 */ (call, attempt) => {
-                  const row = ledger.attempt(call, attempt)
+                nativeSource: /** 只有已准入的候选才能取得同源 native context。 */ (call, attempt) => {
+                  const row = admitted.backend?.attempt(call, attempt)
                   return row ? provider.source(row.binding) : undefined
                 },
                 policies,
-                authority: provider.authority
+                authority: provider.authority,
+                now: Date.now
               }
-              bindConnectorAdmissionLedger(backend, ledger)
-              sessions.add(ledger)
+            })
+            admitted.backend = backend
+            try {
+              sessions.add(backend)
               return {
                 authentication: 'local_owner' as const,
                 config: fixed,
@@ -401,7 +384,6 @@ export function createLuvusProductionSources() {
                   }
                 ],
                 backend,
-                admissions: receipts,
                 claims: dispatchClaims,
                 providerSnapshot:
                   /** 每个 epoch 交付同一份真实实测快照；实际实例失效须关闭 WSS，不更新原 generation。 */ () => {
@@ -421,19 +403,19 @@ export function createLuvusProductionSources() {
                 ) => owner.verifyPeer(socket, endpoint, binding),
                 assertEvidence: /** 最后写出和 claim 都重验原 socket 与完整绑定。 */ (binding, evidence) =>
                   owner.assertEvidence(binding, evidence),
-                dedupExpires: ledger.dedupExpires,
+                dedupExpires: backend.dedupExpires,
                 readiness: /** 就绪复核原真实 Owner，政策修订取固定双方配置，不能自报永久 true。 */ () => ({
                   policy_revision: selected.value.policies.local.revision,
                   peer_policy_revision: selected.value.peer_policy_revision,
                   providers: [{ expected: provider.binding, local: provider.binding, native_ready: provider.ready() }]
                 }),
-                close: /** 关闭只释放本 epoch 请求正文；原 receipt、claims 和 native 工作均不重放。 */ () => {
-                  ledger.close()
-                  sessions.delete(ledger)
+                close: /** 关闭只释放本 epoch 请求正文；原 claims 和 native 工作均不重放。 */ () => {
+                  backend.close()
+                  sessions.delete(backend)
                 }
               }
             } catch (error) {
-              ledger.close()
+              backend.close()
               throw error
             }
           },

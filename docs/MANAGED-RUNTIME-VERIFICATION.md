@@ -53,16 +53,14 @@ strace -f -qq -e trace=getsockopt -o /absolute/private/evidence/peer.trace \
 9. 原 deadline 保持不变。
 10. 当前 caller 经原 Wire 门禁读到实际 native result。
 11. 真实持久 dispatch claims 中恰有一个发送墓碑。
-12. Connector 独立 receipt 文件绑定原 call。
-13. receipt 的 dedup 截止严格等于 Store 原锚点。
-14. Connector 退出后 Gateway listener 仍持续运行。
+12. Connector 退出后 Gateway listener 仍持续运行。
 
-这不是14个独立测试进程，而是一次完整集成执行中的14项具名断言。
+这不是12个独立测试进程，而是一次完整集成执行中的12项具名断言。
 脚本显式创建本轮空白 managed root、合成管理员会话/动作批准、设备 enrollment 和
 120秒受限原生 delegation，仅执行本轮 `task.add`。管理凭据、设备身份和 MCP caller
 各自有独立来源；合成身份不代表生产身份已配置。
 
-正常关闭会先清理 Connector/Gateway，再释放本轮 claims、receipt、custody、受控 child
+正常关闭会先清理 Connector/Gateway，再释放本轮 claims、custody、受控 child
 和 managed root，最后删除自有临时子目录。未确认 child 退出时保留其所有权与目录并报错，
 不会通过删除状态掩盖未释放资源。失败只报告阶段与固定错误码，不打印原生响应、token、
 配置或数据库。不要提交生成的私有文件、日志、trace 或数据库。

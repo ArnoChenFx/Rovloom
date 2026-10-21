@@ -286,8 +286,8 @@ try {
   const offer = {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'admission_receipt', 'admission_context'],
-    required: ['rpc', 'admission_receipt', 'admission_context']
+    capabilities: ['rpc'],
+    required: ['rpc']
   }
   gateway = await createGatewayRuntime({
     lifecycle: state.lifecycle,

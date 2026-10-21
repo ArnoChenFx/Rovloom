@@ -1,24 +1,14 @@
 // 组合端口组件回归：治理帧使用真实Wire/receipt writer，native端口是明确拒绝执行的stub。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import {} from 'node:path'
+import {} from 'node:url'
 import { composeConnectorSessions, composeGatewaySessions } from '../../src/runtime/provider-sessions.js'
 import type { ProviderSessionGroup } from '../../src/runtime/provider-sessions.js'
-import { ConnectorAdmissionReceipts } from '../../src/transport/index.js'
 import type { Adapter, Connection, ConnectorWireSession } from '../../src/transport/index.js'
-import { authenticateAdmissionReceipt } from '../../src/transport/admission-proof.js'
 import { boundedJson, decodeWireFrame, encodeWireFrame, MessageWindow } from '../../src/wire/index.js'
-import type { AdmissionReceiptRecord } from '../../src/wire/admission.js'
-import type {
-  AttemptBinding,
-  AuthenticatedEnvelope,
-  Direction,
-  ProviderKind,
-  ProviderSnapshot,
-  V2Target
-} from '../../src/wire/types.js'
+import type { AttemptBinding, Direction, ProviderKind, ProviderSnapshot, V2Target } from '../../src/wire/types.js'
 import { envelope } from '../../src/transport/common.js'
 
 const connection: Connection = {
@@ -30,7 +20,7 @@ const connection: Connection = {
   negotiated: {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'admission_receipt', 'admission_context', 'provider_snapshot']
+    capabilities: ['rpc', 'provider_snapshot']
   }
 }
 
@@ -98,10 +88,6 @@ test(
         capabilities: [...connection.negotiated.capabilities, 'provider_fence']
       }
     }
-    const noAdmission = /** 本组件没有 receipt writer，意外业务准入始终拒绝。 */ () => {
-      throw new Error('component_admission_unavailable')
-    }
-    a.session.admissions = { accept: noAdmission, assertRequest: noAdmission }
     const combined = composeConnectorSessions(selected, [a.descriptor], Date.now, b.descriptor.providers)
     try {
       assert.deepEqual(combined.providerFences!(), [b.binding])
@@ -213,12 +199,6 @@ test(
       },
       capabilities,
       capability_revision: 'a'.repeat(64)
-    }
-    const noAdmission = /** 治理帧测试不交付任何proof；意外准入始终失败。 */ () => {
-      throw new Error('snapshot_test_admission_unavailable')
-    }
-    for (const part of [a, b]) {
-      part.session.admissions = { accept: noAdmission, assertRequest: noAdmission }
     }
     const connector = composeConnectorSessions(connection, [a.descriptor, b.descriptor], Date.now)
     const gateway = composeGatewaySessions(connection, [c.descriptor, d.descriptor], Date.now)
@@ -347,53 +327,6 @@ function group(kind: ProviderKind) {
   return { descriptor, state, target, binding, session, attempt }
 }
 
-/** 治理receipt显式fenced，无法授权执行；完整上下文和proof只用于认证边界组件测试，不签发身份。 */
-function receipt(binding: AttemptBinding): AdmissionReceiptRecord {
-  return {
-    binding,
-    request_sha256: 'c'.repeat(64),
-    dedup_expires_at: 2000,
-    context: {
-      principal_id: 'component_principal',
-      registered_request_sha256: 'd'.repeat(64),
-      sequence: 1,
-      fenced: true,
-      anchor: {
-        binding,
-        method: 'ping',
-        mode: 'strict',
-        state: 'dispatching',
-        content_status: 'available',
-        content_expires_at: 1500,
-        dedup_expires_at: 2000
-      }
-    }
-  }
-}
-
-/** 只按原record构造标准治理envelope，不创建新的业务ID或原生权限。 */
-function frame(
-  record: AdmissionReceiptRecord,
-  message = record.binding.call_id
-): Extract<AuthenticatedEnvelope, { type: 'admission_receipt' }> {
-  const { machine_id, recovery_generation, connection_epoch, ...attempt } = record.binding
-  return {
-    protocol_major: 2,
-    protocol_minor: 0,
-    message_id: message,
-    type: 'admission_receipt',
-    machine_id,
-    recovery_generation,
-    connection_epoch,
-    payload: {
-      attempt,
-      request_sha256: record.request_sha256,
-      dedup_expires_at: record.dedup_expires_at,
-      context: record.context
-    }
-  }
-}
-
 test(
   '完整target/kind选择原端口，治理codec仍拒绝错epoch，stub不会变成执行成功',
   /** 不启动设备或native进程。 */ () => {
@@ -424,11 +357,11 @@ test(
         /provider_binding_mismatch/
       )
       assert.deepEqual([a.state.calls, b.state.calls], [1, 1])
-      const raw = boundedJson(frame(receipt(b.attempt)))
-      assert.equal(combined.adapter.decode(raw, 'gateway_to_connector').type, 'admission_receipt')
+      const raw = boundedJson(envelope(connection, 'heartbeat', { sequence: 0 }))
+      assert.equal(combined.adapter.decode(raw, 'connector_to_gateway').type, 'heartbeat')
       assert.throws(
         /** 错epoch必须由原治理codec拒绝。 */ () =>
-          combined.adapter.decode(raw.replace(connection.connection_epoch, 'other_epoch'), 'gateway_to_connector'),
+          combined.adapter.decode(raw.replace(connection.connection_epoch, 'other_epoch'), 'connector_to_gateway'),
         /connection_binding_mismatch/
       )
       assert.equal(combined.readiness().providers.length, 2)
@@ -439,7 +372,7 @@ test(
 )
 
 test(
-  '跨provider共享消息窗口，保留原组去重且拒绝相同ID不同载荷',
+  '组合层共享消息窗口，保留去重且拒绝相同ID不同载荷',
   /** 使用真实原MessageWindow。 */ () => {
     const a = group('luvus')
     const b = group('herdr')
@@ -449,92 +382,16 @@ test(
       /** 固定隔离时钟，不刷新业务期限。 */ () => 100
     )
     try {
-      const first = frame(receipt(a.attempt), 'shared_message')
-      assert.equal(combined.adapter.observeMessage(first, 'gateway_to_connector'), 'new')
-      assert.equal(combined.adapter.observeMessage(first, 'gateway_to_connector'), 'duplicate')
+      const first = { ...envelope(connection, 'heartbeat', { sequence: 0 }), message_id: 'shared_message' }
+      assert.equal(combined.adapter.observeMessage(first, 'connector_to_gateway'), 'new')
+      assert.equal(combined.adapter.observeMessage(first, 'connector_to_gateway'), 'duplicate')
       assert.throws(
         /** 跨provider复用同一消息ID但改变内容必须拒绝。 */ () =>
-          combined.adapter.observeMessage(frame(receipt(b.attempt), 'shared_message'), 'gateway_to_connector'),
+          combined.adapter.observeMessage({ ...first, payload: { sequence: 1 } }, 'connector_to_gateway'),
         /message_id_conflict/
       )
     } finally {
       combined.close()
-    }
-  }
-)
-
-test(
-  'opaque receipt只交原持久sink一次，串组proof由原受保护routes拒绝',
-  /** 两个真实writer只使用本测试新目录。 */ () => {
-    const root = mkdtempSync(
-      join(process.env.LUVUS_TEST_ROOT ?? fileURLToPath(new URL('../../', import.meta.url)), '.component-receipts-')
-    )
-    const a = group('luvus')
-    const b = group('herdr')
-    const readers = [a, b].map(
-      /** 为各组件创建独立真实receipt writer，不共享路由授权。 */ (part) =>
-        new ConnectorAdmissionReceipts({
-          path: join(root, part.binding.kind + '.json'),
-          mode: 'create',
-          ledger_id: part.binding.kind + '_ledger',
-          limits: { entries: 8, bytes: 262144 },
-          now: /** 原reader使用本用例固定可信时间。 */ () => 100,
-          routes: [{ target: part.target, principal_id: 'component_principal' }]
-        })
-    )
-    a.session.admissions = readers[0]!
-    b.session.admissions = readers[1]!
-    // 认证边界接缝先给原reader交付seq1；组合端口只测试真实fence更新，不伪造native来源放行。
-    for (const [index, part] of [a, b].entries()) {
-      const initial = receipt(part.attempt)
-      readers[index]!.accept(
-        authenticateAdmissionReceipt(
-          { ...initial, context: { ...initial.context!, fenced: false } },
-          /** 认证层测试接缝仅证明本次对象交付，不签发设备身份。 */ () => true
-        )
-      )
-    }
-    const combined = composeConnectorSessions(
-      connection,
-      [a.descriptor, b.descriptor],
-      /** 固定组合层测试时钟。 */ () => 100
-    )
-    try {
-      const initial = receipt(a.attempt)
-      const record = { ...initial, context: { ...initial.context!, sequence: 2 } }
-      const proof = authenticateAdmissionReceipt(record, /** 认证层测试接缝只允许本次已知proof交付。 */ () => true)
-      combined.adapter.observeMessage(frame(record), 'gateway_to_connector')
-      combined.admissions!.accept(proof)
-      assert.equal(readers[0]!.snapshot(a.attempt).binding.call_id, a.attempt.call_id)
-      assert.throws(/** 另一原reader不能读取此provider的receipt。 */ () => readers[1]!.snapshot(a.attempt))
-      assert.throws(
-        /** 未观察新receipt时不得再次消费原proof。 */ () => combined.admissions!.accept(proof),
-        /proof_required/
-      )
-      const other = receipt({ ...a.attempt, call_id: 'cross_call', attempt_id: 'cross_attempt' })
-      combined.adapter.observeMessage(frame(receipt(b.attempt)), 'gateway_to_connector')
-      assert.throws(
-        /** 串组proof必须由原持久路由授权拒绝。 */ () =>
-          combined.admissions!.accept(
-            authenticateAdmissionReceipt(other, /** 测试证明当前仍有效，不伪造业务或设备身份。 */ () => true)
-          ),
-        /principal_mismatch/
-      )
-      assert.throws(
-        /** 失败后不能借旧归属向另一个sink交付proof。 */ () =>
-          combined.admissions!.accept(
-            authenticateAdmissionReceipt(receipt(b.attempt), /** 本次接缝只证明认证对象的当前交付。 */ () => true)
-          ),
-        /proof_required/
-      )
-      combined.admissions!.closeEpoch!(connection)
-      assert.equal(readers[1]!.snapshot(b.attempt).fenced, true)
-    } finally {
-      combined.close()
-      for (const reader of readers) {
-        reader.close()
-      }
-      rmSync(root, { recursive: true, force: true })
     }
   }
 )
@@ -598,45 +455,6 @@ test(
     assert.throws(/** 原端口回调重入关闭后不得继续正常返回。 */ () => reentrant.adapter.checkResult(e.attempt))
     assert.equal(reentrant.adapter.stats().closed, true)
     reentrant.close()
-  }
-)
-
-test(
-  'epoch清理异步失败仍尝试另一个原sink，并保留关闭失败',
-  /** 只构造会拒绝的清理端口，无执行后端。 */ () => {
-    const a = group('luvus')
-    const b = group('herdr')
-    let other = 0
-    for (const part of [a, b]) {
-      part.session.admissions = {
-        accept: /** 本例不交付receipt，意外接收应立即失败。 */ () => {
-          throw new Error('unexpected_receipt')
-        },
-        assertRequest: /** 本例不派发原生请求，意外调用保持拒绝。 */ () => {
-          throw new Error('unexpected_request')
-        },
-        closeEpoch:
-          part === a
-            ? /** 非法异步清理故意晚拒绝，组合层必须消费且报告失败。 */ ((async () => {
-                throw new Error('component_private_cleanup')
-              }) as unknown as () => void)
-            : /** 另一原sink必须继续被清理一次。 */ () => {
-                other++
-              }
-      }
-    }
-    const combined = composeConnectorSessions(
-      connection,
-      [a.descriptor, b.descriptor],
-      /** 固定本用例可信时间。 */ () => 100
-    )
-    assert.throws(
-      /** 同步清理不能把Promise当持久epoch fence完成。 */ () => combined.admissions!.closeEpoch!(connection),
-      /close_failed/
-    )
-    assert.equal(other, 1)
-    assert.throws(/** 原epoch清理失败在同一个关闭结果中保留。 */ () => combined.close(), /close_failed/)
-    assert.deepEqual([a.state.owners, b.state.owners], [1, 1])
   }
 )
 

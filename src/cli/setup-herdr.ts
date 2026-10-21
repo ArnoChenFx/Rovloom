@@ -8,7 +8,6 @@ import { observedHerdrSource } from '../connector/herdr/review.js'
 import { parseHerdrProviderRefConfig } from '../connector/herdr/provider.js'
 import type { HerdrProviderRefConfig } from '../connector/herdr/provider.js'
 import { LuvusDispatchClaims } from '../connector/luvus/claims.js'
-import { ConnectorAdmissionReceipts } from '../transport/admission-receipts.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import type { ProviderPolicies } from '../wire/types.js'
 import { boundedJson, fields, hash, object } from '../wire/index.js'
@@ -162,20 +161,13 @@ export async function prepareSetupHerdr(
     ledger_id: hash(boundedJson([reference, target, source, 'claims'])),
     limits
   }
-  const receiptsRef = {
-    path: join(control, 'admissions.json'),
-    mode: 'open' as const,
-    ledger_id: hash(boundedJson([reference, target, source, 'receipts'])),
-    limits
-  }
   const provider = parseHerdrProviderRefConfig({
     ...shared,
     schema_path: schemaPath,
     connector: {
       local,
       principal_id: authorization.principal_id,
-      claims: claimsRef,
-      receipts: receiptsRef
+      claims: claimsRef
     }
   })
   terminal.assertOwner()
@@ -188,13 +180,6 @@ export async function prepareSetupHerdr(
   writeSetupFile(schemaPath, raw)
   const claims = new LuvusDispatchClaims({ ...claimsRef, mode: 'create', now: Date.now })
   try {
-    const receipts = new ConnectorAdmissionReceipts({
-      ...receiptsRef,
-      mode: 'create',
-      now: Date.now,
-      routes: [{ target, principal_id: authorization.principal_id }]
-    })
-    receipts.close()
   } finally {
     claims.close()
   }

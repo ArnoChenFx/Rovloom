@@ -3,11 +3,15 @@ import { constants, closeSync, fstatSync, lstatSync, openSync, readSync } from '
 import { dirname, isAbsolute, normalize } from 'node:path'
 import { GatewayError } from '../../contracts.js'
 import { privateFile, readPrivateBytes } from '../../storage/files.js'
-import { ConnectorAttemptBook } from '../../runtime/connector-attempts.js'
-import { createConnectorAdmissionLedger } from '../../runtime/connector-admission-ledger.js'
+import {
+  ConnectorAttemptBook,
+  CONNECTOR_ATTEMPT_RETENTION_MS,
+  connectorAdmissionAdapter,
+  createConnectorAdmissionBackend
+} from '../../runtime/connector-attempts.js'
 import type { GatewayProviderServices, RuntimeProviderBinding } from '../../runtime/types.js'
 import type { Principal } from '../../router.js'
-import { ConnectorAdmissionReceipts } from '../../transport/index.js'
+import type { LedgerInvalidation } from '../../storage/model.js'
 import type { Connection, ConnectorWireSession, Session, SocketChannel } from '../../transport/index.js'
 import { LuvusDispatchClaims } from '../luvus/claims.js'
 import {
@@ -24,7 +28,8 @@ import {
   uint,
   validateContractSource,
   validatePolicies,
-  validateTarget
+  validateTarget,
+  assertBinding
 } from '../../wire/index.js'
 import type { ContractSource, JsonObject, ProviderBinding, ProviderPolicies, V2Target } from '../../wire/types.js'
 import { compileHerdrSchemas } from './compiler-api.js'
@@ -57,13 +62,11 @@ export type HerdrProviderRefConfig = Readonly<{
   connector?: Readonly<{
     local: HerdrLocalConfig
     principal_id: string
-    receipts: HerdrLedgerRef
     claims: HerdrLedgerRef
   }>
 }>
 export type HerdrGatewayResources = Readonly<{
   kind: 'provider'
-  admission_context: true
   providers: readonly (RuntimeProviderBinding & { max_response_bytes: number })[]
   catalog: HerdrProviderCatalogProvider
   describe(): ReturnType<typeof describeHerdrContract>
@@ -74,7 +77,6 @@ export type HerdrConnectorResources = Readonly<{
   // 只交付原受保护配置路由，供runtime组合原session，不来自请求或广告。
   providers: readonly Readonly<{ binding: ProviderBinding; target: V2Target }>[]
   kind: 'provider'
-  admission_context: true
   session(connection: Connection): ConnectorWireSession
   release(): Promise<void>
   release_timeout_ms: number
@@ -161,7 +163,7 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
     return Object.freeze(shared)
   }
   const connector = object(value.connector)
-  fields(connector, ['local', 'principal_id', 'receipts', 'claims'])
+  fields(connector, ['local', 'principal_id', 'claims'])
   id(connector.principal_id)
   const local = object(connector.local)
   fields(
@@ -203,14 +205,10 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
       : {}),
     ...(Object.hasOwn(local, 'agent_bin_dir') ? { agent_bin_dir: local.agent_bin_dir as string } : {})
   })
-  const receipts = ledgerRef(connector.receipts, 1024)
   const claims = ledgerRef(connector.claims, 4096)
-  if (receipts.path === claims.path) {
-    fail('herdr_provider_ledger_paths_invalid')
-  }
   return Object.freeze({
     ...shared,
-    connector: Object.freeze({ local: pinned, principal_id: connector.principal_id, receipts, claims })
+    connector: Object.freeze({ local: pinned, principal_id: connector.principal_id, claims })
   })
 }
 
@@ -430,7 +428,6 @@ export async function createHerdrGatewayResources(
   })
   return Object.freeze({
     kind: 'provider',
-    admission_context: true,
     catalog,
     describe: describeCurrent,
     providers: Object.freeze([
@@ -588,7 +585,6 @@ export async function createHerdrConnectorResources(
   const binding = provider(config)
   const routes = [{ target: config.target, principal_id: connector.principal_id }]
   const sessions = new Set<ConnectorWireSession>()
-  let receipts: ConnectorAdmissionReceipts | undefined
   let claims: LuvusDispatchClaims | undefined
   let closed = false
   let releasing: Promise<void> | undefined
@@ -627,7 +623,6 @@ export async function createHerdrConnectorResources(
                   session.close()
             ),
             /** 保留原发送墓碑，只关闭 writer。 */ () => claims?.close(),
-            /** 保留原认证快照，只关闭 writer。 */ () => receipts?.close(),
             /** 安装关闭撤销来源；停止本机进程由原 owner 单独负责。 */ () => installed.close()
           ]) {
             try {
@@ -652,48 +647,40 @@ export async function createHerdrConnectorResources(
     return releasing
   }
   try {
-    receipts = new ConnectorAdmissionReceipts({ ...connector.receipts, now: input.now, routes })
-    const reader = receipts
-    const book = new ConnectorAttemptBook({
-      now: input.now,
-      dedupExpires: /** 原期限只取已认证持久 receipt，不查询 Gateway Store。 */ (attempt) =>
-        reader.snapshot(attempt).anchor.dedup_expires_at
-    })
+    const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: input.now })
     claims = new LuvusDispatchClaims({ ...connector.claims, now: input.now })
     const sendClaims = claims
     return Object.freeze({
       kind: 'provider',
-      admission_context: true,
       release,
       release_timeout_ms: releaseTimeout,
       providers: Object.freeze([Object.freeze({ binding, target: config.target })]),
-      /** 每个实际认证 epoch 独立准入正文，长期 receipt/book/claim 仍由同一资源所有者持有。 */
+      /** 每个实际认证 epoch 独立准入正文，长期 book/claim 仍由同一资源所有者持有。 */
       session(connection) {
         if (closed) {
           fail('herdr_provider_closed')
         }
         installed.assert()
         document.assertCurrent()
-        const ledger = createConnectorAdmissionLedger({
+        const admission = createConnectorAdmissionBackend({
           connection,
           routes,
-          receipts: reader,
           book,
-          now: input.now,
-          policies
+          source: { policies, now: input.now }
         })
+        const listeners = new Set<(event: LedgerInvalidation) => void>()
         let runtime: ReturnType<typeof createHerdrRuntime> | undefined
         let session: ConnectorWireSession | undefined
         try {
           const services = createHerdrHostServices(installed, {
-            currentPrincipal: ledger.currentPrincipal,
+            currentPrincipal: admission.currentPrincipal,
             localProvider: /** Connector 固定受保护配置，不读取 Gateway Store 或 caller 参数中的 binding。 */ (
               target
             ) => (boundedJson(target) === boundedJson(config.target) ? binding : undefined),
-            context: /** 每次使用 ledger 当前 epoch 和宿主当前政策，关闭后不复用旧连接。 */ (principal, direction) => ({
+            context: /** 每次使用准入后端当前 epoch 和宿主当前政策，关闭后不复用旧连接。 */ (principal, direction) => ({
               phase: 'authenticated',
               direction,
-              connection: ledger.connection(),
+              connection: admission.connection(),
               policies: policies(principal || connector.principal_id),
               resolveProvider: /** 只解析这一个完整固定目标。 */ (target) =>
                 boundedJson(target) === boundedJson(config.target) ? binding : undefined,
@@ -701,16 +688,37 @@ export async function createHerdrConnectorResources(
                 ref === reference ? installed.record().wire : undefined
             })
           })
-          const backend: HerdrReadonlyBackend = { ...services, ...ledger }
+          const backend: HerdrReadonlyBackend = {
+            ...services,
+            ...admission,
+            /** Connector 没有 Gateway 锚点：以已解码的本机 attempt 合成，内容与句柄期限都取请求 deadline（准入提交前也稳定）。 */
+            responseAnchor(binding) {
+              const stored = admission.attempt(binding.call_id, binding.attempt_id)
+              if (!stored) {
+                return undefined
+              }
+              assertBinding(binding, stored.binding)
+              return {
+                binding: structuredClone(stored.binding),
+                method: stored.method,
+                mode: stored.mode,
+                state: 'connector_accepted',
+                content_status: input.now() < binding.registration.deadline ? 'available' : 'expired',
+                content_expires_at: binding.registration.deadline,
+                dedup_expires_at: binding.registration.deadline
+              }
+            },
+            subscribeInvalidation(listener) {
+              listeners.add(listener)
+              return () => {
+                listeners.delete(listener)
+              }
+            }
+          }
           runtime = createHerdrRuntime(installed, backend, sendClaims, input.terminalExecution)
           const current = runtime
           session = {
-            admissions: reader,
-            adapter: {
-              ...current.adapter,
-              decode: /** 原 Wire 验证期间才可见候选，成功后由同一 ledger 提交。 */ (raw, direction) =>
-                ledger.decode(raw, direction, current.adapter.decode)
-            },
+            adapter: connectorAdmissionAdapter(admission, current.adapter),
             executeWire: current.executeWire,
             terminalExecutionState: /** 目录使用同一个本机配置源；最终写入仍由原runtime再检查。 */ () => [
               {
@@ -732,11 +740,14 @@ export async function createHerdrConnectorResources(
                 providers: [{ expected: binding, local: binding, native_ready: true }]
               }
             },
-            close: /** 关闭本 epoch 观察与正文，长期 receipt/book/claim 墓碑保持原期限。 */ () => {
+            close: /** 关闭本 epoch 观察与正文，长期 book/claim 墓碑保持原期限。 */ () => {
               try {
                 current.close()
               } finally {
-                ledger.close()
+                admission.close()
+                for (const listener of listeners) {
+                  listener({ kind: 'closed' })
+                }
                 if (session) {
                   sessions.delete(session)
                 }
@@ -752,7 +763,7 @@ export async function createHerdrConnectorResources(
           try {
             runtime?.close()
           } finally {
-            ledger.close()
+            admission.close()
           }
           throw error
         }

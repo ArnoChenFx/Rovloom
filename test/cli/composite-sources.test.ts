@@ -46,11 +46,10 @@ function resource(kind: 'luvus' | 'herdr', events: string[]): ProductionGatewayR
     events.push(kind + ':release')
   }
   return kind === 'luvus'
-    ? { providers: [provider as unknown as RuntimeProvider], admission_context: true, release }
+    ? { providers: [provider as unknown as RuntimeProvider], release }
     : {
         kind: 'provider',
         providers: [provider],
-        admission_context: true,
         catalog: {
           kind: 'provider',
           resolve: /** 本探针没有安装目录，任何调用必须明确失败。 */ () => {
@@ -204,7 +203,6 @@ test(
       const routed = routeProductionSources({
         luvus: {
           connector: /** 原真实工厂接缝探针；此测试不会建立假native session。 */ async () => ({
-            admission_context: true,
             provider_snapshot: true,
             session: /** 未认证不得构造来源或执行后端。 */ () => {
               sessions++

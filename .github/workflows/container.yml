@@ -97,7 +97,7 @@ jobs:
           docker build --platform "linux/$EXPECTED_ARCH" \
             --build-arg "VERSION=$version" --build-arg "COMMIT=$(git rev-parse HEAD)" \
             --build-arg "BINARY_SHA256=$binary_sha" -t "rovloom-container:$EXPECTED_ARCH" .
-          python3 scripts/container/smoke.py "rovloom-container:$EXPECTED_ARCH" "$binary_sha" "$version" --compose compose.yaml
+          python3 scripts/container/smoke.py "rovloom-container:$EXPECTED_ARCH" "$binary_sha" "$version" --compose docker-compose.yaml
           docker image save --output "$RUNNER_TEMP/container-$EXPECTED_ARCH.tar" "rovloom-container:$EXPECTED_ARCH"
       - name: Upload only tested image bytes for the trusted publisher
         if: github.event_name == 'workflow_run'

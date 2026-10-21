@@ -13,7 +13,6 @@ import type {
   GatewayOptions,
   Connection,
   Readiness,
-  AdmissionReceiptSink,
   WireConnectorOptions
 } from '../transport/index.js'
 import type { ProviderSnapshot, TerminalExecutionState } from '../wire/types.js'
@@ -127,8 +126,6 @@ export type ConnectorRuntimeOptions = Readonly<{
       // 当前宿主只接已验证 IPC；CLI proxy 需要另行交付可信归属，不能借 verifyPeer 放行。
       config: LuvusLocalConfig & { readonly transport: 'ipc' }
       claims: LuvusDispatchClaims
-      // 可选原截止能力的真实接收端；实际准入后端须使用同一持久记录，不能从请求 JSON 自建。
-      admissions?: AdmissionReceiptSink
       verifyPeer: NonNullable<LuvusRpcHost['verifyPeer']>
       // 本机受保护配置的同步读取器；省略时使用本 epoch 固定的本地显式开关。
       terminalExecution?: LuvusRpcHost['terminalExecution']

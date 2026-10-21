@@ -148,9 +148,6 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
     let resource: ConnectorWireSession | undefined
     let owned: ConnectorWireSession | undefined
     let originalAdapter: ConnectorWireSession['adapter'] | undefined
-    let originalAdmissions: ConnectorWireSession['admissions']
-    let admissionsRead = false
-    let epochClosed = false
     let ended = false
     let adapterClosed = false
 
@@ -164,64 +161,8 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
     try {
       resource = options.session(structuredClone(connection))
       const current = resource
-      /** 每个 epoch 固定同一接收端；属性读取异常即使被 transport 捕获也必须影响最终清理结果。 */
-      function admissions(): ConnectorWireSession['admissions'] {
-        try {
-          if (!admissionsRead) {
-            originalAdmissions = current.admissions
-            admissionsRead = true
-            if (
-              originalAdmissions &&
-              (typeof originalAdmissions.accept !== 'function' ||
-                typeof originalAdmissions.assertRequest !== 'function')
-            ) {
-              throw new GatewayError('connector_runtime_session_failed')
-            }
-          }
-          return originalAdmissions
-        } catch (error) {
-          cleanupFailed = true
-          throw error
-        }
-      }
-      /** 清理不要求开放执行 fence；原连接只关闭一次，异常与非法异步结果仍使逻辑关闭失败。 */
-      function closeEpoch(): void {
-        if (!epochClosed) {
-          epochClosed = true
-          cleanup([
-            /** 只关闭真实 welcome 所属 epoch，不接受另一连接的自报身份。 */ () =>
-              admissions()?.closeEpoch?.(connection)
-          ])
-        }
-      }
-      const admissionView: NonNullable<ConnectorWireSession['admissions']> = {
-        /** 正常接收仍受角色及 epoch fence 约束，关闭回调重入后不得继续交付。 */
-        accept(proof) {
-          assertOpen()
-          const result = admissions()!.accept(proof)
-          assertOpen()
-          return result
-        },
-        /** 请求校验仍调用同一接收端，不能由关闭例外获得新的执行许可。 */
-        assertRequest(request) {
-          assertOpen()
-          const result = admissions()!.assertRequest(request)
-          assertOpen()
-          return result
-        },
-        /** 只有实际端口存在时才提供清理入口，不能掩盖 admission_context 的 mandatory fence。 */
-        get closeEpoch() {
-          try {
-            return typeof admissions()?.closeEpoch === 'function' ? closeEpoch : undefined
-          } catch (error) {
-            cleanupFailed = true
-            throw error
-          }
-        }
-      }
       /** transport 也会主动关闭 adapter；本层统一计量失败并只调用原关闭一次。 */
       function closeAdapter(): void {
-        closeEpoch()
         if (!adapterClosed) {
           adapterClosed = true
           cleanup([
@@ -243,10 +184,6 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
       })
       owned = {
         adapter,
-        /** 接收仍使用原端口；关闭时仅允许清理入口穿过 stopping，不放开接收或请求校验。 */
-        get admissions() {
-          return admissions() ? admissionView : undefined
-        },
         /** 原 readiness 回调可能同步关闭角色，返回值不能越过关闭 fence。 */
         readiness() {
           assertOpen()
@@ -308,8 +245,6 @@ export async function createProviderConnectorRuntime(options: ConnectorHostOptio
       }
       assertOpen()
       originalAdapter = current.adapter
-      assertOpen()
-      admissions()
       assertOpen()
       sessions.add(owned)
       return owned

@@ -106,7 +106,7 @@ The old `runtime.json`/`refs/` format is not loaded or migrated.
 Preserve the data directory as a whole, including companion database files.
 Do not edit its internal records or delete them to retry an uncertain setup.
 Herdr uses `<data.directory>/hr/` for its isolated `h/c/s/k/t/w/control` directories;
-Rovloom retains the measured schema, claims and receipts there. These are program-managed
+Rovloom retains the measured schema and claims there. These are program-managed
 paths, not additional user configuration. Guided recovery is not yet available. For first
 Luvus setup, `data.directory` plus `/n` must fit within 52 UTF-8 bytes; select a
 shorter directory before pairing if necessary.

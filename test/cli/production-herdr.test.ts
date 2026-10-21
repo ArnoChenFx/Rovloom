@@ -65,12 +65,6 @@ function fixture() {
           cwd: join(root, 'w')
         },
         principal_id: 'fixture_caller',
-        receipts: {
-          path: join(root, 'ledger', 'receipts.json'),
-          mode: 'open',
-          ledger_id: 'fixture_receipts',
-          limits: { entries: 128, bytes: 1_048_576 }
-        },
         claims: {
           path: join(root, 'ledger', 'claims.sqlite'),
           mode: 'open',
