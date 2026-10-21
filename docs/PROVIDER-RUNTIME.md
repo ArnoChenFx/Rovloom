@@ -99,4 +99,4 @@ Gateway 的原 `providers[].preflightRequest`须随配置传入，保留同一�
 隔离构建和验证入口见[开发指引](DEVELOPMENT.md#隔离验收)，Herdr 专用验证见
 [原生验证](DEVELOPMENT.md#专用原生验证)及[普通 RPC 与资源工厂](DEVELOPMENT.md#herdr-普通-rpc-与资源工厂)。
 模块构建和静态回归不证明公开 CLI/HTTP MCP 联合运行、真实原生管理或同会话两轮回答；
-剩余验收见[实施计划](IMPLEMENTATION-PLAN.md#36-herdr-普通-rpc-与剩余验收)。
+剩余验收见[issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。

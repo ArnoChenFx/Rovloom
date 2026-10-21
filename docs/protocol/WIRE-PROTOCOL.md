@@ -456,4 +456,4 @@ stream open 建 opening，首个合法 data 转外层 open；input 仅 open 的 
 重复由 MessageWindow 先过滤，错序/关闭后输入拒绝；这不替代原生握手成功、队列消费或终端 lease 证明。
 
 构建与验证命令见 [开发指引](../DEVELOPMENT.md)，后续宿主能力见
-[实施计划](../IMPLEMENTATION-PLAN.md)。
+[issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。

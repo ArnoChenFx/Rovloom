@@ -203,4 +203,4 @@ Windows另执行[原生PowerShell替换测试](../test/release/install-windows.p
 
 ## 自更新接缝
 
-[自更新模块](UPDATE.md)提供稳定版本检查、受限下载和唯一 CLI 接缝；缺 service/runtime 原地替换事务时明确返回非零，不修改服务或用户数据。
+Rovloom 不提供自更新；升级通过下载新的发行资产并替换可执行文件完成。

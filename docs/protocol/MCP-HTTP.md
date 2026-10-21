@@ -372,7 +372,7 @@ Gateway持续监听HTTP，stdin EOF与客户端退出不停止它，SIGINT或SIG
 CLI使用构建版本和实际平台，Linux只接受运行时报告的glibc证明；版本状态和固定错误仅写stderr。
 当前预发行版本按规范SemVer比较，目标限官方稳定发行。默认入口缺可信安装及服务事务，存在新版本时
 `update`返回`replacement_unavailable`/5，不下载或替换；受信embedding可注入现行POSIX事务，
-CLI保留其完成、回滚、恢复和后台等待结果；详见[UPDATE](../UPDATE.md)。
+
 help、版本、检查结果和错误写 stderr；只有显式 config template 输出非秘密 JSON 到 stdout，
 Gateway运行期stdout不承载MCP或身份材料。退出码为 0 正常、2 参数/配置错误、3 缺后端、1 运行失败。
 

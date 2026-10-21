@@ -1,6 +1,8 @@
 # ADR 0001：安装契约与独立协议版本
 
-状态：采纳。系统要求以 [DESIGN](../DESIGN.md)为准；本 ADR 记录契约选择理由，固定原生输入及其来源维护在 [固定输入指引](../DEVELOPMENT.md#固定输入与维护用途)，当前工具链选择见 [ADR 0003](0003-bun-toolchain.md)。
+> **已归档。** 本 ADR 记录早期设计的取舍，其中一部分机制（隔离恢复、逐 input permit 等）已在[简化设计](../../DESIGN.md)中移除。章节锚点指向旧版 DESIGN，请用 `git log -- docs/DESIGN.md` 查阅。
+
+状态：采纳。系统要求以 [DESIGN](../../DESIGN.md)为准；本 ADR 记录契约选择理由，固定原生输入及其来源维护在 [固定输入指引](../../DEVELOPMENT.md#固定输入与维护用途)，当前工具链选择见 [ADR 0003](../0003-bun-toolchain.md)。
 
 ## 决策
 
@@ -10,7 +12,7 @@
 
 原生响应、事件及终端帧使用各自适用的完整契约；结构成立还需原请求、身份和方法/模式关联。参数枚举/通用 object 不证明方法参数完整，有条件分支也不证明业务语义完备；安全分类与参数覆盖的系统门禁由 DESIGN 统一定义。
 
-MCP、Rovloom Wire、Luvus UHP 和 Herdr JSON 分别版本化。MCP 采用 SDK 实证协商的 `2025-11-25` 路径；升级 revision 必须评审实现及客户端兼容，不能把网页 latest 或依赖类型版本当支持证明。Wire 的 provider 破坏性版本选择理由见 [ADR 0004](0004-multi-runtime-provider.md)。
+MCP、Rovloom Wire、Luvus UHP 和 Herdr JSON 分别版本化。MCP 采用 SDK 实证协商的 `2025-11-25` 路径；升级 revision 必须评审实现及客户端兼容，不能把网页 latest 或依赖类型版本当支持证明。Wire 的 provider 破坏性版本选择理由见 [ADR 0004](../0004-multi-runtime-provider.md)。
 
 ## 理由与取舍
 
@@ -22,7 +24,7 @@ MCP SDK Streamable HTTP 兼容探针只能证明记录中的客户端和 revisio
 
 ## 证据入口
 
-- [原生来源](../../test/fixtures/luvus/0.14.3/provenance.json)与 [SDK 实际协商回归](../../test/mcp/sdk-compatibility.test.mjs)：分别维护不可变契约来源与当前依赖的实际兼容验证。
+- [原生来源](../../../test/fixtures/luvus/0.14.3/provenance.json)与 [SDK 实际协商回归](../../../test/mcp/sdk-compatibility.test.mjs)：分别维护不可变契约来源与当前依赖的实际兼容验证。
 - MCP `2025-11-25`：[生命周期](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)、[传输](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[授权](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)。
 - [固定 Luvus endpoint 规则](https://github.com/RizRiyz/luvus/blob/54003ce9568acb2977e4bbdbb30a61f99faa0465/protocol/uhp/v1/terminal/endpoint-validation.md)：平台验证输入，不是所有平台已通过的证明。
 

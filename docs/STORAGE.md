@@ -1,7 +1,7 @@
 # SQLite 运行治理
 
 本文说明当前 Store/Router 的本机宿主接口和操作边界。系统保留默认值与安全语义以
-[DESIGN §12](DESIGN.md#12-事件结果与保留)为准，精确类型见
+[DESIGN §6](DESIGN.md#6-持久化与默认限额)为准，精确类型见
 [Store](../src/store.ts)、[Router](../src/router.ts)与
 [持久化接线](../src/integration/persistence.ts)。产品 CLI 和管理服务通过 runtime 宿主使用这些
 接口；本节说明进程内存储边界，不把本机维护接口自动开放为远程 API。

@@ -1,9 +1,8 @@
 # 开发与验证
 
-工具链固定为 **Bun 1.4.3**，由 `.bun-version`、`package.json` 和
-[CI](../.github/workflows/bun.yml)共同约束。选择依据见
-[ADR 0003](adr/0003-bun-toolchain.md)，官方 release、binary hash 与 revision 见
-[来源数据](../scripts/bun/provenance.json)。
+Rovloom 使用 **Bun** 执行与构建（`package.json` 的 `engines.bun` 只声明最低版本，依赖用 `^` 范围，
+`bun.lock` 保证 CI 可复现）。CI 同时跑最低版本与最新版本，见 [CI](../.github/workflows/bun.yml)；
+选择依据见 [ADR 0003](adr/0003-bun-toolchain.md)。
 
 ## 日常命令
 
@@ -12,28 +11,22 @@
 ```sh
 bun --version
 bun install --frozen-lockfile --ignore-scripts
-bun run toolchain
-bun run comments:check
+bun run lint
+bun run format:check
 bun run typecheck
 bun run test
-bun run test:protocol
-bun run test:toolchain
-bun run audit:luvus
-python3 scripts/native-contract/audit-fixtures.py
 bun run build
 bun run smoke
 ```
 
-`bunfig.toml` 禁止自动读取 `.env` 和依赖安装脚本；验证器及子进程另显式传入
-`--no-env-file`。`typecheck` 由 Bun 启动锁定的 TypeScript 7.0.2 dispatcher，
-再执行其原生编译器，保留 `strict` 和 `noUncheckedIndexedAccess`；转译不能
-替代类型检查，也不要直接运行 TypeScript 的 Node shebang。
+可选：`bun run test:protocol`、`bun run test:toolchain` 聚焦运行；`bun run audit:luvus` 核对固定的 Luvus 原生输入。
 
-代码文件职责、函数实现及全部回调的中文说明按[代码注释约定](#代码注释约定)执行，
-覆盖检查纳入 CI。
+`bunfig.toml` 禁止自动读取 `.env` 和依赖安装脚本；子进程另显式传入 `--no-env-file`。
+`typecheck` 由 Bun 启动 TypeScript 编译器，保留 `strict` 和 `noUncheckedIndexedAccess`；
+转译不能替代类型检查。
 
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
-native-contract、wire、integration、persistence、transport、runtime、Herdr、webui、admin、Luvus connector、mcp、cli、service、update 模块及 CLI main 的 Bun ESM 入口、共享 chunk 与外部
+native-contract、wire、integration、persistence、transport、runtime、Herdr、webui、admin、Luvus connector、mcp、cli、service 模块及 CLI main 的 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置；准确入口清单由`scripts/bun/build.mjs`维护。共享 chunk 保持错误类型和内存 handle 身份。
 原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv 与精确绑定的完整预编译资产；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
@@ -108,85 +101,6 @@ fixture内兑换仅作用于自建临时设备，不是实际用户设备操作�
 跨截止检查在真实临时 Store 提交后延迟回执，验证提交中、未确认及查询中的重试事件均保留原关联，
 直接交付或查询原回执只对应一次设备提交；覆盖英文桌面与中文深色320px。
 
-## 隔离验收
-
-Linux 需 Python 3 和固定 Bun，在 checkout 外指定尚不存在的输出目录：
-
-```sh
-python3 scripts/bun/verify.py --bun /absolute/path/to/bun --output /tmp/rovloom-verification-new
-```
-
-验证器在新项目、新 HOME、空缓存中冻结安装，核对实装依赖，运行
-strict 类型检查及故意错误反例、验收器自身回归、递归发现的全部主测试、
-P0 JS/Python 测试、Bun 兼容测试、fixture 审计、clean build 与产物 smoke。
-命令直接执行，固定 Bun 位于普通 PATH 前；报告保存真实子进程退出码、日志摘要、
-JUnit 与实际用例数。预期非零的类型反例仍须按真实退出码和诊断接纳。
-超时终止并回收本次进程组，保留有界日志且标记验证未完成；失败、跳过、待办、
-禁用或未执行测试仍使门禁失败。
-
-## 代码注释约定
-
-`src/`、`test/`、`scripts/` 中维护的 JavaScript/TypeScript 和 Python 文件，
-必须在文件开头写简洁中文职责说明；shebang、Python 编码声明可置于其前。
-每个函数实现都要有就近中文注释，说明实际功能与作用，必要时解释副作用、
-失败边界和返回语义。范围包含方法、构造器、getter/setter、箭头函数、匿名
-函数、嵌套回调、Python `async def` 和 `lambda`。不要用重述名称的空话充数，
-不要混入开发日志；保留已有有效注释。
-
-JS/TS 将说明写在函数、方法或直接初始化函数的变量/属性声明前；调用参数里的
-回调应在该函数节点前写 `/* 中文说明 */`，不能沿用外层函数说明。文件职责和
-首个函数说明使用独立注释块，以空行分隔。Python 使用 `#` 写在 `def` 或首个
-装饰器前；`lambda` 的说明放在最近所在语句前或该 lambda 所在行尾。不要为了
-补注释添加或修改 docstring，因为它会改变运行时的 `__doc__`。已有中文
-docstring 可以作为说明保留。
-
-`bun run comments:check` 复用锁定的 TypeScript 7 AST 与 Python `ast/tokenize`，
-递归检查上述三个目录内的 `.js/.jsx/.mjs/.cjs/.ts/.tsx/.mts/.cts/.py`，并在
-语法错误时失败。无实现体的类型签名、接口方法、重载和抽象方法不计作函数
-实现；声明文件仍检查文件职责。代码字符串里的样例不会被当作嵌套代码解析。
-固定输入中的 JSON/锁文件、依赖和生成物不属于代码检查范围；三个维护目录内
-的文件不能仅凭 `fixtures`、`vendor` 等目录名豁免。未来如引入真正的第三方
-代码或生成代码，应审查后使用明确路径例外。门禁检查注释位置与中文覆盖，
-注释准确性和信息量仍须人工审查。
-编写时应对照真实控制流，说明该函数的输入处理、输出、拒绝边界或副作用；
-“执行函数”“处理回调”等重述名称的文字不能作为有用说明。自动门禁只判断
-注释位置与是否包含汉字，不验证自然语言正确性。
-
-新增代码或合入其他工作分支后，先运行以下门禁，再执行上面的完整验收：
-
-```sh
-bun run comments:check
-bun run test:quality
-python3 scripts/maintenance/run_python_tests.py --output /tmp/rovloom-worker-python-new.json
-```
-
-输出路径须为尚不存在的新文件。覆盖检查不依赖 Git，在隔离验证副本中同样
-运行，并包含未跟踪的维护代码；临时探针和执行报告应放在 checkout 外。
-
-纯注释修改可执行 `bun run comments:equivalence -- --base <commit>`，比较基线
-代码的解析结构与当前代码。它忽略注释和格式位置，但保留运算符、字面量、
-类型语法和自动分号插入造成的结构差异；Python 按编码声明解析源码原字节，
-使用完整 AST 比对，docstring 也不能悄悄变化。该检查不替代类型检查、测试和构建。新增检查工具及其测试
-由正常质量门禁验证，不属于基线代码的纯注释等价比较。
-AST 比较不解释编译器或打包器的特殊指令注释；此类指令仍须保留并单独审查。
-JS/TS 的 JSDoc、triple-slash、`@ts-nocheck`、`@__PURE__` 等注释，以及 Python
-`# type:` 注释，不受该比较保护；JS/TS shebang 和 `"use strict"` 等真实语法
-语句会保留，Python 编码声明通过原字节解码参与解析，docstring 则是实际 AST。
-等价检查也不比较源码行号、栈位置或函数源码反射结果。它只用于指定基线的
-纯注释补丁，不能代替业务变更的测试；新增文件由覆盖与常规质量门禁验证。
-
-主测试数量与标题随当前代码维护，不依赖固定历史 inventory。门禁要求非空且一致的
-JUnit 报告，核对当前完整测试文件集合均有实际执行的 case，并将运行日志的通过数
-与报告核对；失败、skip、todo、disabled 均不得通过。独立维护检查还核对仓库内
-所有主测试、脚本测试与 Python 测试文件的执行证据。执行输出和验收结果放 CI/PR，
-不向仓库提交逐轮报告。
-
-完整 Bun 套件的外层 watchdog 为 600 秒，其它验证命令仍为 180 秒；产品编译预算、
-业务期限和各用例时限独立保留。验证器打印套件实际耗时、用例摘要与 watchdog。
-命令超时后仍非零退出，在既有 `--output` 目录留下标记 `complete: false` 的阶段诊断、
-最近观察到的测试，以及脱敏的日志尾部（最多 128 KiB）。这些不完整
-记录不能替代完整 JUnit、成功构建或执行覆盖证明，也不纳入 Git。
-
 ## 固定输入与维护用途
 
 | 数据 | 用途 |
@@ -198,13 +112,8 @@ JUnit 报告，核对当前完整测试文件集合均有实际执行的 case，
 | [矩阵](../test/fixtures/native-contract/matrix.json) | 原生测试物化 seed、变更、生成器及正反断言；文件内历史提案状态不充当运行结果 |
 | [无效 pane](../test/fixtures/luvus/0.14.3/invalid-pane.json)、[失效路由](../test/fixtures/luvus/0.14.3/stale-pane.json) | 从独立原生采集中逐字摘取的 request/response；含 binary/schema hash、原归档 hash、Git blob 与记录位置；前者明确来自未完成采集 |
 
-所有 Bun 回归统一位于 `test/` 并由 `bun run test` 执行。`test:protocol` 和
-`test:toolchain` 仅供聚焦运行；完整 verifier 只运行一次统一套件，用 JUnit 核对当前
-文件集合、实际用例数、零失败和零跳过。Python 工具测试也按功能放在 `test/`，由
-`scripts/maintenance/run_python_tests.py` 在逐文件独立进程中发现并执行。
-
-`scripts/native-contract/audit-fixtures.py` 校验 manifest/hash、离线引用、映射和
-矩阵可物化性；它不执行 validator/授权/流/存储验收。`audit:luvus` 另核对必需文件、
+所有 Bun 回归统一位于 `test/` 并由 `bun run test` 执行；`test:protocol` 和
+`test:toolchain` 仅供聚焦运行。`audit:luvus` 核对必需文件、
 schema 闭包、请求/响应关联、退出码、endpoint/peer 身份与清理状态。它们均不启动
 原生实例、不联网。真实SDK回环Streamable HTTP协商位于 `test/mcp/`，每次检查当前锁定依赖；
 SDK 运行报告打印到 stdout，不写回仓库快照。
@@ -215,12 +124,12 @@ SDK 运行报告打印到 stdout，不写回仓库快照。
   `storage`、`integration`、`mcp`、`webui` 按实际职责维护。根 Store/Router/协议入口继续
   作为现行公共入口，避免仅为整齐改变全部调用方。
 - `scripts/{luvus,herdr}` 放固定版本原生输入的采集、审计和验证工具；`scripts/bun` 放
-  工具链 pin、冻结安装检查、build、smoke 与隔离 verifier；`scripts/maintenance` 放仓库门禁。
+  build 与 smoke；`scripts/maintenance` 放文档渲染等维护脚本。
 - `test/fixtures/{luvus,herdr}` 按版本保存协议原文、来源与许可证，`native-contract` 保存
   当前映射和矩阵。捕获中的历史 session/路径标记保留原文，不作为维护目录命名。
 
 `coverage.json` 由 `bun scripts/luvus/audit-fixtures.mjs --write` 从固定原文生成；
-方法 TSV 由 `python3 scripts/native-contract/audit-fixtures.py --write-map` 生成。
+
 
 `src/native-contract/generated/` 保存完整 standalone 资产及独立摘要目录，
 审核输入位于 `scripts/native-contract/precompiled-inputs.json`。仅在来源、编译器或锁定依赖
@@ -247,8 +156,7 @@ python3 scripts/luvus/collect.py --binary /absolute/path/to/luvus --output /tmp/
 采集器在 `/workspace` 创建自己的 0700 状态根、named session 和合成终端输入，
 不继承用户 HOME/session；这不是 OS 文件沙箱。流、server、临时根在 finally
 清理，SIGKILL/机器崩溃仍需外部回收。升级先评审契约/分类，再重新采集、审计。
-主采集完整回放与两组补充原生交换持续维护协议断言，当前 verifier 直接用固定 Bun
-执行这些回归并报告实际结果；历史采集保留其原始运行时和证据范围。
+主采集完整回放与两组补充原生交换持续维护协议断言，这些回归随 `bun run test` 执行；历史采集保留其原始运行时和证据范围。
 
 ## Herdr 离线输入
 
@@ -363,7 +271,6 @@ MCP组件回归统一使用`createMcpFacade`与`RuntimeGatewayService`；没有�
 bun run typecheck
 bun run build
 bun run smoke
-bun run comments:check
 bun test ./test/connector/herdr ./test/mcp/runtime.test.ts
 python3 -B scripts/herdr/audit_methods.py --source-tree /absolute/path/to/pinned-herdr-source
 ```
@@ -403,7 +310,7 @@ SDK 实证 revision 为 `2025-11-25`，Bun 的 `process.version` 只是 Node 兼
 223 方法中 144 个只有 generic params object，不能宣称完整参数校验。
 原生接口与宿主接缝见 [原生校验](protocol/NATIVE-CONTRACT.md)，外层见
 [Wire v2](protocol/WIRE-PROTOCOL.md)。产品设计、保留/恢复规则及 Herdr 门禁以
-[DESIGN](DESIGN.md)、[实施计划](IMPLEMENTATION-PLAN.md)和 ADR 为准。
+[DESIGN](DESIGN.md)、[issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)和 ADR 为准。
 
 SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v5 要求全新库并拒绝未发布的旧库。
 Store/Router 已提供 provider/binding、固定原文期限、持久 history、全局预算、降级与隔离快照；
@@ -411,4 +318,4 @@ Store/Router 已提供 provider/binding、固定原文期限、持久 history、
 文件、真实 SQLITE_FULL 与异常退出，不触及真实库。WSS/loopback 模块与独立宿主接线见
 [通道接线](TRANSPORT.md)，测试证书另需 Linux `/usr/bin/openssl`。生产持久身份与跨平台普通文件已接入；
 不提供重启后的原生响应上下文恢复。unknown 不重放，取消不代表回滚，逻辑删除不保证物理擦除。
-Herdr 普通 RPC 已接唯一 CLI/HTTP MCP；首次配置向导、同会话两轮、原生跨平台及实际双机等剩余验收见实施计划，不以模块通过宣称全部交付。
+Herdr 普通 RPC 已接唯一 CLI/HTTP MCP；首次配置向导、同会话两轮、原生跨平台及实际双机等剩余验收见 issue 跟踪，不以模块通过宣称全部交付。

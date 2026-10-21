@@ -4,7 +4,7 @@
 `src/integration/luvus-wire.ts` 的 `createLuvusWireAdapter(backend, limits?)`
 将其接入 [Wire v2](WIRE-PROTOCOL.md)。准确签名以源码及
 `src/native-contract/types.ts` 为准；安全原则、provider 模型和恢复设计分别见
-[ADR 0002](../adr/0002-safety-retention-recovery-late-evidence.md)、
+[ADR 0002](../adr/archive/0002-safety-retention-recovery-late-evidence.md)、
 [ADR 0004](../adr/0004-multi-runtime-provider.md)。模块接入不代表可部署服务。
 
 `src/connector/luvus/index.ts` 提供固定配置的本地普通 RPC 传输，复用上述 Wire
@@ -201,4 +201,4 @@ handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离�
 不从账本或响应 JSON 创建 permit；证据计划与该 port 共用这一检查。
 该保留 port 仅支持普通 RPC；流及控制 ack 报 `result_retention_rpc_only`，不借开流许可保留控制结果。
 
-宿主能力的交付范围与后续门禁见 [实施计划](../IMPLEMENTATION-PLAN.md)。
+宿主能力的交付范围与后续门禁见 [issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。

@@ -1,6 +1,6 @@
 # Rovloom 简化方案（提案）
 
-状态：**提案，待维护者确认**。确认后本文取代 [DESIGN](../DESIGN.md) 与 [IMPLEMENTATION-PLAN](../IMPLEMENTATION-PLAN.md) 中与之冲突的部分，并据此重建 issue。
+状态：**已确认（维护者回复"没问题，开始吧"）**。[DESIGN](../DESIGN.md) 已按本文重写，IMPLEMENTATION-PLAN 已删除，issue 已重建为 S0–S8（#146–#154）。S0、S1（部分）、S2（部分）已在本分支落地，其余见各 issue。
 本文中的行数是对 `main@3377f65` 的粗略统计，"可减少"的数字是估算，不是承诺。
 
 ## 1. 为什么要简化
