@@ -101,29 +101,6 @@ for (const problem of ['forbidden', 'not_found', 'unavailable', 'unauthenticated
   )
 }
 
-// 恢复隔离只读取最小 status，不能触发设备、provider 或权限历史读取。
-test(
-  '恢复隔离仅执行状态读取',
-  /* 恢复隔离只读取最小 status，不能触发设备、provider 或权限历史读取。 */ async () => {
-    const calls: string[] = []
-    const read = createManagementPageRead(
-      /** 合成隔离状态，拒绝任何非状态操作。 */
-      async (name, args) => {
-        calls.push(name)
-        if (name !== 'status') {
-          throw new Error('unexpected management read')
-        }
-        const result = fixtureReply(name, args)
-        return { ...result, mode: 'recovery_quarantined' } as typeof result
-      }
-    )
-    const result = await read(detailRoute, new AbortController().signal)
-    assert.deepEqual(calls, ['status', 'status'])
-    assert.equal(result.value.device, null)
-    checkPage(result, detailRoute)
-  }
-)
-
 // 全局恢复代次、策略、history/mode 中任一 fence 变化都会拒绝混合快照。
 for (const field of ['recovery_generation', 'policy_revision', 'history', 'mode'] as const) {
   test(
@@ -191,16 +168,15 @@ test(
   }
 )
 
-// 空页/详情/部分失败/隔离投影互斥，未来心跳及子观测不能制造新鲜状态。
+// 空页/详情/部分失败投影互斥，未来心跳及子观测不能制造新鲜状态。
 test(
   '拒绝详情夹带列表、部分失败夹带行或游标和未来子观测',
-  /* 空页/详情/部分失败/隔离投影互斥，未来心跳及子观测不能制造新鲜状态。 */ () => {
+  /* 空页/详情/部分失败投影互斥，未来心跳及子观测不能制造新鲜状态。 */ () => {
     for (const scenario of [
       'detail_list',
       'detail_cursor',
       'partial_rows',
       'partial_cursor',
-      'quarantine_cursor',
       'device_time',
       'heartbeat_time',
       'provider_time',
@@ -219,13 +195,6 @@ test(
       if (scenario === 'partial_cursor') {
         snapshot.value.providersProblem = 'unavailable'
         snapshot.value.providers = { items: [], next_cursor: 'unavailable-page' }
-      }
-      if (scenario === 'quarantine_cursor') {
-        snapshot.value.status.mode = 'recovery_quarantined'
-        snapshot.value.device = null
-        snapshot.value.permissions = null
-        snapshot.value.providers = { items: [] }
-        snapshot.value.devices = { items: [], next_cursor: 'backup-page' }
       }
       if (scenario === 'device_time') {
         snapshot.value.device!.observed_at = snapshot.serverTime + 1

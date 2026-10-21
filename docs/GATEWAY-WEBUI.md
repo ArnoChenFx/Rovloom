@@ -27,7 +27,7 @@ provider 启用缺少真实 `providerEnable` 证明，当前明确不可用；�
 设备、连接、认证、provider 登记与原生运行观测还分别按自己的 `observed_at` 和服务时间/单调经过时间计算十五秒过期；新 status 不续期旧子观测。过期状态只作历史展示，不显示绿色在线/ready；当前认证未核实不显示绿色在线，provider 运行观测或所依赖设备认证/链路未核实也不显示绿色 ready。
 待配对登记不显示旧连接的在线或已认证徽标；新鲜原生运行观测仍可独立展示，但不能据此显示 provider 绿色 ready。
 展示边界最多 200 行、512 KiB，并拒绝未知字段和越目标数据；HTTP 桥同时执行输入、输出和在途任务预算；这不替代宿主会话服务及共享业务授权。
-恢复隔离仅读取并展示最小 status；provider 的 403/暂不可用单独显示，401 使整页失效；设备/整页读取不可见的404同样清空旧页并停止读取，provider/权限提示的局部404只降级该部分且仍复核设备，避免撤权后保留旧详情。
+provider 的 403/暂不可用单独显示，401 使整页失效；设备/整页读取不可见的404同样清空旧页并停止读取，provider/权限提示的局部404只降级该部分且仍复核设备，避免撤权后保留旧详情。
 隔离 fixture 与真实 Chromium 的复现入口见[开发指引](DEVELOPMENT.md#管理页面的隔离验证)。
 
 ## 注册与配对进度的当前接线
@@ -172,7 +172,7 @@ Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动
 
 管理 UI/HTTP API 使用独立管理 listener 与认证/授权中间件；Connector WSS、MCP Streamable HTTP 维持各自协议与身份边界。可以复用实现模块及已选身份服务，但 MCP token、设备 credential、enrollment 或“已连接机器”身份不自动获得管理员会话/权限；管理 API 不能成为 native 通用调用旁路。
 
-默认仅绑定 IPv4 loopback `127.0.0.1`，端口可配置；无管理员认证配置则不启动管理面，不能以 loopback 代替登录。IPv6 loopback 需明确配置；不自动绑定所有接口。远程管理必须另行启用并配置 TLS、反向代理信任边界、允许的 Host/Origin 和访问控制，不能为 UI 默认开放公网或关闭 TLS 校验。恢复隔离时仅允许独立可信的本机恢复管理认证，不从旧备份恢复远程管理开放状态。
+默认仅绑定 IPv4 loopback `127.0.0.1`，端口可配置；无管理员认证配置则不启动管理面，不能以 loopback 代替登录。IPv6 loopback 需明确配置；不自动绑定所有接口。远程管理必须另行启用并配置 TLS、反向代理信任边界、允许的 Host/Origin 和访问控制，不能为 UI 默认开放公网或关闭 TLS 校验。从备份恢复时不恢复远程管理开放状态。
 
 页面路由与 API 分别检查管理员身份/当前授权：未登录只显示登录壳，不返回设备数据；API 每次检查 admin 权限及具体管理能力。浏览器会话使用安全 Cookie、CSRF 防护、同源/Origin/Host 验证与必要的 CSP；不把管理 bearer、设备 credential 或 enrollment 存入 URL/localStorage 或页面日志。登录机制由管理员认证后端提供，不自建 OAuth 产品，不能从设备/MCP 身份推导。
 
@@ -188,7 +188,7 @@ Web UI 内置于同一 Rovloom Gateway 程序/发行产物，Connector 不启动
 | connecting / reconnecting | 后端实际观察并可信关联到该 machine 的建连/重新握手阶段；不能只因 offline 推测正在重连，未认证自报名称不能改变已有设备状态 |
 | online / degraded / offline | 分别依据有效设备通道、心跳/本地健康异常、断线/协议超时；连接在线不代表每个 runtime provider/session 正常 |
 | authenticated / failed / expired / revoked | 当前认证结果与持久授权状态；旧连接成功记录不能覆盖当前 revoked |
-| recovery_quarantined / storage_degraded | Gateway 全局模式，覆盖普通操作可用性；不得把旧快照中的 online/authenticated 当当前状态 |
+| storage_degraded | Gateway 全局模式，覆盖普通操作可用性；不得把旧快照中的 online/authenticated 当当前状态 |
 
 设备详情展开已配置 provider 行：provider_id、kind=luvus|herdr、binding_revision、非秘密 config_ref、enabled、ready/unreachable/binding_mismatch/migration_unresolved、观测时间和来源；可显示已核实 binary/server/protocol/schema 摘要、classification/schema/transport/support 状态及恢复保证，未知则标未核实。config_ref 不展开本地路径/环境或秘密。未授权 provider 不进入摘要、计数或 API。每行状态来自该 binding 的观测；一个 Herdr adapter 故障不把设备或 Luvus 行改成离线，LLM/model 错误另列任务层。
 
@@ -236,11 +236,9 @@ provider 管理操作还必含 expected_binding_revision，确认摘要/history 
 
 审计遵循 DESIGN 的无原文/无 secret 与预算规则，记录管理员、目标、动作、确认记录安全引用、revision/epoch、结果/时间。配对签发/兑换的秘密不进入普通调用结果库、UI 或审计。确认/配对元数据也计入受管预算，不能靠管理面绕过 storage_degraded 或收尾预留耗尽规则。
 
-## 恢复隔离与存储故障下的 UI
+## 备份恢复与存储故障下的 UI
 
-recovery_quarantined 仅允许通过独立于旧备份的本机恢复管理员认证读取恢复模式、备份来源/时点、完整性检查、设备历史摘要、旧认证失效状态和脱敏阻断原因。旧在线/权限数据标注“备份历史”；不显示原始结果、secret 或新 pairing 口令。不能配对/签发/兑换、断开/撤销写入、发放新 history scope、重开业务或把旧请求移到新 scope。解除隔离与重新建立管理员授权继续由受保护本机恢复流程完成，最小 UI 不增加一键解锁接口。
-
-恢复的 provider bindings 全部按备份历史展示、默认禁用；来源/当前配置/授权重新确认前不能 enable，不能由旧 enabled 标志或同名 session 推定可达。隔离态禁止 provider 启停等管理写入；storage_degraded 同样拒绝。provider 禁用未成功持久化不能显示已禁用，前端按钮状态不替代后端门禁。
+从备份恢复的 Gateway 正常启动（没有单独的隔离模式）：所有设备回到 pending、旧凭据与旧登记令牌全部失效，设备需要重新配对；备份中的调用已收敛为 unknown/未派发，正文不可用。恢复的 provider bindings 全部按备份历史展示、默认禁用并升版，来源/当前配置/授权重新确认前不能 enable，不能由旧 enabled 标志或同名 session 推定可达。旧在线/权限数据不会出现在新状态里。
 
 storage_degraded 时只允许可满足预算/授权的有界只读诊断；禁用所有管理写按钮，明确持久撤销可能尚未生效。后端仍要独立拒绝对应请求，不能仅靠前端 disabled。原调用结局无法持久化则保留 unknown/dispatch 锚点，UI 不显示为已完成；晚到证据也不绕过当前恢复代次、epoch、内容截止和已清理状态。
 

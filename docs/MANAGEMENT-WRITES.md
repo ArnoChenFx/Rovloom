@@ -141,11 +141,11 @@ admin_confirmations、admin_operations、admin_pairings。它们全部属于原 
 原配对/连接/断开/改名等生命周期更新也推进设备 revision，使旧确认失效。
 
 旧的未发布 v1–v4 及未知库在任何业务改写前拒绝，不迁移、不改版本号或覆盖源库。
-全新状态必须在独立新目录建立。恢复快照沿用原隔离流程，不复制有效管理 history、确认、回执或配对申请；
-新 generation 和 recovery_quarantined 阻止旧范围再次使用。普通写服务不能解除隔离。
+全新状态必须在独立新目录建立。恢复快照不复制有效管理 history、确认、回执或配对申请；
+新 generation 使旧范围不能再次使用，设备需重新配对。
 
 history 在接收截止加 metadata_ttl 后清理，相关确认/回执先清理；配对申请按原期限加 metadata_ttl 清理。
-过期/缺失 history 一律拒绝，不自动重建旧意图。storage_degraded 与 recovery_quarantined 拒绝管理变更。
+过期/缺失 history 一律拒绝，不自动重建旧意图。storage_degraded 拒绝管理变更。
 
 writer 内会话到期、权限撤销或当前证明返回拒绝，只转换本服务白名单中的已知管理拒绝为 Store 业务错误，
 回滚且保持健康库 active；确认不消费、回执不产生，后续健康业务仍可继续。未知宿主异常或真实 SQLite 异常
@@ -156,6 +156,6 @@ writer 内会话到期、权限撤销或当前证明返回拒绝，只转换本�
 
 `test/admin` 使用实际 Store/SQLite、已合并的持久身份桥和两个真实 loopback Connector。
 覆盖事务/确认/回执原子性、磁盘重开、重复/丢响应、精确权限、期限、取消/兑换竞态、
-断开后重连与新 epoch、撤销后旧 Connector 实际重试被拒绝、provider 独立 revision、恢复隔离和HTTP攻击输入。
+断开后重连与新 epoch、撤销后旧 Connector 实际重试被拒绝、provider 独立 revision、备份恢复和HTTP攻击输入。
 管理员、策略、凭据及 native 来源仍为临时合成材料；未操作用户设备、未创建生产账户或长期配置。
 HTTP 测试是 Request/handler 集成，不构成生产登录、浏览器/WebUI、远程部署、Windows 或真实 native 能力验收。

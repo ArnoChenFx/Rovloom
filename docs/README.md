@@ -13,7 +13,7 @@
 | 管理页、管理员确认、状态展示和管理 API | [GATEWAY-WEBUI](GATEWAY-WEBUI.md) |
 | Wire 帧、协商、精确字段、编码、方向和协议限额 | [Wire 协议](protocol/WIRE-PROTOCOL.md) |
 | Native validator、handle、可信宿主与调用顺序 | [原生契约](protocol/NATIVE-CONTRACT.md)；准确签名见对应源码类型 |
-| SQLite 宿主接线、保留/预算、备份隔离恢复与 unknown 对账 | [存储运行指引](STORAGE.md) |
+| SQLite 宿主接线、保留/预算、备份恢复（重新配对）与 unknown 对账 | [存储运行指引](STORAGE.md) |
 | Gateway 普通配置文件、持久化与六平台原生单文件验收 | [Gateway 平台边界](GATEWAY-PLATFORMS.md) |
 | WSS/loopback 通道、ready、配对 custody、重连与 transport 限额 | [通道接线](TRANSPORT.md) |
 | MCP Streamable HTTP、受信 caller/服务接口、双角色 CLI 与预览限制 | [MCP Streamable HTTP 契约](protocol/MCP-HTTP.md) |

@@ -94,7 +94,7 @@ test(
       assert.equal(output.authentication.verification, 'unverified')
       assert.equal(JSON.stringify(output.connection).includes('offline'), false)
     }
-    for (const mode of ['storage_degraded', 'recovery_quarantined'] as const) {
+    for (const mode of ['storage_degraded'] as const) {
       const projection = createManagementTransportProjection(sample(), { ...fence(), mode })
       assert.notEqual(projection.transport, 'available')
       assert.equal(projection.device(fixtureDevice('fixture-a')).connection.verification, 'unverified')

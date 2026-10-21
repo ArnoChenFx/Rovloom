@@ -33,7 +33,7 @@ export type ManagementGrant =
 export type Administrator = {
   principal_id: string
   session_ref: string
-  assurance: 'administrator' | 'recovery_local'
+  assurance: 'administrator'
   policy_revision: string
   grants: readonly ManagementGrant[]
 }
@@ -49,7 +49,7 @@ export type AdminContext = Readonly<{
   management_session_ref: string
   wait_signal: AbortSignal
 }>
-export type GatewayMode = 'active' | 'storage_degraded' | 'recovery_quarantined'
+export type GatewayMode = 'active' | 'storage_degraded'
 export type Observed<T> =
   | {
       verification: 'verified'
@@ -106,7 +106,7 @@ export type ManagementStatus = {
   stale_after_ms: 15000
   history: { history_epoch: string; accept_new_until: number } | null
   components: {
-    store: 'available' | 'degraded' | 'quarantined'
+    store: 'available' | 'degraded'
     transport: 'available' | 'degraded' | 'unavailable' | 'unverified'
     native: 'available' | 'degraded' | 'unavailable' | 'unverified'
   }
@@ -114,7 +114,7 @@ export type ManagementStatus = {
 export type PermissionDecision = {
   action: ManagementPermission
   allowed: boolean
-  reason_code: 'allowed' | 'forbidden' | 'backend_unavailable' | 'recovery_quarantined' | 'storage_degraded'
+  reason_code: 'allowed' | 'forbidden' | 'backend_unavailable' | 'storage_degraded'
 }
 export type PermissionSnapshot = {
   target: ResourceTarget

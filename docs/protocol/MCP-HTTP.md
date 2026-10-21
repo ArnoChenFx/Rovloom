@@ -163,8 +163,7 @@ provider 启停还须双端配置核对、独立 providers_manage、确认及新
 
 管理读请求需拒绝未知字段，设备/provider 标识符最多 128 字节，cursor 最多 1024 字符，
 分页默认 50、最大 200，设备 states 筛选只接纳上述有界枚举。HTTP 适配器限制请求体和响应字节并映射固定公共错误。
-恢复隔离只允许独立 recovery_local 管理会话读 status，普通元数据和全部
-写入均拒绝；storage_degraded 仅保留满足授权/预算的有界读取及现有独立清理路径。
+storage_degraded 仅保留满足授权/预算的有界读取及现有独立清理路径。
 
 ## MCP 消息与工具
 

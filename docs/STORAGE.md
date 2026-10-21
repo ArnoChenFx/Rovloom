@@ -157,17 +157,17 @@ resumeStorage。它不自动重试旧调用。应用预算与预约并非操作�
 
 1. 用受保护管理面调用 backup，目标为配置的独立 0700 backupDirectory 内全新文件。
    快照为全新逻辑 SQLite 导出，默认不含请求/响应原文、结果句柄、credential hash 或 enrollment；
-   保留必要最小历史与审计，并预先进入 recovery_quarantined、新 generation、禁用的新 revision
-   bindings、关闭的旧 scope。备份数量、容量和固定 TTL 受限；到期清理不删除带 writer 锁的备份。
+   保留必要最小历史与审计，设备回到 pending、新 generation、provider 禁用并升版、旧 scope 关闭。
+   备份数量、容量和固定 TTL 受限；到期清理不删除带 writer 锁的备份。
 2. 恢复前停旧 writer，并在旧备份之外核实无写进程及源库/锁归属；先保留源备份和相关文件。
    不自动删崩溃锁，不执行备份内命令，不直接打开仍由原库管理 TTL 的备份作为生产库。复制到
-   全新独立 0700 恢复目录、保持 0600 后才打开。没有可靠防回滚来源时，维持隔离。
-3. quarantine 拒绝普通认证、配对签发/消费、内容读取与新派发。由独立当前可信管理员核对来源、
-   丢失时间段、当前撤销/策略与各 binding 本机配置，再显式 completeRecovery。快照中的旧管理员
-   数据、权限或已消费配对不能作为解除依据。无法确认则保持隔离。
-4. 解除后旧凭据和 enrollment 仍失效。逐设备独立确认后重新配对；逐 provider 重新确认并使用
-   新 revision；当前 caller/local 策略由备份外来源提供。旧 attempt/scope/pending 不转绑到新代次，
-   恢复内容保持 unavailable，不因重新授权恢复原文。只为明确的新意图发放新 scope。
+   全新独立 0700 恢复目录、保持 0600 后才打开。
+3. **备份恢复 = 重新配对**：恢复后的 Gateway 直接以正常模式启动，没有单独的隔离/解除步骤，
+   因为快照里没有任何可用于连接或派发的凭据。旧凭据和 enrollment 仍失效；逐设备重新配对，
+   逐 provider 重新确认并使用新 revision；当前 caller/local 策略由备份外来源提供。
+   快照中的旧管理员数据、权限或已消费配对不具备任何效力。
+4. 旧 attempt/scope/pending 不转绑到新代次，恢复内容保持 unavailable，不因重新授权恢复原文。
+   只为明确的新意图发放新 scope。
 
 unknown 对账只允许仍处在原有效连接、同一恢复代次和 binding 的可靠证据，经原 opaque native
 handle 与原生来源复验后补充。内容清理后仍存活的 RPC 密封上下文只允许 metadata-only 对账，

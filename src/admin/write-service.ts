@@ -90,7 +90,6 @@ const publicCodes = new Set([
   'forbidden',
   'backend_unavailable',
   'invalid_arguments',
-  'recovery_quarantined',
   'storage_degraded',
   'management_history_unavailable',
   'idempotency_conflict',

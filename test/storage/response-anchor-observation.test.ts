@@ -207,7 +207,8 @@ for (const fault of ['active_sql', 'row_sql', 'commit_sql', 'clock'] as const) {
         )
         f.db.prepare = prepare
         assert.equal(f.store.health().mode, 'storage_degraded')
-        assert.equal(rollback, fault === 'row_sql' || fault === 'commit_sql' ? 1 : 0)
+        // active() 不再单独查询元数据（隔离模式已删除），模式读取发生在事务内，故其失败同样回滚。
+        assert.equal(rollback, fault === 'clock' ? 0 : 1)
       } finally {
         f.store.close()
       }

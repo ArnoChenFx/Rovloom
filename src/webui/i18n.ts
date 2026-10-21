@@ -135,7 +135,6 @@ export const chinese = Object.freeze({
   'readiness.unverified': '未核实 (unverified)',
   'component.available': '可用 (available)',
   'component.degraded': '降级 (degraded)',
-  'component.quarantined': '隔离 (quarantined)',
   'component.unavailable': '不可用 (unavailable)',
   'component.unverified': '未核实 (unverified)',
   'persisted.pending': '待配对 (pending)',
@@ -243,7 +242,6 @@ export const chinese = Object.freeze({
   'gateway.metadata': '恢复与策略详情',
   'gateway.active': '正常模式',
   'gateway.activeHistory': '上次正常模式（快照已过期）',
-  'gateway.quarantined': '恢复隔离 · 仅诊断',
   'gateway.degraded': '存储降级 · 只读',
   'gateway.fresh': '快照有效',
   'gateway.listener': '管理监听',
@@ -255,8 +253,6 @@ export const chinese = Object.freeze({
   'gateway.policy': '管理策略 revision',
   'gateway.components': 'Store / Transport / Native',
   'gateway.observed': '快照观测',
-  'gateway.recoveryNote':
-    '当前仅显示获授权的最小恢复诊断。旧连接和认证均不能作为当前状态；请使用独立受保护本机恢复流程。',
   'gateway.degradedNote': '当前禁止管理写入；持久撤销等操作可能尚未生效，请使用受保护本机诊断。'
 } as const)
 export type MessageKey = keyof typeof chinese
@@ -401,7 +397,6 @@ export const english = Object.freeze({
   'readiness.unverified': 'Unverified (unverified)',
   'component.available': 'Available (available)',
   'component.degraded': 'Degraded (degraded)',
-  'component.quarantined': 'Quarantined (quarantined)',
   'component.unavailable': 'Unavailable (unavailable)',
   'component.unverified': 'Unverified (unverified)',
   'persisted.pending': 'Pairing pending (pending)',
@@ -515,7 +510,6 @@ export const english = Object.freeze({
   'gateway.metadata': 'Recovery & policy details',
   'gateway.active': 'Normal mode',
   'gateway.activeHistory': 'Last normal mode (snapshot expired)',
-  'gateway.quarantined': 'Recovery quarantine · diagnostics only',
   'gateway.degraded': 'Storage degraded · read only',
   'gateway.fresh': 'Snapshot current',
   'gateway.listener': 'Management listener',
@@ -527,8 +521,6 @@ export const english = Object.freeze({
   'gateway.policy': 'Management policy revision',
   'gateway.components': 'Store / Transport / Native',
   'gateway.observed': 'Snapshot observed',
-  'gateway.recoveryNote':
-    'Only authorized minimal recovery diagnostics are shown. Old connections and authentication are not current evidence. Use the separate protected local recovery process.',
   'gateway.degradedNote':
     'Management writes are prohibited. Persistent revocation and other changes may not have taken effect. Use protected local diagnostics.'
 } satisfies Messages)

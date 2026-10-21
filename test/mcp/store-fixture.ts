@@ -27,10 +27,7 @@ export function policy(targets: V2Target[] = [target, secondTarget], revision = 
 }
 
 // 建立并返回受测真实Store、共享政策来源和清理函数；全部资源均位于新建临时目录。
-export function storeFixture(
-  mode: 'active' | 'recovery_quarantined' | 'storage_degraded' = 'active',
-  mutateSeed?: (db: DatabaseSync) => void
-) {
+export function storeFixture(mode: 'active' | 'storage_degraded' = 'active', mutateSeed?: (db: DatabaseSync) => void) {
   const directory = mkdtempSync(join(tmpdir(), 'rovloom-store-service-'))
   const path = join(directory, 'gateway.db')
   let now = 1_000_000
