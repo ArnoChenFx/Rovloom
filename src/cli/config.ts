@@ -78,6 +78,10 @@ export class CliError extends Error {
   ) {
     super('Rovloom command failed')
     this.name = 'CliError'
+    // TEMP-DEBUG（Windows e2e 排查，随后移除）
+    if (process.env.ROVLOOM_DEBUG_ERRORS) {
+      console.error('DBG_CLI_ERROR', code, new Error('stack').stack)
+    }
   }
 }
 
