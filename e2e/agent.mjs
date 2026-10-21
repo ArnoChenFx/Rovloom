@@ -1,5 +1,5 @@
 /** 真实 LLM Agent（opencode）经 MCP 驱动整条链路；副作用由独立 MCP 客户端读回，不采信 Agent 自述。
- * 用法：DEEPSEEK_API_KEY=… bun e2e/agent.mjs <rovloom二进制> <herdr 0.9.5二进制> <opencode可执行文件> [模型]
+ * 用法：DEEPSEEK_API_KEY=… bun e2e/agent.mjs <rovloom二进制> <herdr 0.9.5二进制> <opencode可执行文件> [provider/model，默认 ds/deepseek-chat]
  */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -7,9 +7,13 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createStack, environment } from './harness.mjs'
 
-const [binary, herdrBinary, opencode, model = 'deepseek/deepseek-chat'] = process.argv.slice(2)
+const [binary, herdrBinary, opencode, model = 'ds/deepseek-chat'] = process.argv.slice(2)
 assert(binary && herdrBinary && opencode, 'Usage: bun e2e/agent.mjs <rovloom> <herdr> <opencode> [provider/model]')
 assert(process.env.DEEPSEEK_API_KEY, 'DEEPSEEK_API_KEY is required')
+
+/** 只透传出网所需的代理与证书变量，其余环境（含其它凭据）不进入 Agent。 */
+const networkVariables =
+  /^(https?_proxy|no_proxy|all_proxy|node_extra_ca_certs|ssl_cert_file|ssl_cert_dir|requests_ca_bundle)$/iu
 
 /** 运行 Agent；密钥只经环境变量传入，输出落盘前截断，绝不回显配置。 */
 function runAgent(prompt, home, config, timeout) {
@@ -17,6 +21,7 @@ function runAgent(prompt, home, config, timeout) {
     const child = spawn(opencode, ['run', '--model', model, prompt], {
       cwd: home,
       env: {
+        ...Object.fromEntries(Object.entries(process.env).filter(([key]) => networkVariables.test(key))),
         PATH: process.env.PATH,
         HOME: home,
         XDG_CONFIG_HOME: join(home, 'config'),
@@ -24,6 +29,8 @@ function runAgent(prompt, home, config, timeout) {
         XDG_CACHE_HOME: join(home, 'cache'),
         XDG_STATE_HOME: join(home, 'state'),
         OPENCODE_CONFIG: config,
+        // 模型目录域名常被网络策略拦截；provider 与模型在配置里显式声明，不依赖目录。
+        OPENCODE_DISABLE_MODELS_FETCH: '1',
         DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
         NO_COLOR: '1'
       },
@@ -69,6 +76,16 @@ try {
       autoupdate: false,
       share: 'disabled',
       permission: { '*': 'allow' },
+      provider: {
+        ds: {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'DeepSeek',
+          options: { baseURL: 'https://api.deepseek.com', apiKey: '{env:DEEPSEEK_API_KEY}' },
+          models: {
+            'deepseek-chat': { name: 'deepseek-chat', tool_call: true, limit: { context: 64_000, output: 8000 } }
+          }
+        }
+      },
       mcp: {
         rovloom: {
           type: 'remote',

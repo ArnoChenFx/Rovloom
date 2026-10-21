@@ -26,9 +26,19 @@ Herdr 二进制必须是固定的 0.9.5（SHA-256 `14d9e8bc…929d`，夹具会�
 | `device-revoke` | Gateway 停止后经正式 Store 撤销设备，重启后设备为 `revoked`，调用不可达，Connector 持续重试而不得服务 |
 | `unknown-outcome` | native 已收到请求但未应答时 Connector 被杀：调用为 `outcome_unknown`；Connector 重启后状态不变，新 native 收不到该请求（不自动重发） |
 
+## 真实 LLM Agent（可选）
+
+```sh
+npm i opencode-ai   # 放在仓库之外的临时目录
+DEEPSEEK_API_KEY=… bun e2e/agent.mjs dist/release/bun-linux-x64/candidate/rovloom /tmp/herdr <opencode可执行文件>
+```
+
+provider 与模型在 opencode 配置中显式声明并关闭模型目录拉取（`models.opencode.ai` 在受限网络下不可达）。
+密钥只经环境变量传入，Agent 只继承代理/证书变量。通过条件由 Rovloom 侧独立读回，不采信 Agent 自述。
+
 ## 已记录的结果（2026-10-21，Linux 6.18 x64，Bun 1.4.3，Herdr 0.9.5）
 
-7/7 通过。过程中发现并修复一个产品缺陷：同 key 不同意图的 `request_key_conflict` 原先以 `internal_error` 暴露，
+7/7 通过；真实 Agent 冒烟通过（opencode 1.19.3 + deepseek-chat，29 秒，workspace 0→1）。过程中发现并修复一个产品缺陷：同 key 不同意图的 `request_key_conflict` 原先以 `internal_error` 暴露，
 现映射为公开码 `conflict`。
 
 ## 诚实的边界
@@ -38,6 +48,6 @@ Herdr 二进制必须是固定的 0.9.5（SHA-256 `14d9e8bc…929d`，夹具会�
 - **没有 Luvus 链路**：环境中没有可获取的真实 Luvus 二进制，故 Luvus 的 discover → read 链路未在此验证（Herdr 为唯一原生）。
 - **设备撤销是离线撤销**：管理员写入走带确认的 HTTP 管理接口，这里停 Gateway 后用正式 `Store.revoke` 代替，没有走 WebUI。
 - **崩溃自动恢复仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、旧格式记录、孤儿 native 仍活着时保持 fail-closed（见 [#167](https://github.com/ArnoChenFx/Rovloom/issues/167)）。
-- **真实 Agent（LLM）调用未覆盖**：本环境网络策略屏蔽了模型 API 域名，e2e 使用 MCP SDK 客户端而非 LLM Agent。
+- **LLM Agent 单独脚本**：`e2e/agent.mjs` 让 opencode（1.19.3，DeepSeek `deepseek-chat`）经 MCP 完成 list → discover → ping → `workspace.create`，再由独立 MCP 客户端读回 workspace 数（0→1）。依赖模型 API 域名可达与 `DEEPSEEK_API_KEY`，不在默认场景集里；模型输出有随机性，仅作冒烟。
 - `unknown-outcome` 证明“新 native 未被重发”；被暂停后又恢复的旧 native 是否执行了该请求，不在 Rovloom 可观察范围内
   （这正是 `outcome_unknown` 的含义）。
