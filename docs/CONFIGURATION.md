@@ -189,6 +189,19 @@ within the same compiler budget. These are integration checks, not user JSON fie
 Internal discovery does not complete the user-facing provider setup or install
 native programs; first-file generation does not prepare native settings or model access.
 
+## Restart after a crash
+
+If the Connector is killed (`kill -9`, power loss), it leaves an owner record, the
+native endpoint sockets and the claim-ledger lock behind. On the next start the
+Connector clears them itself **only** when it can prove the previous owner is gone:
+the owner process recorded in the owner record no longer exists (Linux; checked by
+PID and kernel start time) and nothing listens on the native sockets. It then
+prints `herdr_crash_residue_cleared` to stderr and starts normally. The claim
+ledger and its dispatch records are never touched, so a possibly-executed call is
+never resent. If the old owner is still alive, a native process is still listening,
+the record is from an older version, or the platform is not Linux, the start is
+refused (exit code 3) exactly as before; stop the surviving process first.
+
 ## Agent installation directory
 
 Install the official Agent, such as OpenCode, in a directory controlled by the

@@ -22,7 +22,7 @@ Herdr 二进制必须是固定的 0.9.5（SHA-256 `14d9e8bc…929d`，夹具会�
 | `idempotent-retry` | 同 `client_request_key` + 同意图返回同一 `call_id` 且原生只执行一次；同 key 不同意图 → `conflict`；无 key 不合并 |
 | `terminal-switch` | `allow_terminal_execution:false` 时 `pane.send_text` → `not_dispatched`，连接与只读调用不受影响；改配置重启后同一调用放行 |
 | `connector-restart` | 正常停止后 native 子进程被回收；离线调用立即 `unavailable`（毫秒级，不挂起）；重启后恢复 |
-| `connector-crash` | `kill -9` 且 native 一并消失：Gateway 立即判不可用；**重启被拒（退出码 3，fail-closed）**；运维清理遗留记录后恢复 |
+| `connector-crash` | `kill -9`：Gateway 立即判不可用；孤儿 native 仍在监听时**重启被拒（退出码 3，fail-closed）且不触碰孤儿**；native 也消失（等同掉电）后重启自动清理遗留并恢复 |
 | `device-revoke` | Gateway 停止后经正式 Store 撤销设备，重启后设备为 `revoked`，调用不可达，Connector 持续重试而不得服务 |
 | `unknown-outcome` | native 已收到请求但未应答时 Connector 被杀：调用为 `outcome_unknown`；Connector 重启后状态不变，新 native 收不到该请求（不自动重发） |
 
@@ -37,8 +37,7 @@ Herdr 二进制必须是固定的 0.9.5（SHA-256 `14d9e8bc…929d`，夹具会�
   但不是两台物理机；“Gateway 未安装 runtime”以空 `PATH` + 只含单文件产物来体现，不等同跨机网络（NAT / TLS / 防火墙）。
 - **没有 Luvus 链路**：环境中没有可获取的真实 Luvus 二进制，故 Luvus 的 discover → read 链路未在此验证（Herdr 为唯一原生）。
 - **设备撤销是离线撤销**：管理员写入走带确认的 HTTP 管理接口，这里停 Gateway 后用正式 `Store.revoke` 代替，没有走 WebUI。
-- **崩溃恢复不是自动的**：Connector 在 `kill -9` 或整机掉电后，遗留的 owner 记录、native 端点与 claim 账本锁会使重启
-  fail-closed；需要运维手动清理（`connector-crash` 场景列出具体文件）。这是有意不做“按 PID/JSON 接管”，但对运维不友好，见 [#167](https://github.com/ArnoChenFx/Rovloom/issues/167)。
+- **崩溃自动恢复仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、旧格式记录、孤儿 native 仍活着时保持 fail-closed（见 [#167](https://github.com/ArnoChenFx/Rovloom/issues/167)）。
 - **真实 Agent（LLM）调用未覆盖**：本环境网络策略屏蔽了模型 API 域名，e2e 使用 MCP SDK 客户端而非 LLM Agent。
 - `unknown-outcome` 证明“新 native 未被重发”；被暂停后又恢复的旧 native 是否执行了该请求，不在 Rovloom 可观察范围内
   （这正是 `outcome_unknown` 的含义）。

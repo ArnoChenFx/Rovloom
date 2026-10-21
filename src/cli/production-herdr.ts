@@ -20,6 +20,7 @@ import type { Connection } from '../transport/index.js'
 import { CliError } from './config.js'
 import type { ProductionCliSources, ProductionProviderReference } from './production.js'
 import { createHerdrProductSources } from './herdr-sources.js'
+import { HERDR_OWNER_FORMAT, currentProcessIdentity, recoverHerdrCrashResidue } from './herdr-crash-recovery.js'
 import { readRuntimeFile } from './runtime-files.js'
 import { ProviderUnavailableError } from './provider-unavailable.js'
 import { pinTerminalExecution } from '../connector/terminal-execution.js'
@@ -161,13 +162,24 @@ export class HerdrProductionStartupError extends HerdrLocalError {
   }
 }
 
-/** 已存在的端点明确拒绝；现有目录仍逐级验证，不能把链接或另一个 session 当作可认领实例。 */
-export function assertHerdrProductionEndpointAbsent(config: HerdrProductionOwnerConfig['config']): void {
+/** session 端点所在的逐级目录；default 会话直接位于 herdr 目录。 */
+function herdrEndpointDirectories(config: HerdrProductionOwnerConfig['config']): string[] {
   const local = config.connector.local
   const directories = [join(local.config_home, 'herdr')]
   if (local.target.session !== 'default') {
     directories.push(join(directories[0]!, 'sessions'), join(directories[0]!, 'sessions', local.target.session))
   }
+  return directories
+}
+
+/** 含 herdr.sock 的目录。 */
+function herdrEndpointDirectory(config: HerdrProductionOwnerConfig['config']): string {
+  return herdrEndpointDirectories(config).at(-1)!
+}
+
+/** 已存在的端点明确拒绝；现有目录仍逐级验证，不能把链接或另一个 session 当作可认领实例。 */
+export function assertHerdrProductionEndpointAbsent(config: HerdrProductionOwnerConfig['config']): void {
+  const directories = herdrEndpointDirectories(config)
   for (const directory of directories) {
     try {
       lstatSync(directory)
@@ -245,10 +257,22 @@ export function createHerdrProductionSources(): ProductionCliSources {
         bytes.fill(0)
       }
       verifyHerdrInstallation(local, config.expected_source.binary_sha256)
-      assertHerdrProductionEndpointAbsent(config)
       const ownerPath = join(local.config_home, `.rovloom-herdr-${local.target.session}.owner.json`)
+      // 上一个 Connector 若崩溃，只有证明其已死且端点无人监听才清理；否则下面仍按原样拒绝。
+      if (
+        await recoverHerdrCrashResidue({
+          ownerPath,
+          endpointDirectory: herdrEndpointDirectory(config),
+          claimsLockPath: config.connector.claims.path + '.lock'
+        })
+      ) {
+        process.stderr.write('herdr_crash_residue_cleared\n')
+      }
+      assertHerdrProductionEndpointAbsent(config)
+      const processIdentity = currentProcessIdentity()
       let stamp: string | undefined = createNativeRecord(ownerPath, {
-        format: 'rovloom-herdr-owner-v1',
+        format: HERDR_OWNER_FORMAT,
+        ...(processIdentity ? { process: processIdentity } : {}),
         target: config.target,
         config_ref: config.config_ref,
         binding_revision: config.binding_revision

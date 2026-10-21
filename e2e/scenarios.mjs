@@ -1,8 +1,7 @@
 /** 端到端场景；每个场景独占一套新状态并返回可记录的证据，断言失败即场景失败。 */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { setTimeout as pause } from 'node:timers/promises'
 import { ok, tool, until } from './harness.mjs'
 
@@ -22,24 +21,6 @@ async function boot(stack) {
   const client = await stack.connect()
   await stack.waitReady(client)
   return client
-}
-
-/** 运维视角的崩溃后清理：移除上次崩溃遗留的owner记录、native端点和claim账本锁。 */
-function operatorCleanup(stack) {
-  const { f } = stack
-  const removed = []
-  for (const path of [
-    f.ownerPath,
-    f.endpoint,
-    join(f.native.config_home, 'herdr', 'sessions', 'smoke', 'herdr-client.sock'),
-    join(f.root, 'ledger', 'claims.sqlite.lock')
-  ]) {
-    if (existsSync(path)) {
-      rmSync(path, { force: true, recursive: true })
-      removed.push(path.replace(f.root, '<root>'))
-    }
-  }
-  return removed
 }
 
 export const scenarios = [
@@ -179,32 +160,30 @@ export const scenarios = [
   {
     name: 'connector-crash',
     methods: ['ping'],
-    /** kill -9 且无清理：Gateway立即判不可用；崩溃遗留的owner记录使重启fail-closed（已知缺口）。 */
+    /** kill -9：孤儿native仍监听时重启fail-closed；native也消失（等同掉电）后重启自动清理遗留并恢复。 */
     async run(stack) {
       const client = await boot(stack)
       const natives = stack.natives()
       await stack.connector.kill()
       const offline = await stack.invoke(client, { method: 'ping', params: {} })
       assert.equal(offline.submit_error?.gateway_error?.code, 'unavailable')
+      stack.startConnector()
+      const refused = await stack.connector.closed
+      assert.equal(refused.code, 3, 'a live orphan native must keep the restart fail-closed')
+      assert(existsSync(stack.f.ownerPath), 'the owner record must survive a refused restart')
       for (const child of natives) {
+        assert.equal(stack.alive(child), true, 'a refused restart must not touch the orphan')
         process.kill(child.pid, 'SIGKILL') // 模拟整机掉电：native也不存在
       }
       await pause(300)
       stack.startConnector()
-      const refused = await stack.connector.closed
-      assert.equal(refused.code, 3, 'restart after a crash is refused, not silently taking over')
-      const removed = operatorCleanup(stack)
-      stack.startConnector()
-      const recovered = await stack
-        .waitReady(client, { tries: 50 })
-        .then(() => true)
-        .catch(() => false)
+      const recovered = await stack.waitReady(client, { tries: 60 })
+      assert.equal(recovered.state, 'responded')
+      assert.match(stack.connector.output.stderr, /herdr_crash_residue_cleared/)
       return {
         gateway_view: 'unavailable',
-        restart_without_cleanup: 'refused_fail_closed',
-        cleanup_removed: removed,
-        recovered_after_cleanup: recovered,
-        known_gap: recovered ? undefined : 'manual cleanup is not sufficient'
+        restart_with_live_orphan: 'refused_fail_closed',
+        restart_after_orphan_gone: 'auto_recovered'
       }
     }
   },
@@ -261,7 +240,7 @@ export const scenarios = [
       process.kill(native.pid, 'SIGCONT') // native随后真的执行了这次请求
       await pause(500)
       process.kill(native.pid, 'SIGKILL')
-      operatorCleanup(stack)
+      await pause(300)
       stack.startConnector()
       await stack.waitReady(client, { tries: 60 })
       const after = await tool(client, 'runtime_call_get', { call_id: pending.call_id })
