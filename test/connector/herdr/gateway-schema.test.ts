@@ -40,6 +40,7 @@ function schemaFixture() {
 
 test(
   'Gateway schema沿用普通权限和文件链接，读取不改变现有对象',
+  { timeout: 60_000 },
   /* 六平台均使用正式编译和读取入口。 */ async () => {
     const f = schemaFixture()
     try {
@@ -97,6 +98,7 @@ test(
 
 test(
   'Gateway编译使用已读取的schema快照，后续文件更新在显式重载时校验',
+  { timeout: 15_000 },
   /* 文件变化不改写已核对的内存字节或远端契约来源。 */ async () => {
     const f = schemaFixture()
     let resources: Awaited<ReturnType<typeof createHerdrGatewayResources>> | undefined

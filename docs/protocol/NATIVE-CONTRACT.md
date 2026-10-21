@@ -52,12 +52,12 @@ Worker 每次先完成原字节摘要、文档、方言、关键字、引用闭�
 固定输入目录为 `scripts/native-contract/precompiled-inputs.json`，只引用已审核的仓库原字节
 及收集记录，不接受外部路径或 URL。`bun run native:generate` 显式重新完整编译并更新资产；
 `bun run native:check` 与正常构建在独立 Worker 中重新完整编译核对，生成器不查询现有资产，
-缺失、额外或过期生成文件均拒绝。构建观察预算为 30 秒，不扩大产品的 2 秒接纳期限。
+缺失、额外或过期生成文件均拒绝。构建观察预算为 30 秒，独立于 Luvus 的 2 秒和 Herdr 的 10 秒接纳期限。
 单文件打包探针同时验证官方资产内嵌、禁止 Ajv 重新编译的命中路径，以及合成未知 schema
 经实际 Worker 完整编译与两个 runtime helper 的正反例；此探针不验证 CLI 或真实原生执行。
 
 每进程至多一个在途编译、没有等待队列；并发返回 `compiler_busy`。从工厂调用开始的
-2 秒接纳期限覆盖启动、预检、资产核对或完整编译/standalone 生成、消息与宿主初始化。失败只返回安全
+接纳期限为 Luvus 2 秒、Herdr 10 秒，覆盖启动、预检、资产核对或完整编译/standalone 生成、消息与宿主初始化。失败只返回安全
 错误码和固定 reason，不透传 schema、生成代码、私人路径或异常原文。普通 schema
 拒绝统一投影为 `origin: contract / code: schema_unavailable / stage: compile` 和固定 reason，
 包括缺失字段、非法根/目录形状及离线引用失败；拒绝后 Worker 可复用。宿主仍严格拒绝

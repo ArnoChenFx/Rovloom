@@ -6,7 +6,7 @@ Rovloom 的 Docker 方案运行 **Gateway**。Gateway 镜像保留管理页和 M
 
 ## 当前可用范围
 
-目前尚无可用的正式镜像。只有官方 latest 稳定产品发行工作流全部通过、GitHub Release 已公开、后续 GHCR 工作流成功且包允许匿名拉取后，下面的命令才可使用。
+官方镜像 `ghcr.io/arnochenfx/rovloom:latest` 和 `:0.1.1` 已发布并允许匿名拉取。最新稳定产品发行及其后续 GHCR 工作流均已通过，二进制见[官方 Release](https://github.com/ArnoChenFx/Rovloom/releases/latest)。
 
 支持目标为原生 Linux rootful Docker Engine 的 `linux/amd64` 和 `linux/arm64`。两种架构分别由对应原生 CI runner 启动实际镜像；没有通过的架构不能以编译成功替代运行验收。当前 Compose 使用 Linux host 网络保留产品的回环监听；尚未验收 rootless Engine 或 Docker Desktop。
 
@@ -14,7 +14,7 @@ Rovloom 的 Docker 方案运行 **Gateway**。Gateway 镜像保留管理页和 M
 
 前提：Linux 主机已安装并启动 Docker Engine，以及 Docker Compose v2。无需安装 Bun、Node、Luvus 或 Herdr来运行 Gateway 镜像。
 
-发行和镜像可用后，在一个空目录保存 `main` 中维护的 Compose 文件并启动；它默认使用官方 latest 稳定镜像：
+在一个空目录保存 `main` 中维护的 Compose 文件并启动；它默认使用官方 latest 稳定镜像：
 
 ```sh
 mkdir rovloom && cd rovloom
@@ -25,7 +25,7 @@ docker compose up -d
 docker compose ps
 ```
 
-默认镜像为 `ghcr.io/arnochenfx/rovloom:latest`，唯一镜像仓库是 GHCR。命名卷会分别保留用户配置与数据；普通 `docker compose down` 不删除它们。首次启动生成唯一用户配置 `/home/rovloom/.config/rovloom/gateway.json`，默认数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
+默认镜像为 `ghcr.io/arnochenfx/rovloom:latest`，唯一镜像仓库是 GHCR。要固定到已发布版本，在 Compose 目录的 `.env` 写入 `ROVLOOM_VERSION=0.1.1` 后再拉取。命名卷会分别保留用户配置与数据；普通 `docker compose down` 不删除它们。首次启动生成唯一用户配置 `/home/rovloom/.config/rovloom/gateway.json`，默认数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
 
 默认本机入口：
 
@@ -35,9 +35,22 @@ docker compose ps
 | MCP | `http://127.0.0.1:9444/mcp` | 未认证请求返回 401 |
 | Connector 设备监听 | `127.0.0.1:9443` | 仍须完成身份及 provider 配置 |
 
-`healthy` 只说明 MCP 的真实认证监听已响应，不表示设备已经配对、管理员已登录或原生 Agent 已就绪。首次日志中的 `pairing_required` 是待配对状态。继续按[用户快速开始](QUICK-START-zh.md)核对当前已交付的配置与配对能力。
+`healthy` 只说明 MCP 的真实认证监听已响应，不表示设备已经配对、管理员已登录或原生 Agent 已就绪。首次日志中的 `pairing_required` 是待配对状态。
 
 host 网络使这些监听直接使用主机端口，因此不要另加 `ports` 映射；运行前需确保上述端口空闲。默认没有公网监听。远程 Connector 的 TLS 入口须由用户另行明确配置标准反向代理，本文不会代配代理或修改网络设置。
+
+## 首次配对
+
+后台服务没有交互终端。在 Compose 目录的真实终端中先停止后台服务，再用同一组卷启动前台 Gateway：
+
+```sh
+docker compose stop gateway
+docker compose run --rm gateway
+```
+
+保持这个终端开启，用于配对和原生安装批准。在受支持 Linux x64 Connector 主机的另一个本地终端运行 `rovloom connector`，按[启动并配对](QUICK-START-zh.md#2-启动并配对)继续。不要让第二个 Gateway 同时使用同一数据。容器内 Gateway 配置为 `/home/rovloom/.config/rovloom/gateway.json`；Connector 使用主机自己的配置。
+
+到达 `connector_ready` 后，先停止 Connector，再按 Ctrl-C 停止前台 Gateway。执行 `docker compose up -d`，然后重新启动主机 Connector。配置和配对保留在命名卷中。
 
 ## 配置、停止与更新
 

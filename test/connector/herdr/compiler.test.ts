@@ -11,6 +11,7 @@ import {
   HERDR_COMPILER_VERSION,
   HERDR_CODE_LIMIT,
   HERDR_INPUT_LIMIT,
+  HERDR_COMPILE_TIMEOUT,
   HERDR_IDENTITY
 } from '../../../src/connector/herdr/compiler-protocol.js'
 import type {
@@ -370,7 +371,27 @@ test(
 )
 
 test(
-  '两秒整体接纳期限后不补建且拒绝迟到回复',
+  '整体期限内允许超过原两秒的编译回复',
+  { timeout: 15_000 },
+  /** 模拟较慢冷启动，仍接纳真实 Worker 生成且准确绑定当前任务的产物。 */ async () => {
+    const port = new TestPort()
+    const compiler = new HerdrSchemaCompiler(/** 仅延迟自有端口回复，不改变生产编译路径。 */ () => port)
+    const timer = setTimeout(
+      /** 超过旧期限后交付真实编译样本。 */ () => port.reply({ ok: true, value: artifact }),
+      2100
+    )
+    try {
+      assert(isCompiledHerdrSchemas(await compiler.compile(raw)))
+    } finally {
+      clearTimeout(timer)
+      compiler.close()
+    }
+  }
+)
+
+test(
+  '整体接纳期限后不补建且拒绝迟到回复',
+  { timeout: HERDR_COMPILE_TIMEOUT + 5000 },
   /** 静默自有端口不提供物理退出证明，只验证期限和退役状态。 */ async () => {
     const port = new TestPort()
     let starts = 0
@@ -382,7 +403,7 @@ test(
     )
     const started = performance.now()
     await rejected(compiler.compile(raw), 'compiler_timeout')
-    assert(performance.now() - started >= 1900)
+    assert(performance.now() - started >= HERDR_COMPILE_TIMEOUT - 100)
     port.reply({ ok: true, value: artifact })
     await rejected(compiler.compile(raw), 'compiler_unavailable')
     assert.equal(starts, 1)
@@ -422,13 +443,15 @@ test(
 )
 
 test(
-  '宿主代码初始化计入两秒整体期限',
+  '宿主代码初始化计入整体期限',
+  { timeout: HERDR_COMPILE_TIMEOUT + 5000 },
   /** 有限初始化延迟只验证超期接纳拒绝，不声称主线程可以被抢占。 */ async () => {
     const port = new TestPort()
     const compiler = new HerdrSchemaCompiler(/** 仅在此自有端口注入有界延迟。 */ () => port)
     const pending = compiler.compile(raw)
     const changed = structuredClone(artifact)
-    changed.code = 'const until = Date.now() + 2100; while (Date.now() < until) {}\n' + changed.code
+    changed.code =
+      `const until = Date.now() + ${HERDR_COMPILE_TIMEOUT + 100}; while (Date.now() < until) {}\n` + changed.code
     changed.code_sha256 = hash(changed.code)
     port.reply({ ok: true, value: changed })
     await rejected(pending, 'compiler_timeout')

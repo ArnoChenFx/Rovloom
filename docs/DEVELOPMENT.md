@@ -227,13 +227,13 @@ SDK 运行报告打印到 stdout，不写回仓库快照。
 变更已审核后运行 `bun run native:generate`，并一起审查派生文件；不手改生成代码。
 `bun run native:check` 在独立 Worker 重新完整编译并逐字节比较，正式模块与单文件构建
 强制执行该检查，失败不会自动重建。原生 fixture 字节不规范化，生成器实现摘要只统一源码 LF。
-构建观察上限独立于产品 2 秒接纳期限；运行时完整检查和精确失配回退见
+构建观察上限独立于 Luvus 的 2 秒和 Herdr 的 10 秒接纳期限；运行时完整检查和精确失配回退见
 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 Herdr 的 `src/connector/herdr/generated/` 同样保存固定 0.9.5 正式 schema 的完整根资产，
 由独立 provenance、现行 binary/schema 身份、编译器源码及实际 Ajv 包摘要绑定。
 上述 generate/check 与正式构建会分别对 Luvus、Herdr 各完整编译一次并逐字节核对；
 Herdr 运行时 Worker 用精确摘要选择已核对资产；未知 schema 从实际原字节完整编译。命中但资产损坏直接失败，不用运行时重编译掩盖损坏。
-原两秒整体接纳期限、宿主初始化校验、安装来源与不可复制品牌保持不变。
+Herdr 整体接纳期限为 10 秒，覆盖慢速平台的 Worker 冷启动；宿主初始化校验、安装来源与不可复制品牌仍逐次核对。
 更新输入时显式生成并审查差异；日常 CI 只重算比对，不修改版本化输入。
 `dist/`、Python 缓存、工具执行日志及逐轮验收报告不提交。所有采集和验证输出使用
 checkout 外的全新私有路径；SDK/工具链运行元数据也只进入 CI/PR 或临时目录。
