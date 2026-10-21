@@ -180,7 +180,7 @@ Windows Gateway使用既有用户开机任务及同一配置文件；本机Conne
 |---|---|
 | `configuration_required` / `pairing_required` | 完成 Linux 本地终端的提问和批准。仅保存 Gateway 地址不会完成设备配对。 |
 | 配置或权限错误 | 检查角色文件、绝对路径，以及当前账户能否按操作系统权限访问文件和数据目录。已有文件不会被自动重置。 |
-| `native_state_path_too_long` | 配对前选择更短的 `data.directory`；其路径加 `/n` 不得超过52个 UTF-8 字节。 |
+| `native_state_path_too_long` | 配对前选择更短的 `data.directory`；Luvus 的路径加 `/n` 不得超过52个 UTF-8 字节；Herdr 的路径加 `/hr/c/herdr/herdr-client.sock` 不得超过107个 UTF-8 字节（Unix socket 上限）。 |
 | 地址占用或连接失败 | 检查端口、Gateway 监听地址和网络可达性。 |
 | HTTP 401 | 检查 `/mcp` URL、Bearer 和有效期；配对必须已完成。 |
 | 找不到 Agent 或没有模型回复 | 检查 Agent 安装目录和隔离 Agent 环境的模型登录；仅在普通 shell 登录并不足够。 |

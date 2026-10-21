@@ -1,7 +1,7 @@
 /** 固定 Herdr 本机安装和 session 路径，校验逐级权限、文件身份及运行进程绑定；不启动 runtime。 */
 import { ChildProcess, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync } from 'node:fs'
 import { dirname, isAbsolute, join, normalize, sep } from 'node:path'
 import { boundedJson, validateTarget } from '../../wire/index.js'
 import type { V2Target } from '../../wire/types.js'
@@ -152,12 +152,39 @@ export function pinHerdrConfig(value: HerdrLocalConfig): HerdrLocalConfig {
   return Object.freeze(config)
 }
 
+/** 端点所在目录：default 会话直接位于 herdr 目录，其它会话在 sessions/<name> 下。 */
+function endpointDirectory(config: HerdrLocalConfig): string {
+  return config.target.session === 'default'
+    ? join(config.config_home, 'herdr')
+    : join(config.config_home, 'herdr', 'sessions', config.target.session)
+}
+
+/**
+ * Herdr 自己新建目录会继承宿主 umask（常见 022 → 0755），而端点目录必须是 0700。
+ * 启动前由产品逐级创建缺失的私有目录；已存在的目录不修改，仍由 inspectHerdrPath 严格复核。
+ */
+export function prepareHerdrEndpointDirectory(config: HerdrLocalConfig): void {
+  const target = endpointDirectory(config)
+  const missing: string[] = []
+  for (let current = target; current !== config.config_home; current = dirname(current)) {
+    try {
+      lstatSync(current)
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new HerdrLocalError('herdr_local_path_untrusted')
+      }
+      missing.unshift(current)
+    }
+  }
+  for (const directory of missing) {
+    mkdirSync(directory, { mode: 0o700 })
+  }
+}
+
 /** 不遍历 session list，不使用 HERDR_SOCKET 等环境覆盖；仅推导此显式目标的官方路径。 */
 export function herdrEndpoint(config: HerdrLocalConfig): HerdrEndpoint {
-  const directory =
-    config.target.session === 'default'
-      ? join(config.config_home, 'herdr')
-      : join(config.config_home, 'herdr', 'sessions', config.target.session)
+  const directory = endpointDirectory(config)
   const address = join(directory, 'herdr.sock')
   inspectHerdrPath(directory, 'directory')
   return Object.freeze({ address, stamp: inspectHerdrPath(address, 'socket'), uid: process.geteuid!() })
@@ -319,6 +346,7 @@ export async function launchHerdrProcess(config: HerdrLocalConfig): Promise<{
   const installation = verifyHerdrInstallation(fixed)
   let child: ChildProcess | undefined
   try {
+    prepareHerdrEndpointDirectory(fixed)
     const launched = spawn(fixed.binary, ['--session', fixed.target.session, 'server'], {
       cwd: fixed.cwd,
       env: herdrEnvironment(fixed),

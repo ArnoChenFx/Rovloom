@@ -203,7 +203,7 @@ service remains Linux x64. Automatic update replacement remains unavailable.
 |---|---|
 | `configuration_required` / `pairing_required` | Complete the Linux local-terminal prompts and approvals. A saved Gateway address alone does not pair the device. |
 | Configuration or permission error | Check the role file, absolute paths and whether your account can access the file and data directory through normal OS permissions. Existing files are not reset automatically. |
-| `native_state_path_too_long` | Before pairing, choose a shorter `data.directory`; its path plus `/n` must fit within 52 UTF-8 bytes. |
+| `native_state_path_too_long` | Before pairing, choose a shorter `data.directory`; for Luvus its path plus `/n` must fit within 52 UTF-8 bytes; for Herdr its path plus `/hr/c/herdr/herdr-client.sock` must fit within 107 UTF-8 bytes (Unix socket limit). |
 | Address in use / cannot connect | Check the configured ports, Gateway listener address and network reachability. |
 | HTTP 401 | Check the `/mcp` URL, Bearer and expiry; pairing must be complete. |
 | Agent executable missing / no model reply | Check the Agent installation directory and model login in the isolated Agent environment; shell login alone is insufficient. |

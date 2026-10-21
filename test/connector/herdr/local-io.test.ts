@@ -4,6 +4,7 @@ import { ChildProcess, spawnSync } from 'node:child_process'
 import { EventEmitter, once } from 'node:events'
 import {
   chmodSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -25,6 +26,7 @@ import {
   herdrEnvironment,
   inspectHerdrPath,
   pinHerdrConfig,
+  prepareHerdrEndpointDirectory,
   verifyHerdrInstallation,
   measureHerdrInstallation
 } from '../../../src/connector/herdr/local.js'
@@ -762,6 +764,35 @@ function spawn(binary, argv, options) {
       assert.equal(readFileSync(new URL('../../../src/connector/herdr/local.ts', import.meta.url), 'utf8'), source)
     } finally {
       child?.kill('SIGKILL')
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+)
+
+test(
+  'Herdr 端点目录由产品以 0700 创建，不依赖宿主 umask；已存在的目录不被修改',
+  /** Herdr 自己新建目录会继承 umask（常见 0755）并被 0700 门禁拒绝，所以启动前必须由产品建好。 */ () => {
+    const root = privateRoot()
+    const previous = process.umask(0o022)
+    try {
+      for (const session of ['default', 'owned']) {
+        const base = configFixture(mkdtempSync(join(root, 'case-')))
+        const config = pinHerdrConfig({ ...base, target: { ...base.target, session } })
+        prepareHerdrEndpointDirectory(config)
+        const directory =
+          session === 'default'
+            ? join(config.config_home, 'herdr')
+            : join(config.config_home, 'herdr', 'sessions', session)
+        assert.equal(lstatSync(directory).mode & 0o777, 0o700)
+        // 再次调用是空操作；已存在目录即使权限过宽也不被静默放行或修改。
+        prepareHerdrEndpointDirectory(config)
+        chmodSync(directory, 0o755)
+        prepareHerdrEndpointDirectory(config)
+        assert.equal(lstatSync(directory).mode & 0o777, 0o755)
+        assert.throws(() => inspectHerdrPath(directory, 'directory'), code('herdr_local_path_untrusted'))
+      }
+    } finally {
+      process.umask(previous)
       rmSync(root, { recursive: true, force: true })
     }
   }
