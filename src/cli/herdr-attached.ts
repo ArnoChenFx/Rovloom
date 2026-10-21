@@ -102,6 +102,7 @@ export async function startAttachedHerdr(
   let closed = false
   let current: Acquired | undefined
   let recovering: Promise<void> | undefined
+  const replacedListeners = new Set<() => void>()
 
   /** 附着（或自建后附着）→ 打开安装 → 建立资源；失败时释放已取得的部分。 */
   async function acquire(): Promise<Acquired> {
@@ -157,6 +158,14 @@ export async function startAttachedHerdr(
           return
         }
         current = next
+        // 旧 epoch 绑着已丢失的实例；通知宿主结束当前连接周期，下一次认证取到新资源。
+        for (const listener of replacedListeners) {
+          try {
+            listener()
+          } catch {
+            // 宿主侧的通知失败不影响来源本身。
+          }
+        }
         return
       } catch {
         await pause(delay, undefined, { signal: stop.signal }).catch(() => {})
@@ -192,6 +201,12 @@ export async function startAttachedHerdr(
         throw new HerdrLocalError('herdr_production_source_closed')
       }
       return current.resources.session(connection)
+    },
+    session_replaced(listener: () => void): () => void {
+      replacedListeners.add(listener)
+      return () => {
+        replacedListeners.delete(listener)
+      }
     },
     async release(): Promise<void> {
       closed = true

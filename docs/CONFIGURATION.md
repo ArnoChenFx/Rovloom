@@ -68,6 +68,8 @@ Setting an address does not establish pairing or install a native provider.
 | `native.provider` | String enum, optional | Omitted: `luvus`; `herdr` selects Herdr, `mixed` selects one of each. Choose before native initialization; changing an initialized selection requires a future reconfiguration flow. |
 | `native.runtime_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Where to look for the selected `luvus`/`herdr` programs. Search order: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. Different programs may live in different directories. No shell expansion or executable argv. |
 | `native.agent_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Directories searched for Agent programs. At native setup the Agent PATH is fixed as: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. It does not install or authenticate an Agent. |
+| `native.herdr.mode` | `"attach"` (default) or `"managed"`, optional | Herdr only. `attach`: connect to the Herdr you already run, start one in your own config directory only if none is running, and re-attach/re-create it when it disappears. `managed`: a private isolated instance owned by the Connector. See [Herdr: attach or managed](#herdr-attach-or-managed). |
+| `native.herdr.config_home` | Normalized absolute directory string, optional | Attach mode: the config directory your Herdr uses (default `$XDG_CONFIG_HOME`, else `~/.config`). Set it when the Connector runs as a service whose environment differs from your terminal. |
 
 Enabled Gateway listeners must use different ports. Unknown fields, old flat
 fields, runtime/ref selectors, TLS/CA paths, schema hashes, binary pins and
@@ -188,6 +190,29 @@ A known precompiled digest is a cache key; unknown schema bytes are fully compil
 within the same compiler budget. These are integration checks, not user JSON fields.
 Internal discovery does not complete the user-facing provider setup or install
 native programs; first-file generation does not prepare native settings or model access.
+
+## Herdr: attach or managed
+
+**attach (default).** Setup records your real `HOME` and XDG directories (taken from the Connector's
+environment, or `native.herdr.config_home`). On every start the Connector:
+
+1. looks for a Herdr server on the default session's endpoint and attaches only if the peer is
+   proven to be your installed `herdr`: same user, the process executable is the same file as the
+   configured binary, and its command line is `herdr server` (or `--session <name> server`);
+2. otherwise starts `herdr --session <name> server` in your config directory, detached — it keeps
+   running (and keeps your workspaces) after the Connector exits;
+3. watches the instance. If it disappears, the Connector closes the old resources, re-attaches or
+   starts a new one with backoff, and ends the current connection so the next authenticated epoch
+   uses the new instance. Calls in flight at that moment stay `outcome_unknown` and are never resent.
+
+A listener that is **not** your installed `herdr` is never attached and never replaced. The server
+the Connector starts gets your shell and Git configuration but not other environment variables
+(SSH agent, API keys); configure Agent credentials in the Agent's own files.
+Remote callers act on your **real** workspaces; the Gateway grants and `allow_terminal_execution`
+remain the only fences.
+
+**managed.** A private instance under the Connector's data directory (`<data.directory>/hr`), owned
+by the Connector and stopped with it. Nothing in your ordinary home is shared.
 
 ## Restart after a crash
 

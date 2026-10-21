@@ -2,7 +2,7 @@
 import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { configTemplate, parseConfig, selectedNativeProviders } from '../../src/cli/config.js'
+import { configTemplate, herdrMode, parseConfig, selectedNativeProviders } from '../../src/cli/config.js'
 
 test(
   '双角色模板在各平台生成本机规范绝对占位路径并经过同一严格解析',
@@ -109,5 +109,31 @@ test(
       /* POSIX模板不能靠忽略分隔符规范性在Windows上通过。 */ () =>
         parseConfig(configDocument(configTemplate('gateway', 'linux')), 'win32')
     )
+  }
+)
+
+test(
+  'native.herdr 只接受 attach/managed 与规范绝对的 config_home，默认附着',
+  /* 运行方式决定信任模型，必须是明确枚举；路径沿用与其它安装目录相同的规范绝对规则。 */ () => {
+    const base = configDocument(configTemplate('connector', 'linux'))
+    const parse = (native: unknown) => parseConfig({ ...base, native }, 'linux')
+    assert.equal(herdrMode(parse({}) as never), 'attach')
+    assert.equal(herdrMode(parse({ herdr: { mode: 'managed' } }) as never), 'managed')
+    const configured = parse({ provider: 'herdr', herdr: { mode: 'attach', config_home: '/home/u/.config' } })
+    assert.equal(
+      (configured as { native?: { herdr?: { config_home?: string } } }).native?.herdr?.config_home,
+      '/home/u/.config'
+    )
+    for (const herdr of [
+      { mode: 'shared' },
+      { mode: true },
+      { config_home: 'relative/dir' },
+      { config_home: '/home/u/../x' },
+      { config_home: ['/a'] },
+      { extra: 1 },
+      'attach'
+    ]) {
+      assert.throws(() => parse({ herdr }), { code: 'invalid_config' })
+    }
   }
 )

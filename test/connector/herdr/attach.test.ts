@@ -16,6 +16,7 @@ import {
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { observeHerdrServer } from '../../../src/connector/herdr/attach.js'
+import { herdrServerPresent } from '../../../src/cli/herdr-attached.js'
 import {
   HerdrAttachedBinding,
   HerdrLocalError,
@@ -175,5 +176,20 @@ test('shared_directory 接受用户自己的 0755 目录，拒绝组/其他可�
     assert.throws(() => inspectHerdrPath(file, 'shared_directory'), { code: 'herdr_local_path_untrusted' })
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('herdrServerPresent：无端点、遗留的无监听 socket 文件都算没有实例，能连上才算有', { skip: !linux }, async () => {
+  const f = fixture()
+  try {
+    assert.equal(await herdrServerPresent(f.config), false)
+    const child = await f.serve()
+    assert.equal(await herdrServerPresent(f.config), true)
+    // 进程被强杀后 socket 文件原样遗留，但没有监听者：应触发自建而不是当成实例存在。
+    child.kill('SIGKILL')
+    await once(child, 'close')
+    assert.equal(await herdrServerPresent(f.config), false)
+  } finally {
+    await f.close()
   }
 })

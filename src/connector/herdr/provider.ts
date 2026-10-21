@@ -80,6 +80,8 @@ export type HerdrConnectorResources = Readonly<{
   session(connection: Connection): ConnectorWireSession
   release(): Promise<void>
   release_timeout_ms: number
+  // 来源在后台被替换（实例丢失后重新附着/重建）时通知宿主结束当前连接周期，让下一次认证 epoch 取到新会话。
+  session_replaced?(listener: () => void): () => void
 }>
 /** 结构兼容 #8 目录端口；expires_at 只是目录视图期限，不是原生 lease 或调用截止。 */
 export type HerdrProviderCatalogSource = Readonly<{

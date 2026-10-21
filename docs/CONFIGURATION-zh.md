@@ -64,6 +64,8 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `native.provider` | string enum，可选 | 省略时为 `luvus`；`herdr` 仅选 Herdr，`mixed` 各选一个。首次初始化前选定；已初始化选择的变更仍需未来的重配置流程。 |
 | `native.runtime_bin_dirs` | 1–16 个互不重复的规范绝对目录 string 数组（每项≤4096字符），可选 | 查找所选 `luvus`/`herdr` 程序的位置。搜索顺序：数组内目录依序，其后是 Connector 启动时 `PATH` 中可用的条目，最后是 `/usr/bin:/bin`。不同程序可装在不同目录。不接受 shell 展开或可执行 argv。 |
 | `native.agent_bin_dirs` | 1–16 个互不重复的规范绝对目录 string 数组（每项≤4096字符），可选 | 查找 Agent 程序的目录。原生初始化时 Agent PATH 固化为：数组内目录依序，其后是 Connector 启动时 `PATH` 中可用的条目，最后是 `/usr/bin:/bin`。不安装或认证 Agent。 |
+| `native.herdr.mode` | `"attach"`（默认）或 `"managed"`，可选 | 仅 Herdr。`attach`：连接你已在运行的 Herdr，仅在没有实例时在你自己的配置目录里启动一个，实例消失后重新附着/重建。`managed`：Connector 私有、由它拥有的隔离实例。见[Herdr：附着或隔离](#herdr附着或隔离)。 |
+| `native.herdr.config_home` | 规范绝对目录 string，可选 | 附着模式下你的 Herdr 使用的配置目录（默认 `$XDG_CONFIG_HOME`，否则 `~/.config`）。Connector 以服务运行、环境与你的终端不同时请显式设置。 |
 
 Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、runtime/ref 选择、TLS/CA
 路径、schema 摘要、binary pin 和凭据值均拒绝。用户参数不含原生 root、账本、绑定或
@@ -152,6 +154,21 @@ revision 字符串标识 Rovloom 适配/分类代码，其中的历史版本文�
 schema 输出保留原字节。已知预编译摘要只用于缓存命中，未知 schema 在同一编译预算内完整编译。
 这些是接入检查，不是用户 JSON 字段。内部发现不等于用户侧 provider 初始化或安装原生程序；
 首次生成配置文件不会准备原生设置或模型访问。
+
+## Herdr：附着或隔离
+
+**attach（默认）。** 初始化时记录你真实的 `HOME` 与 XDG 目录（取自 Connector 的环境，或 `native.herdr.config_home`）。每次启动 Connector 会：
+
+1. 在默认会话的端点上寻找 Herdr 服务端；只有证明对端就是你已安装的 `herdr` 才附着：同一用户、进程可执行文件与配置的二进制是同一文件、
+   命令行为 `herdr server`（或 `--session <名> server`）；
+2. 没有实例才在你的配置目录里以脱离方式启动 `herdr --session <名> server`——Connector 退出后它继续运行（工作区也保留）；
+3. 持续监视该实例。实例消失时，Connector 关闭旧资源、带退避地重新附着或启动新实例，并结束当前连接，使下一个认证周期使用新实例。此刻在途的调用保持
+   `outcome_unknown`，不会重发。
+
+**不是**你已安装 `herdr` 的监听者既不会被附着也不会被替换。Connector 启动的服务端继承你的 shell 与 Git 配置，但不继承其它环境变量（SSH agent、API key 等），
+Agent 凭据请配置在 Agent 自己的文件里。远程调用会操作你的**真实**工作区，Gateway 授权与 `allow_terminal_execution` 仍是仅有的围栏。
+
+**managed。** 在 Connector 数据目录下（`<data.directory>/hr`）的私有实例，由 Connector 拥有并随之停止，不共享你普通 home 里的任何东西。
 
 ## 崩溃后重启
 
