@@ -9,7 +9,7 @@ export const HERDR_DIALECT = 'https://json-schema.org/draft/2020-12/schema'
 export const HERDR_SCHEMA_ID = 'urn:rovloom:herdr:schema'
 export const HERDR_INPUT_LIMIT = 512 * 1024
 export const HERDR_CODE_LIMIT = 8 * 1024 * 1024
-export const HERDR_COMPILE_TIMEOUT = 2000
+export const HERDR_COMPILE_TIMEOUT = 10_000
 export const HERDR_WORKER_FAILURES: readonly string[] = Object.freeze([
   'schema_input_limit',
   'schema_digest_mismatch',

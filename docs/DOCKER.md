@@ -6,7 +6,7 @@ The Docker setup runs the **Gateway**, including its management page and MCP ser
 
 ## Availability
 
-No official image is available yet. The commands below become usable only after the official latest stable product release succeeds, its GitHub Release is public, the subsequent GHCR workflow succeeds, and the package permits anonymous pulls.
+The official `ghcr.io/arnochenfx/rovloom:latest` and `:0.1.1` images are published and permit anonymous pulls. The latest stable product release and its subsequent GHCR workflow have passed; the binaries are available in the [official release](https://github.com/ArnoChenFx/Rovloom/releases/latest).
 
 The targets are native Linux rootful Docker Engine on `linux/amd64` and `linux/arm64`. CI starts each image on a matching native runner; compilation alone is insufficient acceptance. This Compose file uses Linux host networking to preserve the product's loopback listeners. Rootless Engine and Docker Desktop have not been accepted by these tests.
 
@@ -14,7 +14,7 @@ The targets are native Linux rootful Docker Engine on `linux/amd64` and `linux/a
 
 Install and start Docker Engine and Docker Compose v2 on your Linux host. Running the Gateway image requires no Bun, Node, Luvus, or Herdr installation.
 
-Once the release and image are available, save the maintained Compose file from `main` in an empty directory. It defaults to the official latest stable image:
+Save the maintained Compose file from `main` in an empty directory. It defaults to the official latest stable image:
 
 ```sh
 mkdir rovloom && cd rovloom
@@ -25,7 +25,7 @@ docker compose up -d
 docker compose ps
 ```
 
-The default image is `ghcr.io/arnochenfx/rovloom:latest`; GHCR is the only image registry. Separate named volumes preserve configuration and data; ordinary `docker compose down` keeps them. First startup creates one user configuration file at `/home/rovloom/.config/rovloom/gateway.json`. Its default data directory is `/home/rovloom/.local/share/rovloom/gateway`.
+The default image is `ghcr.io/arnochenfx/rovloom:latest`; GHCR is the only image registry. To pin the published version, set `ROVLOOM_VERSION=0.1.1` in the Compose directory's `.env` before pulling. Separate named volumes preserve configuration and data; ordinary `docker compose down` keeps them. First startup creates one user configuration file at `/home/rovloom/.config/rovloom/gateway.json`. Its default data directory is `/home/rovloom/.local/share/rovloom/gateway`.
 
 Default local endpoints:
 
@@ -35,9 +35,22 @@ Default local endpoints:
 | MCP | `http://127.0.0.1:9444/mcp` | Unauthenticated requests receive 401 |
 | Connector device listener | `127.0.0.1:9443` | Identity and provider configuration are still required |
 
-`healthy` means the real MCP authentication listener responds. It does not establish pairing, an administrator login, or native Agent readiness. The initial `pairing_required` diagnostic means setup is pending. Follow the [User Quick Start](QUICK-START.md) for the configuration and pairing capabilities currently delivered.
+`healthy` means the real MCP authentication listener responds. It does not establish pairing, an administrator login, or native Agent readiness. The initial `pairing_required` diagnostic means setup is pending.
 
 Host networking uses the host's ports directly. Leave those ports free and do not add `ports` mappings. Defaults do not create a public listener. Remote Connectors require an explicitly configured standard TLS reverse proxy; these files do not configure a proxy or change host networking.
+
+## First pairing
+
+The background service has no interactive terminal. In a real terminal in the Compose directory, stop it and start a foreground Gateway using the same volumes:
+
+```sh
+docker compose stop gateway
+docker compose run --rm gateway
+```
+
+Keep this terminal open for pairing and native installation approval. In another local terminal on the supported Linux x64 Connector host, run `rovloom connector` and follow [Start and pair](QUICK-START.md#2-start-and-pair). Do not run a second Gateway against the same data. The container's Gateway configuration is `/home/rovloom/.config/rovloom/gateway.json`; the Connector uses its own host configuration.
+
+Once setup reaches `connector_ready`, stop the Connector and then the foreground Gateway with Ctrl-C. Run `docker compose up -d`, then restart the host Connector. Configuration and pairing remain in the named volumes.
 
 ## Configure, stop, and update
 

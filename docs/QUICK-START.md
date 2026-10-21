@@ -11,13 +11,72 @@ flow below requires Linux x64. Guided Agent/model login is not available yet. A 
 
 ## 1. Prepare the programs
 
-There is no public Rovloom installation package yet. Obtain the standalone
-executable from your administrator, put it on your PATH and check it:
+### Linux and macOS
+
+Install the latest stable release on x64 or arm64 (Linux requires glibc):
+
+```sh
+curl --fail --silent --show-error --location https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/scripts/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+The default destination is `~/.local/bin/rovloom`. The installer requires `curl`
+and `sha256sum` or `shasum`; it does not require Bun, Node or root access.
+
+### Windows PowerShell
+
+Install the latest stable release for the native x64 or arm64 architecture:
+
+```powershell
+Invoke-RestMethod https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/scripts/install.ps1 | Invoke-Expression
+$env:Path = "$env:LOCALAPPDATA\Rovloom\bin;$env:Path"
+```
+
+The default destination is `%LOCALAPPDATA%\Rovloom\bin\rovloom.exe`.
+Both installers verify the binary against the release's `SHA256SUMS` before
+replacing an existing program. They install only the binary; they do not create
+role configuration or services. The PATH commands above affect the current
+terminal; add the installation directory to your user PATH for future terminals.
+Check the installation:
 
 ```sh
 rovloom --version
 rovloom --help
 ```
+
+You can also download a binary and `SHA256SUMS` from the
+[official releases](https://github.com/ArnoChenFx/Rovloom/releases/latest).
+See [distribution details](DISTRIBUTION.md#用户安装器) for installer options.
+
+### Docker Gateway on Linux
+
+With Docker Engine and Compose v2 on a native Linux x64 or arm64 host, run the
+Gateway without installing the binary on that host:
+
+```sh
+mkdir rovloom && cd rovloom
+curl --fail --location --output compose.yaml \
+  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/compose.yaml
+docker compose pull
+docker compose up -d
+docker compose ps
+```
+
+The official image is `ghcr.io/arnochenfx/rovloom:latest`; to pin the published
+version, set `ROVLOOM_VERSION=0.1.1` in this directory's `.env` before pulling.
+The Compose file uses Linux host networking and persistent configuration/data
+volumes. Keep ports 9443, 9444 and 9445 free; no `ports` mappings are needed.
+Rootless Docker and Docker Desktop are not validated deployment targets.
+
+The management page is at `http://127.0.0.1:9445/`, and MCP at
+`http://127.0.0.1:9444/mcp`. A fresh Gateway is unpaired: `healthy` confirms the
+listener responds, and MCP returns 401 without authentication. Continue with
+the terminal pairing below. Run the Connector on the supported Linux x64 host
+that owns Luvus/Herdr. See [Docker deployment](DOCKER.md) for configuration,
+backup and upgrades; `docker compose down` keeps volumes, while `down -v`
+deletes configuration and data.
+
+### Luvus, Herdr and your Agent
 
 For the guided setup below, install official [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest),
 [latest Herdr](https://github.com/herdrdev/herdr/releases/latest), or both on the Connector machine. Install your chosen Agent separately if you want a
@@ -41,6 +100,18 @@ Run these commands in two real local terminals, keeping both open:
 |---|---|
 | `rovloom gateway` | `rovloom connector` |
 
+For a Docker Gateway, use these commands in a real terminal in the Compose
+directory instead of `rovloom gateway`:
+
+```sh
+docker compose stop gateway
+docker compose run --rm gateway
+```
+
+This foreground instance reuses the same volumes and shows the pairing prompts.
+Keep it open throughout approval; do not run two Gateways against the same data.
+The Connector command still runs on its host, outside the container.
+
 1. In the Gateway terminal, approve pairing to obtain a private one-time code,
    valid for five minutes.
 2. In the Connector terminal, enter the Gateway address. For the same machine,
@@ -51,6 +122,10 @@ Run these commands in two real local terminals, keeping both open:
 4. Save the MCP connection details displayed privately by the Gateway in your
    MCP client's secret storage. Wait for **`connector_ready`** before trying a call.
 
+After completing Docker setup, stop the Connector and then the foreground Gateway
+with Ctrl-C. Run `docker compose up -d`, then restart `rovloom connector` on its
+host. The saved pairing remains in the volumes.
+
 Each role automatically creates its own missing user file, then uses that same
 file on later starts. **Default configuration and user configuration are the
 same file.** You do not need to prepare other configuration files.
@@ -59,6 +134,9 @@ same file.** You do not need to prepare other configuration files.
 |---|---|
 | Gateway | `~/.config/rovloom/gateway.json` |
 | Connector | `~/.config/rovloom/connector.json` |
+
+For Docker, the Gateway file is inside the configuration volume at
+`/home/rovloom/.config/rovloom/gateway.json`.
 
 Existing files are read without being reset, including when an error needs your
 attention. To change an installation directory, stop the Connector before native

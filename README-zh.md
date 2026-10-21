@@ -11,7 +11,8 @@ Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构�
 让 runtime 留在各自机器上，AI Agent / AI Bot 通过同一入口访问。
 
 **当前可用范围：** Linux/macOS/Windows Gateway 与 Linux x64 Connector 设置的技术预览。
-首次配对审批要求 Linux。尚无公开安装包和 Agent/模型登录引导，参见[快速开始](docs/QUICK-START-zh.md)。
+已提供官方二进制、安装脚本和 Linux Gateway Docker 镜像，参见[快速开始](docs/QUICK-START-zh.md)
+与 [Docker 部署](docs/DOCKER-zh.md)。首次配对审批要求 Linux，Agent/模型登录引导尚不可用。
 
 ## 核心能力
 

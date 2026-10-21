@@ -11,12 +11,67 @@ Agent/模型登录引导尚不可用；全新安装目前还不能只靠 Rovloom
 
 ## 1. 准备程序
 
-Rovloom 暂无公开安装包。请从管理员获取独立可执行程序，放入 PATH 后检查：
+### Linux 与 macOS
+
+在 x64 或 arm64 上安装最新稳定版；Linux 要求 glibc：
+
+```sh
+curl --fail --silent --show-error --location https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/scripts/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+默认安装到 `~/.local/bin/rovloom`。安装器需要 `curl` 和 `sha256sum` 或 `shasum`，
+无需 Bun、Node 或 root 权限。
+
+### Windows PowerShell
+
+按操作系统原生 x64 或 arm64 架构安装最新稳定版：
+
+```powershell
+Invoke-RestMethod https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/scripts/install.ps1 | Invoke-Expression
+$env:Path = "$env:LOCALAPPDATA\Rovloom\bin;$env:Path"
+```
+
+默认安装到 `%LOCALAPPDATA%\Rovloom\bin\rovloom.exe`。
+两个安装器都会先按发行中的 `SHA256SUMS` 校验二进制，再替换已有程序。
+它们只安装程序，不创建角色配置或系统服务。上面的 PATH 设置仅对当前终端生效；
+后续终端需要将安装目录加入用户 PATH。安装后检查：
 
 ```sh
 rovloom --version
 rovloom --help
 ```
+
+也可从[官方 Release](https://github.com/ArnoChenFx/Rovloom/releases/latest)手动下载二进制和
+`SHA256SUMS`。安装器选项见[分发说明](DISTRIBUTION.md#用户安装器)。
+
+### Linux Docker Gateway
+
+在原生 Linux x64 或 arm64 主机安装 Docker Engine 和 Compose v2 后，
+可直接运行 Gateway，无需在该主机安装二进制：
+
+```sh
+mkdir rovloom && cd rovloom
+curl --fail --location --output compose.yaml \
+  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/compose.yaml
+docker compose pull
+docker compose up -d
+docker compose ps
+```
+
+官方镜像为 `ghcr.io/arnochenfx/rovloom:latest`；要固定到已发布版本，
+在此目录的 `.env` 写入 `ROVLOOM_VERSION=0.1.1` 后再拉取。
+Compose 使用 Linux host 网络，以及分别保存配置和数据的持久卷。
+需保持 9443、9444、9445 端口空闲，无需添加 `ports` 映射。
+Rootless Docker 和 Docker Desktop 尚未作为部署目标验收。
+
+管理页位于 `http://127.0.0.1:9445/`，MCP 位于 `http://127.0.0.1:9444/mcp`。
+全新 Gateway 尚未配对：`healthy` 只说明监听已响应，未认证的 MCP 请求返回 401。
+继续按下文在终端完成配对。Connector 仍运行在安装 Luvus/Herdr 的受支持 Linux x64 主机上。
+配置、备份与升级见 [Docker 部署](DOCKER-zh.md)；`docker compose down` 保留卷，
+`down -v` 会删除配置和数据。
+
+### Luvus、Herdr 与 Agent
 
 按下面的引导使用时，请在 Connector 机器安装官方 [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest)、
 [latest Herdr](https://github.com/herdrdev/herdr/releases/latest) 或两者。
@@ -37,6 +92,16 @@ rovloom --help
 |---|---|
 | `rovloom gateway` | `rovloom connector` |
 
+Docker Gateway 应在 Compose 目录的真实终端中，用以下命令代替 `rovloom gateway`：
+
+```sh
+docker compose stop gateway
+docker compose run --rm gateway
+```
+
+前台实例复用同一组卷并显示配对提示，批准期间保持终端开启。
+不要让两个 Gateway 同时使用同一数据目录。Connector 命令仍在容器外的原生主机执行。
+
 1. 在 Gateway 终端同意配对，获取有效期五分钟的私密一次性码。
 2. 在 Connector 终端输入 Gateway 地址。同机使用 `ws://127.0.0.1:9443`。
    粘贴一次性码，并确认信任这个 Gateway。
@@ -45,6 +110,10 @@ rovloom --help
 4. 将 Gateway 私密显示的 MCP 接入信息保存到 MCP 客户端的秘密存储。
    等待 **`connector_ready`** 后再尝试调用。
 
+Docker 设置完成后，先停止 Connector，再按 Ctrl-C 停止前台 Gateway。
+执行 `docker compose up -d`，然后在主机重新运行 `rovloom connector`；
+卷中已保存的配对会保留。
+
 每个角色会自动创建缺失的用户文件，后续启动继续读取它。
 **默认配置和用户配置是同一份文件**，无需准备其他配置文件。
 
@@ -52,6 +121,8 @@ rovloom --help
 |---|---|
 | Gateway | `~/.config/rovloom/gateway.json` |
 | Connector | `~/.config/rovloom/connector.json` |
+
+Docker 的 Gateway 文件位于配置卷中的 `/home/rovloom/.config/rovloom/gateway.json`。
 
 文件存在就读取，不会重置；文件出错时也不会被覆盖。需要更改安装目录时，
 在原生批准前停止 Connector，编辑 `connector.json` 后重新启动。
