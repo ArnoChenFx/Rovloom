@@ -19,6 +19,7 @@ import type { ProviderPolicies } from '../wire/types.js'
 import type { Connection } from '../transport/index.js'
 import { CliError } from './config.js'
 import type { ProductionCliSources, ProductionProviderReference } from './production.js'
+import { startAttachedHerdr } from './herdr-attached.js'
 import { createHerdrProductSources } from './herdr-sources.js'
 import { HERDR_OWNER_FORMAT, currentProcessIdentity, recoverHerdrCrashResidue } from './herdr-crash-recovery.js'
 import { readRuntimeFile } from './runtime-files.js'
@@ -28,7 +29,7 @@ import { pinTerminalExecution } from '../connector/terminal-execution.js'
 export type HerdrProductionOwnerConfig = Readonly<{
   kind: 'herdr'
   config: HerdrProviderRefConfig & { connector: NonNullable<HerdrProviderRefConfig['connector']> }
-  native: Readonly<{ mode: 'managed' }>
+  native: Readonly<{ mode: 'managed' | 'attach' }>
   policies: ProviderPolicies
 }>
 
@@ -47,8 +48,10 @@ function reference(input: readonly ProductionProviderReference[]): HerdrProducti
     const config = parseHerdrProviderRefConfig(value.config)
     if (
       value.kind !== 'herdr' ||
-      native.mode !== 'managed' ||
+      (native.mode !== 'managed' && native.mode !== 'attach') ||
       !config.connector ||
+      // 记录里的模式与本地配置的 attach 标志必须一致，不能靠改一处切换信任模型。
+      (native.mode === 'attach') !== (config.connector.local.attach === true) ||
       config.config_ref !== entry.reference
     ) {
       throw new CliError('invalid_config')
@@ -58,7 +61,7 @@ function reference(input: readonly ProductionProviderReference[]): HerdrProducti
     return {
       kind: 'herdr',
       config: { ...config, connector: config.connector },
-      native: { mode: 'managed' },
+      native: { mode: native.mode },
       policies
     }
   } catch {
@@ -257,6 +260,10 @@ export function createHerdrProductionSources(): ProductionCliSources {
         bytes.fill(0)
       }
       verifyHerdrInstallation(local, config.expected_source.binary_sha256)
+      if (selected.native.mode === 'attach') {
+        // 附着模式：用户自己的会话，不创建 owner 记录、不拥有进程，也不做 managed 的崩溃遗留清理。
+        return startAttachedHerdr(selected, terminalExecution ? { terminalExecution } : {})
+      }
       const ownerPath = join(local.config_home, `.rovloom-herdr-${local.target.session}.owner.json`)
       // 上一个 Connector 若崩溃，只有证明其已死且端点无人监听才清理；否则下面仍按原样拒绝。
       if (

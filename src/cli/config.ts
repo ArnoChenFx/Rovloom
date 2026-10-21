@@ -31,10 +31,17 @@ export type ConnectorConfig = Readonly<{
     provider?: 'luvus' | 'herdr' | 'mixed'
     runtime_bin_dirs?: readonly string[]
     agent_bin_dirs?: readonly string[]
+    // Herdr 专属：attach（默认）附着用户真实会话、不存在才自建；managed 在 Connector 私有目录里拉一个隔离实例。
+    herdr?: Readonly<{ mode?: 'attach' | 'managed'; config_home?: string }>
   }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
 export type NativeProviderKind = 'luvus' | 'herdr'
+
+// Herdr 的运行方式：默认附着用户已在运行的实例（不存在才自建），managed 为 Connector 私有的隔离实例。
+export function herdrMode(config: ConnectorConfig): 'attach' | 'managed' {
+  return config.native?.herdr?.mode ?? 'attach'
+}
 
 // 省略选择时保留已有Luvus首次路径；混合选择只包含两份固定来源，不接受任意provider注册。
 export function selectedNativeProviders(config: ConnectorConfig): readonly NativeProviderKind[] {
@@ -242,8 +249,18 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
     const native =
       input.native === undefined
         ? undefined
-        : exact(input.native, [], ['provider', 'runtime_bin_dirs', 'agent_bin_dirs'])
+        : exact(input.native, [], ['provider', 'runtime_bin_dirs', 'agent_bin_dirs', 'herdr'])
     if (native) {
+      if (native.herdr !== undefined) {
+        const herdr = exact(native.herdr, [], ['mode', 'config_home'])
+        if (
+          (herdr.mode !== undefined && !['attach', 'managed'].includes(herdr.mode as string)) ||
+          (herdr.config_home !== undefined && !fixedPath(herdr.config_home, platform))
+        ) {
+          return fail()
+        }
+        Object.freeze(herdr)
+      }
       if (native.provider !== undefined && !['luvus', 'herdr', 'mixed'].includes(native.provider as string)) {
         return fail()
       }

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, copyFileSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -94,8 +94,8 @@ export async function until(label, attempt, { tries = 100, interval = 100 } = {}
 }
 
 /** 新建一套Gateway + Connector + 官方Herdr；返回可重复启停的句柄。 */
-export async function createStack({ binary, herdrBinary, methods = ['ping'], connectorSettings = {} }) {
-  const f = await createDualRoleFixture({ herdrBinary, methods, connectorSettings })
+export async function createStack({ binary, herdrBinary, methods = ['ping'], connectorSettings = {}, attach = false }) {
+  const f = await createDualRoleFixture({ herdrBinary, methods, connectorSettings, attach })
   const cwd = join(f.root, 'empty-cwd')
   const home = join(f.root, 'empty-home')
   const emptyPath = join(f.root, 'empty-path')
@@ -218,6 +218,42 @@ export async function createStack({ binary, herdrBinary, methods = ['ping'], con
         state.close()
       }
     },
+    /** 本例所有以夹具 herdr 为可执行文件的进程（含 Connector 自建后放手的、用户式启动的）。 */
+    herdrProcesses() {
+      const result = []
+      for (const entry of readdirSync('/proc')) {
+        if (!/^[0-9]+$/u.test(entry)) continue
+        try {
+          if (readlinkSync(`/proc/${entry}/exe`) === f.nativeBinary) {
+            const stat = readFileSync(`/proc/${entry}/stat`, 'utf8')
+            result.push({ pid: Number(entry), started: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] })
+          }
+        } catch {
+          // 并发退出或不可读的进程不属于本例。
+        }
+      }
+      return result
+    },
+    /** 像用户那样先自己运行一个 herdr 服务端（Connector 之外），返回 PID。 */
+    async startUserHerdr() {
+      const child = spawn(f.nativeBinary, ['--session', f.target.session, 'server'], {
+        cwd: f.native.cwd,
+        env: {
+          PATH: '/usr/bin:/bin',
+          HOME: f.native.home,
+          XDG_CONFIG_HOME: f.native.config_home,
+          XDG_STATE_HOME: f.native.state_home,
+          XDG_CACHE_HOME: f.native.cache_home,
+          TMPDIR: f.native.temporary_home,
+          LANG: 'C.UTF-8'
+        },
+        detached: true,
+        stdio: 'ignore'
+      })
+      child.unref()
+      await until('user_herdr_endpoint', async () => existsSync(f.endpoint), { tries: 100, interval: 100 })
+      return child.pid
+    },
     /** 本例Connector的直接native子进程。 */
     natives() {
       return nativeChildren(stack.connector, f.nativeBinary)
@@ -238,6 +274,15 @@ export async function createStack({ binary, herdrBinary, methods = ['ping'], con
           await item.stop().catch((error) => problems.push(String(error.message)))
         }
       }
+      // 附着模式下 Connector 自建的实例会在其退出后继续运行（设计如此），夹具负责最终回收。
+      for (const item of stack.herdrProcesses()) {
+        try {
+          process.kill(item.pid, 'SIGKILL')
+        } catch {
+          // 已退出。
+        }
+      }
+      await pause(300)
       try {
         f.close()
       } catch (error) {

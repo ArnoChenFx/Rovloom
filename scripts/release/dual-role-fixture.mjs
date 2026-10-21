@@ -60,7 +60,8 @@ export async function createDualRoleFixture({
   herdrBinary,
   parent = process.env.LUVUS_TEST_ROOT ?? dirname(resolve(sourceRoot)),
   methods = ['ping'],
-  connectorSettings = {}
+  connectorSettings = {},
+  attach = false
 } = {}) {
   assert.equal(process.platform, 'linux', 'dual_role_native_platform_unsupported')
   assert.equal(process.arch, 'x64', 'dual_role_native_arch_unsupported')
@@ -255,12 +256,19 @@ export async function createDualRoleFixture({
     const limits = { entries: 128, bytes: 1_048_576 }
     const connectorValue = {
       kind: 'herdr',
-      native: { mode: 'managed' },
+      native: { mode: attach ? 'attach' : 'managed' },
       policies: { caller: callerPolicy, local: localPolicy },
       config: {
         ...config,
         connector: {
-          local: { target, binding_revision: 1, config_ref: config.config_ref, binary, ...native },
+          local: {
+            target,
+            binding_revision: 1,
+            config_ref: config.config_ref,
+            binary,
+            ...native,
+            ...(attach ? { attach: true } : {})
+          },
           principal_id: principal,
           claims: { path: join(ledger, 'claims.sqlite'), mode: 'create', ledger_id: 'synthetic_claims', limits }
         }

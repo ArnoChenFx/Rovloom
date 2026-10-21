@@ -216,11 +216,26 @@ export function herdrEnvironment(config: HerdrLocalConfig): NodeJS.ProcessEnv {
     XDG_CACHE_HOME: config.cache_home,
     TMPDIR: config.temporary_home,
     TERM: 'xterm-256color',
-    SHELL: '/bin/sh',
     LANG: 'C.UTF-8',
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CEILING_DIRECTORIES: config.cwd
+    ...(config.attach
+      ? // 附着/自建的是用户自己的会话：沿用用户的 shell 与 git 配置；SSH agent、API key 等环境变量仍不继承。
+        { SHELL: userShell() }
+      : {
+          SHELL: '/bin/sh',
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_CEILING_DIRECTORIES: config.cwd
+        })
+  }
+}
+
+/** 用户的登录 shell（来自 Connector 自己的环境）；不是绝对路径或不存在则回退 /bin/sh。 */
+function userShell(): string {
+  const shell = process.env.SHELL
+  try {
+    return shell && isAbsolute(shell) && statSync(shell).isFile() ? shell : '/bin/sh'
+  } catch {
+    return '/bin/sh'
   }
 }
 
@@ -264,10 +279,13 @@ export function measureHerdrInstallation(config: HerdrLocalConfig): Readonly<{ s
     } finally {
       closeSync(fd)
     }
-    for (const path of [config.home, config.state_home, config.cache_home, config.temporary_home, config.cwd]) {
-      inspectHerdrPath(path, 'directory')
+    // 附着模式下 home/config/state/cache/cwd 都是用户真实目录（属主为当前用户、不被组/其他写入即可）；
+    // 临时目录仍由产品私有创建。
+    const runtime = config.attach ? 'shared_directory' : 'directory'
+    for (const path of [config.home, config.config_home, config.state_home, config.cache_home, config.cwd]) {
+      inspectHerdrPath(path, runtime)
     }
-    inspectHerdrPath(config.config_home, config.attach ? 'shared_directory' : 'directory')
+    inspectHerdrPath(config.temporary_home, 'directory')
     return { stamp: before, sha256: digest }
   } catch (cause) {
     throw cause instanceof HerdrLocalError ? cause : new HerdrLocalError('herdr_installation_untrusted')

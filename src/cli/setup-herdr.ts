@@ -1,5 +1,7 @@
 // Herdr首次准备只使用实际binary/schema和既有编译、私有路径及账本工厂；不启动Agent或复制普通HOME认证。
-import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import { compileHerdrSchemas } from '../connector/herdr/compiler-api.js'
 import { herdrDeadline, isStoppedHerdrCommandCancellation, runHerdrCommand } from '../connector/herdr/io.js'
 import { HerdrLocalError, measureHerdrInstallation, verifyHerdrInstallation } from '../connector/herdr/local.js'
@@ -11,7 +13,7 @@ import { LuvusDispatchClaims } from '../connector/luvus/claims.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import type { ProviderPolicies } from '../wire/types.js'
 import { boundedJson, fields, hash, object } from '../wire/index.js'
-import { CliCancelled, CliError, type ConnectorConfig } from './config.js'
+import { CliCancelled, CliError, herdrMode, type ConnectorConfig } from './config.js'
 import { privateDirectory } from './first-config.js'
 import type { HerdrProductionOwnerConfig } from './production-herdr.js'
 import { readSetupJson, writeSetupFile, writeSetupJson } from './setup-files.js'
@@ -36,6 +38,28 @@ export type PreparedSetupHerdr = Readonly<{
   local: HerdrProductionOwnerConfig
   remote: HerdrSetupRemote
 }>
+
+// 附着模式使用用户真实的 HOME 与 XDG 目录（Connector 自己的环境，或用户显式配置的 config_home）；缺失的 XDG 目录以 0700 创建。
+function attachedDirectories(
+  config: ConnectorConfig
+): Pick<HerdrLocalConfig, 'home' | 'config_home' | 'state_home' | 'cache_home' | 'cwd'> {
+  const home = homedir()
+  const xdg = (variable: string, fallback: string): string => {
+    const value = process.env[variable]
+    return value && isAbsolute(value) ? value : join(home, fallback)
+  }
+  const directories = {
+    home,
+    config_home: config.native?.herdr?.config_home ?? xdg('XDG_CONFIG_HOME', '.config'),
+    state_home: xdg('XDG_STATE_HOME', '.local/state'),
+    cache_home: xdg('XDG_CACHE_HOME', '.cache'),
+    cwd: home
+  }
+  for (const path of [directories.config_home, directories.state_home, directories.cache_home]) {
+    mkdirSync(path, { recursive: true, mode: 0o700 })
+  }
+  return directories
+}
 
 // 版本只作诊断；只降低原固定版本命令不支持/独立超时，安装、取消或IO错误保持失败。
 async function version(config: HerdrLocalConfig, signal: AbortSignal): Promise<string> {
@@ -99,7 +123,8 @@ export async function prepareSetupHerdr(
     return prepared(existing, config, attempt, credential.machine_id)
   }
   const binary = setupBinary(config, 'herdr')
-  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Herdr')))) {
+  const attach = herdrMode(config) === 'attach'
+  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Herdr', attach)))) {
     throw new CliError('configuration_required')
   }
   assertSetupNativePath(config, terminal)
@@ -115,13 +140,18 @@ export async function prepareSetupHerdr(
     binding_revision: 1,
     config_ref: reference,
     binary,
-    home: join(root, 'h'),
-    config_home: join(root, 'c'),
-    state_home: join(root, 's'),
-    cache_home: join(root, 'k'),
+    ...(attach
+      ? attachedDirectories(config)
+      : {
+          home: join(root, 'h'),
+          config_home: join(root, 'c'),
+          state_home: join(root, 's'),
+          cache_home: join(root, 'k'),
+          cwd: join(root, 'w')
+        }),
     temporary_home: join(root, 't'),
-    cwd: join(root, 'w'),
     allow_terminal_execution: false,
+    ...(attach ? { attach: true as const } : {}),
     ...setupAgentDirectories(config)
   }
   const measured = measureHerdrInstallation(local)
@@ -193,7 +223,7 @@ export async function prepareSetupHerdr(
     local: {
       kind: 'herdr',
       config: provider as HerdrProductionOwnerConfig['config'],
-      native: { mode: 'managed' },
+      native: { mode: attach ? 'attach' : 'managed' },
       policies: authorization.policies
     },
     remote: { kind: 'herdr', config: shared, schema_bundle: raw.toString('utf8') }
