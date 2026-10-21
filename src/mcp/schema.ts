@@ -154,7 +154,7 @@ export function parseToolArguments<K extends ToolName>(name: K, value: unknown):
   }
   const args = snapshot as Record<string, unknown>
   if (name === 'runtime_call') {
-    args.validation ??= 'strict'
+    // validation 不在此补默认：Luvus 通用方法须用 raw-contract，由准入按 provider 和方法选择。
     args.wait_ms ??= 0
   }
   if (name === 'runtime_call_get') {

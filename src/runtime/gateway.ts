@@ -10,7 +10,7 @@ import type { Call } from '../store.js'
 import type { JsonObject, ProviderBinding, ProviderSnapshot, V2Target } from '../wire/types.js'
 import { boundedJson, contractRef, fail, LIMITS, uint, validateProvider, validateTarget } from '../wire/index.js'
 import { createTrustedRequestScope } from './request-scope.js'
-import { createLuvusRequestPreflight } from './request-preflight.js'
+import { createLuvusRequestPreflight, luvusValidation } from './request-preflight.js'
 import { composeGatewaySessions, type ProviderSessionGroup } from './provider-sessions.js'
 import type {
   GatewayRuntimeOptions,
@@ -829,7 +829,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           principal(),
           input.target,
           input.native_request,
-          input.options,
+          luvusValidation(configured.binding.kind, input.native_request, input.options),
           configured.preflightRequest?.bind(configured)
         )
         if (admitted.created) {

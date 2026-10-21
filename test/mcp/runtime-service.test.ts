@@ -91,8 +91,7 @@ test(
         options: {
           binding_revision: 1,
           contract_ref: f.args.contract_ref,
-          deadline: f.args.deadline,
-          validation: 'strict'
+          deadline: f.args.deadline
         }
       })
       const result = call.result as { result_id: string; expires_at: number }

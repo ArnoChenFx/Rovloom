@@ -4,7 +4,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createConnection } from 'node:net'
 import type { Socket } from 'node:net'
 import { WireError } from '../../wire/index.js'
-import { childEnvironment, fixedArguments, verifyInstallation } from './local.js'
+import { childEnvironment, fixedArguments, verifyInstallation, withPrivateUmask } from './local.js'
 import { LuvusAdapterError } from './types.js'
 import type { LocalFailureOutcome, LuvusLocalConfig, LuvusLocalLimits } from './types.js'
 
@@ -105,13 +105,15 @@ export async function runFixedProcess(
       let inputSent = false
       const chunks: Buffer[] = []
       const outputLimit = command === 'proxy' ? limits.response_bytes : limits.discovery_bytes
-      const child = spawn(config.binary, fixedArguments(config, command), {
-        cwd: config.cwd,
-        env: childEnvironment(config),
-        shell: false,
-        windowsHide: true,
-        stdio: ['pipe', 'pipe', 'pipe']
-      })
+      const child = withPrivateUmask(() =>
+        spawn(config.binary, fixedArguments(config, command), {
+          cwd: config.cwd,
+          env: childEnvironment(config),
+          shell: false,
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe']
+        })
+      )
       let killTimer: ReturnType<typeof setTimeout> | undefined
       let cleanupTimer: ReturnType<typeof setTimeout> | undefined
       const outcome = /* 保守地区分已启动 RPC 代理的未知结果与只读命令的派发前失败。 */ (): LocalFailureOutcome =>

@@ -46,6 +46,25 @@ list → discover → ping → 读结果，再由独立 MCP 客户端取真实�
 这条路径发现过夹具掩盖的三个产品缺陷（均已修复并有回归测试）：Gateway 返回非 200 时 Connector 因响应流已锁定而崩溃；
 Herdr 自建端点目录按宿主 umask 为 0755 被 0700 门禁拒绝；Herdr 私有 socket 路径检查漏算更长的 `herdr-client.sock`。
 
+## 真实 Luvus 链路
+
+```sh
+curl -L -o /tmp/luvus.tgz https://github.com/RizRiyz/luvus/releases/download/v0.14.3/luvus-v0.14.3-x86_64-unknown-linux-musl.tar.gz
+tar -xzf /tmp/luvus.tgz -C /tmp luvus   # SHA-256 895073022da8edd2…，与仓库固定的官方摘要一致
+LUVUS_WRITE='{}' python3 e2e/quickstart.py --work ~/.rq1 --binary dist/release/bun-linux-x64/candidate/rovloom \
+  --luvus /tmp/luvus --then "bun --no-env-file e2e/luvus-session.mjs"
+```
+
+`--luvus` 走 Quick Start 的默认 Luvus 引导（隔离状态，不动你的 Luvus）。Luvus 的状态路径上限 52 字节，所以脚本把
+`data.directory` 改成 `<work>/d`，`--work` 请用短路径。`luvus-session.mjs` 经 MCP 完成 machines → providers →
+discover（33 个方法）→ describe → `workspace.list` → `session.snapshot`；设置 `LUVUS_WRITE` 后再 `workspace.new` 并读回
+workspace 计数（1→2）。
+
+这条路径发现过两个只有真实 Luvus 才暴露的缺陷（均已修复并有回归测试）：Luvus 自建 `sessions` 目录继承宿主
+umask（022 → 0755）而被 0700 门禁拒绝，托管 Luvus 在普通用户环境根本起不来；MCP 默认 `validation:"strict"` 与
+Luvus 通用方法要求的 `raw-contract` 不符时，Wire 编码失败发生在派发之后，调用变成 `outcome_unknown` 并断开设备连接
+——现在省略 `validation` 按方法选择，显式不符在登记前拒绝。
+
 ## 真实 LLM Agent（可选）
 
 ```sh
@@ -65,7 +84,7 @@ provider 与模型在 opencode 配置中显式声明并关闭模型目录拉取�
 
 - **单台主机**：Gateway 与 Connector 是两个独立进程，状态目录、`HOME`、`PATH` 各自独立，经真实回环 WebSocket 通信，
   但不是两台物理机；“Gateway 未安装 runtime”以空 `PATH` + 只含单文件产物来体现，不等同跨机网络（NAT / TLS / 防火墙）。
-- **没有 Luvus 链路**：环境中没有可获取的真实 Luvus 二进制，故 Luvus 的 discover → read 链路未在此验证（Herdr 为唯一原生）。
+- **Luvus 只有链路验收，没有故障场景**：真实 Luvus 0.14.3（官方 release 的 musl 二进制）已经过首次配对 → 发现 → 描述 → 只读调用 → 写调用读回（见下节），但重启/崩溃/未知结果/撤销这些故障场景只在 Herdr 上有 e2e。
 - **设备撤销是离线撤销**：管理员写入走带确认的 HTTP 管理接口，这里停 Gateway 后用正式 `Store.revoke` 代替，没有走 WebUI。
 - **崩溃自动恢复仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、旧格式记录、孤儿 native 仍活着时保持 fail-closed（见 [#167](https://github.com/ArnoChenFx/Rovloom/issues/167)）。
 - **LLM Agent 单独脚本**：`e2e/agent.mjs` 让 opencode（1.19.3，DeepSeek `deepseek-chat`）经 MCP 完成 list → discover → ping → `workspace.create`，再由独立 MCP 客户端读回 workspace 数（0→1）。依赖模型 API 域名可达与 `DEEPSEEK_API_KEY`，不在默认场景集里；模型输出有随机性，仅作冒烟。

@@ -2,6 +2,7 @@
 import { GatewayError } from '../contracts.js'
 import { createNativeValidator } from '../native-contract/index.js'
 import type { CompiledContract } from '../native-contract/index.js'
+import { luvusOperationDescriptor, luvusOperationValidation } from './luvus-operations.js'
 
 export class NativeRequestPreflightError extends GatewayError {
   readonly outcome = 'not_dispatched' as const
@@ -24,4 +25,27 @@ export function createLuvusRequestPreflight(contract: CompiledContract): (reques
       throw new GatewayError(checked.error.code)
     }
   }
+}
+
+/**
+ * Luvus 已审核的普通方法各自要求固定验证模式（通用参数方法为 raw-contract，条件分支方法为 strict）。
+ * 调用方未指定时按方法选择；显式指定了不同模式则在登记前确定拒绝，而不是等到 Wire 编码失败后
+ * 把已派发的尝试置为 outcome_unknown 并断开设备连接。
+ */
+export function luvusValidation<T extends { validation?: 'strict' | 'raw-contract' }>(
+  kind: string,
+  request: { method: string },
+  options: T
+): T {
+  if (kind !== 'luvus' || !luvusOperationDescriptor(request.method)) {
+    return options
+  }
+  const required = luvusOperationValidation(request.method)
+  if (options.validation === undefined) {
+    return { ...options, validation: required }
+  }
+  if (options.validation !== required) {
+    throw new NativeRequestPreflightError()
+  }
+  return options
 }
