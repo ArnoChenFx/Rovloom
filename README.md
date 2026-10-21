@@ -11,8 +11,10 @@ Rovloom is designed around one Gateway and one outbound Connector per device,
 so runtimes stay on their own machines with a common entry point for AI Agent / AI Bot.
 
 **Availability:** Technical preview with a Linux/macOS/Windows Gateway and Linux x64
-Connector setup. First-pairing approval requires Linux. No public installation
-package or guided Agent/model login is available yet; see the [Quick Start](docs/QUICK-START.md).
+Connector setup. Official binaries, installers and Linux Gateway Docker images
+are available; see the [Quick Start](docs/QUICK-START.md) and
+[Docker deployment](docs/DOCKER.md). First-pairing approval requires Linux;
+guided Agent/model login is not available yet.
 
 ## Core capabilities
 

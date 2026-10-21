@@ -198,8 +198,9 @@ macOS支持x64/arm64目标选择，Windows按原生OS架构选择而非模拟进
 Windows另执行[原生PowerShell替换测试](../test/release/install-windows.ps1)。
 安装字节不等于当前平台运行角色已通过。
 
-首个Release资产尚未确认存在，当前不提供可用下载的一键成功教程。
-发布后由维护者核对实际六项资产、manifest和校验和，再在中英文Quick Start加入使用官方 latest 稳定Release的用户步骤。
+官方 `v0.1.1` 已公开六平台二进制、manifest和校验和，安装器使用官方 latest 稳定Release。
+实际安装命令见[英文 Quick Start](QUICK-START.md)与[中文快速开始](QUICK-START-zh.md)。
+Linux Gateway 镜像及持久卷部署见 [Docker deployment](DOCKER.md) 与 [Docker 部署](DOCKER-zh.md)。
 
 ## 自更新接缝
 
