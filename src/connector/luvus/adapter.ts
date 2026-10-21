@@ -518,6 +518,10 @@ export class LuvusRpcAdapter {
   }
   /** 将内部异常收敛为无敏感内容的错误，并按是否可能发送保守标记结果。 */
   #safe(error: unknown, dispatched = false): LuvusAdapterError {
+    // TEMP-DEBUG（Windows e2e 排查，随后移除）
+    if (process.env.ROVLOOM_DEBUG_ERRORS) {
+      process.stderr.write('DBG_ADAPTER ' + String((error as Error)?.stack ?? error) + '\n')
+    }
     const code =
       error instanceof LuvusAdapterError || error instanceof WireError ? error.code : 'native_adapter_unavailable'
     const unknown = dispatched || (error instanceof LuvusAdapterError && error.outcome === 'outcome_unknown')
