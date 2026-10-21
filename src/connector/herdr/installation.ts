@@ -7,14 +7,14 @@ import { compileHerdrSchemas } from './compiler-api.js'
 import { checkHerdrSignal, herdrDeadline, runHerdrCommand, withHerdrSocket } from './io.js'
 import {
   HerdrLocalError,
-  HerdrProcessBinding,
   herdrEndpoint,
+  isHerdrInstanceBinding,
   inspectHerdrPath,
   pinHerdrConfig,
   verifyHerdrInstallation,
   measureHerdrInstallation
 } from './local.js'
-import type { HerdrEndpoint, HerdrLocalConfig } from './local.js'
+import type { HerdrEndpoint, HerdrInstanceBinding, HerdrLocalConfig } from './local.js'
 import type { HerdrContractRecord, HerdrNativeSource } from './readonly.js'
 import type { HerdrHostServices } from './persistence.js'
 import { observedHerdrSource } from './review.js'
@@ -23,7 +23,7 @@ const installationKey = Object.freeze({})
 
 export class HerdrInstallation {
   readonly config: HerdrLocalConfig
-  readonly #process: HerdrProcessBinding
+  readonly #process: HerdrInstanceBinding
   readonly #binary: string
   readonly #endpoint: HerdrEndpoint
   readonly #record: HerdrContractRecord
@@ -34,7 +34,7 @@ export class HerdrInstallation {
   /** 仅 open 完成实际安装和 peer 核对后建立来源，调用者不能传入自报 schema 或 token。 */
   private constructor(
     config: HerdrLocalConfig,
-    processBinding: HerdrProcessBinding,
+    processBinding: HerdrInstanceBinding,
     binary: string,
     endpoint: HerdrEndpoint,
     record: HerdrContractRecord,
@@ -55,13 +55,13 @@ export class HerdrInstallation {
   /** 只运行固定 argv 的版本诊断/schema 命令及一次无请求连接；不执行 ping、不扫描其它 session 或自动启动。 */
   static async open(
     input: HerdrLocalConfig,
-    processBinding: HerdrProcessBinding,
+    processBinding: HerdrInstanceBinding,
     signal?: AbortSignal
   ): Promise<HerdrInstallation> {
     const scope = herdrDeadline(signal, 10_000)
     try {
       const config = pinHerdrConfig(input)
-      if (!(processBinding instanceof HerdrProcessBinding)) {
+      if (!isHerdrInstanceBinding(processBinding)) {
         throw new HerdrLocalError('herdr_supervised_process_required')
       }
       processBinding.assert(config)

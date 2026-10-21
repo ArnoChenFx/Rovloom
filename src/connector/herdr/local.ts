@@ -1,7 +1,17 @@
 /** 固定 Herdr 本机安装和 session 路径，校验逐级权限、文件身份及运行进程绑定；不启动 runtime。 */
 import { ChildProcess, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync } from 'node:fs'
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync
+} from 'node:fs'
 import { dirname, isAbsolute, join, normalize, sep } from 'node:path'
 import { boundedJson, validateTarget } from '../../wire/index.js'
 import type { V2Target } from '../../wire/types.js'
@@ -35,6 +45,9 @@ export type HerdrLocalConfig = Readonly<{
   allow_terminal_execution?: boolean
   // 显式 Agent 安装目录列表只来自本地配置（含安装期固化的 PATH 条目），始终排在固定系统 PATH 之前。
   agent_bin_dirs?: readonly string[]
+  // 附着用户已在运行的实例：config_home 是用户真实配置目录（常见 0755），不由产品创建或收紧；
+  // 实例身份改由对端进程（可执行文件、命令行、启动时间）证明。省略即由产品自己拉起并拥有实例。
+  attach?: true
 }>
 export type HerdrEndpoint = Readonly<{ address: string; stamp: string; uid: number }>
 
@@ -45,8 +58,8 @@ function canonical(path: string): void {
   }
 }
 
-/** 按当前 uid/系统根属主核对所有父目录，最后一项还须满足准确类型及私有权限。 */
-export function inspectHerdrPath(path: string, kind: 'directory' | 'binary' | 'socket'): string {
+/** 按当前 uid/系统根属主核对所有父目录，最后一项还须满足准确类型及权限（private=0700，shared=属主且不被组/其他写入）。 */
+export function inspectHerdrPath(path: string, kind: 'directory' | 'shared_directory' | 'binary' | 'socket'): string {
   try {
     canonical(path)
     if (process.platform !== 'linux' || !process.geteuid || !process.getegid) {
@@ -75,6 +88,8 @@ export function inspectHerdrPath(path: string, kind: 'directory' | 'binary' | 's
         last &&
         (entry.uid !== BigInt(owner) ||
           (kind === 'directory' && (!entry.isDirectory() || mode !== 0o700)) ||
+          // 用户真实目录：属主是当前用户且不被组/其他用户写入即可（上面的逐级检查已覆盖写位）。
+          (kind === 'shared_directory' && !entry.isDirectory()) ||
           (kind === 'socket' && (!entry.isSocket() || mode !== 0o600)) ||
           (kind === 'binary' &&
             (!entry.isFile() ||
@@ -124,10 +139,11 @@ export function pinHerdrConfig(value: HerdrLocalConfig): HerdrLocalConfig {
   if (
     Object.keys(config).some(
       /** 只接纳明确本地扩展，其余未知配置仍拒绝。 */ (key) =>
-        !keys.includes(key) && key !== 'allow_terminal_execution' && key !== 'agent_bin_dirs'
+        !keys.includes(key) && key !== 'allow_terminal_execution' && key !== 'agent_bin_dirs' && key !== 'attach'
     ) ||
     keys.some(/** 任何配置项缺失都不能使用环境默认值。 */ (key) => !Object.hasOwn(config, key)) ||
     config.target.profile !== 'session' ||
+    (Object.hasOwn(config, 'attach') && config.attach !== true) ||
     !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(config.target.session) ||
     !Number.isSafeInteger(config.binding_revision) ||
     config.binding_revision <= 0 ||
@@ -186,7 +202,7 @@ export function prepareHerdrEndpointDirectory(config: HerdrLocalConfig): void {
 export function herdrEndpoint(config: HerdrLocalConfig): HerdrEndpoint {
   const directory = endpointDirectory(config)
   const address = join(directory, 'herdr.sock')
-  inspectHerdrPath(directory, 'directory')
+  inspectHerdrPath(directory, config.attach ? 'shared_directory' : 'directory')
   return Object.freeze({ address, stamp: inspectHerdrPath(address, 'socket'), uid: process.geteuid!() })
 }
 
@@ -248,16 +264,10 @@ export function measureHerdrInstallation(config: HerdrLocalConfig): Readonly<{ s
     } finally {
       closeSync(fd)
     }
-    for (const path of [
-      config.home,
-      config.config_home,
-      config.state_home,
-      config.cache_home,
-      config.temporary_home,
-      config.cwd
-    ]) {
+    for (const path of [config.home, config.state_home, config.cache_home, config.temporary_home, config.cwd]) {
       inspectHerdrPath(path, 'directory')
     }
+    inspectHerdrPath(config.config_home, config.attach ? 'shared_directory' : 'directory')
     return { stamp: before, sha256: digest }
   } catch (cause) {
     throw cause instanceof HerdrLocalError ? cause : new HerdrLocalError('herdr_installation_untrusted')
@@ -275,7 +285,22 @@ export function verifyHerdrInstallation(config: HerdrLocalConfig, expectedSha256
 
 const processBindingToken = Object.freeze({})
 const processBindings = new WeakSet<HerdrProcessBinding>()
+const attachedBindings = new WeakSet<HerdrAttachedBinding>()
 let issueProcessBinding: ((config: HerdrLocalConfig, child: ChildProcess) => HerdrProcessBinding) | undefined
+let issueAttachedBinding:
+  | ((config: HerdrLocalConfig, process: ObservedHerdrProcess) => HerdrAttachedBinding)
+  | undefined
+
+/** 受信实例绑定：自己拉起的子进程，或经内核证据确认的已运行实例。 */
+export type HerdrInstanceBinding = HerdrProcessBinding | HerdrAttachedBinding
+
+/** 只有本模块签发的绑定才被接受；调用者自造的同形对象不会通过。 */
+export function isHerdrInstanceBinding(value: unknown): value is HerdrInstanceBinding {
+  return (
+    (value instanceof HerdrProcessBinding && processBindings.has(value)) ||
+    (value instanceof HerdrAttachedBinding && attachedBindings.has(value))
+  )
+}
 
 /** 绑定显式宿主启动的同一 ChildProcess；路径前后 hash 与内核 peer PID 不等于 exec 映像 hash。 */
 export class HerdrProcessBinding {
@@ -335,6 +360,107 @@ export class HerdrProcessBinding {
       throw new HerdrLocalError('herdr_native_instance_untrusted')
     }
   }
+}
+
+/** 已运行 Herdr 服务端进程的内核证据：PID 与启动 tick 共同防止 PID 重用被当作同一实例。 */
+export type ObservedHerdrProcess = Readonly<{ pid: number; start: string }>
+
+/** 读取 /proc/<pid>/stat 的状态与启动 tick；进程不存在或已成僵尸返回 undefined。 */
+function readProcessStart(pid: number): string | undefined {
+  try {
+    const line = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const fields = line
+      .slice(line.lastIndexOf(')') + 2)
+      .trim()
+      .split(/\s+/u)
+    if (['Z', 'X', 'x'].includes(fields[0]!) || !/^\d+$/u.test(fields[19] ?? '')) {
+      return undefined
+    }
+    return fields[19]
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 核对对端 PID 确实是本机已安装 herdr 的服务端进程：
+ * 属主是当前用户；/proc/<pid>/exe 与配置的二进制是同一 inode（被替换/删除后的旧映像不接受）；
+ * 命令行恰为 `server` 或 `--session <name> server`（用户自行运行 `herdr` 时由客户端拉起的形态）。
+ */
+export function inspectHerdrServerProcess(config: HerdrLocalConfig, pid: number): ObservedHerdrProcess {
+  try {
+    if (!Number.isSafeInteger(pid) || pid <= 0 || config.attach !== true) {
+      throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+    const start = readProcessStart(pid)
+    const owner = statSync(`/proc/${pid}`).uid
+    const executable = statSync(`/proc/${pid}/exe`)
+    const installed = statSync(config.binary)
+    const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0')
+    if (argv.at(-1) === '') {
+      argv.pop()
+    }
+    const tail = argv.slice(1)
+    if (
+      start === undefined ||
+      owner !== process.geteuid!() ||
+      executable.dev !== installed.dev ||
+      executable.ino !== installed.ino ||
+      !(
+        (tail.length === 1 && tail[0] === 'server') ||
+        (tail.length === 3 && tail[0] === '--session' && tail[1] === config.target.session && tail[2] === 'server')
+      ) ||
+      readProcessStart(pid) !== start
+    ) {
+      throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+    return Object.freeze({ pid, start })
+  } catch (cause) {
+    throw cause instanceof HerdrLocalError ? cause : new HerdrLocalError('herdr_native_instance_untrusted')
+  }
+}
+
+/** 绑定一个已运行的 Herdr 服务端：不拥有进程，只在其仍是同一实例时放行。 */
+export class HerdrAttachedBinding {
+  readonly #config: HerdrLocalConfig
+  readonly #observed: ObservedHerdrProcess
+  static {
+    issueAttachedBinding = /** 只有核对过对端进程的 attach 模块能签发。 */ (config, observed) =>
+      new HerdrAttachedBinding(config, observed, processBindingToken)
+  }
+  private constructor(config: HerdrLocalConfig, observed: ObservedHerdrProcess, token: object) {
+    if (token !== processBindingToken || config.attach !== true) {
+      throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+    this.#config = pinHerdrConfig(config)
+    this.#observed = observed
+    attachedBindings.add(this)
+  }
+  /** 配置未变、实例仍是被确认的那个进程（PID 与启动 tick 都没变）；连接还须核对内核 peer。 */
+  assert(config: HerdrLocalConfig, peer?: NativePeer): void {
+    if (!attachedBindings.has(this)) {
+      throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+    if (
+      boundedJson(config) !== boundedJson(this.#config) ||
+      readProcessStart(this.#observed.pid) !== this.#observed.start ||
+      (peer && (peer.pid !== this.#observed.pid || peer.uid !== process.geteuid!() || peer.gid !== process.getegid!()))
+    ) {
+      throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+  }
+  /** 被绑定的服务端进程 ID，仅供诊断与重新附着比较。 */
+  get pid(): number {
+    return this.#observed.pid
+  }
+}
+
+/** 由 attach 模块在核对对端后签发；本模块不接受调用者自造的观察结果之外的任何来源。 */
+export function bindAttachedHerdr(config: HerdrLocalConfig, observed: ObservedHerdrProcess): HerdrAttachedBinding {
+  if (!issueAttachedBinding) {
+    throw new HerdrLocalError('herdr_native_instance_untrusted')
+  }
+  return issueAttachedBinding(config, observed)
 }
 
 /** 显式宿主操作才启动固定实例；产品发现/open 不调用此入口，也不继承模型或 SSH 凭据。 */
