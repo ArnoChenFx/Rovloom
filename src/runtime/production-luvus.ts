@@ -13,10 +13,11 @@ import {
   createConnectorAdmissionBackend
 } from './connector-attempts.js'
 import { attachExistingLuvus } from './native-attach.js'
+import { recoverLuvusClaimsLock, recoverLuvusOwnerLock } from './native-crash-recovery.js'
 import type { AttachedLuvusInstance } from './native-attach.js'
 import { createLuvusOperationsProvider } from './luvus-operations-provider.js'
 import type { ManagementSessionAuthority } from './management-session.js'
-import { assertManagedControlDirectory, openManagedLuvusRoot } from './native-root.js'
+import { assertManagedControlDirectory, assertManagedRoot, openManagedLuvusRoot } from './native-root.js'
 import type { ManagedLuvusRoot } from './native-root.js'
 import { OwnedProcessShutdownError } from './native-process.js'
 import { startManagedLuvus } from './native-source.js'
@@ -312,6 +313,10 @@ export function createLuvusProductionSources() {
         const routes = [{ target: fixed.target, principal_id: selected.value.principal_id }]
         const ledgerId = hash(boundedJson([selected.reference, root.root_id, root.root_revision, fixed.target]))
         // 正常启动只 open；任何缺库、崩溃锁或容量问题先拒绝，不能为了继续启动而清墓碑。
+        // 上一个 Connector 崩溃留下的锁：持有者已死才接管，其余仍按原样 fail-closed 拒绝。
+        if (recoverLuvusClaimsLock(join(config.state_dir, 'luvus-claims.db.lock'))) {
+          process.stderr.write('luvus_crash_residue_cleared claims_lock\n')
+        }
         claims = new LuvusDispatchClaims({
           path: join(config.state_dir, 'luvus-claims.db'),
           mode: selected.value.storage_mode,
@@ -321,6 +326,9 @@ export function createLuvusProductionSources() {
         })
         const dispatchClaims = claims
         const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: Date.now })
+        if (await recoverLuvusOwnerLock(assertManagedRoot(root).record_path + '.owner.lock', fixed)) {
+          process.stderr.write('luvus_crash_residue_cleared owner_lock\n')
+        }
         processOwner = await startManagedLuvus(root)
         const owner = processOwner.localOwner()
         const provider = createLuvusOperationsProvider(owner, selected.value.peer_policy_revision)

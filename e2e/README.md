@@ -55,6 +55,8 @@ LUVUS_WRITE='{}' python3 e2e/quickstart.py --work ~/.rq1 --binary dist/release/b
   --luvus /tmp/luvus --then "bun --no-env-file e2e/luvus-session.mjs"
 ```
 
+加 `--crash` 会在就绪后 `kill -9` Connector 再重启：Luvus 的 claim 锁与 owner 锁由新 Connector 自行接管，随后的读写调用照常通过（不加则无此项）。
+
 `--luvus` 走 Quick Start 的默认 Luvus 引导（隔离状态，不动你的 Luvus）。Luvus 的状态路径上限 52 字节，所以脚本把
 `data.directory` 改成 `<work>/d`，`--work` 请用短路径。`luvus-session.mjs` 经 MCP 完成 machines → providers →
 discover（33 个方法）→ describe → `workspace.list` → `session.snapshot`；设置 `LUVUS_WRITE` 后再 `workspace.new` 并读回
