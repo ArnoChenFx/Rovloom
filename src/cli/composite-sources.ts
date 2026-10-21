@@ -201,6 +201,9 @@ export async function prepareMixedConnector(
     }
     const luvus = createLuvusConnectorSessions(native)
     owner.sessions.push(luvus)
+    const replaceable = [native, ...hosted].filter(
+      /* 只聚合会后台替换实例的来源。 */ (resource) => resource.session_replaced
+    )
     return {
       kind: 'provider',
       provider_snapshot: native.provider_snapshot,
@@ -235,7 +238,22 @@ export async function prepareMixedConnector(
           throw error
         }
       },
-      release: owner.release
+      release: owner.release,
+      ...(replaceable.length > 0
+        ? {
+            /** 任一来源被后台替换都结束当前连接周期；混合连接器同样需要，否则 Herdr/Luvus 重建后旧 epoch 一直在线。 */
+            session_replaced(listener: () => void): () => void {
+              const unsubscribe = replaceable.map(
+                /* 每个来源各自登记同一监听。 */ (resource) => resource.session_replaced!(listener)
+              )
+              return () => {
+                for (const off of unsubscribe) {
+                  off()
+                }
+              }
+            }
+          }
+        : {})
     }
   } catch (error) {
     return owner.fail(error)

@@ -64,6 +64,22 @@ class Term:
                 self.child.kill()
 
 
+def luvus_servers(binary_dir):
+    """本次部署使用的 Luvus server 进程（按可执行文件目录区分），返回 [(pid, start_tick)]。"""
+    found = []
+    for entry in os.listdir('/proc'):
+        if not entry.isdigit():
+            continue
+        try:
+            argv = open(f'/proc/{entry}/cmdline', 'rb').read().split(b'\0')[:-1]
+            if argv and argv[0].decode().startswith(binary_dir) and argv[-1] == b'server' and b'--session' in argv:
+                stat = open(f'/proc/{entry}/stat').read()
+                found.append((int(entry), stat[stat.rindex(')') + 2:].split()[19]))
+        except OSError:
+            continue
+    return sorted(found)
+
+
 def redact(text):
     text = CODE.sub('<CODE>', text)
     return re.sub(r'(Bearer \(private\): )\S+', r'\1<SECRET>', text).strip()[-1000:]
@@ -75,6 +91,12 @@ def main():
     ap.add_argument('--herdr', help='官方 herdr 0.9.5 可执行文件')
     ap.add_argument('--luvus', help='官方 luvus 0.14.3 可执行文件（与 --herdr 二选一；走默认的 Luvus 引导）')
     ap.add_argument('--work', help='工作目录（需位于祖先不可被其它用户写入的位置；默认 ~/.rq-*）')
+    ap.add_argument('--luvus-mode', choices=['attach', 'managed'], default='attach',
+                    help='Luvus 的运行方式（默认 attach：附着用户的 default 会话，没有才自建）')
+    ap.add_argument('--pre-existing', action='store_true',
+                    help='先像用户那样启动 Luvus default 会话，再部署 Connector：应附着它而不是再起第二个')
+    ap.add_argument('--kill-luvus', action='store_true',
+                    help='就绪后 kill -9 Luvus server：Connector 应自行重建并恢复调用')
     ap.add_argument('--crash', action='store_true', help='就绪后 kill -9 Connector 再重启，验证无需人工清理即可恢复')
     ap.add_argument('--then', help='就绪后执行的命令，环境变量 MCP_CONFIG 指向连接信息')
     args = ap.parse_args()
@@ -101,11 +123,24 @@ def main():
         cfg = json.load(open(path))
         if args.herdr:
             cfg['native'] = {'provider': 'herdr'}
-        else:
-            # Luvus 的状态路径上限 52 字节（Unix socket 限制），默认数据目录太长，按文档改用短路径。
+        elif args.luvus_mode == 'managed':
+            # 隔离 Luvus 的状态路径上限 52 字节（Unix socket 限制），默认数据目录太长，按文档改用短路径。
+            cfg['native'] = {'luvus': {'mode': 'managed'}}
             cfg['data'] = {'directory': os.path.join(work, 'd')}
         open(path, 'w').write(json.dumps(cfg, indent=2) + '\n'); os.chmod(path, 0o600)
 
+        if args.pre_existing:
+            # 与用户的 TUI 自动拉起的 server 同形态：`luvus --session default server`，脱离终端持续运行。
+            subprocess.Popen([os.path.join(herdr_dir, 'luvus'), '--session', 'default', 'server'],
+                             env={**env_c, 'SHELL': '/bin/sh'}, cwd=home_c, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            for _ in range(50):
+                if os.path.exists(os.path.join(home_c, '.luvus', 'luvus.sock')):
+                    break
+                time.sleep(0.2)
+            existing = luvus_servers(herdr_dir)
+            assert len(existing) == 1, f'pre-existing server not found: {existing}'
+            print('PRE_EXISTING', existing, flush=True)
         gateway = Term('gateway', [rov, 'gateway'], env_g, home_g); terms.append(gateway)
         gateway.expect('Pair one Connector'); gateway.send('y\n')
         code = CODE.search(gateway.expect('Gateway address and code')).group(0)
@@ -136,6 +171,25 @@ def main():
         open(out, 'w').write(json.dumps(info)); os.chmod(out, 0o600)
         print('READY', json.dumps({'mcp_url': info['url'], 'targets': info['targets'], 'config': out}), flush=True)
         status = 0
+        if args.luvus:
+            servers = luvus_servers(herdr_dir)
+            print('LUVUS_SERVERS', servers, flush=True)
+            if args.pre_existing:
+                assert servers == existing, f'Connector must attach, not start another: {existing} -> {servers}'
+        if args.kill_luvus:
+            before = luvus_servers(herdr_dir)
+            for pid, _ in before:
+                os.kill(pid, signal.SIGKILL)
+            deadline = time.time() + 90
+            after = []
+            while time.time() < deadline:
+                connector.pump(0.5)
+                after = [entry for entry in luvus_servers(herdr_dir) if entry not in before]
+                if after:
+                    break
+            assert after, 'Connector did not recreate the Luvus server'
+            print('LUVUS_RECREATED', before, '->', after, flush=True)
+            time.sleep(8)  # 给 Connector 结束旧连接周期并重连留出时间
         if args.crash:
             connector.child.kill()  # SIGKILL：不给产品任何清理机会
             connector.child.wait(10)

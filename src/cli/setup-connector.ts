@@ -17,7 +17,7 @@ import { SetupTerminal } from './setup-terminal.js'
 import { readSetupJson, setupFileStamp, writeSetupFile, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
 import { prepareSetupNative, assertSetupNativePath } from './setup-native.js'
-import { selectedSetupPolicies } from './setup-policy.js'
+import { selectedSetupPolicies, setupSessionsFor } from './setup-policy.js'
 import { prepareSetupHerdr } from './setup-herdr.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import { join } from 'node:path'
@@ -213,7 +213,12 @@ async function pair(
   const status = await post(
     config,
     '/pairing/status',
-    { attempt_id: current.attempt_id, authentication: credential, providers: selectedNativeProviders(config) },
+    {
+      attempt_id: current.attempt_id,
+      authentication: credential,
+      providers: selectedNativeProviders(config),
+      sessions: setupSessionsFor(config)
+    },
     terminal.io.signal
   )
   fields(status, ['attempt_id', 'machine_id', 'recovery_generation', 'phase', 'authorization'])
@@ -231,7 +236,8 @@ async function pair(
   const expected = selectedSetupPolicies(
     { attempt_id: current.attempt_id, actor: authorization.principal_id },
     credential.machine_id,
-    selectedNativeProviders(config)
+    selectedNativeProviders(config),
+    setupSessionsFor(config)
   )
   if (boundedJson(authorization) !== boundedJson(expected)) {
     throw new CliError('configuration_required')

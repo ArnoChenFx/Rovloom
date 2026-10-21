@@ -16,6 +16,10 @@ export type LuvusLocalConfig = Readonly<{
   transport: 'ipc' | 'cli'
   // 本机所有者显式开启直接终端执行；省略时关闭，不影响独立授权的普通 Agent 对话。
   allow_terminal_execution?: boolean
+  // 附着用户自己的 Luvus（state_root 为其 LUVUS_HOME）：对端按 pid、exe inode 与 argv 证明，不要求固定 env/cwd；
+  // home/cwd 仅供 Connector 自己运行的固定 CLI 子命令，user_home 才是自建 server 使用的真实 HOME。
+  attach?: true
+  user_home?: string
   // 仅由本机所有者配置的 Agent 安装目录，前置于固定 PATH；不开放 RPC 环境覆盖。
   agent_bin_dirs?: readonly string[]
   limits?: Partial<LuvusLocalLimits>

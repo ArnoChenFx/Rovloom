@@ -19,6 +19,10 @@ import { createLuvusOperationsProvider } from './luvus-operations-provider.js'
 import type { ManagementSessionAuthority } from './management-session.js'
 import { assertManagedControlDirectory, assertManagedRoot, openManagedLuvusRoot } from './native-root.js'
 import type { ManagedLuvusRoot } from './native-root.js'
+import { startUserLuvus } from './luvus-user-source.js'
+import type { UserLuvusSource } from './luvus-user-source.js'
+import { pinConfig } from '../connector/luvus/local.js'
+import type { LuvusLocalConfig } from '../connector/luvus/types.js'
 import { OwnedProcessShutdownError } from './native-process.js'
 import { startManagedLuvus } from './native-source.js'
 import type { ControlledLuvusProcess } from './native-source.js'
@@ -43,7 +47,18 @@ export type LuvusProductionOwnerConfig = Readonly<{
   // 首次 create 与正常 open 必须显式选择；丢失任一持久库不能自动重建。
   storage_mode: 'create' | 'open'
 }>
+// 用户自己的 Luvus（附着/自建）：没有 Connector 拥有的 root，实例配置直接来自受保护的已准备记录。
+export type LuvusProductionUserConfig = Readonly<{
+  kind: 'luvus'
+  authentication: 'local_owner'
+  native: Readonly<{ mode: 'user'; config: LuvusLocalConfig }>
+  peer_policy_revision: string
+  principal_id: string
+  policies: ProviderPolicies
+  storage_mode: 'create' | 'open'
+}>
 type CheckedReference = Readonly<{ reference: string; value: LuvusProductionOwnerConfig }>
+type UserReference = Readonly<{ reference: string; value: LuvusProductionUserConfig }>
 type GatewayReference = CheckedReference | Readonly<{ reference: string; value: LuvusProductionRemoteConfig }>
 type CliState = Readonly<{ state_dir: string; allow_terminal_execution?: boolean }>
 
@@ -92,6 +107,62 @@ function references(input: readonly LuvusProductionReference[], mode: 'managed' 
         return { reference: entry.reference, value: value as LuvusProductionOwnerConfig }
       }
     )
+  } catch (error) {
+    throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('production_reference_invalid')
+  }
+}
+
+/** 单个引用是否为用户自己的 Luvus；仅按 native.mode 选择解析路径，完整形状随后严格校验。 */
+function isUserReference(input: readonly LuvusProductionReference[]): boolean {
+  try {
+    return object(object(object(input[0]).value).native).mode === 'user'
+  } catch {
+    return false
+  }
+}
+
+/** 校验用户模式的唯一引用：实例配置固定为附着配置，且 config_ref 绑定到该引用。 */
+function userReference(input: readonly LuvusProductionReference[]): UserReference {
+  try {
+    const copied: LuvusProductionReference[] = JSON.parse(boundedJson(input, 1_048_576))
+    if (!Array.isArray(copied) || copied.length !== 1) {
+      throw new LuvusAdapterError('production_reference_count_invalid')
+    }
+    const entry = object(copied[0])
+    fields(entry, ['reference', 'value'])
+    id(entry.reference)
+    const value = object(entry.value)
+    fields(value, [
+      'kind',
+      'authentication',
+      'native',
+      'peer_policy_revision',
+      'principal_id',
+      'policies',
+      'storage_mode'
+    ])
+    const native = object(value.native)
+    fields(native, ['mode', 'config'])
+    id(value.principal_id)
+    id(value.peer_policy_revision)
+    validatePolicies(value.policies as ProviderPolicies)
+    const pinned = pinConfig(native.config as LuvusLocalConfig)
+    if (
+      value.kind !== 'luvus' ||
+      value.authentication !== 'local_owner' ||
+      native.mode !== 'user' ||
+      value.storage_mode !== 'open' ||
+      pinned.attach !== true ||
+      typeof pinned.user_home !== 'string' ||
+      pinned.transport !== 'ipc' ||
+      pinned.config_ref !== entry.reference
+    ) {
+      throw new LuvusAdapterError('production_reference_invalid')
+    }
+    return {
+      reference: entry.reference as string,
+      value: { ...value, native: { mode: 'user', config: pinned } } as LuvusProductionUserConfig
+    }
   } catch (error) {
     throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('production_reference_invalid')
   }
@@ -265,9 +336,14 @@ export function createLuvusProductionSources() {
           : /** 每次最终检查读取本次装配的显式本机值，不接收RPC参数。 */ () =>
               pinTerminalExecution(config.allow_terminal_execution)
       terminalExecution?.()
-      const [entry] = references(input, 'managed')
-      const selected = entry!
-      const root = openRoot(selected)
+      const user = isUserReference(input)
+      const selected: Readonly<{
+        reference: string
+        value: LuvusProductionOwnerConfig | LuvusProductionUserConfig
+      }> = user ? userReference(input) : references(input, 'managed')[0]!
+      const root = user ? undefined : openRoot(selected as CheckedReference)
+      let userSource: UserLuvusSource | undefined
+      const replacedListeners = new Set<() => void>()
       let processOwner: ControlledLuvusProcess | undefined
       let claims: LuvusDispatchClaims | undefined
       let unconfirmedStartup: OwnedProcessShutdownError | undefined
@@ -284,6 +360,8 @@ export function createLuvusProductionSources() {
             }
           }
           sessions.clear()
+          // 用户的 Luvus 不归我们所有：只撤去观察者，不终止任何进程。
+          userSource?.close()
           let exited = processOwner === undefined && unconfirmedStartup === undefined
           try {
             if (processOwner) {
@@ -294,7 +372,7 @@ export function createLuvusProductionSources() {
             errors.push(error)
           }
           if (exited) {
-            root.close()
+            root?.close()
           }
           if (unconfirmedStartup) {
             errors.push(unconfirmedStartup)
@@ -308,10 +386,18 @@ export function createLuvusProductionSources() {
         }
       )
       try {
-        const fixed = root.config
-        assertManagedControlDirectory(fixed, config.state_dir)
+        const fixed = root
+          ? root.config
+          : ((selected.value as LuvusProductionUserConfig).native.config as LuvusLocalConfig & {
+              readonly transport: 'ipc'
+            })
+        if (root) {
+          assertManagedControlDirectory(fixed, config.state_dir)
+        }
         const routes = [{ target: fixed.target, principal_id: selected.value.principal_id }]
-        const ledgerId = hash(boundedJson([selected.reference, root.root_id, root.root_revision, fixed.target]))
+        const ledgerId = root
+          ? hash(boundedJson([selected.reference, root.root_id, root.root_revision, fixed.target]))
+          : hash(boundedJson([selected.reference, 'user', fixed.target]))
         // 正常启动只 open；任何缺库、崩溃锁或容量问题先拒绝，不能为了继续启动而清墓碑。
         // 上一个 Connector 崩溃留下的锁：持有者已死才接管，其余仍按原样 fail-closed 拒绝。
         if (recoverLuvusClaimsLock(join(config.state_dir, 'luvus-claims.db.lock'))) {
@@ -326,22 +412,51 @@ export function createLuvusProductionSources() {
         })
         const dispatchClaims = claims
         const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: Date.now })
-        if (await recoverLuvusOwnerLock(assertManagedRoot(root).record_path + '.owner.lock', fixed)) {
-          process.stderr.write('luvus_crash_residue_cleared owner_lock\n')
+        let first: ReturnType<ControlledLuvusProcess['localOwner']>
+        if (root) {
+          if (await recoverLuvusOwnerLock(assertManagedRoot(root).record_path + '.owner.lock', fixed)) {
+            process.stderr.write('luvus_crash_residue_cleared owner_lock\n')
+          }
+          processOwner = await startManagedLuvus(root)
+          first = processOwner.localOwner()
+        } else {
+          // 用户自己的 Luvus：优先附着已在运行的会话，没有才自建；之后由监督层在丢失时重新取得。
+          userSource = await startUserLuvus(fixed)
+          first = userSource.current()!
         }
-        processOwner = await startManagedLuvus(root)
-        const owner = processOwner.localOwner()
-        const provider = createLuvusOperationsProvider(owner, selected.value.peer_policy_revision)
-        const reference = contractRef(provider.contract.wire.source)
-        const snapshot = Object.freeze([
-          Object.freeze({
-            binding: provider.binding,
-            target: provider.target,
-            source: provider.contract.wire.source,
-            capabilities: object(provider.contract.capabilities),
-            capability_revision: provider.contract.capability_revision
-          })
-        ])
+        /** 每个实例各自一份 provider、契约引用与快照；来源被替换后只重新绑定，新 epoch 才使用。 */
+        function bind(owner: typeof first) {
+          const provider = createLuvusOperationsProvider(owner, selected.value.peer_policy_revision)
+          return {
+            owner,
+            provider,
+            reference: contractRef(provider.contract.wire.source),
+            snapshot: Object.freeze([
+              Object.freeze({
+                binding: provider.binding,
+                target: provider.target,
+                source: provider.contract.wire.source,
+                capabilities: object(provider.contract.capabilities),
+                capability_revision: provider.contract.capability_revision
+              })
+            ])
+          }
+        }
+        let bound = bind(first)
+        userSource?.session_replaced(() => {
+          const next = userSource?.current()
+          if (!next || stopping) {
+            return
+          }
+          bound = bind(next)
+          for (const listener of replacedListeners) {
+            try {
+              listener()
+            } catch {
+              // 宿主侧通知失败不影响来源本身。
+            }
+          }
+        })
         /** 双方策略只来自已解析受保护配置，按完整路由的固定 principal 返回独立快照。 */
         function policies(principal: string): ProviderPolicies {
           if (stopping || principal !== selected.value.principal_id) {
@@ -351,10 +466,22 @@ export function createLuvusProductionSources() {
         }
         return Object.freeze({
           provider_snapshot: true as const,
+          ...(userSource
+            ? {
+                session_replaced(listener: () => void): () => void {
+                  replacedListeners.add(listener)
+                  return () => {
+                    replacedListeners.delete(listener)
+                  }
+                }
+              }
+            : {}),
           session(connection: Connection): ReturnType<ConnectorRuntimeOptions['session']> {
             if (stopping) {
               throw new LuvusAdapterError('production_source_closed')
             }
+            // 本 epoch 绑定当前实例；实例丢失/替换后旧 epoch 的 ready() 为假，由连接重建取到新实例。
+            const { owner, provider, reference, snapshot } = bound
             const admitted: {
               backend?: { attempt(call: string, attempt: string): { binding: AttemptBinding } | undefined }
             } = {}

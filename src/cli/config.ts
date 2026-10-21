@@ -33,6 +33,9 @@ export type ConnectorConfig = Readonly<{
     agent_bin_dirs?: readonly string[]
     // Herdr 专属：attach（默认）附着用户真实会话、不存在才自建；managed 在 Connector 私有目录里拉一个隔离实例。
     herdr?: Readonly<{ mode?: 'attach' | 'managed'; config_home?: string }>
+    // Luvus 专属：attach（默认）附着用户真实的 default 会话（LUVUS_HOME，默认 ~/.luvus）、不存在才自建；
+    // managed 在 Connector 私有目录里拉一个隔离实例（会话名 rovloom）。
+    luvus?: Readonly<{ mode?: 'attach' | 'managed'; state_root?: string }>
   }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
@@ -41,6 +44,11 @@ export type NativeProviderKind = 'luvus' | 'herdr'
 // Herdr 的运行方式：默认附着用户已在运行的实例（不存在才自建），managed 为 Connector 私有的隔离实例。
 export function herdrMode(config: ConnectorConfig): 'attach' | 'managed' {
   return config.native?.herdr?.mode ?? 'attach'
+}
+
+// Luvus 的运行方式：默认附着用户已在运行的 default 会话（不存在才自建），managed 为 Connector 私有的隔离实例。
+export function luvusMode(config: ConnectorConfig): 'attach' | 'managed' {
+  return config.native?.luvus?.mode ?? 'attach'
 }
 
 // 省略选择时保留已有Luvus首次路径；混合选择只包含两份固定来源，不接受任意provider注册。
@@ -249,7 +257,7 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
     const native =
       input.native === undefined
         ? undefined
-        : exact(input.native, [], ['provider', 'runtime_bin_dirs', 'agent_bin_dirs', 'herdr'])
+        : exact(input.native, [], ['provider', 'runtime_bin_dirs', 'agent_bin_dirs', 'herdr', 'luvus'])
     if (native) {
       if (native.herdr !== undefined) {
         const herdr = exact(native.herdr, [], ['mode', 'config_home'])
@@ -260,6 +268,16 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
           return fail()
         }
         Object.freeze(herdr)
+      }
+      if (native.luvus !== undefined) {
+        const luvus = exact(native.luvus, [], ['mode', 'state_root'])
+        if (
+          (luvus.mode !== undefined && !['attach', 'managed'].includes(luvus.mode as string)) ||
+          (luvus.state_root !== undefined && !fixedPath(luvus.state_root, platform))
+        ) {
+          return fail()
+        }
+        Object.freeze(luvus)
       }
       if (native.provider !== undefined && !['luvus', 'herdr', 'mixed'].includes(native.provider as string)) {
         return fail()

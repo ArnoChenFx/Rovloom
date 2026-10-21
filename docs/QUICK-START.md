@@ -97,8 +97,15 @@ therefore act on your **real** workspaces, and your Agent logins in your ordinar
 work. The Connector re-attaches (or starts a new one) by itself if the instance disappears.
 To get a private instance instead, set `native.herdr.mode` to `managed`; its Agent logins are
 not shared and must be prepared separately. See
-[Herdr: attach or managed](CONFIGURATION.md#herdr-attach-or-managed). Luvus always uses the
-isolated managed setup, whose login guide is still missing.
+[Herdr: attach or managed](CONFIGURATION.md#herdr-attach-or-managed).
+
+**Luvus works the same way.** By default the Connector attaches to your own `default`
+session (the one `luvus` starts; state in `~/.luvus`, or `$LUVUS_HOME`) and only starts one if
+none is running; it keeps running after the Connector exits and is re-attached or re-created
+if it disappears. The Gateway's pairing prompt then shows `session: default`. Set
+`native.luvus.mode` to `managed` for the old isolated instance (session `rovloom`, state under
+the Connector's data directory, which must then be short enough for the Unix socket). See
+[Luvus: attach or managed](CONFIGURATION.md#luvus-attach-or-managed).
 
 ## 2. Start and pair
 

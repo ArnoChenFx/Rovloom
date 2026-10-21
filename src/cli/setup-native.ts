@@ -1,10 +1,11 @@
 // 从实际安装发现Luvus并初始化既有受保护root/持久账本；不启动Agent、调用模型或根据固定发行版猜pin。
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import { discoverLuvusInstallation } from '../runtime/native-control.js'
 import { initializeManagedLuvusRoot } from '../runtime/native-root.js'
 import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from '../runtime/native-source.js'
-import type { LuvusProductionOwnerConfig } from '../runtime/production-luvus.js'
+import type { LuvusProductionOwnerConfig, LuvusProductionUserConfig } from '../runtime/production-luvus.js'
 import type { LuvusProductionRemoteConfig } from '../runtime/remote-luvus.js'
 import { localLimits, verifyInstallation } from '../connector/luvus/local.js'
 import { effectiveBinDirectories } from '../connector/local/agent-path.js'
@@ -13,11 +14,17 @@ import { LuvusDispatchClaims } from '../connector/luvus/claims.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import { boundedJson, fields, hash, id, object, validatePolicies } from '../wire/index.js'
 import type { ProviderPolicies } from '../wire/types.js'
-import { CliError, selectedNativeProviders, type ConnectorConfig, type NativeProviderKind } from './config.js'
+import {
+  CliError,
+  luvusMode,
+  selectedNativeProviders,
+  type ConnectorConfig,
+  type NativeProviderKind
+} from './config.js'
 import { privateDirectory } from './first-config.js'
 import { readSetupJson, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
-import { setupReference, setupTarget } from './setup-policy.js'
+import { setupReference, setupSessionsFor, setupTarget } from './setup-policy.js'
 import { SetupTerminal } from './setup-terminal.js'
 import { connectorNativePrompt } from './setup-prompts.js'
 
@@ -28,13 +35,17 @@ export type PreparedSetupNative = Readonly<{
   phase: 'prepared'
   settings: NonNullable<ConnectorConfig['native']>
   reference: string
-  local: LuvusProductionOwnerConfig
+  local: LuvusProductionOwnerConfig | LuvusProductionUserConfig
   remote: LuvusProductionRemoteConfig
 }>
 
 // 首次兑换前即可核对Unix socket所需短路径，不先创建身份再要求用户迁移内部状态。
 export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTerminal): void {
-  if (selectedNativeProviders(config).includes('luvus') && Buffer.byteLength(join(config.state_dir, 'n')) > 52) {
+  if (
+    selectedNativeProviders(config).includes('luvus') &&
+    luvusMode(config) === 'managed' &&
+    Buffer.byteLength(join(config.state_dir, 'n')) > 52
+  ) {
     terminal.show(
       'native_state_path_too_long: choose a shorter data.directory before initialization (Luvus state path maximum 52 UTF-8 bytes). / 初始化前请缩短 data.directory（Luvus 状态路径最多52个UTF-8字节）。\n'
     )
@@ -66,6 +77,15 @@ export function setupBinary(config: ConnectorConfig, kind: NativeProviderKind = 
 export function setupAgentDirectories(config: ConnectorConfig): { agent_bin_dirs?: readonly string[] } {
   const directories = effectiveBinDirectories(config.native?.agent_bin_dirs)
   return directories.length > 0 ? { agent_bin_dirs: directories } : {}
+}
+
+// 附着模式使用用户自己的 LUVUS_HOME（显式配置，或 Connector 环境里的 LUVUS_HOME，否则 ~/.luvus）；不存在则以 0700 创建，与 Luvus 自建一致。
+function userLuvusHome(config: ConnectorConfig): string {
+  const configured = config.native?.luvus?.state_root
+  const environment = process.env.LUVUS_HOME
+  const path = configured ?? (environment && isAbsolute(environment) ? environment : join(homedir(), '.luvus'))
+  mkdirSync(path, { recursive: true, mode: 0o700 })
+  return path
 }
 
 // 恢复只能使用同一配对的完整已准备记录；未完成创建不猜测缺失账本可重建。
@@ -104,18 +124,20 @@ export async function prepareSetupNative(
     return prepared(existing, attempt, credential.machine_id, config)
   }
   const binary = setupBinary(config)
-  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution)))) {
+  const attach = luvusMode(config) === 'attach'
+  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Luvus', attach)))) {
     throw new CliError('configuration_required')
   }
   const control = join(config.state_dir, 'control')
-  const stateRoot = join(config.state_dir, 'n')
+  // 附着：状态根是用户自己的 LUVUS_HOME；managed：Connector 私有的隔离目录。
+  const stateRoot = attach ? userLuvusHome(config) : join(config.state_dir, 'n')
   const home = join(config.state_dir, 'h')
   const work = join(config.state_dir, 'w')
   // 官方socket超过Unix地址长度后会退到root外；在创建root/账本前明确拒绝，不能绕过原endpoint门禁。
   assertSetupNativePath(config, terminal)
   for (const directory of [
     control,
-    stateRoot,
+    ...(attach ? [] : [stateRoot]),
     home,
     work,
     ...['config', 'data', 'cache', 'runtime'].map(/* HOME下固定的独立XDG目录。 */ (name) => join(home, name))
@@ -123,7 +145,7 @@ export async function prepareSetupNative(
     privateDirectory(directory)
   }
   const reference = setupReference(attempt)
-  const target = setupTarget(credential.machine_id)
+  const target = setupTarget(credential.machine_id, 'luvus', setupSessionsFor(config))
   const discovered = await discoverLuvusInstallation(
     {
       target,
@@ -135,6 +157,7 @@ export async function prepareSetupNative(
       cwd: work,
       transport: 'ipc',
       allow_terminal_execution: false,
+      ...(attach ? { attach: true as const, user_home: homedir() } : {}),
       ...setupAgentDirectories(config)
     },
     { revision: MANAGED_LUVUS_REVISION, signal: terminal.io.signal }
@@ -185,6 +208,37 @@ export async function prepareSetupNative(
     machine_id: credential.machine_id,
     phase: 'initializing'
   })
+  if (attach) {
+    // 附着用户自己的 Luvus：没有 Connector 拥有的 root，只建 claim 账本；实例配置直接记入受保护的已准备记录。
+    const ledgerId = hash(boundedJson([reference, 'user', target]))
+    new LuvusDispatchClaims({
+      path: join(control, 'luvus-claims.db'),
+      mode: 'create',
+      ledger_id: ledgerId,
+      limits: { entries: 1024, bytes: 4_194_304 },
+      now: Date.now
+    }).close()
+    const result: PreparedSetupNative = {
+      schema_version: 1,
+      attempt_id: attempt,
+      machine_id: credential.machine_id,
+      phase: 'prepared',
+      settings: config.native ?? {},
+      reference,
+      local: {
+        kind: 'luvus',
+        authentication: 'local_owner',
+        native: { mode: 'user', config: discovered.config },
+        peer_policy_revision: remote.peer_policy_revision,
+        principal_id: authorization.principal_id,
+        policies: authorization.policies,
+        storage_mode: 'open'
+      },
+      remote
+    }
+    writeSetupJson(path, result, true, 1_048_576)
+    return result
+  }
   const rootRecord = join(control, 'luvus-root.json')
   const root = await initializeManagedLuvusRoot({
     record_path: rootRecord,

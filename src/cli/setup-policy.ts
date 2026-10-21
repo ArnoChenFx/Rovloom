@@ -1,17 +1,42 @@
 // 首次本机批准只覆盖该次完整设备/provider/session；两端共享修订和已审核普通方法，不生成笛卡尔权限。
 import { LUVUS_OPERATION_METHODS } from '../runtime/luvus-operations.js'
 import { HERDR_WORKFLOW_METHODS } from '../connector/herdr/methods.js'
-import { CliError, type NativeProviderKind } from './config.js'
+import { CliError, luvusMode, type ConnectorConfig, type NativeProviderKind } from './config.js'
 import type { ProviderPolicies, V2Target } from '../wire/types.js'
 import type { PairingPlan } from './setup-approval.js'
 
+// Luvus 会话名随运行方式确定：附着用户真实的 default 会话，或 managed 隔离实例的 rovloom；Herdr 固定 default。
+export type SetupSessions = Readonly<{ luvus?: 'default' | 'rovloom' }>
+
+// 只接受程序定义的两个会话名；其它形态一律拒绝，不能借配对请求选择任意会话。
+export function setupSessions(input: unknown): SetupSessions {
+  if (input === undefined) {
+    return Object.freeze({})
+  }
+  const row = input as Record<string, unknown>
+  if (
+    row === null ||
+    typeof row !== 'object' ||
+    Array.isArray(row) ||
+    Object.keys(row).some(/* 目前只有 Luvus 可选择会话。 */ (key) => key !== 'luvus') ||
+    (row.luvus !== undefined && row.luvus !== 'default' && row.luvus !== 'rovloom')
+  ) {
+    throw new CliError('configuration_required')
+  }
+  return Object.freeze(row.luvus === undefined ? {} : { luvus: row.luvus })
+}
+
 // 每种首次实例的完整业务Target由程序确定，仍由实际安装、身份和每个原Wire门禁核验。
-export function setupTarget(machine: string, kind: NativeProviderKind = 'luvus'): V2Target & { profile: 'session' } {
+export function setupTarget(
+  machine: string,
+  kind: NativeProviderKind = 'luvus',
+  sessions: SetupSessions = {}
+): V2Target & { profile: 'session' } {
   return {
     machine_id: machine,
     provider_id: kind,
     profile: 'session',
-    session: kind === 'luvus' ? 'rovloom' : 'default'
+    session: kind === 'luvus' ? (sessions.luvus ?? 'rovloom') : 'default'
   }
 }
 
@@ -31,11 +56,12 @@ export function setupProviderKinds(input: unknown): readonly NativeProviderKind[
 export function selectedSetupPolicies(
   plan: Pick<PairingPlan, 'attempt_id' | 'actor'>,
   machine: string,
-  kinds: readonly NativeProviderKind[]
+  kinds: readonly NativeProviderKind[],
+  sessions: SetupSessions = {}
 ): { principal_id: string; policies: ProviderPolicies } {
   const grants = setupProviderKinds(kinds).map(
     /* 每条授权只覆盖该来源的固定首次session。 */ (kind) => ({
-      target: setupTarget(machine, kind),
+      target: setupTarget(machine, kind, sessions),
       methods: [...(kind === 'luvus' ? LUVUS_OPERATION_METHODS : HERDR_WORKFLOW_METHODS)],
       actions: ['dispatch', 'read', 'cancel'] as ('dispatch' | 'read' | 'cancel')[]
     })
@@ -52,4 +78,9 @@ export function selectedSetupPolicies(
 // 内部引用不会暴露为用户JSON参数，且精确绑定原attempt以避免不同初始化互为别名。
 export function setupReference(attempt: string, kind: NativeProviderKind = 'luvus'): string {
   return kind + '_' + attempt
+}
+
+// Connector 按自己的运行方式选择 Luvus 会话：附着 default，managed 用 rovloom。
+export function setupSessionsFor(config: ConnectorConfig): SetupSessions {
+  return Object.freeze({ luvus: luvusMode(config) === 'attach' ? ('default' as const) : ('rovloom' as const) })
 }

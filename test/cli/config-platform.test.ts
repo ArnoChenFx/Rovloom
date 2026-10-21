@@ -2,7 +2,7 @@
 import { configDocument } from '../../src/cli/config.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { configTemplate, herdrMode, parseConfig, selectedNativeProviders } from '../../src/cli/config.js'
+import { configTemplate, herdrMode, luvusMode, parseConfig, selectedNativeProviders } from '../../src/cli/config.js'
 
 test(
   '双角色模板在各平台生成本机规范绝对占位路径并经过同一严格解析',
@@ -134,6 +134,31 @@ test(
       'attach'
     ]) {
       assert.throws(() => parse({ herdr }), { code: 'invalid_config' })
+    }
+  }
+)
+
+test(
+  'native.luvus 只接受 attach/managed 与规范绝对的 state_root，默认附着',
+  /* 与 Herdr 同一信任模型选择；state_root 指向用户自己的 LUVUS_HOME。 */ () => {
+    const base = configDocument(configTemplate('connector', 'linux'))
+    const parse = (native: unknown) => parseConfig({ ...base, native }, 'linux')
+    assert.equal(luvusMode(parse({}) as never), 'attach')
+    assert.equal(luvusMode(parse({ luvus: { mode: 'managed' } }) as never), 'managed')
+    const configured = parse({ luvus: { mode: 'attach', state_root: '/home/u/.luvus' } })
+    assert.equal(
+      (configured as { native?: { luvus?: { state_root?: string } } }).native?.luvus?.state_root,
+      '/home/u/.luvus'
+    )
+    for (const luvus of [
+      { mode: 'shared' },
+      { state_root: 'relative' },
+      { state_root: '/home/u/../x' },
+      { state_root: ['/a'] },
+      { extra: 1 },
+      'attach'
+    ]) {
+      assert.throws(() => parse({ luvus }), { code: 'invalid_config' })
     }
   }
 )
