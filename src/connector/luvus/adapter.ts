@@ -13,6 +13,7 @@ import {
   localLimits,
   pinConfig,
   recheckEndpoint,
+  recheckInstallation,
   verifyInstallation
 } from './local.js'
 import { LuvusAdapterError } from './types.js'
@@ -359,6 +360,8 @@ export class LuvusRpcAdapter {
       const activeSignal = scope.signal
       const native = this.#nativeBoundary(binding, request.payload.native_request.method as string)
       const endpoint = await this.#discover(activeSignal)
+      // 完整摘要验证在打开原生连接之前做完；连接建立后原生对空闲有期限，期间只复核身份戳。
+      const installed = await interruptible(verifyInstallation(this.#config), activeSignal)
       const raw = boundedJson(request)
       const prepare = /* 在已验证传输上获取认证、检查完整帧并申请唯一 claim，返回写入前的同步复核钩子。 */ async (
         evidence: NativeTransportEvidence,
@@ -390,7 +393,7 @@ export class LuvusRpcAdapter {
         }
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
         mark('recheckEndpoint')
-        await interruptible(verifyInstallation(this.#config), ioSignal)
+        await interruptible(recheckInstallation(this.#config, installed), ioSignal)
         mark('verifyInstallation')
         current()
         mark('current')
@@ -398,7 +401,7 @@ export class LuvusRpcAdapter {
         await interruptible(this.#host.claimDispatch(binding, evidence), ioSignal)
         mark('claimDispatch')
         // claim 期间可能改变安装来源；写入前同时重验 binary 和 endpoint。
-        await interruptible(verifyInstallation(this.#config), ioSignal)
+        await interruptible(recheckInstallation(this.#config, installed), ioSignal)
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
         aborted(ioSignal)
         return {

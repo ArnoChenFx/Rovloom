@@ -180,6 +180,19 @@ export async function verifyInstallation(config: LuvusLocalConfig): Promise<stri
   }
   return measured.stamp
 }
+/**
+ * 不重算摘要的安装复核：二进制与各私有目录的路径链身份戳必须与 {@link verifyInstallation} 当时一致。
+ * 摘要读取整个文件，慢速磁盘上可达数秒，而原生管道对空闲连接有超时；调用前先完整验证一次，
+ * 持有连接期间只复核身份戳（inode、大小、ctime 任何变化都会被拒绝）。
+ */
+export async function recheckInstallation(config: LuvusLocalConfig, stamp: string): Promise<void> {
+  if ((await inspect(config.binary, 'binary')) !== stamp) {
+    throw new LuvusAdapterError('binary_identity_changed')
+  }
+  for (const path of [config.state_root, config.home, config.cwd, ...childDirectories(config)]) {
+    await inspect(path, 'directory')
+  }
+}
 /** 列出固定 HOME 下供子进程使用的私有 XDG 目录。 */
 function childDirectories(config: LuvusLocalConfig): string[] {
   return ['config', 'data', 'cache', 'runtime'].map(
