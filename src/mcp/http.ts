@@ -17,6 +17,8 @@ export type HttpFacadeOptions = {
   authentication: HttpAuthenticationProvider
   // 完整origin白名单由受信宿主设置；缺Origin允许非浏览器客户端，存在时必须精确匹配。
   allowedOrigins?: readonly string[]
+  // 反向代理 / TLS 终止后的对外地址（https://host[:port]/mcp）；除回环地址外只接受这个 Host，且自动加入 CORS 白名单。
+  publicUrl?: string
   maxSessions?: number
   idleMs?: number
   requestTimeoutMs?: number
@@ -143,7 +145,19 @@ export function createHttpFacade(options: HttpFacadeOptions & { origin: string }
   const maxSessions = bounded(options.maxSessions, 64, 256)
   const idleMs = bounded(options.idleMs, 15 * 60_000, 60 * 60_000)
   const timeoutMs = bounded(options.requestTimeoutMs, 35_000, 60_000)
-  const allowedOrigins = new Set(options.allowedOrigins ?? [])
+  const publicUrl = options.publicUrl === undefined ? undefined : new URL(options.publicUrl)
+  if (
+    publicUrl &&
+    (publicUrl.protocol !== 'https:' ||
+      publicUrl.pathname !== '/mcp' ||
+      publicUrl.search ||
+      publicUrl.hash ||
+      publicUrl.username ||
+      publicUrl.password)
+  ) {
+    throw new Error('invalid_http_origin')
+  }
+  const allowedOrigins = new Set([...(options.allowedOrigins ?? []), ...(publicUrl ? [publicUrl.origin] : [])])
   for (const allowed of allowedOrigins) {
     if (new URL(allowed).origin !== allowed) {
       throw new Error('invalid_http_origin')
@@ -238,13 +252,11 @@ export function createHttpFacade(options: HttpFacadeOptions & { origin: string }
     if (closing) {
       return denied(503)
     }
-    if (
-      url.origin !== origin.origin ||
-      request.headers.get('host') !== origin.host ||
-      url.pathname !== '/mcp' ||
-      url.search ||
-      url.hash
-    ) {
+    const host = request.headers.get('host')
+    // 回环地址按完整 origin 匹配；公开地址只比较 Host（TLS 在代理终止，到这里的 scheme 是 http）。
+    const loopback = url.origin === origin.origin && host === origin.host
+    const proxied = publicUrl !== undefined && host === publicUrl.host && url.host === publicUrl.host
+    if ((!loopback && !proxied) || url.pathname !== '/mcp' || url.search || url.hash) {
       return denied(403)
     }
     const requestOrigin = request.headers.get('origin')

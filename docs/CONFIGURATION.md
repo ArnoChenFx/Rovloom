@@ -54,6 +54,7 @@ Setting an address does not establish pairing or install a native provider.
 | Gateway `mcp` | Object, required | Contains `hostname`, `port`; Streamable HTTP `/mcp`. |
 | `mcp.hostname` | String, required | `127.0.0.1`; also accepts `::1`. Loopback only. |
 | `mcp.port` | Integer 1–65535, required | `9444`. |
+| `mcp.public_url` | String, optional | Trusted external address behind a reverse proxy / TLS terminator, exactly `https://host[:port]/mcp` (no credentials, query or other path). When set, the Gateway also accepts requests whose `Host` is that host (and its CORS origin); every other `Host` is still rejected, and forwarded headers are never trusted. The listener itself stays on loopback; the Bearer is still required. |
 | Gateway `devices` | Object, required | Contains `hostname`, `port`; WS `/connector`. |
 | `devices.hostname` | String, required | `127.0.0.1`; also `::1`, `0.0.0.0`, `::`. Defaults do not accept remote devices. |
 | `devices.port` | Integer 1–65535, required | `9443`. |
