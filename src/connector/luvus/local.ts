@@ -8,7 +8,11 @@ import { boundedJson, LIMITS, validateTarget } from '../../wire/index.js'
 import { LuvusAdapterError } from './types.js'
 import { pinTerminalExecution } from '../terminal-execution.js'
 import { agentSearchPath } from '../local/agent-path.js'
+import { windowsInspectPath } from '../../platform/windows.js'
 import type { EndpointIdentity, LuvusLocalConfig, LuvusLocalLimits } from './types.js'
+
+/** Windows 上 Luvus 的命名管道端点：固定前缀加 16 位十六进制。 */
+export const WINDOWS_PIPE = /^\\\\\.\\pipe\\luvus-[0-9a-f]{16}$/u
 
 const defaults: LuvusLocalLimits = Object.freeze({
   request_bytes: LIMITS.frame_bytes,
@@ -40,9 +44,12 @@ function canonical(path: string): void {
     throw new LuvusAdapterError('local_path_invalid')
   }
 }
-// 当前只支持 POSIX；Windows ACL/命名管道不能凭 mode 位冒充已验证。
-/** 仅在 Linux 提供有效 uid，其他平台缺少等价身份检查时拒绝运行。 */
+// Linux 按 uid/mode；Windows 按属主 SID + DACL（windowsInspectPath），命名管道端点按名称与服务端 PID 证明。
+/** Linux 提供有效 uid；Windows 没有 uid，返回占位 0（身份由路径属主/ACL 与管道服务端进程证明）；其他平台拒绝运行。 */
 function uid(): number {
+  if (process.platform === 'win32') {
+    return 0
+  }
   if (process.platform !== 'linux' || !process.geteuid) {
     throw new LuvusAdapterError('local_platform_unsupported')
   }
@@ -53,6 +60,10 @@ function uid(): number {
  * 而端点目录门禁要求 0700；umask 仅对 spawn 期间生效（同步 fork），随即还原，不影响本进程其它文件创建。
  */
 export function withPrivateUmask<T>(spawnChild: () => T): T {
+  // Windows 没有 umask；目录访问由 ACL 约束。
+  if (process.platform === 'win32') {
+    return spawnChild()
+  }
   const previous = process.umask(0o077)
   try {
     return spawnChild()
@@ -63,6 +74,17 @@ export function withPrivateUmask<T>(spawnChild: () => T): T {
 /** 逐级核验路径归属、类型和权限并生成身份戳；拒绝符号链接及可被其他用户改写的路径。 */
 async function inspect(path: string, kind: 'directory' | 'binary' | 'socket') {
   canonical(path)
+  if (process.platform === 'win32') {
+    try {
+      // 'socket' 在 Windows 是命名管道名，不是文件，调用方走 windowsPipeStamp。
+      if (kind === 'socket') {
+        throw new LuvusAdapterError('local_path_untrusted')
+      }
+      return windowsInspectPath(path, kind)
+    } catch {
+      throw new LuvusAdapterError('local_path_untrusted')
+    }
+  }
   const paths = [path]
   while (paths[0] !== sep) {
     paths.unshift(dirname(paths[0]!))
@@ -163,6 +185,24 @@ function childDirectories(config: LuvusLocalConfig): string[] {
 }
 /** 构造固定且最小的子进程环境，隔离父进程凭据和实例选择器。 */
 export function childEnvironment(config: LuvusLocalConfig): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') {
+    const system = process.env.SystemRoot ?? 'C:\\Windows'
+    return {
+      PATH: agentSearchPath(config.agent_bin_dirs, `${system}\\System32;${system}`),
+      // Connector 自己运行固定子命令用的私有目录；用户的会话位置只由 LUVUS_HOME 选择。
+      USERPROFILE: config.home,
+      HOME: config.home,
+      APPDATA: join(config.home, 'config'),
+      LOCALAPPDATA: join(config.home, 'data'),
+      TEMP: join(config.home, 'runtime'),
+      TMP: join(config.home, 'runtime'),
+      LUVUS_HOME: config.state_root,
+      SystemRoot: system,
+      windir: system,
+      ComSpec: process.env.ComSpec ?? `${system}\\System32\\cmd.exe`,
+      PATHEXT: process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD'
+    }
+  }
   // 不继承调用进程的环境，不允许 caller 扩展 env 或设置其它实例选择器。
   return {
     PATH: agentSearchPath(config.agent_bin_dirs, '/usr/bin:/bin'),
@@ -192,6 +232,14 @@ export function fixedArguments(
 }
 /** 要求 endpoint 位于受保护状态根目录内，并核验每级私有目录及 socket 身份。 */
 export async function inspectEndpoint(config: LuvusLocalConfig, address: string): Promise<EndpointIdentity> {
+  if (process.platform === 'win32') {
+    // 官方 Luvus 在 Windows 的端点是 `\\.\pipe\luvus-<16 位十六进制>` 命名管道（由 session list 报出）；状态目录仍须可信。
+    if (!WINDOWS_PIPE.test(address)) {
+      throw new LuvusAdapterError('endpoint_outside_state_root')
+    }
+    await inspect(config.state_root, 'directory')
+    return Object.freeze({ address, uid: uid(), stamp: address })
+  }
   canonical(address)
   const inside = relative(config.state_root, address)
   if (!inside || inside === '..' || inside.startsWith('..' + sep) || isAbsolute(inside)) {

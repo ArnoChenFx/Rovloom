@@ -132,6 +132,13 @@ export async function prepareSetupNative(
   }
   const binary = setupBinary(config)
   const attach = luvusMode(config) === 'attach'
+  if (!attach && process.platform === 'win32') {
+    // 隔离实例依赖 POSIX 权限与 pidfd 进程模型；Windows 上目前只支持附着用户自己的会话。
+    terminal.show(
+      'luvus_managed_unsupported_on_windows: set native.luvus.mode to "attach". / Windows 上暂不支持 managed，请把 native.luvus.mode 设为 "attach"。\n'
+    )
+    throw new CliError('configuration_required')
+  }
   if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Luvus', attach)))) {
     throw new CliError('configuration_required')
   }

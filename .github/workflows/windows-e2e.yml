@@ -1,4 +1,4 @@
-# 真实 Windows runner 上的验收（#173）：Win32 原语、附着官方 Herdr，以及按 Quick Start 在 ConPTY 里从零配对并经 MCP 走完整链路。
+# 真实 Windows runner 上的验收（#173）：Win32 原语、附着官方 Herdr / Luvus，以及按 Quick Start 在 ConPTY 里从零配对并经 MCP 走完整链路（含崩溃恢复）。
 name: Windows e2e
 on:
   workflow_dispatch:
@@ -73,3 +73,43 @@ jobs:
         run: |
           python -m pip install pywinpty
           python e2e\quickstart_windows.py --binary dist\release\bun-windows-x64\candidate\rovloom.exe --herdr-dir $env:HERDR_DIR ${{ matrix.flags }} --then "bun --no-env-file e2e\herdr-session.mjs"
+  luvus:
+    name: luvus (${{ matrix.scenario }})
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: first-run
+            flags: ''
+          - scenario: attach-existing
+            flags: --pre-existing
+          - scenario: connector-crash
+            flags: --crash
+          - scenario: luvus-killed
+            flags: --pre-existing --kill-luvus
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Download official Luvus (Windows x86_64)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'luvus'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/RizRiyz/luvus/releases/download/v0.14.3/luvus-v0.14.3-x86_64-pc-windows-msvc.zip' -OutFile "$dir\luvus.zip"
+          Expand-Archive -Path "$dir\luvus.zip" -DestinationPath $dir -Force
+          Remove-Item "$dir\luvus.zip"
+          "LUVUS_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build actual standalone product
+        run: bun --no-env-file run release:build
+      - name: Quick Start on Windows with Luvus (real ConPTY pairing, attach to real Luvus, MCP chain)
+        shell: pwsh
+        env:
+          LUVUS_WRITE: '{}'
+        run: |
+          python -m pip install pywinpty
+          python e2e\quickstart_windows.py --binary dist\release\bun-windows-x64\candidate\rovloom.exe --luvus-dir $env:LUVUS_DIR ${{ matrix.flags }} --then "bun --no-env-file e2e\luvus-session.mjs"
