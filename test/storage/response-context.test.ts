@@ -250,7 +250,7 @@ test(
     const f = fixture(
       {
         maintenanceIntervalMs: 60_000,
-        retention: { metadata_ttl: 100, history_epoch_max_age: 20 },
+        retention: { metadata_ttl: 100 },
         // 在清理的提交前持续注入故障，不能依赖成功 COMMIT 发布回收通知。
         fault: (point) => {
           if (fail && point === 'before_commit') {
@@ -463,7 +463,7 @@ for (const action of ['provider', 'disconnect', 'revoke'] as const) {
 test(
   '密封上下文仍占 attempt/字节子额，到去重期限才释放，关闭不能重建许可',
   /* 使密封上下文占满尝试子额，验证到去重期限才返还预算，并且关闭后不能再解码。 */ () => {
-    const f = fixture({ retention: { metadata_ttl: 100, history_epoch_max_age: 20 } }, { limits: { attempts: 1 } })
+    const f = fixture({ retention: { metadata_ttl: 100 } }, { limits: { attempts: 1 } })
     try {
       const call = f.native.create()
       f.native.dispatch(call.call_id)

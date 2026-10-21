@@ -257,7 +257,7 @@ const attempt = {
   contract_ref: wire.contractRef(origin),
   registration: {
     deadline: 1000,
-    history: null,
+
     caller_policy_revision: 'caller',
     local_policy_revision: 'local'
   }

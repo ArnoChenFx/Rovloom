@@ -41,10 +41,8 @@ import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { SERVICE_ERROR_CODES, type ReplyData, type ServiceErrorCode } from '../../src/mcp/types.js'
 
 /** Gateway 只建立自身状态目录；没有 binary、HOME、native root 或 socket 输入。 */
-async function fixture(
-  options: { mixed?: boolean; isolated?: boolean; historyScope?: boolean; fastObservation?: boolean } = {}
-) {
-  const { mixed = false, isolated = false, historyScope = false, fastObservation = false } = options
+async function fixture(options: { mixed?: boolean; isolated?: boolean; fastObservation?: boolean } = {}) {
+  const { mixed = false, isolated = false, fastObservation = false } = options
   const root = mixed
     ? privateHerdrTestRoot('.remote-gateway-')
     : mkdtempSync(join(fileURLToPath(new URL('../../', import.meta.url)), '.remote-gateway-'))
@@ -183,21 +181,13 @@ async function fixture(
       hostname: '127.0.0.1',
       port: 0,
       developmentLoopback: true,
-      ...(isolated || historyScope
+      ...(isolated
         ? {
             offer: {
               major: 2,
               minor: 0,
-              capabilities: [
-                'rpc',
-                ...(isolated ? ['provider_fence' as const] : []),
-                ...(historyScope ? ['history_scope' as const] : [])
-              ],
-              required: [
-                'rpc',
-                ...(isolated ? ['provider_fence' as const] : []),
-                ...(historyScope ? ['history_scope' as const] : [])
-              ]
+              capabilities: ['rpc', ...(isolated ? ['provider_fence' as const] : [])],
+              required: ['rpc', ...(isolated ? ['provider_fence' as const] : [])]
             },
             // 仅心跳/生命周期观察显式使用加速计时；隔离协商本身不改变连接租期。
             ...(fastObservation ? { limits: { heartbeat_ms: 30, idle_ms: 3000 } } : {})
@@ -237,13 +227,8 @@ async function fixture(
             offer: {
               major: 2,
               minor: 0,
-              capabilities: [
-                'rpc',
-                'provider_snapshot',
-                ...(isolated ? ['provider_fence'] : []),
-                ...(historyScope ? ['history_scope'] : [])
-              ],
-              required: ['rpc', ...(isolated ? ['provider_fence'] : []), ...(historyScope ? ['history_scope'] : [])]
+              capabilities: ['rpc', 'provider_snapshot', ...(isolated ? ['provider_fence'] : [])],
+              required: ['rpc', ...(isolated ? ['provider_fence'] : [])]
             }
           }
         })
@@ -670,7 +655,7 @@ for (const { isolated, disconnectBeforeRead } of [
     `真实 MCP SDK ${disconnectBeforeRead ? '结果元数据不替代断连后读取许可' : '非法 agent.wait 拒绝保留原连接和健康调用'}（Herdr隔离组合: ${isolated}）`,
     { timeout: 45_000 },
     /** 真实 pinned schema、双库、Gateway、Wire 和 HTTP SDK；peer 仅为明确合成回包，无 native/model。 */ async () => {
-      const f = await fixture({ mixed: isolated, isolated, historyScope: true })
+      const f = await fixture({ mixed: isolated, isolated })
       let http: ReturnType<typeof httpFixture> | undefined
       let service: RuntimeGatewayService | undefined
       try {
@@ -735,7 +720,6 @@ for (const { isolated, disconnectBeforeRead } of [
           }
         }
         assert(foundCall)
-        const history = f.state.store.openHistory('remote_reader', f.target, 1)
         const input = {
           target: f.target,
           expected_binding_revision: 1,
@@ -754,18 +738,14 @@ for (const { isolated, disconnectBeforeRead } of [
         )
         const epoch = peer.connection.connection_epoch
         const before = f.writes()
-        const context = {
-          history_epoch: history.history_epoch,
-          client_request_key: 'correctable_bad_wait',
-          recovery_generation: f.state.store.generation()
-        }
+        const client_request_key = 'correctable_bad_wait'
         const bad = CallToolResultSchema.parse(
           await http.client.callTool({
             name: 'runtime_call',
             arguments: {
               ...input,
               native_request: { method: 'agent.wait', params: { target: '1', until: 'idle' } },
-              history: context
+              client_request_key
             }
           })
         )
@@ -838,7 +818,7 @@ for (const { isolated, disconnectBeforeRead } of [
           )
         }
         const corrected = CallToolResultSchema.parse(
-          await http.client.callTool({ name: 'runtime_call', arguments: { ...input, history: context } })
+          await http.client.callTool({ name: 'runtime_call', arguments: { ...input, client_request_key } })
         )
         assert.equal(corrected.isError, undefined)
         const correctedId = (corrected.structuredContent!.data as { call_id: string }).call_id
@@ -869,7 +849,7 @@ for (const { isolated, disconnectBeforeRead } of [
               binding_revision: 1,
               contract_ref: input.contract_ref,
               deadline: input.deadline,
-              history: { history_epoch: history.history_epoch, client_request_key: oldKey }
+              client_request_key: oldKey
             })
             f.runtime.router.dispatch(principal, admitted.call.call_id, epoch)
             return f.state.store.stop(principal.id, admitted.call.call_id)
@@ -883,7 +863,7 @@ for (const { isolated, disconnectBeforeRead } of [
             arguments: {
               ...input,
               native_request: oldRequest,
-              history: { ...context, client_request_key: oldKey }
+              client_request_key: oldKey
             }
           })
         )

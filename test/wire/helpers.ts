@@ -119,7 +119,6 @@ export const attempt: AttemptIdentity = {
   contract_ref: contractRef(source),
   registration: {
     deadline: 1000,
-    history: { history_epoch: 'history_1', client_request_key: 'key_1' },
     caller_policy_revision: 'caller_policy_1',
     local_policy_revision: 'local_policy_1'
   }
@@ -133,7 +132,7 @@ const methods = JSON.parse(
 export const offer: VersionOffer = {
   major: 2,
   minor: 0,
-  capabilities: ['rpc', 'history_scope', 'late_evidence'],
+  capabilities: ['rpc', 'late_evidence'],
   required: ['rpc']
 }
 // 构造含独立 provider、契约、调用锚点和双端权限的认证测试上下文。

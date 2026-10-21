@@ -112,7 +112,7 @@ export async function fixture(
     target: { machine_id: 'm1', provider_id: 'p1', profile: 'session', session: 'synthetic' },
     registration: {
       deadline: 30_100,
-      history: null,
+
       caller_policy_revision: 'caller1',
       local_policy_revision: 'local1'
     }

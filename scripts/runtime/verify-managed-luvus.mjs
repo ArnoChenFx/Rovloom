@@ -216,7 +216,7 @@ try {
   const offer = {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'history_scope'],
+    capabilities: ['rpc'],
     required: ['rpc']
   }
   stage = 'gateway_start'
@@ -317,7 +317,6 @@ try {
     'authenticated_channel_ready',
     /* 两端就绪已经来自真实握手。 */ () => assert.equal(connector.transport.status().phase, 'ready')
   )
-  const history = state.store.openHistory(principal.id, target, 1)
   const input = {
     target,
     native_request: { method: 'task.add', params: { title: 'isolated native runtime smoke' } },
@@ -325,7 +324,7 @@ try {
       binding_revision: 1,
       contract_ref: reference,
       deadline: Date.now() + 30000,
-      history: { history_epoch: history.history_epoch, client_request_key: 'isolated_intent' }
+      client_request_key: 'isolated_intent'
     }
   }
   stage = 'admit'

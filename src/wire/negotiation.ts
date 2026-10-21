@@ -11,7 +11,6 @@ const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   dispatch_refusal: 0,
   provider_snapshot: 0,
   terminal_execution_state: 0,
-  history_scope: 0,
   late_evidence: 0
 })
 

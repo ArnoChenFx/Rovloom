@@ -18,7 +18,6 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 | provider_snapshot | Connector 实测 provider 来源快照；同时要求 rpc，不交付 schema 或 opaque handle |
 | terminal_execution_state | Connector 原本机终端开关的布尔观察；同时要求 rpc，仅供目录 |
 | provider_fence | 普通 RPC 的逐 provider 来源永久撤回；同时要求 rpc |
-| history_scope | 显式登记 history_epoch/client_request_key |
 | late_evidence | unknown 同次 attempt 补证 |
 
 业务帧使用已选定 minor，不能按消息重新猜版本或放行未知 feature。welcome 必须匹配本地保存的 offer/required，
@@ -93,7 +92,6 @@ type AttemptIdentity = {
   binding_revision: number; contract_ref: string;
   registration: {
     deadline: number;
-    history: { history_epoch: string; client_request_key: string } | null;
     caller_policy_revision: string; local_policy_revision: string;
   };
 };
@@ -137,10 +135,6 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
       "contract_ref": "aa705145f483bd10592632ee9748978c745f0ff7e73263271fe6e3fae234e973",
       "registration": {
         "deadline": 1000,
-        "history": {
-          "history_epoch": "history_1",
-          "client_request_key": "key_1"
-        },
         "caller_policy_revision": "caller_policy_1",
         "local_policy_revision": "local_policy_1"
       }
@@ -318,20 +312,18 @@ type ProviderPolicies = { caller: ProviderPolicy; local: ProviderPolicy };
 响应接收仅为内部关联/验证，不等于读取授权；晚到 payload 保存意图还要求当前 read scope 和受信 ResponseContentPolicy。
 caller 撤权后仍可有受保护的最小接收审计，不能据此交付内容。provider 禁用则连原 attempt 的补证也拒绝。
 
-## 登记、history 与可靠迟到接口
+## 登记与可靠迟到接口
 
 | 纯接口 | 宿主必须保证的可信输入与原子后续 |
 |---|---|
 | registeredRequestDigest(payload, callerId) | 来自已认证 caller；摘要绑定完整 Target/provider/revision/kind/契约/登记条件/validation/native request，不含新分配 call/attempt/native ID |
-| planHistoryAdmission(reference, generation, digest, scope, record, now) | scope/key 按 caller 与原历史范围在同一 writer 查询；采用 return_existing/register_new 意图也在同一事务 |
 | resolveAttempt | 返回原完整 AttemptBinding、method/mode/transport/feature，以及存在时的原 native handle；不从消息补建 |
 | assertProviderAccess | 当前可信 provider snapshot 与双方完整 scope；不是身份认证来源 |
 | planResponseEvidence(frame, context, anchor, now, policy?) | durable dispatch 原锚点、固定内容/墓碑期限、当前分类/内容权限；事务成功后才发布状态 |
 
 registeredRequestDigest 是已登记 wire 意图的规范摘要，不是自动迁移/重签旧 key 的授权。
-旧重试必须继续使用原 recovery_generation/history_epoch/key/原登记数据；不能发现新 provider revision/契约后自动重算重派。
-同 scope 已有 key 只返回原 call；摘要不同 conflict。active 缺 key 且 now < accept_new_until 才给登记意图；
-退役/未知/旧恢复代次/缺失历史或截止同刻均拒绝。冻结 TTL 与原创建/截止约束沿用 ADR 0002；没有隐式当前 scope。
+旧重试必须继续使用原 `client_request_key` 和原登记数据；不能发现新 provider revision/契约后自动重算重派。
+同主体已有 key 的窗口内只返回原 call，摘要不同报 conflict；key 只由 Gateway Store 处理，不进入 Wire，Connector 看不到它。
 
 迟到响应必须仍在有效认证连接、当前 provider 启用且 revision/contract/全部 attempt 精确匹配，原 native handle/source 和完整原生响应通过。
 unknown 补证需 late_evidence feature；缺锚点、旧 attempt、墓碑已删、冲突或旧 revision 一律拒绝，不创建执行。

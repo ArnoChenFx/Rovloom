@@ -113,7 +113,7 @@ function attempt(
     provider_kind: 'luvus',
     binding_revision: 1,
     contract_ref: contractRef(provider.contract.wire.source),
-    registration: { deadline: 200, history: null, caller_policy_revision: 'caller1', local_policy_revision: 'local1' }
+    registration: { deadline: 200, caller_policy_revision: 'caller1', local_policy_revision: 'local1' }
   }
   return {
     binding,

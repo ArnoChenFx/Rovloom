@@ -63,10 +63,10 @@ attempt/句柄不复用。设备撤销覆盖所有 providers，且不表示原�
 `Router.admit(principal, target, request, options)` 使用必填的绝对毫秒 `deadline`，返回
 `{ call, created }`；底层为 `Store.admitCall`。首次登记须满足 `now < deadline <= now + 600000`，
 非正安全整数或与 `timeoutMs` 混用返回 invalid_deadline，首次已到期返回 deadline_exceeded。
-双端当前授权、policy revision 复验、完整 provider 绑定、scope/key 摘要查询、新行和审计在同一
-writer 事务内完成，预算及 COMMIT 成功后才返回 `created: true`。同范围同 key 的精确重复返回
-原调用及 `created: false`，原执行期限已过或 scope 已退役也不续期；任何登记条件差异返回
-request_key_conflict，未知或失效 history 继续拒绝。调用方必须仅对首次登记尝试取得派发锚点，
+双端当前授权、policy revision 复验、完整 provider 绑定、`(principal, client_request_key)` 摘要查询、新行和审计在同一
+writer 事务内完成，预算及 COMMIT 成功后才返回 `created: true`。同主体同 key 的精确重复返回
+原调用及 `created: false`，原执行期限已过也不续期；任何登记条件差异返回
+request_key_conflict。key 的窗口到 `metadata_ttl` 结束，窗口外同 key 即为全新意图。调用方必须仅对首次登记尝试取得派发锚点，
 重复返回即使仍为 created 状态也不得重发；`created: true` 本身不是派发或原生执行许可。
 Router 登记和取消统一返回 `response: null` 的元数据投影；响应原文仅由另经当前 read 授权的
 get/readResult 返回，命中已完成旧调用也不能凭 dispatch/cancel 权限取得原文。
@@ -109,18 +109,15 @@ Store 默认每秒维护到期状态、原文、句柄、墓碑和审计，close
 恰好运行。Router.wait 只等待本地状态，最多 25 秒，返回 call_id/状态；它不改变执行 deadline。
 未派发到期收敛为 not_dispatched，可能已经送达则保持 outcome_unknown。取消只收敛桥接状态。
 
-## History 与分层保留
+## 去重与分层保留
 
-带 key 调用须显式使用 Store.openHistory 发放的范围。范围固定 principal、machine/provider/
-binding、恢复代次、创建时间、准入期限和去重 TTL；旧 scope 的查询、冲突判断与首次登记在
-同一事务完成。openHistory 的 retire 参数原子关闭旧范围并建立新范围，不迁移旧调用或 key。
-scope/key 不存在不等于首次意图：已过期、未知或已清理范围一律拒绝，新 scope 只能用于明确
-的新意图。范围 ID 不复用。无 key 调用没有客户端重送去重保证，也没有自动重放入口。
+带 `client_request_key` 的调用在 `(principal, key)` 上去重，没有单独的范围对象：查询、冲突判断与首次登记在
+同一事务完成，key 的窗口等于调用元数据的 `metadata_ttl`，窗口内同 key 同摘要返回原调用，不同摘要报
+`request_key_conflict`；窗口结束且墓碑清理后同 key 是新意图。无 key 调用没有客户端重送去重保证，也没有自动重放入口。
 
 所有内容从首次登记固定期限，包括保存的请求参数与 inline 响应。句柄仅引用该内容，不复制
 载荷；句柄期限与原内容相同（`result_ttl`），不单独续签。内容到期/discard 后不可重新读取或生成句柄。到期维护将请求和响应清空；discard 即时清空并
-保留状态和摘要证据。metadata-only 迟到证据不复活内容。调用元数据期限至少覆盖该 scope 冻结的
-墓碑期限，配置缩短不改写既有对象的固定期限。
+保留状态和摘要证据。metadata-only 迟到证据不复活内容。调用元数据期限即去重墓碑期限，配置缩短不改写既有对象的固定期限。
 
 `readResult` 的每页返回实际 `results.expires`，是 Store 时钟使用的绝对毫秒截止时间；
 `now < expires` 才有效，等于截止时间即拒绝。句柄期限可以早于原内容期限，不能用
@@ -136,7 +133,7 @@ Store 的时间高水位在内存中随读取推进（读路径不写库），�
 
 全局预算涵盖 SQLite 已分配/空闲页、事务 journal、状态目录内对象/日志/维护文件，以及配置的
 独立备份目录，受 `storage_total_bytes` 约束；内容原文与结果句柄共用 `content_bytes`，备份受
-`backup_bytes` 约束。调用/history 元数据、审计与安全元数据不再各设字节子额，由各自 TTL 清理和全库总额约束
+`backup_bytes` 约束。调用元数据、审计与安全元数据不再各设字节子额，由各自 TTL 清理和全库总额约束
 （逐表 JSON 统计已移除，写事务不再全表扫描）。provider 数量不会增加总额。默认 64 MiB 安全预留不用于普通准入；
 每个实际 dispatch 固定预约 `attempt_reserve_bytes`（默认 16 KiB）用于最小证据与必要审计，终态提交释放，
 unknown 在保留期内仍占预约，其它调用和管理写入不得占用该预约；事务失败不释放预约。

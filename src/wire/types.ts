@@ -37,7 +37,6 @@ export type Capability =
   | 'dispatch_refusal'
   | 'provider_snapshot'
   | 'terminal_execution_state'
-  | 'history_scope'
   | 'late_evidence'
 export type VersionOffer = {
   major: number
@@ -51,10 +50,8 @@ export type ConnectionIdentity = {
   recovery_generation: string
   connection_epoch: string
 }
-export type HistoryReference = { history_epoch: string; client_request_key: string }
 export type AttemptRegistration = {
   deadline: number
-  history: HistoryReference | null
   caller_policy_revision: string
   local_policy_revision: string
 }

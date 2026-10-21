@@ -27,7 +27,6 @@ test(
       )
       assert.equal(f.native.state.responses, 0)
       assert.equal(f.claims(), 0)
-      const history = f.state.store.openHistory('synthetic', f.target, 1)
       const input = {
         target: f.target,
         native_request: { method: 'task.add', params: { title: 'synthetic' } },
@@ -35,7 +34,7 @@ test(
           binding_revision: 1,
           contract_ref: f.reference,
           deadline: f.state.store.clock() + 30_000,
-          history: { history_epoch: history.history_epoch, client_request_key: 'one_intent' }
+          client_request_key: 'one_intent'
         }
       }
       const first = await f.gateway.runAuthenticated(

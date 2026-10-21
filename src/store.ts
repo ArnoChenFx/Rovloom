@@ -10,14 +10,11 @@ import {
   boundedJson,
   contractRef,
   LIMITS,
-  planHistoryAdmission,
   registeredRequestDigest,
   validateAttempt,
   validateProvider,
-  validateTarget,
-  id as validateId
+  validateTarget
 } from './wire/index.js'
-import type { HistoryScope, HistoryRecord } from './wire/history.js'
 import type { ResponseAnchor, ResponseEvidencePlan } from './wire/evidence.js'
 import type {
   AttemptBinding,
@@ -370,8 +367,7 @@ export class Store {
     if (
       Object.entries(this.limits).some(
         // 检查各层期限相加仍在安全整数范围，防止时间溢出造成永久保留。
-        ([key, value]) =>
-          (key.endsWith('_ttl') || key === 'history_epoch_max_age') && !Number.isSafeInteger(now + value)
+        ([key, value]) => key.endsWith('_ttl') && !Number.isSafeInteger(now + value)
       )
     ) {
       throw new GatewayError('invalid_storage_limits')
@@ -585,59 +581,6 @@ export class Store {
       this.audit(reason, 'system', now, this.row(row.call_id))
     }
   }
-  // 在 principal、provider、revision 和恢复 generation 范围内建立固定期限的去重历史。
-  openHistory(principal: string, target: V2Target, revision: number, retire?: string): HistoryScope {
-    validateTarget(target)
-    validateId(principal)
-    return this.transaction(
-      /* 退休指定旧 scope 后建立新的有界 history epoch，冻结其去重期限。 */ (now) => {
-        const provider = this.provider(target.machine_id, target.provider_id)
-        if (!provider?.enabled || provider.binding_revision !== revision) {
-          throw new GatewayError('provider_binding_mismatch')
-        }
-        if (retire) {
-          const changed = this.db
-            .prepare(
-              "UPDATE history SET status='retired' WHERE history_epoch=? AND principal=? AND machine_id=? AND provider_id=? AND binding_revision=? AND recovery_generation=?"
-            )
-            .run(retire, principal, target.machine_id, target.provider_id, revision, this.generation())
-          if (changed.changes !== 1) {
-            throw new GatewayError('dedup_history_unavailable')
-          }
-        }
-        const scope: HistoryScope = {
-          history_epoch: id('history'),
-          recovery_generation: this.generation(),
-          status: 'active',
-          scope_created_at: now,
-          accept_new_until: now + this.limits.history_epoch_max_age,
-          frozen_dedup_ttl: this.limits.metadata_ttl
-        }
-        this.db
-          .prepare('INSERT INTO history VALUES(?,?,?,?,?,?,?,?,?,?)')
-          .run(
-            scope.history_epoch,
-            scope.recovery_generation,
-            principal,
-            target.machine_id,
-            target.provider_id,
-            revision,
-            scope.status,
-            now,
-            scope.accept_new_until,
-            scope.frozen_dedup_ttl
-          )
-        this.audit('history_opened', principal, now, undefined, {
-          machine_id: target.machine_id,
-          provider_id: target.provider_id,
-          binding_revision: revision,
-          history_epoch: scope.history_epoch,
-          retired: retire ?? null
-        })
-        return scope
-      }
-    )
-  }
   // 查询调用内部账本行，缺失时返回固定错误而不暴露 SQL 细节。
   private row(callId: string): Row {
     const row = this.db.prepare('SELECT * FROM calls WHERE call_id=?').get(callId) as Row | undefined
@@ -724,7 +667,7 @@ export class Store {
       caller_policy_revision: supplied.caller_policy_revision,
       local_policy_revision: supplied.local_policy_revision,
       ...(supplied.validation === undefined ? {} : { validation: supplied.validation }),
-      ...(supplied.history === undefined ? {} : { history: JSON.parse(canonical(supplied.history)) })
+      ...(supplied.client_request_key === undefined ? {} : { client_request_key: supplied.client_request_key })
     }
     return this.transaction(
       /* 在同一 writer 事务复验授权、查询去重并登记；预算和审计提交后才返回 created 判定。 */ (now) => {
@@ -759,7 +702,6 @@ export class Store {
           contract_ref: options.contract_ref,
           registration: {
             deadline: 'deadline' in timing ? timing.deadline : now + timing.timeoutMs,
-            history: options.history ?? null,
             caller_policy_revision: options.caller_policy_revision,
             local_policy_revision: options.local_policy_revision
           }
@@ -774,23 +716,13 @@ export class Store {
           },
           principal
         )
-        let dedupExpires = now + this.limits.metadata_ttl
-        if (options.history) {
-          const scope = this.db
-            .prepare(
-              'SELECT * FROM history WHERE history_epoch=? AND principal=? AND machine_id=? AND provider_id=? AND binding_revision=?'
-            )
-            .get(
-              options.history.history_epoch,
-              principal,
-              target.machine_id,
-              target.provider_id,
-              provider.binding_revision
-            ) as HistoryScope | undefined
+        const expires = now + this.limits.metadata_ttl
+        if (options.client_request_key !== undefined) {
+          const keyDigest = digest(options.client_request_key)
           const old = this.db
-            .prepare('SELECT * FROM calls WHERE history_epoch=? AND key_digest=?')
-            .get(options.history.history_epoch, digest(options.history.client_request_key)) as Row | undefined
-          if (old) {
+            .prepare('SELECT * FROM calls WHERE principal=? AND key_digest=?')
+            .get(principal, keyDigest) as Row | undefined
+          if (old && old.dedup_expires > now) {
             // deadline 是初次登记的绝对值，重送不能以当前时刻刷新；其余条件仍逐项摘要核对。
             const prior = JSON.parse(old.identity_json) as AttemptIdentity
             if ('timeoutMs' in timing) {
@@ -805,27 +737,18 @@ export class Store {
               },
               principal
             )
-            if ('timeoutMs' in timing && prior.registration.deadline - old.created !== timing.timeoutMs) {
+            if (
+              old.request_hash !== hash ||
+              ('timeoutMs' in timing && prior.registration.deadline - old.created !== timing.timeoutMs)
+            ) {
               throw new GatewayError('request_key_conflict')
             }
+            return { call: publicCall(this.owned(principal, old.call_id, now), now), created: false }
           }
-          const record: HistoryRecord | undefined = old
-            ? {
-                history_epoch: old.history_epoch!,
-                recovery_generation:
-                  JSON.parse(old.binding_json ?? '{}').recovery_generation ?? scope?.recovery_generation,
-                key_digest: old.key_digest!,
-                request_digest: old.request_hash,
-                call_id: old.call_id,
-                call_created_at: old.created,
-                dedup_expires_at: old.dedup_expires
-              }
-            : undefined
-          const decision = planHistoryAdmission(options.history, this.generation(), hash, scope, record, now)
-          if (decision.action === 'return_existing') {
-            return { call: publicCall(this.owned(principal, decision.call_id, now), now), created: false }
+          if (old) {
+            // 过期墓碑让位给同 key 的新登记，唯一约束不再占用旧行。
+            this.db.prepare('DELETE FROM calls WHERE call_id=?').run(old.call_id)
           }
-          dedupExpires = decision.dedup_expires_at
         }
         // 有效墓碑命中只返回旧意图；只有首次登记才要求绝对截止时间仍在未来且不超过十分钟。
         if ('deadline' in timing) {
@@ -849,9 +772,9 @@ export class Store {
         }
         this.db
           .prepare(`INSERT INTO calls(call_id,principal,machine_id,provider_id,binding_revision,provider_kind,
-        request_hash,key_digest,history_epoch,state,identity_json,target_json,method,mode,request_json,
+        request_hash,key_digest,state,identity_json,target_json,method,mode,request_json,
         created,deadline,content_expires,metadata_expires,dedup_expires,content_status)
-        VALUES(?,?,?,?,?,?,?,?,?,'created',?,?,?,?,?,?,?,?,?,?,'available')`)
+        VALUES(?,?,?,?,?,?,?,?,'created',?,?,?,?,?,?,?,?,?,?,'available')`)
           .run(
             identity.call_id,
             principal,
@@ -860,8 +783,7 @@ export class Store {
             provider.binding_revision,
             provider.kind,
             hash,
-            options.history ? digest(options.history.client_request_key) : null,
-            options.history?.history_epoch ?? null,
+            options.client_request_key === undefined ? null : digest(options.client_request_key),
             boundedJson(identity),
             boundedJson(target),
             request.method,
@@ -870,8 +792,8 @@ export class Store {
             now,
             identity.registration.deadline,
             now + this.limits.result_ttl,
-            Math.max(now + this.limits.metadata_ttl, dedupExpires),
-            dedupExpires
+            expires,
+            expires
           )
         const row = this.row(identity.call_id)
         this.audit('created', principal, now, row)
@@ -1253,12 +1175,6 @@ export class Store {
           )
           .run(now)
         this.db.prepare('DELETE FROM calls WHERE metadata_expires<=? AND dedup_expires<=?').run(now, now)
-        this.db.prepare("UPDATE history SET status='retired' WHERE accept_new_until<=?").run(now)
-        this.db
-          .prepare(
-            'DELETE FROM history WHERE accept_new_until+frozen_dedup_ttl<=? AND NOT EXISTS(SELECT 1 FROM calls WHERE calls.history_epoch=history.history_epoch)'
-          )
-          .run(now)
         this.administration.expire(now)
         this.db.prepare('DELETE FROM audit WHERE expires<=?').run(now)
         this.db.prepare('DELETE FROM enrollments WHERE expires<=?').run(now)

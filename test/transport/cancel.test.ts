@@ -514,7 +514,7 @@ test(
   '取消保留原锚点，合法迟到响应仍按同 attempt 事务补证，不改写取消历史或续期限',
   /** raw peer 在取消之后发送合法 accepted/response，Gateway 只忽略旧确认而保留真实证据。 */
   async () => {
-    const offer = { major: 2, minor: 0, capabilities: ['rpc', 'history_scope', 'late_evidence'], required: ['rpc'] }
+    const offer = { major: 2, minor: 0, capabilities: ['rpc', 'late_evidence'], required: ['rpc'] }
     const f = fixture({ offer })
     const a = f.pair('mock_cancel_late')
     const raw = rawConnect(f.gateway.url, a.credential, offer)
@@ -523,9 +523,8 @@ test(
         /** welcome 提供真实 epoch，测试不构造认证事实。 */
         () => !!raw.epoch
       )
-      const scope = f.store.openHistory(f.principal.id, a.target, 1)
-      const history = { history_epoch: scope.history_epoch, client_request_key: 'mock_cancel_history' }
-      const call = f.call(a.target, history)
+      const client_request_key = 'mock_cancel_history'
+      const call = f.call(a.target, client_request_key)
       const binding = f.gateway.dispatch(call.call_id)
       assert.equal(f.gateway.cancel(call.call_id).state, 'outcome_unknown')
       const { machine_id, recovery_generation, connection_epoch, ...attempt } = binding
@@ -553,7 +552,7 @@ test(
       assert.equal(settled.deadline, call.deadline)
       assert.equal(settled.content_expires, call.content_expires)
       assert.equal(settled.dedup_expires, call.dedup_expires)
-      const duplicate = f.call(a.target, history)
+      const duplicate = f.call(a.target, client_request_key)
       assert.equal(duplicate.call_id, call.call_id)
       assert.equal(duplicate.deadline, call.deadline)
       assert.equal(duplicate.dedup_expires, call.dedup_expires)

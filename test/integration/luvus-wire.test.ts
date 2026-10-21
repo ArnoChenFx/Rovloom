@@ -78,7 +78,7 @@ function fixture(method = 'task.add', raw = false, limits?: Parameters<typeof cr
     target: { machine_id: 'm1', provider_id: 'p1', profile: 'session', session: 'synthetic' },
     registration: {
       deadline: 1000,
-      history: null,
+
       caller_policy_revision: 'caller1',
       local_policy_revision: 'local1'
     }

@@ -58,7 +58,7 @@ export class Router {
           contract_ref: options.contract_ref,
           ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
           ...(options.validation === undefined ? {} : { validation: options.validation }),
-          ...(options.history === undefined ? {} : { history: options.history }),
+          ...(options.client_request_key === undefined ? {} : { client_request_key: options.client_request_key }),
           ...('deadline' in options ? { deadline: options.deadline } : {})
         }
       })

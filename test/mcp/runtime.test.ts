@@ -89,7 +89,7 @@ function data(result: unknown): JsonObject {
 }
 
 test(
-  '统一SDK目录分三页，严格参数先于准入，原contract/deadline/history与params保持原值',
+  '统一SDK目录分三页，严格参数先于准入，原contract/deadline/client_request_key与params保持原值',
   /** 只核对投影；准入stub返回人工历史，不能称为真实native派发。 */ async (testContext) => {
     return withFixture(
       testContext,
@@ -119,23 +119,19 @@ test(
             })
           }
           assert.equal(f.calls.length, 0)
-          const history = {
-            history_epoch: 'fixture_history',
-            client_request_key: 'one_intent',
-            recovery_generation: f.store.generation()
-          }
+          const client_request_key = 'one_intent'
           const native = { method: 'pane.read', params: { full: { untouched: true } } }
           const result = data(
-            await f.client.callTool({ name: 'runtime_call', arguments: { ...f.args, native_request: native, history } })
+            await f.client.callTool({
+              name: 'runtime_call',
+              arguments: { ...f.args, native_request: native, client_request_key }
+            })
           )
           assert.equal(result.call_id, 'call_fixture')
           assert.deepEqual(f.calls[0]!.native_request, native)
           assert.equal(f.calls[0]!.options.contract_ref, f.args.contract_ref)
           assert.equal(f.calls[0]!.options.deadline, f.args.deadline)
-          assert.deepEqual(f.calls[0]!.options.history, {
-            history_epoch: history.history_epoch,
-            client_request_key: history.client_request_key
-          })
+          assert.equal(f.calls[0]!.options.client_request_key, client_request_key)
         } finally {
           await f.close()
         }

@@ -63,9 +63,8 @@ test(
     const s = new Store(':memory:', /* 固定存储时间，使本例只测试删除规则而非计时差异。 */ () => 100, { management })
     try {
       const d = connected(s)
-      const scope = s.openHistory('alice', d.target, 1)
       const o = options({
-        history: { history_epoch: scope.history_epoch, client_request_key: 'retained-key' }
+        client_request_key: 'retained-key'
       })
       const c = s.createCall('alice', d.target, { method: 'pane.read' }, o)
       respond(s, s.dispatch('alice', c.call_id, d.epoch), { result: { text: 'abc' } }, 100)

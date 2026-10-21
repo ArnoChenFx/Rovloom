@@ -46,7 +46,7 @@ export function storeFixture(mode: 'active' | 'storage_degraded' = 'active', mut
     contract_ref: 'a'.repeat(64),
     registration: {
       deadline: now + 30_000,
-      history: null,
+
       caller_policy_revision: 'caller_1',
       local_policy_revision: 'local_1'
     }

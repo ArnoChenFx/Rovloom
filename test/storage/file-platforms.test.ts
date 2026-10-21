@@ -185,9 +185,8 @@ test(
         let store = new Store(path, /* 固定账本时钟。 */ () => 100, { management })
         try {
           const device = connected(store)
-          const history = store.openHistory('alice', device.target, 1)
           const callOptions = options({
-            history: { history_epoch: history.history_epoch, client_request_key: 'platform-key' }
+            client_request_key: 'platform-key'
           })
           const call = store.createCall('alice', device.target, { method: 'ping' }, callOptions)
           store.dispatch('alice', call.call_id, device.epoch)

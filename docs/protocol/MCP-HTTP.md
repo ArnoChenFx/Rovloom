@@ -12,7 +12,7 @@
 
 - `GatewayService.execute(name, args, context)` 接收严格校验后的 `ToolArguments[name]`，
   返回 `ServiceReply[name]`。每个请求仅调用服务一次；facade 不持有调用账本、不生成 native ID、
-  history scope、内容句柄或执行许可，不重试、不跨 provider 改写目标。
+  内容句柄或执行许可，不重试、不跨 provider 改写目标。
 - 服务必须在每次操作核验当前归属、完整 Target 的双端 ACL、分类、binding/contract fence、
   管理权限与真实确认、结果读取/保留及持久化门禁。列表、计数、描述和游标同样须按 caller 过滤。
   当前 Store/Router 的完整 tuple 政策用于已接线读取和清理；它们不能替代 native 分类、内容 custody 或管理员会话。
@@ -106,7 +106,7 @@ runtime_call/call_cancel/result_read 尚未完成服务装配，返回 backend_u
 原始 Wire hook、响应对象和活原请求 resolver；宿主可按现行契约将每个 epoch 的 executeWire 直接接到
 实际 LuvusRpcAdapter.dispatch，不能用原生 JSON execute 代替或重新注入 auth。唯一持久 claim、
 事务准入及当前内容读取模块仍须独立组合，不能以 hook 已存在宣称公共调用成功。
-调用准入须在同一 Store 事务使用绝对 deadline，并区分新登记与原 history/key 命中；
+调用准入须在同一 Store 事务使用绝对 deadline，并区分新登记与原 key 命中；
 现有 Router.admit 已提供同步 CallAdmission（call/created）与绝对 deadline 端口，RuntimeGatewayService委托真实runtime.admit；
 不能从旧 createCall 的相对 timeout 或既有 state 猜测首次登记，created=false 即使仍为 created 也不得派发。
 读取须通过原 Wire adapter 的 checkResult，绑定当前 reader、完整 attempt、原 permit 和普通交付通道；
@@ -176,7 +176,7 @@ storage_degraded 仅保留满足授权/预算的有界读取及现有独立清�
 每请求先认证并与会话绑定的principal精确匹配，sessionID仅用于路由。
 默认最多64会话，空闲15分钟清理；最多256个HTTP请求等待，每请求35秒deadline（宿主上限60秒）。
 逐请求取消只影响自身等待；DELETE和会话过期关闭该会话，不停止Gateway或取消native。
-无event store，不承诺断线事件重放；失败后的业务重试仍受原history/key门禁约束。
+无event store，不承诺断线事件重放；失败后的业务重试仍受原 client_request_key 门禁约束。
 
 只接固定 `/mcp`，不接受query、userinfo或其它路径。Host必须精确匹配受信origin；
 Origin存在时须命中显式完整origin白名单，缺Origin允许标准非浏览器客户端。
@@ -196,8 +196,8 @@ caller 不能注入 principal/admin/discard_response，native_request 只允许 
 
 `runtime_call` 要求 expected_binding_revision、contract_ref 和绝对毫秒 deadline。
 validation 默认 strict，wait_ms 默认 0、上限 5000；短等与执行期限独立。
-有 key 的请求必须携带服务发放的 history_epoch、recovery_generation 和原 client_request_key，
-facade 不为重试更换任何范围。`runtime_response_discard` 是独立动作，服务必须验证归属、
+重送同一意图须使用原 `client_request_key`（可选，同主体内去重，窗口为 `metadata_ttl`）；
+facade 不生成或更换 key。`runtime_response_discard` 是独立动作，服务必须验证归属、
 原方法当前策略和专门 discard_response 权限。设备/provider 公共视图仅输出类型中列出的展示字段。
 
 成功结构为 `structuredContent: {data: ...}`，并提供 JSON 文本副本。
@@ -209,7 +209,7 @@ facade 不为重试更换任何范围。`runtime_response_discard` 是独立动�
 
 Luvus 完整原生请求 schema 在首次登记的同步 preflight 中拒绝时，`runtime_call` 返回
 `isError: true` 与 `gateway_error: {code: 'native_request_invalid', outcome: 'not_dispatched'}`。
-该错误仅证明本请求尚未建立 call/dispatch 锚点，坏请求不占 history key，不发送业务 Wire，也不关闭 WSS。
+该错误仅证明本请求尚未建立 call/dispatch 锚点，坏请求不占 key，不发送业务 Wire，也不关闭 WSS。
 已有 key 仍返回原调用的真实状态；旧 unknown 不倒退或重派。相同错误码来自其它阶段时不附此 outcome。
 预检不授予执行权限，仍须后续原来源、在线能力、分类、策略及最终 IO 检查；网关不交付参数或 schema 错误正文。
 

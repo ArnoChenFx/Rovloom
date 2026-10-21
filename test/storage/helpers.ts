@@ -74,7 +74,7 @@ export function policy(target: V2Target, local = false): ProviderPolicy {
     connection_epoch: binding.connection_epoch,
     authenticated: true,
     active: true,
-    negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope', 'late_evidence'] }
+    negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'late_evidence'] }
   }
   ctx.resolveProvider = /* 从存储读取当前绑定 provider，使证据校验使用最新配置与版本。 */ () =>
     store.provider(binding.machine_id, binding.target.provider_id)

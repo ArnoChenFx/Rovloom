@@ -1,7 +1,7 @@
 // 定义账本行、独立设备身份校验接口及提交后回收通知，并投影不含内部请求与证据字段的公开调用。
 import type { CallState } from '../contracts.js'
 import type { ResponseAnchor } from '../wire/evidence.js'
-import type { HistoryReference, ValidationMode } from '../wire/types.js'
+import type { ValidationMode } from '../wire/types.js'
 import type { Retention } from './config.js'
 
 export type Machine = { machine_id: string; name: string; status: string }
@@ -28,7 +28,7 @@ export type CallOptions = {
   local_policy_revision: string
   validation?: ValidationMode
   timeoutMs?: number
-  history?: HistoryReference
+  client_request_key?: string
 }
 // 绝对截止时间与相对 timeout 互斥；调用方重送必须保持首次意图的精确 deadline。
 export type CallAdmissionOptions = Omit<CallOptions, 'timeoutMs'> & { deadline: number; timeoutMs?: never }
@@ -70,7 +70,6 @@ export type Row = Call & {
   binding_json: string | null
   request_json: string | null
   request_hash: string
-  history_epoch: string | null
   key_digest: string | null
   created: number
   response_hash: string | null

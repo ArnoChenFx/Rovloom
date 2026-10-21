@@ -87,7 +87,7 @@ function offer(): VersionOffer {
   return {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'provider_fence', 'terminal_execution_state', 'dispatch_refusal', 'history_scope'],
+    capabilities: ['rpc', 'provider_fence', 'terminal_execution_state', 'dispatch_refusal'],
     required: ['rpc']
   }
 }

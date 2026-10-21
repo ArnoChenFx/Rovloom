@@ -105,7 +105,7 @@ export function stubFixture(mode: string, directory: string) {
         if (call.native_request.method === 'stub.forbidden') {
           throw new FacadeServiceError('forbidden')
         }
-        const key = call.history?.client_request_key
+        const key = call.client_request_key
         if (key && keys.has(key)) {
           data = calls.get(keys.get(key)!)
           break

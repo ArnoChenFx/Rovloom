@@ -36,68 +36,43 @@ import type { AttemptBinding } from '../../src/wire/types.js'
   }
 }
 test(
-  'SQLite scope rotation, rollback clock, restart and deleted tombstones never admit an old key',
-  /* 验证历史 epoch 轮换、重启、墓碑清理及时间回退都不能重新接纳旧请求键。 */ () =>
+  'SQLite key window survives restart, ends with the tombstone, and clock rollback is untrusted',
+  /* 验证 key 在窗口内跨重启仍命中原调用，墓碑清理后才可重新登记，时间回退触发降级。 */ () =>
     disk(
-      /* 构造短历史期限并跨轮换、重启和清理检查旧键拒绝，最后注入时钟回退。 */ (_root, path) => {
+      /* 构造短元数据期限并跨重启和清理检查 key 语义，最后注入时钟回退。 */ (_root, path) => {
         let now = 100
-        let s = new Store(path, /* 返回历史治理测试的当前时间，供用例推进清理期限并注入回拨。 */ () => now, {
+        let s = new Store(path, /* 返回治理测试的当前时间，供用例推进清理期限并注入回拨。 */ () => now, {
           management,
-          retention: { metadata_ttl: 100, history_epoch_max_age: 20 }
+          retention: { metadata_ttl: 100 }
         })
         try {
           const d = connected(s)
-          const h = s.openHistory('alice', d.target, 1)
-          const o = options({ history: { history_epoch: h.history_epoch, client_request_key: 'same' } })
+          const o = options({ client_request_key: 'same' })
           const c = s.createCall('alice', d.target, { method: 'ping' }, o)
           const b = s.dispatch('alice', c.call_id, d.epoch)
           s.stop('alice', c.call_id)
-          const h2 = s.openHistory('alice', d.target, 1, h.history_epoch)
-          assert.notEqual(h2.history_epoch, h.history_epoch)
           assert.equal(s.createCall('alice', d.target, { method: 'ping' }, o).call_id, c.call_id)
-          assert.throws(
-            /* 用已轮换 epoch 申请新请求键，检查旧历史范围不能继续分配调用。 */ () =>
-              s.createCall(
-                'alice',
-                d.target,
-                { method: 'ping' },
-                options({ history: { history_epoch: h.history_epoch, client_request_key: 'new' } })
-              ),
-            /dedup_history_unavailable/
-          )
-          now = 121
-          s.expire()
-          assert.throws(
-            /* 在新 epoch 超龄后申请请求键，检查过期历史范围被拒绝。 */ () =>
-              s.createCall(
-                'alice',
-                d.target,
-                { method: 'ping' },
-                options({ history: { history_epoch: h2.history_epoch, client_request_key: 'new' } })
-              ),
-            /dedup_history_unavailable/
-          )
           s.close()
-          s = new Store(path, /* 重开实例沿用可控时间，验证持久历史和旧连接不会随重启复活。 */ () => now, {
+          s = new Store(path, /* 重开实例沿用可控时间，验证持久 key 和旧连接不会随重启复活。 */ () => now, {
             management
           })
           assert.equal(s.call('alice', c.call_id).state, 'outcome_unknown')
+          assert.equal(s.createCall('alice', d.target, { method: 'ping' }, o).call_id, c.call_id)
           assert.throws(
             /* 提交重启前尝试的响应，检查重启清除在线连接后不能用原 epoch 补证。 */ () =>
               respond(s, b, { result: {} }, now),
             /stale_response/
           )
-          now = 221
+          now = 100 + s.limits.metadata_ttl
           s.expire()
           assert.throws(
-            /* 在去重墓碑过期清理后重用旧键，检查历史缺失仍会拒绝分配。 */ () =>
-              s.createCall('alice', d.target, { method: 'ping' }, o),
-            /dedup_history_unavailable/
+            /* 窗口结束并清理后原行已删除，调用只能按未知处理。 */ () => s.call('alice', c.call_id),
+            /call_not_found/
           )
           now = 110
           assert.throws(
-            /* 把时钟调回已观察时间之前再打开历史范围，检查时钟不可信会触发降级。 */ () =>
-              s.openHistory('alice', d.target, 1),
+            /* 把时钟调回已观察时间之前再登记，检查时钟不可信会触发降级。 */ () =>
+              s.createCall('alice', d.target, { method: 'ping' }, options({ client_request_key: 'other' })),
             /clock_untrusted/
           )
           assert.equal(s.health().mode, 'storage_degraded')
@@ -420,8 +395,7 @@ test(
         })
         try {
           const d = connected(s)
-          const h = s.openHistory('alice', d.target, 1)
-          const o = options({ history: { history_epoch: h.history_epoch, client_request_key: 'k' } })
+          const o = options({ client_request_key: 'k' })
           const c = s.createCall('alice', d.target, { method: 'ping' }, o)
           const junk = join(path, '..', 'pressure')
           writeFileSync(junk, Buffer.alloc(1_000_000))
@@ -574,8 +548,6 @@ test(
   'invalid retention relations and missing management/confirmation replay reject allocation',
   /* 验证无效保留配置、缺少管理授权和确认标识重放都会阻止相应分配或变更。 */ () => {
     for (const retention of [
-      { history_epoch_max_age: 3_000_000_000 },
-      { metadata_ttl: 1 },
       { storage_reserve_bytes: 536_870_912 },
       { content_bytes: 536_870_913 },
       { metadata_ttl: NaN }
@@ -848,23 +820,12 @@ test(
         })
         try {
           const d = connected(s)
-          const h = s.openHistory('alice', d.target, 1)
-          const o = options({ history: { history_epoch: h.history_epoch, client_request_key: 'old-key' } })
+          const o = options({ client_request_key: 'old-key' })
           s.createCall('alice', d.target, { method: 'ping' }, o)
+          const first = s.call('alice', s.createCall('alice', d.target, { method: 'ping' }, o).call_id).call_id
           now = 100 + s.limits.metadata_ttl
           s.expire()
-          assert.throws(
-            /* 在默认墓碑清理后重用原键，检查不会因记录已删而创建新调用。 */ () =>
-              s.createCall('alice', d.target, { method: 'ping' }, o),
-            /dedup_history_unavailable/
-          )
-          now += s.limits.history_epoch_max_age
-          s.expire()
-          assert.throws(
-            /* 在历史范围也删除后再次重用原键，检查历史不可用仍保持拒绝。 */ () =>
-              s.createCall('alice', d.target, { method: 'ping' }, o),
-            /dedup_history_unavailable/
-          )
+          assert.notEqual(s.createCall('alice', d.target, { method: 'ping' }, o).call_id, first)
         } finally {
           s.close()
         }
