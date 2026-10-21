@@ -16,6 +16,7 @@ import { boundedJson, fields, hash, id, object, validatePolicies } from '../wire
 import type { ProviderPolicies } from '../wire/types.js'
 import {
   CliError,
+  herdrMode,
   luvusMode,
   selectedNativeProviders,
   type ConnectorConfig,
@@ -51,8 +52,11 @@ export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTe
     )
     throw new CliError('configuration_required')
   }
+  // 只有隔离实例把 socket 放在 Connector 数据目录里；附着模式的端点在用户自己的配置目录，Windows 是命名管道。
   if (
     selectedNativeProviders(config).includes('herdr') &&
+    herdrMode(config) === 'managed' &&
+    process.platform !== 'win32' &&
     Buffer.byteLength(join(config.state_dir, 'hr/c/herdr/herdr-client.sock')) > 107
   ) {
     terminal.show(
