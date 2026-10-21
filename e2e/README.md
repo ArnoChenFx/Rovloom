@@ -26,6 +26,23 @@ Herdr 二进制必须是固定的 0.9.5（SHA-256 `14d9e8bc…929d`，夹具会�
 | `device-revoke` | Gateway 停止后经正式 Store 撤销设备，重启后设备为 `revoked`，调用不可达，Connector 持续重试而不得服务 |
 | `unknown-outcome` | native 已收到请求但未应答时 Connector 被杀：调用为 `outcome_unknown`；Connector 重启后状态不变，新 native 收不到该请求（不自动重发） |
 
+## 从零部署（真实首次配对）
+
+默认场景用预置夹具跳过首次配对。`e2e/quickstart.py` 则按 Quick Start 在真实 pty 终端里走完整流程：
+自动创建 Connector 用户文件 → 选择 Herdr → Gateway 批准配对 → Connector 输入地址与一次性码 → 发现并初始化原生
+→ Gateway 批准 → `connector_ready`。Herdr 不写 `runtime_bin_dirs`，由 `PATH` 自动发现。
+
+```sh
+python3 e2e/quickstart.py --binary dist/release/bun-linux-x64/candidate/rovloom --herdr /tmp/herdr \
+  --then "bun e2e/agent-session.mjs <opencode可执行文件>"
+```
+
+`--then` 会拿到 `MCP_CONFIG`（URL、Bearer、target）。`agent-session.mjs` 让 opencode + DeepSeek 经 MCP 完成
+list → discover → ping → 读结果，再由独立 MCP 客户端取真实版本核对 Agent 的回答。
+
+这条路径发现过夹具掩盖的三个产品缺陷（均已修复并有回归测试）：Gateway 返回非 200 时 Connector 因响应流已锁定而崩溃；
+Herdr 自建端点目录按宿主 umask 为 0755 被 0700 门禁拒绝；Herdr 私有 socket 路径检查漏算更长的 `herdr-client.sock`。
+
 ## 真实 LLM Agent（可选）
 
 ```sh

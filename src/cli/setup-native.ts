@@ -42,10 +42,10 @@ export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTe
   }
   if (
     selectedNativeProviders(config).includes('herdr') &&
-    Buffer.byteLength(join(config.state_dir, 'hr/c/herdr/herdr.sock')) > 107
+    Buffer.byteLength(join(config.state_dir, 'hr/c/herdr/herdr-client.sock')) > 107
   ) {
     terminal.show(
-      'native_state_path_too_long: choose a shorter data.directory for the private Herdr socket. / 请缩短 data.directory 以容纳隔离 Herdr socket。\n'
+      'native_state_path_too_long: choose a shorter data.directory for the private Herdr sockets (herdr.sock and herdr-client.sock). / 请缩短 data.directory 以容纳隔离 Herdr 的 socket（含 herdr-client.sock）。\n'
     )
     throw new CliError('configuration_required')
   }
