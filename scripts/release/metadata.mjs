@@ -87,7 +87,7 @@ export function assemble(context, directory) {
     files.set(name, path)
   }
   const manifest = validateReleaseManifest(
-    { schemaVersion: 1, repository, ...context, bun: '1.4.3', assets },
+    { schemaVersion: 1, repository, ...context, bun: process.versions.bun, assets },
     context.tag
   )
   const manifestBytes = encode(manifest)

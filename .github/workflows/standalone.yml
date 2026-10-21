@@ -34,9 +34,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: ./.github/actions/release-bun
-        with:
-          target: ${{ matrix.target }}
+      - uses: ./.github/actions/setup-bun
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Check service lifecycle models and native definition parsing without installing services

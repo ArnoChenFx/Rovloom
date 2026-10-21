@@ -1,14 +1,25 @@
-// 核验仓库固定的 Bun 工具链，并报告运行时、SQLite 和 TypeScript 版本。
+// 核验 Bun 满足 package.json 声明的最低版本，并报告运行时、SQLite 和 TypeScript 版本。
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 
-// 检查运行时与仓库声明一致，读取版本信息并始终关闭临时数据库。
+// 比较点分数字版本，忽略预发布后缀。
+function atLeast(actual, minimum) {
+  const a = actual.split('-')[0].split('.').map(Number)
+  const m = minimum.split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] ?? 0) !== (m[i] ?? 0)) {
+      return (a[i] ?? 0) > (m[i] ?? 0)
+    }
+  }
+  return true
+}
+
+// 检查运行时不低于声明的最低版本，读取版本信息并始终关闭临时数据库。
 export function toolchain() {
-  assert.equal(process.versions.bun, '1.4.3', 'Use the exact Bun version in .bun-version')
   const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url)))
-  assert.equal(pkg.packageManager, 'bun@1.4.3')
-  assert.equal(readFileSync(new URL('../../.bun-version', import.meta.url), 'utf8').trim(), '1.4.3')
+  const minimum = pkg.engines.bun.replace(/^>=/, '')
+  assert(atLeast(process.versions.bun, minimum), `Bun ${minimum} or newer is required`)
   const db = new DatabaseSync(':memory:')
   try {
     return {

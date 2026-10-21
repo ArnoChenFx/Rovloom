@@ -20,9 +20,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: ./.github/actions/release-bun
-        with:
-          target: bun-linux-x64
+      - uses: ./.github/actions/setup-bun
       - name: Validate exact tag, checkout and product/package version
         id: tag
         env:
@@ -43,9 +41,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: ./.github/actions/release-bun
-        with:
-          target: bun-linux-x64
+      - uses: ./.github/actions/setup-bun
       - run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Require isolated real product HTTP/WebUI/Worker acceptance before matrix
         env:
@@ -64,9 +60,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: ./.github/actions/release-bun
-        with:
-          target: ${{ matrix.target }}
+      - uses: ./.github/actions/setup-bun
       - run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Compile and accept real product on the native runner
         shell: bash
@@ -90,9 +84,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: ./.github/actions/release-bun
-        with:
-          target: bun-linux-x64
+      - uses: ./.github/actions/setup-bun
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: release-${{ needs.validate.outputs.artifactSet }}-bun-*

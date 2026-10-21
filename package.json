@@ -1,16 +1,14 @@
 {
-  "name": "luvus-mcp",
+  "name": "rovloom",
   "version": "0.1.1",
   "private": true,
   "license": "MIT",
-  "description": "Rovloom: planned multi-machine MCP gateway and connector for Luvus/Herdr (foundation only)",
+  "description": "Rovloom: multi-machine MCP gateway and connector for Luvus/Herdr runtimes",
   "type": "module",
-  "packageManager": "bun@1.4.3",
   "engines": {
-    "bun": "1.4.3"
+    "bun": ">=1.4.2"
   },
   "scripts": {
-    "toolchain": "bun --no-env-file scripts/bun/toolchain.mjs",
     "build": "bun --no-env-file scripts/bun/build.mjs",
     "release:build": "bun --no-env-file scripts/release/build.mjs",
     "release:smoke": "bun --no-env-file scripts/release/smoke.mjs",
@@ -32,14 +30,14 @@
     "test:toolchain": "bun --no-env-file test ./test/toolchain/compatibility.test.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "ajv": "8.20.0"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ajv": "^8.20.0"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
-    "oxfmt": "0.73.0",
-    "oxlint": "1.88.0",
-    "typescript": "7.0.2",
-    "ws": "8.22.0"
+    "@types/node": "^26.6.5",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
+    "typescript": "^7.0.2",
+    "ws": "^8.22.0"
   }
 }

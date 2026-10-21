@@ -2,7 +2,6 @@
 import { parseNativeJson } from '../native-contract/json.js'
 export const RELEASE_REPOSITORY = 'ArnoChenFx/Rovloom'
 export const RELEASE_MANIFEST = 'release-manifest.json'
-export const RELEASE_BUN = '1.4.3'
 export const RELEASE_MAX_BINARY_BYTES = 256 * 1024 * 1024
 export type ReleaseOs = 'linux' | 'darwin' | 'windows'
 export type ReleaseArch = 'x64' | 'arm64'
@@ -14,7 +13,8 @@ export type ReleaseManifest = Readonly<{
   tag: string
   version: string
   commit: string
-  bun: typeof RELEASE_BUN
+  /** 构建所用 Bun 版本，仅作记录，不参与校验。 */
+  bun: string
   assets: readonly ReleaseAsset[]
 }>
 export type ReleaseVersion = Readonly<{ core: readonly number[]; prerelease: readonly string[] }>
@@ -125,7 +125,8 @@ export function validateReleaseManifest(input: unknown, tag: string, stableOnly 
     value.repository !== RELEASE_REPOSITORY ||
     value.tag !== tag ||
     value.version !== version ||
-    value.bun !== RELEASE_BUN ||
+    typeof value.bun !== 'string' ||
+    !/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/u.test(value.bun) ||
     typeof value.commit !== 'string' ||
     !/^[0-9a-f]{40}$/u.test(value.commit) ||
     (stableOnly && parseReleaseVersion(version).prerelease.length !== 0) ||
@@ -164,7 +165,7 @@ export function validateReleaseManifest(input: unknown, tag: string, stableOnly 
     tag,
     version,
     commit: value.commit,
-    bun: RELEASE_BUN,
+    bun: value.bun,
     assets: Object.freeze(assets)
   })
 }
