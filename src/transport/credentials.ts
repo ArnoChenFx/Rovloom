@@ -1,8 +1,7 @@
 // 校验并持久读写 Linux 受限凭据文件，提供固定身份的一次性专用文件交付。
-import { constants, closeSync, fstatSync, openSync, readFileSync, renameSync, fsyncSync, unlinkSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { constants, closeSync, fstatSync, openSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { createPrivate, privateFile, privatePath } from '../storage/files.js'
+import { createPrivate, privateFile, privatePath, syncParentDirectory } from '../storage/files.js'
 import { fields, object, id, fail, boundedJson } from '../wire/index.js'
 import type { DeviceCredential } from './identity.js'
 import type { CredentialDeliveryContext, CredentialDeliveryAck } from './custody.js'
@@ -18,22 +17,13 @@ function validate(value: unknown): DeviceCredential {
   }
   return v as DeviceCredential
 }
-/** 同步凭据父目录的元数据，保证创建或 rename 的目录项进入持久提交路径。 */
-function syncDirectory(path: string): void {
-  const directory = openSync(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY)
-  try {
-    fsyncSync(directory)
-  } finally {
-    closeSync(directory)
-  }
-}
 /** 在受限 Linux 路径独占创建或原子替换凭据，并同步文件和父目录；不会自动放宽现有权限。 */
 export function saveCredential(path: string, input: DeviceCredential, replace = false): void {
   privatePath(path)
   const raw = boundedJson(validate(input), 4096)
   if (!replace) {
     createPrivate(path, raw)
-    syncDirectory(path)
+    syncParentDirectory(path, true)
     return
   }
   privateFile(path)
@@ -41,7 +31,7 @@ export function saveCredential(path: string, input: DeviceCredential, replace = 
   try {
     createPrivate(temporary, raw)
     renameSync(temporary, path)
-    syncDirectory(path)
+    syncParentDirectory(path, true)
   } finally {
     try {
       unlinkSync(temporary)
@@ -95,8 +85,8 @@ export function loadCredential(path: string): DeviceCredential {
     if (
       !st.isFile() ||
       st.nlink !== 1 ||
-      (st.mode & 0o777) !== 0o600 ||
-      st.uid !== process.getuid?.() ||
+      // Windows 没有 POSIX mode/uid，访问由用户主目录的 ACL 约束。
+      (process.platform !== 'win32' && ((st.mode & 0o777) !== 0o600 || st.uid !== process.getuid?.())) ||
       st.size > 4096
     ) {
       fail('unsafe_storage_file')

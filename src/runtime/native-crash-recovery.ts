@@ -1,6 +1,7 @@
 /** Luvus Connector 崩溃（kill -9 / 掉电）后的锁恢复：只有证明持有者进程已死才接管，其余一律保持 fail-closed。 */
-import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, unlinkSync, constants } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { lstatSync, readFileSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
+import { syncParentDirectory } from '../storage/files.js'
 import { currentProcessIdentity, listening, ownerIsDead } from '../storage/process-identity.js'
 import type { ProcessIdentity } from '../storage/process-identity.js'
 import { nativeRecordStamp, readNativeRecord, removeNativeRecord } from './native-record-files.js'
@@ -39,16 +40,6 @@ function ownedFile(path: string): boolean | undefined {
   }
 }
 
-/** 删除后同步父目录，使恢复决定落盘。 */
-function syncParent(path: string): void {
-  const fd = openSync(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
 /**
  * claim 账本互斥锁：内容带持有者进程身份且该进程已死，才删除锁（SQLite 回滚日志在下次打开时自行恢复，
  * 账本里的派发墓碑原样保留）。空锁、旧格式或无法判断时返回 false，沿用原 fail-closed。
@@ -72,7 +63,7 @@ export function recoverLuvusClaimsLock(lockPath: string): boolean {
   }
   try {
     unlinkSync(lockPath)
-    syncParent(lockPath)
+    syncParentDirectory(lockPath)
   } catch {
     return false
   }

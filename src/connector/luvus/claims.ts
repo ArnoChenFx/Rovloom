@@ -1,8 +1,8 @@
 /** 持久保存 Connector 唯一发送墓碑；只做去重和固定期限治理，不替代 Store、Wire 或宿主认证。 */
 import { DatabaseSync } from 'node:sqlite'
-import { constants, closeSync, fsyncSync, lstatSync, openSync, unlinkSync } from 'node:fs'
+import { lstatSync, unlinkSync } from 'node:fs'
 import { dirname, sep } from 'node:path'
-import { createPrivate, privateFile, privatePath } from '../../storage/files.js'
+import { createPrivate, privateFile, privatePath, syncParentDirectory } from '../../storage/files.js'
 import { windowsInspectPath } from '../../platform/windows.js'
 import { currentProcessIdentity } from '../../storage/process-identity.js'
 import { boundedJson, id, validateAttempt } from '../../wire/index.js'
@@ -101,16 +101,6 @@ function fileIdentity(path: string): string {
   return [value.dev, value.ino, value.uid, value.mode, value.nlink].join(':')
 }
 
-/** 同步目录项，使首次创建的库和独占锁也进入持久边界。 */
-function syncParent(path: string): void {
-  const fd = openSync(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
 /** 持久 Connector 发送账本；关闭不清除墓碑，崩溃锁须经受保护恢复处理，不能自动接管。 */
 export class LuvusDispatchClaims {
   readonly ledgerId: string
@@ -137,7 +127,7 @@ export class LuvusDispatchClaims {
       }
       createPrivate(options.path + '.lock', lockContent())
       this.#lockIdentity = fileIdentity(options.path + '.lock')
-      syncParent(options.path)
+      syncParentDirectory(options.path)
       if (options.mode === 'create') {
         createPrivate(options.path)
       }
@@ -164,7 +154,7 @@ export class LuvusDispatchClaims {
         this.#db.exec('BEGIN IMMEDIATE; ' + metadataSql + '; ' + claimsSql)
         this.#db.prepare('INSERT INTO luvus_claim_meta VALUES(1,?,0)').run(this.ledgerId)
         this.#db.exec('COMMIT')
-        syncParent(options.path)
+        syncParentDirectory(options.path)
       }
       const schema = this.#db
         .prepare("SELECT sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name")
@@ -333,7 +323,7 @@ export class LuvusDispatchClaims {
     try {
       if (this.#lockIdentity && fileIdentity(this.#options.path + '.lock') === this.#lockIdentity) {
         unlinkSync(this.#options.path + '.lock')
-        syncParent(this.#options.path)
+        syncParentDirectory(this.#options.path)
       }
     } catch {
       /* 不能确认锁身份或目录持久性时保守留下恢复缺项。 */
