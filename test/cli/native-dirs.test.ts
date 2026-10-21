@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { configDocument, configTemplate, parseConfig } from '../../src/cli/config.js'
+import type { ConnectorConfig } from '../../src/cli/config.js'
 import { setupAgentDirectories, setupBinary } from '../../src/cli/setup-native.js'
 import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
 
@@ -18,9 +19,9 @@ function withPath<T>(value: string, run: () => T): T {
   }
 }
 
-function connector(native?: Record<string, unknown>) {
+function connector(native?: Record<string, unknown>): ConnectorConfig {
   const document = { ...configDocument(configTemplate('connector', 'linux')), ...(native ? { native } : {}) }
-  return parseConfig(document, 'linux')
+  return parseConfig(document, 'linux') as ConnectorConfig
 }
 
 function program(directory: string, name: string): string {
