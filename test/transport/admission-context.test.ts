@@ -409,7 +409,7 @@ test(
         }
       },
       {
-        retention: { content_ttl: 20_000 },
+        retention: { result_ttl: 20_000 },
         fault: /** 只在明确测试时刻模拟事务提交失败。 */ (point) => {
           if (rollback && point === 'before_commit') {
             throw new GatewayError('synthetic_rollback')

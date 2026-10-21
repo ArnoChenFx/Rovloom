@@ -23,7 +23,7 @@ function fixture() {
   const path = join(root, 'ledger.sqlite')
   const store = new Store(path, /* 返回受控且不可回拨的 Store 时间。 */ () => state.now, {
     management,
-    retention: { handle_ttl: 10, content_ttl: 30 }
+    retention: { result_ttl: 10 }
   })
   const inspect = new DatabaseSync(path, { readOnly: true })
   const native = nativeBackend(store)
@@ -134,14 +134,9 @@ test(
       /result_not_found/
     )
     assert.equal(f.handles(), 1)
-    const renewed = f.savedHandle()
-    assert.notEqual(renewed.result_id, first.result_id)
-    assert.equal(renewed.expires, 120)
-    f.state.now = 129
-    const last = f.savedHandle()
-    assert.equal(last.expires, 130)
-    f.state.now = 130
-    assert.throws(/* 内容原期限到达后，显式 open 也不能恢复内容或重建句柄。 */ () => f.access.open(f.call.call_id))
+    assert.throws(
+      /* 句柄与内容同期限，到期后显式 open 也不能恢复内容或重建句柄。 */ () => f.access.open(f.call.call_id)
+    )
     assert.equal(f.native.state.sends, 1)
   }
 )
@@ -261,9 +256,6 @@ test(
     f.store.expire()
     assert.equal(f.handles(), 0)
     assert.throws(/* 后台删除的句柄不能被 read 自动重建。 */ () => f.access.read(meta.result_id), /result_not_found/)
-    assert.notEqual(f.store.call('synthetic', f.call.call_id).response, null)
-    f.state.now = 130
-    f.store.expire()
     assert.equal(f.store.call('synthetic', f.call.call_id).response, null)
     assert.throws(/* 内容到期后不能凭仍持有的原 binding 重开结果。 */ () => f.access.open(f.call.call_id))
     assert.equal(f.handles(), 0)
@@ -493,7 +485,7 @@ for (const change of ['handle_delete', 'handle_expiry', 'content_expiry'] as con
       )
       assert.equal(reads, 4)
       assert.equal(f.handles(), 0)
-      assert.equal(f.store.call(f.principal.id, f.call.call_id).response === null, change === 'content_expiry')
+      assert.equal(f.store.call(f.principal.id, f.call.call_id).response === null, change !== 'handle_delete')
       assert.equal(f.native.state.sends, 1)
     }
   )

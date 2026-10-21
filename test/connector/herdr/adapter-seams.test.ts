@@ -247,7 +247,7 @@ function stored(prepare = true, requestValue = { method: 'ping', params: {} as J
   let now = 100
   const store = new Store(join(directory, 'db'), /** 只由测试推进可信时钟。 */ () => now, {
     management,
-    retention: { content_ttl: 50 }
+    retention: { result_ttl: 50 }
   })
   const device = connected(store)
   const state = backendFixture()

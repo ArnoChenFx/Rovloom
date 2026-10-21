@@ -13,7 +13,10 @@ test(
   'results enforce ownership, policy, quota, TTL and byte-perfect pagination',
   /* 在真实 provider 调用上验证结果授权、配额、原始 TTL 与跨 UTF-8 字节分页。 */ () => {
     let now = 100
-    const s = new Store(':memory:', /* 注入可推进时钟，精确触发结果句柄到期。 */ () => now, { management })
+    const s = new Store(':memory:', /* 注入可推进时钟，精确触发结果句柄到期。 */ () => now, {
+      management,
+      retention: { result_ttl: 50 }
+    })
     try {
       const d = connected(s)
       let local = policy(d.target, true)
@@ -27,10 +30,10 @@ test(
       const binding = router.dispatch(p, c.call_id, d.epoch)
       respond(s, binding, { result: { text: '你好'.repeat(100) } }, now)
       assert.throws(
-        /* 用不足以容纳响应的配额保存句柄，要求拒绝。 */ () => s.saveResult(p.id, c.call_id, 100, 1),
+        /* 用不足以容纳响应的配额保存句柄，要求拒绝。 */ () => s.saveResult(p.id, c.call_id, 1),
         /result_quota/
       )
-      const meta = s.saveResult(p.id, c.call_id, 100)
+      const meta = s.saveResult(p.id, c.call_id)
       const chunks: Buffer[] = []
       let cursor = 0
       while (true) {
@@ -61,11 +64,9 @@ test(
         /* 推进到句柄到期时刻后读取，要求句柄不存在。 */ () => router.readResult(p, meta.result_id),
         /result_not_found/
       )
-      const next = router.saveResult(p, c.call_id)
-      s.revoke(d.machine_id)
       assert.throws(
-        /* 撤销设备后读取新句柄，要求相关结果不可见。 */ () => router.readResult(p, next.result_id),
-        /result_not_found/
+        /* 内容与句柄同期限，到期后不能为已过期内容重新签发句柄。 */ () => router.saveResult(p, c.call_id),
+        /result_not_ready/
       )
     } finally {
       s.close()

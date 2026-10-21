@@ -254,7 +254,7 @@ test(
           /dedup_history_unavailable/
         )
       },
-      { retention: { dedup_ttl: 100, call_metadata_ttl: 100, history_epoch_max_age: 20 } }
+      { retention: { metadata_ttl: 100, history_epoch_max_age: 20 } }
     )
 )
 

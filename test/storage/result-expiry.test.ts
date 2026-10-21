@@ -11,15 +11,15 @@ import type { ResultPage } from '../../src/store.js'
 import { Router } from '../../src/router.js'
 import { connected, management, options, policy, respond } from './helpers.js'
 
-// 创建已持久化响应与结果句柄，使用短句柄期限和独立检查连接区分句柄 TTL 与内容 TTL。
-function fixture(contentTtl = 100, handleTtl = 10) {
+// 创建已持久化响应与结果句柄，使用短 result_ttl 和独立检查连接观察句柄期限。
+function fixture(resultTtl = 10) {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-result-expiry-'))
   const path = join(root, 'state.sqlite')
   const clock = { now: 100 }
   const store = new Store(path, /* 精确推进有效区间和截止边界，避免真实等待带来的测试漂移。 */ () => clock.now, {
     management,
     maintenanceIntervalMs: 60_000,
-    retention: { content_ttl: contentTtl }
+    retention: { result_ttl: resultTtl }
   })
   const device = connected(store)
   const state = { local: policy(device.target, true) }
@@ -28,7 +28,7 @@ function fixture(contentTtl = 100, handleTtl = 10) {
   const call = router.create(principal, device.target, { method: 'pane.read' }, options())
   const binding = router.dispatch(principal, call.call_id, device.epoch)
   respond(store, binding, { result: { text: '你好abc'.repeat(30) } }, clock.now)
-  const handle = store.saveResult(principal.id, call.call_id, handleTtl)
+  const handle = store.saveResult(principal.id, call.call_id)
   const inspect = new DatabaseSync(path, { readOnly: true })
   return {
     path,
@@ -60,12 +60,12 @@ function fixture(contentTtl = 100, handleTtl = 10) {
 
 test(
   '每页返回实际句柄 expires，多页、重复及 EOF 读取不续期或新建句柄',
-  // 实际句柄在 110 到期而内容在 200 到期；逐字节重组原响应并核对固定的持久化元数据。
+  // 句柄与内容同在 110 到期；逐字节重组原响应并核对固定的持久化元数据。
   () => {
     const f = fixture()
     try {
       assert.equal(f.handle.expires, 110)
-      assert.equal(f.store.call('alice', f.call.call_id).content_expires, 200)
+      assert.equal(f.store.call('alice', f.call.call_id).content_expires, 110)
       const before = f.resultRow()
       const audits = f.handleAudits()
       const parts: Buffer[] = []
@@ -99,7 +99,7 @@ test(
 )
 
 test(
-  '句柄到期前一毫秒可读，等于实际 expires 时拒绝且不借仍有效的内容重建句柄',
+  '句柄到期前一毫秒可读，等于实际 expires 时拒绝且不重建句柄',
   // 不运行清理也必须拒绝到期句柄；数据库中的过期行和签发审计保持不变。
   () => {
     const f = fixture()
@@ -113,7 +113,7 @@ test(
           f.store.readResult('alice', f.handle.result_id),
         /result_not_found/
       )
-      assert(f.store.call('alice', f.call.call_id).response)
+      assert.equal(f.store.call('alice', f.call.call_id).response, null)
       assert.deepEqual(f.resultRow(), before)
       assert.equal(f.handleAudits(), 1)
       f.store.expire()
@@ -122,28 +122,6 @@ test(
         /* 已被真实维护删除的句柄也不能通过读取隐式重新签发。 */ () => f.store.readResult('alice', f.handle.result_id),
         /result_not_found/
       )
-      assert.equal(f.handleAudits(), 1)
-    } finally {
-      f.close()
-    }
-  }
-)
-
-test(
-  '保存时由内容期限截短的句柄仍返回落盘 expires，不从读取时刻重算 TTL',
-  // 请求更长句柄寿命时，已有 min 规则固定为内容期限；结果页只报告这个实际值。
-  () => {
-    const f = fixture(20, 100)
-    try {
-      assert.equal(f.handle.expires, 120)
-      f.clock.now = 119
-      assert.equal(f.store.readResult('alice', f.handle.result_id).expires, 120)
-      f.clock.now = 120
-      assert.throws(
-        /* 内容和句柄共同到期时不再返回正文或期限元数据。 */ () => f.store.readResult('alice', f.handle.result_id),
-        /result_not_found/
-      )
-      assert.equal(f.resultRow()!.expires, 120)
       assert.equal(f.handleAudits(), 1)
     } finally {
       f.close()
@@ -250,7 +228,7 @@ test(
 
 test(
   '归属检查后可信时间跨过句柄 expires，分页元数据查询再次核对实际期限',
-  // 原内容仍有效且句柄行未被清理；不能只复用先前成功检查时取得的正文快照。
+  // 句柄行未被清理；不能只复用先前成功检查时取得的正文快照。
   () => {
     const f = fixture()
     const original = f.store.resultCall.bind(f.store)
@@ -265,7 +243,7 @@ test(
         /result_not_found/
       )
       assert.equal(f.resultRow()!.expires, 110)
-      assert(f.store.call('alice', f.call.call_id).response)
+      assert.equal(f.store.call('alice', f.call.call_id).response, null)
       assert.equal(f.handleAudits(), 1)
     } finally {
       f.close()
