@@ -34,6 +34,8 @@ export type RuntimeProviderBinding = Readonly<{
   ready(): boolean
   // 旧 Luvus 入口固定为 1MiB；中性入口必须显式提供此预算。
   max_response_bytes?: number
+  // 配对时批准的实测来源所对应的契约引用；存在时，准入只接受带此引用的调用，任何版本的 provider 都以其批准的实测契约为准。
+  contract_ref?: string
   // 可选原生完整根预检只验证登记候选，不创建 permit；接收 Store 本次真实 native request ID。
   preflightRequest?(request: JsonObject): void
 }>

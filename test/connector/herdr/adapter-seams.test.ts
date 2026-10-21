@@ -707,7 +707,6 @@ for (const invalid of [
   { request: { method: 'ping' } },
   { request: { method: 'ping', params: {}, extra: true } },
   { validation: 'raw-contract' as const },
-  { contract_ref: 'b'.repeat(64) },
   { host: true }
 ]) {
   test(
@@ -725,8 +724,7 @@ for (const invalid of [
               'request' in invalid ? invalid.request! : { method: 'ping', params: {} },
               {
                 ...state.options,
-                ...('validation' in invalid ? { validation: invalid.validation } : {}),
-                ...('contract_ref' in invalid ? { contract_ref: invalid.contract_ref } : {})
+                ...('validation' in invalid ? { validation: invalid.validation } : {})
               }
             ),
           /provider_support_candidate/

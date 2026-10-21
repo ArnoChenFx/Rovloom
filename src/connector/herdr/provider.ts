@@ -439,6 +439,7 @@ export async function createHerdrGatewayResources(
         target: config.target,
         peer_policy_revision: config.peer_policy_revision,
         max_response_bytes: 65_536,
+        contract_ref: reference,
         preflightRequest: /** 使用同一已编译完整根预检真实登记请求；不生成原生 permit 或发送字节。 */ (
           request: JsonObject
         ) => {

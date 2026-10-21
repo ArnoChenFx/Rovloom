@@ -825,6 +825,9 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
           fail('provider_binding_mismatch')
         }
         const configured = providers.get(key(input.target))!
+        if (configured.contract_ref !== undefined && input.options.contract_ref !== configured.contract_ref) {
+          fail('contract_unavailable')
+        }
         const admitted = router.admit(
           principal(),
           input.target,

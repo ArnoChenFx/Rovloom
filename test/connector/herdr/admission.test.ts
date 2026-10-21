@@ -129,7 +129,7 @@ test(
 )
 
 /** 为参数与帧边界回归复用真实 Store、资源工厂和认证通道；对端仅模拟结果。 */
-async function admissionFixture(methods: readonly string[]) {
+async function admissionFixture(methods: readonly string[], approved = source) {
   const root = privateHerdrTestRoot('.herdr-admission-')
   const base = transportFixture()
   const paired = base.pair('owned_herdr_admission')
@@ -148,7 +148,7 @@ async function admissionFixture(methods: readonly string[]) {
       target,
       binding_revision: 1,
       config_ref: 'owned-herdr-admission',
-      expected_source: source,
+      expected_source: approved,
       schema_path: schemaPath,
       peer_policy_revision: 'local1'
     }
@@ -295,6 +295,37 @@ test(
         /** 同一未断开的 epoch 能正常完成后续合法工作。 */ () =>
           base.store.call(base.principal.id, recovered.call.call_id).state === 'responded'
       )
+    } finally {
+      client.ws.close()
+      await runtime.close()
+      base.stop()
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+)
+
+test(
+  'admission accepts the contract of the approved measured source, whichever Herdr build that is, and nothing else',
+  /** 契约不绑定某个固定发行：新版本/其它平台的二进制经批准后即为其契约，旧的固定引用反而被拒。 */ async () => {
+    const other = { ...source, binary_version: '0.9.6', server_version: '0.9.6', binary_sha256: 'a'.repeat(64) }
+    const { root, base, target, runtime, client } = await admissionFixture(['ping'], other)
+    try {
+      await until(/** 等待真实认证结果。 */ () => Boolean(client.epoch))
+      const call = (contract_ref: string) =>
+        runtime.runAuthenticated(
+          { principal_id: base.principal.id },
+          /** 同一目标、同一请求，只改变契约引用。 */ () =>
+            runtime.admit({
+              target,
+              native_request: { method: 'ping', params: {} },
+              options: { binding_revision: 1, contract_ref, deadline: base.now + 10_000 }
+            })
+        )
+      await assert.rejects(
+        /** 固定的 0.9.5 引用不是这台设备批准的来源。 */ async () => call(contractRef(source)),
+        (error: unknown) => error instanceof Error && 'code' in error && error.code === 'contract_unavailable'
+      )
+      assert.equal((await call(contractRef(other))).created, true)
     } finally {
       client.ws.close()
       await runtime.close()
