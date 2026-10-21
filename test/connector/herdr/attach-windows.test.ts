@@ -72,7 +72,12 @@ function fixture() {
     stop,
     close: async () => {
       await Promise.all(children.map(stop))
-      rmSync(root, { recursive: true, force: true })
+      try {
+        // herdr 的 ConPTY 辅助进程可能稍晚才释放工作目录；清理只是尽力而为，不能掩盖真正的断言结果。
+        rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
+      } catch {
+        // 临时目录由 runner 回收。
+      }
     }
   }
 }
