@@ -10,7 +10,7 @@ import type { LuvusLocalConfig } from '../connector/luvus/types.js'
 
 export const LUVUS_OWNER_FORMAT = 'rovloom-luvus-owner-v1'
 
-/** 带本进程身份的锁内容；非 Linux 没有死亡证据，写空内容保持旧的 fail-closed 语义。 */
+/** 带本进程身份的锁内容；没有死亡证据的平台写空内容，保持旧的 fail-closed 语义。 */
 export function lockOwnerFields(): Readonly<{ process: ProcessIdentity }> | undefined {
   const identity = currentProcessIdentity()
   return identity ? Object.freeze({ process: identity }) : undefined
@@ -34,7 +34,8 @@ function recordedProcess(value: unknown, format: string): ProcessIdentity | unde
 function ownedFile(path: string): boolean | undefined {
   try {
     const info = lstatSync(path)
-    return info.isFile() && info.uid === process.geteuid!() ? true : undefined
+    // Windows 没有 uid：锁所在目录的属主/ACL 已由账本的 protectedPath 核验。
+    return info.isFile() && (process.platform === 'win32' || info.uid === process.geteuid!()) ? true : undefined
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'ENOENT' ? false : undefined
   }
