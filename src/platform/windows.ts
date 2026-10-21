@@ -320,3 +320,52 @@ export function windowsProcessFacts(pid: number): WindowsProcessFacts | undefine
     kernel.CloseHandle(handle)
   }
 }
+
+export type WindowsProcessState = Readonly<{ kind: 'dead' } | { kind: 'unknown' } | { kind: 'alive'; start: string }>
+
+/**
+ * 进程是否存活：只有内核明确回答“没有该 PID”或进程已退出才算已死；拒绝访问等一切不确定情形为 unknown。
+ * alive 带创建时间（FILETIME 十进制），用来区分同一 PID 被复用的无关进程。
+ */
+export function windowsProcessState(pid: number): WindowsProcessState {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return Object.freeze({ kind: 'unknown' })
+  }
+  const { kernel } = win()
+  // PROCESS_QUERY_LIMITED_INFORMATION。
+  const handle = kernel.OpenProcess(0x1000, 0, pid)
+  if (!handle) {
+    // libuv 把 ERROR_INVALID_PARAMETER 映射为 ESRCH（没有该进程），拒绝访问为 EPERM（存在但无权）。
+    try {
+      process.kill(pid, 0)
+      return Object.freeze({ kind: 'unknown' })
+    } catch (error) {
+      return Object.freeze({ kind: (error as NodeJS.ErrnoException).code === 'ESRCH' ? 'dead' : 'unknown' })
+    }
+  }
+  try {
+    const code = Buffer.alloc(4)
+    if (!kernel.GetExitCodeProcess(handle, code)) {
+      return Object.freeze({ kind: 'unknown' })
+    }
+    // STILL_ACTIVE = 259：已退出但句柄仍可开的进程不再持有任何资源。
+    if (code.readUInt32LE(0) !== 259) {
+      return Object.freeze({ kind: 'dead' })
+    }
+    const times = Buffer.alloc(32)
+    if (
+      !kernel.GetProcessTimes(
+        handle,
+        times.subarray(0, 8),
+        times.subarray(8, 16),
+        times.subarray(16, 24),
+        times.subarray(24, 32)
+      )
+    ) {
+      return Object.freeze({ kind: 'unknown' })
+    }
+    return Object.freeze({ kind: 'alive', start: times.readBigUInt64LE(0).toString() })
+  } finally {
+    kernel.CloseHandle(handle)
+  }
+}

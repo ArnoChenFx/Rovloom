@@ -22,6 +22,7 @@ import type { ProductionCliSources, ProductionProviderReference } from './produc
 import { startAttachedHerdr } from './herdr-attached.js'
 import { createHerdrProductSources } from './herdr-sources.js'
 import { HERDR_OWNER_FORMAT, currentProcessIdentity, recoverHerdrCrashResidue } from './herdr-crash-recovery.js'
+import { recoverLuvusClaimsLock } from '../runtime/native-crash-recovery.js'
 import { readRuntimeFile } from './runtime-files.js'
 import { ProviderUnavailableError } from './provider-unavailable.js'
 import { pinTerminalExecution } from '../connector/terminal-execution.js'
@@ -261,7 +262,11 @@ export function createHerdrProductionSources(): ProductionCliSources {
       }
       verifyHerdrInstallation(local, config.expected_source.binary_sha256)
       if (selected.native.mode === 'attach') {
-        // 附着模式：用户自己的会话，不创建 owner 记录、不拥有进程，也不做 managed 的崩溃遗留清理。
+        // 附着模式：用户自己的会话，不创建 owner 记录、不拥有进程，也不做 managed 的端点清理；
+        // 但 claim 账本锁是 Connector 自己的，持有者已死才接管（账本墓碑原样保留）。
+        if (recoverLuvusClaimsLock(config.connector.claims.path + '.lock')) {
+          process.stderr.write('claims_lock_recovered\n')
+        }
         return startAttachedHerdr(selected, terminalExecution ? { terminalExecution } : {})
       }
       const ownerPath = join(local.config_home, `.rovloom-herdr-${local.target.session}.owner.json`)
