@@ -43,7 +43,7 @@
 | 项 | 位置 | 理由 |
 |---|---|---|
 | 自更新事务（POSIX + Windows helper） | `src/update/`（≈4.3K 行）、`docs/UPDATE.md` | 文档自己承认"自动替换尚不可用"；用 release 下载 + 包管理即可 |
-| 预编译 schema 资产与构建期"逐字节一致"校验 | `src/*/generated/*.json`（2.8 MB）、`scripts/native-contract/`、precompile Worker | 用进程内 Ajv + 按 schema hash 缓存即可，启动慢一点不是问题 |
+| 预编译 schema 资产与构建期"逐字节一致"校验（**待测量后再删**，见 #147） | `src/*/generated/*.json`（2.8 MB）、`scripts/native-contract/`、precompile Worker | 目标是进程内 Ajv + 按 schema hash 缓存；但现有设计的 2 秒接纳期限依赖预编译，必须先测量冷编译耗时 |
 | 隔离恢复（quarantine / recovery_generation / history_epoch） | DESIGN §5.4、§11.2、`src/storage/backup.ts`、`wire/history.ts` 相关 | 恢复备份 = 重新配对，简单且更安全；不再设计"证明备份之后没发生什么" |
 | 逐 input 独立 DispatchPermit、不透明 handle、per-frame 读取门禁 | `src/integration/luvus-wire.ts`、`runtime/native-custody.ts`、`native-contract/internal.ts` | 同一调用上的同一授权重复发放/复验；改为"准入时授权一次，带 attempt_id 执行" |
 | Admission receipt / proof 机制 | `transport/admission-*.ts`、`runtime/connector-admission-ledger.ts`（≈1.4K 行） | 用 `call_id` 唯一约束 + 持久 dispatching 状态即可达到同样的"不重复发送" |
