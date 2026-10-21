@@ -11,6 +11,9 @@ import argparse, json, os, queue, re, shlex, shutil, subprocess, sys, tempfile, 
 
 from winpty import PtyProcess
 
+# 提示是中英双语；Windows 的默认控制台编码打印不了中文。
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 ANSI = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Z0-9]|\r')
 CODE = re.compile(r'm_[0-9a-f-]{36}\.[0-9a-f-]{36}\.[A-Za-z0-9_-]+')
 
