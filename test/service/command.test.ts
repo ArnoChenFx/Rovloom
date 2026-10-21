@@ -115,6 +115,8 @@ test(
 
 test(
   'plist and task XML parse independently and preserve Unicode, spaces, ampersands and argument boundaries',
+  // 要启动外部 python3；Windows runner 上进程冷启动偶尔超过默认 5 秒，不放宽任何断言，只放宽等待上限。
+  { timeout: 30_000 },
   /* 用标准库 XML/plist 解析器核对原生声明的结构，避免只比字符串快照。 */ () => {
     const mac = { ...sampleSpec('darwin'), config: '/var/lib/汉字 & <x>/config.json' }
     const win = { ...sampleSpec('win32'), config: 'C:\\汉字 & 数据\\config.json' }
@@ -154,7 +156,8 @@ assert b.find('t:Actions/t:Exec/t:Arguments',n).text==p['args']
             .map(windowsQuote)
             .join(' ')
         }),
-        encoding: 'utf8'
+        encoding: 'utf8',
+        timeout: 25_000
       }
     )
     assert.equal(xml.status, 0, xml.stderr)
