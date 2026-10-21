@@ -262,3 +262,27 @@ test('token CLI manages the registry file and the local client credential end to
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('caller source authenticates requests that arrive through the trusted public host only', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rovloom-public-auth-'))
+  try {
+    const path = join(root, 'callers.json')
+    const token = 'c'.repeat(43)
+    writeFileSync(path, JSON.stringify(registry(token, Date.now() - 1000)), { mode: 0o600 })
+    const bearer = { authorization: `Bearer ${token}` }
+    const call = (source: ReturnType<typeof openCallerSource>, url: string) =>
+      source.authentication.authenticate(new Request(url, { headers: bearer }), new AbortController().signal)
+    const plain = openCallerSource(path, resource)
+    const proxied = openCallerSource(path, resource, undefined, 'https://rovloom.example.com/mcp')
+    assert.equal(call(plain, 'http://rovloom.example.com/mcp'), null)
+    assert.deepEqual(call(proxied, 'http://rovloom.example.com/mcp'), { principal_id: 'owner' })
+    assert.deepEqual(call(proxied, resource), { principal_id: 'owner' })
+    assert.equal(call(proxied, 'http://evil.example.com/mcp'), null)
+    assert.equal(call(proxied, 'http://rovloom.example.com/other'), null)
+    assert.equal(call(proxied, 'http://rovloom.example.com/mcp?x=1'), null)
+    plain.close()
+    proxied.close()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

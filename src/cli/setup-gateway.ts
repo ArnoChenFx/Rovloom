@@ -267,7 +267,7 @@ export class GatewaySetup {
       'Native configuration saved; Gateway will reopen its real providers. / 原生配置已保存，Gateway 将重开实际 provider。\nMCP credential file / MCP 凭据文件: ' +
         clientPath +
         '\nMCP URL: ' +
-        resource +
+        (this.config.mcp_public_url ?? resource) +
         '\nTargets: ' +
         boundedJson(reviewed.map(/* 显示每个完整目标，不能合并成provider或session通配符。 */ (entry) => entry.target)) +
         '\nBinding revision: 1' +

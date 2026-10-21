@@ -120,7 +120,12 @@ function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySou
   }
   const hostname = config.mcp_hostname === '::1' ? '[::1]' : config.mcp_hostname
   return {
-    ...openCallerSource(path, new URL(`http://${hostname}:${config.mcp_port}/mcp`).href, administrator),
+    ...openCallerSource(
+      path,
+      new URL(`http://${hostname}:${config.mcp_port}/mcp`).href,
+      administrator,
+      config.mcp_public_url
+    ),
     setupRequired: false
   }
 }

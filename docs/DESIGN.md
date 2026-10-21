@@ -106,7 +106,7 @@ created → authorized → dispatching → connector_accepted → responded
 
 | 对象 | 方式 |
 |---|---|
-| MCP 调用方 | Bearer 令牌（`rovloom token create / list / renew / rotate / revoke`，热生效；摘要注册表在状态目录）；可选 OIDC JWT 校验 issuer、audience、scope。资源 URL 与配置的受信 `public_url` 比较，兼容反向代理 / TLS 终止 |
+| MCP 调用方 | Bearer 令牌（`rovloom token create / list / renew / rotate / revoke`，热生效；摘要注册表在状态目录）；可选 OIDC JWT 校验 issuer、audience、scope。资源 URL 与配置的受信 `mcp.public_url` 比较（只比较 Host 与固定 `/mcp` 路径，不信转发头），兼容反向代理 / TLS 终止 |
 | 设备 | 一次性配对码（默认 10 分钟内有效，并发兑换仅一次成功）→ 设备凭据；`rovloom device rotate` 轮换；重复连接默认拒绝，显式 takeover 产生新 epoch |
 | 管理员 | 独立 listener、会话与 CSRF；高影响操作（撤销、禁用 provider、停服）要求管理员在后台真实确认，不接受模型自填 `approved: true` |
 

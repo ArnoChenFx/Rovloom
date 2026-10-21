@@ -50,6 +50,7 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | Gateway `mcp` | object，必填 | 含 `hostname`、`port`；Streamable HTTP `/mcp`。 |
 | `mcp.hostname` | string，必填 | `127.0.0.1`，也接受 `::1`；仅回环。 |
 | `mcp.port` | integer 1–65535，必填 | `9444`。 |
+| `mcp.public_url` | 字符串，可选 | 反向代理 / TLS 终止后的受信对外地址，必须恰为 `https://host[:port]/mcp`（无凭据、查询或其它路径）。配置后 Gateway 额外接受 `Host` 为该主机的请求（及其 CORS 来源），其余 `Host` 仍被拒绝，也从不信任转发头；监听仍只在回环，仍需 Bearer。 |
 | Gateway `devices` | object，必填 | 含 `hostname`、`port`；WS `/connector`。 |
 | `devices.hostname` | string，必填 | `127.0.0.1`，也接受 `::1`、`0.0.0.0`、`::`；默认不接受远程设备。 |
 | `devices.port` | integer 1–65535，必填 | `9443`。 |
