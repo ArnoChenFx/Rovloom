@@ -1,7 +1,7 @@
 /** 验证静态生产来源的配置绑定、持久缺项与启动失败释放；合成 root 不冒充真实运行实例。 */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
@@ -13,7 +13,6 @@ import { createNativeRecord } from '../../src/runtime/native-record-files.js'
 import { ownedPathStamp } from '../../src/runtime/native-process.js'
 import { createLuvusProductionSources } from '../../src/runtime/production-luvus.js'
 import type { LuvusProductionOwnerConfig } from '../../src/runtime/production-luvus.js'
-import { ConnectorAdmissionReceipts } from '../../src/transport/index.js'
 import { boundedJson, hash } from '../../src/wire/index.js'
 
 type MutableOwnerConfig = { -readonly [K in keyof LuvusProductionOwnerConfig]: LuvusProductionOwnerConfig[K] }
@@ -188,7 +187,6 @@ test(
   /** 空引用不会启动、发现或猜测本机 session。 */ async () => {
     const resource = await createLuvusProductionSources().gateway({ state_dir: '/unused' }, [])
     assert.deepEqual(resource.providers, [])
-    assert.equal(resource.admission_context, true)
     const first = resource.release()
     assert.equal(resource.release(), first)
     await first
@@ -303,7 +301,7 @@ test(
 )
 
 test(
-  'production startup rejects actual wrong binary bytes and releases both persistent locks without deleting facts',
+  'production startup rejects actual wrong binary bytes and releases the persistent lock without deleting facts',
   /** 使用真实持久实现和真实安装校验，绝不把模拟 native 成功当成生产来源。 */ async () => {
     const f = fixture()
     try {
@@ -311,7 +309,7 @@ test(
         createLuvusProductionSources().connector({ state_dir: f.state }, f.refs()),
         /binary_identity_changed/
       )
-      for (const name of ['luvus-claims.db', 'luvus-admissions.json']) {
+      for (const name of ['luvus-claims.db']) {
         assert.equal(existsSync(join(f.state, name)), true)
         assert.equal(existsSync(join(f.state, name + '.lock')), false)
       }
@@ -323,40 +321,7 @@ test(
         limits: { entries: 1024, bytes: 4_194_304 },
         now: Date.now
       })
-      const receipts = new ConnectorAdmissionReceipts({
-        path: join(f.state, 'luvus-admissions.json'),
-        mode: 'open',
-        ledger_id: ledgerId,
-        limits: { entries: 1024, bytes: 4_194_304 },
-        now: Date.now,
-        routes: [{ target: f.config.target, principal_id: 'caller1' }]
-      })
       claims.close()
-      receipts.close()
-    } finally {
-      f.close()
-    }
-  }
-)
-
-test(
-  'production open refuses one missing receipt ledger and create cannot overwrite surviving persistent files',
-  /** 部分持久状态缺失时既不重建 receipt，也不遗留刚打开的 claims 独占锁。 */ async () => {
-    const f = fixture()
-    try {
-      const sources = createLuvusProductionSources()
-      await assert.rejects(sources.connector({ state_dir: f.state }, f.refs()), /binary_identity_changed/)
-      const claimsPath = join(f.state, 'luvus-claims.db')
-      const before = readFileSync(claimsPath)
-      await assert.rejects(sources.connector({ state_dir: f.state }, f.refs()), /claim_ledger_exists/)
-      assert.deepEqual(readFileSync(claimsPath), before)
-      unlinkSync(join(f.state, 'luvus-admissions.json'))
-      const refs = f.refs()
-      refs[0]!.value = { ...refs[0]!.value, storage_mode: 'open' }
-      await assert.rejects(sources.connector({ state_dir: f.state }, refs), /receipt_ledger_missing/)
-      assert.equal(existsSync(join(f.state, 'luvus-admissions.json')), false)
-      assert.equal(existsSync(claimsPath + '.lock'), false)
-      assert.deepEqual(readFileSync(claimsPath), before)
     } finally {
       f.close()
     }

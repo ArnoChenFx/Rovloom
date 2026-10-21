@@ -105,12 +105,7 @@ export async function prepareMixedGateway(
       /** 选择原Luvus资源，不能把中性会话伪装成原生资源。 */ (resource) => resource.kind !== 'provider'
     )
     const hosts = prepared.filter(/** 保留中性provider的真实会话工厂。 */ (resource) => resource.kind === 'provider')
-    if (
-      !native ||
-      native.kind === 'mixed' ||
-      hosts.length !== prepared.length - 1 ||
-      prepared.some(/** 任一原owner缺完整准入上下文则拒绝组合。 */ (resource) => !resource.admission_context)
-    ) {
+    if (!native || native.kind === 'mixed' || hosts.length !== prepared.length - 1) {
       throw new CliError('backend_unavailable', 3)
     }
     const hosted: GatewayHostedProviders[] = hosts.map(
@@ -149,7 +144,6 @@ export async function prepareMixedGateway(
       kind: 'mixed',
       providers: native.providers,
       hosted,
-      admission_context: true,
       management: management[0]?.management,
       catalog: {
         kind: 'mixed',
@@ -201,7 +195,6 @@ export async function prepareMixedConnector(
     if (
       !native ||
       hosted.length !== prepared.length - 1 ||
-      prepared.some(/** 完整准入上下文必须在每个provider上保留。 */ (resource) => !resource.admission_context) ||
       hosted.some(/** 缺真实路由覆盖不能从请求或readiness猜目标。 */ (resource) => !resource.providers?.length)
     ) {
       throw new CliError('backend_unavailable', 3)
@@ -210,7 +203,6 @@ export async function prepareMixedConnector(
     owner.sessions.push(luvus)
     return {
       kind: 'provider',
-      admission_context: true,
       provider_snapshot: native.provider_snapshot,
       release_timeout_ms: Math.min(
         5000,

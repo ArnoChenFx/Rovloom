@@ -280,12 +280,9 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
         }
       })
       assertSessionOpen()
-      const admissions = resource.admissions
-      assertSessionOpen()
       const execution = rpc
       const result: ConnectorWireSession = {
         adapter,
-        ...(admissions ? { admissions } : {}),
         ...(resource.providerSnapshot
           ? {
               providerSnapshot: /** 原工厂检查实际实例，回调返回后仍复核该 epoch 的关闭 fence。 */ () => {

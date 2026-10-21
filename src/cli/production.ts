@@ -45,8 +45,6 @@ export type ProductionManagementHost = ProductionGatewayManagement & {
   bootstrap_challenge?: 'basic'
 }
 type ProductionGatewayCommon = Pick<RuntimeCliGatewayResources, 'catalog'> & {
-  // 需要原caller/锚点的provider显式启用现行协商能力，不复制receipt或ledger实现。
-  admission_context?: true
   management?: ProductionGatewayManagement
   started?(gateway: RuntimeCliGateway): void
   release(): Promise<void>
@@ -65,10 +63,9 @@ export type ProductionGatewayResources = ProductionGatewayCommon &
         session: ProviderGatewayRuntimeOptions['session']
       }
   )
-export type ProductionConnectorResources = { admission_context?: true } & (
+export type ProductionConnectorResources =
   | Omit<RuntimeCliConnectorResources, 'transport'>
   | Omit<RuntimeCliProviderResources, 'transport'>
-)
 export type ProductionCliSources = {
   // 现有管理员仍须独立交付；默认值明确拒绝，不从MCP token升级。
   administrator?: GatewayIdentitySource['administrator']
@@ -85,21 +82,13 @@ export type ProductionCliSources = {
   ): Promise<ProductionConnectorResources>
 }
 
-// 只组合已有Wire协商声明；各provider的真实接收端和持久原截止仍由其session交付。
-function offer(context: true | undefined): VersionOffer {
+// 只组合已有Wire协商声明。
+function offer(): VersionOffer {
   return {
     major: 2,
     minor: 0,
-    capabilities: [
-      'rpc',
-      'provider_fence',
-      'terminal_execution_state',
-      'dispatch_refusal',
-      'history_scope',
-      'admission_receipt',
-      ...(context ? ['admission_context'] : [])
-    ],
-    required: ['rpc', 'admission_receipt', ...(context ? ['admission_context'] : [])]
+    capabilities: ['rpc', 'provider_fence', 'terminal_execution_state', 'dispatch_refusal', 'history_scope'],
+    required: ['rpc']
   }
 }
 
@@ -293,7 +282,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
           listener: {
             hostname: settings.device_listener.hostname,
             port: settings.device_listener.port,
-            offer: offer(provider?.admission_context),
+            offer: offer(),
             ...(pairing
               ? {
                   setupRequest: /* 固定同一设备listener的专用配对handler，不替换WebSocket认证。 */ (request: Request) =>
@@ -454,7 +443,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
         credential()
         const transport = {
           credential,
-          offer: offer(resource.admission_context)
+          offer: offer()
         }
         if (resource.kind === 'provider') {
           return {

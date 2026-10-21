@@ -90,7 +90,7 @@ Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用
 格式不再加载或迁移。
 
 保留整个数据目录，包括数据库附属文件。不要修改内部记录，也不要为重试不确定的
-初始化而删除数据。Herdr 在 `<data.directory>/hr/` 管理隔离的 `h/c/s/k/t/w/control` 目录及原 schema、claims、receipts；
+初始化而删除数据。Herdr 在 `<data.directory>/hr/` 管理隔离的 `h/c/s/k/t/w/control` 目录及原 schema、claims；
 这些不是额外用户配置。引导恢复尚不可用。
 首次 Luvus 设置要求 `data.directory` 路径加 `/n` 不超过52个 UTF-8 字节，
 如有需要，请在配对前选择更短的目录。

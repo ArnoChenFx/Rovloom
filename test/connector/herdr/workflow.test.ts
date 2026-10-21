@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createHerdrCodec, createHerdrReadonlyAdapter } from '../../../src/connector/herdr/readonly.js'
-import { createHerdrWireAdapter } from '../../../src/connector/herdr/wire.js'
+import {} from '../../../src/connector/herdr/wire.js'
 import type { JsonObject } from '../../../src/wire/types.js'
 import { backendFixture, schemas, source } from './helpers.js'
 
@@ -170,60 +170,3 @@ for (const entry of cases) {
     }
   )
 }
-
-test(
-  'Herdr admission receipts use the shared authenticated codec and never create a native permit',
-  /** receipt 只传递已有认证元数据；方向、能力、摘要、期限与连接仍由共享 codec 校验。 */ () => {
-    const state = backendFixture()
-    state.context.connection.negotiated.capabilities.push('admission_receipt')
-    state.backend.attempt = /** receipt 在原请求尚未到达时不得查询或创建执行锚点。 */ () => {
-      throw new Error('native_attempt_must_not_be_resolved')
-    }
-    const core = createHerdrReadonlyAdapter(state.backend)
-    const wire = createHerdrWireAdapter(state.backend, core)
-    const receipt = {
-      protocol_major: 2,
-      protocol_minor: 0,
-      message_id: 'synthetic-receipt',
-      machine_id: state.binding.machine_id,
-      recovery_generation: state.binding.recovery_generation,
-      connection_epoch: state.binding.connection_epoch,
-      type: 'admission_receipt' as const,
-      payload: { attempt: state.identity, request_sha256: 'a'.repeat(64), dedup_expires_at: 2000 }
-    }
-    try {
-      const raw = wire.encode(receipt, 'gateway_to_connector')
-      assert.deepEqual(wire.decode(raw, 'gateway_to_connector'), receipt)
-      assert.equal(wire.observeMessage(receipt, 'gateway_to_connector'), 'new')
-      assert.equal(wire.observeMessage(receipt, 'gateway_to_connector'), 'duplicate')
-      assert.equal(core.stats().executions, 0)
-      assert.equal(core.stats().responses, 0)
-      assert.throws(
-        /** 认证 receipt 仍不能反向回传。 */ () => wire.decode(raw, 'connector_to_gateway'),
-        /wrong_direction/
-      )
-      assert.throws(
-        /** 不能跨当前连接导入 receipt。 */ () =>
-          wire.decode(JSON.stringify({ ...receipt, connection_epoch: 'other' }), 'gateway_to_connector'),
-        /connection_binding_mismatch/
-      )
-      assert.throws(
-        /** 原去重期限不能早于已绑定 deadline。 */ () =>
-          wire.encode({ ...receipt, payload: { ...receipt.payload, dedup_expires_at: 999 } }, 'gateway_to_connector'),
-        /admission_receipt_deadline_invalid/
-      )
-      assert.throws(
-        /** 非 SHA-256 摘要保持共享 codec 的拒绝。 */ () =>
-          wire.encode({ ...receipt, payload: { ...receipt.payload, request_sha256: 'bad' } }, 'gateway_to_connector'),
-        /invalid_digest/
-      )
-      state.context.connection.negotiated.capabilities = ['rpc']
-      assert.throws(
-        /** 未协商 receipt 能力时普通适配器也拒绝。 */ () => wire.decode(raw, 'gateway_to_connector'),
-        /unsupported_capability/
-      )
-    } finally {
-      wire.close()
-    }
-  }
-)

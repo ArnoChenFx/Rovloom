@@ -49,12 +49,6 @@ function config(root: string) {
         temporary_home: join(root, 'temporary'),
         cwd: join(root, 'cwd')
       },
-      receipts: {
-        path: join(root, 'receipts', 'receipt.json'),
-        mode: 'create',
-        ledger_id: 'owned_receipts',
-        limits: { entries: 256, bytes: 1_048_576 }
-      },
       claims: {
         path: join(root, 'claims', 'claims.sqlite'),
         mode: 'open',
@@ -104,7 +98,6 @@ test(
       /terminal_execution_config_invalid/
     )
     assert.equal(parsed.connector!.claims.mode, 'open')
-    assert.equal(parsed.connector!.receipts.mode, 'create')
     input.expected_source.server_version = 'mutated'
     assert.equal(parsed.expected_source.server_version, '0.9.5')
     const clean = config('/workspace/synthetic-herdr-ref')
@@ -115,8 +108,7 @@ test(
       { extra: true },
       { target: { machine_id: 'owned-machine', provider_id: 'herdr', profile: 'host' } },
       { connector: { ...clean.connector, local: { ...clean.connector.local, binding_revision: 2 } } },
-      { connector: { ...clean.connector, claims: { ...clean.connector.claims, path: clean.connector.receipts.path } } },
-      { connector: { ...clean.connector, receipts: { ...clean.connector.receipts, mode: 'automatic' } } }
+      { connector: { ...clean.connector, claims: { ...clean.connector.claims, mode: 'automatic' } } }
     ]) {
       assert.throws(
         /** 任何漂移都不能变成等价本机配置或来源 pin。 */ () => parseHerdrProviderRefConfig({ ...clean, ...patch })
@@ -281,7 +273,6 @@ test(
     channel.attach(session)
     try {
       assert.equal(resources.kind, 'provider')
-      assert.equal(resources.admission_context, true)
       const described = resources.describe()
       assert.equal(described.source_basis, 'configured_connector_contract')
       assert.equal(described.methods.length, 65)

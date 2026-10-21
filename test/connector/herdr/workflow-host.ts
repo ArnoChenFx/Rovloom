@@ -278,12 +278,6 @@ export async function createHerdrWorkflowHost(options: HerdrWorkflowHostOptions)
       connector: {
         local: config,
         principal_id: callerId,
-        receipts: {
-          path: join(root, 'connector', 'receipts.json'),
-          mode: 'create',
-          ledger_id: 'owned_workflow_receipts',
-          limits: { entries: 512, bytes: 8_388_608 }
-        },
         claims: {
           path: claimsPath,
           mode: 'create',
@@ -298,8 +292,8 @@ export async function createHerdrWorkflowHost(options: HerdrWorkflowHostOptions)
     const offer = {
       major: 2,
       minor: 0,
-      capabilities: ['rpc', 'admission_receipt', 'admission_context', 'late_evidence'],
-      required: ['rpc', 'admission_receipt', 'admission_context']
+      capabilities: ['rpc', 'late_evidence'],
+      required: ['rpc']
     }
     const identities: GatewayIdentitySource = {
       /** 本自有 fixture 唯一 caller，与设备凭据走独立生产作用域。 */

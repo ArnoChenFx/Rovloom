@@ -501,7 +501,6 @@ test(
           assert.deepEqual(references, [{ reference: 'fixture_herdr', value: { kind: 'herdr' } }])
           return {
             kind: 'provider',
-            admission_context: true,
             providers: [
               {
                 binding,

@@ -367,11 +367,6 @@ function snapshotSession(
   }
   return {
     adapter,
-    admissions: {
-      accept: native,
-      assertRequest: native,
-      closeEpoch: /** 本例不接收准入证明，没有需要落盘的receipt；不能由此放行业务。 */ () => {}
-    },
     readiness: /** 只有本组的受保护配置；不宣称原生执行就绪。 */ () => ({
       policy_revision: policy,
       peer_policy_revision: policy,

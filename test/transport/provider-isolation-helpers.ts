@@ -236,15 +236,6 @@ export function providerIsolationFixture(discovered?: NativeContractRecord, term
                   return state.changed.has(target.provider_id) ? replacement : initial
                 }
               }),
-          // 不协商 admission_receipt；这些明确拒绝的端口不冒充持久准入成功。
-          admissions: {
-            accept: /** 若意外进入该未协商路径则明确失败。 */ () => {
-              throw new Error('synthetic_admission_unavailable')
-            },
-            assertRequest: /** 无准入后端，不能制造执行许可。 */ () => {
-              throw new Error('synthetic_admission_unavailable')
-            }
-          },
           /** 执行是明确的合成服务 stub；原 transport 已用同一真实 Wire 验证请求和许可。 */ executeWire(raw, signal) {
             if (side !== 'connector' || record.closed) {
               return Promise.reject(new Error('synthetic_execution_unavailable'))

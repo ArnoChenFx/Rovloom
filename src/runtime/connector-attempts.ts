@@ -1,6 +1,6 @@
 // 在 Connector 受保护路由与原 Wire 校验之间保存有界准入锚点，不打开 Gateway Store 或生成执行许可。
 import type { NativeWireBackend, TrustedAttempt } from '../integration/luvus-wire.js'
-import type { Adapter, Connection, AdmissionReceiptSink } from '../transport/index.js'
+import type { Adapter, Connection } from '../transport/index.js'
 import type { AttemptBinding, Direction, V2Target, WireEnvelope } from '../wire/types.js'
 import {
   assertBinding,
@@ -16,11 +16,12 @@ import {
   validateTarget
 } from '../wire/index.js'
 
+/** Connector 本机去重保留期默认值，与 Gateway 默认 metadata_ttl 对齐；必须覆盖请求执行期限。 */
+export const CONNECTOR_ATTEMPT_RETENTION_MS = 30 * 86_400_000
 type Entry = Readonly<{ binding: AttemptBinding; digest: string; expires: number }>
 export type ConnectorAttemptBookOptions = Readonly<{
-  retention_ms?: number
-  // 独立可信元数据可保留 Gateway 原截止；不能从 Wire 请求字段推导。
-  dedupExpires?(binding: AttemptBinding): number
+  // Connector 受保护配置固定的本机保留期，必须覆盖请求执行期限；不能从 Wire 请求字段推导。
+  retention_ms: number
   limits?: Readonly<{ entries: number; bytes: number }>
   now(): number
 }>
@@ -34,12 +35,7 @@ export class ConnectorAttemptBook {
 
   /** 固定受保护的 retention 和资源预算；调用消息无权调整这些值。 */
   constructor(options: ConnectorAttemptBookOptions) {
-    if ((options.retention_ms === undefined) === (options.dedupExpires === undefined)) {
-      fail('connector_retention_source_required')
-    }
-    if (options.retention_ms !== undefined) {
-      uint(options.retention_ms, true)
-    }
+    uint(options.retention_ms, true)
     const limits = { entries: 4096, bytes: 4_194_304, ...options.limits }
     uint(limits.entries, true)
     uint(limits.bytes, true)
@@ -53,7 +49,7 @@ export class ConnectorAttemptBook {
   #time(): number {
     const now = this.#options.now()
     uint(now)
-    if (now < this.#clock || !Number.isSafeInteger(now + (this.#options.retention_ms ?? 0))) {
+    if (now < this.#clock || !Number.isSafeInteger(now + this.#options.retention_ms)) {
       fail('clock_untrusted')
     }
     this.#clock = now
@@ -74,14 +70,10 @@ export class ConnectorAttemptBook {
     }
     const name = attempt.binding.call_id + ':' + attempt.binding.attempt_id
     const digest = hash(boundedJson(attempt))
-    const originalExpiry = this.#options.dedupExpires?.(attempt.binding)
-    if (this.#options.dedupExpires !== undefined) {
-      uint(originalExpiry, true)
-    }
     const previous = this.#entries.get(name)
     if (previous) {
       assertBinding(attempt.binding, previous.binding)
-      if (previous.digest !== digest || (originalExpiry !== undefined && originalExpiry !== previous.expires)) {
+      if (previous.digest !== digest) {
         fail('attempt_request_mismatch')
       }
       return previous
@@ -89,7 +81,7 @@ export class ConnectorAttemptBook {
     const entry = {
       binding: JSON.parse(boundedJson(attempt.binding)) as AttemptBinding,
       digest,
-      expires: originalExpiry ?? localExpiry ?? now + this.#options.retention_ms!
+      expires: localExpiry ?? now + this.#options.retention_ms
     }
     // Connector 自有固定保留期必须覆盖执行期限；不能暗中延长配置或采信消息中的 TTL。
     if (entry.expires < attempt.binding.registration.deadline) {
@@ -104,29 +96,18 @@ export class ConnectorAttemptBook {
     return entry
   }
 
-  /** 先预留固定期限，原 Wire 与可选原截止/最终 fence 都成功后才提交，不能构造或延长 entry。 */
-  admit<T>(attempt: TrustedAttempt, verify: () => T, originalExpiry?: number, assertCommit?: () => void): T {
+  /** 先预留固定期限，原 Wire 校验成功后才提交，不能构造或延长 entry。 */
+  admit<T>(attempt: TrustedAttempt, verify: () => T): T {
     const entry = this.#prepare(attempt)
-    if (originalExpiry !== undefined) {
-      uint(originalExpiry, true)
-      if (entry.expires !== originalExpiry) {
-        fail('attempt_request_mismatch')
-      }
-    }
     const result = verify()
-    // 相对本机 TTL 沿用首次预留；独立原截止仍须重读并完全一致，不能在 verify 中漂移。
-    const current = this.#prepare(attempt, this.#options.retention_ms === undefined ? undefined : entry.expires)
+    // 本机 TTL 沿用首次预留，不能在 verify 中漂移。
+    const current = this.#prepare(attempt, entry.expires)
     if (
       current.digest !== entry.digest ||
       current.expires !== entry.expires ||
       boundedJson(current.binding) !== boundedJson(entry.binding)
     ) {
       fail('attempt_request_mismatch')
-    }
-    const committed = assertCommit?.()
-    if (committed !== undefined) {
-      void Promise.resolve(committed).catch(/** 不接受异步最终 fence，也消费其晚到拒绝。 */ () => {})
-      fail('synchronous_connector_admission_required')
     }
     const name = attempt.binding.call_id + ':' + attempt.binding.attempt_id
     if (!this.#entries.has(name)) {
@@ -148,18 +129,20 @@ export class ConnectorAttemptBook {
   }
 }
 
-export type ConnectorAdmissionOptions = Readonly<{
+/** 准入只依赖策略与时钟；其余端口由调用方按协议（Luvus/Herdr）原样并入后端。 */
+export type ConnectorAdmissionSource = Pick<NativeWireBackend, 'policies' | 'now'>
+/** Luvus Connector 的完整来源端口。 */
+export type LuvusConnectorAdmissionSource = Pick<
+  NativeWireBackend,
+  'provider' | 'localProvider' | 'contract' | 'nativeSource' | 'policies' | 'authority' | 'now'
+>
+export type ConnectorAdmissionOptions<S extends ConnectorAdmissionSource = ConnectorAdmissionSource> = Readonly<{
   // 必须直接使用 transport.session 实际认证后交付的连接，不能从请求 JSON 建立身份。
   connection: Connection
   // 本机受保护路由为完整目标固定 principal；原 Wire 未携带 caller 身份，不能自报或补猜。
   routes: readonly Readonly<{ target: V2Target; principal_id: string }>[]
-  source: Pick<
-    NativeWireBackend,
-    'provider' | 'localProvider' | 'contract' | 'nativeSource' | 'policies' | 'authority' | 'now'
-  >
+  source: S
   book: ConnectorAttemptBook
-  // 原截止能力启用时，在原 Wire 准入提交前校验同一持久认证回执的完整请求摘要。
-  receipts?: Pick<AdmissionReceiptSink, 'assertRequest'>
   limits?: Readonly<{ attempts: number; bytes: number }>
 }>
 
@@ -168,24 +151,15 @@ type Admission = {
   close(): void
   release(binding: AttemptBinding): void
 }
-const admissions = new WeakMap<NativeWireBackend, Admission>()
-
-/** 内部组合点将真实认证 context ledger 接到既有 Luvus Wire decode 生命周期，不另建协议或请求缓存。 */
-export function bindConnectorAdmissionLedger(backend: NativeWireBackend, ledger: Admission): void {
-  if (admissions.has(backend)) {
-    fail('connector_backend_reused')
-  }
-  admissions.set(backend, ledger)
-}
+const admissions = new WeakMap<object, Admission>()
 
 /** 装配独立于 Gateway writer 的准入后端；候选只在原 Wire decode 的同步验证范围可见。 */
-export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptions) {
+export function createConnectorAdmissionBackend<S extends ConnectorAdmissionSource>(
+  options: ConnectorAdmissionOptions<S>
+) {
   const connection = JSON.parse(boundedJson(options.connection)) as Connection
   if (connection.authenticated !== true || connection.active !== true) {
     fail('authentication_required')
-  }
-  if (connection.negotiated.capabilities.includes('admission_receipt') && !options.receipts) {
-    fail('admission_receipt_source_required')
   }
   for (const value of [connection.machine_id, connection.recovery_generation, connection.connection_epoch]) {
     id(value)
@@ -232,7 +206,11 @@ export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptio
     return candidate ? (JSON.parse(boundedJson(candidate)) as TrustedAttempt) : undefined
   }
 
-  const backend: NativeWireBackend & { dedupExpires(binding: AttemptBinding): number; close(): void } = {
+  const backend: S &
+    Pick<NativeWireBackend, 'connection' | 'attempt' | 'currentPrincipal' | 'contentStatus'> & {
+      dedupExpires(binding: AttemptBinding): number
+      close(): void
+    } = {
     ...options.source,
     connection: currentConnection,
     attempt,
@@ -308,16 +286,6 @@ export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptio
         mode: payload.validation as 'strict' | 'raw-contract',
         native_request: native
       }
-      if (options.receipts) {
-        const received = options.receipts.assertRequest({ binding, native_request: native, validation: candidate.mode })
-        if (received !== undefined) {
-          void Promise.resolve(received).catch(/** 消费违规异步端口的拒绝，不将其作为准入完成。 */ () => {})
-          fail('synchronous_admission_receipt_required')
-        }
-        if (closed) {
-          fail('adapter_closed')
-        }
-      }
       const name = binding.call_id + ':' + binding.attempt_id
       const previous = attempts.get(name)
       if (previous && boundedJson(previous) !== boundedJson(candidate)) {
@@ -356,7 +324,7 @@ export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptio
 }
 
 /** 仅给本模块建立的准入后端包装真实 adapter.decode；其它独立可信后端保持原接口。 */
-export function connectorAdmissionAdapter<T extends Adapter>(backend: NativeWireBackend, adapter: T): T {
+export function connectorAdmissionAdapter<T extends Adapter>(backend: object, adapter: T): T {
   const admission = admissions.get(backend)
   if (!admission) {
     return adapter
@@ -381,6 +349,3 @@ export function connectorAdmissionAdapter<T extends Adapter>(backend: NativeWire
     }
   })
 }
-
-export { createConnectorAdmissionLedger } from './connector-admission-ledger.js'
-export type { ConnectorAdmissionLedger, ConnectorAdmissionLedgerOptions } from './connector-admission-ledger.js'

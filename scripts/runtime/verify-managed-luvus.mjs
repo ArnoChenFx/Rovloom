@@ -10,6 +10,7 @@ import {
   createGatewayRuntime,
   createConnectorRuntime,
   ConnectorAttemptBook,
+  CONNECTOR_ATTEMPT_RETENTION_MS,
   createConnectorAdmissionBackend,
   initializeManagedLuvusRoot,
   openNativeCustodyApprovals,
@@ -19,7 +20,6 @@ import {
   createLuvusCustodyAuthorizer,
   DEVELOPMENT_LUVUS_SHA256
 } from '../../dist/src/runtime/index.js'
-import { ConnectorAdmissionReceipts } from '../../dist/src/transport/index.js'
 import { LuvusDispatchClaims } from '../../dist/src/connector/luvus/index.js'
 import { contractRef } from '../../dist/src/wire/index.js'
 import { createManagedSmokeCleanup } from './managed-smoke-cleanup.mjs'
@@ -56,7 +56,6 @@ let connector
 let instance
 let state
 let claims
-let receipts
 let rootRecord
 let processOwner
 let approvals
@@ -217,8 +216,8 @@ try {
   const offer = {
     major: 2,
     minor: 0,
-    capabilities: ['rpc', 'history_scope', 'admission_receipt'],
-    required: ['rpc', 'admission_receipt']
+    capabilities: ['rpc', 'history_scope'],
+    required: ['rpc']
   }
   stage = 'gateway_start'
   gateway = await createGatewayRuntime({
@@ -247,17 +246,7 @@ try {
     limits: { entries: 128, bytes: 1048576 },
     now: Date.now
   })
-  receipts = new ConnectorAdmissionReceipts({
-    path: join(root, 'connector', 'admission.json'),
-    mode: 'create',
-    ledger_id: 'isolated_connector_receipts',
-    limits: { entries: 128, bytes: 1048576 },
-    now: Date.now
-  })
-  const book = new ConnectorAttemptBook({
-    dedupExpires: /* 原dedup截止只能来自独立认证receipt。 */ (attempt) => receipts.dedupExpires(attempt),
-    now: Date.now
-  })
+  const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: Date.now })
   stage = 'connector_start'
   connector = await createConnectorRuntime({
     transport: {
@@ -273,7 +262,6 @@ try {
         connection,
         routes: [{ target, principal_id: principal.id }],
         book,
-        receipts,
         source: {
           provider: /* 只返回本轮受保护canonical provider。 */ () => binding,
           localProvider: /* 本机配置独立固定到同一完整binding。 */ () => binding,
@@ -290,7 +278,6 @@ try {
       return {
         backend,
         config,
-        admissions: receipts,
         delegation: /* 只对原binding取得实际受限委托。 */ (attempt) => owned.delegation(attempt),
         claims,
         verifyPeer: /* 每条真实IPC socket交由受控实例核对内核peer。 */ (socket, endpoint, attempt) =>
@@ -306,9 +293,8 @@ try {
         close: /* 只关闭本epoch账本候选，不宣称原生动作回滚。 */ () => backend.close()
       }
     },
-    release: /* 全部epoch停止后释放本轮持久去重与receipt所有者。 */ async () => {
+    release: /* 全部epoch停止后释放本轮持久去重所有者。 */ async () => {
       claims.close()
-      receipts.close()
     }
   })
   /** 以有限单调等待观察真实链路，不改任何已登记期限。 */
@@ -389,16 +375,6 @@ try {
   const claimCount = Number(db.prepare('SELECT count(*) n FROM luvus_dispatch_claims').get().n)
   db.close()
   checked('one_durable_dispatch', /* 真实持久发送墓碑恰好一条。 */ () => assert.equal(claimCount, 1))
-  const saved = JSON.parse(readFileSync(join(root, 'connector', 'admission.json'), 'utf8')).entries[0]
-  checked(
-    'independent_receipt',
-    /* receipt文件来自Connector独立目录且绑定原调用。 */ () => assert.equal(saved.binding.call_id, first.call.call_id)
-  )
-  checked(
-    'original_dedup_cutoff',
-    /* 截止严格来自Store原锚点。 */ () =>
-      assert.equal(saved.dedup_expires_at, state.store.responseAnchor(saved.binding).dedup_expires_at)
-  )
   stage = 'disconnect'
   await connector.close()
   await until(
@@ -408,14 +384,12 @@ try {
     'gateway_survives_connector_exit',
     /* Connector退出不终止常驻Gateway。 */ () => assert.equal(gateway.transport.status().stopped, false)
   )
-  assert.equal(passed.length, 14)
+  assert.equal(passed.length, 12)
   successReport = {
     kind: 'official_managed_runtime_artifact_modules',
     managed_persistent_root: true,
     explicit_administrator_bootstrap: true,
     explicit_custody_approval: true,
-    authenticated_receipt: true,
-    original_dedup_cutoff: true,
     native: 'luvus-0.14.3',
     wss: true,
     persistent_identity: true,
@@ -451,8 +425,7 @@ try {
         state?.close()
       }
     },
-    /** 独立 claims 与 receipt 只释放 writer，不删除墓碑或替代 native owner 的退出确认。 */ () => claims?.close(),
-    /** 接收端清理单独执行，前一个 writer 失败也不能跳过。 */ () => receipts?.close(),
+    /** 独立 claims 只释放 writer，不删除墓碑或替代 native owner 的退出确认。 */ () => claims?.close(),
     /** 停止 custody 能力不代表已终止所属原生进程。 */ () => instance?.close(),
     /** 只有原所有者自己的 close 才能确认退出并释放其独占锁。 */ async () => processOwner?.close(),
     /** 其余控制资源逐项回收，任何失败都保留整个临时 root。 */ () => approvals?.close(),

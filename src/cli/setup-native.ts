@@ -9,7 +9,6 @@ import type { LuvusProductionRemoteConfig } from '../runtime/remote-luvus.js'
 import { localLimits, verifyInstallation } from '../connector/luvus/local.js'
 import { runFixedProcess } from '../connector/luvus/io.js'
 import { LuvusDispatchClaims } from '../connector/luvus/claims.js'
-import { ConnectorAdmissionReceipts } from '../transport/admission-receipts.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import { boundedJson, fields, hash, id, object, validatePolicies } from '../wire/index.js'
 import type { ProviderPolicies } from '../wire/types.js'
@@ -198,19 +197,7 @@ export async function prepareSetupNative(
       limits: { entries: 1024, bytes: 4_194_304 },
       now: Date.now
     })
-    try {
-      const receipts = new ConnectorAdmissionReceipts({
-        path: join(control, 'luvus-admissions.json'),
-        mode: 'create',
-        ledger_id: ledgerId,
-        limits: { entries: 1024, bytes: 4_194_304 },
-        now: Date.now,
-        routes: [{ target, principal_id: authorization.principal_id }]
-      })
-      receipts.close()
-    } finally {
-      claims.close()
-    }
+    claims.close()
     const result: PreparedSetupNative = {
       schema_version: 1,
       attempt_id: attempt,

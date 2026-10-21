@@ -15,7 +15,7 @@
 | `ProviderGatewayRuntimeOptions.session(connection, channel, services)` | 当前实际认证 epoch 的原 provider `Session`；异步安装在启动前完成，不能在此把 JSON 转为原生来源 |
 | `GatewayProviderServices` | 唯一 `store/router`、当前 `localProvider/localPolicies/policies`和 `currentPrincipal`；证据保留同步栈内为原持久 caller，其余操作从当前可信 HTTP 作用域取主体 |
 | `createProviderConnectorRuntime` | provider 原 `adapter/executeWire/readiness/close`；外部宿主持有安装、进程与持久 claims，全部 epoch 停止后由显式 `release`释放 |
-| `createConnectorAdmissionLedger` | 实际认证 `Connection`、受保护完整 Target→principal 路由、当前双端政策、独立 `AdmissionContextReader`、共享 `ConnectorAttemptBook`及可信单调时钟 |
+| `createConnectorAdmissionBackend` | 实际认证 `Connection`、受保护完整 Target→principal 路由、当前双端政策、共享 `ConnectorAttemptBook`（本机固定保留期）及可信单调时钟 |
 | `createProviderResultAccess` | 原 Wire 只读/保留门禁、当前主体/政策和完整受保护 provider binding及预算；不取得 Wire 编码或原生执行能力 |
 
 `GatewayRuntimeOptions.hosted`显式交付中性provider的`providers/session`分组；
@@ -26,12 +26,11 @@
 
 `createLuvusConnectorSessions`复用原Luvus builder而不启动transport，独立Luvus入口也使用同一builder。
 `composeConnectorSessions`把它与其它原会话交给唯一中性Connector宿主。
-完整路由来自原owner配置；receipt在原同步observe之后只把原opaque proof交给对应原sink一次，
-不拆封、广播或重新签发。实际执行、schema、socket证据及持久claims仍由各自原端口检查。
+完整路由来自原owner配置。实际执行、schema、socket证据及持久claims仍由各自原端口检查。
 原Luvus快照getter保持稳定并逐次复核，Herdr没有对象传输或快照时不补造这些能力。
 
 组合会话的执行/响应上下文合计至多128，原快照字节合计至多16MiB，
-跨provider消息ID使用共享有界去重窗；完整对象继续只由唯一原Luvus组装器处理。
+跨provider消息ID使用共享有界去重窗。
 组合层不复制Store、Router、Wire codec或连接，不增加原native单请求预算。
 关闭先同步封锁，再逐一回收原adapter/owner；部分失败不跳过其余owner，失败与晚到清理仍进入原角色终态。
 
@@ -41,27 +40,13 @@ Gateway session 回调发生关闭重入或包装失败时回收已取得的 Wir
 不会关闭常驻 Gateway。Gateway 的长期资源仍按既有 `release()`结果关闭；
 Connector 的有界逻辑关闭及未确认 owner 观察接口保持原语义。
 
-## 独立原准入上下文
+## Connector 准入后端
 
-可选协商能力 `admission_context`依赖 `rpc`和旧 `admission_receipt`，默认 offer 仍仅 `rpc`。
-旧 cutoff-only receipt 及调用端兼容；其缺失字段不能被升级成通用执行准入。
-协议精确字段见 [Wire 协议](protocol/WIRE-PROTOCOL.md)。
-
-Gateway 从唯一 Store 已提交 attempt/responseAnchor 发送原 principal、完整 binding、
-两种用途独立的摘要、原锚点、sequence 与 fence。`registered_request_sha256`直接复用
-`registeredRequestDigest(payload, principalId)`，与 Store `request_hash`同式；
-`request_sha256`继续保持旧完整派发帧摘要语义，不能互换。
-
-Connector 的 `ConnectorAdmissionReceipts`须配置完整受保护 routes，先同步持久提交后才通知 reader。
-同序列精确重复幂等，跳号/回退/冲突拒绝；原身份、摘要、method/mode、三类期限保持固定，
-状态和内容只能收紧。TTL/epoch 的本机不可逆 floor 与认证 source sequence 分开保存，
-重启不恢复旧 epoch 或执行许可。断连先持久 fence，再关闭 session；持久失败仍清理并降级。
-
-`createConnectorAdmissionLedger`仅在真实原 Wire 同步 decode 期间提供候选视图；
-完整认证、双摘要、受保护 route、原登记政策修订及最终 fence 全过后才提交原文和共享去重摘要。
-新请求只允许 dispatching/connector_accepted，unknown/responded 仍可用于已有尝试的晚到最小证据。
-正文回收、dedup 和原 deadline 分别采用原绝对截止，绝不以重连时间加 TTL 替代。
-失效通知先回收本机原文，再通知 provider 原 Wire；close 不清除共享 book、receipt 或发送墓碑。
+`createConnectorAdmissionBackend`仅在真实原 Wire 同步 decode 期间提供候选视图；
+完整认证、受保护 route、原登记政策修订与 deadline 全过后才提交原文和共享去重摘要。
+去重期限取 `ConnectorAttemptBook` 的本机固定保留期（默认 30 天，必须覆盖请求 deadline），
+首次登记后固定，绝不以重连时间加 TTL 刷新。close 只释放本 epoch 请求原文，
+不清除共享 book 或持久发送墓碑（claims）。
 
 网络状态更新是认证有序异步消息，既不是瞬时远端撤权，也不是执行许可。
 实际写入仍须经 provider 自己的当前身份/策略/安装/真实 socket peer、原 Wire 和持久发送 claims 门禁。
@@ -91,8 +76,8 @@ Herdr 的[资源工厂](../src/connector/herdr/provider.ts)提供
 `createHerdrGatewayResources`与 `createHerdrConnectorResources`。
 Gateway 资源交付 `providers/session/catalog/describe/release`，通过
 `persistentHerdrBackend(services.store, ...)`复用外部唯一 Store；Connector 资源消费
-宿主持有的真实 `HerdrInstallation`、当前策略与独立 receipts/claims，再交给通用 Connector runtime。
-安装/schema 编译须在角色启动前完成；双端协商须包含 `rpc/admission_receipt/admission_context`，
+宿主持有的真实 `HerdrInstallation`、当前策略与独立 claims，再交给通用 Connector runtime。
+安装/schema 编译须在角色启动前完成；双端协商 `rpc`，
 Gateway 的原 `providers[].preflightRequest`须随配置传入，保留同一完整根的登记预检与最终派发复验。
 释放责任与原生帧预算见[Herdr 资源接线](TRANSPORT.md#herdr-资源工厂)。
 

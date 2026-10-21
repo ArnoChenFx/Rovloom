@@ -50,7 +50,7 @@ export {
 export {
   ConnectorAttemptBook,
   createConnectorAdmissionBackend,
-  createConnectorAdmissionLedger
+  CONNECTOR_ATTEMPT_RETENTION_MS
 } from './connector-attempts.js'
 export {
   startDevelopmentLuvus,
@@ -61,7 +61,8 @@ export {
 export type {
   ConnectorAttemptBookOptions,
   ConnectorAdmissionOptions,
-  ConnectorAdmissionLedgerOptions
+  ConnectorAdmissionSource,
+  LuvusConnectorAdmissionSource
 } from './connector-attempts.js'
 export type { DevelopmentLuvusOptions, LuvusIssuanceMetadata, OwnedLuvusInstance } from './native-instance.js'
 export type { GatewayStateOptions } from './state.js'

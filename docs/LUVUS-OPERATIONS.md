@@ -54,18 +54,11 @@ native。Gateway 关闭只释放观察者，Connector 关闭必须等待真实 c
 本机 Owner 是显式身份模式，缺 token 不触发回退，也不签发 token 或消费有限批准。
 
 `storage_mode=create` 仅用于明确首次建立 Connector 记录；既有文件会拒绝覆盖。
-正常启动必须 `open`。固定文件为 CLI `state_dir` 下的 `luvus-claims.db` 和
-`luvus-admissions.json`，各自默认 1024 条、4 MiB；缺任一库、崩溃锁或不一致均拒绝，
+正常启动必须 `open`。固定文件为 CLI `state_dir` 下的 `luvus-claims.db`，默认 1024 条、4 MiB；缺库、崩溃锁或不一致均拒绝，
 不自动重建。该目录必须与原生 HOME、状态根和工作目录分离。关闭不删除持久事实。
 
-两端资源均返回 `admission_context:true`，唯一入口据此把 `rpc`、`admission_receipt`、
-`admission_context` 同时放入 WSS offer 的 `capabilities` 与 `required`。工厂不修改
-CLI 维护的 transport 配置；未协商完整快照时拒绝建立准入 ledger。协议默认 offer
-仍可保持 `rpc`，生产装配不会降级到缺少认证原截止的路径。
-
 每个认证 epoch 使用独立原 Wire 后端；principal 固定于受保护完整 Target 路由。
-持久 receipt 保留 Gateway 原 principal、登记摘要、原 ResponseAnchor 和三个固定
-截止，claims 只使用该原 dedup 截止。断连不重放、不刷新期限，旧 epoch 不复活。
+Connector 用本机固定保留期的 attempt book 与持久 claims 去重。断连不重放、不刷新期限，旧 epoch 不复活。
 唯一 CLI 仍须让自己的 caller/local policies 与此引用精确一致，不能靠设备认证
 建立 caller 授权。
 

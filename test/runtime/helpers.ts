@@ -8,7 +8,12 @@ import { until } from '../transport/helpers.js'
 import { openGatewayState } from '../../src/runtime/state.js'
 import { createGatewayRuntime } from '../../src/runtime/gateway.js'
 import { createConnectorRuntime } from '../../src/runtime/connector.js'
-import { ConnectorAttemptBook, createConnectorAdmissionBackend } from '../../src/runtime/connector-attempts.js'
+import {
+  ConnectorAttemptBook,
+  CONNECTOR_ATTEMPT_RETENTION_MS,
+  createConnectorAdmissionBackend
+} from '../../src/runtime/connector-attempts.js'
+import type { LuvusConnectorAdmissionSource } from '../../src/runtime/connector-attempts.js'
 import { LuvusBoundDelegation, LuvusDispatchClaims, readLinuxLuvusPeer } from '../../src/connector/luvus/index.js'
 import { contractRef, assertBinding, fail } from '../../src/wire/index.js'
 import type { AttemptBinding, ProviderPolicy } from '../../src/wire/types.js'
@@ -149,11 +154,7 @@ export async function runtimeFixture(
     limits: { entries: 128, bytes: 1_048_576 },
     now: Date.now
   })
-  const book = new ConnectorAttemptBook({
-    /** 组合回归使用独立可信元数据端口取得 Gateway 原截止，Connector 不打开或查询其请求 writer。 */
-    dedupExpires: (attempt) => state.store.responseAnchor(attempt).dedup_expires_at,
-    now: Date.now
-  })
+  const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: Date.now })
   native.respond(
     /** 保留实际请求 ID 的原生 error.data，检测 gateway 是否改写响应。 */
     (socket, raw) => {
@@ -171,7 +172,7 @@ export async function runtimeFixture(
     },
     /** 每个实际 welcome 建立独立准入后端与委托，身份不从业务帧自报取得。 */
     session(connection) {
-      const services: Parameters<typeof createConnectorAdmissionBackend>[0]['source'] = {
+      const services: LuvusConnectorAdmissionSource = {
         /** 双方 provider 均从各自显式固定配置中解析，不从请求创建。 */
         provider: () => binding,
         localProvider: /** 返回本机独立受保护 binding。 */ () => binding,
@@ -184,12 +185,13 @@ export async function runtimeFixture(
         authority: native.host.backend.authority,
         now: Date.now
       }
-      const backend: ReturnType<typeof createConnectorAdmissionBackend> = createConnectorAdmissionBackend({
-        connection,
-        routes: [{ target, principal_id: 'synthetic' }],
-        source: services,
-        book
-      })
+      const backend: ReturnType<typeof createConnectorAdmissionBackend<LuvusConnectorAdmissionSource>> =
+        createConnectorAdmissionBackend({
+          connection,
+          routes: [{ target, principal_id: 'synthetic' }],
+          source: services,
+          book
+        })
       const delegation = new LuvusBoundDelegation({
         config_ref: binding.config_ref,
         binding: nativeBinding(connection),

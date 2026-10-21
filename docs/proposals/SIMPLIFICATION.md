@@ -16,6 +16,7 @@
 | S5c 工具面 | MCP 工具 14→11：删除 `machines_register/rename/revoke`(真实服务本就返回 backend_unavailable,设备管理只在 UI/CLI)。Wire 能力协商简化、单 provider 失效不关整连接待办（#151） |
 | S3d TTL 收敛 | `content_ttl`+`handle_ttl`→`result_ttl`（句柄与原内容同期限，不再单独续签）；`call_metadata_ttl`+`dedup_ttl`+`audit_ttl`→`metadata_ttl`。`history_epoch_max_age` 留给 S4（随 history_epoch 一并处理） |
 | S4a 恢复隔离 | 已删除 `recovery_quarantined` 模式、`completeRecovery` 与 `recovery_local` 管理会话：备份快照里设备回到 pending、凭据清空、provider 禁用并升版，恢复后以正常模式启动，**备份恢复 = 重新配对**。保留 `recovery_generation`（随 S4 末尾处理） |
+| S4b 准入回执 | 已删除 `admission_receipt` / `admission_context` 能力与帧、Gateway 侧回执发送与订阅、`ConnectorAdmissionReceipts` / `ConnectorAdmissionLedger` / 认证 proof（净删约 3000 行）。Connector 只用本机固定保留期的 `ConnectorAttemptBook`（默认 30 天，须覆盖 deadline）+ 持久 dispatch claims 去重；Gateway 在 Store 持久 `dispatching` 之后才发送 request。Herdr 连接器配置不再有 `receipts` 账本 |
 | S4、S6–S8 | 未开始（S4 中一次性证明桥已随 S3 删除） |
 
 ## 1. 为什么要简化

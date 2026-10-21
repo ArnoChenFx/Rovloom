@@ -45,18 +45,7 @@ export function createHerdrWireAdapter(backend: HerdrReadonlyBackend, core = cre
 
   /** 只接受普通 RPC 与连接治理帧；即使协商了其它能力也不能暗中使用。 */
   function ordinary(frame: WireEnvelope): void {
-    if (
-      ![
-        'request',
-        'admission_receipt',
-        'accepted',
-        'dispatch_refused',
-        'response',
-        'cancel',
-        'heartbeat',
-        'error'
-      ].includes(frame.type)
-    ) {
+    if (!['request', 'accepted', 'dispatch_refused', 'response', 'cancel', 'heartbeat', 'error'].includes(frame.type)) {
       fail('herdr_transport_unsupported')
     }
   }

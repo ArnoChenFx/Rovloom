@@ -7,14 +7,7 @@ import { attempt, context, frame, provider, rejects } from './helpers.js'
 /** 固定只包含当前普通 RPC 治理能力；对象分片尚无逐 provider 路由。 */
 function authenticated() {
   const ctx = context('connector_to_gateway')
-  ctx.connection.negotiated.capabilities = [
-    'rpc',
-    'provider_fence',
-    'dispatch_refusal',
-    'provider_snapshot',
-    'admission_receipt',
-    'admission_context'
-  ]
+  ctx.connection.negotiated.capabilities = ['rpc', 'provider_fence', 'dispatch_refusal', 'provider_snapshot']
   return ctx
 }
 
