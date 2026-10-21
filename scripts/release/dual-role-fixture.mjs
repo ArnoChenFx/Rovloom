@@ -68,14 +68,21 @@ export async function createDualRoleFixture({
   sourceRoot = resolve(sourceRoot)
   const load = /** 只从明确的受信源码根加载测试装配API，不从provider配置选择模块。 */ (path) =>
     import(pathToFileURL(join(sourceRoot, path)).href)
-  const [{ openGatewayState }, { saveCredential }, { inspectHerdrPath }, { fixedHerdrSource }, { contractRef }] =
-    await Promise.all([
-      load('src/runtime/index.ts'),
-      load('src/transport/index.ts'),
-      load('src/connector/herdr/local.ts'),
-      load('src/connector/herdr/review.ts'),
-      load('src/wire/index.ts')
-    ])
+  const [
+    { openGatewayState },
+    { saveCredential },
+    { inspectHerdrPath },
+    { fixedHerdrSource },
+    { contractRef },
+    { LuvusDispatchClaims }
+  ] = await Promise.all([
+    load('src/runtime/index.ts'),
+    load('src/transport/index.ts'),
+    load('src/connector/herdr/local.ts'),
+    load('src/connector/herdr/review.ts'),
+    load('src/wire/index.ts'),
+    load('src/connector/luvus/claims.ts')
+  ])
   const root = mkdtempSync(join(parent, '.dual-role-'))
   const directory = /** 每个隔离根独占创建，绝不修改既有目录权限。 */ (name) => {
     const path = join(root, name)
@@ -254,6 +261,9 @@ export async function createDualRoleFixture({
       { mode: 0o600, flag: 'wx' }
     )
     const limits = { entries: 128, bytes: 1_048_576 }
+    // 与真实 setup 一致：账本在安装期创建一次，之后的每次启动（含 Connector 内部重建资源）都以 open 模式打开。
+    const claimsRef = { path: join(ledger, 'claims.sqlite'), mode: 'open', ledger_id: 'synthetic_claims', limits }
+    new LuvusDispatchClaims({ ...claimsRef, mode: 'create', now: Date.now }).close()
     const connectorValue = {
       kind: 'herdr',
       native: { mode: attach ? 'attach' : 'managed' },
@@ -270,7 +280,7 @@ export async function createDualRoleFixture({
             ...(attach ? { attach: true } : {})
           },
           principal_id: principal,
-          claims: { path: join(ledger, 'claims.sqlite'), mode: 'create', ledger_id: 'synthetic_claims', limits }
+          claims: claimsRef
         }
       }
     }
