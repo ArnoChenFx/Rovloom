@@ -153,6 +153,15 @@ schema 输出保留原字节。已知预编译摘要只用于缓存命中，未�
 这些是接入检查，不是用户 JSON 字段。内部发现不等于用户侧 provider 初始化或安装原生程序；
 首次生成配置文件不会准备原生设置或模型访问。
 
+## 崩溃后重启
+
+Connector 被强杀（`kill -9`、掉电）后会遗留 owner 记录、native 端点 socket 和 claim 账本锁。
+下次启动时，只有在**能证明旧 owner 已不存在**时 Connector 才会自行清理：owner 记录里的进程
+已不存在（Linux，按 PID 与内核启动时间判断），且 native socket 上没有监听者。清理后向 stderr
+输出 `herdr_crash_residue_cleared` 并正常启动。claim 账本及其中的派发记录不会被触碰，
+可能已执行的调用不会被重发。若旧 owner 仍存活、仍有 native 进程在监听、记录来自旧版本或平台
+不是 Linux，则与以前一样拒绝启动（退出码 3），需先停掉仍存活的进程。
+
 ## Agent 安装目录
 
 将官方 Agent（如 OpenCode）安装到机器所有者控制的目录。既有原生集成使用

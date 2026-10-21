@@ -20,7 +20,7 @@
 | S4c 调用去重 | 已删除调用去重的 `history_epoch` / `history` 表 / `Store.openHistory` / `history_epoch_max_age` / `history_scope` 能力 / `registration.history`（Wire 不再携带 key）以及 `planHistoryAdmission`；MCP `runtime_call.history{...}` 改为可选 `client_request_key`。去重作用域 = `(principal, client_request_key)`，窗口 = `metadata_ttl`，窗口外同 key 是新意图（不再返回 `dedup_history_unavailable`）。管理端的 `admin_history` / `history_open`（写操作幂等）留给后续阶段 |
 | S6 认证 | 已完成：`rovloom token create/list/renew/rotate/revoke`（摘要注册表、热读、可选重叠期）、受信 `mcp.public_url`（反代 / TLS 终止）。未做：OIDC（需先定 JWKS / 映射）与设备凭据轮换（调查发现“已配对设备重新配对”链路不存在，见 #165） |
 | S4d-1 方法表 | 已删除逐调用拼装的多轴 `SafetyClassification` 快照（effect / requires_owner / management_permission / confirmation_required / 结果敏感度 / sub_action）、custody 结果通道、`classifications` / `classification_source_verified` / `permissions` / `confirmation_verified` / `custody_available` / `result_channel` / `supported_transports` 授权输入、`inspectRequestGate` 与 Wire 逐帧 `RequestGate`；改为 `src/native-contract/methods.ts` 的静态方法表（表外方法一律拒绝，契约广告提示须与表逐字段一致），保留 raw_contract。流类 / token / host 管理方法不在表中 |
-| S7 e2e | 已完成：`e2e/`（真实产物 + 官方 Herdr 0.9.5 + 官方 MCP SDK）7 个场景全部通过，含重复请求、终端开关、Connector 重启/崩溃、设备撤销、未知结果不重发。边界：单机双进程、无 Luvus 真实链路、未跑 LLM Agent；崩溃恢复缺口见 #167 |
+| S7 e2e | 已完成：`e2e/`（真实产物 + 官方 Herdr 0.9.5 + 官方 MCP SDK）7 个场景全部通过，含重复请求、终端开关、Connector 重启/崩溃、设备撤销、未知结果不重发。边界：单机双进程、无 Luvus 真实链路、未跑 LLM Agent；崩溃后重启已可在“旧 owner 已死 + 端点无监听”时自动清理（#167） |
 | S4d-2、S4d-3、S8 | 未开始（S4d-2：permit / 句柄 / 响应上下文；S4d-3：管理端 `admin_history` 与 `recovery_generation`） |
 
 ## 1. 为什么要简化
