@@ -32,3 +32,6 @@ jobs:
       - name: Probe AF_UNIX connect (.NET and Bun), peer pid, HERDR_SOCKET_PATH
         shell: pwsh
         run: bun --no-env-file scripts/windows/herdr-probe2.mjs "$env:HERDR_DIR"
+      - name: Probe Win32 facts via bun:ffi (pipe server pid, image path, owner SID)
+        shell: pwsh
+        run: bun --no-env-file scripts/windows/herdr-probe3.mjs "$env:HERDR_DIR"
