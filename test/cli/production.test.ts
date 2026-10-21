@@ -657,8 +657,10 @@ test(
       assert.equal(child.exitCode, null)
       writeFileSync(f.auth, JSON.stringify({ ...f.source, callers: [] }))
       await assert.rejects(client.ping({ timeout: 5000 }))
-      writeFileSync(f.auth, JSON.stringify(f.source))
       assert.equal((await fetch(f.url, { headers: { authorization: `Bearer ${syntheticToken}` } })).status, 401)
+      // 注册表热读：恢复原内容后，同一令牌无需重启即可再次认证。
+      writeFileSync(f.auth, JSON.stringify(f.source))
+      assert.notEqual((await fetch(f.url, { headers: { authorization: `Bearer ${syntheticToken}` } })).status, 401)
       await client.close()
       child.kill('SIGTERM')
       let timer: ReturnType<typeof setTimeout> | undefined

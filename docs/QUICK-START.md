@@ -160,8 +160,8 @@ Add a server in an AI client that supports **Streamable HTTP**:
 
 Use the Bearer displayed after Gateway approval, or the existing credential
 provided by the Gateway administrator for this endpoint. The pairing code is
-not the MCP Bearer. The Bearer expires after 30 days; renewal guidance is not yet
-available. Remote clients need access to the Gateway's loopback MCP listener
+not the MCP Bearer. The Bearer expires after 30 days by default; use `rovloom token renew/rotate`
+(see Configuration). Remote clients need access to the Gateway's loopback MCP listener
 through the administrator's proxy or tunnel. Rovloom is not a stdio MCP server.
 
 Let the client finish loading the server's tools. Ask it to list the connected
