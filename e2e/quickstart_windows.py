@@ -116,6 +116,9 @@ def main():
     ap.add_argument('--binary', required=True)
     ap.add_argument('--herdr-dir', required=True, help='含 herdr.exe 与 conpty 目录的官方 Herdr 目录')
     ap.add_argument('--work', help='工作目录（默认系统临时目录下新建）')
+    ap.add_argument('--kill-herdr', action='store_true',
+                    help='就绪后强杀 Herdr server：Connector 应自行重建并恢复调用')
+    ap.add_argument('--crash', action='store_true', help='就绪后强杀 Connector 再重启，验证无需人工清理即可恢复')
     ap.add_argument('--then', help='就绪后执行的命令，环境变量 MCP_CONFIG 指向连接信息')
     args = ap.parse_args()
     work = os.path.abspath(args.work or tempfile.mkdtemp(prefix='rq-'))
@@ -172,6 +175,28 @@ def main():
         print('READY', json.dumps({'mcp_url': info['url'], 'targets': info['targets'], 'config': out}), flush=True)
         print('HERDR_SERVERS', herdr_servers(herdr_dir), flush=True)
         status = 0
+        if args.kill_herdr:
+            before = herdr_servers(herdr_dir)
+            assert before, 'no herdr server to kill'
+            for pid, _ in before:
+                subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', f'Stop-Process -Id {pid} -Force'],
+                               capture_output=True, timeout=60)
+            deadline, after = time.time() + 90, []
+            while time.time() < deadline:
+                time.sleep(1.0)
+                after = [entry for entry in herdr_servers(herdr_dir) if entry not in before]
+                if after:
+                    break
+            assert after, 'Connector did not recreate the Herdr server'
+            print('HERDR_RECREATED', before, '->', after, flush=True)
+            time.sleep(8)  # 给 Connector 结束旧连接周期并重连留出时间
+        if args.crash:
+            connector.proc.terminate(force=True)  # TerminateProcess：不给产品任何清理机会
+            time.sleep(1.0)
+            restarted = Term('connector-restarted', [rov, 'connector'], env_c, home_c); terms.append(restarted)
+            restarted.expect('provider_ready=true', timeout=90)
+            connector = restarted
+            print('RECOVERED', flush=True)
         if args.then:
             done = subprocess.run(shlex.split(args.then, posix=False), env={**os.environ, 'MCP_CONFIG': out},
                                   capture_output=True, encoding='utf-8', errors='replace')
