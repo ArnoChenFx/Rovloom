@@ -8,7 +8,6 @@ import type { NativeRequest } from './contracts.js'
 import {
   assertBinding,
   boundedJson,
-  contractRef,
   LIMITS,
   registeredRequestDigest,
   validateAttempt,
@@ -32,7 +31,6 @@ import { assertBudget } from './storage/budget.js'
 import { auditRecord } from './storage/audit.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { createPrivate, databasePath, privateFile, privatePath } from './storage/files.js'
-import { fixedHerdrSource } from './connector/herdr/review.js'
 import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
 export { DEFAULT_RETENTION }
@@ -682,12 +680,11 @@ export class Store {
         if (!provider || !provider.enabled || provider.binding_revision !== options.binding_revision) {
           throw new GatewayError('provider_binding_mismatch')
         }
-        // Herdr 在此只登记已评审 RPC 意图；实际发送前仍须完整安装 schema 和当前权限检查。
+        // Herdr 在此只登记已评审 RPC 意图；契约引用由 Gateway 对照配对批准的实测来源复验，实际发送前仍须完整安装 schema 和当前权限检查。
         if (
           provider.kind === 'herdr' &&
           (target.profile !== 'session' ||
             (options.validation ?? 'strict') !== 'strict' ||
-            options.contract_ref !== contractRef(fixedHerdrSource()) ||
             !reviewedHerdrRequest(request))
         ) {
           throw new GatewayError('provider_support_candidate')

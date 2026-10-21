@@ -1,5 +1,4 @@
 /** 将固定安装 schema、内核 peer 与受监管进程合为不可序列化的本机来源，不负责启动宿主。 */
-import { readLinuxPeer } from '../local/linux-peer.js'
 import type { NativePeer } from '../local/linux-peer.js'
 import { boundedJson, contractRef } from '../../wire/index.js'
 import type { AttemptBinding, JsonObject } from '../../wire/types.js'
@@ -11,6 +10,7 @@ import {
   isHerdrInstanceBinding,
   inspectHerdrPath,
   pinHerdrConfig,
+  readHerdrPeer,
   verifyHerdrInstallation,
   measureHerdrInstallation
 } from './local.js'
@@ -102,7 +102,7 @@ export class HerdrInstallation {
         endpoint,
         scope.signal,
         /** 无原生写入，核对同一 socket 的内核凭据后立即关闭。 */ async (socket) => {
-          processBinding.assert(config, await readLinuxPeer(socket))
+          processBinding.assert(config, await readHerdrPeer(socket, endpoint))
         }
       )
       checkHerdrSignal(scope.signal)

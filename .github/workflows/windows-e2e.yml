@@ -1,0 +1,64 @@
+# 真实 Windows runner 上的验收（#173）：Win32 原语、附着官方 Herdr，以及按 Quick Start 在 ConPTY 里从零配对并经 MCP 走完整链路。
+name: Windows e2e
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - src/**
+      - e2e/**
+      - test/platform/**
+      - test/connector/herdr/**
+      - .github/workflows/windows-e2e.yml
+permissions:
+  contents: read
+jobs:
+  attach:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Download official Herdr (Windows x86_64)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'herdr'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-windows-x86_64.zip' -OutFile "$dir\herdr.zip"
+          Expand-Archive -Path "$dir\herdr.zip" -DestinationPath $dir -Force
+          Remove-Item "$dir\herdr.zip"
+          "HERDR_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Win32 platform primitives (path trust, pipe server pid, process facts)
+        run: bun --no-env-file test ./test/platform/windows.test.ts
+      - name: Attach to real official Herdr on Windows (named pipe, pipe server pid, image identity)
+        shell: pwsh
+        env:
+          ROVLOOM_HERDR_WINDOWS: ${{ env.HERDR_DIR }}\herdr.exe
+        run: bun --no-env-file test ./test/connector/herdr/attach-windows.test.ts
+  quickstart:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Download official Herdr (Windows x86_64)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'herdr'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-windows-x86_64.zip' -OutFile "$dir\herdr.zip"
+          Expand-Archive -Path "$dir\herdr.zip" -DestinationPath $dir -Force
+          Remove-Item "$dir\herdr.zip"
+          "HERDR_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build actual standalone product
+        run: bun --no-env-file run release:build
+      - name: Quick Start on Windows (real ConPTY pairing, attach to real Herdr, MCP chain)
+        shell: pwsh
+        run: |
+          python -m pip install pywinpty
+          python e2e\quickstart_windows.py --binary dist\release\bun-windows-x64\candidate\rovloom.exe --herdr-dir $env:HERDR_DIR --then "bun --no-env-file e2e\herdr-session.mjs"

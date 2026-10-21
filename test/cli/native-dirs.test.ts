@@ -90,11 +90,15 @@ test('Herdr 私有 socket 路径检查按更长的 herdr-client.sock 计算（He
   const suffix = '/hr/c/herdr/herdr.sock'
   const dataDirectory = '/' + 'a'.repeat(107 - suffix.length - 1)
   assert.equal(Buffer.byteLength(dataDirectory + suffix), 107)
-  const config = connector({ provider: 'herdr' })
+  // 只有隔离（managed）实例把 socket 放在 Connector 数据目录里；附着模式不受这个长度限制。
+  const config = connector({ provider: 'herdr', herdr: { mode: 'managed' } })
   const tooLong = { ...config, state_dir: dataDirectory } as ConnectorConfig
   assert.throws(() => assertSetupNativePath(tooLong, terminal), { code: 'configuration_required' })
   assert.match(shown.join(''), /native_state_path_too_long/)
   // 再缩短 7 字节（herdr-client.sock 比 herdr.sock 长 7）后放行。
   const fits = { ...config, state_dir: dataDirectory.slice(0, -7) } as ConnectorConfig
   assert.doesNotThrow(() => assertSetupNativePath(fits, terminal))
+  // 附着模式（默认）的端点在用户自己的配置目录，数据目录再长也不受此限制。
+  const attached = { ...connector({ provider: 'herdr' }), state_dir: dataDirectory } as ConnectorConfig
+  assert.doesNotThrow(() => assertSetupNativePath(attached, terminal))
 })

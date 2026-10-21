@@ -16,6 +16,7 @@ import { boundedJson, fields, hash, id, object, validatePolicies } from '../wire
 import type { ProviderPolicies } from '../wire/types.js'
 import {
   CliError,
+  herdrMode,
   luvusMode,
   selectedNativeProviders,
   type ConnectorConfig,
@@ -51,8 +52,11 @@ export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTe
     )
     throw new CliError('configuration_required')
   }
+  // 只有隔离实例把 socket 放在 Connector 数据目录里；附着模式的端点在用户自己的配置目录，Windows 是命名管道。
   if (
     selectedNativeProviders(config).includes('herdr') &&
+    herdrMode(config) === 'managed' &&
+    process.platform !== 'win32' &&
     Buffer.byteLength(join(config.state_dir, 'hr/c/herdr/herdr-client.sock')) > 107
   ) {
     terminal.show(
@@ -64,8 +68,11 @@ export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTe
 
 // 搜索顺序：所有者显式列出的目录，其后是启动进程 PATH 中通过安全筛选的条目，最后是受控系统目录。
 export function setupBinary(config: ConnectorConfig, kind: NativeProviderKind = 'luvus'): string {
-  for (const directory of [...effectiveBinDirectories(config.native?.runtime_bin_dirs), '/usr/bin', '/bin']) {
-    const path = join(directory, kind)
+  // Windows 没有固定的系统目录兜底（PATH 里的 System32 等已由 effectiveBinDirectories 筛选带入），可执行文件带 .exe。
+  const fallback = process.platform === 'win32' ? [] : ['/usr/bin', '/bin']
+  const name = process.platform === 'win32' ? kind + '.exe' : kind
+  for (const directory of [...effectiveBinDirectories(config.native?.runtime_bin_dirs), ...fallback]) {
+    const path = join(directory, name)
     if (existsSync(path)) {
       return path
     }

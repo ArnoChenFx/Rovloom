@@ -684,6 +684,8 @@ test(
       ['../../wire/index.js', new URL('../../../src/wire/index.ts', import.meta.url).href],
       ['../terminal-execution.js', new URL('../../../src/connector/terminal-execution.ts', import.meta.url).href],
       ['../local/agent-path.js', new URL('../../../src/connector/local/agent-path.ts', import.meta.url).href],
+      ['../local/linux-peer.js', new URL('../../../src/connector/local/linux-peer.ts', import.meta.url).href],
+      ['../../platform/windows.js', new URL('../../../src/platform/windows.ts', import.meta.url).href],
       ['./review.js', new URL('../../../src/connector/herdr/review.ts', import.meta.url).href]
     ]) {
       derived = derived.replaceAll(relative!, url!)

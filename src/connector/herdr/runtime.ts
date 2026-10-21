@@ -1,13 +1,12 @@
 /** 将 Herdr 已评审 RPC 挂到既有 ConnectorWireSession，复用 Store/Wire 和持久唯一发送账本。 */
 import { LuvusDispatchClaims } from '../luvus/claims.js'
 import { LuvusAdapterError } from '../luvus/types.js'
-import { readLinuxPeer } from '../local/linux-peer.js'
 import { boundedJson, WireError } from '../../wire/index.js'
 import type { AttemptBinding, AuthenticatedEnvelope } from '../../wire/types.js'
 import type { WireExecutionResult } from '../../transport/connector.js'
 import { HerdrInstallation } from './installation.js'
 import { checkHerdrSignal, exchangeHerdr, herdrDeadline, withHerdrSocket } from './io.js'
-import { HerdrLocalError } from './local.js'
+import { HerdrLocalError, readHerdrPeer } from './local.js'
 import { createHerdrReadonlyAdapter } from './readonly.js'
 import type { HerdrReadonlyBackend } from './readonly.js'
 import { createHerdrWireAdapter } from './wire.js'
@@ -122,7 +121,7 @@ export function createHerdrRuntime(
         endpoint,
         ioSignal,
         /** 从实际连接读取内核 peer，再准备唯一原生请求。 */ async (socket) => {
-          const peer = await readLinuxPeer(socket)
+          const peer = await readHerdrPeer(socket, endpoint)
           installation.assert(peer, true)
           checkHerdrSignal(ioSignal)
           return exchangeHerdr(

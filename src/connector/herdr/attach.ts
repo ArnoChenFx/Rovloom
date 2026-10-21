@@ -1,19 +1,20 @@
 /** 附着用户已在运行的 Herdr：只连接、只观察，不拥有也不终止该进程。 */
-import { readLinuxPeer } from '../local/linux-peer.js'
 import { herdrDeadline, withHerdrSocket } from './io.js'
 import {
   HerdrLocalError,
   bindAttachedHerdr,
   herdrEndpoint,
   inspectHerdrServerProcess,
+  peerIsCurrentUser,
   pinHerdrConfig,
+  readHerdrPeer,
   verifyHerdrInstallation
 } from './local.js'
 import type { HerdrAttachedBinding, HerdrLocalConfig } from './local.js'
 
 /**
  * 连接配置指向的端点，用内核 SO_PEERCRED 取得对端进程，并证明它是本机已安装的 herdr 服务端
- * （同一 inode 的可执行文件、当前用户、命令行为 server）后签发绑定。
+ * （Linux：同一 inode 的可执行文件、当前用户、命令行为 server；Windows：管道服务端 pid 的镜像是同一文件）后签发绑定。
  * 端点不存在、无监听者或身份不符一律拒绝，不回退到自建，也不信任 socket 路径本身。
  */
 export async function observeHerdrServer(input: HerdrLocalConfig, signal?: AbortSignal): Promise<HerdrAttachedBinding> {
@@ -25,8 +26,8 @@ export async function observeHerdrServer(input: HerdrLocalConfig, signal?: Abort
     }
     const installation = verifyHerdrInstallation(config)
     const endpoint = herdrEndpoint(config)
-    const peer = await withHerdrSocket(endpoint, scope.signal, async (socket) => readLinuxPeer(socket))
-    if (peer.uid !== process.geteuid!() || peer.gid !== process.getegid!()) {
+    const peer = await withHerdrSocket(endpoint, scope.signal, async (socket) => readHerdrPeer(socket, endpoint))
+    if (!peerIsCurrentUser(peer)) {
       throw new HerdrLocalError('herdr_native_instance_untrusted')
     }
     const observed = inspectHerdrServerProcess(config, peer.pid)

@@ -1,6 +1,7 @@
 // 普通跨平台文件读写：检查路径、文件类型及字节预算，保留排他创建和落盘，不附加所有权/权限门禁。
 import {
   closeSync,
+  constants,
   fstatSync,
   fsyncSync,
   lstatSync,
@@ -66,6 +67,19 @@ export function createPrivate(path: string, content = ''): void {
   const fd = openSync(path, 'wx', 0o600)
   try {
     writeFileSync(fd, content)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+// 同步父目录项，使创建、rename 与删除进入持久边界；Windows 不允许对目录句柄 fsync，NTFS 对元数据自带日志，故不做。
+export function syncParentDirectory(path: string, followLink = false): void {
+  if (process.platform === 'win32') {
+    return
+  }
+  const flags = constants.O_RDONLY | constants.O_DIRECTORY | (followLink ? 0 : constants.O_NOFOLLOW)
+  const fd = openSync(dirname(path), flags)
+  try {
     fsyncSync(fd)
   } finally {
     closeSync(fd)

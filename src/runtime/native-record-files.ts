@@ -12,6 +12,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname, isAbsolute, normalize } from 'node:path'
+import { syncParentDirectory } from '../storage/files.js'
 import { boundedJson } from '../wire/index.js'
 import { parseNativeJson } from '../native-contract/index.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
@@ -104,16 +105,6 @@ export function readNativeRecord(path: string, maximum = 32_768): Readonly<{ val
   }
 }
 
-/** 同步父目录项，创建/消费记录必须在返回前真正持久提交，不能只依赖内存标记。 */
-function syncParent(path: string): void {
-  const fd = openSync(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
 /** 排他创建小型安全元数据并同步文件及目录，部分失败保留记录并拒绝自动接管。 */
 export function createNativeRecord(path: string, value: unknown, maximum = 32_768): string {
   const parent = nativeRecordParent(path)
@@ -128,7 +119,7 @@ export function createNativeRecord(path: string, value: unknown, maximum = 32_76
     }
     closeSync(fd)
     fd = -1
-    syncParent(path)
+    syncParentDirectory(path)
     return nativeRecordStamp(path, maximum)
   } catch (error) {
     throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('native_record_create_failed')
@@ -182,7 +173,7 @@ export function removeNativeRecord(path: string, expected: string): void {
   }
   try {
     unlinkSync(path)
-    syncParent(path)
+    syncParentDirectory(path)
   } catch {
     throw new LuvusAdapterError('native_record_remove_failed')
   }

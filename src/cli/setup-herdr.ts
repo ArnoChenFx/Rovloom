@@ -44,6 +44,15 @@ function attachedDirectories(
   config: ConnectorConfig
 ): Pick<HerdrLocalConfig, 'home' | 'config_home' | 'state_home' | 'cache_home' | 'cwd'> {
   const home = homedir()
+  if (process.platform === 'win32') {
+    // Windows：Herdr 的配置与日志在 %APPDATA%\herdr，本地数据在 %LOCALAPPDATA%；沿用用户真实目录。
+    const roaming = config.native?.herdr?.config_home ?? process.env.APPDATA ?? join(home, 'AppData', 'Roaming')
+    const local = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local')
+    for (const path of [roaming, local]) {
+      mkdirSync(path, { recursive: true })
+    }
+    return { home, config_home: roaming, state_home: local, cache_home: local, cwd: home }
+  }
   const xdg = (variable: string, fallback: string): string => {
     const value = process.env[variable]
     return value && isAbsolute(value) ? value : join(home, fallback)
@@ -124,6 +133,13 @@ export async function prepareSetupHerdr(
   }
   const binary = setupBinary(config, 'herdr')
   const attach = herdrMode(config) === 'attach'
+  if (!attach && process.platform === 'win32') {
+    // 隔离实例依赖 POSIX 权限与进程模型；Windows 上目前只支持附着用户自己的会话。
+    terminal.show(
+      'herdr_managed_unsupported_on_windows: set native.herdr.mode to "attach". / Windows 上暂不支持 managed，请把 native.herdr.mode 设为 "attach"。\n'
+    )
+    throw new CliError('configuration_required')
+  }
   if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Herdr', attach)))) {
     throw new CliError('configuration_required')
   }
