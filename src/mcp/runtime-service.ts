@@ -66,10 +66,6 @@ function publicError(error: unknown): FacadeServiceError {
       return new FacadeServiceError(errors[error.code]!)
     }
   }
-  // TEMP-DEBUG（Windows e2e 排查，随后移除）
-  if (process.env.ROVLOOM_DEBUG_ERRORS) {
-    process.stderr.write('DBG_PUBLIC ' + String((error as Error)?.stack ?? error) + '\n')
-  }
   return new FacadeServiceError('internal_error')
 }
 

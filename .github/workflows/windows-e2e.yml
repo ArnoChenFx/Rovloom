@@ -1,16 +1,18 @@
-# 只收集事实：在真实 Windows runner 上确认官方 Herdr 的命名管道名与 HERDR_SOCKET_PATH 行为，
-# 用来决定 Connector 的 Windows 实现（#173）；不是验收门禁，也不进发布流程。
-name: Windows probe
+# 真实 Windows runner 上的验收（#173）：Win32 原语、附着官方 Herdr，以及按 Quick Start 在 ConPTY 里从零配对并经 MCP 走完整链路。
+name: Windows e2e
 on:
   workflow_dispatch:
   pull_request:
     paths:
-      - scripts/windows/**
-      - .github/workflows/windows-probe.yml
+      - src/**
+      - e2e/**
+      - test/platform/**
+      - test/connector/herdr/**
+      - .github/workflows/windows-e2e.yml
 permissions:
   contents: read
 jobs:
-  herdr:
+  attach:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -24,17 +26,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           Invoke-WebRequest -Uri 'https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-windows-x86_64.zip' -OutFile "$dir\herdr.zip"
           Expand-Archive -Path "$dir\herdr.zip" -DestinationPath $dir -Force
-          Get-ChildItem -Recurse $dir | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200
+          Remove-Item "$dir\herdr.zip"
           "HERDR_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Probe pipe name, HERDR_SOCKET_PATH and process facts
-        shell: pwsh
-        run: bun --no-env-file scripts/windows/herdr-probe.mjs "$env:HERDR_DIR"
-      - name: Probe AF_UNIX connect (.NET and Bun), peer pid, HERDR_SOCKET_PATH
-        shell: pwsh
-        run: bun --no-env-file scripts/windows/herdr-probe2.mjs "$env:HERDR_DIR"
-      - name: Probe Win32 facts via bun:ffi (pipe server pid, image path, owner SID)
-        shell: pwsh
-        run: bun --no-env-file scripts/windows/herdr-probe3.mjs "$env:HERDR_DIR"
       - name: Frozen install
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Win32 platform primitives (path trust, pipe server pid, process facts)

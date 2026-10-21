@@ -352,14 +352,6 @@ export async function runCli(
       }
       return error.exitCode
     }
-    // TEMP-DEBUG（Windows e2e 排查，随后移除）
-    if (process.env.ROVLOOM_DEBUG_ERRORS) {
-      io.stderr.write('DBG_RUNTIME ' + String((error as Error)?.stack ?? error) + '\n')
-      const cause = (error as { cause?: unknown })?.cause
-      if (cause) {
-        io.stderr.write('DBG_CAUSE ' + String((cause as Error)?.stack ?? cause) + '\n')
-      }
-    }
     io.stderr.write('runtime_failed\n')
     return 1
   }

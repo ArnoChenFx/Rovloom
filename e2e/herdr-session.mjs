@@ -80,8 +80,6 @@ try {
   }
   const described = await ok('runtime_describe', { target, expected_binding_revision: 1, method: 'ping' })
   assert.equal(described.method, 'ping')
-  // TEMP-DEBUG（Windows e2e 排查，随后移除）
-  console.log('DBG_DESCRIBE', JSON.stringify(described).slice(0, 2500))
   const pong = await invoke(entry('ping').contract_ref, { method: 'ping', params: {} })
   assert.equal(pong.state, 'responded', JSON.stringify(pong))
   const reply = await readAll(pong)
