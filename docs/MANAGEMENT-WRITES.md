@@ -67,7 +67,7 @@ const managementHttp = createManagementHandler({
   引用只记录在申请中，不授予任何 caller、设备或 provider 权限。
 - `providerEnable(target, oldRevision)` 必须复核同实例双端可信配置、重发现与重新授权；缺失时拒绝启用。
   返回 true 的测试回调只证明端口行为，不证明真实 native 来源或生产启用已经验收。
-- 配对秘密签发、交付和独立 IdentityStore 的已签发/失败进度仍由原受保护 custody/本机管理宿主负责。
+- 配对秘密签发与交付仍由原受保护 custody/本机管理宿主负责；交付失败由 Store 事务拒绝对应凭据。
   此服务不签发 enrollment、设备 credential 或 token，不接收秘密正文；`issuance` 明确为 unverified。
   受保护宿主可调用 `Store.issuePairingEnrollment(machine, pairingId, policyRef, ttlMs)`，仍须 Store 原独立
   management 授权提供 pairing_enrollment_issue 的精确批准。它绑定申请、目标、策略、恢复代次及原申请截止，
@@ -102,7 +102,7 @@ const managementHttp = createManagementHandler({
 Store enrollment，不撤已有设备 credential；已兑换或 fence 变化时冲突。
 
 断开保留持久授权，可以重新认证。撤销清除主 Store 身份授权与内容，全部旧身份通过同一 Store
-认证/派发门禁拒绝；独立身份库仍可能保存不可用的历史 hash，需要原生命周期宿主按其自身确认规则清理。
+认证/派发门禁拒绝；撤销同一事务已清除凭据摘要。
 服务不会伪称跨库事务。provider 变更递增 binding_revision，旧 attempt/内容/流能力不能恢复。
 所有回执保持 native_work=may_continue；已送入 native 的工作可能继续执行。
 

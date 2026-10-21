@@ -1,5 +1,5 @@
 // 声明 v5 持久化表、管理事务及过期索引；不提供对未发布旧版本的自动迁移。
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 // 未发布的旧库不在这里猜测来源或迁移；版本检查必须先于本 schema 的执行。
 export const SCHEMA = `
 CREATE TABLE metadata (
@@ -9,7 +9,8 @@ CREATE TABLE metadata (
 CREATE TABLE machines (
   machine_id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL, credential_hash TEXT, epoch TEXT, needs_confirmation INTEGER NOT NULL DEFAULT 0,
-  resource_revision INTEGER NOT NULL DEFAULT 1 CHECK(resource_revision>0 AND resource_revision<9007199254740991), labels_json TEXT NOT NULL DEFAULT '[]'
+  resource_revision INTEGER NOT NULL DEFAULT 1 CHECK(resource_revision>0 AND resource_revision<9007199254740991), labels_json TEXT NOT NULL DEFAULT '[]',
+  credential_revision INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE enrollments (
   token_hash TEXT PRIMARY KEY, machine_id TEXT NOT NULL REFERENCES machines,

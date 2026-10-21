@@ -6,7 +6,6 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../../src/store.js'
-import { IdentityStore } from '../../src/transport/identity-store.js'
 import { connected, management, options } from './helpers.js'
 
 declare const Bun: { gc(full: boolean): void }
@@ -151,40 +150,6 @@ test(
         assert.equal(existsSync(path + '.lock'), false)
         new Store(path).close()
         new Store(alias).close()
-      }
-    )
-  }
-)
-
-test(
-  '身份数据库别名同样遵守单writer且不删除现有锁',
-  /* 只打开空的合成身份账本，不签发任何凭据。 */ () => {
-    temporary(
-      /* 身份和业务库复用同一数据库路径规则。 */ (root) => {
-        const path = join(root, 'identity.db')
-        const settings = {
-          generation: 'g1',
-          guard: /* 合成空库没有外部业务状态。 */ () => {},
-          checkBudget: /* 本例只核对打开互斥，不分配身份。 */ () => {}
-        }
-        const store = new IdentityStore(path, settings)
-        const hard = join(root, 'hard.db')
-        const alias = join(root, 'alias.db')
-        try {
-          linkSync(path, hard)
-          assert.throws(/* 数据库硬链接在SQLite打开之前拒绝。 */ () => new IdentityStore(hard, settings), {
-            code: 'database_hardlink_unsupported'
-          })
-          rmSync(hard)
-          symlinkSync(path, alias, 'file')
-          assert.throws(/* 软链接使用实际数据库旁的同一把锁。 */ () => new IdentityStore(alias, settings), /EEXIST/)
-          assert.equal(existsSync(path + '.lock'), true)
-          assert.equal(existsSync(alias + '.lock'), false)
-        } finally {
-          store.close()
-        }
-        new IdentityStore(alias, settings).close()
-        assert.equal(existsSync(path + '.lock'), false)
       }
     )
   }

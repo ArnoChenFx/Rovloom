@@ -221,20 +221,13 @@ try {
         confirmation_id: randomUUID()
       })
     },
-    authorizeIdentity: /* 临时凭据只存在自有目录，绝不交付为用户长期凭据。 */ () => ({
-      actor: 'cli_lab_fixture',
-      confirmation_id: randomUUID(),
-      expires_at: Date.now() + 10_000
-    }),
-    changed: /* 初始化在任何角色启动前完成，无设备连接可以断开。 */ () => {},
-    identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 }
+    changed: /* 初始化在任何角色启动前完成，无设备连接可以断开。 */ () => {}
   })
   const machine = state.store.register('cli_native_lab')
   const credential = {
     ...state.store.redeem(state.store.issueEnrollment(machine.machine_id)),
     recovery_generation: state.store.generation()
   }
-  state.credentials.install(credential, 600_000)
   const target = {
     machine_id: machine.machine_id,
     provider_id: 'cli_native_luvus',

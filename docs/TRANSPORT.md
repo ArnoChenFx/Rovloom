@@ -13,7 +13,7 @@
 
 | 接口 | 责任与寿命 |
 |---|---|
-| `openGatewayState(options)` | 在既有私有目录打开唯一 Store、唯一 hash-only 身份库及一次性证明桥；返回同一 ChannelRegistry 和受信凭据管理端口，不自动注册、兑换或签发 |
+| `openGatewayState(options)` | 在既有私有目录打开唯一 Store（单个 SQLite），组合设备认证生命周期；返回同一 ChannelRegistry 和凭据交付端口，不自动注册、兑换或签发 |
 | `await createGatewayRuntime(options)` | 组合一个 Router、实际设备 listener、每 socket Wire、可信请求作用域和 `createLuvusResultAccess`；返回 `transport`、`closed/close`、`admit/get/cancel/results` |
 | `runAuthenticated(caller, operation)` | 仅供完成认证的 HTTP/stdio adapter 注入身份引用；逐操作从同一身份源重读 principal，请求结束、迟到异步工作或关闭后不可沿用 |
 | `await createConnectorRuntime(options)` | 复用实际出站认证 transport，每个 epoch 建立独立 Wire 与 `LuvusRpcAdapter.dispatch(raw, signal)`，保留原始请求帧；长期 claims/custody 在显式角色关闭后释放 |
@@ -37,9 +37,7 @@ read 权限，撤权后不返回新旧调用 ID。`get/cancel` 始终不含原�
 每项查询只贡献该完整 Target 的 grants。相同 contract_ref 的完整 capabilities/修订或编译身份
 冲突在启动时拒绝，不能让另一实例的记录后写覆盖。管理提交后仍须重新配置/发现失效的实例。
 
-身份库从总安全、审计和磁盘预算保守预留独立份额，实际目录字节仍计入 Store 总量。
-身份安装/轮换需要宿主独立的动作级确认。`changed(machine)` 必须交给同一 Gateway 的正常
-断连；prepare 使用共享 ChannelRegistry 仅同步封锁通道，不重入 Store。开启失败与显式关闭
+`changed(machine)` 必须交给同一 Gateway 的正常断连，只在凭据交付被拒绝并提交后调用。开启失败与显式关闭
 均尝试清理所属资源；`close()` 与 `closed` 使用相同完成结果，释放失败保持失败。
 
 ### 单 provider 来源失效
@@ -192,7 +190,7 @@ opaque 实例不能经 JSON 序列化成为跨进程归属证明。OS 服务的 
 校验和设备认证均不能单独证明原生实例。来源缺失或失效保持拒绝；未确认退出仍保留拥有
 状态。真实持久凭据的创建、轮换或原生撤销属于独立授权操作，角色工厂不隐含执行。
 
-`test/runtime`覆盖隔离双库、实际认证连接、唯一派发、原 Wire 结果、关闭重入、迟到请求作用域、
+`test/runtime`覆盖隔离 Store、实际认证连接、唯一派发、原 Wire 结果、关闭重入、迟到请求作用域、
 能力冲突及开发来源拒绝。自建 native listener 的回归与官方 binary 的隔离运行是不同证据。
 正式公开 CLI 的 GatewayHTTP + Connector 产品 smoke、用户身份配置、远端双机、OpenCode
 客户端及外部 supervisor 仍须各自验收；模块 build 或 help/version 不代替产品运行。
@@ -247,105 +245,42 @@ provider 项包含稳定 ID、当前 `binding_revision` 和 `dispatch_ready`；�
 
 ## 配对、凭据与管理
 
-`IdentityStore` 是 Linux 专用 hash-only SQLite。`PersistentIdentity` 复用它实施凭据管理；
-`PersistentProofIdentity` 与生命周期接线复用同一实例，提供 Store 事务消费的证明和 Gateway `IdentityHost`。
-单 writer 锁、FULL synchronous、DELETE journal、schema/完整性检查、时间高水位、确认消费、
-轮换/撤销和管理审计均持久保存；凭据原文不入 Gateway 身份库。每次认证及业务入口核对当前
-租期、恢复代次和业务 Store epoch。时钟回退、提交/预算失败或原始恢复代次不符默认拒绝；
-不会删崩溃锁或自动解除拒绝标记。管理操作须由宿主核实精确 action/target/revision/epoch，
-一次性 confirmation 最多有效五分钟，消费记录跨重启保留至原确认期限结束。
+设备凭据的摘要保存在 Store 的 `machines` 行内，和设备状态、连接 epoch 同库同事务；不存在第二个
+身份数据库、跨库顺序或一次性证明对象。
 
-生命周期 backend 每次连接观察由同一接线完成当前身份快照及 Store fence 核对，避免随后在
-通用持久 backend 中再次执行紧邻的 Store 检查。独立身份观察的入口 guard 与其紧邻事务
-共用一次门禁调用；事务仍重新采样并持久提交身份时间、检查预算，再从独立连接读取已提交
-状态。writer 内重入观察仍执行入口 guard。此去重不缓存跨轮权限或时钟，原生来源回调前后
-及结果交付末次的 Wire/身份/双端 ACL/实际句柄期限检查保持逐次执行。
+- **配对**：管理确认后签发一次性 enrollment。`Store.redeem(token)` 在一个事务内消费 enrollment、
+  生成凭据、保存其 SHA-256 摘要并递增 `credential_revision`；原文只返回给专用 custody。
+- **认证**：`createDeviceLifecycle(store).identityHost.authenticate(machine, generation, credential)`
+  校验凭据格式与恢复代次后调用 `Store.connect`，同一事务核对摘要、拒绝 revoked/待确认/重复在线设备，
+  并分配 fresh `connection_epoch` 与审计。凭据不过期，直到撤销或重配（轮换见 S6 issue）。
+- **持续核对**：`assert(identity, lease)` 每次核对当前代次、在线状态、epoch 与该 socket 认证时的
+  凭据摘要；撤销、重配或旧 epoch 立即失效。`Store.connect`/`assertConnection` 不写时钟，读路径只与
+  内存高水位比较。
+- **撤销**：`Store.revoke` 单事务清除凭据、epoch、enrollment，收敛调用并使上下文失效；宿主随后断开通道。
+- **同 ID 重配**：`Store.resetDeviceEnrollment(machine, generation, expectedEpoch)` 在一个事务内核对
+  管理确认（action `device_enrollment_reset`，fence 为
+  `boundedJson({recovery_generation, connection_epoch})`）、停止调用、清除凭据与 enrollment，设备回到
+  `pending`。提交后宿主关闭该设备全部旧 socket（`DeviceLifecycleWiring.reset` 会这样做）；事务失败则整体回滚。
+- **交付失败**：`Store.denyDelivery(machine, digest)` 仅当摘要匹配当前凭据时清除它、断开在线 epoch 并把
+  设备置为 `pending` 且要求确认，之后只能经确认的重新配对恢复。
 
-结果访问层前后两次取得原上下文时，解析仅核对当前 caller ACL、认证 peer、Store 锚点、
-实际内容期限及原 Wire 是否关闭；带正文的完整 Wire 门禁仍在本轮策略回调前后各执行一次，
-不在清理和引用解析中重复执行。默认公开 `resolveOriginalRead` 保留完整 Wire 检查，
-容量/状态清理也保持原门禁。解析引用不授予读取权，不跨轮缓存权限、时钟或正文；
-末次授权后仍由 Store 新读实际页，第二连接删除句柄和跨期必须生效。
+`ChannelRegistry` 为具体 socket 分配独立 `SocketChannel`。Gateway 只在认证成功后绑定该 socket 的
+epoch，再创建/注册 session，之后才发布 routing/ready。`createDeviceLifecycleAdapter` 复用
+persistentBackend，每次 connection 和 nativeSource 解析前后都复验所属 socket 与 Store 当前 fence，
+原生来源的 machine/恢复代次/epoch 必须匹配。旧 backend 不因同设备新 socket 上线而复活。通道关闭显式
+调用 adapter.close，销毁执行/仅响应/分片/去重上下文，取消 Store 提交后失效订阅与维护 timer，再关闭宿主资源。
+正常 Store COMMIT 的 device_fence 通知仍独立按设备作用域回收。
 
-轮换最多两份凭据，旧凭据重叠至 min(原期限, now + overlap)，重叠最多十分钟；显式结束轮换
-即时使旧凭据失效。显式 takeover 绑定原 epoch、签发只交给新 custody 的新凭据，并立即废止
-旧凭据；旧 Connector 或复制者不能通过自动重连抢回连接。默认凭据期限为一天，宿主可在
-一毫秒至 31 天范围内明确配置，不自动续期。
-同 ID 重配、撤销和 takeover 采用先提交 blocked，再完成 Store 操作并收敛的顺序；中途失败
-或进程退出仍为 blocked，不自动恢复权限。重配先由 Store 核对管理确认和精确 epoch，再在
-同一 writer 事务中调用同步 prepare 提交身份拒绝状态，旧管理快照不能先破坏当前连接。
-prepare 先通过独立身份确认并提交 blocked，再关闭实际通道；身份确认拒绝时原 socket 与 epoch
-保持可用，关闭失败时 blocked 仍持久保留。
-`PersistentIdentityOptions.block(machine)` 专用于 prepare，应组合
-`gateway.channels.blockAndClose(machine)`；它同步拒绝通道、销毁 adapter/订阅，再关闭 socket，
-不能调用 `Store.disconnect` 或重入主 Store。`changed(machine)` 用于管理提交之后，应组合
-`gateway.disconnect(machine)` 或等价正常断连，释放旧 Store epoch，让轮换后的凭据可以重连。
-已配置一次性证明的 Gateway 使用生命周期接线返回的 `identityHost`，凭据管理实例不能替代
-受保护证明协调器直接认证。
+结果访问层前后两次取得原上下文时，解析仅核对当前 caller ACL、认证 peer、Store 锚点、实际内容期限及原
+Wire 是否关闭；带正文的完整 Wire 门禁仍在本轮策略回调前后各执行一次。解析引用不授予读取权，不跨轮缓存
+权限、时钟或正文；末次授权后仍由 Store 新读实际页，第二连接删除句柄和跨期必须生效。
 
-`createStoreIdentityFacts` 可独立组合当前 Store 的 generation、active/clock 门禁、连接 fence、
-精确 epoch 断开与持久撤销，提供这些事实不代表签发认证或重配权限。
-`createStoreDeviceLedger` 可组合明确注入的受信生命周期扩展，再用真实 Store 核对返回 epoch。
-`createDeviceLifecycleWiring(open, identity)` 要求 `open(verify)` 将同步 verify 注入受保护的
-`StoreOptions.deviceLifecycle`，并独立配置 management。返回值必须实际实现下列原子方法：
-
-```ts
-connectVerifiedDevice(machineId: string, generation: string): string
-resetDeviceEnrollment(machineId: string, generation: string, expectedEpoch: string | null, prepare: () => void): void
-```
-
-连接事务须核对当前代次、offline、epoch 为 null、无需确认，并同步消费一次性证明；预算、
-审计和 fresh epoch 提交后才返回。重配须先核对精确 nullable epoch 及独立管理确认：action 为
-`device_enrollment_reset`，target 为 machine ID，fence 为
-`boundedJson({recovery_generation: generation, connection_epoch: expectedEpoch})`。
-Store 先暂存清除 enrollment/凭据/epoch 和停止调用并预检预算，再恰好一次调用同步 prepare，
-最后在独立身份连接观察到匹配 blocked 后提交。Promise 或非 undefined prepare 结果均拒绝。
-
-Store 已提供这两个受保护方法；无 deviceLifecycle 证明回调仍拒绝，较旧宿主缺任一方法时
-构造报 `identity_bridge_unavailable`。没有私有 SQL、原始 credential 持久代理或占位成功。
-隔离组合测试使用真实磁盘 Store、同一 IdentityStore、实际 WSS socket 和真实 adapter；
-仅管理员、凭据、CA 与原生来源使用无生产效力 fixture，不声称生产身份服务或远端多机验收。
-
-`PersistentProofIdentity` 的证明只接受私有注册表中完全相同的进程内对象，不能克隆、序列化
-或跨重启恢复；每个最多五秒，最多 128 个，失败消费也销毁。消费时从同一身份库的独立只读
-SQLite 连接复验已提交 revision、hash、代次、active 和固定期限；读快照显式结束事务。
-独立观察也维护持久时间高水位。身份 schema 从全新 version 2 建立，旧未发布/未知版本拒绝，
-不提供迁移。精确 blocked fence 与凭据、确认、审计在同一库，不复制第二份身份真相。
-
-`ChannelRegistry` 为具体 socket 分配独立 `SocketChannel`。Gateway 只在认证提交成功后绑定
-该 socket 的 epoch，再创建/注册 session，之后才发布 routing/ready。认证提交后复验本次精确
-凭据 hash，不能用同时 active 的其它 hash 代替。重配 prepare 先同步提交精确身份 blocked，
-再使全部旧作用域不可取身份、释放 session/订阅/adapter、关闭 socket；不重入 Store 断连。
-主 Store 后续失败仍保留外部 blocked，不能提前新配对。
-只有 reset 成功返回后才收敛到 pending。`createDeviceLifecycleAdapter` 复用 persistentBackend，
-每次 connection 和 nativeSource 解析前后都复验所属 socket、独立身份库和 Store 当前 fence，
-原生来源的 machine/恢复代次/epoch 必须匹配。旧 backend 不因同设备新 socket 上线而复活。
-通道关闭显式调用 adapter.close，销毁执行/仅响应/分片/去重上下文，取消 Store 提交后失效订阅
-与维护 timer，再关闭宿主资源。正常 Store COMMIT 的 device_fence 通知仍独立按设备作用域回收。
-身份库默认最多 1024 设备、8192 条未到期审计、4096 个有效确认，文件/事务上限 8 MiB。
-审计默认 90 天，确认按原到期时间清理；满额不提前删有效记录。构造必须注入 guard/checkBudget：
-宿主须从总安全/审计子额中明确预留身份库份额，并将文件纳入 Store 全受管存储预算，不能把
-独立限额当作额外免费容量。内存租期和代理原始凭据的 mock 工厂仅保留在 test/transport，生产入口不导出它们。
-
-注册及一次性短时 enrollment 复用 Store。`createPairingDelivery` 将 Store 原子兑换、身份 hash
-提交和独立 `CredentialSink` 串起；配对和轮换仅向受信专用 sink 交付 secret，普通返回只有
-machine/delivery ID 与 delivered 状态。渠道授权先于消费，按 enroll/rotate 与固定身份分别核对。
-sink 只可在收到专用 custody 完成确认后 resolve，确认须精确回显 delivery ID、machine、
-恢复代次及 credential revision，不能把已排队当交付成功。每次交付有超时、
-AbortSignal 和并发上限；失败按精确凭据 hash 核对当前及过渡租期并持久拒绝，revision 推进
-不能绕过，已完全替换的旧交付清理不误封新凭据。签发提交后 changed 通知抛错也先持久拒绝
-尚未返回 custody 的新凭据。交付前固定内部摘要与确认轴，只向 sink 传副本，sink 清理入参
-不能改变撤销依据或确认目标。忽略关闭的发送仍占额度直到真正结束。
-不自动重发、不重置 enrollment 消费。丢交付须新的独立授权同 ID 重配；跨库失败保持拒绝，
-不承诺跨库原子提交。Wire 没有专用凭据交付响应，listener 继续拒绝 enroll，不将秘密放入 welcome。
-
-Connector 从受保护启动回调读凭据，`saveCredential` / `loadCredential` 提供 Linux 专用绝对路径、
-无符号链接祖先、当前用户的 0700 父目录及 0600 单链接普通文件校验。创建用独占/no-follow，
-替换用同目录 fsync / rename；不自动修改现存目录权限，不支持未经验证的 Windows ACL。
-只应在用户另行批准后配置真实持久凭据。正常 Connector 重启继续读同一 machine ID；
-文件丢失直接拒绝，不按 hostname/name 重建或接管设备。
-`createFileCredentialSink` 把经过授权的交付写入固定启动配置的受限路径；它核对预期 machine /
-恢复代次、只使用一次，并在文件及父目录 fsync 完成后报告交付成功。路径不从工具输入指定。
+`createPairingDelivery` 将 Store 原子兑换和独立 `CredentialSink` 串起：仅向受信专用 sink 交付 secret，
+普通返回只有 machine/delivery ID 与 delivered 状态。渠道授权先于消费。sink 只可在收到专用 custody 完成确认后
+resolve，确认须精确回显 delivery ID、machine、恢复代次及 credential revision。每次交付有超时、
+AbortSignal 和并发上限；失败按精确凭据摘要调用 `denyDelivery`。交付前固定内部摘要与确认轴，只向 sink 传副本，
+sink 清理入参不能改变拒绝依据或确认目标。忽略关闭的发送仍占额度直到真正结束。不自动重发、不重置 enrollment
+消费；丢交付须新的独立授权同 ID 重配。Wire 没有专用凭据交付响应，listener 继续拒绝 enroll，不将秘密放入 welcome。
 
 ## 派发、响应与关闭
 
@@ -504,10 +439,8 @@ bun --no-env-file -e 'import { verifyRpcCapacity } from "./test/transport/wire-c
 ```
 
 日志负例用 stdin 交付随机 mock secret，并扫描子进程 stdout/stderr、普通审计和业务帧。
-基础生命周期单测保留明确 mock 扩展的失败窗口；真实组合测试另使用实际 Store 两个桥方法、
-磁盘双库和双 Connector，覆盖 WS、精确重配/同 ID、新凭据/撤销、主库失败后公开恢复、
-旧 backend 封锁、重启、epoch 不重放及 adapter 关闭后释放监听容量。未用第二张模拟身份表替代
-IdentityStore；Store/Wire 核心协议没有增加 transport 表或私有 SQL，响应对象只增加原 Wire
-adapter 的受控封装入口。
+真实组合测试（`test/transport/real-lifecycle.test.ts`）使用磁盘 Store、实际 WSS socket 和真实 adapter，覆盖 WS、
+精确重配/同 ID、撤销、提交失败回滚、重启、epoch 不重放及 adapter 关闭后释放监听容量；Store/Wire 核心协议没有
+增加 transport 表或私有 SQL。
 完整工具链门禁见 [开发指引](DEVELOPMENT.md)。这些证据不构成实际远端多机、生产身份服务、
 跨平台凭据存储、MCP facade 或发布验收。

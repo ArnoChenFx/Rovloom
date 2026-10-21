@@ -6,8 +6,7 @@ import { composeConnectorSessions } from '../runtime/provider-sessions.js'
 import type {
   GatewayRuntimeOptions,
   ProviderGatewayRuntimeOptions,
-  ManagementSessionAuthority,
-  GatewayStateOptions
+  ManagementSessionAuthority
 } from '../runtime/index.js'
 import type { VersionOffer } from '../wire/types.js'
 import type { GatewayIdentitySource } from '../mcp/management.js'
@@ -71,11 +70,10 @@ export type ProductionConnectorResources = { admission_context?: true } & (
   | Omit<RuntimeCliProviderResources, 'transport'>
 )
 export type ProductionCliSources = {
-  // 现有管理员、一次性身份批准仍须独立交付；默认值明确拒绝，不从MCP token升级。
+  // 现有管理员仍须独立交付；默认值明确拒绝，不从MCP token升级。
   administrator?: GatewayIdentitySource['administrator']
   // 只允许静态受信宿主注入，不接入argv、URL或JSON配置。
   management?: ProductionManagementHost
-  authorizeIdentity?: GatewayStateOptions['authorizeIdentity']
   gateway?(
     config: GatewayConfig,
     references: readonly ProductionProviderReference[],
@@ -236,15 +234,6 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
         let gateway: RuntimeCliGateway | undefined
         state = openGatewayState({
           state_directory: config.state_dir,
-          identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-          authorizeIdentity: onboarding
-            ? /* 本机明确确认只批准该次精确install，其余身份变更全部拒绝。 */ (intent) =>
-                onboarding.approval.authorizeIdentity(intent)
-            : (protectedManagement?.authorizeIdentity ??
-              sources.authorizeIdentity ??
-              /* 缺独立动作级批准时不提供默认身份变更。 */ (() => {
-                throw new CliError('backend_unavailable', 3)
-              })),
           ...(onboarding
             ? {
                 store: {

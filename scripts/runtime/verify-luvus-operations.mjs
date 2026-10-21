@@ -157,20 +157,13 @@ try {
         confirmation_id: randomUUID()
       })
     },
-    authorizeIdentity: /* 只安装本轮合成短期设备凭据。 */ () => ({
-      actor: 'isolated_operations_admin',
-      confirmation_id: randomUUID(),
-      expires_at: Date.now() + 10000
-    }),
-    changed: /* 身份变化仍关闭同一实际设备连接。 */ (machine) => gateway?.transport.disconnect(machine),
-    identity_reservation: { security_bytes: 1048576, audit_bytes: 4194304, file_bytes: 8388608 }
+    changed: /* 身份变化仍关闭同一实际设备连接。 */ (machine) => gateway?.transport.disconnect(machine)
   })
   const machine = state.store.register('isolated_operations')
   const credential = {
     ...state.store.redeem(state.store.issueEnrollment(machine.machine_id)),
     recovery_generation: state.store.generation()
   }
-  state.credentials.install(credential, 600000)
   const target = {
     machine_id: machine.machine_id,
     provider_id: 'luvus_operations',

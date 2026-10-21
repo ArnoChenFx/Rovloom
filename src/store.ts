@@ -46,7 +46,6 @@ export type {
   CallAdmissionOptions,
   CallAdmission,
   ManagementRequest,
-  DeviceLifecycleRequest,
   StoreOptions,
   ResultPage
 } from './storage/model.js'
@@ -253,14 +252,20 @@ export class Store {
     return this.meta().generation
   }
   // 要求账本可运行，并逐项核对设备在线状态、epoch 和恢复 generation。
-  assertConnection(connection: { machine_id: string; recovery_generation: string; connection_epoch: string }): void {
+  assertConnection(
+    connection: { machine_id: string; recovery_generation: string; connection_epoch: string },
+    lease?: string
+  ): void {
     this.active()
     this.time()
-    const row = this.db.prepare('SELECT status,epoch FROM machines WHERE machine_id=?').get(connection.machine_id)
+    const row = this.db
+      .prepare('SELECT status,epoch,credential_hash FROM machines WHERE machine_id=?')
+      .get(connection.machine_id)
     if (
       connection.recovery_generation !== this.generation() ||
       row?.status !== 'online' ||
-      row.epoch !== connection.connection_epoch
+      row.epoch !== connection.connection_epoch ||
+      (lease !== undefined && row.credential_hash !== lease)
     ) {
       throw new GatewayError('connection_unavailable')
     }
@@ -474,6 +479,14 @@ export class Store {
   machine(machine_id: string): Machine {
     return this.storedMachine(machine_id)
   }
+  // 返回设备已签发凭据的序号（每次一次性兑换递增），供交付与确认关联；不含任何凭据信息。
+  credentialRevision(machine: string): number {
+    const row = this.db.prepare('SELECT credential_revision FROM machines WHERE machine_id=?').get(machine)
+    if (!row) {
+      throw new GatewayError('machine_not_found')
+    }
+    return Number(row.credential_revision)
+  }
   /** 私有读取设备行，批观察不经可由宿主覆盖的公开入口。 */
   private storedMachine(machine_id: string): Machine {
     const row = this.db.prepare('SELECT machine_id,name,status FROM machines WHERE machine_id=?').get(machine_id)
@@ -619,7 +632,7 @@ export class Store {
         this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id)
         this.db
           .prepare(
-            "UPDATE machines SET resource_revision=resource_revision+1,credential_hash=?,status='offline' WHERE machine_id=?"
+            "UPDATE machines SET resource_revision=resource_revision+1,credential_hash=?,credential_revision=credential_revision+1,status='offline' WHERE machine_id=?"
           )
           .run(digest(credential), row.machine_id)
         if (row.pairing_id) {
@@ -641,8 +654,15 @@ export class Store {
   connect(machine: string, credential: string): string {
     return this.transaction(
       /* 校验凭据与设备状态，替换连接 epoch 并记录连接审计。 */ (now) => {
-        const row = this.db.prepare('SELECT status,credential_hash FROM machines WHERE machine_id=?').get(machine)
-        if (!row || row.status === 'revoked' || row.credential_hash !== digest(credential)) {
+        const row = this.db
+          .prepare('SELECT status,credential_hash,needs_confirmation FROM machines WHERE machine_id=?')
+          .get(machine)
+        if (
+          !row ||
+          row.status === 'revoked' ||
+          row.needs_confirmation !== 0 ||
+          row.credential_hash !== digest(credential)
+        ) {
           throw new GatewayError('invalid_device_credential')
         }
         if (row.status === 'online') {
@@ -663,58 +683,11 @@ export class Store {
       }
     )
   }
-  // 核对当前恢复代次及已配对离线状态，再消费独立身份库的校验证明；仅成功提交才返回新 epoch。
-  // 证明消费与 Store 提交不跨库原子化，后续失败不会归还证明；新 epoch 也不代表 provider 已就绪。
-  connectVerifiedDevice(machineId: string, recoveryGeneration: string): string {
-    return this.transaction(
-      // 在同一 writer 事务核对代次、离线配对状态和一次性宿主证明，预算与审计提交后才返回 epoch。
-      (now) => {
-        validateId(machineId)
-        if (recoveryGeneration !== this.generation()) {
-          throw new GatewayError('recovery_generation_mismatch')
-        }
-        const row = this.db
-          .prepare('SELECT status,epoch,needs_confirmation FROM machines WHERE machine_id=?')
-          .get(machineId)
-        if (row?.status === 'online') {
-          throw new GatewayError('duplicate_device_connection')
-        }
-        if (!row || row.status !== 'offline' || row.epoch !== null || row.needs_confirmation !== 0) {
-          throw new GatewayError('invalid_device_state')
-        }
-        if (
-          this.options.deviceLifecycle?.(
-            Object.freeze({ action: 'connect', machine_id: machineId, recovery_generation: recoveryGeneration })
-          ) !== true
-        ) {
-          throw new GatewayError('device_verification_required')
-        }
-        const epoch = id('epoch')
-        this.db
-          .prepare(
-            "UPDATE machines SET resource_revision=resource_revision+1,status='online',epoch=? WHERE machine_id=?"
-          )
-          .run(epoch, machineId)
-        this.audit('connected', machineId, now, undefined, {
-          machine_id: machineId,
-          epoch,
-          generation: recoveryGeneration,
-          identity_source: 'protected_host'
-        })
-        return epoch
-      }
-    )
-  }
-  // 同 ID 重配须确认当前 generation/epoch，清除本库旧身份并在提交后使该设备全部上下文失效。
-  // prepare 只可同步持久化外部身份 blocked 且返回 undefined；该阻断不会随 Store 回滚解除。
-  resetDeviceEnrollment(
-    machineId: string,
-    recoveryGeneration: string,
-    expectedEpoch: string | null,
-    prepare: () => void
-  ): void {
+  // 同 ID 重配须经管理确认并核对当前 generation/epoch：清除旧凭据，使设备回到 pending，并在提交后使其全部上下文失效。
+  // 调用方在提交后关闭该设备的通道；旧 epoch 已被清除，旧连接本身无法再通过 fence。
+  resetDeviceEnrollment(machineId: string, recoveryGeneration: string, expectedEpoch: string | null): void {
     this.transaction(
-      // 确认与预算先通过才执行一次 prepare，再由独立宿主复核阻断已持久化；任何后续失败只回滚本库。
+      // 确认与预算先通过才改变设备状态；任何失败整体回滚。
       (now) => {
         validateId(machineId)
         if (recoveryGeneration !== this.generation()) {
@@ -722,9 +695,6 @@ export class Store {
         }
         if (expectedEpoch !== null) {
           validateId(expectedEpoch)
-        }
-        if (typeof prepare !== 'function' || !this.options.deviceLifecycle) {
-          throw new GatewayError('device_verification_required')
         }
         const row = this.db.prepare('SELECT epoch FROM machines WHERE machine_id=?').get(machineId)
         if (!row || row.epoch !== expectedEpoch) {
@@ -741,24 +711,29 @@ export class Store {
             "UPDATE machines SET resource_revision=resource_revision+1,status='pending',credential_hash=NULL,epoch=NULL,needs_confirmation=0 WHERE machine_id=?"
           )
           .run(machineId)
-        this.budget(true)
-        const prepared: unknown = prepare()
-        if (prepared !== undefined) {
-          throw new GatewayError('synchronous_prepare_required')
-        }
-        if (
-          this.options.deviceLifecycle(
-            Object.freeze({
-              action: 'reset_enrollment',
-              machine_id: machineId,
-              recovery_generation: recoveryGeneration,
-              expected_epoch: expectedEpoch
-            })
-          ) !== true
-        ) {
-          throw new GatewayError('device_block_required')
-        }
       }
+    )
+  }
+  // 凭据交付失败或结果未知时清除凭据并要求经确认重新配对；匹配不到当前凭据摘要则不改变任何状态。
+  denyDelivery(machine: string, credentialDigest: string): void {
+    this.transaction(
+      // 保持降级时也能收紧权限，因此不要求准入。
+      (now) => {
+        const row = this.db.prepare('SELECT epoch,credential_hash FROM machines WHERE machine_id=?').get(machine)
+        if (!row || row.credential_hash !== credentialDigest) {
+          return
+        }
+        if (typeof row.epoch === 'string') {
+          this.applyDisconnect(machine, row.epoch, now)
+        }
+        this.db
+          .prepare(
+            "UPDATE machines SET resource_revision=resource_revision+1,status='pending',credential_hash=NULL,epoch=NULL,needs_confirmation=1 WHERE machine_id=?"
+          )
+          .run(machine)
+        this.audit('credential_delivery_unknown', 'custody', now, undefined, { machine_id: machine })
+      },
+      false
     )
   }
   // 为设备登记唯一且完整的 provider 绑定，拒绝覆盖既有身份。

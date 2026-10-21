@@ -81,4 +81,4 @@ PR 和 main 的容器工作流只构建并测试，不登录或推送 registry�
 
 GitHub说明首次 GHCR 包[默认可见性为 private](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。首次包的公开可见性和现有包的写入权限需要仓库维护者核对；工作流不会改变账号或包的设置。若匿名拉取被拒绝，先检查包是否公开及该仓库是否获准写入，不要在配置或文档中加入长期 token。
 
-容器 smoke 使用无外网的临时容器与自有命名卷，核对非 root、准确二进制摘要、单文件首次配置、真实双库、MCP 401、内置管理资源、正常终止和重启持久性；不调用模型或创建真实外部身份。原生 provider/Worker 的完整产品验收仍由前置发行门禁负责，容器首次未配对启动不替代它。
+容器 smoke 使用无外网的临时容器与自有命名卷，核对非 root、准确二进制摘要、单文件首次配置、真实数据库、MCP 401、内置管理资源、正常终止和重启持久性；不调用模型或创建真实外部身份。原生 provider/Worker 的完整产品验收仍由前置发行门禁负责，容器首次未配对启动不替代它。

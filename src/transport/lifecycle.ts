@@ -1,4 +1,4 @@
-// 组合受保护 Store 生命周期回调、独立身份事实与具体 socket 上下文；缺原子桥时拒绝构造。
+// 将 Store 的设备凭据校验与连接 fence 组合为 Gateway 的认证宿主与 socket 门禁。
 import type { Store } from '../store.js'
 import { persistentBackend } from '../integration/persistence.js'
 import { createLuvusWireAdapter } from '../integration/luvus-wire.js'
@@ -7,87 +7,27 @@ import { fail, hash } from '../wire/index.js'
 import type { ConnectionIdentity } from '../wire/types.js'
 import type { IdentityHost } from './identity.js'
 import type { ChannelHost } from './channel-host.js'
-import type { DeviceProofHost, VerifiedDeviceProof } from './proof-identity.js'
-import type { StoreIdentityBridges } from './store-identity.js'
 
-export type DeviceLifecycleRequest = Readonly<
-  | { action: 'connect'; machine_id: string; recovery_generation: string }
-  | { action: 'reset_enrollment'; machine_id: string; recovery_generation: string; expected_epoch: string | null }
->
-/** 仅在 Store 原子事务内同步消费证明或复验已提交封锁，普通工具不能直接调用此回调。 */
-export type DeviceLifecycleVerifier = (request: DeviceLifecycleRequest) => boolean
-/** 宿主须把回调注入真实 StoreOptions.deviceLifecycle，并提供其独立 management；不存在默认授权实现。 */
-export type LifecycleStoreFactory = (verify: DeviceLifecycleVerifier) => Store & StoreIdentityBridges
-
-/** 建立串行认证和拒绝优先重配接线；open 必须返回已经实际实现两项原子生命周期操作的 Store。 */
-export function createDeviceLifecycleWiring(open: LifecycleStoreFactory, identity: DeviceProofHost) {
-  let pendingProof: VerifiedDeviceProof | undefined
-  let authenticating = false
-  let proofAccepted = false
-  const store = open(
-    /** connect 恰好一次消费 pending proof；reset 只接受独立连接可见的精确已提交封锁。 */
-    (request) => {
-      if (request.action === 'connect') {
-        const proof = pendingProof
-        pendingProof = undefined
-        proofAccepted =
-          proof !== undefined && identity.consumeProof(proof, request.machine_id, request.recovery_generation) === true
-        return proofAccepted
-      }
-      return identity.blockedCommitted(request.machine_id, request.recovery_generation, request.expected_epoch) === true
-    }
-  )
-  if (typeof store.connectVerifiedDevice !== 'function' || typeof store.resetDeviceEnrollment !== 'function') {
-    store.close()
-    fail('identity_bridge_unavailable')
-  }
-  /** 无 await 地核对并消费一次性证明，提交 fresh epoch 后复验；所有出口清零输入缓冲区。 */
-  function authenticate(machine: string, generation: string, credential: Uint8Array): string {
-    if (!(credential instanceof Uint8Array)) {
+/** 建立认证与重配接线：凭据校验、fresh epoch 与审计在 Store 的同一事务内完成，不存在跨库步骤。 */
+export function createDeviceLifecycle(store: Store) {
+  /** 校验凭据格式后由 Store 事务核对摘要并分配 fresh epoch；返回该凭据的 hash 租期。 */
+  function authenticate(machine: string, generation: string, credential: string) {
+    if (typeof credential !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(credential)) {
       fail('invalid_device_credential')
     }
-    if (authenticating) {
-      credential.fill(0)
-      fail('authentication_in_progress')
+    if (generation !== store.generation()) {
+      fail('invalid_device_credential')
     }
-    authenticating = true
-    proofAccepted = false
-    try {
-      let lease: string
-      try {
-        pendingProof = identity.verifyCredential(machine, generation, credential)
-        lease = hash(credential)
-      } catch {
-        fail('invalid_device_credential')
-      } finally {
-        credential.fill(0)
-      }
-      const epoch = store.connectVerifiedDevice(machine, generation)
-      const connection = { machine_id: machine, recovery_generation: generation, connection_epoch: epoch }
-      try {
-        if (!proofAccepted || pendingProof !== undefined || !identity.leaseCommitted(machine, generation, lease!)) {
-          fail('invalid_device_credential')
-        }
-        store.assertConnection(connection)
-      } catch {
-        store.disconnect(machine, epoch)
-        fail('invalid_device_credential')
-      }
-      return epoch
-    } finally {
-      pendingProof = undefined
-      authenticating = false
-      proofAccepted = false
+    const epoch = store.connect(machine, credential)
+    return {
+      identity: { machine_id: machine, recovery_generation: generation, connection_epoch: epoch },
+      lease: hash(credential)
     }
   }
   /** 从具体 socket 读取身份，独立已提交身份库和当前 Store fence 都通过后才交给 backend。 */
   function connection(channels: ChannelHost) {
     const current = channels.connection()
-    if (
-      current.authenticated !== true ||
-      current.active !== true ||
-      !identity.usableCommitted(current.machine_id, current.recovery_generation)
-    ) {
+    if (current.authenticated !== true || current.active !== true) {
       fail('authentication_required')
     }
     store.assertConnection(current)
@@ -118,21 +58,12 @@ export function createDeviceLifecycleWiring(open: LifecycleStoreFactory, identit
   const identityHost: IdentityHost = {
     /** 只读取主 Store 的当前代次。 */
     generation: () => store.generation(),
-    /** 将 Wire 凭据转换为可清零缓冲区，返回当前精确 epoch 及该原凭据的 hash 租期。 */
-    authenticate(machine, generation, credential) {
-      const bytes = Buffer.from(credential, 'utf8')
-      const lease = hash(bytes)
-      const epoch = authenticate(machine, generation, bytes)
-      return { identity: { machine_id: machine, recovery_generation: generation, connection_epoch: epoch }, lease }
-    },
-    /** 复验原 socket 的 hash 租期与真实 Store fence，轮换、封锁和旧 epoch 均不能混用。 */
+    authenticate,
+    /** 复验原 socket 的 hash 租期与真实 Store fence，重配、撤销和旧 epoch 均不能混用。 */
     assert(current, lease) {
-      if (!identity.leaseCommitted(current.machine_id, current.recovery_generation, lease)) {
-        fail('authentication_required')
-      }
-      store.assertConnection(current)
+      store.assertConnection(current, lease)
     },
-    /** 普通断连只断开匹配 epoch；管理 prepare 的通道关闭不通过此入口。 */
+    /** 普通断连只断开匹配 epoch。 */
     disconnect(current: ConnectionIdentity) {
       store.disconnect(current.machine_id, current.connection_epoch)
     }
@@ -143,47 +74,15 @@ export function createDeviceLifecycleWiring(open: LifecycleStoreFactory, identit
     authenticate,
     connection,
     nativeSource,
-    /** Store 先校验确认/fence/预算，再 prepare；外部封锁提交后主事务失败也不恢复旧通道。 */
+    /** 管理确认后重置同 ID 设备为 pending，再关闭其全部旧 socket；旧 epoch 已在提交中清除。 */
     reset(channels: ChannelHost, machine: string, generation: string, expectedEpoch: string | null): void {
-      let prepared = false
-      store.resetDeviceEnrollment(
-        machine,
-        generation,
-        expectedEpoch,
-        /** 先授权并提交身份封锁，再关闭旧 socket；授权拒绝无关闭副作用，清理失败仍保留 blocked。 */
-        () => {
-          if (prepared) {
-            fail('identity_prepare_replayed')
-          }
-          prepared = true
-          if (identity.blockCommitted(machine, generation, expectedEpoch) !== undefined) {
-            fail('synchronous_channel_block_required')
-          }
-          let failed = false
-          try {
-            failed = channels.blockAndClose(machine) !== undefined
-          } catch {
-            failed = true
-          }
-          if (failed) {
-            fail('synchronous_channel_block_required')
-          }
-        }
-      )
-      if (
-        !prepared ||
-        store.generation() !== generation ||
-        store.machine(machine).status !== 'pending' ||
-        !identity.blockedCommitted(machine, generation, expectedEpoch)
-      ) {
-        fail('identity_prepare_required')
-      }
-      identity.finishReset(machine, generation, expectedEpoch)
+      store.resetDeviceEnrollment(machine, generation, expectedEpoch)
+      channels.blockAndClose(machine)
     }
   }
 }
 
-export type DeviceLifecycleWiring = ReturnType<typeof createDeviceLifecycleWiring>
+export type DeviceLifecycleWiring = ReturnType<typeof createDeviceLifecycle>
 /** 为具体 socket 组合 persistentBackend 与真实 adapter，当前连接和原生来源均经过失效门禁。 */
 export function createDeviceLifecycleAdapter(
   lifecycle: DeviceLifecycleWiring,

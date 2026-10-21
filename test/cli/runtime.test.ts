@@ -55,10 +55,6 @@ test(
         gateway: /* 只打开本例临时状态；不注册设备、签发凭据或启动native实例。 */ async (config) => {
           const state = openGatewayState({
             state_directory: config.state_dir,
-            identity_reservation: { security_bytes: 1_048_576, audit_bytes: 4_194_304, file_bytes: 8_388_608 },
-            authorizeIdentity: /* 本测试绝不批准身份修改。 */ () => {
-              throw new Error('unused_identity_stub')
-            },
             changed: /* 没有凭据动作，故不存在需要通知的设备连接。 */ () => {}
           })
           const identities: GatewayIdentitySource = {

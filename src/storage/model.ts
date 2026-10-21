@@ -12,25 +12,12 @@ export type LedgerInvalidation =
   | { kind: 'content' | 'fence'; machine_id: string; call_id: string }
   | { kind: 'device_fence'; machine_id: string }
   | { kind: 'closed' }
-// 只传入身份校验所需的最小 fence，不接收凭据、普通 caller 身份或 verified 标志。
-export type DeviceLifecycleRequest = Readonly<
-  | { action: 'connect'; machine_id: string; recovery_generation: string }
-  | {
-      action: 'reset_enrollment'
-      machine_id: string
-      recovery_generation: string
-      expected_epoch: string | null
-    }
->
 export type StoreOptions = {
   retention?: Partial<Retention>
   backupDirectory?: string
   maintenanceIntervalMs?: number
   // 只由受保护宿主注入，须核实独立权限、真实确认及准确 fence；普通工具参数不能传入。
   management?: (request: ManagementRequest) => { actor: string; confirmation_id: string }
-  // 受保护宿主同步消费独立凭据校验证明，或复核身份库已按本次 fence 持久化 blocked；须显式返回 true。
-  // 缺省拒绝，证明消费和外部 blocked 均不随随后 Store 事务失败撤销。
-  deviceLifecycle?: (request: DeviceLifecycleRequest) => boolean
   // 仅供隔离故障测试在固定写入阶段中断事务；生产宿主不从外部参数注入。
   fault?: (point: 'before_commit' | 'after_anchor' | 'evidence_commit') => void
 }

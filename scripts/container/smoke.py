@@ -43,7 +43,6 @@ def check_gateway(name):
         command('exec', name, 'curl', '--noproxy', '*', '--fail', '--silent', '--output', '/dev/null',
                 'http://127.0.0.1:9445/' + resource)
     command('exec', name, 'test', '-s', '/home/rovloom/.local/share/rovloom/gateway/gateway.db')
-    command('exec', name, 'test', '-s', '/home/rovloom/.local/share/rovloom/gateway/identity.db')
     config = command('exec', name, 'cat', '/home/rovloom/.config/rovloom/gateway.json')
     parsed = json.loads(config)
     assert parsed['data']['directory'] == '/home/rovloom/.local/share/rovloom/gateway'

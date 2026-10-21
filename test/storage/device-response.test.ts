@@ -1,36 +1,26 @@
-// 用真实双 SQLite 和原生适配器验证重配提交后回收、跨设备分片隔离及外部阻断不随账本回滚。
+// 用真实 SQLite 和原生适配器验证重配提交后回收、跨设备分片隔离及提交失败时整体回滚。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, openSync, closeSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { Store } from '../../src/store.js'
 import type { StoreOptions } from '../../src/store.js'
 import type { LedgerInvalidation } from '../../src/storage/model.js'
-import { GatewayError } from '../../src/contracts.js'
 import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
-import { commitLuvusResponse } from '../../src/integration/persistence.js'
 import { boundedJson, fragmentObject } from '../../src/wire/index.js'
 import type { AttemptBinding } from '../../src/wire/types.js'
 import { nativeBackend } from './native-backend.js'
-import { connected, management, responseFrame } from './helpers.js'
+import { connected, management } from './helpers.js'
 
-// 创建独立磁盘身份库和账本；测试宿主只实现 committed blocked 门禁，不提供 WSS 或真实凭据认证。
+// 创建独立磁盘账本；测试宿主不提供 WSS 或真实凭据认证，只验证 Store 事务与 adapter 回收。
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-device-response-'))
   const path = join(root, 'ledger.sqlite')
-  const identityPath = join(root, 'identity.sqlite')
-  closeSync(openSync(identityPath, 'wx', 0o600))
-  const identity = new DatabaseSync(identityPath)
-  identity.exec(`PRAGMA synchronous=FULL; PRAGMA journal_mode=DELETE;
-    CREATE TABLE identities(machine_id TEXT PRIMARY KEY,generation TEXT NOT NULL,blocked INTEGER NOT NULL,fence TEXT);`)
-  const observer = new DatabaseSync(identityPath, { readOnly: true })
   const state = {
     failCommit: false,
-    prepareCalls: 0,
-    closedMachines: [] as string[],
     approval: undefined as { machine: string; fence: string; confirmation: string } | undefined
   }
   const settings: StoreOptions = {
@@ -45,23 +35,7 @@ function fixture() {
         ? { actor: 'synthetic_admin', confirmation_id: approval.confirmation }
         : { actor: '', confirmation_id: '' }
     },
-    // 桥接测试仅接受从独立连接可见的精确 blocked fence；不以回调执行过替代提交事实。
-    deviceLifecycle(request) {
-      if (request.action !== 'reset_enrollment') {
-        return false
-      }
-      const row = observer.prepare('SELECT * FROM identities WHERE machine_id=?').get(request.machine_id)
-      return (
-        row?.generation === request.recovery_generation &&
-        row.blocked === 1 &&
-        row.fence ===
-          boundedJson({
-            recovery_generation: request.recovery_generation,
-            connection_epoch: request.expected_epoch
-          })
-      )
-    },
-    // 在外部阻断提交以后注入本库最终提交失败，覆盖两个数据库不能共同回滚的窗口。
+    // 注入本库最终提交失败，验证重配整体回滚。
     fault(point) {
       if (state.failCommit && point === 'before_commit') {
         throw Error('synthetic ledger commit failure')
@@ -74,36 +48,7 @@ function fixture() {
   const sameDevice = nativeBackend(store, { device: primary.device, provider_id: 'second' })
   const otherDevice = nativeBackend(store, { device: connected(store, 'other') })
   const natives = [primary, sameDevice, otherDevice]
-  for (const native of [primary, otherDevice]) {
-    identity.prepare('INSERT INTO identities VALUES(?,?,0,NULL)').run(native.device.machine_id, store.generation())
-  }
   const inspect = new DatabaseSync(path, { readOnly: true })
-
-  // 每次独立读取身份库已提交状态；故意不依赖 Store 的 mode 或旧 epoch 是否仍可见。
-  function assertIdentity(machine: string): void {
-    const row = observer.prepare('SELECT generation,blocked FROM identities WHERE machine_id=?').get(machine)
-    if (row?.generation !== store.generation() || row.blocked !== 0) {
-      throw new GatewayError('authentication_required')
-    }
-  }
-  for (const native of natives) {
-    const connection = native.backend.connection
-    const nativeSource = native.backend.nativeSource
-    native.backend.connection =
-      /* 在真实 persistentBackend 之前核验独立 committed 身份，恢复 Store 也不能解除外部阻断。 */ () => {
-        assertIdentity(native.device.machine_id)
-        return connection()
-      }
-    native.backend.nativeSource = /* 在独立原生来源查询前后核验身份，不把旧 Store epoch 解释为外部身份仍有效。 */ (
-      call,
-      attempt
-    ) => {
-      assertIdentity(native.device.machine_id)
-      const source = nativeSource(call, attempt)
-      assertIdentity(native.device.machine_id)
-      return source
-    }
-  }
   return {
     path,
     store,
@@ -113,32 +58,12 @@ function fixture() {
     natives,
     state,
     inspect,
-    identity,
-    observer,
     // 为一次受保护重配登记精确管理确认；不允许其它设备或 epoch 借用。
     approve(machine: string, epoch: string | null) {
       state.approval = {
         machine,
         fence: boundedJson({ recovery_generation: store.generation(), connection_epoch: epoch }),
         confirmation: randomUUID()
-      }
-    },
-    // 在独立事务中只提交 blocked，不随随后 Store 的失败作解除补偿。
-    block(machine: string, epoch: string | null) {
-      state.prepareCalls++
-      identity.exec('BEGIN IMMEDIATE')
-      identity
-        .prepare('UPDATE identities SET blocked=1,fence=? WHERE machine_id=?')
-        .run(boundedJson({ recovery_generation: store.generation(), connection_epoch: epoch }), machine)
-      identity.exec('COMMIT')
-    },
-    // 模拟受保护宿主同步停止该设备业务与 adapter；没有制造或测试真实网络关闭。
-    closeChannels(machine: string) {
-      state.closedMachines.push(machine)
-      for (const native of natives) {
-        if (native.device.machine_id === machine) {
-          native.adapter.close()
-        }
       }
     },
     // 关闭本测试创建的适配器和全部 SQLite 连接，再删除隔离目录。
@@ -148,8 +73,6 @@ function fixture() {
       }
       store.close()
       inspect.close()
-      observer.close()
-      identity.close()
       rmSync(root, { recursive: true, force: true })
     }
   }
@@ -240,21 +163,8 @@ test(
         }
       )
       f.approve(f.primary.device.machine_id, binding.connection_epoch)
-      f.store.resetDeviceEnrollment(
-        f.primary.device.machine_id,
-        f.store.generation(),
-        binding.connection_epoch,
-        // 准备阶段独立读者仍看见旧状态且尚无通知；只提交精确 fence 的外部 blocked。
-        () => {
-          assert.equal(events.length, 0)
-          assert.equal(
-            f.inspect.prepare('SELECT status FROM machines WHERE machine_id=?').get(f.primary.device.machine_id)!
-              .status,
-            'online'
-          )
-          f.block(f.primary.device.machine_id, binding.connection_epoch)
-        }
-      )
+      assert.equal(events.length, 0)
+      f.store.resetDeviceEnrollment(f.primary.device.machine_id, f.store.generation(), binding.connection_epoch)
       assert.deepEqual(events, [{ kind: 'device_fence', machine_id: f.primary.device.machine_id }])
       assert.deepEqual(observed, [{ status: 'pending', epoch: null }])
       for (const native of [f.primary, f.sameDevice]) {
@@ -341,13 +251,7 @@ test(
       const events: LedgerInvalidation[] = []
       f.store.subscribeInvalidation(/* 保存本次重配发布的实际内部事件。 */ (event) => events.push(event))
       f.approve(f.primary.device.machine_id, f.primary.device.epoch)
-      f.store.resetDeviceEnrollment(
-        f.primary.device.machine_id,
-        f.store.generation(),
-        f.primary.device.epoch,
-        /* 只提交独立身份库的 blocked，自动回收责任由本库提交后的设备事件验证。 */ () =>
-          f.block(f.primary.device.machine_id, f.primary.device.epoch)
-      )
+      f.store.resetDeviceEnrollment(f.primary.device.machine_id, f.store.generation(), f.primary.device.epoch)
       assert.deepEqual(events, [{ kind: 'device_fence', machine_id: f.primary.device.machine_id }])
       assert.equal(f.primary.adapter.stats().active_transfers, 0)
       assert.equal(f.primary.adapter.stats().transfer_bytes, 0)
@@ -358,105 +262,41 @@ test(
   }
 )
 
-for (const failure of ['prepare_after_block', 'store_commit'] as const) {
-  test(
-    `外部 blocked 提交后 ${failure} 失败：Store 不发 fence，恢复 active 后旧业务仍由独立身份拒绝`,
-    // 验证宿主关闭与 committed 身份门禁，而非借用 storage_degraded 或假造跨库事务保护。
-    () => {
-      const f = fixture()
-      let cold: ReturnType<typeof createLuvusWireAdapter> | undefined
-      try {
-        const call = f.primary.create()
-        const binding = f.primary.dispatch(call.call_id)
-        const sealed = f.sameDevice.create()
-        f.sameDevice.dispatch(sealed.call_id)
-        f.store.discardResponse('synthetic', sealed.call_id)
-        const beforeMachine = f.inspect
-          .prepare('SELECT * FROM machines WHERE machine_id=?')
-          .get(f.primary.device.machine_id)
-        const beforeCall = f.inspect.prepare('SELECT * FROM calls WHERE call_id=?').get(call.call_id)
-        const events: LedgerInvalidation[] = []
-        f.store.subscribeInvalidation(/* 回滚不得发布假报已完成重配的 Store 通知。 */ (event) => events.push(event))
-        f.approve(f.primary.device.machine_id, f.primary.device.epoch)
-        assert.throws(
-          // 外部身份成功提交后才让准备或本库最终 COMMIT 失败。
-          () =>
-            f.store.resetDeviceEnrollment(
-              f.primary.device.machine_id,
-              f.store.generation(),
-              f.primary.device.epoch,
-              // 宿主必须先同步关闭旧业务；Store 回滚不会自动重新打开这些 adapter 或解除 blocked。
-              () => {
-                f.closeChannels(f.primary.device.machine_id)
-                f.block(f.primary.device.machine_id, f.primary.device.epoch)
-                if (failure === 'prepare_after_block') {
-                  throw Error('synthetic post-block failure')
-                }
-                f.state.failCommit = true
-              }
-            ),
-          /storage_degraded/
-        )
-        assert.equal(
-          f.observer.prepare('SELECT blocked FROM identities WHERE machine_id=?').get(f.primary.device.machine_id)!
-            .blocked,
-          1
-        )
-        assert.deepEqual(
-          f.inspect.prepare('SELECT * FROM machines WHERE machine_id=?').get(f.primary.device.machine_id),
-          beforeMachine
-        )
-        assert.deepEqual(f.inspect.prepare('SELECT * FROM calls WHERE call_id=?').get(call.call_id), beforeCall)
-        assert.deepEqual(events, [])
-        assert.deepEqual(f.state.closedMachines, [f.primary.device.machine_id])
-        for (const native of [f.primary, f.sameDevice]) {
-          assert.equal(native.adapter.stats().closed, true)
-          assert.equal(native.adapter.stats().snapshot_bytes, 0)
-        }
-        f.state.failCommit = false
-        f.store.resumeStorage()
-        assert.equal(f.store.health().mode, 'active')
-        // 反证：单独的 Store fence 确实仍接受回滚后的旧 epoch，所以拒绝不能归功于本库状态变化。
-        f.store.assertConnection(binding)
-        assert.throws(
-          /* 独立 committed blocked 在 Store 恢复后继续拒绝连接。 */ () => f.primary.backend.connection(),
-          /authentication_required/
-        )
-        assert.throws(
-          /* 原生来源解析也必须独立拒绝，不能只核对旧 Store epoch。 */ () =>
-            f.primary.backend.nativeSource(binding.call_id, binding.attempt_id),
-          /authentication_required/
-        )
-        cold = createLuvusWireAdapter(f.primary.backend)
-        assert.throws(
-          /* 新 adapter 也不能利用仍存的原锚点重新生成旧执行许可。 */ () =>
-            cold!.encode(requestFrame(binding), 'gateway_to_connector'),
-          /native_adapter_unavailable/
-        )
-        assert.equal(cold.stats().snapshot_bytes, 0)
-        assert.throws(
-          /* 迟到响应同样在实际 planner 的独立身份门禁处拒绝。 */ () =>
-            cold!.planEvidence(responseFrame(binding, { result: { id: 'task-created' } })),
-          /native_adapter_unavailable/
-        )
-        assert.throws(
-          /* 经真实响应提交入口也不能补写旧结果或假报 responded。 */ () =>
-            commitLuvusResponse(f.store, cold!, responseFrame(binding, { result: { id: 'task-created' } }))
-        )
-        assert.equal(
-          f.inspect.prepare('SELECT response_hash FROM calls WHERE call_id=?').get(call.call_id)!.response_hash,
-          null
-        )
-        assert.equal(f.primary.state.sends, 1)
-        assert.equal(f.sameDevice.state.sends, 1)
-        assert.deepEqual(events, [])
-      } finally {
-        cold?.close()
-        f.close()
-      }
+test(
+  '重配的本库提交失败时整体回滚：不发 fence、不关闭上下文，恢复 active 后原连接仍有效',
+  /** 单事务没有外部阻断需要保留，失败后一切如初。 */ () => {
+    const f = fixture()
+    try {
+      const call = f.primary.create()
+      const binding = f.primary.dispatch(call.call_id)
+      const beforeMachine = f.inspect
+        .prepare('SELECT * FROM machines WHERE machine_id=?')
+        .get(f.primary.device.machine_id)
+      const beforeCall = f.inspect.prepare('SELECT * FROM calls WHERE call_id=?').get(call.call_id)
+      const events: LedgerInvalidation[] = []
+      f.store.subscribeInvalidation(/** 回滚不得发布假报已完成重配的 Store 通知。 */ (event) => events.push(event))
+      f.approve(f.primary.device.machine_id, f.primary.device.epoch)
+      f.state.failCommit = true
+      assert.throws(
+        () => f.store.resetDeviceEnrollment(f.primary.device.machine_id, f.store.generation(), f.primary.device.epoch),
+        /storage_degraded/
+      )
+      assert.deepEqual(
+        f.inspect.prepare('SELECT * FROM machines WHERE machine_id=?').get(f.primary.device.machine_id),
+        beforeMachine
+      )
+      assert.deepEqual(f.inspect.prepare('SELECT * FROM calls WHERE call_id=?').get(call.call_id), beforeCall)
+      assert.deepEqual(events, [])
+      f.state.failCommit = false
+      f.store.resumeStorage()
+      assert.equal(f.store.health().mode, 'active')
+      f.store.assertConnection(binding)
+      assert.equal(f.primary.state.sends, 1)
+    } finally {
+      f.close()
     }
-  )
-}
+  }
+)
 
 test(
   '离线 null epoch 重配会销毁该设备残留的旧 epoch 上下文，不影响其它设备',
@@ -489,12 +329,7 @@ test(
       assert.equal(detached.stats().executions, 1)
       forward = true
       f.approve(f.primary.device.machine_id, null)
-      f.store.resetDeviceEnrollment(
-        f.primary.device.machine_id,
-        f.store.generation(),
-        null,
-        /* 离线重配仍提交独立身份库的精确 null fence。 */ () => f.block(f.primary.device.machine_id, null)
-      )
+      f.store.resetDeviceEnrollment(f.primary.device.machine_id, f.store.generation(), null)
       assert.equal(detached.stats().executions, 0)
       assert.equal(f.otherDevice.adapter.stats().closed, false)
     } finally {
@@ -504,10 +339,10 @@ test(
   }
 )
 
-for (const failure of ['management', 'epoch', 'prepare'] as const) {
+for (const failure of ['management', 'epoch'] as const) {
   test(
     `重配在 ${failure} 阶段拒绝时不发布 fence 或销毁仍有效的上下文`,
-    // 独立管理/fence/准备失败都只回滚本库，不能假报已提交重配而误清原上下文。
+    // 管理或 fence 失败都在状态变化前拒绝，不能误清原上下文。
     () => {
       const f = fixture()
       try {
@@ -527,22 +362,14 @@ for (const failure of ['management', 'epoch', 'prepare'] as const) {
           f.approve(f.primary.device.machine_id, f.primary.device.epoch)
         }
         assert.throws(
-          // 旧 epoch 或管理未授权会在 prepare 前拒绝；准备阶段故意抛出固定宿主错误。
+          // 旧 epoch 或管理未授权在任何状态变化前拒绝。
           () =>
             f.store.resetDeviceEnrollment(
               f.primary.device.machine_id,
               f.store.generation(),
-              failure === 'epoch' ? 'epoch_stale' : f.primary.device.epoch,
-              // 此故障发生在外部副作用之前，不关闭通道、不提交 blocked。
-              () => {
-                throw new GatewayError('synthetic_prepare_rejected')
-              }
+              failure === 'epoch' ? 'epoch_stale' : f.primary.device.epoch
             ),
-          failure === 'management'
-            ? /management_authorization_required/
-            : failure === 'epoch'
-              ? /device_epoch_mismatch/
-              : /synthetic_prepare_rejected/
+          failure === 'management' ? /management_authorization_required/ : /device_epoch_mismatch/
         )
         assert.deepEqual(events, [])
         assert.deepEqual(
@@ -550,12 +377,6 @@ for (const failure of ['management', 'epoch', 'prepare'] as const) {
             /* 从运行中的 adapter 重新读取计量，不能用预先缓存值冒充未回收。 */ (native) => native.adapter.stats()
           ),
           before
-        )
-        assert.equal(f.state.prepareCalls, 0)
-        assert.equal(
-          f.observer.prepare('SELECT blocked FROM identities WHERE machine_id=?').get(f.primary.device.machine_id)!
-            .blocked,
-          0
         )
         assert.equal(f.store.health().mode, 'active')
       } finally {

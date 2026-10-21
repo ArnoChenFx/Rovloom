@@ -2,7 +2,7 @@
 
 本文维护 `src/mcp`、`src/cli` 的接线边界；系统语义以 [DESIGN](../DESIGN.md#7-mcp-工具面)为准。
 模块属于内部技术预览。`StoreGatewayService` 与 `createStoreCliRuntime` 已接实际 Store/Router；
-独立 CLI 的 Gateway 打开真实双库和设备 transport；未配对时拒绝 MCP 身份。
+独立 CLI 的 Gateway 打开真实 Store 和设备 transport；未配对时拒绝 MCP 身份。
 真实本地终端可完成一个 Connector 的一次性配对与已安装 Luvus 初始化；非 TTY 缺资源明确拒绝。
 工具发现、人工历史或服务 stub 的结果不能称为原生执行成功。
 
@@ -116,8 +116,8 @@ transport 默认在提交后释放执行上下文；显式 retainOriginalRead �
 实际句柄 expires（Store 绝对毫秒，now < expires 有效），不能用内容期限代替，或创建新句柄续期。
 机器注册/改名/撤销需要独立管理桥的session、history、确认与fence；普通MCP caller不具备这些上下文时仍拒绝，
 不能把其参数转换为管理员批准，也不调用凭据签发/兑换或伪造管理成功。
-Store 的受保护设备生命周期桥不替代这些管理端口；deviceLifecycle 只可由可信宿主显式注入，
-facade 不调用 connectVerifiedDevice/resetDeviceEnrollment，也不消费凭据校验证明或解除身份 blocked。
+Store 的设备凭据与重配接口不替代这些管理端口；facade 不调用 resetDeviceEnrollment/denyDelivery，
+也不签发或兑换凭据。
 独立入口仍需受信HTTP认证和真实身份来源，不能自动采用测试工厂。
 
 [management.ts](../../src/mcp/management.ts)是 WebUI 可复用的完整服务类型，包括设备连接/认证、
@@ -274,7 +274,7 @@ Linux角色启动在文件缺失时独占创建0600文件及0700目录，已有�
 `{reference,value}`条目，总JSON上限1MiB，原生来源继续由静态工厂验证，不因JSON自报可信而放行。
 该条目是内部发现/装配结果，不是用户准备清单，初始化层不会写死native版本或摘要。
 
-公开生产加载器创建缺失的私有数据目录，打开唯一Gateway双库和普通HTTP/WS监听。
+公开生产加载器创建缺失的私有数据目录，打开唯一Gateway Store和普通HTTP/WS监听。
 未建立caller状态时Gateway真实运行并提示`pairing_required`，认证与管理员均返回空身份。
 程序管理的既有caller来源固定为`managed/mcp-callers.json`，其精确字段为
 `schema_version: 1`、`kind: 'mcp-caller-source'`、canonical完整`resource`、
@@ -389,7 +389,7 @@ Gateway运行期stdout不承载MCP或身份材料。退出码为 0 正常、2 �
 [Store业务](../../test/mcp/store-service.test.ts)、[Store HTTP SDK](../../test/mcp/store-sdk.test.ts)、
 [CLI writer](../../test/cli/store-runtime.test.ts)使用真实隔离数据库与合成身份，保留授权、元数据和清理断言。
 [公开生产CLI测试](../../test/cli/production.test.ts)直接运行`main.ts`子进程，以私有合成caller摘要和本地WS
-接正式HTTP SDK及实际双库，覆盖EOF、撤权、退出释放和缺native来源明确拒绝，不注入业务service。
+接正式HTTP SDK及实际 Store，覆盖EOF、撤权、退出释放和缺native来源明确拒绝，不注入业务service。
 [管理作用域测试](../../test/cli/management-scope.test.ts)使用真实PR69/PR71认证与作用域；业务计数stub
 只验证原CSRF/关闭预算和单次委托，不作为实际管理写入或custody证明。
 [transport CLI](../../test/cli/transport-runtime.test.ts)实际经过listener/WS拒绝认证、EOF持续运行、信号清理，

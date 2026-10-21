@@ -35,13 +35,12 @@ test(
       )
       assert(opened.updates <= 1, String(opened.updates))
       const meta = opened.result
-      const identity = (f.state.credentials as unknown as { store: { committed: (...args: unknown[]) => unknown } })
-        .store
-      const committed = identity.committed
+      const identity = f.state.store
+      const assertConnection = identity.assertConnection.bind(identity)
       let identityReads = 0
-      identity.committed = /** 每次均执行原独立已提交身份读取，只记录实际次数。 */ (...args) => {
+      identity.assertConnection = /** 每次均执行原 Store 连接 fence 校验，只记录实际次数。 */ (...args) => {
         identityReads++
-        return committed.apply(identity, args)
+        return assertConnection(...args)
       }
       const service = new RuntimeGatewayService(f.mcp)
       try {
@@ -59,8 +58,8 @@ test(
             sha256: meta.hash,
             expires_at: meta.expires
           })
-          // 每次服务查询仍真实观察双库身份；已有句柄不再重复整轮保留检查，旧路径每轮52次。
-          assert(identityReads > 0 && identityReads <= 30, String(identityReads))
+          // 每次服务查询仍真实观察设备 fence；已有句柄不再重复整轮保留检查。
+          assert(identityReads > 0 && identityReads <= 45, String(identityReads))
         }
       } finally {
         service.close()
@@ -121,7 +120,7 @@ test(
       for (let index = 0; index < 2; index++) {
         const measured = await read()
         assert.equal(checks, 2)
-        assert(identityReads <= 20, String(identityReads))
+        assert(identityReads <= 40, String(identityReads))
         assert.equal(measured.updates, 0)
         assert.equal(measured.result.expires, meta.expires)
         assert.equal(Buffer.from(measured.result.data, 'base64').length, 32)
@@ -152,7 +151,7 @@ test(
       )
       lookups = 0
       afterLookup = /** 最后一次解析后真实提交凭据撤销及 Store fence 失效。 */ () =>
-        f.state.credentials.revoke(f.target.machine_id)
+        f.state.store.revoke(f.target.machine_id)
       await assert.rejects(
         f.gateway.runAuthenticated(
           f.caller,

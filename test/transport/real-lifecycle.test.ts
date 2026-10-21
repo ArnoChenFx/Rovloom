@@ -1,11 +1,8 @@
-// 验证合并后真实 Store 桥、同一持久身份库、真实双端 socket 及 adapter 回收的完整组合。
+// 验证真实 Store 设备凭据、真实双端 socket 及 adapter 回收的完整组合：认证、重配、撤销、重连与重启。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { IdentityStore, PersistentProofIdentity } from '../../src/transport/index.js'
-import { createStoreIdentityFacts } from '../../src/transport/store-identity.js'
 import { Store } from '../../src/store.js'
-import { randomUUID } from 'node:crypto'
 import type { JsonObject } from '../../src/wire/types.js'
 import { realFixture } from './real-helpers.js'
 import { until } from './helpers.js'
@@ -13,9 +10,9 @@ import { management } from '../storage/helpers.js'
 import { clockWrites } from '../storage/clock-write-helpers.js'
 
 test(
-  '真实 WS 双 Connector：持久证明消费、独立 provider 与响应账本，复制凭据不能抢占',
+  '真实 WS 双 Connector：Store 事务认证、独立 provider 与响应账本，复制凭据不能抢占',
   { timeout: 15_000 },
-  /** WS 只信任本次一日 mock CA；真实 Store 方法消费进程内证明，整个路径没有 mock 桥。 */
+  /** WS 只信任本次 mock CA；Store 同一事务核对凭据摘要并分配 epoch，整个路径没有 mock 桥。 */
   async () => {
     const f = realFixture()
     try {
@@ -46,11 +43,7 @@ test(
       assert.equal(cb.status().connection_epoch, bb.connection_epoch)
       const inspect = new DatabaseSync(f.storePath, { readOnly: true })
       try {
-        const rows = inspect.prepare("SELECT details FROM audit WHERE action='connected'").all()
-        assert.equal(rows.length, 2)
-        for (const row of rows) {
-          assert.equal(JSON.parse(String(row.details)).identity_source, 'protected_host')
-        }
+        assert.equal(inspect.prepare("SELECT details FROM audit WHERE action='connected'").all().length, 2)
       } finally {
         inspect.close()
       }
@@ -73,10 +66,9 @@ test(
       const cb = f.connector(b)
       await f.ready(ca, cb)
       const epoch = ca.status().connection_epoch!
-      const count = f.identityChanges
       const record = f.records[0]!.connection.machine_id === a.machine_id ? f.records[0]! : f.records[1]!
       assert.throws(
-        /** 精确旧 epoch 不匹配，必须在任何外部关闭和身份提交之前拒绝。 */
+        /** 精确旧 epoch 不匹配，必须在任何外部关闭之前拒绝。 */
         () => f.reset(a.machine_id, 'stale_epoch'),
         /device_epoch_mismatch/
       )
@@ -85,13 +77,11 @@ test(
         () => f.reset(a.machine_id, epoch),
         /management_authorization_required/
       )
-      assert.equal(f.identityChanges, count)
       assert.equal(record.native.adapter.stats().closed, false)
       assert.equal(ca.status().connection_epoch, epoch)
       f.approve(a.machine_id, epoch)
       f.reset(a.machine_id, epoch)
       assert.equal(f.f.store.machine(a.machine_id).status, 'pending')
-      assert.equal(f.db.read(a.machine_id)!.status, 'pending')
       assert.equal(record.native.adapter.stats().closed, true)
       assert.equal(record.native.adapter.stats().snapshot_bytes, 0)
       assert.throws(
@@ -111,16 +101,15 @@ test(
       ca.stop()
       const device = f.f.store.redeem(f.f.store.issueEnrollment(a.machine_id))
       a.credential = { ...device, recovery_generation: f.f.store.generation() }
-      f.manager.install(a.credential)
+      assert.throws(
+        /** 同 ID 重配也不允许旧凭据重新通过认证。 */
+        () => f.lifecycle.authenticate(a.machine_id, a.credential.recovery_generation, old),
+        /invalid_device_credential/
+      )
       const fresh = f.connector(a)
       await f.ready(fresh, cb)
       assert.equal(fresh.status().machine_id, a.machine_id)
       assert.notEqual(fresh.status().connection_epoch, epoch)
-      assert.throws(
-        /** 同 ID 重配也不允许旧凭据重新签发认证证明。 */
-        () => f.identity.verifyCredential(a.machine_id, a.credential.recovery_generation, Buffer.from(old)),
-        /invalid_device_credential/
-      )
       const call = f.f.call(a.target)
       f.f.gateway.dispatch(call.call_id)
       await until(
@@ -134,9 +123,9 @@ test(
 )
 
 test(
-  '真实双库 rollback：外部 blocked 不回滚，恢复 Store active 后旧 backend 与重连仍拒绝',
+  '真实 Store 提交失败：reset 整体回滚，旧连接、adapter 与 epoch 保持有效',
   { timeout: 15_000 },
-  /** 在真实 Store COMMIT 点故障，随后走公开受保护 resumeStorage；不用私有 SQL 修复模式。 */
+  /** 在真实 Store COMMIT 点故障，随后走公开受保护 resumeStorage；没有外部状态需要保留。 */
   async () => {
     const f = realFixture()
     try {
@@ -148,7 +137,7 @@ test(
       f.approve(a.machine_id, epoch)
       f.failStore = true
       assert.throws(
-        /** prepare 已关闭 socket 并提交 blocked，主库故障只回滚本库。 */
+        /** Store 事务失败：此时尚未关闭任何 socket。 */
         () => f.reset(a.machine_id, epoch),
         /storage_degraded/
       )
@@ -156,37 +145,16 @@ test(
       f.f.store.resumeStorage()
       assert.equal(f.f.store.health().mode, 'active')
       f.f.store.assertConnection(record.connection)
-      assert.equal(f.identity.blockedCommitted(a.machine_id, a.credential.recovery_generation, epoch), true)
-      assert.equal(f.db.read(a.machine_id)!.status, 'blocked')
-      assert.equal(record.native.adapter.stats().closed, true)
+      assert.equal(f.f.store.machine(a.machine_id).status, 'online')
+      assert.equal(record.native.adapter.stats().closed, false)
       assert.equal(
         f.events.some(
-          /** 回滚不能发布 device_fence 成功通知，外部关闭不依赖这种通知。 */
+          /** 回滚不能发布 device_fence 通知。 */
           (event) => event.kind === 'device_fence'
         ),
         false
       )
-      assert.throws(
-        /** 即使原 Store epoch 恢复 active，旧作用域也已经同步封锁。 */
-        () => record.native.backend.connection(),
-        /authentication_required/
-      )
-      assert.throws(
-        /** 原生来源路径也必须独立观察同一 socket 和已提交身份拒绝。 */
-        () => record.native.backend.nativeSource('mock_call', 'mock_attempt'),
-        /authentication_required/
-      )
-      assert.throws(
-        /** 关闭后的旧密钥不能用自动重连恢复外部 blocked。 */
-        () =>
-          f.lifecycle.authenticate(
-            a.machine_id,
-            a.credential.recovery_generation,
-            Buffer.from(a.credential.credential)
-          ),
-        /invalid_device_credential/
-      )
-      assert.equal(f.f.gateway.status().devices.length, 0)
+      assert.deepEqual(record.native.backend.connection(), record.connection)
     } finally {
       f.close()
     }
@@ -194,82 +162,32 @@ test(
 )
 
 test(
-  '真实轮换结束与撤销：原 socket hash 租期失效，fresh epoch 可重连且不影响其它设备',
+  '真实撤销：设备凭据失效且 socket 被断开，不影响其它设备',
   { timeout: 15_000 },
-  /** 验证管理提交后的正常断连与 prepare-only 封锁分离，避免轮换后主 Store 永久残留 online。 */
+  /** 撤销在 Store 单事务中清凭据和 epoch；宿主随后关闭通道，A 的旧凭据不能重连。 */
   async () => {
     const f = realFixture()
     try {
-      const a = f.pair('mock_rotate_a')
-      const b = f.pair('mock_rotate_b')
+      const a = f.pair('mock_revoke_a')
+      const b = f.pair('mock_revoke_b')
       const ca = f.connector(a)
       const cb = f.connector(b)
       await f.ready(ca, cb)
-      const originalEpoch = ca.status().connection_epoch!
-      const old = a.credential.credential
-      a.credential = f.manager.rotate(a.machine_id, 1000)
-      assert.equal(f.f.store.machine(a.machine_id).status, 'offline')
-      f.manager.finishRotation(a.machine_id)
-      await until(
-        /** 原 socket 的 close 是异步事件，必须等到实际 fresh epoch，不能复用旧 ready 状态。 */
-        () => ca.status().phase === 'ready' && ca.status().connection_epoch !== originalEpoch
-      )
-      assert.notEqual(ca.status().connection_epoch, originalEpoch)
+      f.f.store.revoke(a.machine_id)
+      f.f.gateway.disconnect(a.machine_id)
+      assert.equal(f.f.store.machine(a.machine_id).status, 'revoked')
       assert.throws(
-        /** 轮换完成后旧 hash 不得利用新凭据存在继续认证。 */
-        () => f.identity.verifyCredential(a.machine_id, a.credential.recovery_generation, Buffer.from(old)),
+        /** 撤销后凭据不能再认证。 */
+        () => f.lifecycle.authenticate(a.machine_id, a.credential.recovery_generation, a.credential.credential),
         /invalid_device_credential/
       )
-      f.manager.revoke(a.machine_id)
-      assert.equal(f.f.store.machine(a.machine_id).status, 'revoked')
-      assert.equal(f.db.read(a.machine_id)!.status, 'revoked')
       assert.equal(f.f.gateway.status().devices.length, 1)
       assert.equal(cb.status().phase, 'ready')
       const call = f.f.call(b.target)
       f.f.gateway.dispatch(call.call_id)
       await until(
-        /** B 的新调用仍经真实 Store 提交，不受 A 凭据管理动作影响。 */
+        /** B 的新调用仍经真实 Store 提交，不受 A 撤销影响。 */
         () => f.f.store.call(f.f.principal.id, call.call_id).state === 'responded'
-      )
-    } finally {
-      f.close()
-    }
-  }
-)
-
-test(
-  '真实管理 rePair 的 prepare-only 关闭不重入 Store，takeover 另行签发且旧凭据不能夺回',
-  { timeout: 15_000 },
-  /** 同时覆盖 PersistentIdentity 的两类管理回调，并用真实桥验证凭据复制者无法抢占。 */
-  async () => {
-    const f = realFixture()
-    try {
-      const a = f.pair('mock_manager_reset')
-      const b = f.pair('mock_manager_takeover')
-      const ca = f.connector(a)
-      const cb = f.connector(b)
-      await f.ready(ca, cb)
-      const epoch = ca.status().connection_epoch!
-      f.approve(a.machine_id, epoch)
-      f.manager.rePair(a.machine_id, epoch)
-      assert.equal(f.f.store.machine(a.machine_id).status, 'pending')
-      assert.equal(f.db.read(a.machine_id)!.status, 'pending')
-      const record = f.records.find(
-        /** 从实际 B socket 的受信记录取得完整 fence，不能用消息自报身份接管。 */
-        (item) => item.connection.machine_id === b.machine_id
-      )!
-      const original = b.credential.credential
-      const fresh = f.manager.takeover(record.connection)
-      cb.stop()
-      b.credential = fresh
-      const next = f.connector(b)
-      await f.ready(next)
-      assert.notEqual(next.status().connection_epoch, record.connection.connection_epoch)
-      assert.equal(record.native.adapter.stats().closed, true)
-      assert.throws(
-        /** takeover 使用独立新凭据；原 Connector 即使持有复制旧秘密也无法重新认证。 */
-        () => f.identity.verifyCredential(b.machine_id, b.credential.recovery_generation, Buffer.from(original)),
-        /invalid_device_credential/
       )
     } finally {
       f.close()
@@ -353,26 +271,27 @@ test(
 )
 
 test(
-  '真实身份提交失败不产生认证 epoch 或 ready，凭据缓冲区仍完整清零',
+  '错误凭据不产生认证 epoch 或 ready，设备保持 offline',
   { timeout: 15_000 },
-  /** 身份库发生故障时不能靠已有 Store 配对状态认证，也不能在失败前注册 socket session。 */
+  /** 凭据不匹配时不能靠已有 Store 配对状态认证，也不能注册 socket session。 */
   () => {
     const f = realFixture()
     try {
-      const a = f.pair('mock_identity_failure')
-      const bytes = Buffer.from(a.credential.credential)
-      f.failIdentity = true
+      const a = f.pair('mock_wrong_credential')
       assert.throws(
-        /** 独立凭据校验的事务故障在真实 Store connectVerifiedDevice 之前拒绝。 */
-        () => f.lifecycle.authenticate(a.machine_id, a.credential.recovery_generation, bytes),
+        /** 格式合法但摘要不匹配。 */
+        () => f.lifecycle.authenticate(a.machine_id, a.credential.recovery_generation, 'x'.repeat(43)),
         /invalid_device_credential/
       )
-      assert.equal(
-        bytes.every(
-          /** 失败路径也必须清空原始凭据字节。 */
-          (byte) => byte === 0
-        ),
-        true
+      assert.throws(
+        /** 格式非法的凭据在触碰 Store 前拒绝。 */
+        () => f.lifecycle.authenticate(a.machine_id, a.credential.recovery_generation, 'short'),
+        /invalid_device_credential/
+      )
+      assert.throws(
+        /** 旧代次拒绝。 */
+        () => f.lifecycle.authenticate(a.machine_id, 'other_generation', a.credential.credential),
+        /invalid_device_credential/
       )
       assert.equal(f.f.store.machine(a.machine_id).status, 'offline')
       assert.equal(f.f.gateway.status().devices.length, 0)
@@ -384,63 +303,35 @@ test(
 )
 
 test(
-  '真实双库重开保留 blocked fence，证明不跨进程实例恢复，未验凭据不能建立 Store epoch',
+  '重开 Store 后凭据仍有效，在线状态被重置为 offline 并分配新 epoch',
   { timeout: 15_000 },
-  /** 正常重开两个真实 SQLite，不使用独立模拟身份表或恢复已失效的证明对象。 */
+  /** 正常重开真实 SQLite；持久的只有凭据摘要，不恢复任何旧连接。 */
   async () => {
     const f = realFixture()
     try {
       const a = f.pair('mock_restart')
-      const proof = f.identity.verifyCredential(
-        a.machine_id,
-        a.credential.recovery_generation,
-        Buffer.from(a.credential.credential)
-      )
       const ca = f.connector(a)
       await f.ready(ca)
       const epoch = ca.status().connection_epoch!
-      f.approve(a.machine_id, epoch)
-      f.failStore = true
-      assert.throws(
-        /** 在主提交失败前真实身份已封锁，后续重启不能重新放行。 */
-        () => f.reset(a.machine_id, epoch),
-        /storage_degraded/
-      )
-      f.failStore = false
-      f.f.store.resumeStorage()
+      ca.stop()
       f.f.gateway.stop()
       f.f.store.close()
-      f.db.close()
       const store = new Store(
         f.storePath,
-        /** 重开继续同一可信测试时间，不允许回拨恢复权限。 */
+        /** 重开继续同一可信测试时间。 */
         () => f.f.now,
         { management }
       )
-      const facts = createStoreIdentityFacts(store)
-      const db = new IdentityStore(f.identityPath, {
-        generation: store.generation(),
-        guard: facts.guard,
-        /** 与重开的 Store 使用完全一致的可信时间。 */
-        now: () => f.f.now,
-        /** 本次重开仍明确承担同一身份库的预算，而不是复制新的身份状态。 */
-        checkBudget() {}
-      })
       try {
-        const identity = new PersistentProofIdentity(
-          db,
-          /** 仅为检查对象恢复禁令提供 mock 确认，不实际进行管理操作。 */
-          () => ({ actor: 'mock_admin', confirmation_id: randomUUID(), expires_at: f.f.now + 1000 })
-        )
-        assert.equal(identity.blockedCommitted(a.machine_id, a.credential.recovery_generation, epoch), true)
-        assert.equal(identity.consumeProof(proof, a.machine_id, a.credential.recovery_generation), false)
+        assert.equal(store.machine(a.machine_id).status, 'offline')
+        const next = store.connect(a.machine_id, a.credential.credential)
+        assert.notEqual(next, epoch)
         assert.throws(
-          /** 重启后的真实桥没有受保护证明回调，不能从设备 ID 自行恢复连接。 */
-          () => store.connectVerifiedDevice(a.machine_id, a.credential.recovery_generation),
-          /duplicate_device_connection|device_verification_required|invalid_device_state/
+          /** 在线设备不能被第二次认证覆盖。 */
+          () => store.connect(a.machine_id, a.credential.credential),
+          /duplicate_device_connection/
         )
       } finally {
-        db.close()
         store.close()
       }
     } finally {
@@ -450,8 +341,8 @@ test(
 )
 
 test(
-  '生命周期 backend 每次连接观察都校验身份和 Store fence，不写时钟，期限仍逐次生效',
-  /** 真实双库和具体 socket 分别计量门禁与时钟 SQL；同毫秒和到期都不得借去重缓存权限。 */
+  '生命周期 backend 每次连接观察都校验 Store fence，不写时钟，撤销后立即拒绝',
+  /** 具体 socket 的每次观察都重新执行 fence 门禁，同毫秒不能借缓存权限。 */
   async () => {
     const f = realFixture()
     try {
@@ -459,51 +350,31 @@ test(
       const client = f.connector(device)
       await f.ready(client)
       const record = f.records[0]!
-      let identities = 0
       let fences = 0
-      const committed = f.db.committed.bind(f.db)
-      f.db.committed = /** 每次都读取真实独立已提交身份，只记录本轮门禁次数。 */ (...args) => {
-        identities++
-        return committed(...args)
-      }
       const assertConnection = f.f.store.assertConnection.bind(f.f.store)
-      f.f.store.assertConnection = /** 每次仍核对当前 Store 代次、状态与 epoch。 */ (connection) => {
+      f.f.store.assertConnection = /** 每次仍核对当前 Store 代次、状态与 epoch。 */ (connection, lease) => {
         fences++
-        return assertConnection(connection)
+        return assertConnection(connection, lease)
       }
       f.f.now++
       const first = clockWrites(
         f.f.store,
-        /** 原 backend 完整执行身份、代次和 epoch 校验。 */ () => record.native.backend.connection()
+        /** 原 backend 完整执行 epoch 校验。 */ () => record.native.backend.connection()
       )
       assert.equal(first.updates, 0)
       assert.deepEqual(first.result, record.connection)
-      assert.equal(identities, 1)
       assert.equal(fences, 1)
       const repeated = clockWrites(
         f.f.store,
-        /** 同毫秒也必须重新执行身份与 fence 门禁，只有相同 clock UPDATE 可省略。 */ () =>
-          record.native.backend.connection()
+        /** 同毫秒也必须重新执行 fence 门禁。 */ () => record.native.backend.connection()
       )
       assert.equal(repeated.updates, 0)
-      assert.deepEqual(repeated.result, record.connection)
-      assert.equal(identities, 2)
       assert.equal(fences, 2)
-      f.f.now++
-      const next = clockWrites(
-        f.f.store,
-        /** 下一轮重新推进时钟，不能沿用上轮连接许可。 */ () => record.native.backend.connection()
-      )
-      assert.equal(next.updates, 0)
-      assert.deepEqual(next.result, record.connection)
-      assert.equal(identities, 3)
-      assert.equal(fences, 3)
-      f.f.now += 24 * 3_600_000
+      f.f.store.revoke(device.machine_id)
       assert.throws(
-        /** 到期时独立身份快照拒绝，即使具体 socket 仍保存相同连接上下文。 */ () => record.native.backend.connection(),
-        /authentication_required/
+        /** 撤销后具体 socket 仍保存相同上下文也必须被 Store fence 拒绝。 */ () => record.native.backend.connection(),
+        /connection_unavailable/
       )
-      assert.equal(identities, 4)
       assert.equal(fences, 3)
     } finally {
       f.close()
