@@ -114,6 +114,14 @@ export async function runFixedProcess(
           stdio: ['pipe', 'pipe', 'pipe']
         })
       )
+      // TEMP-DEBUG（Windows e2e 排查，随后移除）
+      const p0 = Date.now()
+      const pmark = (label: string) =>
+        process.env.ROVLOOM_DEBUG_ERRORS &&
+        process.stderr.write(`DBG_PROC ${command} ${label} +${Date.now() - p0}ms pid=${child.pid}\n`)
+      pmark('spawned')
+      child.once('exit', (code, sig) => pmark(`exit code=${code} signal=${sig}`))
+      child.stderr.on('data', (data: Buffer) => pmark('stderr ' + JSON.stringify(data.toString().slice(0, 300))))
       let killTimer: ReturnType<typeof setTimeout> | undefined
       let cleanupTimer: ReturnType<typeof setTimeout> | undefined
       const outcome = /* 保守地区分已启动 RPC 代理的未知结果与只读命令的派发前失败。 */ (): LocalFailureOutcome =>
@@ -141,6 +149,7 @@ export async function runFixedProcess(
         if (finished || failure) {
           return
         }
+        pmark('stop ' + code)
         failure = new LuvusAdapterError(code, outcome())
         // 终结本条传输的 prepare；外层 scope 结束前也不能再等待 auth 后新增 claim。
         io.close()
