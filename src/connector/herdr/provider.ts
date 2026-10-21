@@ -691,7 +691,7 @@ export async function createHerdrConnectorResources(
           const backend: HerdrReadonlyBackend = {
             ...services,
             ...admission,
-            /** Connector 没有 Gateway 锚点：以本机已准入记录合成，期限只取共享 book 的固定值。 */
+            /** Connector 没有 Gateway 锚点：以已解码的本机 attempt 合成，内容与句柄期限都取请求 deadline（准入提交前也稳定）。 */
             responseAnchor(binding) {
               const stored = admission.attempt(binding.call_id, binding.attempt_id)
               if (!stored) {
@@ -705,7 +705,7 @@ export async function createHerdrConnectorResources(
                 state: 'connector_accepted',
                 content_status: input.now() < binding.registration.deadline ? 'available' : 'expired',
                 content_expires_at: binding.registration.deadline,
-                dedup_expires_at: admission.dedupExpires(binding)
+                dedup_expires_at: binding.registration.deadline
               }
             },
             subscribeInvalidation(listener) {
