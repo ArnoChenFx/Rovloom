@@ -1,10 +1,5 @@
 // 衔接 Wire 与真实原生校验器，隔离派发上下文、仅响应上下文及其回收预算。
-import {
-  checkDispatch,
-  checkResultBoundary,
-  createNativeValidator,
-  inspectRequestGate
-} from '../native-contract/index.js'
+import { checkDispatch, checkResultBoundary, createNativeValidator } from '../native-contract/index.js'
 import { checkResultRetention } from '../native-contract/safety.js'
 import type {
   Check,
@@ -91,7 +86,7 @@ export interface NativeWireBackend {
   nativeSource(callId: string, attemptId: string): TrustedNativeContext | undefined
   // 取得指定 principal 当前的调用方与本地双端策略。
   policies(principal: string): ProviderPolicies
-  // 提供独立核验的派发、秘密边界和分类权限事实，不能从消息自报导入。
+  // 提供独立核验的 Owner 与 raw 授权事实，不能从消息自报导入。
   authority(attempt: TrustedAttempt, binding: NativeBinding): Authority
   // 取得当前结果读取方身份，避免借用原调用者的派发许可。
   currentPrincipal(): string | undefined
@@ -784,16 +779,6 @@ export function createLuvusWireAdapter(
   }
 
   const validator = Object.freeze<NativePayloadValidator>({
-    // 把真实原生请求候选的分类与 schema 结果提供给 Wire 请求门禁。
-    requestGate(request, c) {
-      const state = stateFor(c)
-      const gate = unwrap(inspectRequestGate(candidate(request, state), authorization(state)))
-      return {
-        ...gate,
-        schema_status: gate.schema_status === 'incomplete' ? 'generic' : gate.schema_status
-      }
-    },
-
     // 执行当前双端原生派发授权，并保留首次生成的真实许可用于响应绑定。
     validateRequest(request, c) {
       const state = stateFor(c)
@@ -845,7 +830,8 @@ export function createLuvusWireAdapter(
     if (principal !== state.attempt.principal_id) {
       fail('forbidden')
     }
-    const authority = authorization(state)
+    // 读取前重新取得宿主当前授权事实；失效的 revision 或来源在此直接拒绝。
+    authorization(state)
     const status = backend.contentStatus(binding)
     const granted = permit(state)
     if (!state.candidate) {
@@ -854,14 +840,6 @@ export function createLuvusWireAdapter(
     if (nativeFrame !== undefined) {
       const frame = object(copy(nativeFrame, LIMITS.object_bytes))
       unwrap(state.validator.checkResponse(granted, frame, state.source))
-    }
-    const candidate = state.candidate
-    const gate = unwrap(inspectRequestGate(candidate, authority))
-    if (gate.classification_status !== 'trusted_complete') {
-      fail('classification_unavailable')
-    }
-    if (!gate.secret_result_authorized) {
-      fail('secret_boundary_required')
     }
     if (status === 'unavailable') {
       fail('content_unavailable')
@@ -873,9 +851,6 @@ export function createLuvusWireAdapter(
         principal_id: principal,
         caller_policy_allowed: allowed,
         local_policy_allowed: allowed,
-        classification_source_verified: authority.classification_source_verified,
-        classification_revision: state.source.binding.classification_revision,
-        channel: authority.result_channel,
         content_status: status
       })
     )
@@ -929,7 +904,7 @@ export function createLuvusWireAdapter(
           context('connector_to_gateway'),
           backend.responseAnchor?.(retained.attempt.binding),
           time(),
-          { classification_status: 'trusted_complete', retain_content_authorized: false }
+          { retain_content_authorized: false }
         )
       }
       const attempt = record(snapshot.payload.attempt)
@@ -946,7 +921,6 @@ export function createLuvusWireAdapter(
         /* 撤权/过期/禁存仍允许可信最小证据。 */
       }
       return planResponseEvidence(snapshot, ctx, backend.responseAnchor?.(attempt.binding), time(), {
-        classification_status: 'trusted_complete',
         retain_content_authorized: retain
       })
     },

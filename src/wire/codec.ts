@@ -6,7 +6,6 @@ import type {
   CodecContext,
   JsonObject,
   NativeValidationContext,
-  RequestGate,
   ProviderSnapshot,
   ProviderBinding,
   WireEnvelope
@@ -169,45 +168,6 @@ function errorPayload(p: JsonObject): void {
   }
 }
 
-// 按严格或原始契约模式检查可信分类、参数完整度和当前授权。
-function gate(g: RequestGate, mode: 'strict' | 'raw-contract'): void {
-  if (!g || typeof g !== 'object' || g.classification_status !== 'trusted_complete') {
-    fail('classification_unavailable')
-  }
-  const p = object(g)
-  if (!['complete', 'generic', 'unavailable'].includes(p.schema_status as string)) {
-    fail('parameter_schema_unavailable')
-  }
-  fields(p, [
-    'classification_status',
-    'schema_status',
-    'transport_status',
-    'authorized',
-    'secret_result_authorized',
-    'raw_contract_authorized'
-  ])
-  oneOf(p.classification_status, ['trusted_complete', 'missing', 'unknown', 'invalid', 'untrusted'])
-  oneOf(p.schema_status, ['complete', 'generic', 'unavailable'])
-  oneOf(p.transport_status, ['supported', 'unsupported'])
-  for (const k of ['authorized', 'secret_result_authorized', 'raw_contract_authorized']) {
-    if (typeof p[k] !== 'boolean') {
-      fail('invalid_native_gate')
-    }
-  }
-  if (p.transport_status !== 'supported') {
-    fail('unsupported_transport')
-  }
-  if (p.authorized !== true || p.secret_result_authorized !== true) {
-    fail('forbidden')
-  }
-  if (mode === 'raw-contract' && p.raw_contract_authorized !== true) {
-    fail('raw_contract_forbidden')
-  }
-  if (mode === 'strict' && p.schema_status !== 'complete') {
-    fail(p.schema_status === 'generic' ? 'parameter_schema_incomplete' : 'parameter_schema_unavailable')
-  }
-}
-
 type AuthContext = Extract<CodecContext, { phase: 'authenticated' }>
 
 // 执行原生校验回调，仅透传合法错误码并为其他异常返回固定错误码。
@@ -287,16 +247,9 @@ function validateRequestPayload(frame: JsonObject, payload: JsonObject, ctx: Aut
     fail('policy_revision_stale')
   }
 
-  // Wire 授权通过后仍须执行原生分类 gate 和参数校验。
+  // Wire 授权通过后仍须由原生校验器执行方法表、策略与参数校验。
   const validator = validatorFor(native.binding, ctx)
   const full = { ...nativeRequest, id: native.binding.native_request_id }
-  gate(
-    nativeCall(
-      /* 读取原生请求的可信分类与授权门禁结果。 */ () => validator.requestGate(full, native),
-      'native_gate_failed'
-    ),
-    payload.validation
-  )
   nativeVoid(
     /* 调用原生校验器检查补入可信 ID 后的完整请求。 */ () => validator.validateRequest(full, native),
     'native_request_invalid'

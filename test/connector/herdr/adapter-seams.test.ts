@@ -29,10 +29,7 @@ test(
   'reviewed ordinary gate passes the shared provider and result-boundary contract',
   /** 核对普通结果边界和真实固定来源 provider gate，不导入派生源码。 */ () => {
     const state = prepared()
-    const gate = state.adapter.validator.requestGate(state.request, state.context)
-    assert.equal(gate.authorized, true)
-    assert.equal(gate.secret_result_authorized, true)
-    assert.equal(gate.raw_contract_authorized, false)
+    assert.equal(state.adapter.validator.validateRequest(state.request, state.context), undefined)
     assert.equal(providerFor(state.binding, state.backend.context('principal1', 'gateway_to_connector')).kind, 'herdr')
   }
 )

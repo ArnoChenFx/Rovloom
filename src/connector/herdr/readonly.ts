@@ -490,19 +490,6 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
 
   const validator: NativePayloadValidator = Object.freeze({
     /** 固定来源方法逐次验证完整参数；普通 RPC 不建立事件订阅或终端流保证。 */
-    requestGate(request: JsonObject, context: NativeValidationContext) {
-      checkedRequest(request, context)
-      return {
-        classification_status: 'trusted_complete' as const,
-        schema_status: 'complete' as const,
-        transport_status: 'supported' as const,
-        authorized: true,
-        // 结果仍受逐方法类型集合和完整原生 schema 约束，不把 Agent 状态解释成完成保证。
-        secret_result_authorized: true,
-        raw_contract_authorized: false
-      }
-    },
-    /** 与编解码共享相同参数、来源和策略检查，不接受从 gate 缓存出的旧许可。 */
     validateRequest(request: JsonObject, context: NativeValidationContext) {
       checkedRequest(request, context)
     },
@@ -668,7 +655,6 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         }
       }
       return planResponseEvidence(frame, wire, retainedAnchor(state), backend.now(), {
-        classification_status: 'trusted_complete',
         retain_content_authorized: retain
       })
     },

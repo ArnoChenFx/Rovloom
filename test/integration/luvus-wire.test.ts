@@ -3,7 +3,7 @@ import { afterEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
 import type { NativeWireBackend, TrustedAttempt } from '../../src/integration/luvus-wire.js'
-import { boundedJson, contractRef, hash, LIMITS } from '../../src/wire/index.js'
+import { contractRef, LIMITS } from '../../src/wire/index.js'
 import type {
   AttemptBinding,
   AuthenticatedEnvelope,
@@ -11,7 +11,7 @@ import type {
   Payloads,
   ProviderPolicies
 } from '../../src/wire/types.js'
-import type { NativeBinding, SafetyClassification } from '../../src/native-contract/index.js'
+import type { NativeBinding } from '../../src/native-contract/index.js'
 import { auth, clone, compiled, G, identity, json, request, T, view } from '../native-contract/helpers.js'
 
 const adapters = new Set<ReturnType<typeof createLuvusWireAdapter>>()
@@ -37,17 +37,7 @@ afterEach(
 
 // 全部是隔离 P0 fixture 与明确的测试权限；生产模块不导入本工厂或测试 gate。
 function fixture(method = 'task.add', raw = false, limits?: Parameters<typeof createLuvusWireAdapter>[1]) {
-  const params =
-    method === 'ping'
-      ? {}
-      : method === 'task.add'
-        ? { title: 'synthetic' }
-        : {
-            server_generation: G,
-            terminal_id: T,
-            pane_id: '3',
-            ...(method === 'terminal.backend.capture' ? { mode: 'visible', lines: 1, ansi: false } : {})
-          }
+  const params = method === 'task.add' ? { title: 'synthetic' } : {}
   const candidate = request(view(), { id: 'native_1', method, params })
   const initial = auth(candidate)
   const origin: ContractSource = {
@@ -113,13 +103,9 @@ function fixture(method = 'task.add', raw = false, limits?: Parameters<typeof cr
     content: 'available' as 'available' | 'expired' | 'discarded' | 'unavailable',
     owner: raw,
     grant: raw,
-    trustedClassification: true,
-    classifications: clone(initial.classifications) as SafetyClassification[],
     revision: 1,
     localConfig: 'config1',
-    now: 100,
-    custody: false,
-    channel: 'ordinary' as 'ordinary' | 'custody'
+    now: 100
   }
   const capabilities = json('session-capabilities.json')
   capabilities.result.session = 'synthetic'
@@ -204,12 +190,8 @@ function fixture(method = 'task.add', raw = false, limits?: Parameters<typeof cr
       } = initial
       return {
         ...authority,
-        classifications: state.classifications,
-        classification_source_verified: state.trustedClassification,
         owner: state.owner,
         raw_requested: raw,
-        custody_available: state.custody,
-        result_channel: state.channel,
         ...(state.grant
           ? {
               raw_grant: {
@@ -315,17 +297,16 @@ test(
   '首次请求授权失败不占 attempt 名额或保存请求候选',
   /* 拒绝首次调用授权后用第二个调用占用唯一名额，证明失败路径未缓存候选或泄露预算。 */ () => {
     const f = fixture('task.add', false, { attempts: 1 })
-    const classifications = f.state.classifications
-    f.state.classifications = []
+    const grants = f.policies.local.grants[0]!.actions
+    f.policies.local.grants[0]!.actions = ['read']
     rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 classification_unavailable 拒绝（可信分类不可用）。 */ () =>
-        f.decode(f.opening),
-      'classification_unavailable'
+      /* 本机策略撤销 dispatch 后首次解码被拒绝，不缓存候选。 */ () => f.decode(f.opening),
+      'provider_scope_forbidden'
     )
     const second = clone(f.row)
     second.binding.call_id = 'call2'
     f.rows.set('call2', second)
-    f.state.classifications = classifications
+    f.policies.local.grants[0]!.actions = grants
     const opening = {
       ...f.opening,
       payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }
@@ -362,163 +343,21 @@ test(
 )
 
 test(
-  'RPC 原秘密许可在当前分类降级后仍要求 custody 可用，证据原文不得旁路',
-  /* 先取得秘密 RPC 许可再降低当前分类，验证读取及证据原文仍受当前 custody 状态约束。 */ () => {
+  '证据原文只在读取者就是派发主体时保留，其余只留元数据',
+  /* 验证保留门禁与读取授权同源：主体不符、策略撤销时证据计划只含元数据。 */ () => {
     const f = fixture()
-    const ordinary = clone(f.state.classifications[0]!)
-    f.state.classifications = [
-      {
-        ...ordinary,
-        result: {
-          ...ordinary.result,
-          boundary: 'protected_secret',
-          sensitivity: 'credential',
-          delivery: 'custody'
-        }
-      }
-    ]
-    f.state.custody = true
-    f.state.channel = 'custody'
-    f.decode(f.opening)
-    f.state.classifications = [ordinary]
-    f.state.custody = false
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 secret_boundary_required 拒绝（秘密边界尚未满足）。 */ () =>
-        f.adapter.checkResult(f.binding),
-      'secret_boundary_required'
-    )
-    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
-    f.state.custody = true
-    assert.doesNotThrow(
-      /* 恢复当前秘密 custody 后读取 RPC，证明原秘密许可仍按当前边界重新授权。 */ () => f.adapter.checkResult(f.binding)
-    )
-    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload')
-    f.state.channel = 'ordinary'
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 secret_boundary_required 拒绝（秘密边界尚未满足）。 */ () =>
-        f.adapter.checkResult(f.binding),
-      'secret_boundary_required'
-    )
-  }
-)
-
-test(
-  'retention:none 可读取但证据计划只保留元数据，普通/秘密 result 与 error 均不复活原文',
-  /* 遍历普通和秘密结果及错误响应，验证禁存策略允许当前读取但证据计划始终不携带原文。 */ () => {
-    for (const secret of [false, true]) {
-      for (const error of [false, true]) {
-        const f = fixture()
-        const row = f.state.classifications[0]!
-        f.state.classifications = [
-          {
-            ...row,
-            result: {
-              ...row.result,
-              retention: 'none',
-              ...(secret
-                ? ({
-                    boundary: 'protected_secret',
-                    sensitivity: 'credential',
-                    delivery: 'custody'
-                  } as const)
-                : {})
-            }
-          }
-        ]
-        f.state.custody = secret
-        f.state.channel = secret ? 'custody' : 'ordinary'
-        f.decode(f.opening)
-        const response = error
-          ? f.response
-          : {
-              ...f.response,
-              payload: {
-                ...f.response.payload,
-                native_response: {
-                  id: 'native_1',
-                  result: { synthetic: 'SYNTHETIC_PRIVATE_CONTENT' }
-                }
-              }
-            }
-        f.decode(response, 'connector_to_gateway')
-        assert.doesNotThrow(
-          /* 在当前读取授权完备时允许结果访问，禁存策略另由证据计划阻止原文落盘。 */ () =>
-            f.adapter.checkResult(f.binding)
-        )
-        const anchor = clone(f.backend.responseAnchor!(f.binding))
-        const plan = f.adapter.planEvidence(response)
-        assert.equal(plan.content.delivery, 'metadata_only')
-        assert.equal(plan.content.native_response, undefined)
-        assert.equal(Object.hasOwn(plan.content, 'native_response'), false)
-        assert.equal(Object.hasOwn(plan.content, 'result_id'), false)
-        assert.equal(plan.evidence.response_hash, hash(boundedJson(response.payload.native_response)))
-        assert.equal(plan.evidence.response_bytes, Buffer.byteLength(boundedJson(response.payload.native_response)))
-        assert.equal(plan.evidence.category, error ? 'error' : 'result')
-        assert.equal(plan.content.expires_at, anchor!.content_expires_at)
-        assert.equal(plan.dispatch, false)
-        assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor)
-      }
-    }
-  }
-)
-
-test(
-  '证据原文保留同时服从原 permit 和当前分类，当前 custody 与读取授权仍独立生效',
-  /* 在原许可与当前分类之间切换保留策略，验证证据原文必须同时满足两者以及当前读取权限。 */ () => {
-    for (const initialRetention of ['caller_policy', 'none'] as const) {
-      const f = fixture()
-      const row = f.state.classifications[0]!
-      f.state.classifications = [{ ...row, result: { ...row.result, retention: initialRetention } }]
-      f.decode(f.opening)
-      const current = initialRetention === 'none' ? 'caller_policy' : 'none'
-      f.state.classifications = [{ ...row, result: { ...row.result, retention: current } }]
-      assert.doesNotThrow(
-        /* 可读取仍不足以保留：派发时或当前的任一禁存分类必须被独立门禁拒绝。 */ () =>
-          f.adapter.checkResult(f.binding, f.response.payload.native_response)
-      )
-      rejects(
-        /* 新保留 port 使用同一个原 permit，当前分类放宽也不能复活派发时禁存原文。 */ () =>
-          f.adapter.checkResultRetention(f.binding, f.response.payload.native_response),
-        'content_retention_forbidden'
-      )
-      assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
-    }
-    const f = fixture()
-    const row = f.state.classifications[0]!
-    f.state.classifications = [
-      {
-        ...row,
-        result: {
-          ...row.result,
-          boundary: 'protected_secret',
-          sensitivity: 'credential',
-          delivery: 'custody'
-        }
-      }
-    ]
-    f.state.channel = 'custody'
-    f.state.custody = true
     f.decode(f.opening)
     assert.doesNotThrow(
-      /* 原 permit 和当前分类均允许保留，且当前秘密通道独立满足时才通过。 */ () =>
+      /* 原主体、有效来源和双端读权限下允许保留。 */ () =>
         f.adapter.checkResultRetention(f.binding, f.response.payload.native_response)
     )
     assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'payload')
-    f.state.channel = 'ordinary'
-    rejects(
-      /* 保留 port 不能跳过当前秘密读取通道。 */ () =>
-        f.adapter.checkResultRetention(f.binding, f.response.payload.native_response),
-      'secret_boundary_required'
-    )
-    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
-    f.state.channel = 'custody'
     f.state.reader = 'other'
-    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
-    f.state.reader = 'synthetic'
-    f.state.trustedClassification = false
-    assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
-    f.state.trustedClassification = true
-    f.state.classifications = []
+    rejects(
+      /* 保留 port 不能借用其它读取者身份。 */ () =>
+        f.adapter.checkResultRetention(f.binding, f.response.payload.native_response),
+      'forbidden'
+    )
     assert.equal(f.adapter.planEvidence(f.response).content.delivery, 'metadata_only')
   }
 )
@@ -603,14 +442,6 @@ test(
       'forbidden'
     )
     f.state.reader = 'synthetic'
-    const classifications = f.state.classifications
-    f.state.classifications = []
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 classification_unavailable 拒绝（可信分类不可用）。 */ () =>
-        f.adapter.checkResult(f.binding),
-      'classification_unavailable'
-    )
-    f.state.classifications = classifications
     f.policies.local.grants[0]!.actions = ['dispatch']
     rejects(
       /* 检查所选响应或事件的当前读取权限，要求以 forbidden 拒绝（当前读取未授权）。 */ () =>
@@ -623,35 +454,22 @@ test(
 test(
   '真实 generic 只能标 incomplete；raw 仍要求精确 grant、完整分类与当前双方权限',
   /* 对通用参数 schema 分别测试 strict 和 raw，证明 raw 仍需精确 grant、完整分类及当前双端权限。 */ () => {
-    const strict = fixture('ping')
+    const strict = fixture('workspace.list')
     rejects(
       /* 按当前消息方向执行完整解码校验，要求以 parameter_schema_incomplete 拒绝。 */ () =>
         strict.decode(strict.opening),
       'parameter_schema_incomplete'
     )
-    const raw = fixture('ping', true)
+    const raw = fixture('workspace.list', true)
     assert.deepEqual(raw.decode(raw.opening), raw.opening)
     raw.state.grant = false
     rejects(
       /* 按当前消息方向执行完整解码校验，要求以 raw_contract_forbidden 拒绝。 */ () => raw.decode(raw.opening),
-      'raw_contract_forbidden'
+      'raw_contract_not_authorized'
     )
-    raw.state.grant = true
-    raw.state.classifications = []
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 classification_unavailable 拒绝（可信分类不可用）。 */ () =>
-        raw.decode(raw.opening),
-      'classification_unavailable'
-    )
-    raw.state.classifications = clone(
-      auth(request(view(), { id: 'id', method: 'ping', params: {} })).classifications
-    ) as SafetyClassification[]
-    raw.state.trustedClassification = false
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 classification_unavailable 拒绝（可信分类不可用）。 */ () =>
-        raw.decode(raw.opening),
-      'classification_unavailable'
-    )
+    // 表外方法即使持有 raw grant 也不可派发。
+    const unlisted = fixture('ping', true)
+    rejects(/* 方法表之外的方法一律拒绝。 */ () => unlisted.decode(unlisted.opening), 'method_not_listed')
   }
 )
 

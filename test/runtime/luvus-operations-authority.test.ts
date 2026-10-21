@@ -271,8 +271,6 @@ test(
       methods: ['workspace.rename'],
       expires_at: 200
     })
-    assert.equal(auth.confirmation_verified, false)
-    assert.equal(auth.custody_available, false)
   }
 )
 
@@ -310,15 +308,6 @@ test(
     assert.equal(auth.raw_requested, false)
     assert.equal(Object.hasOwn(auth, 'raw_grant'), false)
     assert.equal(dispatch(input, false).ok, true)
-    const classification = auth.classifications[0] as { revision: string; effect: string; native: unknown }
-    assert.equal(classification.revision, MANAGED_LUVUS_CLASSIFICATION)
-    assert.equal(classification.effect, 'read')
-    assert.deepEqual(classification.native, {
-      method: 'pane.list',
-      access: 'read',
-      scope: 'workspace',
-      idempotent: true
-    })
   }
 )
 

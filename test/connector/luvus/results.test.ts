@@ -11,7 +11,6 @@ import type { Principal } from '../../../src/router.js'
 import { commitLuvusResponse } from '../../../src/integration/persistence.js'
 import { createLuvusResultAccess } from '../../../src/connector/luvus/index.js'
 import type { LuvusOriginalRead } from '../../../src/connector/luvus/index.js'
-import type { SafetyClassification } from '../../../src/native-contract/index.js'
 import { management, responseFrame } from '../../storage/helpers.js'
 import { nativeBackend } from '../../storage/native-backend.js'
 import { clone } from '../../native-contract/helpers.js'
@@ -231,22 +230,6 @@ for (const side of ['caller', 'local'] as const) {
 }
 
 test(
-  'current native classification is mandatory even when Router policies still allow reading',
-  /* 句柄签发后撤销独立分类可信性，不能把存储成功或旧派发许可当作当前秘密边界许可。 */ (t) => {
-    const f = fixture()
-    t.after(/* 释放本用例的 Wire、只读观察连接和 SQLite。 */ () => f.close())
-    const meta = f.savedHandle()
-    const authority = f.native.backend.authority
-    f.native.backend.authority = /* 返回实际授权上下文并撤销分类来源认证。 */ (...args) => ({
-      ...authority(...args),
-      classification_source_verified: false
-    })
-    assert.throws(/* 当前分类不可信时，当前 Router ACL 允许也必须拒绝正文页。 */ () => f.access.read(meta.result_id))
-    assert.equal(f.handles(), 1)
-  }
-)
-
-test(
   'background expiry removes actual handles and content without restoring original read access',
   /* 调用 Store 的真实后台清理，分别核对句柄 TTL 和内容 TTL 到期后的持久状态。 */ (t) => {
     const f = fixture()
@@ -296,139 +279,6 @@ test(
     assert.equal(f.native.state.sends, 1)
   }
 )
-
-test(
-  'current retention none permits existing-handle read while the actual original retention gate blocks open',
-  /* 只撤销当前保留分类，真实读取仍可通过；open 必须由同一原 permit 的真实保留门禁拒绝。 */ (t) => {
-    const f = fixture()
-    t.after(/* 释放本用例的 Wire、只读观察连接和 SQLite。 */ () => f.close())
-    const meta = f.savedHandle()
-    const authority = f.native.backend.authority
-    f.native.backend.authority = /* 保持身份、读取 grant 和原许可，仅撤销当前继续保留的分类许可。 */ (...args) => {
-      const current = clone(authority(...args))
-      return {
-        ...current,
-        classifications: (current.classifications as SafetyClassification[]).map(
-          /* 保留同一分类身份和读取边界，仅把当前继续保留条件改为禁止。 */ (classification) => ({
-            ...classification,
-            result: { ...classification.result, retention: 'none' as const }
-          })
-        )
-      }
-    }
-    assert.equal(f.access.read(meta.result_id, 0, 7).expires, meta.expires)
-    assert.throws(
-      /* 独立保留门禁确实运行，不能以 checkResult 成功放行 open。 */ () => f.access.open(f.call.call_id),
-      /content_retention_forbidden/
-    )
-    assert.equal(f.handles(), 1)
-    assert.equal(f.native.state.sends, 1)
-  }
-)
-
-for (const mode of ['promise', 'boolean'] as const) {
-  test(
-    `invalid ${mode} retention gate cannot create a result handle`,
-    /* 仅为负面回归注入无效保留接口，不提供模拟成功的许可或原 permit 替身。 */ async (t) => {
-      const f = fixture()
-      t.after(/* 释放本用例的 Wire、只读观察连接和 SQLite。 */ () => f.close())
-      f.context({
-        binding: f.binding,
-        wire: {
-          ...f.native.adapter,
-          checkResultRetention: /* 返回被拒绝的异步值或布尔值，均不是同步完成的独立保留许可。 */ () =>
-            mode === 'promise' ? Promise.reject(new Error('synthetic-private-token')) : false
-        }
-      })
-      assert.throws(
-        /* 无效保留接口必须在 Store.saveResult 之前终止。 */ () => f.access.open(f.call.call_id),
-        /result_port_invalid/
-      )
-      await Promise.resolve()
-      assert.equal(f.handles(), 0)
-    }
-  )
-}
-
-for (const change of ['caller', 'local', 'identity', 'discard'] as const) {
-  test(
-    `result delivery rechecks ${change} changes made by a synchronous host gate`,
-    /* 在原生检查回调内改变可信事实，要求交付前最后一次检查不能使用过时快照。 */ (t) => {
-      const f = fixture()
-      t.after(/* 释放本用例的 Wire、只读观察连接和 SQLite。 */ () => f.close())
-      const meta = f.savedHandle()
-      f.context({
-        binding: f.binding,
-        wire: {
-          ...f.native.adapter,
-          checkResult: /* 先运行真实原生门禁，再同步撤销一个当前读取条件。 */ (binding, response) => {
-            f.native.adapter.checkResult(binding, response)
-            if (change === 'caller') {
-              f.principal.policy.grants = []
-            } else if (change === 'local') {
-              f.local.grants = []
-            } else if (change === 'identity') {
-              f.principal.id = 'other'
-            } else {
-              f.store.discardResponse('synthetic', f.call.call_id)
-            }
-          }
-        }
-      })
-      assert.throws(
-        /* 已失效的当前事实不能在同步回调返回后继续交付已准备好的正文页。 */ () => f.access.read(meta.result_id)
-      )
-      assert.equal(f.native.state.sends, 1)
-    }
-  )
-}
-
-for (const change of ['caller', 'identity', 'permission'] as const) {
-  test(
-    `local policy callback cannot change ${change} during result authorization`,
-    /* 在每次本地策略读取的返回边界改变主体事实，检验最后一道 ACL 与专门删除权限。 */ (t) => {
-      const f = fixture()
-      t.after(/* 释放本用例的 Wire、只读观察连接和 SQLite。 */ () => f.close())
-      const meta = f.savedHandle()
-      for (const trigger of [1, 2, 3, 4]) {
-        f.principal.id = 'synthetic'
-        f.principal.policy = clone(f.native.backend.policies('synthetic').caller)
-        f.principal.permissions!.discard_response = true
-        let reads = 0
-        const access = createLuvusResultAccess({
-          ...f.ports,
-          localPolicies: /* 在指定一次 Router 回调返回前同步撤销主体事实。 */ () => {
-            if (++reads === trigger) {
-              if (change === 'caller') {
-                f.principal.policy.grants = []
-              } else if (change === 'identity') {
-                f.principal.id = 'other'
-              } else {
-                f.principal.permissions!.discard_response = false
-              }
-            }
-            return f.local
-          }
-        })
-        if (change === 'permission') {
-          if (trigger > 2) {
-            continue
-          }
-          assert.throws(
-            /* 两道删除前策略回调均不能使已经撤销的删除权限继续生效。 */ () => access.discard(f.call.call_id)
-          )
-          assert.notEqual(f.store.call('synthetic', f.call.call_id).response, null)
-        } else {
-          assert.throws(
-            /* 四道读取策略回调任意一次改变身份或 caller grant 都必须拒绝。 */ () => access.read(meta.result_id, 0, 32)
-          )
-        }
-        assert.equal(f.handles(), 1)
-      }
-      assert.equal(f.native.state.sends, 1)
-    }
-  )
-}
 
 test(
   'discard in final local policy callback blocks the already prepared result page',
@@ -491,15 +341,7 @@ for (const change of ['handle_delete', 'handle_expiry', 'content_expiry'] as con
   )
 }
 
-for (const change of [
-  'wire_close',
-  'wire_release',
-  'source',
-  'native_caller',
-  'native_local',
-  'classification',
-  'context'
-] as const) {
+for (const change of ['wire_close', 'wire_release', 'source', 'native_caller', 'native_local', 'context'] as const) {
   test(
     `final local policy ${change} invalidation requires a fresh original Wire gate`,
     /* 保持 Store 正文、句柄和结果 Router ACL 有效，仅在最后策略回调失效原生读取事实。 */ (t) => {
@@ -519,12 +361,6 @@ for (const change of [
               f.native.state.sourceVerified = false
             } else if (change === 'context') {
               f.state.available = false
-            } else if (change === 'classification') {
-              const authority = f.native.backend.authority
-              f.native.backend.authority = /* 仅撤销实际 Native 后端当前分类的来源可信性。 */ (...args) => ({
-                ...authority(...args),
-                classification_source_verified: false
-              })
             } else {
               const policies = f.native.backend.policies
               f.native.backend.policies = /* 仅撤销原生一端的读取权，结果 Router 使用原先独立策略。 */ (...args) => {
@@ -538,7 +374,7 @@ for (const change of [
         }
       })
       assert.throws(
-        /* 实际页仍在也不能取代已经失效的原 Wire、来源、分类或当前 native read grant。 */ () =>
+        /* 实际页仍在也不能取代已经失效的原 Wire、来源或当前 native read grant。 */ () =>
           access.read(meta.result_id, 0, 32)
       )
       assert.equal(reads, 4)

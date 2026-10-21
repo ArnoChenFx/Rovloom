@@ -6,7 +6,7 @@ import type { Socket } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compileBundle } from '../../../src/native-contract/index.js'
-import type { CompiledContract, NativeBinding, SafetyClassification } from '../../../src/native-contract/index.js'
+import type { CompiledContract, NativeBinding } from '../../../src/native-contract/index.js'
 import type { NativeWireBackend, TrustedAttempt } from '../../../src/integration/luvus-wire.js'
 import { contractRef } from '../../../src/wire/index.js'
 import type {
@@ -124,8 +124,6 @@ export async function fixture(
     mode: 'strict',
     native_request: { method, params }
   }
-  const classification = clone(initial.classifications[0]!) as SafetyClassification
-  const classifications = [{ ...classification, contract: installedIdentity }]
   const native: NativeBinding = {
     ...candidate.binding,
     contract: installedIdentity,
@@ -203,10 +201,7 @@ export async function fixture(
       } = initial
       return {
         ...rest,
-        classifications,
         owner: false,
-        confirmation_verified: false,
-        custody_available: false,
         raw_requested: false
       }
     },

@@ -141,7 +141,7 @@ test(
   'caller id/auth and generic strict methods fail before local transport',
   /* 验证 caller 注入认证字段及未获严格许可的方法在 transport 启动前被拒绝。 */ async (t) => {
     const f = await fixture()
-    const generic = await fixture('ipc', 'ping')
+    const generic = await fixture('ipc', 'workspace.list')
     t.after(
       /* 顺序关闭本用例创建的两个 fixture，释放各自连接和私有目录。 */ async () => {
         await f.close()
@@ -546,7 +546,7 @@ test(
       () => catalog.list({ query: 'terminal', cursor: first.next_cursor! }),
       failure('invalid_catalog_cursor')
     )
-    assert.equal(catalog.describe('task.add').classification_status, 'not_evaluated')
+    assert.equal(catalog.describe('task.add').method, 'task.add')
     current.binding = { ...current.binding, provider_id: 'other' }
     assert.throws(
       /* 在 provider 来源改变后读取目录，断言能力视图立即失效。 */ () => catalog.list(),

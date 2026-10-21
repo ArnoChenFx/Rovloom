@@ -797,7 +797,7 @@ test(
                 evidenceContext(s, b),
                 s.responseAnchor(b),
                 s.clock(),
-                { classification_status: 'trusted_complete', retain_content_authorized: true }
+                { retain_content_authorized: true }
               )
             }
           )

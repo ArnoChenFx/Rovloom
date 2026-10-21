@@ -11,7 +11,6 @@ import type {
   Limits,
   MethodDescriptor,
   RawRequestCandidate,
-  SafetyClassification,
   NativeBinding,
   ResponseOnlyContext
 } from './types.js'
@@ -42,8 +41,6 @@ export type CandidateData = {
 export type PermitData = {
   candidate: DispatchCandidate
   principal: string
-  classification: SafetyClassification
-  supportedActions: readonly string[]
 }
 // WeakMap 防止从 JSON 伪造 handle；来源仍按各 handle 的 contract/binding 核对。
 export const contracts = new WeakMap<CompiledContract, ContractData>()

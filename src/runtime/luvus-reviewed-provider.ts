@@ -1,26 +1,12 @@
 // 为已建立来源的 Luvus 实例复用三项具体普通 RPC 分类，来源证明由各自生产或开发包装器负责。
 import { isDeepStrictEqual } from 'node:util'
-import type { NativeMethodContract, SafetyClassification } from '../native-contract/index.js'
 import { LuvusAdapterError } from '../connector/luvus/index.js'
 import type { OwnedLuvusInstance } from './native-instance.js'
 import type { RuntimeProvider } from './types.js'
 import { id } from '../wire/index.js'
 
-// 此固定清单已按 0.14.3 的具体普通 RPC 审核；其它方法、Host、终端、token 和 raw 均无分类。
-const reviewed: Readonly<Record<string, { native: NativeMethodContract; effect: 'read' | 'execute' }>> = Object.freeze({
-  'automation.list': {
-    native: { method: 'automation.list', access: 'read', scope: 'orchestration', idempotent: true },
-    effect: 'read'
-  },
-  'task.add': {
-    native: { method: 'task.add', access: 'write', scope: 'orchestration', idempotent: false },
-    effect: 'execute'
-  },
-  'task.update': {
-    native: { method: 'task.update', access: 'write', scope: 'orchestration', idempotent: false },
-    effect: 'execute'
-  }
-})
+// 此固定清单已按 0.14.3 的具体普通 RPC 审核；其余方法、Host、终端、token 和 raw 均不在静态方法表或本 provider 内。
+const reviewed: ReadonlySet<string> = new Set(['automation.list', 'task.add', 'task.update'])
 
 /** 仅共用已接入分类与实际安装身份检查；provider 注册、来源证明和 caller/local grants 继续独立完成。 */
 export function createReviewedLuvusProvider(
@@ -55,47 +41,18 @@ export function createReviewedLuvusProvider(
     contract,
     /** 每次从 opaque 受控实例重新核对来源，不把启动成功缓存为永久授权。 */
     source: (attempt) => instance.source(attempt),
-    /** 具体方法须同时属于手工清单和原始签发范围；未知方法无法借原生 scope 获得许可。 */
+    /** 具体方法须同时属于已审清单和原始签发范围；未知方法无法借原生 scope 获得许可。 */
     authority(attempt, native) {
       const source = instance.source(attempt.binding)
-      const entry = Object.hasOwn(reviewed, attempt.method) ? reviewed[attempt.method] : undefined
       if (
         attempt.mode !== 'strict' ||
-        !entry ||
+        !reviewed.has(attempt.method) ||
         !instance.issuance.methods.includes(attempt.method) ||
         !isDeepStrictEqual(source.binding, native)
       ) {
         throw new LuvusAdapterError(expected.error)
       }
-      const classification: SafetyClassification = {
-        method: attempt.method,
-        revision: expected.classification,
-        contract: contract.compiled.identity,
-        native: { ...entry.native },
-        transport: 'single_request_rpc',
-        effect: entry.effect,
-        requires_owner: false,
-        management_permission: null,
-        confirmation_required: false,
-        result: {
-          boundary: 'ordinary',
-          sensitivity: 'potentially_sensitive',
-          read_authorization: 'required',
-          retention: 'caller_policy',
-          delivery: 'ordinary'
-        }
-      }
-      return {
-        classification_source_verified: true,
-        classifications: [classification],
-        permissions: [],
-        owner: false,
-        confirmation_verified: false,
-        custody_available: false,
-        result_channel: 'ordinary',
-        raw_requested: false,
-        supported_transports: ['single_request_rpc']
-      }
+      return { owner: false, raw_requested: false }
     },
     /** 原生进程、endpoint 与有限签发均须当前仍有效。 */
     ready: () => instance.ready()

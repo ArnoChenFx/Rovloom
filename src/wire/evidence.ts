@@ -1,12 +1,5 @@
 // 根据独立调用锚点和当前内容权限规划响应证据及原文保留意图。
-import type {
-  AttemptBinding,
-  AuthenticatedEnvelope,
-  CodecContext,
-  JsonObject,
-  ValidationMode,
-  RequestGate
-} from './types.js'
+import type { AttemptBinding, AuthenticatedEnvelope, CodecContext, JsonObject, ValidationMode } from './types.js'
 import { assertBinding, decodeWireFrame } from './codec.js'
 import { providerScopeAllowed } from './provider.js'
 import { boundedJson, uint, hash, fail, LIMITS, sha } from './validation.js'
@@ -41,9 +34,8 @@ export type ResponseEvidencePlan = {
   }
 }
 
-// 当前可信分类与保存权限，不能取自持久化旧 ACL、response 内容或 caller 自报。
+// 当前保存权限，不能取自持久化旧 ACL、response 内容或 caller 自报。
 export type ResponseContentPolicy = {
-  classification_status: RequestGate['classification_status']
   retain_content_authorized: boolean
 }
 
@@ -112,8 +104,7 @@ export function planResponseEvidence(
   const retain =
     status === 'available' &&
     !duplicate &&
-    policy?.classification_status === 'trusted_complete' &&
-    policy.retain_content_authorized === true &&
+    policy?.retain_content_authorized === true &&
     providerScopeAllowed(binding, anchor.method, 'read', context.policies)
   return {
     action: duplicate ? 'duplicate' : 'append',

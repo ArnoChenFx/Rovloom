@@ -9,7 +9,6 @@ import type {
   AuthenticatedEnvelope,
   CodecContext,
   NativePayloadValidator,
-  RequestGate,
   VersionOffer,
   ValidationMode,
   ContractSource,
@@ -40,20 +39,9 @@ for (const url of Object.keys(bundle.documents)) {
 }
 export const nativeRequest = ajv.getSchema(bundle.request.$id)!
 export const nativeResponse = ajv.getSchema(bundle.response.$id)!
-// 这是固定 P0 schema 的测试注入器，不是生产安全分类表或原生模块的替代品。
-export const allowedGate: RequestGate = {
-  classification_status: 'trusted_complete',
-  schema_status: 'complete',
-  transport_status: 'supported',
-  authorized: true,
-  secret_result_authorized: true,
-  raw_contract_authorized: false
-}
-// 创建固定 P0 schema 的测试校验器，并注入指定的测试门禁结果。
-export function fixtureValidator(gate: RequestGate = allowedGate): NativePayloadValidator {
+// 创建固定 P0 schema 的测试校验器；方法表与授权由原生模块测试覆盖。
+export function fixtureValidator(): NativePayloadValidator {
   return {
-    // 返回独立的测试门禁副本，避免外部修改原配置。
-    requestGate: () => ({ ...gate }),
     // 使用离线请求根 schema 校验完整原生请求。
     validateRequest(r) {
       if (!nativeRequest(r)) {

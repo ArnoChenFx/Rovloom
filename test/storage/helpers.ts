@@ -109,7 +109,6 @@ export function responseFrame(
     binding,
     /* 在提交事务中按当前锚点和认证上下文规划响应证据，保留真实校验路径。 */ () =>
       planResponseEvidence(frame, evidenceContext(store, binding), store.responseAnchor(binding), now, {
-        classification_status: 'trusted_complete',
         retain_content_authorized: retain
       })
   )

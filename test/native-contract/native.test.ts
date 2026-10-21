@@ -1,7 +1,12 @@
 // 覆盖原生契约主路径、P0 离线重放、参数覆盖状态及 JSON 安全边界。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkDispatch, checkResultBoundary, parseNativeJson } from '../../src/native-contract/index.js'
+import {
+  checkDispatch,
+  checkResultBoundary,
+  LUVUS_TABLE_METHODS,
+  parseNativeJson
+} from '../../src/native-contract/index.js'
 import { auth, clone, json, raw, register, rejects, request, sourceFor, unwrap, validator, view } from './helpers.js'
 
 test(
@@ -17,48 +22,30 @@ test(
       ).length,
       144
     )
+    let listed = 0
     for (const entry of session.methods.filter(
       /* 枚举仅有通用参数约束的方法以逐一验证两种执行模式。 */ (m) => m.schema_status === 'generic_params_only'
     )) {
-      const invoke = entry.method === 'module.action.invoke'
       const checked = request(session, {
         id: 'all-generic',
         method: entry.method,
-        params: { unannounced: ['synthetic'], ...(invoke ? { action: 'synthetic' } : {}) }
+        params: { unannounced: ['synthetic'] }
       })
       assert.equal(checked.validation, 'generic')
-      let authorization = auth(checked)
-      if (invoke) {
-        authorization = {
-          ...authorization,
-          classifications: [
-            {
-              ...(authorization.classifications[0] as object),
-              sub_action: { pointer: '/params/action', value: 'synthetic' }
-            }
-          ]
-        }
+      if (!LUVUS_TABLE_METHODS.includes(entry.method)) {
+        // 表外方法不能靠 raw 获得许可。
+        rejects(checkDispatch(checked, auth(checked)), 'method_not_listed')
+        rejects(checkDispatch(checked, raw(checked)), 'method_not_listed')
+        continue
       }
-      // admin/凭据 gate 独立满足后，严格路径仍仅因参数缺口拒绝。
-      const safe = {
-        ...authorization,
-        permissions: ['admin-test'],
-        custody_available: true,
-        result_channel: 'custody' as const
-      }
-      rejects(checkDispatch(checked, safe), 'parameter_schema_incomplete')
-      const allowed = unwrap(
-        checkDispatch(checked, {
-          ...raw(checked),
-          classifications: authorization.classifications,
-          permissions: ['admin-test'],
-          custody_available: true,
-          result_channel: 'custody'
-        })
-      )
+      // 表内方法在严格路径仍仅因参数缺口拒绝；显式 raw 保留 generic 覆盖状态。
+      rejects(checkDispatch(checked, auth(checked)), 'parameter_schema_incomplete')
+      const allowed = unwrap(checkDispatch(checked, raw(checked)))
       assert.equal(allowed.validation, 'generic')
       assert.equal(allowed.mode, 'raw_contract')
+      listed++
     }
+    assert(listed > 0)
   }
 )
 
@@ -201,19 +188,12 @@ test(
       principal_id: 'synthetic',
       caller_policy_allowed: true,
       local_policy_allowed: true,
-      classification_source_verified: true,
-      classification_revision: checked.binding.classification_revision,
-      channel: 'ordinary' as const,
       content_status: 'available' as const
     }
     unwrap(checkResultBoundary(permit, resultContext))
     rejects(checkResultBoundary(permit, { ...resultContext, caller_policy_allowed: false }), 'forbidden')
     rejects(checkResultBoundary(permit, { ...resultContext, content_status: 'discarded' }), 'content_unavailable')
-    rejects(checkResultBoundary(permit, { ...resultContext, classification_revision: 'changed' }), 'capability_stale')
-    rejects(
-      checkResultBoundary(permit, { ...resultContext, classification_source_verified: false }),
-      'safety_classification_untrusted'
-    )
+    rejects(checkResultBoundary(permit, { ...resultContext, principal_id: 'other' }), 'forbidden')
     rejects(validator.checkResponse(clone(permit), error, sourceFor(checked.binding)), 'invalid_permit_handle')
   }
 )

@@ -106,7 +106,7 @@ schema 是可独立交付的固定资料，Gateway 不运行 Luvus、读取 Conn
 ```
 
 `binding` 必须与唯一 Store 已注册的 canonical binding 完全一致，设备广告不能注册或重绑。
-远端配置固定版本/hash/adapter/classification，Gateway 启动时经原 2 秒 Bun Worker
+远端配置固定版本/hash/adapter/classification（标识修订，不再有逐调用分类快照），Gateway 启动时经原 2 秒 Bun Worker
 编译固定原字节，监听器可以先启动，provider 保持 `ready=false`。`runtime_generation`
 不由静态 pin 猜测；它与原 capabilities envelope 由 Connector 对真实受控实例实测后，
 通过当前认证 WSS 的 `provider_snapshot` 交付。
@@ -129,7 +129,7 @@ binding，断连、撤权、重绑或关闭即使旧来源失效；新 epoch 须
 
 `raw_grant` 是额外的受保护授权，可省略。缺省不授予 generic 方法的 raw 权限；严格
 schema 方法仍按正常 ACL 使用。raw 授权只覆盖明确 principal 和方法，实际 permit 仍绑定
-当前完整 Target、契约、能力、分类、双方政策、实际 epoch 和原业务 deadline。
+当前完整 Target、契约、能力、静态方法表、双方政策、实际 epoch 和原业务 deadline。
 此授权不建立 `LocalOwnerLuvusInstance`、发行原生 token 或把 generic 参数称为完整 schema。
 
 同机分目录真实 WSS 回归可在现有 `verify-luvus-operations.mjs` 加

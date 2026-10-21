@@ -72,15 +72,6 @@ export type ProviderAction = 'dispatch' | 'read' | 'cancel'
 export type ProviderGrant = { target: V2Target; methods: string[]; actions: ProviderAction[] }
 export type ProviderPolicy = { revision: string; grants: ProviderGrant[] }
 export type ProviderPolicies = { caller: ProviderPolicy; local: ProviderPolicy }
-// 由原生模块的多轴可信 gate 生成，不从 wire/caller 自报重建分类。
-export type RequestGate = {
-  classification_status: 'trusted_complete' | 'missing' | 'unknown' | 'invalid' | 'untrusted'
-  schema_status: 'complete' | 'generic' | 'unavailable'
-  transport_status: 'supported' | 'unsupported'
-  authorized: boolean
-  secret_result_authorized: boolean
-  raw_contract_authorized: boolean
-}
 export type NativeValidationContext = {
   binding: AttemptBinding
   mode: ValidationMode
@@ -91,7 +82,6 @@ export type NativeValidationContext = {
 }
 export type ResolvedAttempt = NativeValidationContext
 export interface NativePayloadValidator {
-  requestGate(request: JsonObject, context: NativeValidationContext): RequestGate
   validateRequest(request: JsonObject, context: NativeValidationContext): void
   validateResponse(response: JsonObject, context: NativeValidationContext): void
 }

@@ -1,5 +1,6 @@
 /** 固定 Luvus 0.14.3 的窗口、pane 与 Agent 普通操作及参数子集；不发行凭据或把 generic schema 冒称完整。 */
 import type { NativeMethodContract } from '../native-contract/index.js'
+import { LUVUS_OPERATION_READ, LUVUS_OPERATION_WRITE, luvusMethod } from '../native-contract/methods.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import { boundedJson, fields, object } from '../wire/index.js'
 
@@ -8,58 +9,17 @@ export type LuvusOperationDescriptor = Readonly<{
   effect: 'read' | 'execute'
   native_parameter_schema: 'conditional_branch' | 'generic_params_only'
 }>
-const readMethods = {
-  read: ['session.snapshot'],
-  workspace: [
-    'workspace.list',
-    'workspace.get',
-    'tab.list',
-    'tab.get',
-    'pane.list',
-    'pane.get',
-    'pane.current',
-    'pane.status',
-    'pane.read'
-  ],
-  agent: ['agent.list', 'agent.get', 'agent.explain', 'agent.read', 'agent.sessions', 'agent.wait']
-} as const
-const writeMethods = {
-  workspace: [
-    'workspace.new',
-    'workspace.open',
-    'workspace.focus',
-    'workspace.rename',
-    'workspace.close',
-    'tab.new',
-    'tab.focus',
-    'tab.rename',
-    'tab.close',
-    'pane.split',
-    'pane.focus',
-    'pane.rename',
-    'pane.close',
-    'pane.run'
-  ],
-  agent: ['agent.start', 'agent.prompt', 'agent.send', 'agent.keys', 'agent.resume']
-} as const
 const conditional = new Set(['pane.list', 'agent.prompt', 'agent.send', 'agent.wait', 'agent.keys'])
 const operations = new Map<string, LuvusOperationDescriptor>()
-for (const [access, groups] of [
-  ['read', readMethods],
-  ['write', writeMethods]
-] as const) {
-  for (const [scope, methods] of Object.entries(groups)) {
+for (const groups of [LUVUS_OPERATION_READ, LUVUS_OPERATION_WRITE]) {
+  for (const methods of Object.values(groups)) {
     for (const method of methods) {
+      const native = luvusMethod(method)!
       operations.set(
         method,
         Object.freeze({
-          native: Object.freeze({
-            method,
-            access,
-            scope: scope as NativeMethodContract['scope'],
-            idempotent: access === 'read'
-          }),
-          effect: access === 'read' ? 'read' : 'execute',
+          native,
+          effect: native.access === 'read' ? 'read' : 'execute',
           native_parameter_schema: conditional.has(method) ? 'conditional_branch' : 'generic_params_only'
         })
       )
