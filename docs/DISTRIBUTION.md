@@ -1,6 +1,6 @@
 # 单文件构建与 tag 发行
 
-Rovloom 使用固定 **Bun 1.4.3** 的 `bun build --compile` 分发单文件可执行程序。
+Rovloom 使用构建时的 **Bun**（CI 默认最新稳定版，实际版本记录在 manifest 的 `bun` 字段）的 `bun build --compile` 分发单文件可执行程序。
 源码开发的模块构建仍用 `bun run build`。发行构建直接使用 `src/cli/main.ts`，
 不会生成替代 CLI 或装配第二套 Gateway/Connector。
 当前真实入口已接入；设施探针通过不能证明产品角色可用。
@@ -85,11 +85,10 @@ Linux 真实产品打包 smoke 通过后才启动六项矩阵；每项都重新�
 | windows | x64 | null | bun-windows-x64 | windows-2025 |
 | windows | arm64 | null | bun-windows-arm64 | windows-11-arm |
 
-目标依据固定版本的 [Bun CompileTarget](https://github.com/oven-sh/bun/blob/bun-v1.4.3/packages/bun-types/bun.d.ts)、
+目标依据 [Bun CompileTarget](https://github.com/oven-sh/bun/blob/main/packages/bun-types/bun.d.ts)、
 [官方 executables 文档](https://bun.com/docs/bundler/executables)和
 [GitHub runner 列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
-工具链 SHA256 来自 [Bun 1.4.3 官方校验和](https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/SHASUMS256.txt)，
-安装器先核对归档字节与成员，再使用原生 executable；官方归档的 `aarch64` 在产品契约统一写作 `arm64`。
+构建 job 通过 `oven-sh/setup-bun` 安装 Bun；官方归档的 `aarch64` 在产品契约统一写作 `arm64`。
 不提供 musl、32 位、其它 arch 或模拟执行的发行资产；runner 系统版本不代表已验证所有更旧系统。
 此表同时决定原生构建和Gateway验收目标。真实 Gateway 的普通文件层支持Linux/macOS/Windows x64/arm64；
 这六项须分别通过本机完整 Gateway 隔离验收，不能用编译或无认证启动替代。
@@ -116,7 +115,7 @@ binary 命名为 `rovloom-<version>-<os>-<arch>`，Windows 追加 `.exe`；versi
 | repository | 固定字符串 `ArnoChenFx/Rovloom` |
 | tag / version | 精确原 tag / 去掉开头 `v` 的版本 |
 | commit | tag 对应完整 40 位小写提交 SHA |
-| bun | 固定字符串 `1.4.3` |
+| bun | 构建所用 Bun 版本（点分数字，仅记录，不校验） |
 | assets | 按矩阵顺序排列的六项数组 |
 | assets[].os / arch / libc | 上表的标识；非 Linux 的 libc 为 JSON null |
 | assets[].name | 精确下载文件名，不是路径或 URL |
