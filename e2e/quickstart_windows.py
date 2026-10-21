@@ -63,9 +63,9 @@ class Term:
                 self.reset()
                 return clean
             if not self.alive():
-                raise RuntimeError(f'{self.name} exited before {marker!r}: {clean[-800:]}')
+                raise RuntimeError(f'{self.name} exited before {marker!r}: {self.clean_log()[-2500:]}')
             time.sleep(0.2)
-        raise RuntimeError(f'{self.name} timeout waiting {marker!r}; tail: {self.text()[-800:]}')
+        raise RuntimeError(f'{self.name} timeout waiting {marker!r}; tail: {self.clean_log()[-2500:]}')
 
     def send(self, text):
         self.proc.write(text.replace('\n', '\r'))
