@@ -138,6 +138,10 @@ export function inspectHerdrPath(path: string, kind: 'directory' | 'shared_direc
     }
     return stamps.join('\n')
   } catch (cause) {
+    // TEMP-DEBUG（Windows e2e 排查，随后移除）
+    if (process.env.ROVLOOM_DEBUG_ERRORS) {
+      process.stderr.write('DBG_PATH ' + path + ' ' + String((cause as Error)?.stack ?? cause) + '\n')
+    }
     throw cause instanceof HerdrLocalError ? cause : new HerdrLocalError('herdr_local_path_untrusted')
   }
 }

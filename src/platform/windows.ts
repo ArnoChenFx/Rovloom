@@ -238,6 +238,10 @@ export function windowsInspectPath(path: string, kind: WindowsPathKind): string 
     }
     if (index >= 0) {
       const facts = windowsPathFacts(current)
+      // TEMP-DEBUG
+      if (process.env.ROVLOOM_DEBUG_ERRORS && (!trusted.has(facts.owner) || facts.broad_write)) {
+        process.stderr.write('DBG_FACTS ' + current + ' ' + JSON.stringify(facts) + ' user=' + user + '\n')
+      }
       if (!trusted.has(facts.owner) || facts.broad_write) {
         throw new WindowsPlatformError('windows_path_untrusted')
       }
