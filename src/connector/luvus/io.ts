@@ -261,6 +261,14 @@ export function runSocket(
       let size = 0
       const chunks: Buffer[] = []
       const socket = createConnection({ path: address })
+      // TEMP-DEBUG（Windows e2e 排查，随后移除）
+      const startedAt = Date.now()
+      if (process.env.ROVLOOM_DEBUG_ERRORS) {
+        socket.once('end', () =>
+          process.stderr.write(`DBG_SOCKET end after ${Date.now() - startedAt}ms written=${written}\n`)
+        )
+        socket.once('connect', () => process.stderr.write(`DBG_SOCKET connect after ${Date.now() - startedAt}ms\n`))
+      }
       /** 取消未完成准备并销毁本次 socket；写入后的错误一律保留结果未知。 */
       function finish(error?: string) {
         if (finished) {

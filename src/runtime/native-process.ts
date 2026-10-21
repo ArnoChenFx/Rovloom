@@ -431,7 +431,6 @@ class LinuxLuvusObservation implements ObservedNativeProcess {
  */
 class WindowsLuvusObservation implements ObservedNativeProcess {
   readonly #peer: PeerIdentity
-  readonly #endpoint: EndpointIdentity
   readonly #config: LuvusLocalConfig
   readonly #start: string
   readonly #binary: string
@@ -439,7 +438,6 @@ class WindowsLuvusObservation implements ObservedNativeProcess {
 
   /** 只能由下方同端点测量入口创建，不接受公开 JSON PID。 */
   constructor(endpoint: EndpointIdentity, config: LuvusLocalConfig) {
-    this.#endpoint = endpoint
     this.#config = config
     try {
       this.#peer = readWindowsLuvusPeer(endpoint)
@@ -467,7 +465,11 @@ class WindowsLuvusObservation implements ObservedNativeProcess {
     return facts.created.toString()
   }
 
-  /** 逐次核对 PID 仍存活且创建时间不变、管道仍由同一进程服务、安装与目录未被替换。 */
+  /**
+   * 逐次核对 PID 仍存活且创建时间不变、镜像仍是已安装的同一文件、安装与目录未被替换。
+   * 不在这里再开管道连接读服务端 PID：每次调用的 verifyPeer 会用同一端点读一次新值并与 identity() 比较，
+   * 管道由同一进程服务的证明正来自那次比较；频繁开管道客户端会干扰服务端。
+   */
   assertLive(): void {
     try {
       const state = windowsProcessState(this.#peer.pid)
@@ -475,7 +477,6 @@ class WindowsLuvusObservation implements ObservedNativeProcess {
         state.kind !== 'alive' ||
         state.start !== this.#start ||
         this.#inspect() !== this.#start ||
-        readWindowsLuvusPeer(this.#endpoint).pid !== this.#peer.pid ||
         ownedPathStamp(this.#config.binary, 'binary') !== this.#binary
       ) {
         throw new LuvusAdapterError('attached_process_identity_changed')
