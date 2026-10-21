@@ -2,8 +2,7 @@
  * 用法：bun scripts/windows/luvus-probe.mjs <含 luvus.exe 的目录>
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const dir = process.argv[2]
