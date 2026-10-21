@@ -32,7 +32,8 @@ export class SetupTerminal {
     readonly config: RoleConfig,
     readonly io: CliIo
   ) {
-    this.uid = process.platform === 'win32' ? -1 : userInfo().uid
+    // Windows 没有 uid：配对计划里的 uid 恒为 0，所有者身份由 actor（含令牌用户 SID）与 #ownerUnchanged 保证。
+    this.uid = process.platform === 'win32' ? 0 : userInfo().uid
     this.sid = process.platform === 'win32' ? windowsCurrentUserSid() : undefined
     this.actor = 'operator_' + (this.sid ?? this.uid)
     this.assertOwner()
