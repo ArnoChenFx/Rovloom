@@ -122,7 +122,6 @@ export async function fixture(
     principal_id: 'synthetic',
     method,
     mode: 'strict',
-    transport: 'rpc',
     native_request: { method, params }
   }
   const classification = clone(initial.classifications[0]!) as SafetyClassification

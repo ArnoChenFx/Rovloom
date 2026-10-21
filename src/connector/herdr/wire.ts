@@ -140,8 +140,6 @@ export function createHerdrWireAdapter(backend: HerdrReadonlyBackend, core = cre
     decodeObject: unsupported,
     /** 不分配对象组装器或隐式分片缓冲。 */
     acceptChunk: unsupported,
-    /** Herdr 原生事件和终端流需分别接入，不能沿用 Luvus 的状态机。 */
-    advanceStream: unsupported,
     /** 关闭本 adapter 的桥接状态与去重窗，不停止 Herdr 实例。 */
     close(): void {
       windows.clear()

@@ -165,7 +165,7 @@ export function validatePolicies(policies: ProviderPolicies): void {
       }
       grant.methods.forEach(/* 校验授权条目中的方法名称及字节长度。 */ (m) => text(m, 256))
       grant.actions.forEach(
-        /* 限制授权动作仅使用协议允许的四种操作。 */ (a) => oneOf(a, ['dispatch', 'read', 'stream_input', 'cancel'])
+        /* 限制授权动作仅使用协议允许的三种操作。 */ (a) => oneOf(a, ['dispatch', 'read', 'cancel'])
       )
     }
   }

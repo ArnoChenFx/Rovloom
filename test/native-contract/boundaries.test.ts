@@ -6,7 +6,6 @@ import {
   checkDispatch,
   checkResultBoundary,
   compileBundle,
-  createNativeValidator,
   inspectRequestGate
 } from '../../src/native-contract/index.js'
 import { checkResultRetention } from '../../src/native-contract/safety.js'
@@ -15,17 +14,14 @@ import {
   auth,
   bytes,
   clone,
-  compiled,
   G,
   identity,
   json,
   raw,
-  register,
   rejects,
   request,
   source,
   sourceFor,
-  T,
   unwrap,
   validator,
   view
@@ -253,66 +249,6 @@ test(
     )
     rejects(error, 'native_response_invalid')
     assert(!JSON.stringify(error).includes('SYNTHETIC_SECRET_DO_NOT_LOG'))
-  }
-)
-
-test(
-  '控制流逐帧分类及授权，open 许可不能被另一个 handle 或 observe 借用',
-  /* 验证控制帧逐次获得独立分类与许可，复制流句柄无法借用父流授权。 */ () => {
-    const from = view()
-    const candidate = request(from, {
-      id: 'open',
-      method: 'terminal.backend.control',
-      params: { server_generation: G, terminal_id: T, pane_id: '3' }
-    })
-    const permit = unwrap(checkDispatch(candidate, auth(candidate)))
-    const acknowledgement = {
-      id: 'open',
-      result: {
-        type: 'terminal_backend_stream',
-        mode: 'control',
-        server_generation: G,
-        terminal_id: T,
-        pane_id: '3',
-        sequence: 0,
-        content_revision: 0,
-        ansi: true,
-        capture_mode: 'visible',
-        lines: 1,
-        frame_bytes: 65536,
-        queue_capacity: 2,
-        loss_behavior: 'resync_required_then_close'
-      }
-    }
-    const stream = unwrap(
-      validator.openStream(
-        permit,
-        unwrap(validator.checkResponse(permit, acknowledgement, sourceFor(candidate.binding)))
-      )
-    )
-    const frame = register(
-      unwrap(
-        validator.checkControl(stream, {
-          id: 'input',
-          action: 'type_literal',
-          params: { text: 'synthetic' }
-        })
-      ),
-      from
-    )
-    const inputPermit = unwrap(checkDispatch(frame, auth(frame)))
-    const ack = {
-      id: 'input',
-      result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' }
-    }
-    assert.equal(unwrap(validator.checkResponse(inputPermit, ack, sourceFor(frame.binding))).response.id, 'input')
-    rejects(
-      checkDispatch(frame, { ...auth(frame), classifications: auth(candidate).classifications }),
-      'safety_classification_missing'
-    )
-    const another = createNativeValidator(compiled)
-    // 同一 contract 的另一个实例共享可信编译状态；假 stream 对象仍被拒绝。
-    rejects(another.checkControl(clone(stream), frame.frame), 'invalid_stream_context')
   }
 )
 

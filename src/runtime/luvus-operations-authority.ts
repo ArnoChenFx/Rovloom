@@ -116,8 +116,7 @@ export function createLuvusOperationsAuthority(
             }
           }
         : {}),
-      supported_transports: ['single_request_rpc'],
-      supported_control_actions: []
+      supported_transports: ['single_request_rpc']
     }
   }
 }

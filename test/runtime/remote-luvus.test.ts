@@ -120,7 +120,6 @@ function attempt(
     principal_id: principal,
     method,
     mode: 'raw-contract',
-    transport: 'rpc',
     native_request: {
       method,
       params:

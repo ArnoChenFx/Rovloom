@@ -36,7 +36,6 @@ const ATTEMPT = [
   'registration'
 ]
 const REQUEST = ['attempt', 'expected_binding_revision', 'native_request', 'validation']
-const STREAM = ['events', 'terminal_observe', 'terminal_control'] as const
 const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   enroll: ['connector_to_gateway'],
   authenticate: ['connector_to_gateway'],
@@ -51,10 +50,6 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   response: ['connector_to_gateway'],
   cancel: ['gateway_to_connector'],
   heartbeat: ['gateway_to_connector', 'connector_to_gateway'],
-  stream_open: ['gateway_to_connector'],
-  stream_data: ['connector_to_gateway'],
-  stream_input: ['gateway_to_connector'],
-  stream_close: ['gateway_to_connector', 'connector_to_gateway'],
   error: ['gateway_to_connector', 'connector_to_gateway'],
   object_chunk: ['gateway_to_connector', 'connector_to_gateway']
 })
@@ -253,27 +248,14 @@ function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeVal
   providerFor(binding, ctx)
   text(anchor.method, 256)
   oneOf(anchor.mode, ['strict', 'raw-contract'])
-  oneOf(anchor.transport, ['rpc', 'stream'])
   if (binding.registration.history !== null) {
     capability(ctx, 'history_scope')
   }
-  if (anchor.transport === 'stream') {
-    oneOf(anchor.feature, STREAM)
-    capability(ctx, anchor.feature)
-    id(anchor.stream_id)
-  } else {
-    if (anchor.feature !== undefined) {
-      fail('attempt_transport_mismatch')
-    }
-    capability(ctx, 'rpc')
-  }
+  capability(ctx, 'rpc')
   return {
     binding,
     method: anchor.method,
     mode: anchor.mode,
-    transport: anchor.transport,
-    ...(anchor.feature === undefined ? {} : { feature: anchor.feature }),
-    ...(anchor.stream_id === undefined ? {} : { stream_id: anchor.stream_id }),
     native_handle: anchor.native_handle
   }
 }
@@ -291,8 +273,8 @@ function nativeContext(n: NativeValidationContext, ctx: AuthContext): NativeVali
 }
 
 // 核对请求与登记锚点、当前双端权限和原生参数门禁。
-function validateRequestPayload(frame: JsonObject, payload: JsonObject, ctx: AuthContext, stream: boolean): void {
-  fields(payload, stream ? [...REQUEST, 'stream_id', 'feature'] : REQUEST)
+function validateRequestPayload(frame: JsonObject, payload: JsonObject, ctx: AuthContext): void {
+  fields(payload, REQUEST)
   const nativeRequest = object(payload.native_request)
   if (Object.hasOwn(nativeRequest, 'auth') || Object.hasOwn(nativeRequest, 'id')) {
     fail('reserved_request_field')
@@ -309,17 +291,6 @@ function validateRequestPayload(frame: JsonObject, payload: JsonObject, ctx: Aut
   if (nativeRequest.method !== native.method || payload.validation !== native.mode) {
     fail('attempt_binding_mismatch')
   }
-  if (stream) {
-    id(payload.stream_id)
-    streamFeature(payload, ctx)
-    if (payload.stream_id !== native.stream_id) {
-      fail('stream_binding_mismatch')
-    }
-  }
-  if (native.transport !== (stream ? 'stream' : 'rpc') || (stream && native.feature !== payload.feature)) {
-    fail('attempt_transport_mismatch')
-  }
-
   assertProviderAccess(native.binding, native.method, 'dispatch', ctx)
   if (
     ctx.policies!.caller.revision !== native.binding.registration.caller_policy_revision ||
@@ -349,12 +320,6 @@ function capability(ctx: AuthContext, name: string): void {
   if (!(ctx.connection.negotiated.capabilities as string[]).includes(name)) {
     fail('unsupported_capability')
   }
-}
-
-// 校验流特性枚举，并要求连接已协商对应能力。
-function streamFeature(p: JsonObject, ctx: AuthContext): void {
-  oneOf(p.feature, STREAM)
-  capability(ctx, p.feature)
 }
 
 // 握手只检查消息与协商关联；认证事实仍由宿主建立。
@@ -556,10 +521,7 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
     }
     case 'request':
       capability(context, 'rpc')
-      validateRequestPayload(frame, p, context, false)
-      break
-    case 'stream_open':
-      validateRequestPayload(frame, p, context, true)
+      validateRequestPayload(frame, p, context)
       break
     case 'heartbeat':
       fields(p, ['sequence'])
@@ -579,9 +541,7 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
       capability(context, 'dispatch_refusal')
       fields(p, ['attempt', 'code'])
       oneOf(p.code, ['terminal_execution_disabled'])
-      if (anchored(frame, p, context).transport !== 'rpc') {
-        fail('attempt_transport_mismatch')
-      }
+      anchored(frame, p, context)
       break
     case 'cancel': {
       fields(p, ['attempt', 'reason'])
@@ -594,9 +554,6 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
       fields(p, ['attempt', 'native_response'])
       const n = nativeContext(anchored(frame, p, context), context)
       const r = object(p.native_response)
-      if (n.transport !== 'rpc') {
-        fail('attempt_transport_mismatch')
-      }
       const validator = validatorFor(n.binding, context)
       nativeVoid(
         /* 以绑定的原生许可和可信来源校验完整响应。 */ () => validator.validateResponse(r, n),
@@ -604,65 +561,6 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
       )
       break
     }
-    case 'stream_data':
-    case 'stream_input': {
-      fields(p, ['attempt', 'stream_id', 'feature', 'sequence', 'frame'])
-      id(p.stream_id)
-      uint(p.sequence)
-      streamFeature(p, context)
-      if (frame.type === 'stream_input' && p.feature !== 'terminal_control') {
-        fail('unsupported_stream_input')
-      }
-      const n = nativeContext(anchored(frame, p, context), context)
-      const r = object(p.frame)
-      if (n.transport !== 'stream' || n.feature !== p.feature) {
-        fail('attempt_transport_mismatch')
-      }
-      if (p.stream_id !== n.stream_id) {
-        fail('stream_binding_mismatch')
-      }
-      const validator = validatorFor(n.binding, context)
-      if (!validator.validateStreamFrame) {
-        fail('stream_validator_unavailable')
-      }
-      if (frame.type === 'stream_input') {
-        assertProviderAccess(n.binding, n.method, 'stream_input', context)
-      }
-      nativeVoid(
-        /* 校验原生流帧，并传入绑定特性和输入或输出方向。 */ () =>
-          validator.validateStreamFrame!(r, {
-            ...n,
-            feature: p.feature as 'events' | 'terminal_observe' | 'terminal_control',
-            direction: frame.type === 'stream_input' ? 'input' : 'data'
-          }),
-        'native_stream_frame_invalid'
-      )
-      // 输入帧即使形状合法也须逐次取得派发许可，不能沿用开流时的授权。
-      if (frame.type === 'stream_input') {
-        if (!validator.checkDispatch) {
-          fail('dispatch_validator_unavailable')
-        }
-        nativeVoid(
-          /* 为当前输入帧重新执行原生派发授权门禁。 */ () => validator.checkDispatch!(r, n),
-          'native_dispatch_forbidden'
-        )
-      }
-      break
-    }
-    case 'stream_close':
-      fields(p, ['attempt', 'stream_id', 'reason'])
-      id(p.stream_id)
-      oneOf(p.reason, ['normal', 'cancelled', 'overflow', 'resync_required', 'transport_error'])
-      {
-        const n = anchored(frame, p, context)
-        if (n.transport !== 'stream') {
-          fail('attempt_transport_mismatch')
-        }
-        if (p.stream_id !== n.stream_id) {
-          fail('stream_binding_mismatch')
-        }
-      }
-      break
     default:
       fail('handshake_after_authentication')
   }

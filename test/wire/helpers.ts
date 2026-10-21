@@ -11,7 +11,6 @@ import type {
   NativePayloadValidator,
   RequestGate,
   VersionOffer,
-  StreamFeature,
   ValidationMode,
   ContractSource,
   ProviderBinding,
@@ -41,18 +40,6 @@ for (const url of Object.keys(bundle.documents)) {
 }
 export const nativeRequest = ajv.getSchema(bundle.request.$id)!
 export const nativeResponse = ajv.getSchema(bundle.response.$id)!
-export const nativeControl = ajv.getSchema(bundle.terminal.control_frame.$id)!
-export const nativeTerminalResponse = ajv.getSchema(bundle.terminal.response.$id)!
-export const nativeEvent = ajv.getSchema(bundle.event.$id)!
-export const terminalEvent = ajv.getSchema(bundle.terminal.event.$id)!
-const catalog = new Map(
-  Object.keys(bundle.event_catalog.properties).map(
-    /* 按事件名编译离线事件数据 schema，并生成名称到校验器的映射项。 */ (name) => [
-      name,
-      ajv.compile({ $ref: `${bundle.event_catalog.$id}#/properties/${name}` })
-    ]
-  )
-)
 // 这是固定 P0 schema 的测试注入器，不是生产安全分类表或原生模块的替代品。
 export const allowedGate: RequestGate = {
   classification_status: 'trusted_complete',
@@ -83,22 +70,6 @@ export function fixtureValidator(gate: RequestGate = allowedGate): NativePayload
       }
       if (!nativeResponse(r)) {
         throw new WireError('native_response_invalid')
-      }
-    },
-    // 为本测试夹具提供默认放行的逐输入派发门禁。
-    checkDispatch() {},
-    // 按输入、响应或事件类型选择对应的离线流帧 schema。
-    validateStreamFrame(r, context) {
-      const valid =
-        context.direction === 'input'
-          ? nativeControl(r)
-          : Object.hasOwn(r, 'id')
-            ? nativeResponse(r) && nativeTerminalResponse(r)
-            : r.event === 'terminal.frame'
-              ? terminalEvent(r)
-              : nativeEvent(r) && catalog.get(r.event as string)?.(r.data)
-      if (!valid) {
-        throw new WireError('native_stream_frame_invalid')
       }
     }
   }
@@ -162,7 +133,7 @@ const methods = JSON.parse(
 export const offer: VersionOffer = {
   major: 2,
   minor: 0,
-  capabilities: ['rpc', 'history_scope', 'late_evidence', 'objects', 'events', 'terminal_observe', 'terminal_control'],
+  capabilities: ['rpc', 'history_scope', 'late_evidence', 'objects'],
   required: ['rpc']
 }
 // 构造含独立 provider、契约、调用锚点和双端权限的认证测试上下文。
@@ -171,15 +142,13 @@ export function context(
   native = fixtureValidator(),
   anchor = binding,
   method = 'ping',
-  transport: 'rpc' | 'stream' = 'rpc',
-  feature?: StreamFeature,
   mode: ValidationMode = 'strict'
 ): Extract<CodecContext, { phase: 'authenticated' }> {
   const grants: ProviderPolicies['caller']['grants'] = [
     {
       target: structuredClone(anchor.target),
       methods,
-      actions: ['dispatch', 'read', 'stream_input', 'cancel']
+      actions: ['dispatch', 'read', 'cancel']
     }
   ]
   return {
@@ -207,9 +176,6 @@ export function context(
       binding: anchor,
       method,
       mode,
-      transport,
-      feature,
-      ...(transport === 'stream' ? { stream_id: 'stream_1' } : {}),
       native_handle: nativeHandle
     })
   }

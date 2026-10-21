@@ -93,7 +93,7 @@ export type ProviderSnapshot = ProviderView & {
     binary_sha256: string | null
     schema_sha256: string | null
     classification_revision: string | null
-    supported_transports: readonly ('rpc' | 'events' | 'terminal_observe' | 'terminal_control')[]
+    supported_transports: readonly 'rpc'[]
   }>
 }
 export type ManagementStatus = {

@@ -1012,10 +1012,6 @@ test(
       }
       assert.equal(JSON.parse(wire.encode(cancel, 'gateway_to_connector')).type, 'cancel')
       assert.equal(state.adapter.stats().executions, 1)
-      assert.throws(
-        /** 不建立原生 stream 或 terminal fence。 */ () => wire.advanceStream(),
-        /herdr_transport_unsupported/
-      )
       assert.throws(/** 大响应不能暗中走 objects。 */ () => wire.encodeResponseObject(), /herdr_transport_unsupported/)
       assert.throws(/** 分片不能分配隐藏的组装器。 */ () => wire.acceptChunk(), /herdr_transport_unsupported/)
       wire.release(state.binding)

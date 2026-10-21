@@ -964,7 +964,6 @@ export class Store {
       principal_id: row.principal,
       method: row.method,
       mode: row.mode,
-      transport: 'rpc',
       native_request: JSON.parse(row.request_json)
     }
   }

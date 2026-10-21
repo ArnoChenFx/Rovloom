@@ -123,14 +123,12 @@ schema_unavailable，不能建立 validator/许可，也不能借 raw 作为无 
 一并断开原请求及分类登记；持有先前 CheckedResponse 也不能通过内部关联反向保留原请求。
 宿主同步丢弃自己的原文引用。`checkResponseOnly` 只返回 `Check<void>`，复验同一契约和来源，
 不返回载荷、不授予读取/派发/开流能力；`releaseResponseContext` 释放它。没有 JSON 恢复工厂，
-不能让旧 epoch 或恢复代次重新有效。流/控制许可不走此 RPC 释放路径。
+不能让旧 epoch 或恢复代次重新有效。
 Luvus adapter 把内容清理后的 RPC 切换为这种上下文；仅响应状态共享 attempt/快照预算，
 只允许原固定去重期限内的 metadata-only 证据提交。Store 提交后通知与 adapter 独立内存期限维护
 共同回收原文；断连、撤销、provider fence、关闭或去重到期释放句柄。证据提交失败不变更已提交
 结果，也不触发重发；存储恢复后仍须使用原存活句柄及当前独立来源复验。
-`openStream` 的 ack 必须由同一份 DispatchPermit 验证，
-另一份 permit 或复制 handle 均无效。`checkEvent`、`checkControl` 及
-`checkSequence` 不提供实际 replay、队列消费、lease 释放或网络副作用。
+流（open/event/control 帧）机制未接入任何产品入口，已删除；流类方法在分类中保留为拒绝项，不进入 RPC 派发。
 保留完整原生 error/data，网关错误不写回原生 error。
 
 ## 宿主必须提供的可信来源
@@ -141,7 +139,7 @@ Luvus adapter 把内容清理后的 RPC 切换为这种上下文；仅响应状�
 | backend 来源 | 必须保证 |
 |---|---|
 | connection / currentPrincipal | 当前已认证且 active 的连接、恢复代次、epoch 与读取身份 |
-| attempt | 原登记完整 AttemptBinding、请求、principal、method/mode/transport，流另有 feature/stream_id |
+| attempt | 原登记完整 AttemptBinding、请求、principal、method/mode |
 | provider / localProvider | 双端独立受保护配置，完整 binding 精确一致 |
 | contract | 不可变 ContractSource、真实编译 handle、能力/分类 revision；重算 ref 并核对 binary/schema |
 | nativeSource | 独立 endpoint/身份实证，authenticated/source_verified 成立且完整 NativeBinding 匹配 |
@@ -152,7 +150,7 @@ direction 来自宿主角色。v2 Target 显式投影为原生 Target，kind/pro
 contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数字转换。
 组合 contract_ref 不能强转为 schema hash。完整 provider tuple 求双方权限交集
 后才投影给原生 Policy，不从独立数组拼笛卡尔授权。原生 supported_transports
-及 supported_control_actions 必须显式提供，未知未来流不自动适配。
+必须显式提供，未知未来流不自动适配。
 `contract` resolver 只能返回已接纳的 handle；`schema_bundle` 重组结果不授予编译或
 登记权限。opaque handle、permit 和来源 token 均不能跨进程/重启序列化后恢复为原凭证。
 
@@ -163,18 +161,15 @@ contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数
   requestGate 不生成 permit，validateRequest 再 checkDispatch；Check 失败只转
   code/reason，不记录 payload。backend 异常返回 native_adapter_unavailable。
 - adapter 按完整 AttemptBinding 私有保存最初 permit，重复编解码不替换。
-  开流错误不建立流；ack 必须经同一 permit 验证。每条控制输入先 checkControl，
-  再按 action 重新 checkDispatch。高级图片/上传无 adapter 证明时不启用。
-- control ack 按同一 attempt 内自己的 native ID/permit 验证，不能借 open ID。
-  `checkResult(binding, nativeFrame)` 对流逐条强制指定实际 response/event；
-  缺省报 result_selector_required，未知或未派发控制 ID 报 control_ack_unbound。
-  RPC 可省略 frame。解码/顺序校验成功不授予内容读取权限。
+  高级图片/上传无 adapter 证明时不启用。
+- `checkResult(binding, nativeFrame?)` 检查实际 response；省略 frame 仅核对当前读取权限。
+  解码/顺序校验成功不授予内容读取权限。
 - checkResultBoundary 另验当前 reader、分类 revision、双方 read grant、custody
   和内容状态；分类变更不能沿用旧 ordinary 分类。planEvidence 只返回待持久化
   意图，原分类和当前分类 retention 均为 caller_policy 才能包含 payload。
   retention:none 可允许即时读取，证据仅元数据。过期/discarded/unavailable 或
   撤权不得输出原文、生成句柄或延长期限；事务成功前不能发布 durable responded。
-- 宿主须先 observeMessage 过滤重复，再 advanceStream 检查外层顺序，重复不得
+- 宿主须先 observeMessage 过滤重复，重复不得
   再执行；acceptChunk 重组后仍走完整门禁，包内 schema 不自动进入可信 registry。
   内存 handle/source token 不序列化，关闭、到期、撤权须 release；恢复缺 handle
   时拒绝，不从回复重建 permit，不通过重新派发恢复结果。
@@ -199,6 +194,5 @@ handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离�
 它先核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发时及当前分类的保留许可；
 `retention:none` 即使可读也拒绝保存，当前放宽不能复活派发时禁存内容。无原上下文时拒绝，
 不从账本或响应 JSON 创建 permit；证据计划与该 port 共用这一检查。
-该保留 port 仅支持普通 RPC；流及控制 ack 报 `result_retention_rpc_only`，不借开流许可保留控制结果。
 
 宿主能力的交付范围与后续门禁见 [issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。

@@ -94,8 +94,7 @@ export function createReviewedLuvusProvider(
         custody_available: false,
         result_channel: 'ordinary',
         raw_requested: false,
-        supported_transports: ['single_request_rpc'],
-        supported_control_actions: []
+        supported_transports: ['single_request_rpc']
       }
     },
     /** 原生进程、endpoint 与有限签发均须当前仍有效。 */

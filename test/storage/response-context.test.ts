@@ -415,7 +415,7 @@ test(
           }
         }
       },
-      { limits: { attempts: 1, control_ids: 1, maintenance_interval_ms: 1 } }
+      { limits: { attempts: 1, maintenance_interval_ms: 1 } }
     )
     try {
       const call = f.native.create()
@@ -622,7 +622,7 @@ test(
   /* 使密封上下文占满尝试子额，验证到去重期限才返还预算，并且关闭后不能再解码。 */ () => {
     const f = fixture(
       { retention: { dedup_ttl: 100, call_metadata_ttl: 100, history_epoch_max_age: 20 } },
-      { limits: { attempts: 1, control_ids: 1 } }
+      { limits: { attempts: 1 } }
     )
     try {
       const call = f.native.create()

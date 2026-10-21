@@ -183,7 +183,6 @@ assert.deepEqual(
     'DEFAULT_LIMITS',
     'checkDispatch',
     'checkResultBoundary',
-    'checkSequence',
     'compileBundle',
     'createNativeValidator',
     'inspectRequestGate',

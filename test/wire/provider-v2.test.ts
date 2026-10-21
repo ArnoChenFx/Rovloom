@@ -465,9 +465,6 @@ test(
     validator.validateResponse = /* 记录响应校验是否被错误触发。 */ () => {
       nativeCalls++
     }
-    validator.checkDispatch = /* 记录派发门禁是否被错误触发。 */ () => {
-      nativeCalls++
-    }
     const legacy = {
       ...response,
       protocol_major: 1,
@@ -588,39 +585,12 @@ test(
 )
 
 test(
-  '完整 v2 JSON 示例逐帧验证，包含 request/accepted/response/cancel 及全部 stream 帧',
-  /* 验证完整 v2 JSON 示例逐帧验证，包含 request/accepted/response/cancel 及全部 stream 帧。 */ () => {
+  '完整 v2 JSON 示例逐帧验证，包含 request/accepted/response/cancel',
+  /* 验证完整 v2 JSON 示例逐帧验证，包含 request/accepted/response/cancel。 */ () => {
     const examples = JSON.parse(readFileSync(new URL('./v2-examples.json', import.meta.url), 'utf8'))
-    const streamBinding: AttemptBinding = {
-      ...binding,
-      call_id: 'stream_call_1',
-      attempt_id: 'stream_attempt_1',
-      native_request_id: 'terminal-control'
-    }
-    for (const type of [
-      'request',
-      'accepted',
-      'response',
-      'cancel',
-      'stream_open',
-      'stream_data',
-      'stream_input',
-      'stream_close'
-    ]) {
-      const isStream = type.startsWith('stream_')
-      const direction = ['accepted', 'response', 'stream_data'].includes(type)
-        ? 'connector_to_gateway'
-        : 'gateway_to_connector'
-      const ctx = isStream
-        ? context(
-            direction,
-            fixtureValidator(),
-            streamBinding,
-            'terminal.backend.control',
-            'stream',
-            'terminal_control'
-          )
-        : context(direction)
+    for (const type of ['request', 'accepted', 'response', 'cancel']) {
+      const direction = ['accepted', 'response'].includes(type) ? 'connector_to_gateway' : 'gateway_to_connector'
+      const ctx = context(direction)
       assert.deepEqual(decodeWireFrame(JSON.stringify(examples[type]), ctx), examples[type])
       for (const [field, value, code] of [
         ['protocol_major', 1, 'protocol_major_unsupported'],

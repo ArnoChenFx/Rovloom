@@ -306,7 +306,6 @@ export function createConnectorAdmissionBackend(options: ConnectorAdmissionOptio
         principal_id: selected,
         method: native.method as string,
         mode: payload.validation as 'strict' | 'raw-contract',
-        transport: 'rpc',
         native_request: native
       }
       if (options.receipts) {

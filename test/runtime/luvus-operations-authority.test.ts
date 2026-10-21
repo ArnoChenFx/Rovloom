@@ -83,7 +83,6 @@ function fixture(method = 'workspace.rename', params: Record<string, unknown> = 
     principal_id: 'principal1',
     method,
     mode: method === 'pane.list' ? 'strict' : 'raw-contract',
-    transport: 'rpc',
     native_request: { id: 'request1', method, params }
   }
   const native: NativeBinding = {

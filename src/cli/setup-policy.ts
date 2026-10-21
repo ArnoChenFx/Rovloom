@@ -37,7 +37,7 @@ export function selectedSetupPolicies(
     /* 每条授权只覆盖该来源的固定首次session。 */ (kind) => ({
       target: setupTarget(machine, kind),
       methods: [...(kind === 'luvus' ? LUVUS_OPERATION_METHODS : HERDR_WORKFLOW_METHODS)],
-      actions: ['dispatch', 'read', 'stream_input', 'cancel'] as ('dispatch' | 'read' | 'stream_input' | 'cancel')[]
+      actions: ['dispatch', 'read', 'cancel'] as ('dispatch' | 'read' | 'cancel')[]
     })
   )
   return {

@@ -7,7 +7,7 @@ import {
   compileBundle,
   createNativeValidator
 } from '../../src/native-contract/index.js'
-import type { DispatchCandidate, DispatchPermit, CheckedResponse } from '../../src/native-contract/index.js'
+import type { DispatchCandidate, DispatchPermit } from '../../src/native-contract/index.js'
 import { candidates, permits, responses, responseContexts } from '../../src/native-contract/internal.js'
 import {
   auth,
@@ -91,7 +91,6 @@ test(
     rejects(validator.checkResponse(original.permit, response, original.source), 'invalid_permit_handle')
     rejects(checkDispatch(sealed as unknown as DispatchCandidate, original.authorization), 'invalid_request_handle')
     rejects(checkResultBoundary(sealed as unknown as DispatchPermit, {} as never), 'invalid_permit_handle')
-    rejects(validator.openStream(sealed as unknown as DispatchPermit, {} as CheckedResponse), 'invalid_stream_context')
     rejects(validator.checkResponseOnly(clone(sealed), response, original.source), 'invalid_response_context')
     unwrap(validator.releaseResponseContext(sealed))
     rejects(validator.checkResponseOnly(sealed, response, original.source), 'invalid_response_context')
