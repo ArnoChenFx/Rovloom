@@ -62,8 +62,8 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |
 | Connector `native` | object，可选 | 默认省略，只接受以下来源选择及安装目录字段，在首次原生初始化时应用。 |
 | `native.provider` | string enum，可选 | 省略时为 `luvus`；`herdr` 仅选 Herdr，`mixed` 各选一个。首次初始化前选定；已初始化选择的变更仍需未来的重配置流程。 |
-| `native.runtime_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时在 `/usr/bin:/bin` 查找所选 `luvus`/`herdr` 程序；指定时先搜索该目录，再搜索固定系统目录。不接受 PATH 列表、shell 展开或可执行 argv。 |
-| `native.agent_bin_dir` | 规范绝对目录 string，≤4096字符，可选 | 省略时原生/Agent PATH 为 `/usr/bin:/bin`；指定时只前置该单目录，不安装或认证 Agent。 |
+| `native.runtime_bin_dirs` | 1–16 个互不重复的规范绝对目录 string 数组（每项≤4096字符），可选 | 查找所选 `luvus`/`herdr` 程序的位置。搜索顺序：数组内目录依序，其后是 Connector 启动时 `PATH` 中可用的条目，最后是 `/usr/bin:/bin`。不同程序可装在不同目录。不接受 shell 展开或可执行 argv。 |
+| `native.agent_bin_dirs` | 1–16 个互不重复的规范绝对目录 string 数组（每项≤4096字符），可选 | 查找 Agent 程序的目录。原生初始化时 Agent PATH 固化为：数组内目录依序，其后是 Connector 启动时 `PATH` 中可用的条目，最后是 `/usr/bin:/bin`。不安装或认证 Agent。 |
 
 Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、runtime/ref 选择、TLS/CA
 路径、schema 摘要、binary pin 和凭据值均拒绝。用户参数不含原生 root、账本、绑定或
@@ -162,23 +162,30 @@ Connector 被强杀（`kill -9`、掉电）后会遗留 owner 记录、native �
 可能已执行的调用不会被重发。若旧 owner 仍存活、仍有 native 进程在监听、记录来自旧版本或平台
 不是 Linux，则与以前一样拒绝启动（退出码 3），需先停掉仍存活的进程。
 
-## Agent 安装目录
+## 程序与 Agent 安装目录
 
-将官方 Agent（如 OpenCode）安装到机器所有者控制的目录。既有原生集成使用
-`/usr/bin:/bin`，不继承登录 shell 的 PATH。所有者选择的 `agent_bin_dir` 可前置一个
-规范绝对目录；它是原生安装设置，不是程序文件、PATH 列表、MCP 参数或
-`--agent-bin-dir` 选项。首次原生初始化前，在唯一 Connector 用户文件加入可选片段：
+官方 runtime（`luvus`/`herdr`）和 Agent（如 OpenCode）可以装在机器上任意合适的位置，不必
+同一目录。默认通过 Connector 启动时的 `PATH` 加 `/usr/bin:/bin` 查找它们。原生集成**不会**
+使用登录 shell 的 PATH：首次原生初始化时一次性算出搜索路径，固化到受保护的安装记录，
+之后每次启动都会复核。
+
+`PATH` 里只有部分条目可用：规范绝对路径、真实存在的目录（不是符号链接、文件或缺失路径），
+属于 root 或 Connector 用户，且组/其它用户不可写；其余条目静默跳过。最多保留 16 个目录，
+显式目录在前。若服务管理器给 Connector 的 `PATH` 很精简，请在**批准原生初始化前**于唯一
+Connector 用户文件里显式列出目录：
 
 ```json
 {
   "native": {
-    "runtime_bin_dir": "/home/your-user/.local/bin",
-    "agent_bin_dir": "/home/your-user/.local/bin"
+    "runtime_bin_dirs": ["/opt/herdr/bin", "/home/your-user/.local/bin"],
+    "agent_bin_dirs": ["/home/your-user/.local/bin", "/home/your-user/.opencode/bin"]
   }
 }
 ```
 
-这是完整 Connector 文档中的可选片段。安装目录应由机器所有者控制；不要修改 managed
+两个字段都是可选的规范绝对目录数组（不接受 `~`、变量、相对路径、`..`、末尾斜杠或 `a:b`
+式 PATH 字符串，不允许重复）。显式目录按所写原样信任，所以应由机器所有者控制；靠前目录里的
+同名程序优先。这是原生安装设置，不是可执行文件路径、MCP 参数或命令行选项。不要修改 managed
 root 记录或摘要来更换已初始化的安装。
 
 Agent/模型访问配置位于 runtime 私有 HOME/XDG；首次设置的 HOME 为

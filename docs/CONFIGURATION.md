@@ -66,8 +66,8 @@ Setting an address does not establish pairing or install a native provider.
 | Connector `allow_terminal_execution` | Boolean, optional | `false`, also when omitted. Only literal `true` enables direct terminal input and custom launch/restore commands through the existing local guard. Edit this single user file and restart Connector; it does not change installation settings or caller/local grants. |
 | Connector `native` | Object, optional | Absent by default. Contains only the provider-selection and installation-directory settings below; applied at first native initialization. |
 | `native.provider` | String enum, optional | Omitted: `luvus`; `herdr` selects Herdr, `mixed` selects one of each. Choose before native initialization; changing an initialized selection requires a future reconfiguration flow. |
-| `native.runtime_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: search `/usr/bin:/bin` for the selected `luvus`/`herdr` programs. When set, search this directory first, then those fixed system directories. No PATH lists, shell expansion or executable argv. |
-| `native.agent_bin_dir` | Normalized absolute directory string, ≤4096 characters, optional | Unset: native/Agent PATH is `/usr/bin:/bin`. When set, prepend this one directory to that fixed PATH. It does not install or authenticate an Agent. |
+| `native.runtime_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Where to look for the selected `luvus`/`herdr` programs. Search order: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. Different programs may live in different directories. No shell expansion or executable argv. |
+| `native.agent_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Directories searched for Agent programs. At native setup the Agent PATH is fixed as: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. It does not install or authenticate an Agent. |
 
 Enabled Gateway listeners must use different ports. Unknown fields, old flat
 fields, runtime/ref selectors, TLS/CA paths, schema hashes, binary pins and
@@ -202,27 +202,37 @@ never resent. If the old owner is still alive, a native process is still listeni
 the record is from an older version, or the platform is not Linux, the start is
 refused (exit code 3) exactly as before; stop the surviving process first.
 
-## Agent installation directory
+## Program and Agent installation directories
 
-Install the official Agent, such as OpenCode, in a directory controlled by the
-machine owner. Existing native integration runs with `/usr/bin:/bin`, not the
-login shell's PATH. An owner-selected `agent_bin_dir` can prepend one normalized
-absolute directory; it is a native installation setting, not an executable path,
-PATH list, MCP argument or `--agent-bin-dir` flag. Set it before first native
-initialization in the single Connector user file:
+Install the official runtime (`luvus`/`herdr`) and Agent, such as OpenCode, wherever
+suits the machine; they need not share a directory. By default Rovloom finds them
+through the `PATH` the Connector was started with, plus `/usr/bin:/bin`. Native
+integration does **not** run with your login shell's PATH: at native setup the
+search path is computed once, fixed in the protected installation record, and
+re-checked on every start.
+
+Only some `PATH` entries qualify. An entry is used when it is a normalized absolute
+path to a real directory (not a symlink, file or missing path) owned by root or the
+Connector user and not writable by group or others; anything else is skipped silently.
+At most 16 directories are kept, explicit ones first. If a service manager gives the
+Connector a minimal `PATH`, list the directories explicitly in the single Connector
+user file **before approving native setup**:
 
 ```json
 {
   "native": {
-    "runtime_bin_dir": "/home/your-user/.local/bin",
-    "agent_bin_dir": "/home/your-user/.local/bin"
+    "runtime_bin_dirs": ["/opt/herdr/bin", "/home/your-user/.local/bin"],
+    "agent_bin_dirs": ["/home/your-user/.local/bin", "/home/your-user/.opencode/bin"]
   }
 }
 ```
 
-This is an optional fragment of the complete Connector document. Keep the selected
-installation directories under the owner's control. Do not edit a managed root
-record or its digest to change an initialized installation.
+Both fields are optional arrays of normalized absolute directories (no `~`, variables,
+relative paths, `..`, trailing slash or PATH-style `a:b` strings; no duplicates).
+Explicit directories are trusted exactly as written, so keep them under the machine
+owner's control, and a same-named program in an earlier directory wins. This is a native
+installation setting, not an executable path, MCP argument or CLI flag. Do not edit a
+managed root record or its digest to change an initialized installation.
 
 Configure Agent/model access in the runtime's private HOME/XDG locations;
 for first setup its HOME is `<data.directory>/h` (Luvus) or `<data.directory>/hr/h` (Herdr). A login in your usual home

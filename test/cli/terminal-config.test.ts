@@ -14,7 +14,7 @@ test(
       for (const enabled of [undefined, false, true]) {
         const document = {
           ...without,
-          native: { agent_bin_dir: directory },
+          native: { agent_bin_dirs: [directory] },
           ...(enabled === undefined ? {} : { allow_terminal_execution: enabled })
         }
         const parsed = parseConfig(document, platform)

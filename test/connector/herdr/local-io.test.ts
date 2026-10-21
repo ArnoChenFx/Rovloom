@@ -710,7 +710,7 @@ function spawn(binary, argv, options) {
     try {
       const config = {
         ...configFixture(root),
-        agent_bin_dir: join(root, 'Agent Tools'),
+        agent_bin_dirs: [join(root, 'Agent Tools')],
         allow_terminal_execution: false
       }
       const launched = await local.launchHerdrProcess(config)
@@ -720,13 +720,13 @@ function spawn(binary, argv, options) {
       assert.deepEqual(local.captured.argv, ['--session', 'owned', 'server'])
       assert.equal(local.captured.options.shell, false)
       assert.deepEqual(local.captured.options.env, herdrEnvironment(config))
-      assert.equal(local.captured.options.env.PATH, config.agent_bin_dir + ':/usr/bin:/bin')
+      assert.equal(local.captured.options.env.PATH, config.agent_bin_dirs!.join(':') + ':/usr/bin:/bin')
       assert.equal(config.allow_terminal_execution, false)
       const peer = { pid: child.pid!, uid: process.geteuid!(), gid: process.getegid!() }
       launched.binding.assert(config, peer)
       assert.throws(
         /** PATH 的本地配置变化不能重新解释已启动 child 的归属。 */ () =>
-          launched.binding.assert({ ...config, agent_bin_dir: join(root, 'different') }, peer),
+          launched.binding.assert({ ...config, agent_bin_dirs: [join(root, 'different')] }, peer),
         code('herdr_native_instance_untrusted', local.HerdrLocalError)
       )
       for (const field of ['pid', 'uid', 'gid'] as const) {

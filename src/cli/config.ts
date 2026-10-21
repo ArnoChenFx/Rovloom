@@ -3,7 +3,7 @@ import { posix, win32 } from 'node:path'
 import { canonical } from '../contracts.js'
 import { readPrivateBytes } from '../storage/files.js'
 import { parseNativeJson } from '../native-contract/json.js'
-import { agentSearchPath } from '../connector/local/agent-path.js'
+import { binDirectories } from '../connector/local/agent-path.js'
 
 export type GatewayConfig = Readonly<{
   schema_version: 1
@@ -27,7 +27,11 @@ export type ConnectorConfig = Readonly<{
   gateway_url: string
   provider_config_refs: readonly string[]
   allow_terminal_execution?: boolean
-  native?: Readonly<{ provider?: 'luvus' | 'herdr' | 'mixed'; runtime_bin_dir?: string; agent_bin_dir?: string }>
+  native?: Readonly<{
+    provider?: 'luvus' | 'herdr' | 'mixed'
+    runtime_bin_dirs?: readonly string[]
+    agent_bin_dirs?: readonly string[]
+  }>
 }>
 export type RoleConfig = GatewayConfig | ConnectorConfig
 export type NativeProviderKind = 'luvus' | 'herdr'
@@ -236,20 +240,28 @@ export function parseConfig(value: unknown, platform: NodeJS.Platform = process.
       return fail()
     }
     const native =
-      input.native === undefined ? undefined : exact(input.native, [], ['provider', 'runtime_bin_dir', 'agent_bin_dir'])
+      input.native === undefined
+        ? undefined
+        : exact(input.native, [], ['provider', 'runtime_bin_dirs', 'agent_bin_dirs'])
     if (native) {
       if (native.provider !== undefined && !['luvus', 'herdr', 'mixed'].includes(native.provider as string)) {
         return fail()
       }
-      for (const key of ['runtime_bin_dir', 'agent_bin_dir']) {
-        const directory = native[key]
-        if (directory === undefined) {
+      for (const key of ['runtime_bin_dirs', 'agent_bin_dirs']) {
+        const directories = native[key]
+        if (directories === undefined) {
           continue
         }
-        if (!fixedPath(directory, platform)) {
+        // 数组本身及每项都按目标平台的规范绝对路径校验；非法形态一律 invalid_config。
+        if (!Array.isArray(directories) || !directories.every((entry) => fixedPath(entry, platform))) {
           return fail()
         }
-        agentSearchPath(directory as string, '/usr/bin:/bin', platform)
+        try {
+          binDirectories(directories, platform)
+        } catch {
+          return fail()
+        }
+        Object.freeze(directories)
       }
       Object.freeze(native)
     }

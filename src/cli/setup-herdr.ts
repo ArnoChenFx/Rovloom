@@ -15,7 +15,7 @@ import { CliCancelled, CliError, type ConnectorConfig } from './config.js'
 import { privateDirectory } from './first-config.js'
 import type { HerdrProductionOwnerConfig } from './production-herdr.js'
 import { readSetupJson, writeSetupFile, writeSetupJson } from './setup-files.js'
-import { assertSetupNativePath, setupBinary } from './setup-native.js'
+import { assertSetupNativePath, setupAgentDirectories, setupBinary } from './setup-native.js'
 import { setupReference, setupTarget } from './setup-policy.js'
 import { runtimeReference } from './runtime-files.js'
 import type { SetupTerminal } from './setup-terminal.js'
@@ -122,7 +122,7 @@ export async function prepareSetupHerdr(
     temporary_home: join(root, 't'),
     cwd: join(root, 'w'),
     allow_terminal_execution: false,
-    ...(config.native?.agent_bin_dir ? { agent_bin_dir: config.native.agent_bin_dir } : {})
+    ...setupAgentDirectories(config)
   }
   const measured = measureHerdrInstallation(local)
   const scope = herdrDeadline(terminal.io.signal, 10_000)

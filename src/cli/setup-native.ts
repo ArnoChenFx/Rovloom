@@ -7,6 +7,7 @@ import { MANAGED_LUVUS_CLASSIFICATION, MANAGED_LUVUS_REVISION } from '../runtime
 import type { LuvusProductionOwnerConfig } from '../runtime/production-luvus.js'
 import type { LuvusProductionRemoteConfig } from '../runtime/remote-luvus.js'
 import { localLimits, verifyInstallation } from '../connector/luvus/local.js'
+import { effectiveBinDirectories } from '../connector/local/agent-path.js'
 import { runFixedProcess } from '../connector/luvus/io.js'
 import { LuvusDispatchClaims } from '../connector/luvus/claims.js'
 import type { DeviceCredential } from '../transport/identity.js'
@@ -50,19 +51,21 @@ export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTe
   }
 }
 
-// 仅搜索受控系统目录及所有者显式业务配置的单目录，不继承shell PATH、argv或请求环境。
+// 搜索顺序：所有者显式列出的目录，其后是启动进程 PATH 中通过安全筛选的条目，最后是受控系统目录。
 export function setupBinary(config: ConnectorConfig, kind: NativeProviderKind = 'luvus'): string {
-  for (const directory of [
-    ...(config.native?.runtime_bin_dir ? [config.native.runtime_bin_dir] : []),
-    '/usr/bin',
-    '/bin'
-  ]) {
+  for (const directory of [...effectiveBinDirectories(config.native?.runtime_bin_dirs), '/usr/bin', '/bin']) {
     const path = join(directory, kind)
     if (existsSync(path)) {
       return path
     }
   }
   throw new CliError('configuration_required')
+}
+
+// 原生与 Agent 的 PATH 在安装时一次性固化：显式目录加筛选后的启动 PATH 条目；没有任何额外目录时保持固定系统 PATH。
+export function setupAgentDirectories(config: ConnectorConfig): { agent_bin_dirs?: readonly string[] } {
+  const directories = effectiveBinDirectories(config.native?.agent_bin_dirs)
+  return directories.length > 0 ? { agent_bin_dirs: directories } : {}
 }
 
 // 恢复只能使用同一配对的完整已准备记录；未完成创建不猜测缺失账本可重建。
@@ -132,7 +135,7 @@ export async function prepareSetupNative(
       cwd: work,
       transport: 'ipc',
       allow_terminal_execution: false,
-      ...(config.native?.agent_bin_dir ? { agent_bin_dir: config.native.agent_bin_dir } : {})
+      ...setupAgentDirectories(config)
     },
     { revision: MANAGED_LUVUS_REVISION, signal: terminal.io.signal }
   )

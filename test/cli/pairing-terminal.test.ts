@@ -407,7 +407,7 @@ async function nativeProbe(
       configDocument({
         ...configTemplate('connector'),
         state_dir: connectorState,
-        native: { runtime_bin_dir: binaryDirectory, ...(provider !== 'luvus' ? { provider } : {}) }
+        native: { runtime_bin_dirs: [binaryDirectory], ...(provider !== 'luvus' ? { provider } : {}) }
       })
     ),
     { mode: 0o600 }
@@ -525,7 +525,10 @@ async function nativeProbe(
       'role',
       'schema_version'
     ])
-    assert.deepEqual(user.native, { runtime_bin_dir: binaryDirectory, ...(provider !== 'luvus' ? { provider } : {}) })
+    assert.deepEqual(user.native, {
+      runtime_bin_dirs: [binaryDirectory],
+      ...(provider !== 'luvus' ? { provider } : {})
+    })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

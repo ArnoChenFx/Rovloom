@@ -66,20 +66,20 @@ test(
     const parsed = parseHerdrProviderRefConfig(input)
     const local = {
       ...input.connector.local,
-      agent_bin_dir: '/home/synthetic/Agent Tools/bin',
+      agent_bin_dirs: ['/home/synthetic/Agent Tools/bin'],
       allow_terminal_execution: false
     }
     const installed = parseHerdrProviderRefConfig({ ...input, connector: { ...input.connector, local } }).connector!
       .local
-    assert.equal(installed.agent_bin_dir, local.agent_bin_dir)
+    assert.deepEqual(installed.agent_bin_dirs, local.agent_bin_dirs)
     assert.equal(installed.allow_terminal_execution, false)
     assert.throws(
       /** 受保护 ref 不能把非规范安装目录传入 native 环境。 */ () =>
         parseHerdrProviderRefConfig({
           ...input,
-          connector: { ...input.connector, local: { ...local, agent_bin_dir: 'relative/bin' } }
+          connector: { ...input.connector, local: { ...local, agent_bin_dirs: ['relative/bin'] } }
         }),
-      /agent_bin_dir_invalid/
+      /agent_bin_dirs_invalid/
     )
     for (const enabled of [true, false]) {
       const local = { ...input.connector.local, allow_terminal_execution: enabled }

@@ -65,28 +65,28 @@ prompt-readiness 门禁；不改写已验权、计算摘要及持久登记的参
 
 ## 执行环境与结果
 
-在唯一 Connector 用户文件中，可选 `native.agent_bin_dir` 用于按原生命令名查找已安装
+在唯一 Connector 用户文件中，可选 `native.agent_bin_dirs` 用于按原生命令名查找已安装
 在用户目录的 Agent。下面只是完整用户文档中的字段片段：
 
 ```json
 {
-  "native": {"agent_bin_dir": "/home/owned/.local/bin"},
+  "native": {"agent_bin_dirs": ["/home/owned/.local/bin"]},
   "allow_terminal_execution": false
 }
 ```
 
 它是当前首次 Luvus 初始化的安装设置，由程序映射到受保护 root 配置，见
 [配置参考](CONFIGURATION-zh.md)。用户不编辑 root record、摘要或 provider ref；Herdr
-尚未加入首次引导。直接使用底层库时，对应参数为 `LuvusLocalConfig.agent_bin_dir` 或
-`HerdrLocalConfig.agent_bin_dir`，Herdr 仍由其既有本地 provider 配置交付；它们不是另一个
+尚未加入首次引导。直接使用底层库时，对应参数为 `LuvusLocalConfig.agent_bin_dirs` 或
+`HerdrLocalConfig.agent_bin_dirs`，Herdr 仍由其既有本地 provider 配置交付；它们不是另一个
 CLI 用户文件入口。
 
-填写单个规范绝对目录，不是可执行文件或 PATH 列表。相对路径、`~`、变量展开、路径
+填写规范绝对目录组成的数组（1–16 项、互不重复），不是可执行文件或 `a:b` 式 PATH 字符串。相对路径、`~`、变量展开、路径
 折叠、控制字符和平台 PATH 分隔符均不作为目录解析；空格和 Unicode 保留。Windows
 路径使用 JSON 转义的反斜线及分号分隔，当前原生 owner 的验收范围仍仅为 Linux。
 Rovloom 不创建目录、不安装 Agent，也不把安装目录当作终端执行许可。
 
-Linux 启动 PATH 为 `<agent_bin_dir>:/usr/bin:/bin`，省略时保持 `/usr/bin:/bin`。
+Linux 启动 PATH 为 `<agent_bin_dirs 依序>:<安装时固化的启动 PATH 安全条目>:/usr/bin:/bin`；没有任何额外目录时保持 `/usr/bin:/bin`。
 目录内同名程序优先，所以应使用机器所有者控制的安装目录。配置在 native owner 启动
 前生效，启动后加载的 Agent 服务环境不能替代它。归属检查使用同一环境构造器；改变
 配置须重启对应 owner，不能将存活进程重新解释为新配置。Luvus 首次登记时设置该值，
@@ -124,9 +124,9 @@ Add the optional root boolean `allow_terminal_execution` to the single Connector
 It defaults to `false`; only literal `true` enables direct terminal inputs and custom launch or
 restore commands. Existing Agent conversations retain their separate native and caller/local
 authorization. This switch is not an OS sandbox for Agent tools.
-Optional local `agent_bin_dir` prepends one canonical absolute installation directory to the
-native owner's fixed PATH. Set `native.agent_bin_dir` in the single Connector user file before native initialization;
-omit it to retain the default PATH. Current first-time setup maps it to the protected Luvus root.
+Optional local `agent_bin_dirs` is an array of canonical absolute installation directories that precede
+the native owner's fixed system PATH (at setup the safe entries of the Connector's own `PATH` are appended and pinned). Set `native.agent_bin_dirs` in the single Connector user file before native initialization;
+omit it to use only the inherited safe `PATH` entries and `/usr/bin:/bin`. Current first-time setup maps it to the protected Luvus root.
 Herdr first-time setup is not wired; its existing local provider config supplies the library field. It is not an RPC option, does not
 install software, and does not enable terminal execution. Restart the owner after a supported
 configuration change; existing Luvus root records remain bound to their original config digest.
