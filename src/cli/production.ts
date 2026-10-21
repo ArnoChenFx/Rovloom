@@ -367,8 +367,9 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
           'native' in entry.value &&
           !!entry.value.native &&
           typeof entry.value.native === 'object' &&
-          'root_record' in entry.value.native &&
-          entry.value.native.root_record === managedRoot
+          (('root_record' in entry.value.native && entry.value.native.root_record === managedRoot) ||
+            // 用户自己的 Luvus 没有 Connector 拥有的 root，但同样把 claim 账本放在控制目录。
+            ('mode' in entry.value.native && entry.value.native.mode === 'user'))
       )
       const pairing = readSetupJson(runtimeReference(config.state_dir, 'pairing'))
       if (isolated || pairing !== undefined) {
@@ -480,7 +481,8 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
           transport,
           ...(resource.provider_snapshot === true ? { provider_snapshot: true as const } : {}),
           session: resource.session.bind(resource),
-          release: resource.release.bind(resource)
+          release: resource.release.bind(resource),
+          ...(resource.session_replaced ? { session_replaced: resource.session_replaced.bind(resource) } : {})
         }
       } catch (error) {
         await resource.release()

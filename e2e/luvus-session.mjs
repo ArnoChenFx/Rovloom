@@ -73,7 +73,17 @@ try {
   const machines = await ok('machines_list', {})
   const providers = await ok('providers_list', { machine_id: target.machine_id })
   assert.equal(providers.items[0].kind, 'luvus')
-  const discovered = await ok('runtime_discover', { target, expected_binding_revision: 1, limit: 100 })
+  // Luvus 刚被重建时 Connector 还在重连：目录读取在就绪前会失败，限时重试。
+  let discovered
+  for (let attempt = 0; ; attempt++) {
+    const result = await tool('runtime_discover', { target, expected_binding_revision: 1, limit: 100 })
+    if (!result.isError) {
+      discovered = result.data
+      break
+    }
+    assert(attempt < 120, `runtime_discover:${JSON.stringify(result.raw)}`)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
   const methods = discovered.items.map((item) => item.method).sort()
   assert(methods.includes('workspace.list'), `workspace.list missing in ${methods.join(',')}`)
   const entry = (method) => discovered.items.find((item) => item.method === method)

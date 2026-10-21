@@ -213,11 +213,17 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
           }
           return running
         }
-        return createConnectorRuntime({
+        const running = await createConnectorRuntime({
           ...options,
           ...(resource.provider_snapshot === true ? { provider_snapshot: true as const } : {}),
           session: resource.session.bind(resource)
         })
+        // 来源（用户的 Luvus）被后台重建后结束当前连接周期，下一个认证 epoch 才会取到新实例。
+        if (resource.session_replaced) {
+          const unsubscribe = resource.session_replaced(() => running.transport.disconnect())
+          void running.closed.then(unsubscribe, unsubscribe)
+        }
+        return running
       } catch (error) {
         await resource.release()
         throw error

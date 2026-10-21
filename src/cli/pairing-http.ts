@@ -7,7 +7,7 @@ import type { openGatewayState } from '../runtime/state.js'
 import { parseNativeJson } from '../native-contract/json.js'
 import { boundedJson, fields, id, object } from '../wire/index.js'
 import { SetupApproval, type PairingPlan } from './setup-approval.js'
-import { selectedSetupPolicies, setupProviderKinds } from './setup-policy.js'
+import { selectedSetupPolicies, setupProviderKinds, setupSessions } from './setup-policy.js'
 
 type State = ReturnType<typeof openGatewayState>
 type Receipt = { machine_id: string; delivery_id: string; state: 'delivered' }
@@ -183,8 +183,9 @@ export class GatewayPairingHttp {
             return await this.acknowledge(input.attempt_id as string, credential, input.acknowledgement)
           }
           if (path === '/pairing/status') {
-            fields(input, ['attempt_id', 'authentication'], ['providers'])
+            fields(input, ['attempt_id', 'authentication'], ['providers', 'sessions'])
             const providers = setupProviderKinds(input.providers ?? ['luvus'])
+            const sessions = setupSessions(input.sessions)
             if (plan.providers && boundedJson(plan.providers) !== boundedJson(providers)) {
               throw new Error('setup_provider_selection_changed')
             }
@@ -193,7 +194,7 @@ export class GatewayPairingHttp {
               machine_id: plan.machine_id,
               recovery_generation: plan.generation,
               phase: plan.phase,
-              authorization: selectedSetupPolicies(plan, credential.machine_id, providers)
+              authorization: selectedSetupPolicies(plan, credential.machine_id, providers, sessions)
             })
           }
           fields(input, ['attempt_id', 'authentication', 'installation'])

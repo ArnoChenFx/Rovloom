@@ -69,6 +69,8 @@ Setting an address does not establish pairing or install a native provider.
 | `native.runtime_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Where to look for the selected `luvus`/`herdr` programs. Search order: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. Different programs may live in different directories. No shell expansion or executable argv. |
 | `native.agent_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Directories searched for Agent programs. At native setup the Agent PATH is fixed as: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. It does not install or authenticate an Agent. |
 | `native.herdr.mode` | `"attach"` (default) or `"managed"`, optional | Herdr only. `attach`: connect to the Herdr you already run, start one in your own config directory only if none is running, and re-attach/re-create it when it disappears. `managed`: a private isolated instance owned by the Connector. See [Herdr: attach or managed](#herdr-attach-or-managed). |
+| `native.luvus.mode` | `"attach"` (default) or `"managed"`, optional | Luvus only. `attach`: connect to your own `default` session, start one in your own `LUVUS_HOME` only if none is running, and re-attach/re-create it when it disappears. `managed`: a private isolated instance (session `rovloom`) owned by the Connector. See [Luvus: attach or managed](#luvus-attach-or-managed). |
+| `native.luvus.state_root` | Normalized absolute directory string, optional | Attach mode: your Luvus state directory (default `$LUVUS_HOME` from the Connector's environment, else `~/.luvus`). Created with mode 0700 if missing; it must be private. |
 | `native.herdr.config_home` | Normalized absolute directory string, optional | Attach mode: the config directory your Herdr uses (default `$XDG_CONFIG_HOME`, else `~/.config`). Set it when the Connector runs as a service whose environment differs from your terminal. |
 
 Enabled Gateway listeners must use different ports. Unknown fields, old flat
@@ -213,6 +215,31 @@ remain the only fences.
 
 **managed.** A private instance under the Connector's data directory (`<data.directory>/hr`), owned
 by the Connector and stopped with it. Nothing in your ordinary home is shared.
+
+## Luvus: attach or managed
+
+**attach (default).** The Gateway pairing target is your `default` session (the Gateway
+prompt shows `session: default`). Setup records your real `HOME` and state directory
+(`native.luvus.state_root`, else `$LUVUS_HOME`, else `~/.luvus`). On every start the Connector:
+
+1. asks the pinned `luvus` for its sessions (`session list --json`, run with a private HOME so it
+   reads nothing else) and attaches only if `default` is running **and** the peer on its socket
+   is proven to be your installed `luvus`: same user, the process executable is the same file
+   as the configured binary, and its command line is `luvus [--session default] server`;
+2. otherwise starts `luvus --session default server` detached, with your real `HOME`, your shell
+   and `LUVUS_HOME` (but not SSH agent or API-key variables), so it keeps running after the
+   Connector exits;
+3. watches the instance. If it disappears, the Connector re-attaches or starts a new one with
+   backoff and ends the current connection so the next authenticated epoch uses the new
+   instance. Calls in flight at that moment stay `outcome_unknown` and are never resent.
+
+A server on that endpoint that is **not** your installed `luvus` is never attached or replaced.
+Remote callers act on your **real** workspaces; the Gateway grants and
+`allow_terminal_execution` remain the only fences.
+
+**managed.** A private instance (session `rovloom`) under the Connector's data directory, owned
+by the Connector and stopped with it. The data directory path plus `/n` must fit 52 bytes.
+Nothing in your ordinary home is shared.
 
 ## Restart after a crash
 

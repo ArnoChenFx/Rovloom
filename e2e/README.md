@@ -62,6 +62,13 @@ LUVUS_WRITE='{}' python3 e2e/quickstart.py --work ~/.rq1 --binary dist/release/b
 discover（33 个方法）→ describe → `workspace.list` → `session.snapshot`；设置 `LUVUS_WRITE` 后再 `workspace.new` 并读回
 workspace 计数（1→2）。
 
+默认（`--luvus-mode attach`）走附着方式：没有实例时 Connector 在 Connector 用户的 `~/.luvus` 里自建 default 会话。
+附加选项把附着链路的几种情形也跑一遍（都用真实 Luvus 0.14.3，`LUVUS_WRITE='{}'` 读回写入）：
+
+- `--pre-existing`：先像用户那样启动 `luvus --session default server`，部署后断言 Connector 附着了它（进程不变、没有第二个）。
+- `--pre-existing --kill-luvus`：就绪后 `kill -9` 该 server，断言 Connector 自行重建（新 PID）并重连，随后的读写调用通过。
+- `--crash`：就绪后 `kill -9` Connector 再重启，断言 claim 锁自动接管并重新附着仍在运行的 Luvus；`--luvus-mode managed` 则是隔离实例的同一验证。
+
 这条路径发现过两个只有真实 Luvus 才暴露的缺陷（均已修复并有回归测试）：Luvus 自建 `sessions` 目录继承宿主
 umask（022 → 0755）而被 0700 门禁拒绝，托管 Luvus 在普通用户环境根本起不来；MCP 默认 `validation:"strict"` 与
 Luvus 通用方法要求的 `raw-contract` 不符时，Wire 编码失败发生在派发之后，调用变成 `outcome_unknown` 并断开设备连接

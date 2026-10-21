@@ -87,7 +87,12 @@ Rootless Docker 和 Docker Desktop 尚未作为部署目标验收。
 只有没有实例时才在你自己的配置目录里启动一个，它在 Connector 退出后继续运行。因此远程调用会直接操作你的
 **真实**工作区，你普通 home 里的 Agent 登录也直接可用；实例消失后 Connector 会自行重新附着或重新启动。
 想要私有隔离实例，把 `native.herdr.mode` 设为 `managed`（其中的 Agent 登录不共享，需另行准备）。
-参见[Herdr：附着或隔离](CONFIGURATION-zh.md#herdr附着或隔离)。Luvus 仍固定使用隔离的 managed 方式，其登录引导目前仍缺失。
+参见[Herdr：附着或隔离](CONFIGURATION-zh.md#herdr附着或隔离)。
+
+**Luvus 同理。** 默认附着你自己的 `default` 会话（`luvus` 启动的那个；状态在 `~/.luvus` 或 `$LUVUS_HOME`），
+没有才自建一个，它在 Connector 退出后继续运行，消失后会重新附着或重建。Gateway 的配对提示里会显示
+`session: default`。想要原来的隔离实例（会话名 `rovloom`，状态放在 Connector 数据目录，路径须足够短以容纳 Unix socket），
+把 `native.luvus.mode` 设为 `managed`。参见[Luvus：附着或隔离](CONFIGURATION-zh.md#luvus附着或隔离)。
 
 ## 2. 启动并配对
 

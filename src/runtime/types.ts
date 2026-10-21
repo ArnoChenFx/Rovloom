@@ -119,6 +119,8 @@ export type ConnectorRuntimeOptions = Readonly<{
   transport: Omit<WireConnectorOptions, 'session'>
   // 生产来源可交付固定实测快照；能力仅按双方 offer 协商，不给旧本机模式补造广告。
   provider_snapshot?: true
+  // 来源被后台替换（用户的 Luvus 重启/重建）后结束当前连接周期，使下一个认证 epoch 取到新实例。
+  session_replaced?(listener: () => void): () => void
   // 每个 epoch 使用独立 backend；来源由可信宿主提供，不重复打开 Gateway writer。
   session(connection: Connection): Readonly<
     {

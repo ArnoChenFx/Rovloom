@@ -7,7 +7,13 @@ import { boundedJson, fields, hash, object } from '../wire/index.js'
 import type { ProviderBinding, V2Target } from '../wire/types.js'
 import { CliError, type NativeProviderKind } from './config.js'
 import type { PairingPlan } from './setup-approval.js'
-import { selectedSetupPolicies, setupProviderKinds, setupReference, setupTarget } from './setup-policy.js'
+import {
+  selectedSetupPolicies,
+  setupProviderKinds,
+  setupReference,
+  setupSessions,
+  setupTarget
+} from './setup-policy.js'
 import { readRuntimeFile, runtimeReference } from './runtime-files.js'
 import { writeSetupFile } from './setup-files.js'
 
@@ -68,14 +74,19 @@ export async function reviewSetupManifest(
   if (plan.providers && boundedJson(plan.providers) !== boundedJson(kinds)) {
     throw new CliError('configuration_required')
   }
-  const authorization = selectedSetupPolicies(plan, machine, kinds)
+  // Luvus 的会话名来自 Connector 的运行方式（附着 default / managed rovloom），只接受这两个程序定义的值。
+  const luvusIndex = kinds.indexOf('luvus')
+  const sessions = setupSessions(
+    luvusIndex < 0 ? undefined : { luvus: object(object(object(entries[luvusIndex]).value).target).session }
+  )
+  const authorization = selectedSetupPolicies(plan, machine, kinds, sessions)
   const reviewed: ReviewedSetupInstallation[] = []
   for (let index = 0; index < entries.length; index++) {
     const kind = kinds[index]!
     const entry = object(entries[index])
     fields(entry, ['reference', 'value'])
     const reference = setupReference(plan.attempt_id, kind)
-    const target = setupTarget(machine, kind)
+    const target = setupTarget(machine, kind, sessions)
     if (entry.reference !== reference) {
       throw new CliError('configuration_required')
     }

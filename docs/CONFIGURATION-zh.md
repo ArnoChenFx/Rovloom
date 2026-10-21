@@ -65,6 +65,8 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `native.runtime_bin_dirs` | 1–16 个互不重复的规范绝对目录 string 数组（每项≤4096字符），可选 | 查找所选 `luvus`/`herdr` 程序的位置。搜索顺序：数组内目录依序，其后是 Connector 启动时 `PATH` 中可用的条目，最后是 `/usr/bin:/bin`。不同程序可装在不同目录。不接受 shell 展开或可执行 argv。 |
 | `native.agent_bin_dirs` | 1–16 个互不重复的规范绝对目录 string 数组（每项≤4096字符），可选 | 查找 Agent 程序的目录。原生初始化时 Agent PATH 固化为：数组内目录依序，其后是 Connector 启动时 `PATH` 中可用的条目，最后是 `/usr/bin:/bin`。不安装或认证 Agent。 |
 | `native.herdr.mode` | `"attach"`（默认）或 `"managed"`，可选 | 仅 Herdr。`attach`：连接你已在运行的 Herdr，仅在没有实例时在你自己的配置目录里启动一个，实例消失后重新附着/重建。`managed`：Connector 私有、由它拥有的隔离实例。见[Herdr：附着或隔离](#herdr附着或隔离)。 |
+| `native.luvus.mode` | `"attach"`（默认）或 `"managed"`，可选 | 仅 Luvus。`attach`：连接你自己的 `default` 会话，仅在没有运行的会话时在你自己的 `LUVUS_HOME` 里启动一个，消失后重新附着/重建。`managed`：Connector 私有的隔离实例（会话名 `rovloom`）。见[Luvus：附着或隔离](#luvus附着或隔离)。 |
+| `native.luvus.state_root` | 规范绝对目录 string，可选 | 附着模式下你的 Luvus 状态目录（默认取 Connector 环境里的 `$LUVUS_HOME`，否则 `~/.luvus`）。不存在时以 0700 创建，且必须是私有目录。 |
 | `native.herdr.config_home` | 规范绝对目录 string，可选 | 附着模式下你的 Herdr 使用的配置目录（默认 `$XDG_CONFIG_HOME`，否则 `~/.config`）。Connector 以服务运行、环境与你的终端不同时请显式设置。 |
 
 Gateway 已启用的监听端口必须不同。未知字段、旧扁平字段、runtime/ref 选择、TLS/CA
@@ -169,6 +171,25 @@ schema 输出保留原字节。已知预编译摘要只用于缓存命中，未�
 Agent 凭据请配置在 Agent 自己的文件里。远程调用会操作你的**真实**工作区，Gateway 授权与 `allow_terminal_execution` 仍是仅有的围栏。
 
 **managed。** 在 Connector 数据目录下（`<data.directory>/hr`）的私有实例，由 Connector 拥有并随之停止，不共享你普通 home 里的任何东西。
+
+## Luvus：附着或隔离
+
+**attach（默认）。** Gateway 配对目标是你的 `default` 会话（Gateway 提示里显示 `session: default`）。初始化时记录你真实的
+`HOME` 与状态目录（`native.luvus.state_root`，否则 `$LUVUS_HOME`，否则 `~/.luvus`）。每次启动 Connector 会：
+
+1. 用固定的 `luvus` 列出会话（`session list --json`，以私有 HOME 运行，不读取其它内容）；只有 `default` 正在运行**且**其 socket
+   对端被证明就是你已安装的 `luvus` 才附着：同一用户、进程可执行文件与配置的二进制是同一文件、命令行为
+   `luvus [--session default] server`；
+2. 否则以脱离方式启动 `luvus --session default server`，使用你真实的 `HOME`、shell 和 `LUVUS_HOME`（不带 SSH agent、API key
+   等变量），Connector 退出后它继续运行；
+3. 持续监视该实例。消失时带退避地重新附着或启动新实例，并结束当前连接，使下一个认证周期使用新实例。此刻在途的调用保持
+   `outcome_unknown`，不会重发。
+
+该端点上**不是**你已安装 `luvus` 的 server 既不会被附着也不会被替换。远程调用会操作你的**真实**工作区，Gateway 授权与
+`allow_terminal_execution` 仍是仅有的围栏。
+
+**managed。** 在 Connector 数据目录下的私有实例（会话名 `rovloom`），由 Connector 拥有并随之停止。数据目录路径加 `/n` 须不超过
+52 字节，不共享你普通 home 里的任何东西。
 
 ## 崩溃后重启
 

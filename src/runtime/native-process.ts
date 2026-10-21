@@ -226,6 +226,45 @@ export function ownedPathStamp(path: string, kind: 'directory' | 'binary' | 'soc
   return stamps.join('\n')
 }
 
+/**
+ * 附着用户自己的 Luvus：进程不是我们派生的，环境与工作目录都是用户的，所以只以内核事实证明身份——
+ * 存活、exe 与已安装二进制是同一 inode（同属主）、argv 恰为 `server` 的固定形态。
+ * 用户经 TUI 启动的 default 会话是 `luvus --session default server`，手动运行可省略 `--session default`。
+ */
+function attachedProcessStamp(
+  pid: number,
+  config: LuvusLocalConfig,
+  prefix: string,
+  start: string | undefined,
+  state: string | undefined
+): string {
+  const binary = lstatSync(config.binary, { bigint: true })
+  const executable = statSync(prefix + '/exe', { bigint: true })
+  const argv = readFileSync(prefix + '/cmdline', 'utf8').split('\0')
+  if (argv.at(-1) === '') {
+    argv.pop()
+  }
+  const tail = argv.slice(1).join('\0')
+  const accepted = ['--session\0' + config.target.session + '\0server']
+  if (config.target.session === 'default') {
+    accepted.push('server')
+  }
+  if (
+    !start ||
+    !/^\d+$/u.test(start) ||
+    ['Z', 'X', 'x'].includes(state!) ||
+    !accepted.includes(tail) ||
+    executable.dev !== binary.dev ||
+    executable.ino !== binary.ino ||
+    executable.uid !== binary.uid ||
+    executable.uid !== BigInt(process.geteuid!()) ||
+    pid <= 0
+  ) {
+    throw new LuvusAdapterError('owned_process_identity_changed')
+  }
+  return start
+}
+
 /** 读取内核启动时钟与完整 argv/env/cwd/exe；不从 session discovery 中采信 PID。 */
 function processStamp(pid: number, config: LuvusLocalConfig): string {
   if (!Number.isSafeInteger(pid) || pid <= 0) {
@@ -239,6 +278,9 @@ function processStamp(pid: number, config: LuvusLocalConfig): string {
     .split(/\s+/u)
   const start = fields[19]
   const state = fields[0]
+  if (config.attach) {
+    return attachedProcessStamp(pid, config, prefix, start, state)
+  }
   const expectedArgs = [config.binary, '--session', config.target.session, 'server'].join('\0') + '\0'
   const expectedEnv = Object.entries(childEnvironment(config))
     .map(/* 固定环境只接受本模块列明的键和值，不继承宿主凭据。 */ ([key, value]) => key + '=' + value)
