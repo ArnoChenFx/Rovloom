@@ -48,9 +48,6 @@ const schemas: Record<ToolName, Tool['inputSchema']> = {
       { properties: { name: text }, required: ['name'] }
     ]
   },
-  machines_register: object({ name: text }, ['name']),
-  machines_rename: object({ machine_id: id, name: text }, ['machine_id', 'name']),
-  machines_revoke: object({ machine_id: id, confirmation_id: id }, ['machine_id', 'confirmation_id']),
   providers_list: object({ machine_id: id, ...page }, ['machine_id']),
   providers_get: object({ machine_id: id, provider_id: id }, ['machine_id', 'provider_id']),
   runtime_discover: object({ ...targetProperties, ...page }, targetRequired),
@@ -83,9 +80,6 @@ const schemas: Record<ToolName, Tool['inputSchema']> = {
 const descriptions: Record<ToolName, string> = {
   machines_list: '列出当前 caller 可见的设备；分页和计数须经过当前 ACL。',
   machines_get: '按稳定 ID 或精确名称读取可见设备。',
-  machines_register: '受独立管理授权保护的 pending 注册；仅返回非秘密 registration_id，不签发配对凭据。',
-  machines_rename: '受独立管理授权保护的设备改名。',
-  machines_revoke: '持久撤销设备；confirmation_id 必须引用后台已有的真实确认，不接受自行批准。',
   providers_list: '列出指定设备下当前 caller 可见的已配置 provider；不返回本机配置。',
   providers_get: '读取显式 provider 的 kind、revision 和 readiness。',
   runtime_discover: '发现显式 Target/revision 的有效能力及来源；不授予执行权限。',

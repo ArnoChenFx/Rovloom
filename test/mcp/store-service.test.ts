@@ -290,22 +290,6 @@ test(
         f.service.execute('runtime_result_read', { result_id: 'result_fixture' }, context()),
         code('backend_unavailable')
       )
-      await assert.rejects(
-        f.service.execute('machines_register', { name: 'new' }, context()),
-        code('backend_unavailable')
-      )
-      await assert.rejects(
-        f.service.execute('machines_rename', { machine_id: 'machine_a', name: 'renamed' }, context()),
-        code('backend_unavailable')
-      )
-      await assert.rejects(
-        f.service.execute(
-          'machines_revoke',
-          { machine_id: 'machine_a', confirmation_id: 'not_a_confirmation' },
-          context()
-        ),
-        code('backend_unavailable')
-      )
       const write = {
         confirmation_id: 'not_a_confirmation',
         request_id: 'req_1',

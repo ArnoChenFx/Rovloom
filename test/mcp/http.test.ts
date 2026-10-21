@@ -278,19 +278,9 @@ test(
         assert(
           !readFileSync(join(directory, 'events.jsonl'), { encoding: 'utf8', flag: 'a+' }).includes('runtime_call')
         )
-        for (const name of ['machines_register', 'machines_rename', 'machines_revoke', 'runtime_response_discard']) {
-          const args =
-            name === 'machines_register'
-              ? { name: 'isolated' }
-              : name === 'machines_rename'
-                ? { machine_id: 'machine', name: 'new' }
-                : name === 'machines_revoke'
-                  ? { machine_id: 'machine', confirmation_id: 'confirmed' }
-                  : { call_id: 'call-1' }
-          const reply = await client.callTool({ name, arguments: args })
-          assert.equal(reply.isError, true)
-          assert.deepEqual(reply.structuredContent, { gateway_error: { code: 'forbidden' } })
-        }
+        const discard = await client.callTool({ name: 'runtime_response_discard', arguments: { call_id: 'call-1' } })
+        assert.equal(discard.isError, true)
+        assert.deepEqual(discard.structuredContent, { gateway_error: { code: 'forbidden' } })
         const error = await client.callTool({ name: 'runtime_call', arguments: call('stub.native_error') })
         assert.equal(error.isError, true)
         assert.deepEqual((data(error).native_response as Record<string, unknown>).error, {
@@ -324,22 +314,6 @@ test(
         }
       ),
       { code: 401 }
-    )
-  }
-)
-
-test(
-  '注册只返回 pending 标识，不交付配对材料',
-  /* 单独验证管理stub的公开投影，不能据此声称真实管理后端已可用。 */ async () => {
-    await isolated(
-      'admin',
-      /* 请求 pending 注册，确认额外 enrollment 被公开投影剔除。 */ async (client) => {
-        assert.deepEqual(data(await client.callTool({ name: 'machines_register', arguments: { name: 'isolated' } })), {
-          registration_id: 'registration-test',
-          status: 'pending',
-          hint: '配对材料仅通过受保护本机管理渠道交付；此工具不返回凭据。'
-        })
-      }
     )
   }
 )

@@ -46,7 +46,7 @@ export function stubFixture(mode: string, directory: string) {
     record({ operation: name, caller: context.caller.principal_id, args })
     let data: unknown
     let isError = false
-    if (['machines_register', 'machines_rename', 'machines_revoke', 'runtime_response_discard'].includes(name)) {
+    if (name === 'runtime_response_discard') {
       if (context.caller.principal_id !== 'test-admin') {
         throw new FacadeServiceError('forbidden')
       }
@@ -61,14 +61,7 @@ export function stubFixture(mode: string, directory: string) {
         break
       }
       case 'machines_get':
-      case 'machines_rename':
         data = machine
-        break
-      case 'machines_register':
-        data = { registration_id: 'registration-test', status: 'pending', enrollment: marker }
-        break
-      case 'machines_revoke':
-        data = { machine_id: 'machine', status: 'revoked' }
         break
       case 'providers_list':
       case 'providers_get': {

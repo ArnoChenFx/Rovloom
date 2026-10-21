@@ -8,9 +8,6 @@ export type TargetArguments = { target: V2Target; expected_binding_revision: num
 export type ToolArguments = {
   machines_list: PageArguments
   machines_get: { machine_id: string; name?: never } | { name: string; machine_id?: never }
-  machines_register: { name: string }
-  machines_rename: { machine_id: string; name: string }
-  machines_revoke: { machine_id: string; confirmation_id: string }
   providers_list: PageArguments & { machine_id: string }
   providers_get: { machine_id: string; provider_id: string }
   runtime_discover: TargetArguments & PageArguments
@@ -49,9 +46,6 @@ export type CallView = JsonObject & {
 export type ReplyData = {
   machines_list: Page<MachineView>
   machines_get: MachineView
-  machines_register: { registration_id: string; status: 'pending' }
-  machines_rename: MachineView
-  machines_revoke: { machine_id: string; status: 'revoked' }
   providers_list: Page<ProviderView>
   providers_get: ProviderView
   runtime_discover: Page<JsonObject>
