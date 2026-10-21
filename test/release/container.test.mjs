@@ -51,7 +51,7 @@ function fixture() {
     draft: false,
     prerelease: false,
     tag_name: context.tag,
-    target_commitish: context.commit,
+    target_commitish: 'main',
     body: `fixture <!-- rovloom-release:1 ${context.tag} ${context.commit} -->`,
     assets: [
       ...assets.map(/** REST字段与正式下载名一一对应。 */ (asset) => asset.name),
@@ -124,6 +124,27 @@ test(
       }
       await assert.rejects(releaseContext(changed.event, changed.api), mutation)
     }
+  }
+)
+
+test(
+  'container release identity follows the remote tag and contract rather than the creation target hint',
+  /** 创建提示可以是分支或旧提交，但真实标签与说明中的提交必须始终匹配成功的工作流。 */ async () => {
+    const f = fixture()
+    for (const hint of ['main', 'release/0.1', f.context.commit, 'b'.repeat(40)]) {
+      f.release.target_commitish = hint
+      assert.deepEqual(await releaseContext(f.event, f.api), f.context)
+    }
+    await assert.rejects(
+      releaseContext(
+        f.event,
+        /** 单独移动远端标签，保留工作流与 Release 创建提示，确认仍拒绝错误提交。 */ async (path) =>
+          path.includes('/git/ref/tags/') ? { object: { type: 'commit', sha: 'b'.repeat(40) } } : f.api(path)
+      ),
+      /Remote tag moved from the event commit/u
+    )
+    f.release.body = `fixture <!-- rovloom-release:1 ${f.context.tag} ${'b'.repeat(40)} -->`
+    await assert.rejects(releaseContext(f.event, f.api))
   }
 )
 

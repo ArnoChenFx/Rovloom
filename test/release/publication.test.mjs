@@ -118,6 +118,7 @@ function remote() {
     assets: [],
     writes: [],
     tagReads: 0,
+    tagCommit: context.commit,
     failUpload: 0,
     moveTag: false,
     omitDigest: false
@@ -131,7 +132,7 @@ function remote() {
     }
     if (path.includes('/git/ref/tags/')) {
       state.tagReads++
-      return { object: { type: 'commit', sha: state.moveTag && state.tagReads > 1 ? 'b'.repeat(40) : context.commit } }
+      return { object: { type: 'commit', sha: state.moveTag && state.tagReads > 1 ? 'b'.repeat(40) : state.tagCommit } }
     }
     if (method === 'GET' && path.includes('/releases?')) {
       return state.release ? [structuredClone(state.release)] : []
@@ -141,7 +142,7 @@ function remote() {
     }
     if (method === 'POST' && path.endsWith('/releases')) {
       assert.equal(json.draft, true)
-      state.release = { id: 1, ...json }
+      state.release = { id: 1, ...json, target_commitish: 'main' }
       return structuredClone(state.release)
     }
     if (method === 'POST' && path.includes('/assets?name=')) {
@@ -357,6 +358,8 @@ test(
       const { api, state } = remote()
       assert.equal((await publish(context, bundle, api)).status, 'published')
       assert.equal(state.writes[0].json.draft, true)
+      assert.equal(state.writes[0].json.target_commitish, context.commit)
+      assert.equal(state.release.target_commitish, 'main')
       assert.equal(state.writes.at(-1).method, 'PATCH')
       assert.equal(state.writes.at(-1).json.make_latest, 'legacy')
       const writes = state.writes.length
@@ -390,6 +393,29 @@ test(
 )
 
 test(
+  'draft resume and published rerun ignore creation target hints after verifying the actual tag',
+  /** 分支头变化或无关创建提示不能替代真实标签身份，也不能破坏同字节草稿恢复及只读重跑。 */ async () => {
+    const temporary = fixture()
+    try {
+      const bundle = assemble(context, temporary.directory)
+      for (const hint of ['release/0.1', context.commit, 'b'.repeat(40)]) {
+        const { api, state } = remote()
+        state.failUpload = 2
+        await assert.rejects(publish(context, bundle, api), /simulated upload failure/u)
+        state.failUpload = 0
+        state.release.target_commitish = hint
+        assert.equal((await publish(context, bundle, api)).status, 'published')
+        const writes = state.writes.length
+        assert.equal((await publish(context, bundle, api)).status, 'already-published')
+        assert.equal(state.writes.length, writes)
+      }
+    } finally {
+      temporary.cleanup()
+    }
+  }
+)
+
+test(
   'conflicting published or draft bytes, digest absence and foreign release are never overwritten',
   /** 冲突后零新增写入。 */ async () => {
     for (const mutation of ['size', 'digest', 'unknown', 'body', 'commit', 'published']) {
@@ -413,7 +439,7 @@ test(
           state.release.body = 'manual release'
         }
         if (mutation === 'commit') {
-          state.release.target_commitish = 'b'.repeat(40)
+          state.tagCommit = 'b'.repeat(40)
         }
         if (mutation === 'published') {
           state.release.draft = false

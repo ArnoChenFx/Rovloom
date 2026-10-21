@@ -61,7 +61,7 @@ export async function publish(context, bundle, api) {
     })
   }
   assert.equal(release.tag_name, context.tag)
-  assert.equal(release.target_commitish, context.commit, 'Existing release commit differs')
+  // 已存在 tag 时 GitHub 忽略 target_commitish；提交身份由远端 tag、说明和资产合同校验。
   assert.equal(release.body, body, 'Existing release does not belong to this contract')
   assert.equal(release.prerelease, prerelease)
   assert(Number.isSafeInteger(release.id) && release.id > 0)

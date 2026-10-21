@@ -40,7 +40,7 @@ export async function releaseContext(event, api) {
   const release = await api(`${prefix}/releases/tags/${encodeURIComponent(context.tag)}`)
   assert.equal(release.draft, false)
   assert.equal(release.tag_name, context.tag)
-  assert.equal(release.target_commitish, context.commit)
+  // target_commitish 只是创建 tag 的提示；已解析的远端 tag 与发行说明才绑定工作流提交。
   assert.equal(release.prerelease, parseReleaseVersion(context.version).prerelease.length > 0)
   assert.equal(typeof release.body, 'string')
   assert(release.body.includes(`<!-- rovloom-release:1 ${context.tag} ${context.commit} -->`))
