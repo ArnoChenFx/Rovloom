@@ -71,11 +71,7 @@ function serviceError(error: unknown): FacadeServiceError {
     return error
   }
   if (error instanceof GatewayError) {
-    if (
-      error.code === 'recovery_quarantined' ||
-      error.code === 'storage_degraded' ||
-      error.code === 'storage_exhausted'
-    ) {
+    if (error.code === 'storage_degraded' || error.code === 'storage_exhausted') {
       return new FacadeServiceError(error.code)
     }
     const code = Object.hasOwn(gatewayErrors, error.code) ? gatewayErrors[error.code] : undefined
@@ -189,11 +185,7 @@ export class StoreGatewayService implements GatewayService {
 
   // 在每次读取前执行实际时钟与恢复门禁；降级下仍只允许 Store 支持的授权读取和清理。
   private now(): number {
-    const now = this.options.store.clock()
-    if (this.options.store.health().mode === 'recovery_quarantined') {
-      throw new FacadeServiceError('recovery_quarantined')
-    }
-    return now
+    return this.options.store.clock()
   }
 
   // 使用 Wire 的完整 tuple 求交，不把不同 grant 的 machine/provider/session/method 拼成新授权。
@@ -505,7 +497,7 @@ export class StoreGatewayService implements GatewayService {
       !admin ||
       admin.principal_id !== principal.id ||
       admin.session_ref !== context.management_session_ref ||
-      !['administrator', 'recovery_local'].includes(admin.assurance) ||
+      admin.assurance !== 'administrator' ||
       typeof admin.policy_revision !== 'string' ||
       !idPattern.test(admin.policy_revision) ||
       !Array.isArray(admin.grants) ||
@@ -595,15 +587,13 @@ export class StoreGatewayService implements GatewayService {
         )
         const reason = !allowed
           ? 'forbidden'
-          : mode === 'recovery_quarantined'
-            ? 'recovery_quarantined'
-            : !['devices_read', 'providers_read', 'permissions_read'].includes(action)
-              ? mode === 'storage_degraded'
-                ? 'storage_degraded'
-                : capabilities.has(action)
-                  ? 'allowed'
-                  : 'backend_unavailable'
-              : 'allowed'
+          : !['devices_read', 'providers_read', 'permissions_read'].includes(action)
+            ? mode === 'storage_degraded'
+              ? 'storage_degraded'
+              : capabilities.has(action)
+                ? 'allowed'
+                : 'backend_unavailable'
+            : 'allowed'
         return { action, allowed: reason === 'allowed', reason_code: reason }
       }
     )
@@ -635,9 +625,6 @@ export class StoreGatewayService implements GatewayService {
         if (!this.allowed(admin, 'gateway_read')) {
           throw new FacadeServiceError('forbidden')
         }
-        if (health.mode === 'recovery_quarantined' && admin.assurance !== 'recovery_local') {
-          throw new FacadeServiceError('recovery_quarantined')
-        }
         return {
           server_time: now,
           observed_at: now,
@@ -648,8 +635,7 @@ export class StoreGatewayService implements GatewayService {
           stale_after_ms: 15000,
           history: null,
           components: {
-            store:
-              health.mode === 'active' ? 'available' : health.mode === 'storage_degraded' ? 'degraded' : 'quarantined',
+            store: health.mode === 'active' ? 'available' : 'degraded',
             transport: 'unavailable',
             native: 'unavailable'
           }

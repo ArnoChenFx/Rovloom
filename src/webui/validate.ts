@@ -241,14 +241,14 @@ function status(value: ManagementStatus): void {
   if (value.observed_at > value.server_time || value.refresh_after_ms !== 5000 || value.stale_after_ms !== 15000) {
     invalid()
   }
-  choice(value.mode, ['active', 'storage_degraded', 'recovery_quarantined'])
+  choice(value.mode, ['active', 'storage_degraded'])
   if (value.history !== null) {
     record(value.history, ['history_epoch', 'accept_new_until'])
     text(value.history.history_epoch)
     time(value.history.accept_new_until)
   }
   record(value.components, ['store', 'transport', 'native'])
-  choice(value.components.store, ['available', 'degraded', 'quarantined'])
+  choice(value.components.store, ['available', 'degraded'])
   for (const item of [value.components.transport, value.components.native]) {
     choice(item, ['available', 'degraded', 'unavailable', 'unverified'])
   }
@@ -294,13 +294,7 @@ function permissionShape(value: PermissionSnapshot): void {
       'permissions_read'
     ])
     choice(decision.allowed, [true, false])
-    choice(decision.reason_code, [
-      'allowed',
-      'forbidden',
-      'backend_unavailable',
-      'recovery_quarantined',
-      'storage_degraded'
-    ])
+    choice(decision.reason_code, ['allowed', 'forbidden', 'backend_unavailable', 'storage_degraded'])
   }
 }
 
@@ -479,18 +473,6 @@ export function checkPage(snapshot: TimedSnapshot<PageView>, route: PageRoute): 
       if (page.permissions.observed_at > snapshot.serverTime) {
         invalid()
       }
-    }
-    if (
-      page.status.mode === 'recovery_quarantined' &&
-      (page.device ||
-        page.devices.items.length ||
-        page.devices.next_cursor !== undefined ||
-        page.providers.items.length ||
-        page.providers.next_cursor !== undefined ||
-        page.permissions ||
-        page.providersProblem !== null)
-    ) {
-      invalid()
     }
     if (new TextEncoder().encode(JSON.stringify(snapshot)).byteLength > 524_288) {
       invalid()

@@ -1,4 +1,4 @@
-// 导出不含调用原文和有效凭据的 v5 隔离快照，并限制备份大小、同步落盘及清理失败产物。
+// 导出不含调用原文和有效凭据的 v5 快照；恢复它等同于重新配对，并限制备份大小、同步落盘及清理失败产物。
 import { DatabaseSync } from 'node:sqlite'
 import { closeSync, fsyncSync, openSync, unlinkSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -9,7 +9,7 @@ import { SCHEMA, SCHEMA_VERSION } from './schema.js'
 // 为隔离快照生成带指定前缀的新恢复代次标识。
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
 
-// 创建独占私有快照，冻结历史并禁用机器与 provider；超配额或写入失败时删除本次产物。
+// 创建独占私有快照：设备回到 pending 且凭据清空、provider 禁用并升版、历史冻结；超配额或写入失败时删除本次产物。
 export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now: number, limits: Retention): void {
   let created = false
   try {
@@ -19,9 +19,7 @@ export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now:
     try {
       backup.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; BEGIN IMMEDIATE;')
       backup.exec(SCHEMA)
-      backup
-        .prepare("INSERT INTO metadata VALUES(1,?,?,'recovery_quarantined',?)")
-        .run(SCHEMA_VERSION, id('recovery'), now)
+      backup.prepare("INSERT INTO metadata VALUES(1,?,?,'active',?)").run(SCHEMA_VERSION, id('recovery'), now)
       for (const table of ['machines', 'providers', 'history', 'calls', 'audit', 'management']) {
         for (const source of sourceDb.prepare(`SELECT * FROM ${table}`).all()) {
           const row = { ...source }

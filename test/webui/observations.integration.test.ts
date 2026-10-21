@@ -39,7 +39,7 @@ function row(f: ReturnType<typeof realFixture>['f'], id: string): DeviceSnapshot
 function project(f: ReturnType<typeof realFixture>['f']) {
   const snapshot = sampleManagementTransport(f.gateway.observations)
   const health = f.store.health()
-  assert(health.mode === 'active' || health.mode === 'storage_degraded' || health.mode === 'recovery_quarantined')
+  assert(health.mode === 'active' || health.mode === 'storage_degraded')
   const fence: ManagementObservationFence = {
     mode: health.mode,
     server_time: f.store.clock(),
@@ -145,7 +145,7 @@ test(
       r.f.store.revoke(a.machine_id)
       r.f.gateway.disconnect(a.machine_id)
       const health = f.store.health()
-      assert(health.mode === 'active' || health.mode === 'storage_degraded' || health.mode === 'recovery_quarantined')
+      assert(health.mode === 'active' || health.mode === 'storage_degraded')
       const old = createManagementTransportProjection(captured, {
         mode: health.mode,
         server_time: f.store.clock(),

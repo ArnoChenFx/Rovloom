@@ -404,7 +404,7 @@ unknown 补证需 late_evidence feature；缺锚点、旧 attempt、墓碑已删
 意图恒为 dispatch:false；原超时/取消历史和 TTL 不变。相同 hash/长度 duplicate 不产生 payload/句柄写入意图。
 expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可时，仅 metadata_only：ID、接收时间、hash/长度、result/error 类别。
 不恢复原文、不生成句柄、不续期。事务失败保留 unknown，不能将内存 plan 作为 durable responded。
-持久化、固定期限、预算、恢复隔离与旧 DB 迁移属于宿主职责。
+持久化、固定期限、预算、备份恢复与旧 DB 迁移属于宿主职责。
 原生较低帧预算同样适用于 metadata_only 补证；原文不保留不代表可以跳过响应校验。
 `ResponseEvidencePlan` 保持无持久化副作用：宿主必须在同一 writer 事务中再次核对原锚点、
 证据 hash/长度、固定期限和当前状态后提交；事务失败不得发布 responded 或制造重派。

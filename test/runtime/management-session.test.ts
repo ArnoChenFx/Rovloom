@@ -161,9 +161,6 @@ test(
       f.managed.admin = null
       assert.throws(/** 没有真实管理员来源时不能创建短期 cookie。 */ () => f.issue(), /unauthenticated/)
       f.managed.admin = saved
-      f.managed.admin = { ...f.managed.admin!, assurance: 'recovery_local' }
-      assert.throws(/** 恢复身份不能进入普通管理 cookie 通道。 */ () => f.issue(), /unauthenticated/)
-      f.managed.admin = { ...f.managed.admin!, assurance: 'administrator' }
       f.state.afterAdmin = /** 底层失败必须转为固定错误，不能输出私有正文。 */ () => {
         throw new Error('private_native_secret')
       }
@@ -285,7 +282,7 @@ test(
 test(
   'current administrator source revocation and policy changes invalidate established cookies',
   /** 每次解析都重新查源，观察到撤权后不能靠恢复旧对象重新启用 cookie。 */ async () => {
-    for (const change of ['principal', 'administrator', 'policy', 'assurance'] as const) {
+    for (const change of ['principal', 'administrator', 'policy'] as const) {
       const f = fixture()
       try {
         const delivery = f.issue()
@@ -294,10 +291,8 @@ test(
           f.managed.authenticated = false
         } else if (change === 'administrator') {
           f.managed.admin = null
-        } else if (change === 'policy') {
-          f.managed.admin = { ...saved!, policy_revision: 'new_policy' }
         } else {
-          f.managed.admin = { ...saved!, assurance: 'recovery_local' }
+          f.managed.admin = { ...saved!, policy_revision: 'new_policy' }
         }
         assert.equal(f.authority.identities.administrator(caller, sessionRef), null)
         assert.equal((await f.handler.fetch(request(delivery))).status, 401)

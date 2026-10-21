@@ -43,7 +43,6 @@ const readinessNames = {
 const componentNames = {
   available: 'component.available',
   degraded: 'component.degraded',
-  quarantined: 'component.quarantined',
   unavailable: 'component.unavailable',
   unverified: 'component.unverified'
 } as const satisfies Record<string, MessageKey>
@@ -704,9 +703,7 @@ export function renderPage(
           ? state.stale
             ? t('gateway.activeHistory')
             : t('gateway.active')
-          : status.mode === 'recovery_quarantined'
-            ? t('gateway.quarantined')
-            : t('gateway.degraded'),
+          : t('gateway.degraded'),
         status.mode === 'active' && !state.stale ? 'good' : 'warning'
       )
     )
@@ -751,23 +748,13 @@ export function renderPage(
     )
     gateway.append(metadata)
     if (status.mode !== 'active') {
-      gateway.append(
-        node(
-          'p',
-          status.mode === 'recovery_quarantined' ? t('gateway.recoveryNote') : t('gateway.degradedNote'),
-          'notice warning'
-        )
-      )
+      gateway.append(node('p', t('gateway.degradedNote'), 'notice warning'))
     }
-    if (status.mode !== 'recovery_quarantined') {
-      const section =
-        route.machineId === null
-          ? deviceList(page, freshness, management && status.mode === 'active' && !state.stale)
-          : deviceDetail(page, freshness, management && status.mode === 'active' && !state.stale)
-      view.append(section.heading, gateway, section.body)
-    } else {
-      view.append(node('h1', t('gateway.heading')), gateway)
-    }
+    const section =
+      route.machineId === null
+        ? deviceList(page, freshness, management && status.mode === 'active' && !state.stale)
+        : deviceDetail(page, freshness, management && status.mode === 'active' && !state.stale)
+    view.append(section.heading, gateway, section.body)
   }
   const identity = routeHref(route)
   if (content.dataset.route === identity) {

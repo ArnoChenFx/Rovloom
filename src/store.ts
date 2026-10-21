@@ -282,15 +282,10 @@ export class Store {
     }
   }
 
-  // 返回不含业务内容的运行模式与恢复 generation，供宿主判断隔离或降级状态。
+  // 返回不含业务内容的运行模式与恢复 generation，供宿主判断降级状态。
   health() {
     return {
-      mode:
-        this.meta().mode === 'recovery_quarantined'
-          ? 'recovery_quarantined'
-          : this.degraded
-            ? 'storage_degraded'
-            : 'active',
+      mode: this.degraded ? 'storage_degraded' : 'active',
       generation: this.generation()
     }
   }
@@ -311,13 +306,10 @@ export class Store {
     this.observed = value
     return value
   }
-  // 阻止关闭、恢复隔离或存储降级中的新业务准入。
+  // 阻止关闭或存储降级中的新业务准入。
   private active(): void {
     if (this.closed) {
       throw new GatewayError('storage_closed')
-    }
-    if (this.meta().mode === 'recovery_quarantined') {
-      throw new GatewayError('recovery_quarantined')
     }
     if (this.degraded) {
       throw new GatewayError('storage_degraded')
@@ -327,7 +319,7 @@ export class Store {
   private markDegraded(): void {
     this.degraded = true
     try {
-      this.db.prepare("UPDATE metadata SET mode='storage_degraded' WHERE mode!='recovery_quarantined'").run()
+      this.db.prepare("UPDATE metadata SET mode='storage_degraded'").run()
     } catch {
       /* 原锚点保持原样。 */
     }
@@ -654,11 +646,8 @@ export class Store {
     }
     return row
   }
-  // 核对调用归属、元数据期限及恢复隔离状态，再允许访问内部账本。
+  // 核对调用归属与元数据期限，再允许访问内部账本。
   private owned(principal: string, callId: string, now = this.time()): Row {
-    if (this.meta().mode === 'recovery_quarantined') {
-      throw new GatewayError('recovery_quarantined')
-    }
     const row = this.row(callId)
     if (row.principal !== principal || row.metadata_expires <= now) {
       throw new GatewayError('call_not_found')
@@ -1073,10 +1062,7 @@ export class Store {
           /* 回滚失败不交付部分观察，整个 Store 继续按降级拒绝。 */
         }
       }
-      if (
-        error instanceof GatewayError &&
-        ['storage_closed', 'recovery_quarantined', 'storage_degraded'].includes(error.code)
-      ) {
+      if (error instanceof GatewayError && ['storage_closed', 'storage_degraded'].includes(error.code)) {
         throw error
       }
       this.markDegraded()
@@ -1438,9 +1424,6 @@ export class Store {
   resumeStorage(): void {
     this.transaction(
       /* 检查数据库完整性并消费恢复确认，只有预算恢复正常才切回 active。 */ (now) => {
-        if (this.meta().mode === 'recovery_quarantined') {
-          throw new GatewayError('recovery_quarantined')
-        }
         if (this.db.prepare('PRAGMA quick_check').get()!.quick_check !== 'ok') {
           throw new GatewayError('database_integrity_failed')
         }
@@ -1454,19 +1437,6 @@ export class Store {
       unlinkSync(this.path + '.degraded')
     }
     this.degraded = false
-  }
-  // 经精确恢复 generation 的受保护确认解除恢复隔离，旧连接和旧调用不会重放。
-  completeRecovery(): void {
-    this.transaction(
-      /* 要求当前处于恢复隔离，消费独立确认后切回 active。 */ (now) => {
-        if (this.meta().mode !== 'recovery_quarantined') {
-          throw new GatewayError('invalid_recovery_state')
-        }
-        this.manage('recovery_complete', 'database', this.generation(), now)
-        this.db.prepare("UPDATE metadata SET mode='active'").run()
-      },
-      false
-    )
   }
   // 在独立私有目录中导出有期限的内容脱敏备份，并将受保护确认与备份登记原子提交。
   backup(destination: string): void {

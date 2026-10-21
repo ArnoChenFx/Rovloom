@@ -177,7 +177,7 @@ export function createManagementSessionAdapter(options: ManagementSessionAdapter
         !admin ||
         admin.principal_id !== caller ||
         admin.session_ref !== session ||
-        !['administrator', 'recovery_local'].includes(admin.assurance) ||
+        admin.assurance !== 'administrator' ||
         typeof admin.policy_revision !== 'string' ||
         !identifier.test(admin.policy_revision) ||
         !Array.isArray(admin.grants) ||

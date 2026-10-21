@@ -82,7 +82,7 @@ test(
   }
 )
 
-for (const mode of ['recovery_quarantined', 'storage_degraded'] as const) {
+for (const mode of ['storage_degraded'] as const) {
   test(
     '已有句柄元数据保留原签发准入限制：' + mode,
     /** 只在关闭 writer 的人工历史准备阶段设置模式，不绕过任何生产管理入口。 */ (t) => {

@@ -193,14 +193,12 @@ def main():
         checks.append('重复点击有界、取消后可刷新且旧响应不生效')
 
         for mode, text in [('stale', '快照已过期'), ('empty', '此范围尚无设备'), ('503', '管理读取尚不可用'),
-                           ('quarantine', '恢复隔离'), ('degraded', '存储降级')]:
+                           ('degraded', '存储降级')]:
             page.evaluate('(mode) => { window.webUiFixture.mode=mode }', mode)
             page.get_by_role('button', name='刷新', exact=True).click()
             page.get_by_text(text, exact=False).first.wait_for()
-            if mode == 'quarantine':
-                assert page.locator('.device-card, .provider-card').count() == 0
             assert 'fixture-secret-never-render-this' not in page.content()
-        checks.append('过期、空态、503、恢复隔离最小诊断与存储降级')
+        checks.append('过期、空态、503与存储降级')
 
         for mode, text in [('401', '管理会话未登录或已过期'), ('403', '没有此范围的查看权限'), ('expired', '管理会话未登录或已过期')]:
             page.goto(base + '/fixtures/')

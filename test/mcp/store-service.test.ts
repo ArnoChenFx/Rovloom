@@ -56,7 +56,7 @@ test(
   }
 )
 
-for (const change of ['clock', 'recovery', 'owner'] as const) {
+for (const change of ['clock', 'owner'] as const) {
   test(
     'call_get 短等下一轮重新核验 ' + change,
     /** 第二轮身份读取时交错改变真实存储事实，不能跨轮沿用入口的时钟或归属快照。 */ async () => {
@@ -82,11 +82,7 @@ for (const change of ['clock', 'recovery', 'owner'] as const) {
               } else {
                 const update = new DatabaseSync(f.path)
                 try {
-                  if (change === 'recovery') {
-                    update.exec("UPDATE metadata SET mode='recovery_quarantined'")
-                  } else {
-                    update.prepare("UPDATE calls SET principal='bob' WHERE call_id=?").run(call.call_id)
-                  }
+                  update.prepare("UPDATE calls SET principal='bob' WHERE call_id=?").run(call.call_id)
                 } finally {
                   update.close()
                 }
@@ -99,7 +95,7 @@ for (const change of ['clock', 'recovery', 'owner'] as const) {
       try {
         await assert.rejects(
           service.execute('runtime_call_get', { call_id: call.call_id, wait_ms: 5000 }, context()),
-          code(change === 'clock' ? 'storage_degraded' : change === 'recovery' ? 'recovery_quarantined' : 'not_found')
+          code(change === 'clock' ? 'storage_degraded' : 'not_found')
         )
         assert.equal(snapshots, 3)
       } finally {
@@ -498,33 +494,8 @@ test(
 )
 
 test(
-  '真实Store恢复隔离与降级约束覆盖服务，内容期限不会因查询或缺后端重建',
-  /* 用关闭writer时设置的隔离fixture验证模式，不冒充受控恢复流程。 */ async () => {
-    const quarantined = storeFixture('recovery_quarantined')
-    try {
-      await assert.rejects(quarantined.service.execute('machines_list', {}, context()), code('recovery_quarantined'))
-      await assert.rejects(
-        quarantined.service.management.execute('status', {}, adminContext()),
-        code('recovery_quarantined')
-      )
-      quarantined.setAdmin({
-        principal_id: 'alice',
-        session_ref: 'admin_session',
-        assurance: 'recovery_local',
-        policy_revision: 'recovery_1',
-        grants: [{ action: 'gateway_read' }, { action: 'devices_read', machine_id: 'machine_a' }]
-      })
-      assert.equal(
-        (await quarantined.service.management.execute('status', {}, adminContext())).mode,
-        'recovery_quarantined'
-      )
-      await assert.rejects(
-        quarantined.service.management.execute('devices_get', { machine_id: 'machine_a' }, adminContext()),
-        code('recovery_quarantined')
-      )
-    } finally {
-      quarantined.close()
-    }
+  '真实Store降级约束覆盖服务，内容期限不会因查询或缺后端重建',
+  /* 用关闭writer时设置的降级fixture验证模式。 */ async () => {
     const degraded = storeFixture('storage_degraded')
     try {
       assert.equal((await degraded.service.management.execute('status', {}, adminContext())).mode, 'storage_degraded')

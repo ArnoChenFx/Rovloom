@@ -78,36 +78,34 @@ export function createManagementPageRead(transport: ManagementReadTransport): Pa
       permissions: null,
       providersProblem: null
     }
-    if (before.mode !== 'recovery_quarantined') {
-      if (route.machineId === null) {
-        page.devices = await execute('devices_list', {
+    if (route.machineId === null) {
+      page.devices = await execute('devices_list', {
+        limit: 50,
+        ...(route.cursor === null ? {} : { cursor: route.cursor })
+      })
+    } else {
+      const target = { machine_id: route.machineId }
+      const device = await execute('devices_get', target)
+      page.device = device
+      try {
+        page.providers = await execute('providers_list', {
+          ...target,
           limit: 50,
-          ...(route.cursor === null ? {} : { cursor: route.cursor })
+          ...(route.providerCursor === null ? {} : { cursor: route.providerCursor })
         })
-      } else {
-        const target = { machine_id: route.machineId }
-        const device = await execute('devices_get', target)
-        page.device = device
-        try {
-          page.providers = await execute('providers_list', {
-            ...target,
-            limit: 50,
-            ...(route.providerCursor === null ? {} : { cursor: route.providerCursor })
-          })
-        } catch (error) {
-          page.providersProblem = partialProblem(error)
-        }
-        try {
-          page.permissions = await execute('permissions_get', target)
-        } catch (error) {
-          partialProblem(error)
-        }
-        const currentDevice = await execute('devices_get', target)
-        if (deviceFence(device) !== deviceFence(currentDevice)) {
-          throw new ReadError('conflict')
-        }
-        page.device = currentDevice
+      } catch (error) {
+        page.providersProblem = partialProblem(error)
       }
+      try {
+        page.permissions = await execute('permissions_get', target)
+      } catch (error) {
+        partialProblem(error)
+      }
+      const currentDevice = await execute('devices_get', target)
+      if (deviceFence(device) !== deviceFence(currentDevice)) {
+        throw new ReadError('conflict')
+      }
+      page.device = currentDevice
     }
     const after = await execute('status', {})
     if (statusFence(before) !== statusFence(after) || after.server_time < before.server_time) {

@@ -1,4 +1,4 @@
-// 覆盖管理历史、恢复隔离、schema拒绝和provider重启门禁；全部材料属于独立测试目录。
+// 覆盖管理历史、schema拒绝和provider重启门禁；全部材料属于独立测试目录。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
@@ -67,34 +67,19 @@ test(
 )
 
 test(
-  'recovery quarantine拒绝全部管理变更且备份不携带有效确认/回执范围',
-  /** 由现有Store备份生成隔离库，不手改模式来冒充生产恢复流程。 */ async () => {
-    const root = mkdtempSync(join(tmpdir(), 'rovloom-management-quarantine-'))
+  '备份快照不携带有效确认/回执范围，且使用新的恢复 generation',
+  /** 由现有Store备份生成快照库，不手改库来冒充生产恢复流程。 */ async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rovloom-management-snapshot-'))
     const path = join(root, 'snapshot.sqlite')
     const f = setup(undefined, { backupDirectory: root, management })
     try {
       const history = await f.service.execute('history_open', {}, context())
       f.store.backup(path)
-      const quarantine = new Store(path)
+      const snapshot = new Store(path)
       try {
-        const service = new StoreManagementWriteService({ store: quarantine, identities: f.identities })
-        for (const op of [
-          'history_open',
-          'confirmations_create',
-          'confirmations_confirm',
-          'pairings_create',
-          'pairings_cancel',
-          'devices_rename',
-          'devices_disconnect',
-          'devices_revoke',
-          'providers_disable',
-          'providers_enable'
-        ] as const) {
-          await assert.rejects(service.execute(op, {} as never, context()), /recovery_quarantined/)
-        }
-        assert.notEqual(quarantine.generation(), history.recovery_generation)
+        assert.notEqual(snapshot.generation(), history.recovery_generation)
       } finally {
-        quarantine.close()
+        snapshot.close()
       }
       const db = new DatabaseSync(path)
       try {

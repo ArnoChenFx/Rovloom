@@ -216,9 +216,7 @@ export function createGateway(options: GatewayOptions) {
     let backend = false
     try {
       const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
-      backend =
-        typeof code === 'string' &&
-        ['storage_degraded', 'storage_closed', 'recovery_quarantined', 'clock_untrusted'].includes(code)
+      backend = typeof code === 'string' && ['storage_degraded', 'storage_closed', 'clock_untrusted'].includes(code)
     } catch {
       /* 宿主异常的 getter 也不属于可信观测，不执行类型转换或泄漏嵌套异常。 */
     }

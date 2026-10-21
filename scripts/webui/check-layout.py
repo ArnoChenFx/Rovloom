@@ -141,7 +141,7 @@ def main():
         snapshot(page, output, 'production-unavailable')
         for mode, selector in [('empty', '.empty h2'), ('unverified', '.device-card .warning'),
                                ('stale_children', '.device-card .warning'), ('pending', '.device-card .warning'),
-                               ('quarantine', '.gateway .notice'), ('401', '.state-panel')]:
+                               ('401', '.state-panel')]:
             page.goto(base + '/fixtures/')
             page.locator('.device-card').first.wait_for()
             page.evaluate('/* 切换明确标注的合成展示情景。 */ mode => { window.webUiFixture.mode = mode }', mode)
@@ -149,10 +149,10 @@ def main():
             page.locator(selector).first.wait_for()
             if mode in ['unverified', 'stale_children', 'pending']:
                 assert page.locator('.device-card .good').count() == 0
-            if mode in ['empty', 'quarantine', '401']:
+            if mode in ['empty', '401']:
                 assert page.locator('.device-card, .provider-card').count() == 0
             snapshot(page, output, f'state-{mode}')
-        checks.append('production unavailable and fixture empty, unknown, stale, pairing, quarantine and session-error states remain honest and readable')
+        checks.append('production unavailable and fixture empty, unknown, stale, pairing and session-error states remain honest and readable')
         context.close()
         browser.close()
     assert not errors, errors

@@ -106,7 +106,6 @@ export const SERVICE_ERROR_CODES = [
   'dedup_history_unavailable',
   'storage_exhausted',
   'storage_degraded',
-  'recovery_quarantined',
   'content_unavailable',
   'deadline_exceeded',
   'busy'

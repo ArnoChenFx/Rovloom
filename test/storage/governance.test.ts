@@ -1,4 +1,4 @@
-// 验证 SQLite 的历史去重、保留配额、恢复隔离、路径安全与事务失败治理边界。
+// 验证 SQLite 的历史去重、保留配额、路径安全与事务失败治理边界。
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -444,10 +444,10 @@ test(
     )
 )
 test(
-  'SQLite metadata-only backup opens quarantined; restored credentials, enrollments, scopes and providers stay fenced',
-  /* 验证备份剥除本例请求/响应原文与设备凭据，恢复隔离及重新授权仍使旧凭据、令牌和绑定失效。 */ () =>
+  'SQLite metadata-only backup restores as re-pair state; restored credentials, enrollments, scopes and providers stay fenced',
+  /* 验证备份剥除本例请求/响应原文与设备凭据；恢复后设备回到 pending，旧凭据、令牌和绑定均失效，需重新配对。 */ () =>
     disk(
-      /* 创建含调用与登记信息的备份并恢复，依次检查隔离、旧凭据吊销及 provider 版本围栏。 */ (root, path) => {
+      /* 创建含调用与登记信息的备份并恢复，依次检查旧凭据吊销、设备 pending 及 provider 版本围栏。 */ (root, path) => {
         const backupDirectory = join(root, 'backups')
         mkdirSync(backupDirectory, { mode: 0o700 })
         const destination = join(backupDirectory, 'snapshot')
@@ -488,35 +488,19 @@ test(
           management
         })
         try {
-          assert.equal(restored.health().mode, 'recovery_quarantined')
+          assert.equal(restored.health().mode, 'active')
           assert.notEqual(restored.generation(), oldBinding!.recovery_generation)
+          assert.equal(restored.machine(machine).status, 'pending')
           assert.throws(
-            /* 在恢复隔离期间使用旧设备凭据连接，检查隔离门禁先拒绝访问。 */ () =>
-              restored.connect(machine, credential),
-            /recovery_quarantined/
-          )
-          assert.throws(
-            /* 在恢复隔离期间兑换备份中的旧令牌，检查其不能绕过恢复流程。 */ () => restored.redeem(token),
-            /recovery_quarantined/
-          )
-          assert.throws(
-            /* 在恢复隔离期间签发登记令牌，检查新授权也需等待显式恢复。 */ () => restored.issueEnrollment(machine),
-            /recovery_quarantined/
-          )
-          assert.throws(
-            /* 在恢复隔离期间创建调用，检查执行分配被恢复门禁阻止。 */ () =>
+            /* 恢复后沿用旧 provider revision 创建调用：provider 已禁用并升版，旧绑定被围栏。 */ () =>
               restored.createCall('alice', target!, { method: 'ping' }, options()),
-            /recovery_quarantined/
+            /provider_binding_mismatch/
           )
-          restored.completeRecovery()
           assert.throws(
-            /* 完成恢复后使用旧设备凭据连接，检查旧凭据仍已失效。 */ () => restored.connect(machine, credential),
+            /* 恢复后使用旧设备凭据连接，检查旧凭据已失效。 */ () => restored.connect(machine, credential),
             /invalid_device_credential/
           )
-          assert.throws(
-            /* 完成恢复后兑换旧登记令牌，检查其不会随恢复解除而重新有效。 */ () => restored.redeem(token),
-            /invalid_enrollment/
-          )
+          assert.throws(/* 恢复后兑换旧登记令牌，检查其无效。 */ () => restored.redeem(token), /invalid_enrollment/)
           assert.equal(restored.provider(machine, 'provider')!.enabled, false)
           assert.throws(
             /* 在 provider 尚未重新启用时使用旧尝试查询锚点，检查其被禁用状态隔离。 */ () =>

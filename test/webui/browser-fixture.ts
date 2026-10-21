@@ -9,7 +9,6 @@ type FixtureMode =
   | '401'
   | '403'
   | '503'
-  | 'quarantine'
   | 'degraded'
   | 'partial'
   | 'empty'
@@ -94,9 +93,6 @@ const read: PageRead = async (route, signal) => {
       }
     )
   }
-  if (fixture.mode === 'quarantine') {
-    result.value.status.mode = 'recovery_quarantined'
-  }
   if (fixture.mode === 'degraded') {
     result.value.status.mode = 'storage_degraded'
   }
@@ -115,12 +111,6 @@ const read: PageRead = async (route, signal) => {
   }
   if (fixture.mode === 'wrong_machine' && result.value.device) {
     result.value.device.machine_id = 'fixture-wrong-machine'
-  }
-  if (fixture.mode === 'quarantine') {
-    result.value.devices = { items: [] }
-    result.value.device = null
-    result.value.providers = { items: [] }
-    result.value.permissions = null
   }
   if (fixture.mode === 'unverified') {
     for (const device of [...result.value.devices.items, ...(result.value.device ? [result.value.device] : [])]) {

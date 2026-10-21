@@ -42,7 +42,6 @@ const statuses: Record<string, number> = {
   constraint_conflict: 409,
   pairing_not_found: 404,
   machine_not_found: 404,
-  recovery_quarantined: 503,
   storage_degraded: 503,
   backend_unavailable: 503
 }
