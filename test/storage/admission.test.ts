@@ -454,7 +454,7 @@ test(
         )
         assert.deepEqual(ledger(db), before)
       },
-      { retention: { content_bytes: Buffer.byteLength('{"method":"ping"}'), handle_payload_bytes: 1 } }
+      { retention: { content_bytes: Buffer.byteLength('{"method":"ping"}') } }
     )
 )
 
@@ -673,8 +673,8 @@ test(
 )
 
 test(
-  'audit quota exhaustion rolls back call and created audit before returning admission',
-  /* 实际填满审计分类预算，确认触限登记不会留下调用或创建审计且锁存降级。 */ () =>
+  'storage exhaustion rolls back call and created audit before returning admission',
+  /* 实际填满总存储预算，确认触限登记不会留下调用或创建审计且锁存降级。 */ () =>
     fixture(
       /* 重复登记新 key 直到真实预算拒绝，逐次观察最后一次事务的完整回滚。 */ (s, db) => {
         const d = connected(s)
@@ -704,7 +704,14 @@ test(
         }
         assert.equal(exhausted, true)
       },
-      { retention: { audit_bytes: 6000 } }
+      {
+        retention: {
+          storage_total_bytes: 300_000,
+          storage_reserve_bytes: 17_000,
+          content_bytes: 100_000,
+          backup_bytes: 100_000
+        }
+      }
     )
 )
 

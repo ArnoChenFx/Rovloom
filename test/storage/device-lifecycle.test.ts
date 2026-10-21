@@ -61,19 +61,6 @@ function fixture(retention?: StoreOptions['retention']) {
     machineRow() {
       return inspect.prepare('SELECT * FROM machines WHERE machine_id=?').get(device.machine_id)!
     },
-    /** 按真实计量把审计子额留到指定余量，使重配事务提交时因预算失败。 */
-    fillAudit(spare: number) {
-      const rows = inspect.prepare('SELECT * FROM audit ORDER BY event_id').all()
-      const first = rows[0]!
-      let others = 0
-      for (const row of rows.slice(1)) {
-        others += Buffer.byteLength(JSON.stringify(row))
-      }
-      const empty = Buffer.byteLength(JSON.stringify({ ...first, details: '' }))
-      const bytes = store.limits.audit_bytes - spare - others - empty
-      assert(bytes > 0)
-      inspect.prepare('UPDATE audit SET details=? WHERE event_id=?').run('x'.repeat(bytes), first.event_id!)
-    },
     close() {
       inspect.close()
       store.close()
@@ -156,9 +143,9 @@ test(
 )
 
 test(
-  '提交失败或审计预算不足时重配整体回滚',
+  '提交失败时重配整体回滚',
   /** 单事务保证凭据、epoch、enrollment 与管理确认要么全部生效，要么全部不变。 */ () => {
-    const f = fixture({ audit_bytes: 16_384 })
+    const f = fixture()
     try {
       f.approve(f.device.epoch)
       f.state.failCommit = true
@@ -169,19 +156,6 @@ test(
       assert.notEqual(f.machineRow().credential_hash, null)
     } finally {
       f.close()
-    }
-    const g = fixture({ audit_bytes: 16_384 })
-    try {
-      g.approve(g.device.epoch)
-      g.fillAudit(1)
-      assert.throws(
-        () => g.store.resetDeviceEnrollment(g.device.machine_id, g.store.generation(), g.device.epoch),
-        /storage_degraded/
-      )
-      assert.equal(g.machineRow().epoch, g.device.epoch)
-      assert.notEqual(g.machineRow().credential_hash, null)
-    } finally {
-      g.close()
     }
   }
 )

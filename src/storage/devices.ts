@@ -1,0 +1,389 @@
+// 设备注册、配对、凭据认证、撤销与同 ID 重配：每一步都是 Store writer 的单个事务，凭据摘要与设备状态同行同库。
+import type { DatabaseSync } from 'node:sqlite'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { canonical, digest, GatewayError } from '../contracts.js'
+import { boundedJson, id as validateId } from '../wire/index.js'
+import type { LedgerInvalidation, Machine, Row } from './model.js'
+
+// 为本地账本实体生成带类别前缀的随机标识，避免顺序 ID 产生关联。
+const id = (prefix: string) => `${prefix}_${randomUUID()}`
+// 生成一次性注册或设备凭据的随机原文，持久化路径只保存其摘要。
+const secret = () => randomBytes(32).toString('base64url')
+
+/** Store 提供给设备账本的受限能力：同一连接、同一 writer 事务、同一审计与失效通知。 */
+export interface DeviceHost {
+  readonly db: DatabaseSync
+  /** 在 Store 的 writer 事务内运行，固定时钟、预算与提交后通知。 */
+  transaction<T>(fn: (now: number) => T, admission?: boolean): T
+  /** 消费受保护宿主的独立管理确认并写审计。 */
+  manage(action: string, target: string, fence: string, now: number): void
+  audit(action: string, actor: string, now: number, row?: Row, extra?: Record<string, unknown>): void
+  generation(): string
+  /** 把设备下未完成的调用收敛为未派发或结果未知。 */
+  stopWhere(where: string, values: string[], reason: string, now: number): void
+  invalidateWhere(where: string, values: (string | number)[], kind: 'content' | 'fence'): void
+  /** 提交后发布的设备级失效通知。 */
+  invalidate(event: LedgerInvalidation): void
+}
+
+export class DeviceLedger {
+  constructor(private readonly host: DeviceHost) {}
+  private get db(): DatabaseSync {
+    return this.host.db
+  }
+  private transaction<T>(fn: (now: number) => T, admission = true): T {
+    return this.host.transaction(fn, admission)
+  }
+  private manage(action: string, target: string, fence: string, now: number): void {
+    this.host.manage(action, target, fence, now)
+  }
+  private audit(action: string, actor: string, now: number, row?: Row, extra: Record<string, unknown> = {}): void {
+    this.host.audit(action, actor, now, row, extra)
+  }
+  private generation(): string {
+    return this.host.generation()
+  }
+  private stopWhere(where: string, values: string[], reason: string, now: number): void {
+    this.host.stopWhere(where, values, reason, now)
+  }
+  private invalidateWhere(where: string, values: (string | number)[], kind: 'content' | 'fence'): void {
+    this.host.invalidateWhere(where, values, kind)
+  }
+  // 规范化设备名称并限制字符与长度，拒绝不可作为稳定设备名的输入。
+  private name(value: string): string {
+    const normalized = value.normalize('NFKC').trim().toLowerCase()
+    if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(normalized)) {
+      throw new GatewayError('invalid_name')
+    }
+    return normalized
+  }
+  // 创建待注册设备并记录审计，注册本身不授予在线或执行能力。
+  register(name: string): Machine {
+    return this.transaction(
+      // 原入口保留其受保护宿主确认；共享管理服务另在同一 writer 事务消费持久确认。
+      (now) => {
+        const result = this.applyRegister(name, now)
+        this.audit('machine_registered', 'local', now, undefined, { machine_id: result.machine_id })
+        return result
+      }
+    )
+  }
+  // 同一事务内使用的生命周期原语，调用者必须先完成独立管理授权与 fence 核对。
+  applyRegister(name: string, _now: number): Machine {
+    const machine = id('m')
+    this.db.prepare("INSERT INTO machines(machine_id,name,status) VALUES(?,?,'pending')").run(machine, this.name(name))
+    return this.machine(machine)
+  }
+  // 按设备 ID 查询公开状态，缺失设备返回稳定错误。
+  machine(machine_id: string): Machine {
+    return this.storedMachine(machine_id)
+  }
+  // 返回设备已签发凭据的序号（每次一次性兑换递增），供交付与确认关联；不含任何凭据信息。
+  credentialRevision(machine: string): number {
+    const row = this.db.prepare('SELECT credential_revision FROM machines WHERE machine_id=?').get(machine)
+    if (!row) {
+      throw new GatewayError('machine_not_found')
+    }
+    return Number(row.credential_revision)
+  }
+  /** 私有读取设备行，批观察不经可由宿主覆盖的公开入口。 */
+  storedMachine(machine_id: string): Machine {
+    const row = this.db.prepare('SELECT machine_id,name,status FROM machines WHERE machine_id=?').get(machine_id)
+    if (!row) {
+      throw new GatewayError('machine_not_found')
+    }
+    return row as Machine
+  }
+  // 在事务中规范化并更新设备名，同时保留管理审计。
+  rename(machine: string, name: string): Machine {
+    return this.transaction(
+      // 原入口保留其受保护宿主确认；共享管理服务另在同一 writer 事务消费持久确认。
+      (now) => {
+        const result = this.applyRename(machine, name, now)
+        this.audit('machine_renamed', 'local', now, undefined, { machine_id: machine })
+        return result
+      }
+    )
+  }
+  // 同一事务内使用的生命周期原语，调用者必须先完成独立管理授权与 fence 核对。
+  applyRename(machine: string, name: string, _now: number): Machine {
+    this.machine(machine)
+    this.db
+      .prepare('UPDATE machines SET resource_revision=resource_revision+1,name=? WHERE machine_id=?')
+      .run(this.name(name), machine)
+    return this.machine(machine)
+  }
+  // 旧受保护本机注册入口仅供尚未建立管理配对申请的设备使用，不能绕过已有申请策略。
+  issueEnrollment(machine: string, ttlMs = 600_000): string {
+    return this.issueEnrollmentFor(machine, ttlMs)
+  }
+  // 精确管理申请的秘密签发只供受保护custody调用；普通管理DTO/MCP/HTTP不暴露此方法。
+  issuePairingEnrollment(machine: string, pairingId: string, policyRef: string, ttlMs = 600_000): string {
+    validateId(pairingId)
+    validateId(policyRef)
+    return this.issueEnrollmentFor(machine, ttlMs, { pairing_id: pairingId, policy_ref: policyRef })
+  }
+  // 同库绑定申请、目标、策略、恢复代次和截止；一份申请最多签发一次，丢响应不能续发。
+  private issueEnrollmentFor(
+    machine: string,
+    ttlMs: number,
+    pairing?: { pairing_id: string; policy_ref: string }
+  ): string {
+    return this.transaction(
+      /* 秘密签发、精确独立确认、申请issued标记与审计同事务提交，失败不交付secret。 */ (now) => {
+        if (this.machine(machine).status !== 'pending') {
+          throw new GatewayError('invalid_machine_state')
+        }
+        if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
+          throw new GatewayError('invalid_ttl')
+        }
+        let expires = now + ttlMs
+        if (pairing) {
+          const application = this.db
+            .prepare(
+              "SELECT expires,issued FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
+            )
+            .get(pairing.pairing_id, machine, pairing.policy_ref, now)
+          if (!application || application.issued !== 0) {
+            throw new GatewayError('invalid_pairing_issuance')
+          }
+          expires = Math.min(expires, Number(application.expires))
+          this.manage(
+            'pairing_enrollment_issue',
+            machine + '/' + pairing.pairing_id,
+            canonical({ recovery_generation: this.generation(), policy_ref: pairing.policy_ref, expires_at: expires }),
+            now
+          )
+          this.db.prepare('UPDATE admin_pairings SET issued=1 WHERE pairing_id=?').run(pairing.pairing_id)
+        } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(machine)) {
+          throw new GatewayError('protected_pairing_issuance_required')
+        }
+        if (
+          this.db.prepare('SELECT needs_confirmation FROM machines WHERE machine_id=?').get(machine)!
+            .needs_confirmation === 1
+        ) {
+          this.manage('device_reenroll', machine, this.generation(), now)
+          this.db
+            .prepare(
+              'UPDATE machines SET resource_revision=resource_revision+1,needs_confirmation=0 WHERE machine_id=?'
+            )
+            .run(machine)
+        }
+        this.db.prepare('UPDATE machines SET resource_revision=resource_revision+1 WHERE machine_id=?').run(machine)
+        const token = secret()
+        this.db
+          .prepare(
+            'INSERT INTO enrollments(token_hash,machine_id,expires,pairing_id,pairing_policy_ref,pairing_generation) VALUES(?,?,?,?,?,?)'
+          )
+          .run(
+            digest(token),
+            machine,
+            expires,
+            pairing?.pairing_id ?? null,
+            pairing?.policy_ref ?? null,
+            pairing ? this.generation() : null
+          )
+        this.audit('enrollment_issued', 'local', now, undefined, {
+          machine_id: machine,
+          pairing_id: pairing?.pairing_id ?? null
+        })
+        return token
+      }
+    )
+  }
+  // 仅消费原申请有效期内且目标、策略、代次均匹配的材料，不能把旧申请兑换补到新申请。
+  redeem(token: string): { machine_id: string; credential: string } {
+    return this.transaction(
+      /* 精确核验先于凭据生成，消费/设备授权/原申请状态/审计同事务提交。 */ (now) => {
+        const row = this.db
+          .prepare(`SELECT e.machine_id,e.expires,e.pairing_id,e.pairing_policy_ref,e.pairing_generation
+          FROM enrollments e JOIN machines m USING(machine_id)
+          WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`)
+          .get(digest(token), now) as
+          | {
+              machine_id: string
+              expires: number
+              pairing_id: string | null
+              pairing_policy_ref: string | null
+              pairing_generation: string | null
+            }
+          | undefined
+        if (!row) {
+          throw new GatewayError('invalid_enrollment')
+        }
+        if (row.pairing_id) {
+          const application = this.db
+            .prepare(
+              "SELECT expires FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND issued=1 AND status='pending' AND expires>?"
+            )
+            .get(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
+          if (
+            !application ||
+            row.pairing_generation !== this.generation() ||
+            row.expires > Number(application.expires)
+          ) {
+            throw new GatewayError('invalid_enrollment')
+          }
+        } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(row.machine_id)) {
+          throw new GatewayError('invalid_enrollment')
+        }
+        const credential = secret()
+        this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id)
+        this.db
+          .prepare(
+            "UPDATE machines SET resource_revision=resource_revision+1,credential_hash=?,credential_revision=credential_revision+1,status='offline' WHERE machine_id=?"
+          )
+          .run(digest(credential), row.machine_id)
+        if (row.pairing_id) {
+          this.db
+            .prepare(
+              "UPDATE admin_pairings SET status='paired' WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
+            )
+            .run(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
+        }
+        this.audit('enrollment_consumed', 'local', now, undefined, {
+          machine_id: row.machine_id,
+          pairing_id: row.pairing_id
+        })
+        return { machine_id: row.machine_id, credential }
+      }
+    )
+  }
+  // 核验设备凭据并生成新连接 epoch，旧连接不继承新会话身份。
+  connect(machine: string, credential: string): string {
+    return this.transaction(
+      /* 校验凭据与设备状态，替换连接 epoch 并记录连接审计。 */ (now) => {
+        const row = this.db
+          .prepare('SELECT status,credential_hash,needs_confirmation FROM machines WHERE machine_id=?')
+          .get(machine)
+        if (
+          !row ||
+          row.status === 'revoked' ||
+          row.needs_confirmation !== 0 ||
+          row.credential_hash !== digest(credential)
+        ) {
+          throw new GatewayError('invalid_device_credential')
+        }
+        if (row.status === 'online') {
+          throw new GatewayError('duplicate_device_connection')
+        }
+        const epoch = id('epoch')
+        this.db
+          .prepare(
+            "UPDATE machines SET resource_revision=resource_revision+1,status='online',epoch=? WHERE machine_id=?"
+          )
+          .run(epoch, machine)
+        this.audit('connected', machine, now, undefined, {
+          machine_id: machine,
+          epoch,
+          generation: this.generation()
+        })
+        return epoch
+      }
+    )
+  }
+  // 同 ID 重配须经管理确认并核对当前 generation/epoch：清除旧凭据，使设备回到 pending，并在提交后使其全部上下文失效。
+  // 调用方在提交后关闭该设备的通道；旧 epoch 已被清除，旧连接本身无法再通过 fence。
+  resetDeviceEnrollment(machineId: string, recoveryGeneration: string, expectedEpoch: string | null): void {
+    this.transaction(
+      // 确认与预算先通过才改变设备状态；任何失败整体回滚。
+      (now) => {
+        validateId(machineId)
+        if (recoveryGeneration !== this.generation()) {
+          throw new GatewayError('recovery_generation_mismatch')
+        }
+        if (expectedEpoch !== null) {
+          validateId(expectedEpoch)
+        }
+        const row = this.db.prepare('SELECT epoch FROM machines WHERE machine_id=?').get(machineId)
+        if (!row || row.epoch !== expectedEpoch) {
+          throw new GatewayError('device_epoch_mismatch')
+        }
+        const fence = boundedJson({ recovery_generation: recoveryGeneration, connection_epoch: expectedEpoch })
+        this.manage('device_enrollment_reset', machineId, fence, now)
+        this.stopWhere('machine_id=?', [machineId], 'device_enrollment_reset', now)
+        // 仅在本库 COMMIT 后通知该设备全部上下文失效；即使没有调用行也回收尚无法归属调用的分片。
+        this.host.invalidate({ kind: 'device_fence', machine_id: machineId })
+        this.db.prepare('DELETE FROM enrollments WHERE machine_id=?').run(machineId)
+        this.db
+          .prepare(
+            "UPDATE machines SET resource_revision=resource_revision+1,status='pending',credential_hash=NULL,epoch=NULL,needs_confirmation=0 WHERE machine_id=?"
+          )
+          .run(machineId)
+      }
+    )
+  }
+  // 凭据交付失败或结果未知时清除凭据并要求经确认重新配对；匹配不到当前凭据摘要则不改变任何状态。
+  denyDelivery(machine: string, credentialDigest: string): void {
+    this.transaction(
+      // 保持降级时也能收紧权限，因此不要求准入。
+      (now) => {
+        const row = this.db.prepare('SELECT epoch,credential_hash FROM machines WHERE machine_id=?').get(machine)
+        if (!row || row.credential_hash !== credentialDigest) {
+          return
+        }
+        if (typeof row.epoch === 'string') {
+          this.applyDisconnect(machine, row.epoch, now)
+        }
+        this.db
+          .prepare(
+            "UPDATE machines SET resource_revision=resource_revision+1,status='pending',credential_hash=NULL,epoch=NULL,needs_confirmation=1 WHERE machine_id=?"
+          )
+          .run(machine)
+        this.audit('credential_delivery_unknown', 'custody', now, undefined, { machine_id: machine })
+      },
+      false
+    )
+  }
+  // 只断开指定 epoch，将相关未完成调用收敛为未派发或结果未知，提交后发布绑定失效通知。
+  disconnect(machine: string, epoch: string): void {
+    return this.transaction(
+      // 原入口保留其受保护宿主确认；共享管理服务另在同一 writer 事务消费持久确认。
+      (now) => {
+        const result = this.applyDisconnect(machine, epoch, now)
+        return result
+      },
+      false
+    )
+  }
+  // 同一事务内使用的生命周期原语，调用者必须先完成独立管理授权与 fence 核对。
+  applyDisconnect(machine: string, epoch: string, now: number): void {
+    const changed = this.db
+      .prepare(
+        "UPDATE machines SET resource_revision=resource_revision+1,status='offline',epoch=NULL WHERE machine_id=? AND epoch=?"
+      )
+      .run(machine, epoch)
+    if (changed.changes === 1) {
+      this.stopWhere('machine_id=? AND (epoch=? OR epoch IS NULL)', [machine, epoch], 'disconnect', now)
+      this.invalidateWhere('machine_id=? AND epoch=?', [machine, epoch], 'fence')
+    }
+  }
+  // 通过受保护确认撤销设备，收敛调用状态并清除凭据、注册令牌及内容，不承诺撤销远端副作用。
+  revoke(machine: string): void {
+    return this.transaction(
+      // 原入口保留其受保护宿主确认；共享管理服务另在同一 writer 事务消费持久确认。
+      (now) => {
+        this.manage('devices_revoke', machine, this.generation(), now)
+        const result = this.applyRevoke(machine, now)
+        return result
+      },
+      false
+    )
+  }
+  // 同一事务内使用的生命周期原语，调用者必须先完成独立管理授权与 fence 核对。
+  applyRevoke(machine: string, now: number): void {
+    this.machine(machine)
+    this.stopWhere('machine_id=?', [machine], 'device_revoked', now)
+    this.invalidateWhere('machine_id=?', [machine], 'fence')
+    this.db
+      .prepare(
+        "UPDATE machines SET resource_revision=resource_revision+1,status='revoked',credential_hash=NULL,epoch=NULL WHERE machine_id=?"
+      )
+      .run(machine)
+    this.db.prepare('DELETE FROM enrollments WHERE machine_id=?').run(machine)
+    this.db.prepare('DELETE FROM results WHERE call_id IN (SELECT call_id FROM calls WHERE machine_id=?)').run(machine)
+    this.db
+      .prepare("UPDATE calls SET response=NULL,request_json=NULL,content_status='unavailable' WHERE machine_id=?")
+      .run(machine)
+  }
+}

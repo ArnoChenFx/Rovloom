@@ -15,15 +15,14 @@ import { boundedJson, LIMITS } from '../../src/wire/index.js'
 import { management, responseFrame } from '../storage/helpers.js'
 import { nativeBackend } from '../storage/native-backend.js'
 
-/** 同一 Store 内建立两个各持原 Wire 的真实测试 provider；全局句柄子额只有一份。 */
-function fixture(handleBytes = 4096, contentBytes?: number) {
+/** 同一 Store 内建立两个各持原 Wire 的真实测试 provider；内容与句柄共用同一份额度。 */
+function fixture(contentBytes?: number) {
   const directory = mkdtempSync(join(tmpdir(), 'rovloom-provider-results-'))
   const path = join(directory, 'state.sqlite')
   const state = { now: 100, available: true }
   const store = new Store(path, /** 共同结果与原 Wire 使用同一受控可信时钟。 */ () => state.now, {
     management,
     retention: {
-      handle_payload_bytes: handleBytes,
       handle_ttl: 10,
       content_ttl: 30,
       ...(contentBytes === undefined ? {} : { content_bytes: contentBytes })
@@ -320,26 +319,9 @@ test(
 )
 
 test(
-  'two protected providers share the sole Store result quota',
-  /** 两份各自合法的 provider 上限不会把全局 handle_payload_bytes 乘二。 */ (t) => {
-    const f = fixture(512)
-    t.after(/** 回收本例实际资源。 */ () => f.close())
-    const first = f.access.open(f.calls[0]!.call_id)
-    assert(first.bytes < 512)
-    assert.throws(
-      /** 第二个 provider 仍服从 Store 已有句柄用量。 */ () => f.access.open(f.calls[1]!.call_id),
-      /result_quota/
-    )
-    assert.equal(f.handles(), 1)
-    assert.equal(f.access.read(first.result_id).expires, first.expires)
-    assert.equal(f.first.state.sends + f.second.state.sends, 2)
-  }
-)
-
-test(
   'two protected providers cannot multiply the sole Store content budget',
   /** 内容池已满只持久保存证据，较大的逐 provider 上限不能重建第二份正文或结果句柄。 */ (t) => {
-    const f = fixture(512, 700)
+    const f = fixture(700)
     t.after(/** 回收共享内容池中的两个真实原 Wire。 */ () => f.close())
     assert.notEqual(f.calls[0]!.response, null)
     assert.equal(f.calls[1]!.state, 'responded')

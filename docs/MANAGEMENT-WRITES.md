@@ -135,9 +135,9 @@ CSRF header `x-rovloom-csrf` 必须存在且经当前 session 后端验证。拒
 
 ## 同库 schema、预算与恢复
 
-规范 schema v5 为 machines 增加单调 resource_revision/labels，并加入 admin_history、
+规范 schema v6 为 machines 增加单调 resource_revision/labels，并加入 admin_history、
 admin_confirmations、admin_operations、admin_pairings。它们全部属于原 Store writer，
-计入 security_metadata_bytes 和全库/磁盘预算，复用原审计期限。没有第二套设备或身份注册库。
+计入全库/磁盘预算，复用原审计期限。没有第二套设备或身份注册库。
 原配对/连接/断开/改名等生命周期更新也推进设备 revision，使旧确认失效。
 
 旧的未发布 v1–v4 及未知库在任何业务改写前拒绝，不迁移、不改版本号或覆盖源库。
