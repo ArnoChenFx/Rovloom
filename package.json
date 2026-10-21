@@ -6,7 +6,7 @@
   "description": "Rovloom: multi-machine MCP gateway and connector for Luvus/Herdr runtimes",
   "type": "module",
   "engines": {
-    "bun": ">=1.4.2"
+    "bun": ">=1.4.3"
   },
   "scripts": {
     "build": "bun --no-env-file scripts/bun/build.mjs",
