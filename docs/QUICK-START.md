@@ -82,10 +82,12 @@ For the guided setup below, install official [latest Luvus](https://github.com/R
 [latest Herdr](https://github.com/herdrdev/herdr/releases/latest), or both on the Connector machine. Install your chosen Agent separately if you want a
 conversation. Rovloom does not install these programs or sign in to a model provider.
 
-By default, Rovloom looks for the selected native programs and the Agent in `/usr/bin:/bin`.
-For another installation directory, set `native.runtime_bin_dir` and/or
-`native.agent_bin_dir` in the Connector's single configuration **before approving
-native setup**. See the [installation settings](CONFIGURATION.md#agent-installation-directory).
+By default, Rovloom finds the selected native programs and the Agent through the `PATH` the
+Connector was started with plus `/usr/bin:/bin`. If they live elsewhere (or a service manager
+gives the Connector a minimal `PATH`), list the directories as arrays in
+`native.runtime_bin_dirs` and/or `native.agent_bin_dirs` in the Connector's single configuration
+**before approving native setup**. See the
+[installation settings](CONFIGURATION.md#program-and-agent-installation-directories).
 To select Herdr or both programs, set `native.provider` to `herdr` or `mixed`
 before native approval; omitting it selects Luvus.
 An Agent login in your ordinary home is not reused; ask the machine owner to

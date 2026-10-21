@@ -77,10 +77,11 @@ Rootless Docker 和 Docker Desktop 尚未作为部署目标验收。
 [latest Herdr](https://github.com/herdrdev/herdr/releases/latest) 或两者。
 需要对话时还应单独安装所选 Agent。Rovloom 不安装这些程序，也不会登录模型提供商。
 
-默认在 `/usr/bin:/bin` 查找所选原生程序和 Agent。安装在其他目录时，在**批准原生初始化前**，
-将 `native.runtime_bin_dir` 和/或 `native.agent_bin_dir` 写入 Connector 的唯一配置文件。
+默认通过 Connector 启动时的 `PATH` 加 `/usr/bin:/bin` 查找所选原生程序和 Agent。装在其他位置（或服务管理器
+给的 `PATH` 很精简）时，在**批准原生初始化前**，将目录数组写入 Connector 唯一配置文件的
+`native.runtime_bin_dirs` 和/或 `native.agent_bin_dirs`。
 选择 Herdr 或两者时，在原生批准前将 `native.provider` 设为 `herdr` 或 `mixed`；省略时选 Luvus。
-参见[安装目录设置](CONFIGURATION-zh.md#agent-安装目录)。普通 home 中的 Agent 登录
+参见[安装目录设置](CONFIGURATION-zh.md#程序与-agent-安装目录)。普通 home 中的 Agent 登录
 不会被沿用；请由机器所有者在 Rovloom 隔离的 Agent 环境准备模型访问。
 该环境的登录引导目前仍缺失。
 

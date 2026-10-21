@@ -27,13 +27,13 @@ test(
 )
 
 test(
-  '原生业务安装目录只接受单个规范路径，拒绝argv/env、终端开关和PATH列表',
+  '原生业务安装目录是规范路径数组，拒绝argv/env、终端开关和PATH风格的字符串列表',
   /* 这些字段进入实际首次发现和固定Agent PATH，不能把JSON扩成任意进程配置。 */ () => {
     for (const platform of ['linux', 'darwin', 'win32'] as const) {
       const directory = platform === 'win32' ? 'C:\\rovloom\\bin' : '/opt/rovloom/bin'
       const value = {
         ...configDocument(configTemplate('connector', platform)),
-        native: { runtime_bin_dir: directory, agent_bin_dir: directory }
+        native: { runtime_bin_dirs: [directory], agent_bin_dirs: [directory] }
       }
       const config = parseConfig(value, platform)
       assert.equal(config.role, 'connector')
@@ -43,9 +43,16 @@ test(
         { argv: [] },
         { env: {} },
         { allow_terminal_execution: true },
-        { agent_bin_dir: directory + (platform === 'win32' ? ';' : ':') + directory },
-        { runtime_bin_dir: true },
-        { agent_bin_dir: '~/.local/bin' }
+        { agent_bin_dirs: [directory + (platform === 'win32' ? ';' : ':') + directory] },
+        { agent_bin_dirs: directory + (platform === 'win32' ? ';' : ':') + directory },
+        { agent_bin_dirs: directory },
+        { agent_bin_dirs: [] },
+        { agent_bin_dirs: [directory, directory] },
+        { agent_bin_dirs: Array.from({ length: 17 }, (_, index) => directory + index) },
+        { runtime_bin_dirs: true },
+        { runtime_bin_dirs: [directory, 7] },
+        { agent_bin_dirs: ['~/.local/bin'] },
+        { agent_bin_dirs: ['relative/bin'] }
       ]) {
         assert.throws(
           /* 未声明的能力或多目录PATH输入均在角色parser前置拒绝。 */ () => parseConfig({ ...value, native }, platform)

@@ -248,7 +248,7 @@ test(
         ...configTemplate('connector'),
         state_dir: f.client,
         gateway_url: 'ws://127.0.0.1:9443',
-        native: { agent_bin_dir: '/opt/approved/bin' }
+        native: { agent_bin_dirs: ['/opt/approved/bin'] }
       }
       const credential = {
         machine_id: 'loader_fixture',
@@ -292,7 +292,7 @@ test(
       })
       for (const changed of [
         { ...config, gateway_url: 'ws://127.0.0.1:1' },
-        { ...config, native: { agent_bin_dir: '/other/bin' } }
+        { ...config, native: { agent_bin_dirs: ['/other/bin'] } }
       ]) {
         await assert.rejects(runtime.connector!(changed), { code: 'configuration_required' })
       }

@@ -233,7 +233,7 @@ test(
       try {
         for (const changed of [
           { ...config, gateway_url: 'ws://127.0.0.1:1' },
-          { ...config, native: { ...config.native, runtime_bin_dir: '/other/bin' } },
+          { ...config, native: { ...config.native, runtime_bin_dirs: ['/other/bin'] } },
           { ...config, native: { provider: 'luvus' as const } }
         ]) {
           await assert.rejects(/* 坏业务配置不应先启动child或发送身份。 */ () => runtime.connector!(changed), {

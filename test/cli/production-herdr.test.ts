@@ -184,7 +184,7 @@ test(
       const source = createHerdrProductionSources()
       const local = {
         ...f.value.config.connector.local,
-        agent_bin_dir: join(f.root, 'Agent Tools'),
+        agent_bin_dirs: [join(f.root, 'Agent Tools')],
         allow_terminal_execution: false
       }
       const value = { ...f.value, config: { ...f.value.config, connector: { ...f.value.config.connector, local } } }
@@ -194,7 +194,7 @@ test(
       )
       await assert.rejects(
         source.connector!(f.config, [
-          { reference: 'herdr_fixture', value: { ...value, agent_bin_dir: local.agent_bin_dir } }
+          { reference: 'herdr_fixture', value: { ...value, agent_bin_dirs: local.agent_bin_dirs } }
         ]),
         { code: 'invalid_config' }
       )
@@ -206,7 +206,7 @@ test(
               ...value,
               config: {
                 ...value.config,
-                connector: { ...value.config.connector, local: { ...local, agent_bin_dir: 'relative/bin' } }
+                connector: { ...value.config.connector, local: { ...local, agent_bin_dirs: ['relative/bin'] } }
               }
             }
           }

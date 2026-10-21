@@ -96,7 +96,7 @@ function fixture(agentDirectory?: string) {
     home,
     cwd,
     transport: 'ipc',
-    ...(agentDirectory === undefined ? {} : { agent_bin_dir: agentDirectory, allow_terminal_execution: false })
+    ...(agentDirectory === undefined ? {} : { agent_bin_dirs: [agentDirectory], allow_terminal_execution: false })
   }
   const record = join(control, 'root.json')
   createNativeRecord(record, {
@@ -157,7 +157,7 @@ test(
       const supplied = f.refs()[0]!
       await assert.rejects(
         createLuvusProductionSources().connector({ state_dir: f.state }, [
-          { ...supplied, value: { ...supplied.value, agent_bin_dir: '/rpc/override' } }
+          { ...supplied, value: { ...supplied.value, agent_bin_dirs: ['/rpc/override'] } }
         ]),
         /production_reference_invalid/
       )
@@ -174,7 +174,7 @@ test(
     try {
       await assert.rejects(
         createLuvusProductionSources().connector({ state_dir: f.state }, f.refs()),
-        /agent_bin_dir_invalid/
+        /agent_bin_dirs_invalid/
       )
     } finally {
       f.close()

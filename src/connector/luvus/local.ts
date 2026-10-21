@@ -88,7 +88,7 @@ async function inspect(path: string, kind: 'directory' | 'binary' | 'socket') {
 /** 校验固定会话、来源哈希、路径和修订，并冻结配置快照以隔离调用方后续修改。 */
 export function pinConfig(config: LuvusLocalConfig): LuvusLocalConfig {
   pinTerminalExecution(config.allow_terminal_execution)
-  agentSearchPath(config.agent_bin_dir, '/usr/bin:/bin')
+  agentSearchPath(config.agent_bin_dirs, '/usr/bin:/bin')
   validateTarget(config.target)
   uid()
   if (
@@ -153,7 +153,7 @@ function childDirectories(config: LuvusLocalConfig): string[] {
 export function childEnvironment(config: LuvusLocalConfig): NodeJS.ProcessEnv {
   // 不继承调用进程的环境，不允许 caller 扩展 env 或设置其它实例选择器。
   return {
-    PATH: agentSearchPath(config.agent_bin_dir, '/usr/bin:/bin'),
+    PATH: agentSearchPath(config.agent_bin_dirs, '/usr/bin:/bin'),
     HOME: config.home,
     XDG_CONFIG_HOME: join(config.home, 'config'),
     XDG_DATA_HOME: join(config.home, 'data'),

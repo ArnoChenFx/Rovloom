@@ -53,7 +53,7 @@ try:
   prompt(b'Gateway address')
   if stage=='edit':
    document=json.load(open(sys.argv[3]))
-   document['native']={'runtime_bin_dir':'/opt/rovloom-test-runtime','agent_bin_dir':'/opt/rovloom-test-agent'}
+   document['native']={'runtime_bin_dirs':['/opt/rovloom-test-runtime'],'agent_bin_dirs':['/opt/rovloom-test-agent']}
    edited=(json.dumps(document,indent=1)+'\n').encode()
    target=sys.argv[3]+'.edited' if action=='replace' else sys.argv[3]
    with open(target,'wb') as stream:stream.write(edited)
@@ -152,8 +152,8 @@ async function probe(stage: string, action: string): Promise<void> {
       const saved = JSON.parse(readFileSync(path, 'utf8'))
       assert.equal(saved.gateway.url, '')
       assert.deepEqual(saved.native, {
-        runtime_bin_dir: '/opt/rovloom-test-runtime',
-        agent_bin_dir: '/opt/rovloom-test-agent'
+        runtime_bin_dirs: ['/opt/rovloom-test-runtime'],
+        agent_bin_dirs: ['/opt/rovloom-test-agent']
       })
     }
     if (role === 'gateway') {
