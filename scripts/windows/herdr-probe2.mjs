@@ -2,6 +2,7 @@
  * 以及 HERDR_SOCKET_PATH 对文件路径是否生效。只输出事实（JSON 行），不做断言——结果用于决定 Connector 的 Windows 实现。
  */
 import { spawn, spawnSync } from 'node:child_process'
+import { connect } from 'node:net'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -139,10 +140,69 @@ function bunConnect(path) {
   })
 }
 
+/** node:net 按路径/管道名连接（Windows 上按命名管道处理）并 ping。 */
+function pingPath(path) {
+  return new Promise((resolve) => {
+    let data = ''
+    const socket = connect(path)
+    const timer = setTimeout(() => {
+      socket.destroy()
+      resolve({ ok: false, error: 'timeout', data })
+    }, 5000)
+    socket.on('connect', () => socket.write('{"id":"probe","method":"ping","params":{}}\n'))
+    socket.on('data', (chunk) => {
+      data += chunk
+      if (data.includes('\n')) {
+        clearTimeout(timer)
+        socket.destroy()
+        resolve({ ok: true, data: data.trim().slice(0, 300) })
+      }
+    })
+    socket.on('error', (error) => {
+      clearTimeout(timer)
+      resolve({ ok: false, error: error.code ?? String(error.message) })
+    })
+  })
+}
+
 // 1) 默认会话的端点：.NET 与 Bun 各试一次，并读文件属性/ACL、对端 pid、server 进程路径与启动时间。
 const first = await server('probe1')
 emit('server:probe1', { pid: first.child.pid, api: first.api })
 if (first.api) {
+  // 端点文件只有 24 字节的普通文件：读出内容（可能是命名管道名或端口），并按内容去连。
+  for (const name of ['herdr.sock', 'herdr-client.sock']) {
+    const file = join(env.APPDATA, 'herdr', 'sessions', 'probe1', name)
+    const raw = readFileSync(file)
+    emit(`pointer:${name}`, { bytes: raw.length, utf8: raw.toString('utf8'), hex: raw.toString('hex') })
+  }
+  const pointer = readFileSync(first.api, 'utf8').trim()
+  emit('connect-pointer:node', await pingPath(pointer))
+  const pipes = spawnSync(
+    'pwsh',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "[System.IO.Directory]::GetFiles('\\\\.\\pipe\\') | Where-Object { $_ -match 'herdr|rovloom|probe' }"
+    ],
+    { encoding: 'utf8', timeout: 30_000 }
+  )
+  emit('pipes', {
+    status: pipes.status,
+    list: pipes.stdout?.trim().split(/\r?\n/u).slice(0, 50),
+    stderr: pipes.stderr?.slice(0, 300)
+  })
+  for (const args of [
+    ['api', 'ping'],
+    ['workspace', 'list']
+  ]) {
+    const cli = spawnSync(exe, ['--session', 'probe1', ...args], { env, encoding: 'utf8', timeout: 20_000 })
+    emit(`cli:${args.join(' ')}`, {
+      status: cli.status,
+      stdout: cli.stdout?.slice(0, 400),
+      stderr: cli.stderr?.slice(0, 400)
+    })
+  }
   emit('dotnet:probe1', dotnetProbe(first.api, first.child.pid))
   emit('bun-connect:probe1', await bunConnect(first.api))
   const stat = statSync(first.api, { bigint: true })
