@@ -222,7 +222,9 @@ export async function createStack({ binary, herdrBinary, methods = ['ping'], con
     herdrProcesses() {
       const result = []
       for (const entry of readdirSync('/proc')) {
-        if (!/^[0-9]+$/u.test(entry)) continue
+        if (!/^[0-9]+$/u.test(entry)) {
+          continue
+        }
         try {
           if (readlinkSync(`/proc/${entry}/exe`) === f.nativeBinary) {
             const stat = readFileSync(`/proc/${entry}/stat`, 'utf8')
