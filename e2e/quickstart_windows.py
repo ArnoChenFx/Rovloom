@@ -174,7 +174,10 @@ def main():
         print('HERDR_SERVERS', herdr_servers(herdr_dir), flush=True)
         status = 0
         if args.then:
-            status = subprocess.call(shlex.split(args.then, posix=False), env={**os.environ, 'MCP_CONFIG': out})
+            done = subprocess.run(shlex.split(args.then, posix=False), env={**os.environ, 'MCP_CONFIG': out},
+                                  capture_output=True, encoding='utf-8', errors='replace')
+            status = done.returncode
+            print(done.stdout, done.stderr, sep='\n', flush=True)
             if status != 0:
                 print('--- connector tail ---\n' + redact(connector.clean_log()), flush=True)
         sys.exit(status)
