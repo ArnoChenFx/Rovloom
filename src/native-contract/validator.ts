@@ -8,7 +8,6 @@ import {
   responseContexts,
   SCOPES,
   STREAM_METHODS,
-  streams,
   UHP,
   views
 } from './internal.js'
@@ -16,11 +15,8 @@ import type { ResponseRules } from './internal.js'
 import { attempt, equal, fail, object, snapshot, text } from './json.js'
 import type {
   CapabilityView,
-  Check,
-  CheckedControl,
   CheckedRequest,
   CheckedResponse,
-  CheckedStream,
   CompiledContract,
   DispatchCandidate,
   DispatchPermit,
@@ -315,12 +311,9 @@ const TERMINAL_RESULTS: Record<string, string> = {
   validate: 'terminal_backend_validation',
   processes: 'terminal_backend_processes',
   capture: 'terminal_backend_capture',
-  observe: 'terminal_backend_stream',
-  control: 'terminal_backend_stream',
   create: 'terminal_backend_created',
   wait_change: 'terminal_backend_change',
   wait_output: 'terminal_backend_output',
-  'events.subscribe': 'subscription_started',
   type_literal: 'terminal_backend_action',
   paste_text: 'terminal_backend_action',
   submit_text: 'terminal_backend_action',
@@ -330,16 +323,12 @@ const TERMINAL_RESULTS: Record<string, string> = {
   close: 'terminal_backend_action'
 }
 
-// 从候选提取结果类型、流模式及可选的三个原生身份字段；封存路径另行限制身份值的类型与大小。
+// 从候选提取结果类型及可选的三个原生身份字段；封存路径另行限制身份值的类型与大小。
 function responseRules(candidate: DispatchCandidate): ResponseRules {
-  const terminal = candidate.kind === 'control' || candidate.method.startsWith('terminal.backend.')
-  const expected = !terminal
-    ? undefined
-    : candidate.kind === 'control'
-      ? 'terminal_backend_action'
-      : TERMINAL_RESULTS[candidate.method.slice('terminal.backend.'.length)]
+  const terminal = candidate.method.startsWith('terminal.backend.')
+  const expected = !terminal ? undefined : TERMINAL_RESULTS[candidate.method.slice('terminal.backend.'.length)]
   const identities: Record<string, import('./types.js').Json> = {}
-  if (terminal && candidate.kind !== 'control') {
+  if (terminal) {
     const params = object(candidate.request.params)
     for (const name of ['server_generation', 'terminal_id', 'pane_id']) {
       if (params[name] !== undefined) {
@@ -349,22 +338,14 @@ function responseRules(candidate: DispatchCandidate): ResponseRules {
   }
   return {
     terminal,
-    bind_native_identity: terminal && candidate.kind !== 'control',
+    bind_native_identity: terminal,
     ...(expected ? { expected_type: expected } : {}),
-    ...(candidate.method === 'events.subscribe' ? { expected_type: 'subscription_started' } : {}),
-    ...(candidate.kind !== 'control' &&
-    ['terminal.backend.observe', 'terminal.backend.control'].includes(candidate.method)
-      ? { expected_mode: candidate.method.endsWith('observe') ? 'observe' : 'control' }
-      : {}),
     identities
   }
 }
 // 核对成功结果的类型和模式，并比较响应中出现的适用身份字段与原请求及绑定代次。
 function validateBoundResult(rules: ResponseRules, binding: NativeBinding, result: JsonObject): void {
   if ((rules.terminal || rules.expected_type) && result.type !== rules.expected_type) {
-    fail('native_result_mismatch', 'response')
-  }
-  if (rules.expected_mode && result.mode !== rules.expected_mode) {
     fail('native_result_mismatch', 'response')
   }
   if (rules.bind_native_identity) {
@@ -413,17 +394,6 @@ function describeCapability(
     classification_status: 'not_evaluated',
     native_contract: hint
   })
-}
-
-// 为调用方已确认可开流的方法选择通用事件、终端事件、观察或控制模式。
-function streamModeFor(method: string): CheckedStream['mode'] {
-  if (method === 'events.subscribe') {
-    return 'general_events'
-  }
-  if (method === 'terminal.backend.events.subscribe') {
-    return 'terminal_events'
-  }
-  return method.endsWith('observe') ? 'observe' : 'control'
 }
 
 // 从真实请求或派发句柄查询原候选，拒绝伪造或已释放的上下文。
@@ -619,7 +589,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           const stored = candidates.get(candidate)!
           viewData(contract, stored.view)
           verifySource(source, candidate.binding)
-          const terminal = candidate.kind === 'control' || candidate.method.startsWith('terminal.backend.')
+          const terminal = candidate.method.startsWith('terminal.backend.')
           const checked = responseShape(
             input,
             terminal ? 'terminal' : 'general',
@@ -628,7 +598,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
             context.kind === 'permit' ? context : null
           )
           frameLimit(contract, stored.view, checked.response, 'native_response_invalid', terminal, 'response')
-          const request = candidate.kind === 'control' ? candidate.frame : candidate.request
+          const request = candidate.request
           // schema 合法之后仍须绑定原请求 ID、结果类型和适用的原生实例标识。
           if (checked.response.id !== request.id) {
             fail('native_id_mismatch', 'response')
@@ -655,7 +625,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
             fail('invalid_request_handle')
           }
           viewData(contract, original.view)
-          if (candidate.kind === 'control' || STREAM_METHODS.has(candidate.method) || original.stream) {
+          if (STREAM_METHODS.has(candidate.method)) {
             fail('response_context_unavailable')
           }
           const rules = responseRules(candidate)
@@ -728,7 +698,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
             fail('invalid_request_handle')
           }
           viewData(contract, original.view)
-          if (candidate.kind === 'control' || STREAM_METHODS.has(candidate.method) || original.stream) {
+          if (STREAM_METHODS.has(candidate.method)) {
             fail('response_context_unavailable')
           }
           permits.revoke(candidate)
@@ -748,180 +718,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           responseContexts.delete(context)
         }
       )
-    },
-    // 要求 acknowledgement 来自同一真实派发许可，再建立固定模式的原生流。
-    openStream(permit, acknowledgement) {
-      return attempt(
-        'stream',
-        /* 复核响应的私有许可关联及固定开流结果，生成不可伪造的流句柄。 */ () => {
-          const state = permits.get(permit)
-          const received = responses.get(acknowledgement)
-          // ack 必须由同一 permit 的响应校验产生；同形响应对象不能替代内存句柄。
-          if (
-            !state ||
-            !received ||
-            received.contract !== contract ||
-            received.candidate !== state.candidate ||
-            received.permit !== permit ||
-            !acknowledgement.bound ||
-            !STREAM_METHODS.has(permit.method) ||
-            acknowledgement.response.result === undefined
-          ) {
-            fail('invalid_stream_context', 'stream')
-          }
-          const result = object(acknowledgement.response.result)
-          const mode = streamModeFor(permit.method)
-          if (!Number.isSafeInteger(result.sequence) || (result.sequence as number) < 0) {
-            fail('native_response_invalid', 'stream')
-          }
-          const stream = Object.freeze({
-            binding: permit.binding,
-            method: permit.method,
-            mode,
-            sequence: result.sequence as number
-          })
-          streams.set(stream, {
-            permit,
-            identity: mode === 'observe' || mode === 'control' ? result : null
-          })
-          return stream
-        }
-      )
-    },
-    // 核验流句柄、原生来源、事件 schema 及身份，阻止跨流或跨目标事件混入。
-    checkEvent(stream, input, source) {
-      return attempt(
-        'event',
-        /* 按通用事件或终端事件分别检查 schema、订阅身份和有效在线帧预算。 */ () => {
-          const state = streams.get(stream)
-          if (!state) {
-            fail('invalid_stream_context', 'event')
-          }
-          const candidate = permits.get(state.permit)?.candidate
-          if (!candidate) {
-            fail('invalid_stream_context')
-          }
-          viewData(contract, candidates.get(candidate)!.view)
-          verifySource(source, stream.binding)
-          const event = copy(contract, input)
-          const name = text(event.event, 'native_event_invalid')
-          const terminal = name.startsWith('terminal.')
-          frameLimit(contract, candidates.get(candidate)!.view, event, 'native_event_invalid', terminal, 'response')
-          if (name === 'terminal.frame' || name === 'terminal.resync_required') {
-            if (stream.mode === 'general_events' || (name === 'terminal.frame' && stream.mode === 'terminal_events')) {
-              fail('native_event_invalid', 'event', 'stream_family')
-            }
-          } else {
-            validate(contract, `${UHP}event.schema.json`, event, 'native_event_invalid')
-          }
-          if (terminal) {
-            validate(contract, `${UHP}schema/terminal/event.schema.json`, event, 'native_event_invalid')
-          } else if (stream.mode !== 'general_events') {
-            fail('native_event_invalid', 'event', 'stream_family')
-          }
-          const checker = data(contract).validators.get(`event:${name}`)
-          if (checker ? !checker(event.data) : !['terminal.frame', 'terminal.resync_required'].includes(name)) {
-            fail('native_event_invalid', 'event', 'payload')
-          }
-          const payload = object(event.data, 'native_event_invalid')
-          if (
-            payload.server_generation !== undefined &&
-            payload.server_generation !== stream.binding.server_generation
-          ) {
-            fail('native_identity_mismatch', 'event')
-          }
-          // resync 通知不承诺旧终端标识仍有效；其它终端事件必须匹配开流时的实例。
-          if (state.identity && terminal && name !== 'terminal.resync_required') {
-            for (const key of ['server_generation', 'terminal_id', 'pane_id']) {
-              if (payload[key] !== state.identity[key]) {
-                fail('native_identity_mismatch', 'event')
-              }
-            }
-          }
-          if (name === 'terminal.frame') {
-            const bytes = Buffer.byteLength(payload.text as string)
-            if (
-              bytes > 65536 ||
-              payload.bytes !== bytes ||
-              payload.lines !== (payload.text as string).split('\n').length ||
-              Buffer.byteLength(JSON.stringify(event)) > data(contract).limits.terminal_frame_bytes
-            ) {
-              fail('native_event_invalid', 'event', 'utf8_frame_limit')
-            }
-          }
-          return Object.freeze({
-            event,
-            requires_resync: name === 'terminal.resync_required' || name === 'events.resync_required'
-          })
-        }
-      )
-    },
-    // 在已打开的控制流校验帧、预算和动作支持，生成关联该流且仍需另行授权的控制候选。
-    checkControl(stream, input) {
-      return attempt(
-        'control',
-        /* 核对真实控制流、帧 schema 与双方支持动作，将新候选关联到父能力和流。 */ () => {
-          const state = streams.get(stream)
-          if (!state) {
-            fail('invalid_stream_context', 'control')
-          }
-          const permit = permits.get(state.permit)
-          if (!permit) {
-            fail('invalid_stream_context', 'control')
-          }
-          const parent = candidates.get(permit.candidate)!
-          viewData(contract, parent.view)
-          const frame = copy(contract, input)
-          frameLimit(contract, parent.view, frame, 'native_control_invalid', true, 'request')
-          validate(contract, `${UHP}schema/terminal/control-frame.schema.json`, frame, 'native_control_invalid')
-
-          // control candidate 只证明帧合法；派发仍须由 safety 模块逐次授权。
-          if (stream.mode !== 'control') {
-            fail('forbidden', 'control', 'read_only_stream', 'authorization')
-          }
-          const action = text(frame.action)
-          const caps = object(viewData(contract, parent.view).capabilities.terminal)
-          if (
-            !Array.isArray(caps.capabilities) ||
-            !caps.capabilities.includes(action) ||
-            !permit.supportedActions.includes(action)
-          ) {
-            fail('unsupported_stream_feature', 'control')
-          }
-          if (Buffer.byteLength(JSON.stringify(frame)) > data(contract).limits.terminal_frame_bytes) {
-            fail('native_control_invalid', 'control', 'frame_limit')
-          }
-          const candidate: CheckedControl = Object.freeze({
-            kind: 'control',
-            frame,
-            binding: stream.binding,
-            method: 'terminal.backend.control',
-            action,
-            validation: 'schema'
-          })
-          candidates.set(candidate, { ...parent, stream })
-          return candidate
-        }
-      )
     }
   }
   return Object.freeze(api)
-}
-
-// 要求非负安全整数序号恰好递增一，区分重复或回退帧与需要重新同步的跳号。
-export function checkSequence(previous: number, incoming: number): Check<void> {
-  return attempt(
-    'sequence',
-    /* 核对序号范围与相邻关系，重复或回退时报重复帧，跳号时要求重新同步。 */ () => {
-      if (!Number.isSafeInteger(previous) || !Number.isSafeInteger(incoming) || previous < 0 || incoming < 0) {
-        fail('invalid_sequence', 'stream')
-      }
-      if (incoming <= previous) {
-        fail('duplicate_stream_frame', 'stream')
-      }
-      if (incoming !== previous + 1) {
-        fail('resync_required', 'stream')
-      }
-    }
-  )
 }

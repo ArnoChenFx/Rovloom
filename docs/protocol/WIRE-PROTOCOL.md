@@ -23,9 +23,6 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 | history_scope | 显式登记 history_epoch/client_request_key |
 | late_evidence | unknown 同次 attempt 补证 |
 | objects | 有界 envelope/schema_bundle 分片 |
-| events | 原生事件流 |
-| terminal_observe | 终端观察 |
-| terminal_control | 终端输入；同时要求 terminal_observe |
 
 业务帧使用已选定 minor，不能按消息重新猜版本或放行未知 feature。welcome 必须匹配本地保存的 offer/required，
 并用 in_reply_to 核对原握手 message_id；收到 welcome 不自动产生已认证上下文。
@@ -161,7 +158,7 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 }
 ```
 
-[完整 JSON 示例](../../test/wire/v2-examples.json)另含 accepted、response、cancel、stream_open/data/input/close，
+[完整 JSON 示例](../../test/wire/v2-examples.json)另含 accepted、response、cancel，
 每个都是无缩写、带完整 attempt 的 v2 envelope；测试逐帧实际解析验证。native request/response 与终端内容来自隔离 P0 记录，
 外层 provider/policy/handle/授权上下文为明确 synthetic 测试数据。
 
@@ -180,10 +177,6 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | response | Connector → Gateway | attempt, native_response |
 | cancel | Gateway → Connector | attempt, reason |
 | heartbeat | 双向 | sequence |
-| stream_open | Gateway → Connector | request 的全部字段，另 stream_id, feature |
-| stream_data | Connector → Gateway | attempt, stream_id, feature, sequence, frame |
-| stream_input | Gateway → Connector | attempt, stream_id, feature, sequence, frame |
-| stream_close | 双向 | attempt, stream_id, reason |
 | error | 双向，预认证或已认证 | source, code, retryable, cause_message_id? |
 | object_chunk | 双向，schema_bundle 仅 Connector → Gateway | object_id, kind, total_bytes, sha256, chunk_count, index, data |
 
@@ -321,7 +314,7 @@ fenced 快照可供消费者销毁旧上下文，不能继续执行或读取原�
 已认证业务帧不能使用未协商 minor 或未知 major；握手 offer 的较高 minor 仅表示协商上界，
 不允许直接执行该版本的业务帧。
 网关错误 source 仅 gateway/transport，code 不含原文；原生 error/data 原样保留在 native_response，不伪装成网关 error。
-accepted 不是远端执行/消费成功；cancel 不等于回滚；stream_close 不生成关闭 pane 的原生请求。
+accepted 不是远端执行/消费成功；cancel 不等于回滚。
 
 `dispatch_refused` 仅在双方明确协商 `dispatch_refusal` 后由 Connector 发送，且须经当前认证连接和
 独立登记的完整 attempt 校验。当前 `code` 仅允许 `terminal_execution_disabled`，不承载原生响应、
@@ -348,17 +341,12 @@ codec 不实现 TLS、凭据认证/签发或撤销来源。
 ```ts
 type NativeValidationContext = {
   binding: AttemptBinding; method: string; mode: 'strict' | 'raw-contract';
-  transport: 'rpc' | 'stream'; feature?: StreamFeature;
   native_handle?: unknown; trusted_source?: unknown;
 };
 interface NativePayloadValidator {
   requestGate(fullNativeRequest: JsonObject, context: NativeValidationContext): RequestGate;
   validateRequest(fullNativeRequest: JsonObject, context: NativeValidationContext): void;
   validateResponse(response: JsonObject, context: NativeValidationContext): void;
-  validateStreamFrame?(frame: JsonObject, context: NativeValidationContext & {
-    feature: StreamFeature; direction: 'data' | 'input'
-  }): void;
-  checkDispatch?(frame: JsonObject, context: NativeValidationContext): void;
 }
 ```
 
@@ -367,13 +355,10 @@ wire 先拒绝 native_request 的 caller id/auth，核对原登记 method/mode�
 `raw-contract` 在原生薄适配中映射 native `raw_contract`；原生 Check 失败转 code-only WireError，不能返回 false 当 void 成功。
 wire 也把异常 message/原始 data 清除，只保留合法 code 或通用 native_* 错误；成功 void 必须实际返回 undefined。
 
-响应与流必须有原 attempt 的 opaque native_handle 和 resolveNativeSource 当前返回的独立可信来源；缺失即拒绝。
+响应必须有原 attempt 的 opaque native_handle 和 resolveNativeSource 当前返回的独立可信来源；缺失即拒绝。
 handle 由原生 checkRequest/permit 流程生成，按完整 AttemptBinding 保存在受信过程内映射；不能从响应内容重建。
 本模块不发明 native handle，也不把不可序列化验证器对象冒充持久化记录。
-stream data 由适配器做原生 event/handshake/ack 类型验证；event 使用 checkEvent，合法原生 response/ack 使用相应原 handle。
-input 先做 checkControl/完整帧校验，再每帧 checkDispatch；后者显式收到当前原生 frame 与可信 context，
-可按实际子动作作多轴判断，无须共享“最近一帧”的可变缓存，也不能沿用 open 时权限。
-原生 generation/terminal identity/lease/ack 语义仍由 adapter 保留，外层序号不能替代。
+原生 generation/terminal identity/lease 语义仍由 adapter 保留。流（stream）机制未接入产品，已从 Wire 删除；流类原生方法按 RPC 分类直接拒绝。
 
 RequestGate 由原生多轴 gate 提供：classification_status、schema_status(complete/generic/unavailable)、
 transport_status、authorized、secret_result_authorized、raw_contract_authorized。
@@ -381,14 +366,14 @@ transport_status、authorized、secret_result_authorized、raw_contract_authoriz
 只有独立显式 raw 授权可放宽参数 schema；原生 permit 的 generic/unavailable 状态必须保留，不映成 complete。
 Owner 身份、raw 选择、未来方法或未知子动作不绕过分类/高权限/秘密门禁。
 
-`createLuvusWireAdapter` 已实现 NativeValidator 的 Check/handle 适配：从 backend 取得原登记请求、双端 provider 和独立 nativeSource，私有保存最初 DispatchPermit，用同一 permit 验证开流 ack，并逐次重新授权控制输入与结果读取。精确 native 签名见 [原生校验与宿主接口](NATIVE-CONTRACT.md)。
+`createLuvusWireAdapter` 已实现 NativeValidator 的 Check/handle 适配：从 backend 取得原登记请求、双端 provider 和独立 nativeSource，私有保存最初 DispatchPermit，并逐次重新授权结果读取。精确 native 签名见 [原生校验与宿主接口](NATIVE-CONTRACT.md)。
 集成测试使用真实 native 模块编译固定 Luvus fixture 的 29 个离线 documents；认证、分类及 provider 来源由明确的 synthetic backend 提供，不构成生产来源证明。
 
 ## Provider scope 权限
 
 ```ts
 type ProviderGrant = { target: V2Target; methods: string[];
-  actions: Array<'dispatch' | 'read' | 'stream_input' | 'cancel'> };
+  actions: Array<'dispatch' | 'read' | 'cancel'> };
 type ProviderPolicy = { revision: string; grants: ProviderGrant[] };
 type ProviderPolicies = { caller: ProviderPolicy; local: ProviderPolicy };
 ```
@@ -452,8 +437,5 @@ schema，由 Bun Worker 完整编译并生成 standalone，以 2 秒逻辑接纳
 [编译接纳边界](NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 
 MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依赖宿主持久化，不能将窗口过期视为新派发许可。
-stream open 建 opening，首个合法 data 转外层 open；input 仅 open 的 terminal_control，data/input 各自从 0 严格递增。
-重复由 MessageWindow 先过滤，错序/关闭后输入拒绝；这不替代原生握手成功、队列消费或终端 lease 证明。
-
 构建与验证命令见 [开发指引](../DEVELOPMENT.md)，后续宿主能力见
 [issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。

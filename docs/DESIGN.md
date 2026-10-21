@@ -141,7 +141,6 @@ created → authorized → dispatching → connector_accepted → responded
 | `runtime_call` | 发起调用；短等或返回 `call_id` |
 | `runtime_call_get` / `runtime_call_cancel` | 读取状态与证据 / 请求停止等待 |
 | `runtime_result_read` | 分页读取结果 |
-| `runtime_stream_*` | 已适配的流的开、读、写、关 |
 
 设备注册、改名、撤销以及 provider 启停只在管理 UI / CLI，不经 MCP。调用方只提交 `method / params` 等允许的字段，不能提交原生 request id 或认证字段。所有列表与计数按调用方 ACL 过滤。
 

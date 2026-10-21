@@ -15,10 +15,7 @@ const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   admission_context: 0,
   history_scope: 0,
   late_evidence: 0,
-  objects: 0,
-  events: 0,
-  terminal_observe: 0,
-  terminal_control: 0
+  objects: 0
 })
 
 // 校验版本广告，要求能力列表无重复且必需能力均已广告。
@@ -130,10 +127,6 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
     fail('unsupported_capability_combination')
   }
   if (v.capabilities.includes('dispatch_refusal') && !v.capabilities.includes('rpc')) {
-    fail('invalid_capabilities')
-  }
-  // 该依赖也约束 welcome 的选定结果，不能只在本地 offer 一侧检查。
-  if (v.capabilities.includes('terminal_control') && !v.capabilities.includes('terminal_observe')) {
     fail('invalid_capabilities')
   }
 }

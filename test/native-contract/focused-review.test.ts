@@ -18,7 +18,6 @@ import {
   identity,
   json,
   raw,
-  register,
   rejects,
   request,
   sourceFor,
@@ -28,40 +27,9 @@ import {
   view
 } from './helpers.js'
 
-// 建立真实控制流候选、派发许可和绑定 ack，供句柄关联复核复用。
-function opening() {
-  const from = view()
-  const candidate = request(from, {
-    id: 'review-open',
-    method: 'terminal.backend.control',
-    params: { server_generation: G, terminal_id: T, pane_id: '3' }
-  })
-  const permit = unwrap(checkDispatch(candidate, auth(candidate)))
-  const response = {
-    id: 'review-open',
-    result: {
-      type: 'terminal_backend_stream',
-      mode: 'control',
-      server_generation: G,
-      terminal_id: T,
-      pane_id: '3',
-      sequence: 0,
-      content_revision: 0,
-      ansi: false,
-      capture_mode: 'visible',
-      lines: 1,
-      frame_bytes: 65536,
-      queue_capacity: 2,
-      loss_behavior: 'resync_required_then_close'
-    }
-  }
-  const acknowledgement = unwrap(validator.checkResponse(permit, response, sourceFor(candidate.binding)))
-  return { from, candidate, permit, response, acknowledgement }
-}
-
 test(
-  '聚焦复核：Check 成功但 Gate 拒绝不能转成候选/permit/stream',
-  /* 验证 Gate 的诊断成功不产生候选、派发许可或开流资格。 */ () => {
+  '聚焦复核：Check 成功但 Gate 拒绝不能转成候选/permit',
+  /* 验证 Gate 的诊断成功不产生候选或派发许可。 */ () => {
     const candidate = request(view(), { id: 'review-gate', method: 'ping', params: {} })
     const gate = unwrap(inspectRequestGate(candidate, auth(candidate)))
     assert.equal(gate.schema_status, 'incomplete')
@@ -69,51 +37,19 @@ test(
     rejects(checkDispatch(gate as any, auth(candidate)), 'invalid_request_handle')
     rejects(checkDispatch({ ...candidate } as any, auth(candidate)), 'invalid_request_handle')
     rejects(checkResultBoundary(gate as any, {} as any), 'invalid_permit_handle')
-    const opened = opening()
-    rejects(validator.openStream(gate as any, opened.acknowledgement), 'invalid_stream_context')
-  }
-)
-
-test(
-  '聚焦复核：ack 必须来自同一份 permit，不能跨 principal 或事后授权',
-  /* 验证 ack 只能与产生它的同一许可配对，拒绝复制或事后新签许可。 */ () => {
-    const opened = opening()
-    const another = unwrap(
-      checkDispatch(opened.candidate, { ...auth(opened.candidate), principal_id: 'other-principal' })
-    )
-    rejects(validator.openStream(another, opened.acknowledgement), 'invalid_stream_context')
-    const samePrincipalNewPermit = unwrap(checkDispatch(opened.candidate, auth(opened.candidate)))
-    rejects(validator.openStream(samePrincipalNewPermit, opened.acknowledgement), 'invalid_stream_context')
-    const shapeBound = unwrap(
-      validator.checkResponse(opened.candidate, opened.response, sourceFor(opened.candidate.binding))
-    )
-    assert.equal(shapeBound.bound, true)
-    rejects(validator.openStream(opened.permit, shapeBound), 'invalid_stream_context')
-    rejects(validator.openStream(opened.permit, clone(opened.acknowledgement)), 'invalid_stream_context')
-    unwrap(validator.openStream(opened.permit, opened.acknowledgement))
   }
 )
 
 test(
   '聚焦复核：同名 native ID 的 provider/revision/source/旧 epoch 全链拒绝',
-  /* 逐项修改来源锚点，确认响应、事件与子控制派发均拒绝身份混用。 */ () => {
-    const opened = opening()
-    const stream = unwrap(validator.openStream(opened.permit, opened.acknowledgement))
-    const frame = register(
-      unwrap(
-        validator.checkControl(stream, {
-          id: 'input',
-          action: 'type_literal',
-          params: { text: 'synthetic' }
-        })
-      ),
-      opened.from
-    )
-    const event = {
-      event: 'terminal.resync_required',
-      sequence: 1,
-      data: { reason: 'subscriber_overflow' }
-    }
+  /* 逐项修改来源锚点，确认响应与派发均拒绝身份混用。 */ () => {
+    const candidate = request(view(), {
+      id: 'review-source',
+      method: 'terminal.backend.validate',
+      params: { server_generation: G, terminal_id: T, pane_id: '3' }
+    })
+    const permit = unwrap(checkDispatch(candidate, auth(candidate)))
+    const response = { id: 'review-source', result: { type: 'terminal_backend_validation', state: 'alive' } }
     for (const [field, value] of [
       ['provider_id', 'p2'],
       ['binding_revision', 2],
@@ -121,14 +57,13 @@ test(
       ['connection_epoch', 'old-epoch'],
       ['recovery_generation', 'old-recovery']
     ] as const) {
-      const source: any = clone(sourceFor(opened.candidate.binding))
+      const source: any = clone(sourceFor(candidate.binding))
       source.binding[field] = value
-      rejects(validator.checkResponse(opened.permit, opened.response, source), 'native_identity_mismatch')
-      rejects(validator.checkEvent(stream, event, source), 'native_identity_mismatch')
-      rejects(checkDispatch(frame, { ...auth(frame), source }), 'capability_stale')
+      rejects(validator.checkResponse(permit, response, source), 'native_identity_mismatch')
+      rejects(checkDispatch(candidate, { ...auth(candidate), source }), 'capability_stale')
     }
-    const untrusted = { ...sourceFor(opened.candidate.binding), source_verified: false }
-    rejects(validator.checkResponse(opened.permit, opened.response, untrusted), 'native_source_untrusted')
+    const untrusted = { ...sourceFor(candidate.binding), source_verified: false }
+    rejects(validator.checkResponse(permit, response, untrusted), 'native_source_untrusted')
   }
 )
 

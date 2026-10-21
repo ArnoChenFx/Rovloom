@@ -34,7 +34,7 @@ import {
 const decode = (v: unknown, ctx = context()) => decodeWireFrame(JSON.stringify(v), ctx)
 // 构造已登记为原始契约模式的认证测试上下文。
 const rawContext = (validator = fixtureValidator()) =>
-  context('gateway_to_connector', validator, binding, 'ping', 'rpc', undefined, 'raw-contract')
+  context('gateway_to_connector', validator, binding, 'ping', 'raw-contract')
 
 test(
   '协商结果能力列表只接受字符串，不隐式转换数组/对象为 capability 名',
@@ -113,14 +113,6 @@ test(
     rejects(
       /* 提交该用例输入，确认能力列表或能力依赖非法时被拒绝。 */ () =>
         negotiate(local, { ...local, required: ['missing'] }),
-      'invalid_capabilities'
-    )
-    rejects(
-      /* 提交该用例输入，确认能力列表或能力依赖非法时被拒绝。 */ () =>
-        negotiate(
-          { ...offer, capabilities: ['terminal_control'], required: [] },
-          { ...offer, capabilities: ['terminal_control'], required: [] }
-        ),
       'invalid_capabilities'
     )
   }

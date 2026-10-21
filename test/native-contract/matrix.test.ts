@@ -97,43 +97,6 @@ function assertCase(c: any, result: any): void {
 }
 const session = view()
 const host = view('host')
-// 按指定模式建立真实许可与绑定 ack，并打开测试流句柄。
-function stream(mode: 'control' | 'observe' | 'general_events' = 'control'): any {
-  const method = mode === 'general_events' ? 'events.subscribe' : `terminal.backend.${mode}`
-  const checked = request(session, {
-    id: 'u.control',
-    method,
-    params: mode === 'general_events' ? {} : { server_generation: G, terminal_id: T, pane_id: '3' }
-  })
-  const permit = unwrap(checkDispatch(checked, auth(checked)))
-  const result =
-    mode === 'general_events'
-      ? { type: 'subscription_started', sequence: 0 }
-      : {
-          type: 'terminal_backend_stream',
-          mode,
-          server_generation: G,
-          terminal_id: T,
-          pane_id: '3',
-          sequence: 0,
-          content_revision: 0,
-          ansi: false,
-          capture_mode: 'visible',
-          lines: 1,
-          frame_bytes: 65536,
-          queue_capacity: 2,
-          loss_behavior: 'resync_required_then_close'
-        }
-  return unwrap(
-    validator.openStream(
-      permit,
-      unwrap(validator.checkResponse(permit, { id: 'u.control', result }, sourceFor(checked.binding)))
-    )
-  )
-}
-const control = stream()
-const observe = stream('observe')
-const general = stream('general_events')
 // 将 bundle 各别名重新指向当前文档表，使单独变更的约束参与真实编译。
 function syncAliases(b: any): void {
   const docs = b.documents
@@ -241,7 +204,7 @@ function responseCase(c: any): any {
     const checked = request(session, { id: 'u.other', method: 'ping', params: {} })
     return validator.checkResponse(checked, value, sourceFor(checked.binding))
   }
-  if (['R-terminal-method', 'R-terminal-mode', 'R-terminal-identity'].includes(c.id)) {
+  if (['R-terminal-method'].includes(c.id)) {
     const method = c.context?.method ?? 'terminal.backend.control'
     const params: any = { server_generation: G, terminal_id: T, pane_id: '3' }
     if (method.endsWith('capture')) {
@@ -399,16 +362,7 @@ function genericCases(c: any): void {
     assertCase(c, checkDispatch(candidate, authorization))
   }
 }
-const implementedStages = new Set([
-  'bundle',
-  'capabilities',
-  'request',
-  'response',
-  'event',
-  'control',
-  'dispatch',
-  'parse'
-])
+const implementedStages = new Set(['bundle', 'capabilities', 'request', 'response', 'dispatch', 'parse'])
 export const implementedMatrixIds: string[] = matrix.cases
   .filter(/* 选择当前纯模块已实现阶段的矩阵场景。 */ (c: any) => implementedStages.has(c.stage))
   .map(/* 提取已实现矩阵场景的唯一编号。 */ (c: any) => c.id)
@@ -437,34 +391,25 @@ for (const c of matrix.cases.filter(
         result = parseNativeJson(
           c.generator === 'depth_65' ? '['.repeat(65) + '0' + ']'.repeat(65) : Buffer.from(specimen(c).bytes_hex, 'hex')
         )
-      } else if (c.stage === 'control') {
-        result = validator.checkControl(c.context?.stream_mode === 'observe' ? observe : control, specimen(c))
       } else {
-        const input = c.generator === 'utf8_text_over_65536' ? clone(seeds.get('terminal_frame')) : specimen(c)
-        if (c.generator) {
-          input.data.text = '测'.repeat(21846)
-          input.data.bytes = 65535
-        }
-        const target = c.seed === 'general_event' || c.context?.stream_family === 'general_events' ? general : control
-        result = validator.checkEvent(target, input, sourceFor(target.binding))
+        throw Error(`unhandled matrix stage ${c.stage}`)
       }
       assertCase(c, result)
     }
   )
 }
 test(
-  '143 矩阵的纯模块与后续持久化/流状态验收分列，无静默 skip',
+  '120 矩阵的纯模块与后续持久化验收分列，无静默 skip',
   /* 核对全部矩阵与已实现数量，要求延后场景均明确归属于后续验收阶段。 */ () => {
-    assert.equal(matrix.cases.length, 143)
-    assert.equal(implementedMatrixIds.length, 119)
+    assert.equal(matrix.cases.length, 120)
+    assert.equal(implementedMatrixIds.length, 101)
     const deferred = matrix.cases.filter(
       /* 筛出尚未由当前纯模块实现的矩阵场景。 */ (c: any) => !implementedStages.has(c.stage)
     )
-    assert.equal(deferred.length, 24)
+    assert.equal(deferred.length, 19)
     assert(
       deferred.every(
-        /* 确认延后场景仅属于迟到结果、结果持久化或流状态验收。 */ (c: any) =>
-          ['late', 'result', 'stream'].includes(c.stage)
+        /* 确认延后场景仅属于迟到结果或结果持久化验收。 */ (c: any) => ['late', 'result'].includes(c.stage)
       )
     )
   }

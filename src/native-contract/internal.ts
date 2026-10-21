@@ -2,10 +2,8 @@
 import type { ValidateFunction } from 'ajv'
 import type {
   CapabilityView,
-  CheckedControl,
   CheckedRequest,
   CheckedResponse,
-  CheckedStream,
   CompiledContract,
   DispatchCandidate,
   DispatchPermit,
@@ -40,7 +38,6 @@ export type ViewData = {
 export type CandidateData = {
   view: CapabilityView
   descriptor: MethodDescriptor
-  stream?: CheckedStream
 }
 export type PermitData = {
   candidate: DispatchCandidate
@@ -48,11 +45,10 @@ export type PermitData = {
   classification: SafetyClassification
   supportedActions: readonly string[]
 }
-export type StreamData = { permit: DispatchPermit; identity: JsonObject | null }
 // WeakMap 防止从 JSON 伪造 handle；来源仍按各 handle 的 contract/binding 核对。
 export const contracts = new WeakMap<CompiledContract, ContractData>()
 export const views = new WeakMap<CapabilityView, ViewData>()
-export const candidates = new WeakMap<CheckedRequest | RawRequestCandidate | CheckedControl, CandidateData>()
+export const candidates = new WeakMap<CheckedRequest | RawRequestCandidate, CandidateData>()
 type PermitGroup = { entries: WeakMap<DispatchPermit, PermitData> | undefined }
 const permitGroups = new WeakMap<DispatchPermit, PermitGroup>()
 const candidateGroups = new WeakMap<DispatchCandidate, PermitGroup>()
@@ -90,14 +86,12 @@ export const responses = new WeakMap<
   CheckedResponse,
   { candidate: DispatchCandidate | null; contract: CompiledContract; permit: DispatchPermit | null }
 >()
-export const streams = new WeakMap<CheckedStream, StreamData>()
 
 // 结果匹配所需的最小字段；封存时另行限制身份值的类型和编码大小。
 export type ResponseRules = {
   terminal: boolean
   bind_native_identity: boolean
   expected_type?: string
-  expected_mode?: string
   identities: JsonObject
 }
 export type ResponseContextData = {

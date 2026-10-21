@@ -36,12 +36,7 @@ afterEach(
 )
 
 // 全部是隔离 P0 fixture 与明确的测试权限；生产模块不导入本工厂或测试 gate。
-function fixture(
-  method = 'task.add',
-  raw = false,
-  stream = false,
-  limits?: Parameters<typeof createLuvusWireAdapter>[1]
-) {
+function fixture(method = 'task.add', raw = false, limits?: Parameters<typeof createLuvusWireAdapter>[1]) {
   const params =
     method === 'ping'
       ? {}
@@ -93,9 +88,7 @@ function fixture(
     principal_id: 'synthetic',
     method,
     mode: raw ? 'raw-contract' : 'strict',
-    native_request: { method, params },
-    transport: stream ? 'stream' : 'rpc',
-    ...(stream ? { feature: 'terminal_control', stream_id: 'stream1' } : {})
+    native_request: { method, params }
   }
   const rows = new Map([[binding.call_id, row]])
   const policies: ProviderPolicies = {
@@ -105,7 +98,7 @@ function fixture(
         {
           target: clone(binding.target),
           methods: [method],
-          actions: ['dispatch', 'read', 'stream_input', 'cancel']
+          actions: ['dispatch', 'read', 'cancel']
         }
       ]
     },
@@ -149,7 +142,7 @@ function fixture(
       negotiated: {
         major: 2,
         minor: 0,
-        capabilities: ['rpc', 'objects', 'late_evidence', 'terminal_observe', 'terminal_control']
+        capabilities: ['rpc', 'objects', 'late_evidence']
       }
     }),
     // 只查找调用及尝试 ID 均匹配的测试账本记录，避免夹具掩盖跨绑定错误。
@@ -275,21 +268,12 @@ function fixture(
       payload
     } as Extract<AuthenticatedEnvelope, { type: K }>
   }
-  const opening = stream
-    ? frame('stream_open', {
-        attempt: attempt(binding),
-        expected_binding_revision: 1,
-        native_request: row.native_request,
-        validation: row.mode,
-        stream_id: 'stream1',
-        feature: 'terminal_control'
-      })
-    : frame('request', {
-        attempt: attempt(binding),
-        expected_binding_revision: 1,
-        native_request: row.native_request,
-        validation: row.mode
-      })
+  const opening = frame('request', {
+    attempt: attempt(binding),
+    expected_binding_revision: 1,
+    native_request: row.native_request,
+    validation: row.mode
+  })
   const response = frame('response', {
     attempt: attempt(binding),
     native_response: {
@@ -327,161 +311,10 @@ function fixture(
 const rejects = (run: () => unknown, code: string) =>
   assert.throws(run, /* 核对抛出的固定错误码与预期一致，避免无关异常被误判为通过。 */ (e: any) => e.code === code, code)
 
-// 在真实校验器中建立合成控制流状态，准备开流响应、输入及 acknowledgement 以复用逐输入许可测试。
-function controlFixture(limits?: Parameters<typeof createLuvusWireAdapter>[1]) {
-  const f = fixture('terminal.backend.control', false, true, limits)
-  // 把原生响应或事件包装为绑定当前控制流的 stream_data 消息。
-  const data = (frame: Record<string, unknown>, sequence = 0) =>
-    f.frame('stream_data', {
-      attempt: f.attempt(f.binding),
-      stream_id: 'stream1',
-      feature: 'terminal_control',
-      sequence,
-      frame
-    })
-  const ack = {
-    id: 'native_1',
-    result: {
-      type: 'terminal_backend_stream',
-      mode: 'control',
-      server_generation: G,
-      terminal_id: T,
-      pane_id: '3',
-      sequence: 0,
-      content_revision: 0,
-      ansi: false,
-      capture_mode: 'visible',
-      lines: 1,
-      frame_bytes: 65536,
-      queue_capacity: 2,
-      loss_behavior: 'resync_required_then_close'
-    }
-  }
-  f.adapter.advanceStream(f.opening, 'gateway_to_connector')
-  f.adapter.advanceStream(data(ack), 'connector_to_gateway')
-  // 为指定输入 ID 构造绑定当前终端控制流的动作帧。
-  const input = (id: string) =>
-    f.frame('stream_input', {
-      attempt: f.attempt(f.binding),
-      stream_id: 'stream1',
-      feature: 'terminal_control',
-      sequence: 0,
-      frame: { id, action: 'type_literal', params: { text: 'synthetic' } }
-    })
-  const inputAck = {
-    id: 'input1',
-    result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' }
-  }
-  return { ...f, data, input, inputAck, ack }
-}
-
-test(
-  '外层输入顺序失败不留下控制许可或 ID 冲突，纠正后仍可使用原 ID',
-  /* 先让控制输入在外层序号检查失败，再用同一 ID 校验正确输入，确认新许可与冲突状态完整回滚。 */ () => {
-    const f = controlFixture()
-    f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
-    const bad = f.input('input1')
-    bad.payload.sequence = 7
-    rejects(
-      /* 推进指定输入或输出的流生命周期，要求以 stream_sequence_mismatch 拒绝。 */ () =>
-        f.adapter.advanceStream(bad, 'gateway_to_connector'),
-      'stream_sequence_mismatch'
-    )
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 control_ack_unbound 拒绝（控制响应没有对应许可）。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck),
-      'control_ack_unbound'
-    )
-    rejects(
-      /* 推进指定输入或输出的流生命周期，要求以 control_ack_unbound 拒绝（控制响应没有对应许可）。 */ () =>
-        f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway'),
-      'control_ack_unbound'
-    )
-    const corrected = f.input('input1')
-    corrected.payload.frame.params = { text: 'corrected' }
-    assert.equal(f.adapter.advanceStream(corrected, 'gateway_to_connector').next_input_sequence, 1)
-    assert.equal(f.adapter.advanceStream(f.data(f.inputAck, 1), 'connector_to_gateway').next_data_sequence, 2)
-  }
-)
-
-test(
-  '失败输入返还控制 ID 和精确快照预算，已成功输入的许可仍保留',
-  /* 按成功输入的精确快照量设置预算，失败输入返还容量且保留此前成功输入的读取许可。 */ () => {
-    const base = controlFixture()
-    const frame = base.input('input1')
-    const source = base.backend.nativeSource(base.binding.call_id, base.binding.attempt_id)
-    const capabilities = base.backend.contract(base.binding.contract_ref)!.capabilities
-    const bytes =
-      2 * Buffer.byteLength(boundedJson({ attempt: base.row, source, capabilities })) +
-      2 * Buffer.byteLength(boundedJson(frame.payload.frame))
-    const f = controlFixture({ attempts: 1, control_ids: 1, snapshot_bytes: bytes })
-    f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
-    const bad = f.input('input2')
-    bad.payload.sequence = 7
-    rejects(
-      /* 推进指定输入或输出的流生命周期，要求以 stream_sequence_mismatch 拒绝。 */ () =>
-        f.adapter.advanceStream(bad, 'gateway_to_connector'),
-      'stream_sequence_mismatch'
-    )
-    assert.equal(f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence, 1)
-    rejects(
-      /* 推进指定输入或输出的流生命周期，要求以 stream_sequence_mismatch 拒绝。 */ () =>
-        f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector'),
-      'stream_sequence_mismatch'
-    )
-    assert.doesNotThrow(
-      /* 确认失败输入没有撤销此前成功输入的许可，其 acknowledgement 仍可读取。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck)
-    )
-  }
-)
-
-test(
-  '顺序失败的开流 ack 不建立原生流或固定其摘要，后续合法 ack 可以恢复',
-  /* 让开流 acknowledgement 在序号检查失败后重新处理合法帧，验证未错误建立原生流或固定摘要。 */ () => {
-    const f = controlFixture()
-    f.adapter.release(f.binding)
-    f.adapter.advanceStream(f.opening, 'gateway_to_connector')
-    rejects(
-      /* 推进指定输入或输出的流生命周期，要求以 stream_sequence_mismatch 拒绝。 */ () =>
-        f.adapter.advanceStream(f.data(f.ack, 7), 'connector_to_gateway'),
-      'stream_sequence_mismatch'
-    )
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 stream_not_ready 拒绝。 */ () => f.decode(f.input('input1')),
-      'stream_not_ready'
-    )
-    const corrected = { ...f.ack, result: { ...f.ack.result, lines: 2 } }
-    assert.equal(f.adapter.advanceStream(f.data(corrected), 'connector_to_gateway').state, 'open')
-  }
-)
-
-test(
-  '消息 ID 冲突回滚 native 校验产生的输入许可和容量，不撤销既有去重项',
-  /* 制造消息去重冲突，验证此次生成的控制许可和容量被回滚而既有去重项仍生效。 */ () => {
-    const f = controlFixture({ attempts: 1, control_ids: 1 })
-    f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
-    const heartbeat = f.frame('heartbeat', { sequence: 0 })
-    assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'new')
-    rejects(
-      /* 登记消息 ID 与去重摘要，要求以 message_id_conflict 拒绝。 */ () =>
-        f.adapter.observeMessage(f.input('input2'), 'gateway_to_connector'),
-      'message_id_conflict'
-    )
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 control_ack_unbound 拒绝（控制响应没有对应许可）。 */ () =>
-        f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'input2' }),
-      'control_ack_unbound'
-    )
-    assert.equal(f.adapter.observeMessage(heartbeat, 'gateway_to_connector'), 'duplicate')
-    assert.equal(f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector').next_input_sequence, 1)
-  }
-)
-
 test(
   '首次请求授权失败不占 attempt 名额或保存请求候选',
   /* 拒绝首次调用授权后用第二个调用占用唯一名额，证明失败路径未缓存候选或泄露预算。 */ () => {
-    const f = fixture('task.add', false, false, { attempts: 1, control_ids: 1 })
+    const f = fixture('task.add', false, { attempts: 1 })
     const classifications = f.state.classifications
     f.state.classifications = []
     rejects(
@@ -502,49 +335,6 @@ test(
     )
     assert.doesNotThrow(
       /* 检查第二个调用的真实许可，确认它未借用首次失败调用的状态。 */ () => f.adapter.checkResult(second.binding)
-    )
-  }
-)
-
-test(
-  '错误入口拒绝请求帧后不留下已生成的派发许可，正常入口仍可重新校验',
-  /* 把 RPC 请求送入错误流入口，再从正常入口校验，确认失败生成的派发许可未残留。 */ () => {
-    const f = fixture()
-    rejects(
-      /* 推进指定输入或输出的流生命周期，要求以 invalid_stream_transition 拒绝。 */ () =>
-        f.adapter.advanceStream(f.opening, 'gateway_to_connector'),
-      'invalid_stream_transition'
-    )
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 dispatch_permit_unavailable 拒绝（真实派发许可缺失）。 */ () =>
-        f.adapter.checkResult(f.binding),
-      'dispatch_permit_unavailable'
-    )
-    assert.doesNotThrow(
-      /* 从正常 RPC 入口重新校验原请求，证明错误流入口没有留下不可恢复状态。 */ () => f.decode(f.opening)
-    )
-    assert.doesNotThrow(
-      /* 核对正常入口刚生成的许可已生效，结果读取不再因旧失败而被拒绝。 */ () => f.adapter.checkResult(f.binding)
-    )
-  }
-)
-
-test(
-  '控制分类拒绝不缓存输入内容，重新授权后可使用同一 ID 的纠正请求',
-  /* 让控制输入因分类缺失被拒，恢复分类后修改同一 ID 的内容，确认旧候选没有被缓存。 */ () => {
-    const f = controlFixture({ attempts: 1, control_ids: 1 })
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 safety_classification_missing 拒绝。 */ () =>
-        f.decode(f.input('input1')),
-      'safety_classification_missing'
-    )
-    f.state.classifications.push({ ...clone(f.state.classifications[0]!), action: 'type_literal' })
-    const corrected = f.input('input1')
-    corrected.payload.frame.params = { text: 'corrected' }
-    assert.doesNotThrow(/* 在恢复输入分类后解码同一 ID 的纠正正文，证明失败候选已回滚。 */ () => f.decode(corrected))
-    assert.doesNotThrow(
-      /* 读取纠正输入的 acknowledgement，确认其绑定新校验的输入许可。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck)
     )
   }
 )
@@ -613,38 +403,6 @@ test(
 )
 
 test(
-  '控制输入原秘密许可在当前分类降级后仍要求 custody 可用',
-  /* 先取得秘密控制输入许可再降低当前分类，验证其 acknowledgement 仍要求当前 custody 可用。 */ () => {
-    const f = controlFixture()
-    const ordinary = { ...clone(f.state.classifications[0]!), action: 'type_literal' }
-    f.state.classifications.push({
-      ...ordinary,
-      result: {
-        ...ordinary.result,
-        boundary: 'protected_secret',
-        sensitivity: 'credential',
-        delivery: 'custody'
-      }
-    })
-    f.state.custody = true
-    f.state.channel = 'custody'
-    f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector')
-    f.state.classifications[1] = ordinary
-    f.state.custody = false
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 secret_boundary_required 拒绝（秘密边界尚未满足）。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck),
-      'secret_boundary_required'
-    )
-    f.state.custody = true
-    assert.doesNotThrow(
-      /* 恢复当前秘密 custody 后读取控制输入响应，证明不能借降低分类省略 custody。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck)
-    )
-  }
-)
-
-test(
   'retention:none 可读取但证据计划只保留元数据，普通/秘密 result 与 error 均不复活原文',
   /* 遍历普通和秘密结果及错误响应，验证禁存策略允许当前读取但证据计划始终不携带原文。 */ () => {
     for (const secret of [false, true]) {
@@ -701,177 +459,6 @@ test(
         assert.deepEqual(f.backend.responseAnchor!(f.binding), anchor)
       }
     }
-  }
-)
-
-test(
-  '控制 ack 读取选自己的 permit/当前分类，不能借普通开流许可走普通通道',
-  /* 分别切换控制 acknowledgement 的当前分类和读取通道，证明其使用自己的输入许可而非开流许可。 */ () => {
-    const f = controlFixture()
-    const row = f.state.classifications[0]!
-    const control = {
-      ...clone(row),
-      action: 'type_literal',
-      result: {
-        ...row.result,
-        boundary: 'protected_secret',
-        sensitivity: 'credential',
-        delivery: 'custody'
-      }
-    } as const
-    f.state.classifications.push(control)
-    f.state.custody = true
-    f.state.channel = 'custody'
-    f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector')
-    f.state.channel = 'ordinary'
-    const error = {
-      id: 'input1',
-      error: { code: 'send_failed', message: 'synthetic', metadata: { marker: 'SYNTHETIC_SECRET' } }
-    }
-    f.adapter.advanceStream(f.data(error, 1), 'connector_to_gateway')
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 secret_boundary_required 拒绝（秘密边界尚未满足）。 */ () =>
-        f.adapter.checkResult(f.binding, error),
-      'secret_boundary_required'
-    )
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 secret_boundary_required 拒绝（秘密边界尚未满足）。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck),
-      'secret_boundary_required'
-    )
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 result_selector_required 拒绝。 */ () =>
-        f.adapter.checkResult(f.binding),
-      'result_selector_required'
-    )
-    assert.doesNotThrow(
-      /* 读取普通开流 acknowledgement，确认秘密控制输入的限制不会误用于开流许可。 */ () =>
-        f.adapter.checkResult(f.binding, f.ack)
-    )
-    f.state.channel = 'custody'
-    assert.doesNotThrow(
-      /* 切换到 custody 通道后允许读取控制错误，证明其仍使用原秘密输入许可。 */ () =>
-        f.adapter.checkResult(f.binding, error)
-    )
-    assert.doesNotThrow(
-      /* 在 custody 通道读取控制成功响应，验证与错误响应采用同一输入边界。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck)
-    )
-    f.state.custody = false
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 secret_boundary_required 拒绝（秘密边界尚未满足）。 */ () =>
-        f.adapter.checkResult(f.binding, error),
-      'secret_boundary_required'
-    )
-    f.state.custody = true
-    f.state.classifications = [row]
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 classification_unavailable 拒绝（可信分类不可用）。 */ () =>
-        f.adapter.checkResult(f.binding, error),
-      'classification_unavailable'
-    )
-    // 当前分类降为 ordinary 也不能覆盖当初控制 permit 的秘密边界。
-    f.state.classifications.push({ ...control, result: row.result })
-    f.state.channel = 'ordinary'
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 secret_boundary_required 拒绝（秘密边界尚未满足）。 */ () =>
-        f.adapter.checkResult(f.binding, error),
-      'secret_boundary_required'
-    )
-  }
-)
-
-test(
-  '流结果 frame 精确选择控制 ID/事件，未派发或其它 attempt 的 ID 不回退到开流许可',
-  /* 逐项注入未派发 ID、跨尝试 ID 与错终端事件，证明结果读取必须精确选择真实控制许可或事件。 */ () => {
-    const f = controlFixture()
-    const row = f.state.classifications[0]!
-    f.state.classifications.push({ ...clone(row), action: 'type_literal' })
-    f.decode(f.input('input1'))
-    f.decode(f.data(f.inputAck), 'connector_to_gateway')
-    assert.doesNotThrow(
-      /* 检查已获得控制输入许可的 input1 响应，作为未知及跨尝试 ID 被拒的对照。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck)
-    )
-    for (const id of ['unknown', 'input2']) {
-      rejects(
-        /* 检查所选响应或事件的当前读取权限，要求以 control_ack_unbound 拒绝（控制响应没有对应许可）。 */ () =>
-          f.adapter.checkResult(f.binding, { ...f.inputAck, id }),
-        'control_ack_unbound'
-      )
-    }
-    const second = clone(f.row)
-    second.binding.call_id = 'call2'
-    f.rows.set('call2', second)
-    const otherOpening = {
-      ...f.opening,
-      payload: { ...f.opening.payload, attempt: f.attempt(second.binding) }
-    }
-    f.decode(otherOpening)
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 control_ack_unbound 拒绝（控制响应没有对应许可）。 */ () =>
-        f.adapter.checkResult(second.binding, f.inputAck),
-      'control_ack_unbound'
-    )
-    rejects(
-      // 检查所选响应或事件的当前读取权限，要求以 attempt_binding_mismatch 拒绝。
-      () => f.adapter.checkResult({ ...f.binding, native_request_id: 'input1' }, f.inputAck),
-      'attempt_binding_mismatch'
-    )
-    // 不能把开流 native ID 写在控制 ack 上借其普通分类。
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 native_result_mismatch 拒绝。 */ () =>
-        f.adapter.checkResult(f.binding, { ...f.inputAck, id: 'native_1' }),
-      'native_result_mismatch'
-    )
-    const event = {
-      event: 'terminal.frame',
-      sequence: 0,
-      data: {
-        server_generation: G,
-        terminal_id: T,
-        pane_id: '3',
-        content_revision: 0,
-        mode: 'visible',
-        ansi: false,
-        text: 'synthetic',
-        lines: 1,
-        bytes: 9,
-        truncated: false
-      }
-    }
-    assert.doesNotThrow(
-      /* 读取绑定当前终端的合法流事件，作为错 terminal_id 拒绝的对照。 */ () => f.adapter.checkResult(f.binding, event)
-    )
-    rejects(
-      // 检查所选响应或事件的当前读取权限，要求以 native_identity_mismatch 拒绝。
-      () =>
-        f.adapter.checkResult(f.binding, {
-          ...event,
-          data: { ...event.data, terminal_id: '9'.repeat(32) }
-        }),
-      'native_identity_mismatch'
-    )
-    f.state.reader = 'other'
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 forbidden 拒绝（当前读取未授权）。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck),
-      'forbidden'
-    )
-    f.state.reader = 'synthetic'
-    f.state.content = 'discarded'
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 content_unavailable 拒绝（内容不可用）。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck),
-      'content_unavailable'
-    )
-    f.state.content = 'available'
-    f.policies.local.grants[0]!.actions = ['dispatch', 'stream_input']
-    rejects(
-      /* 检查所选响应或事件的当前读取权限，要求以 forbidden 拒绝（当前读取未授权）。 */ () =>
-        f.adapter.checkResult(f.binding, f.inputAck),
-      'forbidden'
-    )
   }
 )
 
@@ -962,7 +549,7 @@ test(
       rejects(
         /* 不能用另一个原生 ID 的响应为当前请求保留内容。 */ () =>
           f.adapter.checkResultRetention(f.binding, { ...native, id: 'other_native' }),
-        'control_ack_unbound'
+        'native_id_mismatch'
       )
       f.policies.caller.grants[0]!.actions = ['dispatch']
       rejects(
@@ -980,39 +567,6 @@ test(
     } finally {
       cold.close()
       f.adapter.close()
-    }
-  }
-)
-
-test(
-  '普通 RPC 保留 port 拒绝流及控制 ack，不借开流许可绕过输入保留分类',
-  /* 分别令控制输入派发时禁存、当前禁存或均允许，流始终不属于本结果句柄接口范围。 */ () => {
-    for (const [initialRetention, currentRetention] of [
-      ['none', 'caller_policy'],
-      ['caller_policy', 'none'],
-      ['caller_policy', 'caller_policy']
-    ] as const) {
-      const f = controlFixture()
-      const ordinary = clone(f.state.classifications[0]!)
-      const control = { ...ordinary, action: 'type_literal' }
-      try {
-        f.state.classifications.push({ ...control, result: { ...control.result, retention: initialRetention } })
-        f.adapter.advanceStream(f.input('input1'), 'gateway_to_connector')
-        f.state.classifications[1] = { ...control, result: { ...control.result, retention: currentRetention } }
-        assert.doesNotThrow(
-          /* 读取控制响应仍按其自己的真实许可检查，与创建持久句柄的接口范围独立。 */ () =>
-            f.adapter.checkResult(f.binding, f.inputAck)
-        )
-        for (const native of [f.ack, f.inputAck]) {
-          rejects(
-            /* 开流或控制响应均不可借普通 RPC 的原 permit 保留入口保存。 */ () =>
-              f.adapter.checkResultRetention(f.binding, native),
-            'result_retention_rpc_only'
-          )
-        }
-      } finally {
-        f.adapter.close()
-      }
     }
   }
 )
@@ -1230,123 +784,6 @@ test(
 )
 
 test(
-  '同一 permit 的原生流 ack 才能开流，逐输入重新分类/授权，控制 ack 绑定输入 ID',
-  /* 用合成 acknowledgement 建立控制流状态后逐输入重新分类授权，验证输入响应必须绑定原控制 ID。 */ () => {
-    const f = fixture('terminal.backend.control', false, true)
-    const ack = {
-      id: 'native_1',
-      result: {
-        type: 'terminal_backend_stream',
-        mode: 'control',
-        server_generation: G,
-        terminal_id: T,
-        pane_id: '3',
-        sequence: 0,
-        content_revision: 0,
-        ansi: false,
-        capture_mode: 'visible',
-        lines: 1,
-        frame_bytes: 65536,
-        queue_capacity: 2,
-        loss_behavior: 'resync_required_then_close'
-      }
-    }
-    // 把原生响应或事件包装为绑定当前控制流的 stream_data 消息。
-    const data = (frame: Record<string, unknown>) =>
-      f.frame('stream_data', {
-        attempt: f.attempt(f.binding),
-        stream_id: 'stream1',
-        feature: 'terminal_control',
-        sequence: 0,
-        frame
-      })
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 dispatch_permit_unavailable 拒绝（真实派发许可缺失）。 */ () =>
-        f.decode(data(ack), 'connector_to_gateway'),
-      'dispatch_permit_unavailable'
-    )
-    f.decode(f.opening)
-    f.decode(f.opening)
-    assert.deepEqual(f.decode(data(ack), 'connector_to_gateway'), data(ack))
-    const event = {
-      event: 'terminal.frame',
-      sequence: 0,
-      data: {
-        server_generation: G,
-        terminal_id: T,
-        pane_id: '3',
-        content_revision: 0,
-        mode: 'visible',
-        ansi: false,
-        text: 'synthetic',
-        lines: 1,
-        bytes: 9,
-        truncated: false
-      }
-    }
-    assert.deepEqual(f.decode(data(event), 'connector_to_gateway'), data(event))
-    rejects(
-      // 按当前消息方向执行完整解码校验，要求以 native_identity_mismatch 拒绝。
-      () => f.decode(data({ ...event, data: { ...event.data, terminal_id: '9'.repeat(32) } }), 'connector_to_gateway'),
-      'native_identity_mismatch'
-    )
-    const input = f.frame('stream_input', {
-      attempt: f.attempt(f.binding),
-      stream_id: 'stream1',
-      feature: 'terminal_control',
-      sequence: 0,
-      frame: { id: 'input1', action: 'type_literal', params: { text: 'synthetic' } }
-    })
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 safety_classification_missing 拒绝。 */ () => f.decode(input),
-      'safety_classification_missing'
-    )
-    const row = { ...clone(f.state.classifications[0]!), action: 'type_literal' }
-    f.state.classifications.push(row)
-    assert.deepEqual(f.decode(input), input)
-    assert.equal(f.adapter.advanceStream(f.opening, 'gateway_to_connector').state, 'opening')
-    assert.equal(f.adapter.advanceStream(data(ack), 'connector_to_gateway').state, 'open')
-    assert.equal(f.adapter.observeMessage(input, 'gateway_to_connector'), 'new')
-    assert.equal(f.adapter.observeMessage(input, 'gateway_to_connector'), 'duplicate')
-    assert.equal(f.adapter.advanceStream(input, 'gateway_to_connector').next_input_sequence, 1)
-    rejects(
-      /* 推进指定输入或输出的流生命周期，要求以 stream_sequence_mismatch 拒绝。 */ () =>
-        f.adapter.advanceStream(input, 'gateway_to_connector'),
-      'stream_sequence_mismatch'
-    )
-    const inputAck = {
-      id: 'input1',
-      result: { type: 'terminal_backend_action', state: 'succeeded', dispatch: 'queued' }
-    }
-    assert.deepEqual(f.decode(data(inputAck), 'connector_to_gateway'), data(inputAck))
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 control_ack_unbound 拒绝（控制响应没有对应许可）。 */ () =>
-        f.decode(data({ ...inputAck, id: 'unknown' }), 'connector_to_gateway'),
-      'control_ack_unbound'
-    )
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 stream_binding_mismatch 拒绝。 */ () =>
-        f.decode({ ...input, payload: { ...input.payload, stream_id: 'other' } }),
-      'stream_binding_mismatch'
-    )
-    f.policies.local.grants[0]!.actions = ['dispatch', 'read']
-    rejects(
-      /* 按当前消息方向执行完整解码校验，要求以 provider_scope_forbidden 拒绝。 */ () => f.decode(input),
-      'provider_scope_forbidden'
-    )
-    f.policies.local.grants[0]!.actions.push('stream_input')
-    f.decode(
-      f.frame('stream_close', {
-        attempt: f.attempt(f.binding),
-        stream_id: 'stream1',
-        reason: 'normal'
-      })
-    )
-    rejects(/* 按当前消息方向执行完整解码校验，要求以 stream_closed 拒绝。 */ () => f.decode(input), 'stream_closed')
-  }
-)
-
-test(
   '结果内容过期/discard 仅补最小可靠证据；原锚点不变、不派发、不续期限',
   /* 固定原响应锚点后切换过期和 discard，确认只生成最小可靠证据且不能恢复读取或改写期限。 */ () => {
     const f = fixture()
@@ -1467,57 +904,16 @@ test(
 )
 
 test(
-  '原生流打开失败保留完整错误并维持未就绪，不制造成功流',
-  /* 提交原生开流错误后保留完整错误响应，确认流尚未就绪并拒绝后续控制输入。 */ () => {
-    const f = fixture('terminal.backend.control', false, true)
-    f.decode(f.opening)
-    const error = f.frame('stream_data', {
-      attempt: f.attempt(f.binding),
-      stream_id: 'stream1',
-      feature: 'terminal_control',
-      sequence: 0,
-      frame: {
-        id: 'native_1',
-        error: {
-          code: 'control_conflict',
-          message: 'synthetic conflict',
-          metadata: { retained: true }
-        }
-      }
-    })
-    assert.deepEqual(f.decode(error, 'connector_to_gateway'), error)
-    rejects(
-      // 按当前消息方向执行完整解码校验，要求以 stream_not_ready 拒绝。
-      () =>
-        f.decode(
-          f.frame('stream_input', {
-            attempt: f.attempt(f.binding),
-            stream_id: 'stream1',
-            feature: 'terminal_control',
-            sequence: 0,
-            frame: { id: 'input', action: 'type_literal', params: { text: 'synthetic' } }
-          })
-        ),
-      'stream_not_ready'
-    )
-  }
-)
-
-test(
   '私有 attempt/快照预算满额拒绝，显式释放后不继承旧 permit',
   /* 分别耗尽快照与 attempt 配额，显式释放后确认容量返还且旧调用不能继承已释放许可。 */ () => {
     const f = fixture()
-    const tiny = testAdapter(f.backend, {
-      attempts: 1,
-      control_ids: 1,
-      snapshot_bytes: 1
-    })
+    const tiny = testAdapter(f.backend, { attempts: 1, snapshot_bytes: 1 })
     rejects(
       /* 按当前消息方向执行完整解码校验，要求以 adapter_limit 拒绝（保留上下文超出预算）。 */ () =>
         tiny.decode(JSON.stringify(f.opening), 'gateway_to_connector'),
       'adapter_limit'
     )
-    const limited = testAdapter(f.backend, { attempts: 1, control_ids: 1 })
+    const limited = testAdapter(f.backend, { attempts: 1 })
     limited.decode(JSON.stringify(f.opening), 'gateway_to_connector')
     const second = clone(f.row)
     second.binding.call_id = 'call2'

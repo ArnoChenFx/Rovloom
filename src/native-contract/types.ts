@@ -95,32 +95,15 @@ export type RawRequestCandidate = Readonly<{
   validation: 'unavailable'
   schema_status: 'unavailable'
 }>
-export type CheckedControl = Readonly<{
-  kind: 'control'
-  frame: JsonObject
-  binding: NativeBinding
-  method: 'terminal.backend.control'
-  action: string
-  validation: 'schema'
-}>
-export type DispatchCandidate = CheckedRequest | RawRequestCandidate | CheckedControl
+export type DispatchCandidate = CheckedRequest | RawRequestCandidate
 export type CheckedResponse = Readonly<{
   response: JsonObject
   identity: ContractIdentity
   bound: boolean
 }>
-export type StreamMode = 'general_events' | 'terminal_events' | 'observe' | 'control'
-export type CheckedStream = Readonly<{
-  binding: NativeBinding
-  method: string
-  mode: StreamMode
-  sequence: number
-}>
-export type CheckedEvent = Readonly<{ event: JsonObject; requires_resync: boolean }>
 
 export type SafetyClassification = Readonly<{
   method: string
-  action?: string
   revision: string
   contract: ContractIdentity
   native: NativeMethodContract
@@ -144,7 +127,6 @@ export type RawContractGrant = Readonly<{
   principal_id: string
   binding: NativeBinding
   methods: readonly string[]
-  actions?: readonly string[]
   expires_at: number
 }>
 export type DispatchAuthorization = Readonly<{
@@ -163,7 +145,6 @@ export type DispatchAuthorization = Readonly<{
   raw_requested: boolean
   raw_grant?: RawContractGrant
   now: number
-  supported_control_actions?: readonly string[]
   supported_transports?: readonly NativeTransport[]
 }>
 export type DispatchPermit = Readonly<{
@@ -225,10 +206,4 @@ export interface NativeValidator {
   releaseRequestContext(permit: DispatchPermit): Check<void>
   // 删除密封响应句柄的私有登记，使其不能继续验证迟到响应。
   releaseResponseContext(context: ResponseOnlyContext): Check<void>
-  // 要求 acknowledgement 来自同一真实派发许可，再建立固定模式的原生流。
-  openStream(permit: DispatchPermit, acknowledgement: CheckedResponse): Check<CheckedStream>
-  // 核验流句柄、原生来源、事件 schema 及身份，阻止跨流或跨目标事件混入。
-  checkEvent(stream: CheckedStream, event: unknown, source: TrustedNativeContext): Check<CheckedEvent>
-  // 在已打开的控制流校验帧、预算和动作支持，生成关联该流且仍需另行授权的控制候选。
-  checkControl(stream: CheckedStream, frame: unknown): Check<CheckedControl>
 }

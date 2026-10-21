@@ -553,7 +553,6 @@ export function createConnectorAdmissionLedger(options: ConnectorAdmissionLedger
           principal_id: selected,
           method: native.method as string,
           mode,
-          transport: 'rpc',
           native_request: native
         }
         const { native_request: _body, ...metadata } = body

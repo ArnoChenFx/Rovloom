@@ -30,12 +30,8 @@ function selectClassification(candidate: DispatchCandidate, context: DispatchAut
   }
   const rows = snapshot(context.classifications) as readonly JsonObject[]
   const selected = rows.filter(
-    // 筛选方法和控制动作匹配的分类，普通请求不接受带动作的分类。
-    (row) =>
-      row &&
-      typeof row === 'object' &&
-      row.method === candidate.method &&
-      (candidate.kind === 'control' ? row.action === candidate.action : row.action === undefined)
+    // 筛选方法匹配的分类。
+    (row) => row && typeof row === 'object' && row.method === candidate.method
   )
   if (!selected.length) {
     reject('safety_classification_missing')
@@ -49,11 +45,7 @@ function selectClassification(candidate: DispatchCandidate, context: DispatchAut
       try {
         const selector = object(row.sub_action)
         return (
-          typeof selector.pointer === 'string' &&
-          equal(
-            pointer(candidate.kind === 'control' ? candidate.frame : candidate.request, selector.pointer),
-            selector.value
-          )
+          typeof selector.pointer === 'string' && equal(pointer(candidate.request, selector.pointer), selector.value)
         )
       } catch {
         return false
@@ -86,9 +78,7 @@ function classification(candidate: DispatchCandidate, context: DispatchAuthoriza
   ]
   if (
     required.some(/* 检测分类缺少的必填字段。 */ (key) => !Object.hasOwn(row, key)) ||
-    Object.keys(row).some(
-      /* 检测分类声明了未受支持的额外字段。 */ (key) => ![...required, 'action', 'sub_action'].includes(key)
-    )
+    Object.keys(row).some(/* 检测分类声明了未受支持的额外字段。 */ (key) => ![...required, 'sub_action'].includes(key))
   ) {
     reject('safety_classification_invalid', 'incomplete_or_unknown_field')
   }
@@ -183,14 +173,6 @@ function checkTransport(
   ) {
     reject('unsupported_transport')
   }
-  if (
-    candidate.kind === 'control' &&
-    (!stored.stream ||
-      !Array.isArray(context.supported_control_actions) ||
-      !context.supported_control_actions.includes(candidate.action))
-  ) {
-    reject('unsupported_stream_feature')
-  }
 }
 
 // 同时检查原生访问列表、双方策略及分类要求的 Owner、管理权限和确认。
@@ -222,15 +204,6 @@ function checkPolicies(candidate: DispatchCandidate, context: DispatchAuthorizat
     ) {
       reject('invalid_authorization_context')
     }
-  }
-  if (
-    context.supported_control_actions !== undefined &&
-    (!Array.isArray(context.supported_control_actions) ||
-      !context.supported_control_actions.every(
-        /* 要求支持的控制动作列表仅含字符串。 */ (action) => typeof action === 'string'
-      ))
-  ) {
-    reject('invalid_authorization_context')
   }
   try {
     authorize(candidate.binding.target, candidate.method, context.caller_policy, context.local_policy)
@@ -276,7 +249,7 @@ function checkRaw(candidate: DispatchCandidate, context: DispatchAuthorization):
     !grant.id.length ||
     Object.keys(grant).some(
       // 拒绝 raw grant 中未受支持的额外字段。
-      (key) => !['id', 'source_verified', 'principal_id', 'binding', 'methods', 'actions', 'expires_at'].includes(key)
+      (key) => !['id', 'source_verified', 'principal_id', 'binding', 'methods', 'expires_at'].includes(key)
     )
   ) {
     reject('raw_contract_not_authorized')
@@ -285,7 +258,6 @@ function checkRaw(candidate: DispatchCandidate, context: DispatchAuthorization):
     grant.principal_id !== context.principal_id ||
     !Array.isArray(grant.methods) ||
     !grant.methods.includes(candidate.method) ||
-    (candidate.kind === 'control' && (!Array.isArray(grant.actions) || !grant.actions.includes(candidate.action))) ||
     !equal(grant.binding?.target, candidate.binding.target)
   ) {
     reject('raw_contract_scope_mismatch')
@@ -334,7 +306,7 @@ export function checkDispatch(candidate: DispatchCandidate, input: DispatchAutho
         candidate,
         principal: context.principal_id,
         classification: row,
-        supportedActions: Object.freeze([...(context.supported_control_actions ?? [])])
+        supportedActions: Object.freeze([])
       })
       return permit
     }

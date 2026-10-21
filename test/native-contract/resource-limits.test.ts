@@ -2,8 +2,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { checkDispatch, compileBundle, parseNativeJson } from '../../src/native-contract/index.js'
-import { auth, bytes, G, identity, json, rejects, request, source, sourceFor, T, unwrap, validator } from './helpers.js'
+import { compileBundle, parseNativeJson } from '../../src/native-contract/index.js'
+import { bytes, G, identity, json, rejects, request, source, sourceFor, T, unwrap, validator } from './helpers.js'
 
 // 覆盖样本中的在线通用与终端预算，并绑定真实能力视图。
 function limitedView(limits: Record<string, number>, terminal: Record<string, number> = {}) {
@@ -86,140 +86,6 @@ test(
     )
     const lower = request(limitedView({}, { response_bytes: frameBytes(response) - 1 }), input)
     rejects(validator.checkResponse(lower, response, sourceFor(lower.binding)), 'native_response_invalid')
-  }
-)
-
-// 使用给定在线预算建立真实控制流，供事件与控制输入的大小边界复用。
-function control(limits: Record<string, number>, terminal: Record<string, number> = {}) {
-  const from = limitedView(limits, terminal)
-  const candidate = request(from, {
-    id: 'open-bytes',
-    method: 'terminal.backend.control',
-    params: { server_generation: G, terminal_id: T, pane_id: '3' }
-  })
-  const permit = unwrap(checkDispatch(candidate, auth(candidate)))
-  const ack = {
-    id: 'open-bytes',
-    result: {
-      type: 'terminal_backend_stream',
-      mode: 'control',
-      server_generation: G,
-      terminal_id: T,
-      pane_id: '3',
-      sequence: 0,
-      content_revision: 0,
-      ansi: false,
-      capture_mode: 'visible',
-      lines: 1,
-      frame_bytes: 65536,
-      queue_capacity: 2,
-      loss_behavior: 'resync_required_then_close'
-    }
-  }
-  return unwrap(
-    validator.openStream(permit, unwrap(validator.checkResponse(permit, ack, sourceFor(candidate.binding))))
-  )
-}
-
-test(
-  '流事件与控制输入遵守原 capability 的帧预算，不能借开流许可放大',
-  /* 验证开流后事件与控制输入仍受原能力的各方向帧预算约束。 */ () => {
-    const event = {
-      event: 'terminal.metadata_changed',
-      sequence: 1,
-      data: {
-        server_generation: G,
-        terminal_id: T,
-        pane_id: '3',
-        content_revision: 0,
-        workspace: 1,
-        tab: 1,
-        detail: { text: 'x'.repeat(1024) }
-      }
-    }
-    const exact = control({ frame_bytes: frameBytes(event) })
-    unwrap(validator.checkEvent(exact, event, sourceFor(exact.binding)))
-    const lower = control({ frame_bytes: frameBytes(event) - 1 })
-    rejects(validator.checkEvent(lower, event, sourceFor(lower.binding)), 'native_event_invalid')
-    const input = { id: 'input-bytes', action: 'type_literal', params: { text: 'x'.repeat(1024) } }
-    unwrap(validator.checkControl(control({}, { request_bytes: frameBytes(input) }), input))
-    rejects(
-      validator.checkControl(control({}, { request_bytes: frameBytes(input) - 1 }), input),
-      'native_control_invalid'
-    )
-  }
-)
-
-test(
-  'metadata event 可超过 64 KiB，仍按在线 response 帧预算包含 LF 校验',
-  /* 验证较大的 metadata 事件可用，但必须将结束 LF 计入在线响应预算。 */ () => {
-    const event = {
-      event: 'terminal.metadata_changed',
-      sequence: 1,
-      data: {
-        server_generation: G,
-        terminal_id: T,
-        pane_id: '3',
-        content_revision: 0,
-        workspace: 1,
-        tab: 1,
-        detail: { text: 'x'.repeat(70000) }
-      }
-    }
-    const jsonBytes = Buffer.byteLength(JSON.stringify(event))
-    assert(jsonBytes > 65536)
-    const exact = control({}, { response_bytes: jsonBytes + 1 })
-    assert.deepEqual(unwrap(validator.checkEvent(exact, event, sourceFor(exact.binding))).event, event)
-    const lower = control({}, { response_bytes: jsonBytes })
-    const result = validator.checkEvent(lower, event, sourceFor(lower.binding))
-    rejects(result, 'native_event_invalid')
-    if (!result.ok) {
-      assert.equal(result.error.reason, 'frame_limit')
-    }
-  }
-)
-
-test(
-  'terminal.frame 的 64 KiB 只计 JSON，结束 LF 独立计入在线帧预算',
-  /* 区分 terminal.frame 的 JSON 硬上限与包含 LF 的在线帧预算。 */ () => {
-    const event = {
-      event: 'terminal.frame',
-      sequence: 0,
-      data: {
-        server_generation: G,
-        terminal_id: T,
-        pane_id: '3',
-        content_revision: 0,
-        mode: 'visible',
-        ansi: false,
-        text: '',
-        lines: 1,
-        bytes: 0,
-        truncated: false
-      }
-    }
-    // 五位 text 字节数取代初始的 0，多占四字节；内容本身不含换行。
-    const textBytes = 65536 - Buffer.byteLength(JSON.stringify(event)) - 4
-    event.data.text = 'x'.repeat(textBytes)
-    event.data.bytes = textBytes
-    assert.equal(Buffer.byteLength(JSON.stringify(event)), 65536)
-    assert.equal(frameBytes(event), 65537)
-    const exact = control({}, { response_bytes: 65537 })
-    unwrap(validator.checkEvent(exact, event, sourceFor(exact.binding)))
-    const lower = control({}, { response_bytes: 65536 })
-    const nativeLimit = validator.checkEvent(lower, event, sourceFor(lower.binding))
-    rejects(nativeLimit, 'native_event_invalid')
-    if (!nativeLimit.ok) {
-      assert.equal(nativeLimit.error.reason, 'frame_limit')
-    }
-    event.data.text += 'x'
-    event.data.bytes++
-    const ordinary = control({})
-    const jsonLimit = validator.checkEvent(ordinary, event, sourceFor(ordinary.binding))
-    rejects(jsonLimit, 'native_event_invalid')
-    if (!jsonLimit.ok) {
-      assert.equal(jsonLimit.error.reason, 'utf8_frame_limit')
-    }
   }
 )
 

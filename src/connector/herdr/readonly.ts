@@ -229,8 +229,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       binding: state.attempt.binding,
       principal_id: state.attempt.principal_id,
       method: state.attempt.method,
-      mode: state.attempt.mode,
-      transport: 'rpc'
+      mode: state.attempt.mode
     }
     state.responseOnly = true
   }
@@ -331,9 +330,6 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       attempt.binding.target.profile !== 'session' ||
       attempt.binding.target.machine_id !== attempt.binding.machine_id ||
       attempt.mode !== 'strict' ||
-      attempt.transport !== 'rpc' ||
-      attempt.feature !== undefined ||
-      attempt.stream_id !== undefined ||
       attempt.native_request.method !== attempt.method
     ) {
       fail('herdr_attempt_unsupported')
@@ -353,13 +349,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       fail('native_handle_unavailable')
     }
     assertBinding(context.binding, state.attempt.binding)
-    if (
-      context.method !== state.attempt.method ||
-      context.mode !== 'strict' ||
-      context.transport !== 'rpc' ||
-      context.feature !== undefined ||
-      context.stream_id !== undefined
-    ) {
+    if (context.method !== state.attempt.method || context.mode !== 'strict') {
       fail('attempt_binding_mismatch')
     }
     return state
@@ -371,7 +361,6 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       binding: JSON.parse(boundedJson(state.attempt.binding)) as AttemptBinding,
       method: state.attempt.method,
       mode: 'strict',
-      transport: 'rpc',
       native_handle: state.handle
     }
   }

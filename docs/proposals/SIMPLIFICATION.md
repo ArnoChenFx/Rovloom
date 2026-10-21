@@ -11,7 +11,8 @@
 | S1 删除 | 自更新、Python 门禁、注释检查已删；预编译资产待测量（#147） |
 | S2 文档 | DESIGN 已重写；PROTOCOL/OPERATIONS 合并待 S4/S5 之后（#148） |
 | S3 存储 | 读路径不写时钟、设备凭据并入单库、`DeviceLedger` 抽出、字节子额与全表扫描删除均已完成；Store 余下拆分与 TTL 收敛待办（#149）。**keyset 分页不再需要**：分页对象是按 ACL 授权的小列表，结果读取早已是无状态游标 |
-| S4–S8 | 未开始（S4 中一次性证明桥已随 S3 删除） |
+| S5a 流机制 | Wire stream 帧与 stream 能力/动作、validator `openStream/checkEvent/checkControl`、luvus-wire 流状态均已删除（无产品入口）；Wire 单 major、去分片、工具面精简待办（#151） |
+| S4、S6–S8 | 未开始（S4 中一次性证明桥已随 S3 删除） |
 
 ## 1. 为什么要简化
 

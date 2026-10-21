@@ -82,7 +82,6 @@ export function reviewed(candidate: DispatchCandidate): SafetyClassification {
   const credential = candidate.method.startsWith('uhp.token.')
   return {
     method: candidate.method,
-    ...(candidate.kind === 'control' ? { action: candidate.action } : {}),
     revision: candidate.binding.classification_revision,
     contract: clone(candidate.binding.contract),
     native: clone(descriptor.native_contract),
@@ -147,7 +146,6 @@ export function auth(candidate: DispatchCandidate): DispatchAuthorization {
     mode: 'strict',
     raw_requested: false,
     now: 100,
-    supported_control_actions: ['type_literal', 'paste_text', 'submit_text', 'send_key'],
     supported_transports: ['single_request_rpc', 'host_stdio_proxy', 'persistent_local_stream']
   }
 }
@@ -164,7 +162,6 @@ export function raw(candidate: DispatchCandidate): DispatchAuthorization {
       principal_id: 'synthetic',
       binding: clone(candidate.binding),
       methods: [candidate.method],
-      ...(candidate.kind === 'control' ? { actions: [candidate.action] } : {}),
       expires_at: 200
     }
   }

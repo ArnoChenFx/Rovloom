@@ -42,9 +42,6 @@ export type Capability =
   | 'history_scope'
   | 'late_evidence'
   | 'objects'
-  | 'events'
-  | 'terminal_observe'
-  | 'terminal_control'
 export type VersionOffer = {
   major: number
   minor: number
@@ -76,8 +73,7 @@ export type AttemptIdentity = {
 }
 export type AttemptBinding = ConnectionIdentity & AttemptIdentity
 export type ValidationMode = 'strict' | 'raw-contract'
-export type StreamFeature = 'events' | 'terminal_observe' | 'terminal_control'
-export type ProviderAction = 'dispatch' | 'read' | 'stream_input' | 'cancel'
+export type ProviderAction = 'dispatch' | 'read' | 'cancel'
 // 每条 grant 是一个完整 route tuple；不得拆成机器/provider/session 数组后求笛卡尔积。
 export type ProviderGrant = { target: V2Target; methods: string[]; actions: ProviderAction[] }
 export type ProviderPolicy = { revision: string; grants: ProviderGrant[] }
@@ -95,9 +91,6 @@ export type NativeValidationContext = {
   binding: AttemptBinding
   mode: ValidationMode
   method: string
-  transport: 'rpc' | 'stream'
-  feature?: StreamFeature
-  stream_id?: string
   // opaque handle/source 只从独立可信上下文注入；不会序列化或由消息构造。
   native_handle?: unknown
   trusted_source?: unknown
@@ -107,15 +100,6 @@ export interface NativePayloadValidator {
   requestGate(request: JsonObject, context: NativeValidationContext): RequestGate
   validateRequest(request: JsonObject, context: NativeValidationContext): void
   validateResponse(response: JsonObject, context: NativeValidationContext): void
-  validateStreamFrame?(
-    frame: JsonObject,
-    context: NativeValidationContext & {
-      feature: StreamFeature
-      direction: 'data' | 'input'
-    }
-  ): void
-  // 每次输入必须重新执行受信原生 dispatch gate，不沿用 open 时的授权。
-  checkDispatch?(frame: JsonObject, context: NativeValidationContext): void
 }
 export type RequestPayload = {
   attempt: AttemptIdentity
@@ -147,26 +131,6 @@ export type Payloads = {
   response: { attempt: AttemptIdentity; native_response: JsonObject }
   cancel: { attempt: AttemptIdentity; reason: 'caller_cancelled' | 'deadline_exceeded' }
   heartbeat: { sequence: number }
-  stream_open: RequestPayload & { stream_id: string; feature: StreamFeature }
-  stream_data: {
-    attempt: AttemptIdentity
-    stream_id: string
-    feature: StreamFeature
-    sequence: number
-    frame: JsonObject
-  }
-  stream_input: {
-    attempt: AttemptIdentity
-    stream_id: string
-    feature: StreamFeature
-    sequence: number
-    frame: JsonObject
-  }
-  stream_close: {
-    attempt: AttemptIdentity
-    stream_id: string
-    reason: 'normal' | 'cancelled' | 'overflow' | 'resync_required' | 'transport_error'
-  }
   object_chunk: {
     object_id: string
     kind: 'envelope' | 'schema_bundle'

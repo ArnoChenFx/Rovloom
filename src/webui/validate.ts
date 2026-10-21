@@ -215,7 +215,7 @@ function provider(value: ProviderSnapshot): void {
       nullableText(runtime.classification_revision)
       bounded(runtime.supported_transports, 4)
       for (const transport of runtime.supported_transports) {
-        choice(transport, ['rpc', 'events', 'terminal_observe', 'terminal_control'])
+        choice(transport, ['rpc'])
       }
     }
   )
