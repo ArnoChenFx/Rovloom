@@ -3,9 +3,18 @@ import { DatabaseSync } from 'node:sqlite'
 import { constants, closeSync, fsyncSync, lstatSync, openSync, unlinkSync } from 'node:fs'
 import { dirname, sep } from 'node:path'
 import { createPrivate, privateFile, privatePath } from '../../storage/files.js'
+import { currentProcessIdentity } from '../../storage/process-identity.js'
 import { boundedJson, id, validateAttempt } from '../../wire/index.js'
 import type { AttemptBinding } from '../../wire/types.js'
 import { LuvusAdapterError } from './types.js'
+
+export const LUVUS_CLAIMS_LOCK_FORMAT = 'rovloom-luvus-claims-lock-v1'
+
+/** 锁内容带持有者进程身份，崩溃后下次启动才能证明它已死并接管；非 Linux 无此证据则留空。 */
+function lockContent(): string {
+  const identity = currentProcessIdentity()
+  return identity ? JSON.stringify({ format: LUVUS_CLAIMS_LOCK_FORMAT, process: identity }) : ''
+}
 
 const metadataSql =
   'CREATE TABLE luvus_claim_meta(version INTEGER NOT NULL, ledger_id TEXT NOT NULL, clock INTEGER NOT NULL)'
@@ -116,7 +125,7 @@ export class LuvusDispatchClaims {
       if (options.mode === 'create' && present(options.path)) {
         throw new LuvusAdapterError('claim_ledger_exists')
       }
-      createPrivate(options.path + '.lock')
+      createPrivate(options.path + '.lock', lockContent())
       this.#lockIdentity = fileIdentity(options.path + '.lock')
       syncParent(options.path)
       if (options.mode === 'create') {

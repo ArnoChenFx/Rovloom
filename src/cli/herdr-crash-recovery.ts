@@ -1,58 +1,14 @@
 /** Connector 崩溃（kill -9 / 掉电）后的遗留清理：只有证明旧 owner 已死且端点无人监听才动手，其余一律保持 fail-closed。 */
-import { connect } from 'node:net'
-import { lstatSync, readFileSync, unlinkSync } from 'node:fs'
+import { lstatSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { nativeRecordStamp, readNativeRecord, removeNativeRecord } from '../runtime/native-record-files.js'
+import { listening, ownerIsDead } from '../storage/process-identity.js'
+import type { ProcessIdentity } from '../storage/process-identity.js'
+
+export { currentProcessIdentity } from '../storage/process-identity.js'
+export type HerdrOwnerProcess = ProcessIdentity
 
 export const HERDR_OWNER_FORMAT = 'rovloom-herdr-owner-v1'
-
-export type HerdrOwnerProcess = Readonly<{ pid: number; start: string }>
-
-/** Linux 内核启动 tick 区分已退出进程与复用同一 PID 的无关进程；其它平台没有该证据。 */
-export function currentProcessIdentity(pid = process.pid): HerdrOwnerProcess | undefined {
-  if (process.platform !== 'linux') {
-    return undefined
-  }
-  const state = processState(pid)
-  return state.kind === 'alive' ? Object.freeze({ pid, start: state.start }) : undefined
-}
-
-type ProcessState = Readonly<{ kind: 'dead' } | { kind: 'unknown' } | { kind: 'alive'; start: string }>
-
-/** 只有进程文件明确不存在或为僵尸才算已死；读取失败不是“已死”的证据。 */
-function processState(pid: number): ProcessState {
-  try {
-    const line = readFileSync(`/proc/${pid}/stat`, 'utf8')
-    const fields = line
-      .slice(line.lastIndexOf(')') + 2)
-      .trim()
-      .split(/\s+/u)
-    // 僵尸进程仍占着 PID，但其资源已释放，不再持有端点。
-    if (fields[0] === 'Z' || fields[0] === 'X') {
-      return { kind: 'dead' }
-    }
-    return /^\d+$/u.test(fields[19] ?? '') ? { kind: 'alive', start: fields[19]! } : { kind: 'unknown' }
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? { kind: 'dead' } : { kind: 'unknown' }
-  }
-}
-
-/** 只回答“此刻是否有监听者”；任何不确定结果（超时、权限等）都按有监听者处理。 */
-function listening(path: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = connect(path)
-    const done = (value: boolean) => {
-      clearTimeout(timer)
-      socket.destroy()
-      resolve(value)
-    }
-    const timer = setTimeout(() => done(true), 1000)
-    socket.once('connect', () => done(true))
-    socket.once('error', (error: NodeJS.ErrnoException) =>
-      done(error.code !== 'ECONNREFUSED' && error.code !== 'ENOENT')
-    )
-  })
-}
 
 /** 存在则必须是本用户的指定类型文件，否则整个恢复放弃。 */
 function owned(path: string, kind: 'socket' | 'file'): boolean | undefined {
@@ -102,12 +58,8 @@ export async function recoverHerdrCrashResidue(residue: HerdrCrashResidue): Prom
   } catch {
     return false
   }
-  if (process.platform !== 'linux' || recorded.pid === process.pid) {
-    return false
-  }
   // 同 PID 但启动 tick 不同是 PID 复用，旧 owner 已死；无法判断时不动手。
-  const owner = processState(recorded.pid)
-  if (owner.kind === 'unknown' || (owner.kind === 'alive' && owner.start === recorded.start)) {
+  if (!ownerIsDead(recorded)) {
     return false
   }
   const sockets = [join(residue.endpointDirectory, 'herdr.sock'), join(residue.endpointDirectory, 'herdr-client.sock')]

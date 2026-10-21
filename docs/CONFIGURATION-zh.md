@@ -179,6 +179,11 @@ Connector 被强杀（`kill -9`、掉电）后会遗留 owner 记录、native �
 可能已执行的调用不会被重发。若旧 owner 仍存活、仍有 native 进程在监听、记录来自旧版本或平台
 不是 Linux，则与以前一样拒绝启动（退出码 3），需先停掉仍存活的进程。
 
+Luvus 的两把崩溃锁（claim 账本锁、root 拥有锁）同理：锁里现在记录持有进程（PID 与内核启动时间）。
+下次启动时，只有该进程已不存在才会移除锁；拥有锁还要求该会话的 Luvus socket 上无人监听（仍存活的孤儿
+`luvus` server 会让启动继续被拒绝）。移除后向 stderr 输出 `luvus_crash_residue_cleared`。旧版本留下的空锁、
+无法读取的锁和非 Linux 平台仍保持拒绝，需手工删锁。claim 账本及其派发记录始终不会被触碰。
+
 ## 程序与 Agent 安装目录
 
 官方 runtime（`luvus`/`herdr`）和 Agent（如 OpenCode）可以装在机器上任意合适的位置，不必

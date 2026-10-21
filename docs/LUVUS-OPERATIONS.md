@@ -54,8 +54,7 @@ native。Gateway 关闭只释放观察者，Connector 关闭必须等待真实 c
 本机 Owner 是显式身份模式，缺 token 不触发回退，也不签发 token 或消费有限批准。
 
 `storage_mode=create` 仅用于明确首次建立 Connector 记录；既有文件会拒绝覆盖。
-正常启动必须 `open`。固定文件为 CLI `state_dir` 下的 `luvus-claims.db`，默认 1024 条、4 MiB；缺库、崩溃锁或不一致均拒绝，
-不自动重建。该目录必须与原生 HOME、状态根和工作目录分离。关闭不删除持久事实。
+正常启动必须 `open`。固定文件为 CLI `state_dir` 下的 `luvus-claims.db`，默认 1024 条、4 MiB；缺库或不一致均拒绝，不自动重建；崩溃锁仅在锁内记录的持有进程已死（Linux，PID + 启动 tick）时自动接管，空锁/旧格式/无法判断仍拒绝。该目录必须与原生 HOME、状态根和工作目录分离。关闭不删除持久事实。
 
 每个认证 epoch 使用独立原 Wire 后端；principal 固定于受保护完整 Target 路由。
 Connector 用本机固定保留期的 attempt book 与持久 claims 去重。断连不重放、不刷新期限，旧 epoch 不复活。

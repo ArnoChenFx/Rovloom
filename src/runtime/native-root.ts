@@ -8,6 +8,7 @@ import { pinConfig, verifyInstallation } from '../connector/luvus/local.js'
 import type { LuvusLocalConfig } from '../connector/luvus/types.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import { ownedPathStamp, OwnedNativeProcess } from './native-process.js'
+import { LUVUS_OWNER_FORMAT, lockOwnerFields } from './native-crash-recovery.js'
 import {
   createNativeRecord,
   nativeRecordParent,
@@ -233,7 +234,9 @@ export function claimManagedRoot(root: ManagedLuvusRoot) {
   const stamp = createNativeRecord(path, {
     root_id: root.root_id,
     root_revision: root.root_revision,
-    config_digest: root.config_digest
+    config_digest: root.config_digest,
+    // 带上持有者进程身份，崩溃后下一次启动才能证明它已死并接管；非 Linux 无此证据则省略。
+    ...(lockOwnerFields() ? { format: LUVUS_OWNER_FORMAT, ...lockOwnerFields() } : {})
   })
   let released = false
   return Object.freeze({

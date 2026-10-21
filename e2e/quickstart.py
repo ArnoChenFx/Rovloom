@@ -75,6 +75,7 @@ def main():
     ap.add_argument('--herdr', help='官方 herdr 0.9.5 可执行文件')
     ap.add_argument('--luvus', help='官方 luvus 0.14.3 可执行文件（与 --herdr 二选一；走默认的 Luvus 引导）')
     ap.add_argument('--work', help='工作目录（需位于祖先不可被其它用户写入的位置；默认 ~/.rq-*）')
+    ap.add_argument('--crash', action='store_true', help='就绪后 kill -9 Connector 再重启，验证无需人工清理即可恢复')
     ap.add_argument('--then', help='就绪后执行的命令，环境变量 MCP_CONFIG 指向连接信息')
     args = ap.parse_args()
     if bool(args.herdr) == bool(args.luvus):
@@ -135,6 +136,12 @@ def main():
         open(out, 'w').write(json.dumps(info)); os.chmod(out, 0o600)
         print('READY', json.dumps({'mcp_url': info['url'], 'targets': info['targets'], 'config': out}), flush=True)
         status = 0
+        if args.crash:
+            connector.child.kill()  # SIGKILL：不给产品任何清理机会
+            connector.child.wait(10)
+            restarted = Term('connector-restarted', [rov, 'connector'], env_c, home_c); terms.append(restarted)
+            restarted.expect('provider_ready=true', timeout=60)
+            print('RECOVERED', flush=True)
         if args.then:
             status = subprocess.call(shlex.split(args.then), env={**os.environ, 'MCP_CONFIG': out})
             if status != 0:

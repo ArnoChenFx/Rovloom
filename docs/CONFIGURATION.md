@@ -227,6 +227,15 @@ never resent. If the old owner is still alive, a native process is still listeni
 the record is from an older version, or the platform is not Linux, the start is
 refused (exit code 3) exactly as before; stop the surviving process first.
 
+Luvus works the same way for its two crash locks: the claim-ledger lock and the
+root owner lock now record the owning process (PID and kernel start time). On the
+next start the Connector removes a lock only when that process is gone — and, for the
+owner lock, nothing listens on the session's Luvus sockets (a surviving orphan
+`luvus` server keeps the start refused). It prints `luvus_crash_residue_cleared` to
+stderr. Empty locks written by older versions, unreadable locks and non-Linux
+platforms stay refused until the lock is removed by hand. The claim ledger itself
+(and its dispatch records) is never touched.
+
 ## Program and Agent installation directories
 
 Install the official runtime (`luvus`/`herdr`) and Agent, such as OpenCode, wherever
