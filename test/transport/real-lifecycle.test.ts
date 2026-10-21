@@ -450,7 +450,7 @@ test(
 )
 
 test(
-  '生命周期 backend 每次连接观察都校验身份和 Store fence，只在时间推进时写时钟，期限仍逐次生效',
+  '生命周期 backend 每次连接观察都校验身份和 Store fence，不写时钟，期限仍逐次生效',
   /** 真实双库和具体 socket 分别计量门禁与时钟 SQL；同毫秒和到期都不得借去重缓存权限。 */
   async () => {
     const f = realFixture()
@@ -476,7 +476,7 @@ test(
         f.f.store,
         /** 原 backend 完整执行身份、代次和 epoch 校验。 */ () => record.native.backend.connection()
       )
-      assert.equal(first.updates, 1)
+      assert.equal(first.updates, 0)
       assert.deepEqual(first.result, record.connection)
       assert.equal(identities, 1)
       assert.equal(fences, 1)
@@ -494,7 +494,7 @@ test(
         f.f.store,
         /** 下一轮重新推进时钟，不能沿用上轮连接许可。 */ () => record.native.backend.connection()
       )
-      assert.equal(next.updates, 1)
+      assert.equal(next.updates, 0)
       assert.deepEqual(next.result, record.connection)
       assert.equal(identities, 3)
       assert.equal(fences, 3)

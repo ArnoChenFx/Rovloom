@@ -176,6 +176,7 @@ export class Store {
       if (this.db.prepare('PRAGMA quick_check').get()!.quick_check !== 'ok') {
         throw new GatewayError('database_integrity_failed')
       }
+      this.observed = this.meta().clock
       this.degraded = this.meta().mode === 'storage_degraded' || (path !== ':memory:' && existsSync(path + '.degraded'))
       this.db.exec('BEGIN IMMEDIATE')
       try {
@@ -281,26 +282,17 @@ export class Store {
   clock(): number {
     return this.time()
   }
-  // 固定事务时钟；事务外逐次核对宿主与持久高水位，仅在推进时写入，回退或必要写入失败仍降级。
+  // 固定事务时钟；事务外只与内存高水位比较（高水位随每次写事务持久化，启动时载入），读路径不写库。
   private time(): number {
     if (this.transactionTime !== undefined) {
       return this.transactionTime
     }
     const value = this.rawTime()
-    const persisted = this.meta().clock
-    if (value < Math.max(this.observed, persisted)) {
+    if (value < this.observed) {
       this.markDegraded()
       throw new GatewayError('clock_untrusted')
     }
     this.observed = value
-    if (value > persisted) {
-      try {
-        this.db.prepare('UPDATE metadata SET clock=?').run(value)
-      } catch {
-        this.markDegraded()
-        throw new GatewayError('storage_degraded')
-      }
-    }
     return value
   }
   // 阻止关闭、恢复隔离或存储降级中的新业务准入。
@@ -348,6 +340,12 @@ export class Store {
       this.closed = true
       this.publishInvalidations([{ kind: 'closed' }])
       this.invalidationListeners.clear()
+      try {
+        // 读路径只推进内存高水位；关闭时补写一次，使重开后的时钟回退仍可发现。
+        this.db.prepare('UPDATE metadata SET clock=? WHERE clock<?').run(this.observed, this.observed)
+      } catch {
+        /* 降级或只读时跳过，下次写事务仍会持久高水位。 */
+      }
       this.db.close()
       this.releaseLock()
     }

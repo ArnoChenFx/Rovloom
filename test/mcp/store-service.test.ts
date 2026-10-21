@@ -30,7 +30,7 @@ function code(expected: string) {
 }
 
 test(
-  'call_get 每轮只由 Store.call 写一次最新持久时钟，后续回退仍被拒绝',
+  'call_get 读取不写持久时钟，后续回退仍被拒绝',
   /** 在真实文件库上计数实际 UPDATE，并从第二连接确认高水位没有取消或延迟持久化。 */ async () => {
     const f = storeFixture()
     const inspect = new DatabaseSync(f.path, { readOnly: true })
@@ -42,8 +42,8 @@ test(
           f.service.execute('runtime_call_get', { call_id: 'call_fixture' }, context())
       )
       assert.equal((await measured.result).data.state, 'responded')
-      assert.equal(measured.updates, 1)
-      assert.equal(inspect.prepare('SELECT clock FROM metadata').get()!.clock, 1_000_001)
+      assert.equal(measured.updates, 0)
+      assert.notEqual(inspect.prepare('SELECT clock FROM metadata').get()!.clock, 1_000_001)
       f.advance(-1)
       await assert.rejects(
         f.service.execute('runtime_call_get', { call_id: 'call_fixture' }, context()),

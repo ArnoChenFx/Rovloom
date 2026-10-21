@@ -33,7 +33,7 @@ test(
             /** 实际申请原句柄，不用计数器替代任何校验。 */ () => f.gateway.results.open(admitted.call.call_id)
           )
       )
-      assert(opened.updates < 250, String(opened.updates))
+      assert(opened.updates <= 1, String(opened.updates))
       const meta = opened.result
       const identity = (f.state.credentials as unknown as { store: { committed: (...args: unknown[]) => unknown } })
         .store
@@ -122,7 +122,7 @@ test(
         const measured = await read()
         assert.equal(checks, 2)
         assert(identityReads <= 20, String(identityReads))
-        assert(measured.updates < 100, String(measured.updates))
+        assert.equal(measured.updates, 0)
         assert.equal(measured.result.expires, meta.expires)
         assert.equal(Buffer.from(measured.result.data, 'base64').length, 32)
       }

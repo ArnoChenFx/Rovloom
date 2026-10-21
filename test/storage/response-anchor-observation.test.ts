@@ -31,7 +31,7 @@ function fixture(count = 1) {
 
 for (const count of [1, 8, 16]) {
   test(
-    `${count} 个批锚点仅在时钟推进时共用一次 UPDATE，返回独立最小副本且不执行预算或公开宿主入口`,
+    `${count} 个批锚点仅在时钟推进时不写时钟，返回独立最小副本且不执行预算或公开宿主入口`,
     /** 用实际 SQL 计数验证常数写入，并禁止把批观察变成通用事务或公开逐项循环。 */ () => {
       const f = fixture(count)
       try {
@@ -48,7 +48,7 @@ for (const count of [1, 8, 16]) {
         }
         f.time(1001)
         const measured = clockWrites(f.store, /** 只计量本次同步批观察。 */ () => f.store.responseAnchors(f.bindings))
-        assert.equal(measured.updates, 1)
+        assert.equal(measured.updates, 0)
         assert.equal(measured.result.now, 1001)
         assert.deepEqual(
           measured.result.entries,
@@ -120,7 +120,7 @@ test(
         /** 不存在的合法绑定只产生逐项 unavailable。 */ () =>
           f.store.responseAnchors(Array(LIMITS.dedup_entries).fill(binding))
       )
-      assert.equal(measured.updates, 1)
+      assert.equal(measured.updates, 0)
       assert.equal(measured.result.entries.length, LIMITS.dedup_entries)
       assert(
         measured.result.entries.every(

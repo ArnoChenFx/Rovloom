@@ -155,7 +155,7 @@ async function prepared(count: number, hold = false) {
 
 for (const count of [1, 8, 16]) {
   test(
-    `${count} 条未变化 admission 的实际 timer tick 只在时间推进时写一次且不调用逐项刷新`,
+    `${count} 条未变化 admission 的实际 timer tick 不写时钟且不调用逐项刷新`,
     { timeout: 15_000 },
     /** 每轮认证检查与批观察仍独立执行，仅复用已持久的同毫秒时间，不缓存广播许可。 */ async () => {
       const p = await prepared(count)
@@ -181,7 +181,7 @@ for (const count of [1, 8, 16]) {
         const frames = p.f.encoded.length
         p.f.now++
         const measured = clockWrites(p.f.store, /** 同步触发原 timer 回调，不改变其判断。 */ () => p.tick())
-        assert.equal(measured.updates, 1)
+        assert.equal(measured.updates, 0)
         assert.equal(identityChecks, 1)
         assert.equal(batches, 1)
         const repeated = clockWrites(p.f.store, /** 同毫秒再次触发仍执行完整身份检查和批观察。 */ () => p.tick())
