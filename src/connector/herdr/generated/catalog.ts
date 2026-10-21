@@ -3,8 +3,8 @@ import asset from './herdr-0.9.5.compiled.json' with { type: 'json' }
 import type { HerdrPrecompiledEntry } from '../precompiled.js'
 
 export const HERDR_PRECOMPILED: HerdrPrecompiledEntry = Object.freeze({
-  compiler_sha256: '7f2ffa7830c5e217914183df69642baf93877908bdbcc4f1fd390e793205e500',
+  compiler_sha256: '351741737ac675681e189a529c3e996b2e1085d93d4ef46bfe1bf50e4a24fe79',
   ajv_sha256: '61fd98ce80129a8566ef21c40a0e64afb3f06b43ad96c661655177ad154d6e9f',
-  asset_sha256: '0b8c9b33208dc7fec8d71c8315c01522ff7a4473bf1b22ea18b8d9e6a8c54119',
+  asset_sha256: '2955c21490fb6920fbb8576ca81ab94fff0bc206d27c8211faf98623a6d23037',
   asset
 })

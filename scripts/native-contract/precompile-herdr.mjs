@@ -46,7 +46,7 @@ export function approvedHerdrInput(base = root) {
   return bytes
 }
 
-/** 构建观察沿用 Luvus 的 30 秒上限；产品仍保持原 2 秒接纳期限。 */
+/** 构建观察沿用 Luvus 的 30 秒上限，独立于 Herdr 产品的 10 秒接纳期限。 */
 async function compileFresh(bytes) {
   const worker = new Worker(new URL('./precompile-herdr-worker.ts', import.meta.url).href, { smol: true })
   let timer
