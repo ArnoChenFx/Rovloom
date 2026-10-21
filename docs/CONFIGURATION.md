@@ -117,12 +117,33 @@ MCP access still comes from a caller's already issued Bearer for the exact
 `http://<MCP-host>:<port>/mcp` resource. First native approval creates one local
 caller for the exact reviewed Target; its Bearer is displayed only to the verified
 local terminal and retained privately by Rovloom. Copy it into
-the MCP client's secret storage. It expires after 30 days; this preview has no
-renewal wizard. Device
+the MCP client's secret storage. It expires after 30 days by default and is managed with
+`rovloom token` (see below). Device
 credentials, MCP Bearers and independent management proofs are distinct. Existing
 management authentication still uses its independent principal/proof; an MCP
 Bearer cannot log in as administrator; first setup creates no management cookie
 or default administrator.
+
+### Managing Bearer tokens
+
+```text
+rovloom token list
+rovloom token create --principal worker --like owner [--ttl-days 30]
+rovloom token renew  --principal owner [--ttl-days 30]
+rovloom token rotate --principal owner [--ttl-days 30] [--grace-minutes 10]
+rovloom token revoke --principal worker
+```
+
+The token registry (`managed/mcp-callers.json` under the Gateway state directory)
+holds only SHA-256 digests, principal policy and fixed expiry. The Gateway re-reads
+it on every authentication, so create, renew, rotate and revoke take effect **without a
+restart**, and revoking also invalidates established MCP sessions. `create` and
+`rotate` write the new token to stdout exactly once (everything else goes to stderr);
+a new principal's permissions are cloned from `--like`, never widened. `rotate`
+invalidates the old token immediately unless `--grace-minutes` gives clients a bounded
+switch-over window. A local `mcp-client.json` belonging to the same principal is
+updated too. A corrupt file denies all authentication and recovers once repaired.
+Optional OIDC is not available yet.
 
 Connector needs both a reachable Gateway address and completed pairing/native
 state. In a genuine local TTY, Gateway approval issues a five-minute one-time code;

@@ -143,7 +143,7 @@ Connector 在另一台设备时，先设置 Gateway `devices.hostname`，让它�
 | Authorization 请求头 | `Bearer <GATEWAY提供的MCP_BEARER>` |
 
 使用 Gateway 批准后显示的 Bearer，或管理员为此端点提供的既有凭据。
-配对码不是 MCP Bearer。Bearer 有效期30天，续期引导尚不可用。
+配对码不是 MCP Bearer。Bearer 默认有效期30天，用 `rovloom token renew/rotate` 续期或轮换（见配置说明）。
 远程客户端需要管理员安排代理或隧道，才能访问 Gateway 的回环 MCP 监听。
 Rovloom 不是 stdio MCP 服务器。
 

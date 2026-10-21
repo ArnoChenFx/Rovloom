@@ -99,9 +99,25 @@ Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用
 会话。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
 首次原生批准为精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
 原值由 Rovloom 私密保留；复制到 MCP 客户端秘密存储。
-有效期30天，本预览没有续期引导。设备凭据、
+默认有效期30天，可用 `rovloom token` 管理（见下）。设备凭据、
 MCP Bearer 与独立管理证明互不替代。既有管理认证仍使用独立 principal/proof，
 MCP Bearer 不能登录管理员；首次引导不创建管理 cookie 或默认管理员。
+
+### Bearer 令牌管理
+
+```text
+rovloom token list
+rovloom token create --principal worker --like owner [--ttl-days 30]
+rovloom token renew  --principal owner [--ttl-days 30]
+rovloom token rotate --principal owner [--ttl-days 30] [--grace-minutes 10]
+rovloom token revoke --principal worker
+```
+
+令牌注册表（Gateway 状态目录下的 `managed/mcp-callers.json`）只保存 SHA-256 摘要、主体策略和固定到期；
+Gateway 每次认证都重读它，因此创建、续期、轮换和吊销**无需重启**，吊销同时使已建立的 MCP 会话失效。
+`create`/`rotate` 把新令牌原值只写到 stdout 一次（其余信息写 stderr）；新主体的权限克隆自 `--like`，不会扩大。
+`rotate` 默认立即让旧令牌失效，`--grace-minutes` 给客户端一个有界的切换窗口。本机 `mcp-client.json`
+属于同一主体时会同步更新。文件损坏时拒绝全部认证，修复后自动恢复。可选 OIDC 暂未提供。
 
 Connector 需要可达 Gateway 地址和已完成的配对/原生状态。真实本地 TTY 上，Gateway
 批准后签发五分钟一次性码；Connector 输入地址及不回显的码，兑换既有 enrollment，
