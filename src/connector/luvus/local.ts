@@ -14,6 +14,9 @@ import type { EndpointIdentity, LuvusLocalConfig, LuvusLocalLimits } from './typ
 /** Windows 上 Luvus 的命名管道端点：固定前缀加 16 位十六进制。 */
 export const WINDOWS_PIPE = /^\\\\\.\\pipe\\luvus-[0-9a-f]{16}$/u
 
+/** `session list --json` 报告的端点传输名：Linux 是 Unix socket 文件，Windows 是命名管道。 */
+export const LUVUS_ENDPOINT_TRANSPORT = process.platform === 'win32' ? 'windows_named_pipe' : 'unix_socket'
+
 const defaults: LuvusLocalLimits = Object.freeze({
   request_bytes: LIMITS.frame_bytes,
   response_bytes: LIMITS.frame_bytes,

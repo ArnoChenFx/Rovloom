@@ -7,7 +7,14 @@ import { assertBinding, boundedJson, WireError } from '../../wire/index.js'
 import type { AttemptBinding, AuthenticatedEnvelope, JsonObject } from '../../wire/types.js'
 import { aborted, deadline, interruptible, runFixedProcess, runSocket } from './io.js'
 import type { PreparedFrame } from './io.js'
-import { inspectEndpoint, localLimits, pinConfig, recheckEndpoint, verifyInstallation } from './local.js'
+import {
+  LUVUS_ENDPOINT_TRANSPORT,
+  inspectEndpoint,
+  localLimits,
+  pinConfig,
+  recheckEndpoint,
+  verifyInstallation
+} from './local.js'
 import { LuvusAdapterError } from './types.js'
 import { assertTerminalExecutionAllowed } from '../terminal-execution.js'
 import type {
@@ -208,7 +215,7 @@ export class LuvusRpcAdapter {
       throw new LuvusAdapterError('native_session_unavailable')
     }
     const endpoint = object(row.endpoint ?? null)
-    if (endpoint.transport !== 'unix_socket' || typeof endpoint.address !== 'string') {
+    if (endpoint.transport !== LUVUS_ENDPOINT_TRANSPORT || typeof endpoint.address !== 'string') {
       throw new LuvusAdapterError('native_endpoint_unsupported')
     }
     return interruptible(inspectEndpoint(this.#config, endpoint.address), signal)

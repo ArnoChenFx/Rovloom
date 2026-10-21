@@ -7,6 +7,7 @@ import { LuvusAdapterError, readLuvusPeer } from '../connector/luvus/index.js'
 import type { EndpointIdentity, LuvusLocalConfig, NativeTransportEvidence } from '../connector/luvus/index.js'
 import type { AttemptBinding } from '../wire/types.js'
 import {
+  LUVUS_ENDPOINT_TRANSPORT,
   inspectEndpoint,
   localLimits,
   pinConfig,
@@ -123,8 +124,7 @@ export async function attachExistingLuvus(
       throw new LuvusAdapterError('native_session_unavailable')
     }
     const address = object(object(matches[0]).endpoint)
-    const expectedTransport = process.platform === 'win32' ? 'windows_named_pipe' : 'unix_socket'
-    if (address.transport !== expectedTransport || typeof address.address !== 'string') {
+    if (address.transport !== LUVUS_ENDPOINT_TRANSPORT || typeof address.address !== 'string') {
       throw new LuvusAdapterError('native_endpoint_unsupported')
     }
     const endpoint = await inspectEndpoint(fixed, address.address)
