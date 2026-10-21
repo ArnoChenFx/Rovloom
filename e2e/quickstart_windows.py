@@ -128,7 +128,9 @@ def main():
     os.makedirs(tools, exist_ok=True)
     rov = os.path.join(tools, 'rovloom.exe')
     shutil.copy(args.binary, rov)
-    herdr_dir = os.path.abspath(args.herdr_dir)
+    # 路径信任要求每一级祖先不被宽主体写入：runner 的 D:\\a 对所有人可写，故像真实安装在用户目录那样复制一份。
+    herdr_dir = os.path.join(work, 'hb')
+    shutil.copytree(os.path.abspath(args.herdr_dir), herdr_dir)
     env_g = user_env(home_g, [])
     # Connector 的 PATH 里有 herdr 所在目录：不写 runtime_bin_dirs，验证默认从 PATH 发现程序。
     env_c = user_env(home_c, [herdr_dir])
