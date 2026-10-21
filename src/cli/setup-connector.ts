@@ -30,13 +30,13 @@ type Attempt = Readonly<{
   phase: 'requesting' | 'credential_saved' | 'paired' | 'configured'
 }>
 
-// 有界、严格地读取专用端点响应，重复键/无效UTF8不会降为普通JSON.parse。
-async function responseJson(response: Response): Promise<Record<string, unknown>> {
-  const reader = response.body?.getReader()
-  if (!reader || response.status !== 200) {
-    await response.body?.cancel()
+// 有界、严格地读取专用端点响应，重复键/无效UTF8不会降为普通JSON.parse；非 200 先释放未锁定的响应体再拒绝。
+export async function responseJson(response: Response): Promise<Record<string, unknown>> {
+  if (!response.body || response.status !== 200) {
+    await response.body?.cancel().catch(/* 只释放响应流，不输出远端文本。 */ () => {})
     throw new CliError('configuration_required')
   }
+  const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let bytes = 0
   try {
