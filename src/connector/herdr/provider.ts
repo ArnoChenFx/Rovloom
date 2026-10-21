@@ -80,6 +80,8 @@ export type HerdrConnectorResources = Readonly<{
   session(connection: Connection): ConnectorWireSession
   release(): Promise<void>
   release_timeout_ms: number
+  // 来源在后台被替换（实例丢失后重新附着/重建）时通知宿主结束当前连接周期，让下一次认证 epoch 取到新会话。
+  session_replaced?(listener: () => void): () => void
 }>
 /** 结构兼容 #8 目录端口；expires_at 只是目录视图期限，不是原生 lease 或调用截止。 */
 export type HerdrProviderCatalogSource = Readonly<{
@@ -180,7 +182,7 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
       'temporary_home',
       'cwd'
     ],
-    ['allow_terminal_execution', 'agent_bin_dirs']
+    ['allow_terminal_execution', 'agent_bin_dirs', 'attach']
   )
   if (
     boundedJson(local.target) !== boundedJson(target) ||
@@ -203,7 +205,8 @@ export function parseHerdrProviderRefConfig(input: unknown): HerdrProviderRefCon
     ...(Object.hasOwn(local, 'allow_terminal_execution')
       ? { allow_terminal_execution: local.allow_terminal_execution as boolean }
       : {}),
-    ...(Object.hasOwn(local, 'agent_bin_dirs') ? { agent_bin_dirs: local.agent_bin_dirs as string[] } : {})
+    ...(Object.hasOwn(local, 'agent_bin_dirs') ? { agent_bin_dirs: local.agent_bin_dirs as string[] } : {}),
+    ...(Object.hasOwn(local, 'attach') ? { attach: local.attach as true } : {})
   })
   const claims = ledgerRef(connector.claims, 4096)
   return Object.freeze({

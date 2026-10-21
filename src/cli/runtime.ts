@@ -67,6 +67,8 @@ export type RuntimeCliProviderResources = Omit<ConnectorHostOptions, 'transport'
   kind: 'provider'
   providers?: ProviderSessionGroup['providers']
   transport: Omit<ConnectorHostOptions['transport'], 'url'>
+  // 来源被后台替换时结束当前连接周期（见 HerdrConnectorResources.session_replaced）。
+  session_replaced?(listener: () => void): () => void
 }
 export type RuntimeCliHost = {
   gateway?(config: GatewayConfig): Promise<RuntimeCliGatewayResources>
@@ -199,12 +201,17 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
         }
         // provider中性宿主消费其真实Wire会话；不能把Herdr或空后端伪装成Luvus IPC。
         if (resource.kind === 'provider') {
-          return createProviderConnectorRuntime({
+          const running = await createProviderConnectorRuntime({
             ...options,
             session: resource.session.bind(resource),
             release_timeout_ms: resource.release_timeout_ms,
             provider_snapshot: resource.provider_snapshot
           })
+          if (resource.session_replaced) {
+            const unsubscribe = resource.session_replaced(() => running.transport.disconnect())
+            void running.closed.then(unsubscribe, unsubscribe)
+          }
+          return running
         }
         return createConnectorRuntime({
           ...options,

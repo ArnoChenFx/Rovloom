@@ -407,7 +407,11 @@ async function nativeProbe(
       configDocument({
         ...configTemplate('connector'),
         state_dir: connectorState,
-        native: { runtime_bin_dirs: [binaryDirectory], ...(provider !== 'luvus' ? { provider } : {}) }
+        // 这些用例验证 managed 流程里的取消/回收语义；附着模式（默认）会触碰用户真实目录，另有专门用例。
+        native: {
+          runtime_bin_dirs: [binaryDirectory],
+          ...(provider !== 'luvus' ? { provider, herdr: { mode: 'managed' as const } } : {})
+        }
       })
     ),
     { mode: 0o600 }

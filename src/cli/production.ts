@@ -472,7 +472,8 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
             },
             release: resource.release.bind(resource),
             release_timeout_ms: resource.release_timeout_ms,
-            provider_snapshot: resource.provider_snapshot
+            provider_snapshot: resource.provider_snapshot,
+            ...(resource.session_replaced ? { session_replaced: resource.session_replaced.bind(resource) } : {})
           }
         }
         return {

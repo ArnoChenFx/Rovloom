@@ -14,7 +14,8 @@ for (const scenario of selected) {
     binary,
     herdrBinary,
     methods: scenario.methods,
-    connectorSettings: scenario.connectorSettings
+    connectorSettings: scenario.connectorSettings,
+    attach: scenario.attach
   })
   const entry = { scenario: scenario.name }
   try {

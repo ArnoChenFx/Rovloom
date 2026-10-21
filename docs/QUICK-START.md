@@ -90,9 +90,15 @@ gives the Connector a minimal `PATH`), list the directories as arrays in
 [installation settings](CONFIGURATION.md#program-and-agent-installation-directories).
 To select Herdr or both programs, set `native.provider` to `herdr` or `mixed`
 before native approval; omitting it selects Luvus.
-An Agent login in your ordinary home is not reused; ask the machine owner to
-prepare model access in Rovloom's isolated Agent environment. The login guide
-for that environment is still missing.
+**Herdr attaches to your own session by default.** The Connector connects to the Herdr
+you already run (same user, same installed binary) and only starts one in your own config
+directory if none is running; that one keeps running when the Connector exits. Remote callers
+therefore act on your **real** workspaces, and your Agent logins in your ordinary home just
+work. The Connector re-attaches (or starts a new one) by itself if the instance disappears.
+To get a private instance instead, set `native.herdr.mode` to `managed`; its Agent logins are
+not shared and must be prepared separately. See
+[Herdr: attach or managed](CONFIGURATION.md#herdr-attach-or-managed). Luvus always uses the
+isolated managed setup, whose login guide is still missing.
 
 ## 2. Start and pair
 

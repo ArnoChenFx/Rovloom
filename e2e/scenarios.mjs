@@ -188,6 +188,69 @@ export const scenarios = [
     }
   },
   {
+    name: 'attach-existing',
+    methods: METHODS,
+    attach: true,
+    /** 用户已在运行 Herdr：Connector 附着它而不是再起一个；Connector 退出不影响用户的实例。 */
+    async run(stack) {
+      const userPid = await stack.startUserHerdr()
+      const client = await boot(stack)
+      const processes = stack.herdrProcesses()
+      assert.equal(processes.length, 1, 'attaching must not start a second herdr')
+      assert.equal(processes[0].pid, userPid)
+      const before = await workspaces(stack, client)
+      const created = await stack.invoke(client, { method: 'workspace.create', params: {} })
+      assert.equal(created.state, 'responded')
+      assert.equal(await workspaces(stack, client), before + 1)
+      await stack.connector.stop()
+      assert.equal(stack.herdrProcesses().length, 1, 'the user instance must survive the connector')
+      assert.equal(stack.herdrProcesses()[0].pid, userPid)
+      return { attached_pid: userPid, herdr_processes: 1, survived_connector_stop: true }
+    }
+  },
+  {
+    name: 'attach-create-persist',
+    methods: METHODS,
+    attach: true,
+    /** 没有现成实例：Connector 自建一个并放手；Connector 退出后它继续运行，重启后重新附着到同一个。 */
+    async run(stack) {
+      assert.equal(stack.herdrProcesses().length, 0)
+      const client = await boot(stack)
+      const created = stack.herdrProcesses()
+      assert.equal(created.length, 1)
+      await workspaces(stack, client)
+      await stack.invoke(client, { method: 'workspace.create', params: {} })
+      await stack.connector.stop()
+      assert.equal(stack.herdrProcesses().length, 1, 'the created instance must outlive the connector')
+      assert.equal(stack.herdrProcesses()[0].pid, created[0].pid)
+      stack.startConnector()
+      await stack.waitReady(client)
+      assert.equal(stack.herdrProcesses().length, 1, 'restart must re-attach, not create another')
+      assert.equal(stack.herdrProcesses()[0].pid, created[0].pid)
+      // 持久会话里之前创建的 workspace 还在：证明复用的是同一个实例而不是新的。
+      assert.equal(await workspaces(stack, client), 1)
+      return { pid: created[0].pid, reused_after_restart: true, workspaces_kept: 1 }
+    }
+  },
+  {
+    name: 'attach-recover',
+    methods: METHODS,
+    attach: true,
+    /** 附着的实例被杀：Connector 自己重新附着或重建（无需重启），之后调用恢复；Connector 进程不退出。 */
+    async run(stack) {
+      const client = await boot(stack)
+      const [first] = stack.herdrProcesses()
+      process.kill(first.pid, 'SIGKILL')
+      const recovered = await stack.waitReady(client, { tries: 200 })
+      assert.equal(recovered.state, 'responded')
+      assert(stack.connector.alive, 'the connector must keep running')
+      const now = stack.herdrProcesses()
+      assert.equal(now.length, 1)
+      assert.notEqual(now[0].pid, first.pid, 'a new instance must have been started')
+      return { old_pid: first.pid, new_pid: now[0].pid, connector_alive: true }
+    }
+  },
+  {
     name: 'device-revoke',
     methods: ['ping'],
     /** 管理员撤销设备后：旧凭据的Connector无法再连接，MCP侧调用不可达，且不再出现在可用设备里。 */
