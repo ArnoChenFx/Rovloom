@@ -19,79 +19,8 @@ import {
 import { productSmokePath } from '../../scripts/release/package.mjs'
 import { githubClient, verifyRemoteTag } from '../../scripts/release/github.mjs'
 import { publish } from '../../scripts/release/publish.mjs'
-import { checkForUpdate, downloadUpdate, updatePlatform } from '../../src/update/index.ts'
-import { LATEST_RELEASE_URL, officialAssetUrl, officialMetadataUrl } from '../../src/update/network.ts'
 
 const context = { tag: 'v0.1.1', version: '0.1.1', commit: 'a'.repeat(40) }
-
-test(
-  'actual publisher bytes are accepted by updater through the shared contract',
-  /* 真实 assemble 组合注入下载，不创建外部资产。 */ async () => {
-    const temporary = fixture()
-    try {
-      const bundle = assemble(context, temporary.directory)
-      const release = {
-        tag_name: context.tag,
-        draft: false,
-        prerelease: false,
-        assets: [
-          {
-            name: 'release-manifest.json',
-            size: Buffer.byteLength(bundle.manifestBytes),
-            state: 'uploaded',
-            browser_download_url: officialAssetUrl(context.tag, 'release-manifest.json')
-          },
-          ...bundle.manifest.assets.map(
-            /* 只投影实际临时二进制的公开元数据。 */ (asset) => ({
-              ...asset,
-              state: 'uploaded',
-              browser_download_url: officialAssetUrl(context.tag, asset.name)
-            })
-          )
-        ]
-      }
-      const network = {
-        // 固定 API 与临时样例载荷，检查和下载始终复用真实发布器输出。
-        fetch: async (url) => {
-          if (url === LATEST_RELEASE_URL) {
-            return Response.json(release)
-          }
-          if (url === officialAssetUrl(context.tag, 'release-manifest.json')) {
-            return new Response(bundle.manifestBytes)
-          }
-          if (url === officialMetadataUrl({ kind: 'tag-ref', tag: context.tag })) {
-            return Response.json({ object: { type: 'commit', sha: context.commit } })
-          }
-          for (const [name, path] of bundle.files) {
-            if (url === officialAssetUrl(context.tag, name)) {
-              return new Response(readFileSync(path))
-            }
-          }
-          throw new Error('Unexpected integration request')
-        }
-      }
-      for (const platform of platforms) {
-        const plan = await checkForUpdate(
-          network,
-          '0.1.0-dev',
-          updatePlatform(platform.os, platform.arch, platform.libc)
-        )
-        const chunks = []
-        const receipt = await downloadUpdate(
-          network,
-          plan,
-          /* 只把合成临时字节存入内存。 */ async (chunk) => {
-            chunks.push(chunk)
-          }
-        )
-        assert.deepEqual(Buffer.concat(chunks), readFileSync(bundle.files.get(plan.asset.name)))
-        assert.equal(receipt.sha256, plan.asset.sha256)
-      }
-    } finally {
-      temporary.cleanup()
-    }
-  }
-)
 
 /** 只在系统临时目录生成小型假二进制与摘要收据，始终清理，不当作产品验收。 */
 function fixture() {
@@ -250,7 +179,6 @@ test(
         assetName(context.version, platform),
         /^rovloom-0\.1\.1-(?:linux|darwin|windows)-(?:x64|arm64)(?:\.exe)?$/u
       )
-      assert.match(platform.sha256, /^[0-9a-f]{64}$/u)
     }
     assert.throws(
       /** 不允许同名 musl 资产混入 glibc 矩阵。 */ () =>

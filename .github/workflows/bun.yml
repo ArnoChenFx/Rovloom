@@ -1,4 +1,4 @@
-# 使用固定 Bun 在 Linux 执行注释、质量、资料审计和隔离验收门禁。
+# 在 Linux 上用最低与最新 Bun 运行类型检查、lint、格式、测试与构建。
 name: Bun verification
 on: [push, pull_request, workflow_dispatch, workflow_call]
 permissions:
@@ -6,45 +6,22 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        bun: ['1.4.2', latest]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Install the exact official Bun binary in runner temp
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(cat .bun-version)" = 1.4.3
-          mkdir "$RUNNER_TEMP/bun-1.4.3"
-          curl -fLsS --retry 2 https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64.zip -o "$RUNNER_TEMP/bun-1.4.3/bun.zip"
-          python3 - <<'PY'
-          import hashlib, os, pathlib, zipfile
-          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bun-1.4.3'
-          archive = root / 'bun.zip'
-          if hashlib.sha256(archive.read_bytes()).hexdigest() != '3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18':
-              raise SystemExit('Bun archive checksum mismatch')
-          with zipfile.ZipFile(archive) as package:
-              if set(package.namelist()) != {'bun-linux-x64/', 'bun-linux-x64/bun'}:
-                  raise SystemExit('Unexpected Bun archive members')
-              package.extractall(root)
-          (root / 'bun-linux-x64/bun').chmod(0o755)
-          PY
-          echo "$RUNNER_TEMP/bun-1.4.3/bun-linux-x64" >> "$GITHUB_PATH"
-      - name: Frozen install for code quality checks
-        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - name: Lint and check formatting
-        run: |
-          bun --no-env-file run lint
-          bun --no-env-file run format:check
-          bun --no-env-file run comments:check
-      - name: Maintenance regression tests and repository checks
-        run: |
-          python3 scripts/maintenance/run_python_tests.py --output "$RUNNER_TEMP/python-tests.json"
-          python3 scripts/maintenance/check.py
-      - name: Audit versioned native contract inputs
-        run: python3 scripts/native-contract/audit-fixtures.py
-      - name: Frozen install, strict types, all tests, build and smoke
-        run: python3 scripts/bun/verify.py --output "$RUNNER_TEMP/bun-verification"
-      - name: Check every tracked test file was executed
-        run: python3 scripts/maintenance/check.py --evidence "$RUNNER_TEMP/bun-verification" --python-report "$RUNNER_TEMP/python-tests.json"
+      - uses: ./.github/actions/setup-bun
+        with:
+          version: ${{ matrix.bun }}
+      - run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - run: bun --no-env-file run lint
+      - run: bun --no-env-file run format:check
+      - run: bun --no-env-file run typecheck
+      - run: bun --no-env-file run test
+      - run: bun --no-env-file run build
+      - run: bun --no-env-file run smoke

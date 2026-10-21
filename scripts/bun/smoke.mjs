@@ -445,8 +445,6 @@ try {
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }
-const update = await import('../../dist/src/update/index.js')
-assert.equal(typeof update.handleUpdateCommand, 'function')
 const service = await import('../../dist/src/service/index.js')
 assert.equal(typeof service.createNativeServiceBackend, 'function')
 assert.equal(service.parseServiceCommand(['gateway', '--config', '/untouched'], 'linux'), undefined)

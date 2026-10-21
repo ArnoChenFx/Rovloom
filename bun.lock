@@ -3,17 +3,17 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "luvus-mcp",
+      "name": "rovloom",
       "dependencies": {
-        "@modelcontextprotocol/sdk": "1.32.1",
-        "ajv": "8.20.0",
+        "@modelcontextprotocol/sdk": "^1.32.1",
+        "ajv": "^8.20.0",
       },
       "devDependencies": {
-        "@types/node": "26.6.5",
-        "oxfmt": "0.73.0",
-        "oxlint": "1.88.0",
-        "typescript": "7.0.2",
-        "ws": "8.22.0",
+        "@types/node": "^26.6.5",
+        "oxfmt": "^0.73.0",
+        "oxlint": "^1.88.0",
+        "typescript": "^7.0.2",
+        "ws": "^8.22.0",
       },
     },
   },

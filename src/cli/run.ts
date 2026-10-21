@@ -3,7 +3,6 @@ import type { Readable, Writable } from 'node:stream'
 import type { GatewayService } from '../mcp/types.js'
 import type { HttpAuthenticationProvider } from '../mcp/http.js'
 import type { ServiceCommandHost } from '../service/command.js'
-import type { CliUpdateHost } from './update.js'
 import { ServiceError } from '../service/types.js'
 import { PRODUCT_VERSION } from '../mcp/version.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
@@ -32,8 +31,6 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom gateway [--config /absolute/path/config.json] [--non-interactive]
   rovloom connector [--config /absolute/path/config.json] [--non-interactive]
   rovloom service --help
-  rovloom update --check
-  rovloom update --help
 
 省略 --config 时分别读取 ~/.config/rovloom/gateway.json 或 connector.json；Windows 同样使用用户 home。
 角色文件读取、首次生成及Gateway运行支持Linux/macOS/Windows；原生Connector和首次配对审批仍要求Linux。
@@ -52,7 +49,6 @@ Agent模型认证与已有配置恢复管理仍需独立准备，不把原生rea
 --non-interactive 显式关闭本地交互引导；Windows服务自动传入，仍核对原配置、身份及后端能力。
 service 已接原生监管宿主；install 固定当前单文件及与前台相同的角色配置绝对路径，后台不另选home。
 Gateway服务支持Linux/macOS/Windows；本机Connector仍限Linux x64，详见service --help。
-update只检查官方稳定发行；当前预发行版本按SemVer比较，缺少安全替换事务不能报告升级成功。
 角色退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
 `
 
@@ -78,7 +74,6 @@ export type CliServiceHost = Omit<ServiceCommandHost, 'diagnostic'>
 // 宿主负责单 writer、transport/native 接线、配置来源和资源释放；不从配置加载可执行模块。
 export type CliRuntime = {
   service?: CliServiceHost
-  update?: CliUpdateHost
   // 只在角色启动调用本机引导；help/check/template不创建状态或读取stdin。
   prepare?(config: GatewayConfig | ConnectorConfig, path: string, io: CliIo): Promise<GatewayConfig | ConnectorConfig>
   // 建立受信服务及 caller 绑定并交出资源所有权；未提供时角色启动明确拒绝。
@@ -189,15 +184,6 @@ export async function runCli(
   environment?: ConfigPathEnvironment
 ): Promise<number> {
   try {
-    if (args[0] === 'update') {
-      const { runUpdateCommand } = await import('./update.js')
-      return await runUpdateCommand(
-        args,
-        /* 更新状态仅进入固定stderr边界。 */ (text) => io.stderr.write(text),
-        runtime.update,
-        io.signal
-      )
-    }
     if (args[0] === 'service') {
       const { SERVICE_HELP, handleServiceCommand } = await import('../service/command.js')
       if (args.length === 2 && args[1] === '--help') {

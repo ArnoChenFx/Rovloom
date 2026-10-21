@@ -45,12 +45,6 @@ jobs:
         run: |
           bun --no-env-file run native:check
           bun --no-env-file test ./test/native-contract/precompiled.test.mjs ./test/connector/herdr/precompiled.test.mjs
-      - name: Exercise Windows helper parent exit, replacement, rollback and read-only process binding
-        if: runner.os == 'Windows'
-        run: bun --no-env-file test ./test/update/windows
-      - name: Exercise native POSIX replacement and rollback with private fixture binaries only
-        if: runner.os != 'Windows'
-        run: bun --no-env-file test ./test/update/posix/transaction.test.ts
       - name: Exercise Windows product Gateway and omitted-Worker rejection before candidate build
         if: runner.os == 'Windows'
         run: bun --no-env-file test ./test/release/gateway-smoke.test.mjs ./test/release/publication.test.mjs
