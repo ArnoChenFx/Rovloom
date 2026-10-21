@@ -298,6 +298,11 @@ export class LuvusRpcAdapter {
     let key: string | undefined
     let activeAbort: AbortController | undefined
     let decodedBinding: AttemptBinding | undefined
+    // TEMP-DEBUG（Windows e2e 排查，随后移除）
+    const d0 = Date.now()
+    const dmark = (label: string) =>
+      process.env.ROVLOOM_DEBUG_ERRORS && process.stderr.write(`DBG_DISPATCH ${label} +${Date.now() - d0}ms\n`)
+    dmark('start')
     try {
       if (this.#closed) {
         throw new LuvusAdapterError('adapter_closed')
@@ -359,9 +364,12 @@ export class LuvusRpcAdapter {
       scope = deadline(abort.signal, Math.min(remaining, this.#limits.timeout_ms))
       const activeSignal = scope.signal
       const native = this.#nativeBoundary(binding, request.payload.native_request.method as string)
+      dmark('before-discover')
       const endpoint = await this.#discover(activeSignal)
+      dmark('discovered')
       // 完整摘要验证在打开原生连接之前做完；连接建立后原生对空闲有期限，期间只复核身份戳。
       const installed = await interruptible(verifyInstallation(this.#config), activeSignal)
+      dmark('installed')
       const raw = boundedJson(request)
       const prepare = /* 在已验证传输上获取认证、检查完整帧并申请唯一 claim，返回写入前的同步复核钩子。 */ async (
         evidence: NativeTransportEvidence,
