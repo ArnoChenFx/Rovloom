@@ -348,7 +348,7 @@ export async function officialIpc(binaryPath) {
       recovery_generation: store.generation(),
       authenticated: true,
       active: true,
-      negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'objects'] }
+      negotiated: { major: 2, minor: 0, capabilities: ['rpc'] }
     }
     const bindings = new Map()
     const nativeBinding = {

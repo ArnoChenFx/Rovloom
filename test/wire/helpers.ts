@@ -133,7 +133,7 @@ const methods = JSON.parse(
 export const offer: VersionOffer = {
   major: 2,
   minor: 0,
-  capabilities: ['rpc', 'history_scope', 'late_evidence', 'objects'],
+  capabilities: ['rpc', 'history_scope', 'late_evidence'],
   required: ['rpc']
 }
 // 构造含独立 provider、契约、调用锚点和双端权限的认证测试上下文。

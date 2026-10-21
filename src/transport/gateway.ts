@@ -836,16 +836,6 @@ export function createGateway(options: GatewayOptions) {
       if (!('connection_epoch' in decoded)) {
         fail('authentication_required')
       }
-      if (decoded.type === 'object_chunk') {
-        const completed = peer.session.adapter.acceptChunk(input, 'connector_to_gateway')
-        if (!completed) {
-          return
-        }
-        if (completed.kind !== 'envelope' || completed.envelope.type !== 'response') {
-          fail('response_frame_required')
-        }
-        decoded = completed.envelope
-      }
       if (peer.session.adapter.observeMessage(decoded, 'connector_to_gateway') === 'duplicate') {
         return
       }

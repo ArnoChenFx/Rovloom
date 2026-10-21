@@ -98,7 +98,7 @@ created → authorized → dispatching → connector_accepted → responded
 
 ### 4.4 结果与流
 
-- 结果原文保存在 Gateway，受 `result_ttl` 与单结果上限约束；超限结果截断并标记，不分片。
+- 结果原文保存在 Gateway，受 `result_ttl` 与单结果上限约束；响应必须放入单个 1 MiB Wire 帧，超限不分片（调用保持 unknown）。
 - 读取按 keyset 游标分页，每页重新检查调用方权限。
 - 流（事件订阅、终端观察/输入）按需开放；Luvus 与 Herdr 的事件语义不同（Herdr 的事件与 snapshot 没有共同序号，只保证状态重建），不承诺 replay。
 

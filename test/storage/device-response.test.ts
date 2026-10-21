@@ -10,7 +10,7 @@ import { Store } from '../../src/store.js'
 import type { StoreOptions } from '../../src/store.js'
 import type { LedgerInvalidation } from '../../src/storage/model.js'
 import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
-import { boundedJson, fragmentObject } from '../../src/wire/index.js'
+import { boundedJson } from '../../src/wire/index.js'
 import type { AttemptBinding } from '../../src/wire/types.js'
 import { nativeBackend } from './native-backend.js'
 import { connected, management } from './helpers.js'
@@ -78,26 +78,6 @@ function fixture() {
   }
 }
 
-// 创建真实 Wire schema 对象分片；首片尚不能归属调用，用于覆盖零调用和跨设备缓存清理。
-function chunks(native: ReturnType<typeof nativeBackend>, objectId: string) {
-  const connection = native.backend.connection
-  native.backend.connection = /* 保留身份及 Store fence 检查，仅在这个隔离连接显式协商 objects。 */ () => {
-    const current = connection()
-    return {
-      ...current,
-      negotiated: {
-        ...current.negotiated,
-        capabilities: [...new Set([...current.negotiated.capabilities, 'objects' as const])]
-      }
-    }
-  }
-  return fragmentObject({ synthetic_payload: 'x'.repeat(150_000) }, 'schema_bundle', objectId, {
-    phase: 'authenticated',
-    direction: 'connector_to_gateway',
-    connection: native.backend.connection()
-  })
-}
-
 // 用原已派发的绑定生成实际请求帧，验证旧业务在进入 native permit 构造前就被受保护身份门禁拒绝。
 function requestFrame(binding: AttemptBinding) {
   const { machine_id, recovery_generation, connection_epoch, ...attempt } = binding
@@ -119,7 +99,7 @@ function requestFrame(binding: AttemptBinding) {
 }
 
 test(
-  '重配仅在 COMMIT 后失效同设备全部 provider、已完成/未知/仅响应上下文及未完成分片',
+  '重配仅在 COMMIT 后失效同设备全部 provider、已完成/未知/仅响应上下文',
   // 独立观察连接在通知时必须已看见 pending；其它设备仍能完成原在途传输。
   () => {
     const f = fixture()
@@ -146,10 +126,6 @@ test(
       const originalEvidence = f.inspect
         .prepare('SELECT response_hash FROM calls WHERE call_id=?')
         .get(responded.call_id)
-      const first = chunks(f.primary, 'reset_target')
-      const other = chunks(f.otherDevice, 'unrelated_transfer')
-      f.primary.adapter.acceptChunk(JSON.stringify(first[0]), 'connector_to_gateway')
-      f.otherDevice.adapter.acceptChunk(JSON.stringify(other[0]), 'connector_to_gateway')
       const otherBefore = f.otherDevice.adapter.stats()
       f.store.subscribeInvalidation(
         // 只记录观察值，断言放回调外，避免监听异常被 Store 隔离后导致测试假通过。
@@ -171,15 +147,8 @@ test(
         assert.equal(native.adapter.stats().executions, 0)
         assert.equal(native.adapter.stats().responses, 0)
         assert.equal(native.adapter.stats().snapshot_bytes, 0)
-        assert.equal(native.adapter.stats().active_transfers, 0)
-        assert.equal(native.adapter.stats().transfer_bytes, 0)
       }
       assert.deepEqual(f.otherDevice.adapter.stats(), otherBefore)
-      let completed: ReturnType<typeof f.otherDevice.adapter.acceptChunk>
-      for (const frame of other.slice(1)) {
-        completed = f.otherDevice.adapter.acceptChunk(JSON.stringify(frame), 'connector_to_gateway')
-      }
-      assert.equal(completed!.kind, 'schema_bundle')
       assert.equal(f.store.call('synthetic', execution.call_id).state, 'outcome_unknown')
       assert.equal(f.store.call('synthetic', pending.call_id).state, 'not_dispatched')
       assert.equal(f.store.call('synthetic', responded.call_id).state, 'responded')
@@ -202,60 +171,17 @@ test(
   }
 )
 
-for (const event of ['discard', 'ttl'] as const) {
-  test(
-    `设备 A 的 ${event} 内容回收不清理设备 B 的活动分片`,
-    // 用同一 Store 的真实回收广播核对设备作用域，确保其它设备的分片仍能组装完成。
-    () => {
-      const f = fixture()
-      try {
-        const call = f.primary.create()
-        f.primary.dispatch(call.call_id)
-        const other = chunks(f.otherDevice, 'cross_device_' + event)
-        f.otherDevice.adapter.acceptChunk(JSON.stringify(other[0]), 'connector_to_gateway')
-        const before = f.otherDevice.adapter.stats()
-        if (event === 'discard') {
-          f.store.discardResponse('synthetic', call.call_id)
-        } else {
-          // 只在隔离数据库缩短该行内容期限，Store 的 expire 仍执行真实回收与提交后广播。
-          const write = new DatabaseSync(f.path)
-          try {
-            write.prepare('UPDATE calls SET content_expires=100 WHERE call_id=?').run(call.call_id)
-          } finally {
-            write.close()
-          }
-          f.store.expire()
-        }
-        assert.deepEqual(f.otherDevice.adapter.stats(), before)
-        let completed: ReturnType<typeof f.otherDevice.adapter.acceptChunk>
-        for (const frame of other.slice(1)) {
-          completed = f.otherDevice.adapter.acceptChunk(JSON.stringify(frame), 'connector_to_gateway')
-        }
-        assert.equal(completed!.kind, 'schema_bundle')
-      } finally {
-        f.close()
-      }
-    }
-  )
-}
-
 test(
-  '设备没有任何调用行时，重配仍发布设备 fence 并释放已接收的无归属分片',
-  // 回收通知不能依赖 SELECT call_id 有结果，否则零调用的 schema bundle 会继续持有正文。
+  '设备没有任何调用行时，重配仍发布设备 fence',
+  // 回收通知不能依赖 SELECT call_id 有结果。
   () => {
     const f = fixture()
     try {
-      const frames = chunks(f.primary, 'no_call_transfer')
-      f.primary.adapter.acceptChunk(JSON.stringify(frames[0]), 'connector_to_gateway')
-      assert.equal(f.primary.adapter.stats().active_transfers, 1)
       const events: LedgerInvalidation[] = []
       f.store.subscribeInvalidation(/* 保存本次重配发布的实际内部事件。 */ (event) => events.push(event))
       f.approve(f.primary.device.machine_id, f.primary.device.epoch)
       f.store.resetDeviceEnrollment(f.primary.device.machine_id, f.store.generation(), f.primary.device.epoch)
       assert.deepEqual(events, [{ kind: 'device_fence', machine_id: f.primary.device.machine_id }])
-      assert.equal(f.primary.adapter.stats().active_transfers, 0)
-      assert.equal(f.primary.adapter.stats().transfer_bytes, 0)
-      assert.equal(f.primary.adapter.stats().object_tombstones, 1)
     } finally {
       f.close()
     }
@@ -351,8 +277,6 @@ for (const failure of ['management', 'epoch'] as const) {
         const sealed = f.sameDevice.create()
         f.sameDevice.dispatch(sealed.call_id)
         f.store.discardResponse('synthetic', sealed.call_id)
-        const frames = chunks(f.primary, 'rejected_' + failure)
-        f.primary.adapter.acceptChunk(JSON.stringify(frames[0]), 'connector_to_gateway')
         const before = f.natives.map(
           /* 保存各 adapter 的真实正文和元数据计量供回滚后核对。 */ (native) => native.adapter.stats()
         )

@@ -2,7 +2,7 @@
 import { GatewayError } from '../../contracts.js'
 import type { LocalPolicies, Principal } from '../../router.js'
 import type { Store } from '../../store.js'
-import { DEFAULT_LIMITS } from '../../native-contract/index.js'
+import { LIMITS } from '../../wire/index.js'
 import { createProviderResultAccess } from '../../runtime/results.js'
 import type { ProviderOriginalRead, ProviderResultMetadata, ProviderResultPage } from '../../runtime/results.js'
 
@@ -28,7 +28,7 @@ export function createLuvusResultAccess(options: LuvusResultAccessOptions) {
       if (binding && binding.kind !== 'luvus') {
         throw new GatewayError('provider_kind_mismatch')
       }
-      return binding ? { binding, max_response_bytes: DEFAULT_LIMITS.object_bytes } : undefined
+      return binding ? { binding, max_response_bytes: LIMITS.frame_bytes } : undefined
     }
   })
 }

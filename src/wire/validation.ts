@@ -9,11 +9,7 @@ export const LIMITS = Object.freeze({
   depth: 64,
   nodes: 100_000,
   object_bytes: 8_388_608,
-  schema_bundle_bytes: 16_777_216,
-  chunk_bytes: 65_536,
-  transfers: 4,
   buffered_bytes: 20_971_520,
-  transfer_timeout_ms: 30_000,
   dedup_entries: 4096
 })
 

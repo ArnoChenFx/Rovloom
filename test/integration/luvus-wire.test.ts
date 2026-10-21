@@ -142,7 +142,7 @@ function fixture(method = 'task.add', raw = false, limits?: Parameters<typeof cr
       negotiated: {
         major: 2,
         minor: 0,
-        capabilities: ['rpc', 'objects', 'late_evidence']
+        capabilities: ['rpc', 'late_evidence']
       }
     }),
     // 只查找调用及尝试 ID 均匹配的测试账本记录，避免夹具掩盖跨绑定错误。
@@ -847,24 +847,10 @@ test(
 )
 
 test(
-  '分片重组真实响应仍经过原生许可/完整 schema，传输限额及私有句柄不暴露',
-  /* 将合成错误响应分片并重组，验证完整 schema、派发许可及传输限额仍生效，且消息不能注入私有句柄。 */ () => {
+  '超限帧被拒绝，adapter 不暴露私有句柄且拒绝消息注入 native_handle',
+  /* 验证单帧上限仍生效，且消息不能注入私有句柄。 */ () => {
     const f = fixture()
     f.decode(f.opening)
-    const raw = Buffer.from(boundedJson(f.response))
-    const chunk = f.frame('object_chunk', {
-      object_id: 'object1',
-      kind: 'envelope',
-      total_bytes: raw.length,
-      sha256: hash(raw),
-      chunk_count: 1,
-      index: 0,
-      data: raw.toString('base64')
-    })
-    assert.deepEqual(f.adapter.acceptChunk(JSON.stringify(chunk), 'connector_to_gateway'), {
-      kind: 'envelope',
-      envelope: f.response
-    })
     rejects(
       /* 按当前消息方向执行完整解码校验，要求以 frame_limit 拒绝。 */ () =>
         f.adapter.decode('x'.repeat(LIMITS.frame_bytes + 1), 'connector_to_gateway'),

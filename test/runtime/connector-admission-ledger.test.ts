@@ -58,7 +58,7 @@ async function admitted() {
     negotiated: {
       major: 2 as const,
       minor: 0,
-      capabilities: ['rpc', 'admission_receipt', 'admission_context', 'objects', 'late_evidence']
+      capabilities: ['rpc', 'admission_receipt', 'admission_context', 'late_evidence']
     }
   }
   const book = new ConnectorAttemptBook({

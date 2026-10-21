@@ -1,6 +1,6 @@
 // 提供认证连接内固定容量、固定保留期的消息 ID 去重窗口。
 import type { AuthenticatedEnvelope, CodecContext } from './types.js'
-import { decodeWireObject } from './codec.js'
+import { decodeWireFrame } from './codec.js'
 import { boundedJson, hash, LIMITS, uint, fail } from './validation.js'
 
 // 连接级内存窗与持久化 call/key 墓碑独立；满窗拒绝准入，不淘汰承诺期内的 ID。
@@ -28,14 +28,14 @@ export class MessageWindow {
     }
     this.#lastNow = now
 
-    const raw = boundedJson(frame, LIMITS.object_bytes)
-    const valid = decodeWireObject(Buffer.from(raw), context)
+    const raw = boundedJson(frame, LIMITS.frame_bytes)
+    decodeWireFrame(Buffer.from(raw), context)
     const key = [
-      valid.machine_id,
-      valid.recovery_generation,
-      valid.connection_epoch,
+      frame.machine_id,
+      frame.recovery_generation,
+      frame.connection_epoch,
       context.direction,
-      valid.message_id
+      frame.message_id
     ].join(':')
     for (const [entryKey, entry] of this.#entries) {
       if (entry.expires <= now) {

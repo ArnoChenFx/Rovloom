@@ -50,8 +50,7 @@ const DIRECTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   response: ['connector_to_gateway'],
   cancel: ['gateway_to_connector'],
   heartbeat: ['gateway_to_connector', 'connector_to_gateway'],
-  error: ['gateway_to_connector', 'connector_to_gateway'],
-  object_chunk: ['gateway_to_connector', 'connector_to_gateway']
+  error: ['gateway_to_connector', 'connector_to_gateway']
 })
 
 // 校验连接绑定中的机器、恢复代次和连接纪元均为合法标识。
@@ -371,40 +370,6 @@ function decodeHandshake(
   return frame as PreAuthResult
 }
 
-// 校验分片描述、方向、规范 base64 及精确字节长度。
-function validateObjectChunk(p: JsonObject, context: AuthContext): void {
-  capability(context, 'objects')
-  fields(p, ['object_id', 'kind', 'total_bytes', 'sha256', 'chunk_count', 'index', 'data'])
-  id(p.object_id)
-  oneOf(p.kind, ['envelope', 'schema_bundle'])
-  sha(p.sha256)
-  uint(p.total_bytes, true)
-  uint(p.chunk_count, true)
-  uint(p.index)
-  if (p.kind === 'schema_bundle' && context.direction !== 'connector_to_gateway') {
-    fail('wrong_direction')
-  }
-  if (
-    p.total_bytes > (p.kind === 'schema_bundle' ? LIMITS.schema_bundle_bytes : LIMITS.object_bytes) ||
-    p.chunk_count !== Math.ceil(p.total_bytes / LIMITS.chunk_bytes) ||
-    p.index >= p.chunk_count
-  ) {
-    fail('object_limit', 'transport')
-  }
-  if (
-    typeof p.data !== 'string' ||
-    p.data.length > 4 * Math.ceil(LIMITS.chunk_bytes / 3) ||
-    Buffer.from(p.data, 'base64').toString('base64') !== p.data
-  ) {
-    fail('invalid_chunk', 'transport')
-  }
-  if (
-    Buffer.from(p.data, 'base64').length !== Math.min(LIMITS.chunk_bytes, p.total_bytes - p.index * LIMITS.chunk_bytes)
-  ) {
-    fail('invalid_chunk', 'transport')
-  }
-}
-
 /** 共用有界 JSON、方向、版本和消息 ID 校验；此步骤不建立原生许可。 */
 function readEnvelope(input: string | Uint8Array, context: CodecContext, limit: number): JsonObject {
   const frame = object(parseJson(input, limit))
@@ -530,9 +495,6 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
     case 'error':
       errorPayload(p)
       break
-    case 'object_chunk':
-      validateObjectChunk(p, context)
-      break
     case 'accepted':
       fields(p, ['attempt'])
       anchored(frame, p, context)
@@ -653,16 +615,4 @@ export function discardFencedWireFrame(
       break
   }
   return true
-}
-
-// 仅供有界重组使用；逻辑对象仍须完整执行所有 envelope/原生/授权检查。
-export function decodeWireObject(input: Uint8Array, context: CodecContext): AuthenticatedEnvelope {
-  if (context.phase !== 'authenticated') {
-    fail('authentication_required')
-  }
-  const result = decode(input, context, LIMITS.object_bytes)
-  if (result.type === 'object_chunk') {
-    fail('nested_object', 'transport')
-  }
-  return result as AuthenticatedEnvelope
 }

@@ -86,7 +86,7 @@ test(
 test(
   'v2 major 拒绝、minor 取交集，未知可选能力忽略、未知必需能力拒绝',
   /* 验证v2 major 拒绝、minor 取交集，未知可选能力忽略、未知必需能力拒绝。 */ () => {
-    const local = { ...offer, capabilities: ['rpc', 'objects'] }
+    const local = { ...offer, capabilities: ['rpc', 'late_evidence'] }
     assert.deepEqual(negotiate(local, { ...local, minor: 12, capabilities: ['rpc', 'future'] }), {
       major: 2,
       minor: 0,

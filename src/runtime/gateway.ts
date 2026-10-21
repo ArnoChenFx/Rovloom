@@ -5,7 +5,6 @@ import { createGateway, createDeviceLifecycleAdapter } from '../transport/index.
 import { createProviderResultAccess } from './results.js'
 import { closeSession, providerHealth, ready, OFFER } from '../transport/common.js'
 import type { Session, Readiness, Adapter } from '../transport/common.js'
-import { DEFAULT_LIMITS } from '../native-contract/index.js'
 import type { TrustedAttempt } from '../integration/luvus-wire.js'
 import type { Call } from '../store.js'
 import type { JsonObject, ProviderBinding, ProviderSnapshot, V2Target } from '../wire/types.js'
@@ -167,9 +166,9 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
       if (provider.target.machine_id !== binding.machine_id || provider.target.provider_id !== binding.provider_id) {
         fail('provider_binding_mismatch')
       }
-      const responseBudget = isHosted ? provider.max_response_bytes : DEFAULT_LIMITS.object_bytes
+      const responseBudget = isHosted ? provider.max_response_bytes : LIMITS.frame_bytes
       uint(responseBudget)
-      if (!responseBudget || responseBudget > LIMITS.object_bytes) {
+      if (!responseBudget || responseBudget > LIMITS.frame_bytes) {
         fail('transport_limit')
       }
       const name = key(binding)
@@ -628,7 +627,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
             try {
               const plan = originalWire.planEvidence(frame)
               const configured = attempt ? providers.get(key(attempt.binding.target)) : undefined
-              const maxBytes = configured?.max_response_bytes ?? DEFAULT_LIMITS.object_bytes
+              const maxBytes = configured?.max_response_bytes ?? LIMITS.frame_bytes
               if (plan.evidence.response_bytes > maxBytes) {
                 // 只收窄原 Wire 的保留意图：仍提交真实摘要，超 provider 预算不保存原文。
                 return {
@@ -768,7 +767,7 @@ async function assembleGateway(options: GatewayRuntimeOptions | ProviderGatewayR
         return configured && binding
           ? {
               binding,
-              max_response_bytes: configured.max_response_bytes ?? DEFAULT_LIMITS.object_bytes
+              max_response_bytes: configured.max_response_bytes ?? LIMITS.frame_bytes
             }
           : undefined
       }

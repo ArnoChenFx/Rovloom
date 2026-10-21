@@ -415,49 +415,11 @@ export function createConnector(options: ConnectorOptions) {
       fail('transport_backpressure')
     }
   }
-  /** 在原 Wire 上下文内发送单帧或已协商的响应对象，逐片复核读取和会话并有界等待背压。 */
-  async function sendResponse(
-    binding: AttemptBinding,
-    response: JsonObject,
-    active: Connection,
-    current: Session,
-    signal: AbortSignal
-  ): Promise<void> {
+  /** 在原 Wire 上下文内发送单个响应帧；超过单帧上限的响应在 write 的预算检查处失败，不分片。 */
+  function sendResponse(binding: AttemptBinding, response: JsonObject, active: Connection, current: Session): void {
     const { machine_id: _machine, recovery_generation: _generation, connection_epoch: _epoch, ...attempt } = binding
-    const frame = envelope(active, 'response', { attempt, native_response: response })
-    const bytes = Buffer.byteLength(boundedJson(frame, LIMITS.object_bytes))
-    if (bytes <= limits.frame_bytes) {
-      current.adapter.checkResult(binding, response)
-      write(frame)
-      return
-    }
-    const chunks = current.adapter.encodeResponseObject(frame, randomUUID())
-    for (const raw of chunks) {
-      budget(raw, limits.frame_bytes)
-    }
-    const expires = performance.now() + LIMITS.transfer_timeout_ms
-    for (const raw of chunks) {
-      const size = Buffer.byteLength(raw)
-      while (true) {
-        if (signal.aborted || stopped || connection !== active || session !== current || !ws || ws.readyState !== 1) {
-          fail('connection_unavailable')
-        }
-        current.adapter.checkResult(binding)
-        if (performance.now() >= expires) {
-          fail('transport_backpressure')
-        }
-        if (ws.bufferedAmount + size <= limits.frame_bytes) {
-          break
-        }
-        await new Promise<void>(
-          /** 只为当前有界在途响应等待 socket 腾出空间，关闭后不把分片移交给新 epoch。 */
-          (resolve) => setTimeout(resolve, 5)
-        )
-      }
-      if (ws!.send(raw) <= 0) {
-        fail('transport_backpressure')
-      }
-    }
+    current.adapter.checkResult(binding, response)
+    write(envelope(active, 'response', { attempt, native_response: response }))
   }
   /** 消费单次 attempt，复验 ready/deadline 并在 auth 注入后检查完整预算；旧会话响应不再交付。 */
   async function request(
@@ -542,7 +504,7 @@ export function createConnector(options: ConnectorOptions) {
       if (result) {
         assertBinding(result.binding, binding)
       }
-      await sendResponse(binding, response, active, current, controller.signal)
+      sendResponse(binding, response, active, current)
     } catch (error) {
       if (!controller.signal.aborted) {
         reconcileProviders(active, current)

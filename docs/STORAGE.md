@@ -46,8 +46,8 @@ epoch 与审计；`assertConnection(connection, lease?)` 核对当前代次、�
 `{ recovery_generation, connection_epoch: expectedEpoch }`，不能仅按设备名确认。事务清除旧
 credential hash、enrollment 和 epoch，设备变为同 ID pending；该设备所有 providers 的未派发调用变为
 not_dispatched，未完成的已派发调用收敛为 outcome_unknown，不重放旧调用。本库成功 COMMIT 后发布设备级
-fence，释放该设备全部 provider、旧 epoch 的执行/仅响应上下文及尚无法归属调用的在途分片；即使没有调用行
-也发布。回收通知带可信设备作用域，不清理其它设备的在途分片。缺少确认、代次或 epoch 不符、预算或最终提交
+fence，释放该设备全部 provider、旧 epoch 的执行/仅响应上下文；即使没有调用行
+也发布。回收通知带可信设备作用域。缺少确认、代次或 epoch 不符、预算或最终提交
 失败均整体回滚且不发布通知；宿主在成功返回后关闭该设备的实际 socket。
 
 `denyDelivery(machine, credentialDigest)` 在凭据交付失败或结果未知时，仅当摘要匹配当前凭据才清除它、断开
@@ -103,12 +103,6 @@ permit 密封仅响应上下文，释放原请求、候选、permit 和能力广
 回收原文。`maintenance_interval_ms` 可设为 1–60,000 毫秒；无法取得可信时钟则关闭并释放上下文。
 adapter.close 停止自身定时器并取消订阅；Store.close、重配、断连、撤销、provider fence 或去重到期
 释放对应上下文，不能靠新连接恢复。
-
-adapter 的临时分片缓存另受 Wire 传输子额和首片固定期限约束，默认维护也清理空闲对象。
-内容清理或身份 fence 会保守释放当前连接所有未完成分片，留下短期 ID 墓碑；后续新收到的
-正文仍只可用于有界验证，不恢复内容读取或保留权。该清理可能中止其它调用的在途分片，
-不能据此重派可能已经送达的原动作。传输预约与活动/墓碑计量由 stats 独立报告，不冒称
-snapshot_bytes 包含分片缓冲；精确子额见[原生集成接口](protocol/NATIVE-CONTRACT.md)。
 
 Store 默认每秒维护到期状态、原文、句柄、墓碑和审计，close 停止定时器；可配置为
 1–60,000 毫秒，确定性测试可显式 expire。读取、派发和响应提交也核对关键期限，不依赖定时器

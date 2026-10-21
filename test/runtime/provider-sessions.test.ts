@@ -302,8 +302,6 @@ function group(kind: ProviderKind) {
     },
     checkResult: native,
     checkResultRetention: native,
-    encodeResponseObject: native,
-    acceptChunk: native,
     planEvidence: native,
     release: native,
     stats: /** 只返回可控制的组件计数，不代表原生上下文存在。 */ () => ({

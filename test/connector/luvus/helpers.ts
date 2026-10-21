@@ -174,7 +174,7 @@ export async function fixture(
       connection_epoch: 'e1',
       authenticated: true,
       active: state.active as true,
-      negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'objects', 'late_evidence'] }
+      negotiated: { major: 2, minor: 0, capabilities: ['rpc', 'late_evidence'] }
     }),
     attempt: /* 仅对完整匹配的 call 和 attempt 返回已登记测试意图。 */ (call, attempt) =>
       call === binding.call_id && attempt === binding.attempt_id ? row : undefined,

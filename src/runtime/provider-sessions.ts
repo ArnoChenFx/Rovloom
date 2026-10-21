@@ -333,18 +333,6 @@ function compose(
       // 这里只选择原端口；原codec继续核验快照、协商能力、header身份和实际epoch。
       return route.group
     }
-    if (value.type === 'object_chunk') {
-      const native = groups.filter(
-        /** Herdr不支持对象，不能由组合层为其补造组装器或许可。 */ (group) =>
-          group.providers.every(
-            /** 对象只交给唯一原Luvus会话，不为Herdr补造传输。 */ (provider) => provider.binding.kind === 'luvus'
-          )
-      )
-      if (native.length !== 1) {
-        fail('runtime_object_session_unavailable')
-      }
-      return native[0]!
-    }
     return select(object(object(value.payload).attempt) as AttemptIdentity)
   }
 
@@ -437,22 +425,6 @@ function compose(
       invoke(
         /** 独立调用原保留门禁，不能以可读代替可保存。 */ () =>
           select(binding).session.adapter.checkResultRetention(binding, response)
-      ),
-    encodeResponseObject: /** 只复用选中provider的原对象预算与分片行为。 */ (frame, objectId) =>
-      invoke(
-        /** 原对象分片仍由对应原adapter完成。 */ () =>
-          select(frame.payload.attempt).session.adapter.encodeResponseObject(frame, objectId)
-      ),
-    acceptChunk: /** 完整对象仍由唯一原组装器校验，再复核它属于相同受保护组。 */ (raw, direction) =>
-      invoke(
-        /** 原组装器完成后再次核对对象所属的受保护路由组。 */ () => {
-          const group = frameOwner(parseJson(raw))
-          const result = group.session.adapter.acceptChunk(raw, direction)
-          if (result?.kind === 'envelope' && frameOwner(result.envelope) !== group) {
-            fail('provider_binding_mismatch')
-          }
-          return result
-        }
       ),
     observeMessage: /** 原去重后再用共享有界窗口拒绝跨provider消息ID冲突，不复制完整对象缓冲。 */ (frame, direction) =>
       invoke(
