@@ -57,7 +57,7 @@ unknown。健康 provider 保留同一连接与 epoch，原 pending 调用和后
 本 epoch 的撤回不可逆，底层恢复不重新接纳旧来源。显式新配置/认证可建立新 epoch 的原来源，
 旧 binding、结果许可或 unknown 调用不会迁移、重放或补造成功。迟到失败来源的普通 RPC 只作
 有界丢弃，保留认证 envelope 与完整绑定核对；详细限制见 [Wire 协议](protocol/WIRE-PROTOCOL.md#可选逐-provider-来源撤回)。
-当前不支持 `provider_fence` 与 `objects` 组合，也不增加原生事件或终端流隔离。
+不增加原生事件或终端流隔离。
 
 混合 Connector 中，Herdr 的既有端点阻止启动时，原工厂在取得 child/owner/writer 前只交付
 `ProviderUnavailableError` 的原受保护配置。混合宿主将该配置作为不可用声明交给原组合会话，
@@ -268,7 +268,7 @@ provider 项包含稳定 ID、当前 `binding_revision` 和 `dispatch_ready`；�
 epoch，再创建/注册 session，之后才发布 routing/ready。`createDeviceLifecycleAdapter` 复用
 persistentBackend，每次 connection 和 nativeSource 解析前后都复验所属 socket 与 Store 当前 fence，
 原生来源的 machine/恢复代次/epoch 必须匹配。旧 backend 不因同设备新 socket 上线而复活。通道关闭显式
-调用 adapter.close，销毁执行/仅响应/分片/去重上下文，取消 Store 提交后失效订阅与维护 timer，再关闭宿主资源。
+调用 adapter.close，销毁执行/仅响应/去重上下文，取消 Store 提交后失效订阅与维护 timer，再关闭宿主资源。
 正常 Store COMMIT 的 device_fence 通知仍独立按设备作用域回收。
 
 结果访问层前后两次取得原上下文时，解析仅核对当前 caller ACL、认证 peer、Store 锚点、实际内容期限及原
@@ -333,19 +333,9 @@ session(connection) {
 本机 `RpcResult` 保留原生响应，Connector 复验完整返回 binding，再用自己持有原请求的
 Wire 编码；Gateway 只用其原请求 Wire 调用 `commitLuvusResponse`，提交后才发布 responded。
 
-### 响应对象与原始读取
+### 响应与原始读取
 
-超过 transport 单帧限制的响应要求双方 offer 显式协商 `objects`，否则拒绝；默认 offer
-仍只含 `rpc`。现行 Wire adapter 提供 `encodeResponseObject(responseFrame, objectId)`，
-返回有界只读字符串分片列表。它在原私有上下文中完整验证响应，复用 `fragmentObject`，
-不暴露 CodecContext、validator 或 permit。不能用冷 adapter、持久 JSON 或 binding 重建许可。
-
-Connector 预检每片预算，使用同一 socket 发送；每片前复核当前读取许可和原 epoch，背压
-只在当前有界在途响应内等待，最多一个固定对象传输期限，不建立重连队列。Gateway 的外层
-接收窗先去重，再以原 adapter `acceptChunk` 顺序重组；完整 hash/长度/原生验证通过后才
-观察内层响应并执行原提交事务。分片本身不进入内层 `observeMessage`。部分传输、坏 hash、
-撤权、关闭、COMMIT 失败均不能报告 responded；旧 epoch 的分片和迟到 hook 不转交给新连接。
-小响应也在同步写出前用原 Wire 复验响应及当前 read；宿主 hook 的等待不能延长旧读取授权。
+响应必须放入单个 Wire 帧；超过 transport 单帧限制的响应不分片，Connector 写出时以预算错误失败，Gateway 只保留 unknown 元数据。Connector 在写出前用原 Wire 复验响应及当前 read，宿主 hook 的等待不能延长旧读取授权；COMMIT 失败不能报告 responded。
 
 受保护宿主通过 `gateway.resolveOriginalRead(callId)` 取得
 `{ binding, wire } | undefined`：binding 是副本，wire 是仍持有该原请求的实际 Gateway
@@ -429,7 +419,7 @@ provider 不可用时停止其响应交付/观察，设备撤销或断线关闭�
 
 `bun run test` 自动发现 test/transport；它使用两个本地模拟 Connector、临时 SQLite/凭据目录、
 普通WS和合成原生来源。Wire 接缝另组合实际 LuvusRpcAdapter、临时唯一
-claim 库和自建 Unix listener，验证原始帧、原生错误、分片、读取失效与提交故障。TLS负例在独立loopback HTTPS listener验证系统信任拒绝自签证书，旧CA/关闭验证输入不能绕过；
+claim 库和自建 Unix listener，验证原始帧、原生错误、超限响应、读取失效与提交故障。TLS负例在独立loopback HTTPS listener验证系统信任拒绝自签证书，旧CA/关闭验证输入不能绕过；
 合成证书仅使用Linux `/usr/bin/openssl`生成，不导入系统信任。
 RPC 的 seen 上限独立于 transport；标准回归收紧至 2 验证满额及 fresh epoch，新意图不可自动重放。
 默认 128 的扩展回归使用同一真实 adapter/IPC harness，执行 128 次成功、第 129 次拒绝及第 130 个新意图：

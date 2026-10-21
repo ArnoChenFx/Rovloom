@@ -19,7 +19,6 @@ export async function wireFixture(
   options: {
     nativeLimits?: Partial<LuvusLocalLimits>
     store?: Partial<StoreOptions>
-    objects?: boolean
     dispatchRefusal?: boolean
     frameBytes?: number
     readContexts?: number
@@ -44,11 +43,7 @@ export async function wireFixture(
   const offer = {
     major: 2,
     minor: 0,
-    capabilities: [
-      'rpc',
-      ...(options.objects ? ['objects'] : []),
-      ...(options.dispatchRefusal ? ['dispatch_refusal'] : [])
-    ],
+    capabilities: ['rpc', ...(options.dispatchRefusal ? ['dispatch_refusal'] : [])],
     required: ['rpc']
   }
   const f = fixture(
@@ -91,18 +86,7 @@ export async function wireFixture(
               /** 用原 adapter 和实际方向校验收到的帧。 */
               () => adapter.decode(input, direction)
             )
-            if (frame.type === 'object_chunk') {
-              state.receivedChunks++
-            }
             return frame
-          },
-          /** 沿用原对象组装器，记录真实分片重组失败而不修复损坏输入。 */
-          acceptChunk(input, direction) {
-            return trace(
-              'chunk',
-              /** 直接进入原上下文的有界接收组装。 */
-              () => adapter.acceptChunk(input, direction)
-            )
           },
           /** 观察原帧与原去重窗，不通过新 adapter 绕过已登记消息。 */
           observeMessage(frame, direction) {
@@ -128,13 +112,9 @@ export async function wireFixture(
     badBinding: boolean
     failClaim: boolean
     requests: string[]
-    chunks: string[]
-    corruptChunk: boolean
     nativeCompleted: number
-    receivedChunks: number
     receivedResponses: number
     rpcErrors: { code: string; outcome?: string }[]
-    dropLastChunk: boolean
     /** 在 auth 返回前制造有界等待或撤权，所有改变仅作用于本测试资源。 */
     beforeAuth?: (binding: AttemptBinding) => Promise<void>
     /** 在实际原生响应验证后阻塞 hook 返回，用于旧 epoch 迟到响应的隔离回归。 */
@@ -148,13 +128,9 @@ export async function wireFixture(
     badBinding: false,
     failClaim: false,
     requests: [],
-    chunks: [],
-    corruptChunk: false,
     nativeCompleted: 0,
-    receivedChunks: 0,
     receivedResponses: 0,
-    rpcErrors: [],
-    dropLastChunk: false
+    rpcErrors: []
   }
   native.respond(
     /** 按每个实际原生请求的登记 id 返回深层 error.data，不由 transport 重新分配 id。 */
@@ -250,20 +226,6 @@ export async function wireFixture(
           )
           const wire: ConnectorWireSession = {
             ...base,
-            adapter: {
-              ...base.adapter,
-              /** 记录真实原上下文生成的响应分片；校验负例只在生成后破坏第一片，不能伪造许可。 */
-              encodeResponseObject(frame, objectId) {
-                const chunks = [...base.adapter.encodeResponseObject(frame, objectId)]
-                if (state.corruptChunk) {
-                  const chunk = JSON.parse(chunks[0]!)
-                  chunk.payload.data = (chunk.payload.data[0] === 'A' ? 'B' : 'A') + chunk.payload.data.slice(1)
-                  chunks[0] = JSON.stringify(chunk)
-                }
-                state.chunks.push(...chunks)
-                return state.dropLastChunk ? chunks.slice(0, -1) : chunks
-              }
-            },
             /** 不解析或重包装 raw；实际 Luvus adapter 自己核验原请求、唯一 claim 并仅注入一次 auth。 */
             async executeWire(raw, signal) {
               state.hook++

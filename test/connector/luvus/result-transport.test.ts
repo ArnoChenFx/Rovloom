@@ -6,17 +6,16 @@ import { createLuvusResultAccess } from '../../../src/connector/luvus/index.js'
 import { until } from '../../transport/helpers.js'
 import { wireFixture } from '../../transport/wire-execution-helpers.js'
 
-/** 经真实 adapter、对象分片和证据提交取得大错误；所有宿主查询保持纯读，身份仅具 fixture 效力。 */
+/** 经真实 adapter 和证据提交取得单帧内的较大错误；所有宿主查询保持纯读，身份仅具 fixture 效力。 */
 async function completed() {
   const f = await wireFixture({
-    objects: true,
     frameBytes: 131_072,
     store: { retention: { handle_ttl: 10, content_ttl: 30 } }
   })
-  const data = { text: '你好🌍'.repeat(22_500), nested: [{ preserved: true, code: -7 }] }
+  const data = { text: '你好🌍'.repeat(8_000), nested: [{ preserved: true, code: -7 }] }
   let discardAllowed = false
   f.native.respond(
-    /** 使用 IPC 实际收到的 native id，返回有界且大于单帧的多字节 error.data。 */
+    /** 使用 IPC 实际收到的 native id，返回有界、跨多页读取的多字节 error.data。 */
     (socket, input) => {
       const request = JSON.parse(input.trim().split('\n').at(-1)!)
       socket.end(JSON.stringify({ id: request.id, error: { code: 'mock_large', message: 'preserve', data } }) + '\n')
@@ -61,7 +60,7 @@ async function completed() {
 }
 
 test(
-  '真实 IPC 大错误经原 Wire 对象重组提交后，由真实保留门禁创建句柄并分页核对完整 hash 与固定 TTL',
+  '真实 IPC 较大错误经原 Wire 提交后，由真实保留门禁创建句柄并分页核对完整 hash 与固定 TTL',
   { timeout: 20_000 },
   /** 联合验证实际接口，不把合成身份的正向组合计为同步撤权或真实原生验收通过。 */
   async () => {
@@ -97,15 +96,6 @@ test(
         id: binding.native_request_id,
         error: { code: 'mock_large', message: 'preserve', data }
       })
-      assert(f.state.chunks.length > 1)
-      assert(
-        f.state.chunks.every(
-          /** 完整 Wire 分片均受实际单帧预算约束，不能只量内层正文。 */
-          (raw) => Buffer.byteLength(raw) <= 131_072
-        )
-      )
-      assert.equal(f.gateways[0]!.stats().active_transfers, 0)
-      assert.equal(f.gateways[0]!.stats().transfer_bytes, 0)
       f.f.now = 1009
       assert.deepEqual(access.open(call.call_id), meta)
       assert.equal(access.read(meta.result_id, 0, 1).expires, 1010)

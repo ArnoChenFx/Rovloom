@@ -12,8 +12,8 @@ import { createLuvusWireAdapter } from '../../src/integration/luvus-wire.js'
 import { commitLuvusResponse } from '../../src/integration/persistence.js'
 import { nativeBackend } from './native-backend.js'
 import { management, responseFrame } from './helpers.js'
-import { hash, LIMITS } from '../../src/wire/index.js'
-import type { AttemptBinding, AuthenticatedEnvelope } from '../../src/wire/types.js'
+import {} from '../../src/wire/index.js'
+import type {} from '../../src/wire/types.js'
 
 // 创建临时目录中的独立 SQLite、可控时钟及真实后端，额外连接只用于检查落盘结果。
 function fixture(options: StoreOptions = {}, limits?: Parameters<typeof nativeBackend>[1]) {
@@ -48,44 +48,6 @@ function fixture(options: StoreOptions = {}, limits?: Parameters<typeof nativeBa
       rmSync(root, { recursive: true, force: true })
     }
   }
-}
-
-// 为合成连接声明 objects 能力，并按真实 Wire 字节限额生成可逐片接收的大响应。
-function responseChunks(f: ReturnType<typeof fixture>, binding: AttemptBinding, objectId: string, bytes = 150_000) {
-  if (!f.native.backend.connection().negotiated.capabilities.includes('objects')) {
-    const connection = f.native.backend.connection
-    f.native.backend.connection = /* 保留原 Store 连接 fence 检查，在该测试的合成协商结果中追加对象能力。 */ () => {
-      const current = connection()
-      return {
-        ...current,
-        negotiated: { ...current.negotiated, capabilities: [...current.negotiated.capabilities, 'objects'] }
-      }
-    }
-  }
-  const raw = Buffer.from(JSON.stringify(responseFrame(binding, { result: { text: 'x'.repeat(bytes) } })))
-  const count = Math.ceil(raw.length / LIMITS.chunk_bytes)
-  return Array.from(
-    { length: count },
-    // 每片只携带当前对象的有界正文区间；完整响应仍在组装结束后通过真实原生校验。
-    (_, index): Extract<AuthenticatedEnvelope, { type: 'object_chunk' }> => ({
-      protocol_major: 2,
-      protocol_minor: 0,
-      type: 'object_chunk',
-      message_id: objectId + '_' + index,
-      machine_id: binding.machine_id,
-      recovery_generation: binding.recovery_generation,
-      connection_epoch: binding.connection_epoch,
-      payload: {
-        object_id: objectId,
-        kind: 'envelope',
-        total_bytes: raw.length,
-        sha256: hash(raw),
-        chunk_count: count,
-        index,
-        data: raw.subarray(index * LIMITS.chunk_bytes, (index + 1) * LIMITS.chunk_bytes).toString('base64')
-      }
-    })
-  )
 }
 
 test(
@@ -143,125 +105,6 @@ test(
       assert.equal(f.native.adapter.stats().executions, 0)
       assert.equal(f.native.adapter.stats().snapshot_bytes, 0)
       assert.equal(f.native.state.sends, 0)
-    } finally {
-      f.close()
-    }
-  }
-)
-
-for (const cleanup of ['ttl', 'discard', 'fence'] as const) {
-  test(
-    `未完成响应的正文在 ${cleanup} 回收时释放，object ID 墓碑阻止重建原传输`,
-    // 先保留真实首片，再提交内容或身份清理；计量清零且剩余片、重发首片均被拒绝。
-    () => {
-      const f = fixture()
-      try {
-        const call = f.native.create()
-        const binding = f.native.dispatch(call.call_id)
-        const chunks = responseChunks(f, binding, 'pending_cleanup')
-        f.native.adapter.acceptChunk(JSON.stringify(chunks[0]), 'connector_to_gateway')
-        assert.equal(f.native.adapter.stats().active_transfers, 1)
-        assert(f.native.adapter.stats().transfer_bytes > 0)
-        if (cleanup === 'ttl') {
-          f.clock.now = 110
-          f.store.expire()
-        } else if (cleanup === 'discard') {
-          f.store.discardResponse('synthetic', call.call_id)
-        } else {
-          f.store.setProviderEnabled(binding.machine_id, binding.target.provider_id, 1, false)
-        }
-        assert.equal(f.native.adapter.stats().active_transfers, 0)
-        assert.equal(f.native.adapter.stats().transfer_bytes, 0)
-        assert.equal(f.native.adapter.stats().object_tombstones, 1)
-        for (const chunk of [chunks[0], chunks[1]]) {
-          assert.throws(
-            // 内容清理不能通过重建 assembler 放开原 object_id。
-            () => f.native.adapter.acceptChunk(JSON.stringify(chunk), 'connector_to_gateway'),
-            /object_closed/
-          )
-        }
-      } finally {
-        f.close()
-      }
-    }
-  )
-}
-
-test(
-  '空闲传输按首片期限释放且进度不续期，墓碑到期后才允许新传输',
-  // 用真实三片响应检验固定期限、独立传输预算与 ID 墓碑，不依赖后续 push 才回收 Buffer。
-  () => {
-    const f = fixture({ maintenanceIntervalMs: 60_000, retention: { content_ttl: 100_000 } })
-    try {
-      const call = f.native.create({ timeoutMs: 100_000 })
-      const binding = f.native.dispatch(call.call_id)
-      const chunks = responseChunks(f, binding, 'fixed_transfer')
-      f.native.adapter.acceptChunk(JSON.stringify(chunks[0]), 'connector_to_gateway')
-      const snapshots = f.native.adapter.stats().snapshot_bytes
-      f.clock.now += LIMITS.transfer_timeout_ms - 1
-      f.native.adapter.acceptChunk(JSON.stringify(chunks[1]), 'connector_to_gateway')
-      assert.equal(f.native.adapter.stats().active_transfers, 1)
-      f.clock.now++
-      f.native.adapter.maintain()
-      assert.equal(f.native.adapter.stats().active_transfers, 0)
-      assert.equal(f.native.adapter.stats().transfer_bytes, 0)
-      assert.equal(f.native.adapter.stats().snapshot_bytes, snapshots)
-      assert.equal(f.native.adapter.stats().object_tombstones, 1)
-      assert.throws(
-        // 到期不能接着交付原响应末片，也不能把进度当作续期。
-        () => f.native.adapter.acceptChunk(JSON.stringify(chunks[2]), 'connector_to_gateway'),
-        /object_closed/
-      )
-      f.clock.now += LIMITS.transfer_timeout_ms
-      f.native.adapter.maintain()
-      assert.equal(f.native.adapter.stats().object_tombstones, 0)
-      f.native.adapter.acceptChunk(JSON.stringify(chunks[0]), 'connector_to_gateway')
-      assert.equal(f.native.adapter.stats().active_transfers, 1)
-      f.native.adapter.close()
-      assert.equal(f.native.adapter.stats().transfer_bytes, 0)
-      assert.equal(f.native.adapter.stats().object_tombstones, 0)
-    } finally {
-      f.close()
-    }
-  }
-)
-
-test(
-  '逐对象组装器共享连接的传输数量和声明总长预算，不随 object ID 倍增',
-  // 多个真实首片分别触发数量及总长上界，证明逐对象回收没有放大原 Wire 资源限额。
-  () => {
-    const f = fixture()
-    try {
-      const call = f.native.create()
-      const binding = f.native.dispatch(call.call_id)
-      for (let n = 0; n < LIMITS.transfers; n++) {
-        const chunks = responseChunks(f, binding, 'count_' + n)
-        f.native.adapter.acceptChunk(JSON.stringify(chunks[0]), 'connector_to_gateway')
-      }
-      const excess = responseChunks(f, binding, 'count_excess')[0]
-      assert.throws(
-        // 第五个 object ID 不能获得一套额外的独立 parser 配额。
-        () => f.native.adapter.acceptChunk(JSON.stringify(excess), 'connector_to_gateway'),
-        /object_capacity/
-      )
-      f.store.discardResponse('synthetic', call.call_id)
-      assert.equal(f.native.adapter.stats().transfer_bytes, 0)
-      for (let n = 0; n < 3; n++) {
-        const chunk = responseChunks(f, binding, 'bytes_' + n)[0]!
-        chunk.payload.total_bytes = LIMITS.object_bytes
-        chunk.payload.chunk_count = LIMITS.object_bytes / LIMITS.chunk_bytes
-        if (n < 2) {
-          f.native.adapter.acceptChunk(JSON.stringify(chunk), 'connector_to_gateway')
-        } else {
-          assert.throws(
-            // 两个 8 MiB 声明已占 16 MiB，第三个不能越过连接的 20 MiB 总预约。
-            () => f.native.adapter.acceptChunk(JSON.stringify(chunk), 'connector_to_gateway'),
-            /object_capacity/
-          )
-        }
-      }
-      assert.equal(f.native.adapter.stats().active_transfers, 2)
-      assert.equal(f.native.adapter.stats().transfer_bytes, 2 * LIMITS.object_bytes)
     } finally {
       f.close()
     }

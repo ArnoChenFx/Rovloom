@@ -28,11 +28,6 @@ test(
         validateNegotiated({ major: 2, minor: 0, capabilities: ['provider_fence'] }),
       'invalid_capabilities'
     )
-    rejects(
-      /** 未提供对象归属时拒绝无法兑现的隔离组合。 */ () =>
-        validateNegotiated({ major: 2, minor: 0, capabilities: ['rpc', 'provider_fence', 'objects'] }),
-      'unsupported_capability_combination'
-    )
     const message = frame('provider_fenced', { binding: provider })
     for (const direction of ['connector_to_gateway', 'gateway_to_connector'] as const) {
       const ctx = authenticated()

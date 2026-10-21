@@ -7,7 +7,7 @@ import type {
   ValidationMode,
   RequestGate
 } from './types.js'
-import { assertBinding, decodeWireObject } from './codec.js'
+import { assertBinding, decodeWireFrame } from './codec.js'
 import { providerScopeAllowed } from './provider.js'
 import { boundedJson, uint, hash, fail, LIMITS, sha } from './validation.js'
 
@@ -67,8 +67,8 @@ export function planResponseEvidence(
   if (anchor.state === 'outcome_unknown' && !context.connection.negotiated.capabilities.includes('late_evidence')) {
     fail('unsupported_capability')
   }
-  // 大响应只能走同样受限的逻辑对象检查，不能通过 typed 参数绕过 codec。
-  const checked = decodeWireObject(Buffer.from(boundedJson(frame, LIMITS.object_bytes)), context)
+  // 响应帧必须再走一遍受限 codec，不能通过 typed 参数绕过。
+  const checked = decodeWireFrame(Buffer.from(boundedJson(frame, LIMITS.frame_bytes)), context)
   if (checked.type !== 'response') {
     fail('invalid_evidence')
   }

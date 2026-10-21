@@ -26,16 +26,7 @@ export type Connection = AuthenticatedContext['connection']
 /** checkResultRetention 同次核验当前读取及独立保留许可，不能只检查保留位。 */
 export type Adapter = Pick<
   ReturnType<typeof createLuvusWireAdapter>,
-  | 'encode'
-  | 'decode'
-  | 'checkResult'
-  | 'checkResultRetention'
-  | 'encodeResponseObject'
-  | 'acceptChunk'
-  | 'observeMessage'
-  | 'planEvidence'
-  | 'release'
-  | 'close'
+  'encode' | 'decode' | 'checkResult' | 'checkResultRetention' | 'observeMessage' | 'planEvidence' | 'release' | 'close'
 > & {
   /** 共享桥接只观察关闭及执行/响应上下文计数，不要求 provider 暴露协议专有状态。 */
   stats(): { closed: boolean; executions: number; responses: number }

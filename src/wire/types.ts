@@ -41,7 +41,6 @@ export type Capability =
   | 'admission_context'
   | 'history_scope'
   | 'late_evidence'
-  | 'objects'
 export type VersionOffer = {
   major: number
   minor: number
@@ -131,15 +130,6 @@ export type Payloads = {
   response: { attempt: AttemptIdentity; native_response: JsonObject }
   cancel: { attempt: AttemptIdentity; reason: 'caller_cancelled' | 'deadline_exceeded' }
   heartbeat: { sequence: number }
-  object_chunk: {
-    object_id: string
-    kind: 'envelope' | 'schema_bundle'
-    total_bytes: number
-    sha256: string
-    chunk_count: number
-    index: number
-    data: string
-  }
   error: WireErrorPayload
 }
 /** 同一认证 epoch 的单 provider 来源快照；不包含 schema、原生凭据或任何执行许可。 */

@@ -151,8 +151,7 @@ contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数
 组合 contract_ref 不能强转为 schema hash。完整 provider tuple 求双方权限交集
 后才投影给原生 Policy，不从独立数组拼笛卡尔授权。原生 supported_transports
 必须显式提供，未知未来流不自动适配。
-`contract` resolver 只能返回已接纳的 handle；`schema_bundle` 重组结果不授予编译或
-登记权限。opaque handle、permit 和来源 token 均不能跨进程/重启序列化后恢复为原凭证。
+`contract` resolver 只能返回已接纳的 handle。opaque handle、permit 和来源 token 均不能跨进程/重启序列化后恢复为原凭证。
 
 ## 请求、控制与交付生命周期
 
@@ -170,25 +169,15 @@ contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数
   retention:none 可允许即时读取，证据仅元数据。过期/discarded/unavailable 或
   撤权不得输出原文、生成句柄或延长期限；事务成功前不能发布 durable responded。
 - 宿主须先 observeMessage 过滤重复，重复不得
-  再执行；acceptChunk 重组后仍走完整门禁，包内 schema 不自动进入可信 registry。
+  再执行。
   内存 handle/source token 不序列化，关闭、到期、撤权须 release；恢复缺 handle
   时拒绝，不从回复重建 permit，不通过重新派发恢复结果。
 
-默认至多 128 attempts、每个 128 control IDs、合计 16 MiB 保留 JSON 快照；
+默认至多 128 attempts、合计 16 MiB 保留 JSON 快照；
 快照逐项扣 UTF-8/转义/键/标点预算，超限先拒绝。共享 CompiledContract 可共享
 handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离。
 
-对象分片使用独立 Wire 传输子额：每连接方向最多 4 个活动对象、20 MiB 声明总长预约，
-活动对象与拒绝墓碑合计最多 4096 项；不计入上述快照字节。首片固定 30 秒截止时间，
-进度和重复片不续期，adapter 空闲维护也释放到期组装引用。内容或身份 fence 发生时，
-未完成对象尚不能可信关联到具体调用，adapter 保守释放该连接所有活动分片，保留有界 ID
-墓碑拒绝续传与短期重建；可能中止其它调用的在途分片，不据此自动重派原动作。
-
-`encodeResponseObject(responseFrame, objectId)` 只封装原 adapter 私有上下文中的响应编码，
-复用 `fragmentObject` 并返回只读的有界 Wire 文本分片；没有公开 context 或新的许可工厂。
-必须仍持有原请求状态、当前读取许可和协商的 objects，不能由 JSON、冷 adapter 或 binding
-重建。接收端复用 `acceptChunk`，只在完整内层响应验证后调用原 `commitLuvusResponse`。
-发送、背压与受保护的活读取解析见 [transport 接线](../TRANSPORT.md#响应对象与原始读取)。
+响应必须放入单个 Wire 帧（1 MiB）；超限响应不分片，Connector 写出时以预算错误失败，调用保持 outcome_unknown。发送与受保护的活读取解析见 [transport 接线](../TRANSPORT.md#响应与原始读取)。
 
 结果层创建句柄前使用原 adapter 的 `checkResultRetention(binding, nativeFrame): void`。
 它先核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发时及当前分类的保留许可；

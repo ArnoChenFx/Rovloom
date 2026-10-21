@@ -14,8 +14,7 @@ const CAPABILITIES: Readonly<Record<Capability, number>> = Object.freeze({
   admission_receipt: 0,
   admission_context: 0,
   history_scope: 0,
-  late_evidence: 0,
-  objects: 0
+  late_evidence: 0
 })
 
 // 校验版本广告，要求能力列表无重复且必需能力均已广告。
@@ -121,10 +120,6 @@ export function validateNegotiated(value: unknown, offer?: VersionOffer): assert
   }
   if (v.capabilities.includes('provider_fence') && !v.capabilities.includes('rpc')) {
     fail('invalid_capabilities')
-  }
-  // 当前对象分片没有 provider 归属字段；不能广告无法逐实例隔离的组合。
-  if (v.capabilities.includes('provider_fence') && v.capabilities.includes('objects')) {
-    fail('unsupported_capability_combination')
   }
   if (v.capabilities.includes('dispatch_refusal') && !v.capabilities.includes('rpc')) {
     fail('invalid_capabilities')

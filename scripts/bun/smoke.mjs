@@ -176,7 +176,7 @@ assert.deepEqual(
 assert.equal(typeof Router, 'function')
 assert.equal(protocol.PROTOCOL_MAJOR, 2)
 assert.equal(typeof integration.createLuvusWireAdapter, 'function')
-assert.equal(typeof wire.decodeWireObject, 'function')
+assert.equal(typeof wire.decodeWireFrame, 'function')
 assert.deepEqual(
   Object.keys(native).sort(),
   [

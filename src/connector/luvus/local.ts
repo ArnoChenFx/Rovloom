@@ -4,15 +4,15 @@ import { createReadStream } from 'node:fs'
 import { lstat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { DEFAULT_LIMITS } from '../../native-contract/index.js'
-import { boundedJson, validateTarget } from '../../wire/index.js'
+import { boundedJson, LIMITS, validateTarget } from '../../wire/index.js'
 import { LuvusAdapterError } from './types.js'
 import { pinTerminalExecution } from '../terminal-execution.js'
 import { agentSearchPath } from '../local/agent-path.js'
 import type { EndpointIdentity, LuvusLocalConfig, LuvusLocalLimits } from './types.js'
 
 const defaults: LuvusLocalLimits = Object.freeze({
-  request_bytes: DEFAULT_LIMITS.object_bytes,
-  response_bytes: DEFAULT_LIMITS.object_bytes,
+  request_bytes: LIMITS.frame_bytes,
+  response_bytes: LIMITS.frame_bytes,
   stderr_bytes: 65_536,
   discovery_bytes: DEFAULT_LIMITS.bundle_bytes,
   timeout_ms: 30_000,

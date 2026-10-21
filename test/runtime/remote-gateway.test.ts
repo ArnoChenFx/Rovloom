@@ -358,8 +358,6 @@ function snapshotSession(
     },
     checkResult: native,
     checkResultRetention: native,
-    encodeResponseObject: native,
-    acceptChunk: native,
     planEvidence: native,
     release: native,
     stats: /** 没有native上下文，关闭状态只属于本测试端口。 */ () => ({ closed, executions: 0, responses: 0 }),

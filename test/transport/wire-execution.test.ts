@@ -134,7 +134,6 @@ test(
         () => f.f.store.call(f.f.principal.id, call.call_id).state === 'outcome_unknown'
       )
       assert.equal(f.state.receivedResponses, 0)
-      assert.equal(f.state.receivedChunks, 0)
       assert.equal(f.f.store.call(f.f.principal.id, call.call_id).response, null)
       assert.equal(f.f.gateway.resolveOriginalRead(call.call_id), undefined)
       assert.equal(f.claimCount(), 1)
@@ -153,16 +152,15 @@ test(
 )
 
 test(
-  '响应对象在原上下文分片、重组后唯一提交，未协商或坏 hash 均拒绝',
+  '单帧内的响应唯一提交，超过单帧上限的响应不分片、调用保持 unknown',
   { timeout: 20_000 },
-  /** 通过真实 IPC 获取大于 transport 单帧的合法原生错误，保留完整内容并覆盖拒绝路径。 */
+  /** 通过真实 IPC 返回单帧内与超过单帧上限的合法原生错误，覆盖提交与失败收敛两条路径。 */
   async () => {
-    for (const scenario of ['complete', 'not_negotiated', 'checksum'] as const) {
-      const f = await wireFixture({ objects: scenario !== 'not_negotiated', frameBytes: 131_072 })
-      const data = { text: '汉'.repeat(75_000), nested: [{ keep: true }] }
-      f.state.corruptChunk = scenario === 'checksum'
+    for (const scenario of ['within', 'oversized'] as const) {
+      const f = await wireFixture({ frameBytes: 131_072 })
+      const data = { text: '汉'.repeat(scenario === 'within' ? 20_000 : 75_000), nested: [{ keep: true }] }
       f.native.respond(
-        /** 使用实际 native id 返回完整大错误，未放大原生 adapter 自身的在线帧预算。 */
+        /** 使用实际 native id 返回大错误，未放大原生 adapter 自身的在线帧预算。 */
         (socket, input) => {
           const request = JSON.parse(input.trim().split('\n').at(-1)!)
           socket.end(
@@ -171,50 +169,30 @@ test(
         }
       )
       try {
-        const device = f.pair('mock_object_' + scenario)
+        const device = f.pair('mock_response_' + scenario)
         const client = f.connect(device)
         await f.ready(client)
         const call = f.f.call(device.target)
         const binding = f.f.gateway.dispatch(call.call_id)
         await until(
-          /** 以真实持久结果或关闭后的 unknown 作为终结条件，分片发送完成本身不算 responded。 */
+          /** 以真实持久结果或关闭后的 unknown 作为终结条件。 */
           () => ['responded', 'outcome_unknown'].includes(f.f.store.call(f.f.principal.id, call.call_id).state)
         )
         const result = f.f.store.call(f.f.principal.id, call.call_id)
         assert.equal(f.claimCount(), 1)
         assert.equal(f.native.state.responses, 1)
-        if (scenario === 'complete') {
+        if (scenario === 'within') {
           assert.equal(result.state, 'responded')
           assert.deepEqual(JSON.parse(result.response!), {
             id: binding.native_request_id,
             error: { code: 'mock_large', message: 'preserve', data }
           })
-          assert(f.state.chunks.length > 1)
-          assert(
-            f.state.chunks.every(
-              /** 所有出站分片都满足配置的单帧预算。 */
-              (raw) => Buffer.byteLength(raw) <= 131_072
-            )
-          )
-          assert.equal(f.gateways[0]!.stats().active_transfers, 0)
-          assert.equal(f.gateways[0]!.stats().transfer_bytes, 0)
           assert(f.f.gateway.resolveOriginalRead(call.call_id))
           assert.deepEqual(f.failures, [])
         } else {
           assert.equal(result.state, 'outcome_unknown')
           assert.equal(result.response, null)
           assert.equal(f.f.gateway.resolveOriginalRead(call.call_id), undefined)
-          assert.equal(f.gateways[0]!.stats().transfer_bytes, 0)
-          if (scenario === 'checksum') {
-            assert(
-              f.failures.some(
-                /** 确认拒绝来自实际重组校验和，避免其它提前失败冒充 checksum 回归。 */
-                (failure) => failure.code === 'object_checksum'
-              )
-            )
-          } else {
-            assert.equal(f.state.chunks.length, 0)
-          }
         }
       } finally {
         await f.close()
@@ -437,85 +415,12 @@ test(
 )
 
 test(
-  '部分响应对象断线或逐片读取撤权都不提交，旧分片不进入重连会话',
-  { timeout: 20_000 },
-  /** 在未完成重组与逐片读取拒绝两个边界停下，真实原生已执行但结果只能保持 unknown。 */
-  async () => {
-    for (const cause of ['disconnect', 'permission'] as const) {
-      const f = await wireFixture({ objects: true, frameBytes: 131_072 })
-      f.state.dropLastChunk = cause === 'disconnect'
-      f.native.respond(
-        /** 提供合法且需要多片的完整错误响应，避免测试在 native 校验之前结束。 */
-        (socket, input) => {
-          const request = JSON.parse(input.trim().split('\n').at(-1)!)
-          socket.end(
-            JSON.stringify({
-              id: request.id,
-              error: { code: 'mock_large', message: 'preserve', data: { text: 'x'.repeat(225_000) } }
-            }) + '\n'
-          )
-        }
-      )
-      try {
-        const device = f.pair('mock_partial_' + cause)
-        const client = f.connect(device)
-        await f.ready(client)
-        const epoch = client.status().connection_epoch
-        if (cause === 'permission') {
-          const session = f.sessions[0]!.wire
-          const adapter = session.adapter
-          let checks = 0
-          session.adapter = {
-            ...adapter,
-            /** 首片合法；第二次实际发送复验前撤回读取 grant，必须由原 Wire 拒绝后续分片。 */
-            checkResult(binding, response) {
-              if (++checks === 2) {
-                f.f.principal.policy.grants[0]!.actions = ['dispatch', 'cancel']
-              }
-              return adapter.checkResult(binding, response)
-            }
-          }
-        }
-        const call = f.f.call(device.target)
-        f.f.gateway.dispatch(call.call_id)
-        if (cause === 'disconnect') {
-          await until(
-            /** 真实组装器必须已经持有部分对象，尚未提交内层响应。 */
-            () => f.gateways[0]!.stats().active_transfers === 1 && client.status().running === 0
-          )
-          client.disconnect()
-        }
-        await until(
-          /** 等待新的认证 epoch 及旧调用 unknown，不能根据客户端本地 close 立即推断远端已收敛。 */
-          () =>
-            client.status().phase === 'ready' &&
-            client.status().connection_epoch !== epoch &&
-            f.f.store.call(f.f.principal.id, call.call_id).state === 'outcome_unknown'
-        )
-        assert.equal(f.claimCount(), 1)
-        assert.equal(f.state.nativeCompleted, 1)
-        assert.equal(f.f.store.call(f.f.principal.id, call.call_id).response, null)
-        assert.equal(f.f.gateway.resolveOriginalRead(call.call_id), undefined)
-        assert.equal(f.gateways[0]!.stats().transfer_bytes, 0)
-        if (cause === 'permission') {
-          assert(f.state.receivedChunks <= 1)
-        }
-      } finally {
-        await f.close()
-      }
-    }
-  }
-)
-
-test(
-  '完整对象收到后证据 COMMIT 失败不报告 responded，也不保留可读取的旧 Wire',
+  '证据 COMMIT 失败不报告 responded，也不保留可读取的旧 Wire',
   { timeout: 15_000 },
-  /** 只在 Gateway 原 commitLuvusResponse 事务故障，确认本机 RpcResult 或完整重组均不能替代持久提交。 */
+  /** 只在 Gateway 原 commitLuvusResponse 事务故障，确认本机 RpcResult 不能替代持久提交。 */
   async () => {
     let failCommit = false
     const f = await wireFixture({
-      objects: true,
-      frameBytes: 131_072,
       store: {
         /** 精确拒绝响应证据的原事务，不拒绝派发锚点、accepted 或独立发送 claim。 */
         fault(point) {
@@ -525,18 +430,6 @@ test(
         }
       }
     })
-    f.native.respond(
-      /** 返回足够大的合法响应，以确保实际走原对象组装与证据提交路径。 */
-      (socket, input) => {
-        const request = JSON.parse(input.trim().split('\n').at(-1)!)
-        socket.end(
-          JSON.stringify({
-            id: request.id,
-            error: { code: 'mock_large', message: 'preserve', data: { text: 'x'.repeat(225_000) } }
-          }) + '\n'
-        )
-      }
-    )
     try {
       const device = f.pair('mock_object_commit_failure')
       const client = f.connect(device)
@@ -548,7 +441,6 @@ test(
         /** 只有实际证据提交尝试才能触发存储降级，原生完成不算持久成功。 */
         () => f.f.store.health().mode === 'storage_degraded'
       )
-      assert(f.state.chunks.length > 1)
       assert.equal(f.claimCount(), 1)
       assert.equal(f.state.nativeCompleted, 1)
       assert.equal(f.f.gateway.resolveOriginalRead(call.call_id), undefined)

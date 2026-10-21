@@ -130,7 +130,7 @@ export function createProviderResultAccess(options: ProviderResultAccessOptions)
     if (
       !Number.isSafeInteger(configured.max_response_bytes) ||
       configured.max_response_bytes < 1 ||
-      configured.max_response_bytes > LIMITS.object_bytes
+      configured.max_response_bytes > LIMITS.frame_bytes
     ) {
       throw new GatewayError('result_port_invalid')
     }

@@ -17,12 +17,11 @@ capabilities/required 最多各 64 项，无重复；required 必须属于本方
 | dispatch_refusal | Connector 确定未写出的逐调用拒绝；同时要求 rpc |
 | provider_snapshot | Connector 实测 provider 来源快照；同时要求 rpc，不交付 schema 或 opaque handle |
 | terminal_execution_state | Connector 原本机终端开关的布尔观察；同时要求 rpc，仅供目录 |
-| provider_fence | 普通 RPC 的逐 provider 来源永久撤回；同时要求 rpc，当前不与 objects 组合 |
+| provider_fence | 普通 RPC 的逐 provider 来源永久撤回；同时要求 rpc |
 | admission_receipt | Gateway 原去重截止和请求摘要的认证交付；同时要求 rpc |
 | admission_context | 在原 receipt 内交付完整登记上下文与有序失效；同时要求 admission_receipt 和 rpc |
 | history_scope | 显式登记 history_epoch/client_request_key |
 | late_evidence | unknown 同次 attempt 补证 |
-| objects | 有界 envelope/schema_bundle 分片 |
 
 业务帧使用已选定 minor，不能按消息重新猜版本或放行未知 feature。welcome 必须匹配本地保存的 offer/required，
 并用 in_reply_to 核对原握手 message_id；收到 welcome 不自动产生已认证上下文。
@@ -178,7 +177,6 @@ deadline 是正安全整数毫秒；codec 不调用不可信设备时钟。实�
 | cancel | Gateway → Connector | attempt, reason |
 | heartbeat | 双向 | sequence |
 | error | 双向，预认证或已认证 | source, code, retryable, cause_message_id? |
-| object_chunk | 双向，schema_bundle 仅 Connector → Gateway | object_id, kind, total_bytes, sha256, chunk_count, index, data |
 
 ## 可选 provider 来源快照
 
@@ -200,8 +198,7 @@ authenticated/source_verified 自报字段。
 codec 成功仅证明消息边界。受保护配置先固定 schema 原字节及版本/hash/revisions，
 由 Gateway 本地原 Worker 编译；runtime 再核 canonical binding、完整 Target、能力、
 当前 SocketChannel/Store epoch，成功后才发布 live source。此流程不反序列化 native
-opaque，不代替 Connector 的实际 binary/socket/process 核验。schema_bundle 分片仍不
-是 provider 注册或任意 schema 信任入口。
+opaque，不代替 Connector 的实际 binary/socket/process 核验。schema 不经 Wire 传输，不是 provider 注册或任意 schema 信任入口。
 
 ## 可选本机终端开关观察
 
@@ -231,8 +228,7 @@ adapter、快照 pin、接纳证明和结果读取上下文。已锚定但未有
 丢弃判断，不解码 native 正文、不重建原 attempt/permit，也不生成响应。已协商 `dispatch_refusal`
 的迟到 `dispatch_refused` 同样只丢弃，仍核验固定拒绝码，不将原 unknown 倒退为 not_dispatched。
 错误 epoch、其它来源
-或非白名单消息仍按原协议拒绝。此扩展当前拒绝与 `objects` 同时协商，因为分片没有独立 provider
-归属；它不提供原生事件、终端流或对象分片的逐实例隔离承诺。
+或非白名单消息仍按原协议拒绝。它不提供原生事件或终端流的逐实例隔离承诺。
 
 ## 可选原截止交付
 
@@ -420,16 +416,10 @@ expired/discarded/unavailable 或当前分类/内容权限/read scope 未许可�
 | 单 message | 1 MiB UTF-8 JSON；非法 UTF-8/JSON/BOM/孤立 surrogate 拒绝 |
 | JSON | 深度 0..64，最多 100,000 个 value 节点；编码拒绝循环/getter/toJSON 类对象/symbol/稀疏数组 |
 | 网关 ID | `[A-Za-z0-9_-]{1,128}`；原生 request ID `[A-Za-z0-9._:-]{1,128}`；摘要 64 位小写 hex |
-| 对象/bundle | envelope 8 MiB / schema_bundle 16 MiB，各自独立；不扩大原生广告的更低限额 |
-| 分片 | 原始字节 64 KiB，最后一片短，规范 padded base64；chunk_count 精确 ceil，index 从 0 顺序 |
-| 重组 | 同一认证连接/方向最多 4 对象、20 MiB 预约，首片起固定 30 秒，重复/进度不续期 |
+| 响应 | 必须放入单个 message；超限不分片，写出失败，调用保持 unknown；不扩大原生广告的更低限额 |
 | MessageWindow | 默认 4096 个已验证逻辑消息、固定 60 秒；相同 ID/内容 duplicate，冲突拒绝，满窗拒绝 |
 
-分片描述冲突/片冲突隔离，错序拒绝，完成后校验完整原始字节 SHA-256；完成/失败对象 ID 有界保留 30 秒关闭窗。
-超时于下一次 push 清理，内存始终受预约与数量上限；断开后销毁该连接 assembler。checksum 不是认证。
-重组 envelope 再完整走 v2 provider/契约/关联/原生门禁，不允许嵌套 object_chunk；bundle 只作为未授信 JSON 对象交付，
-需原生模块离线编译引用闭包/dialect/根/条件约束后才能使用，不联网抓任意 URL。
-原生默认 bundle 编译预算为 2 MiB/64 documents，与 Wire 重组预算独立；完整数值见
+原生默认 bundle 编译预算为 2 MiB/64 documents；完整数值见
 [原生校验接口](NATIVE-CONTRACT.md#契约与内存许可)。首版 Luvus 只编译宿主已审核的本地安装
 schema，由 Bun Worker 完整编译并生成 standalone，以 2 秒逻辑接纳期限、取消及迟到拒绝
 控制初始化；宿主同步执行已接纳的生成函数，不承诺硬 heap 上限或 Worker 物理退出时限。

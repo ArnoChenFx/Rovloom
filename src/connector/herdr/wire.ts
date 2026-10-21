@@ -77,11 +77,6 @@ export function createHerdrWireAdapter(backend: HerdrReadonlyBackend, core = cre
     core.checkResult(context)
   }
 
-  /** 本切片不分片或组装对象，也不建立任何原生流控制许可。 */
-  function unsupported(): never {
-    fail('herdr_transport_unsupported')
-  }
-
   return Object.freeze({
     /** 只在完整 Wire 校验成功后准备原请求；准备不发送原生字节或代表执行已完成。 */
     encode: guarded(
@@ -134,12 +129,6 @@ export function createHerdrWireAdapter(backend: HerdrReadonlyBackend, core = cre
         core.releaseBinding(binding)
       }
     ),
-    /** 普通 RPC 不提供对象传输；大响应保持失败，不能借对象入口绕过方法约束。 */
-    encodeResponseObject: unsupported,
-    /** 不接受离线 Wire 对象入口。 */
-    decodeObject: unsupported,
-    /** 不分配对象组装器或隐式分片缓冲。 */
-    acceptChunk: unsupported,
     /** 关闭本 adapter 的桥接状态与去重窗，不停止 Herdr 实例。 */
     close(): void {
       windows.clear()

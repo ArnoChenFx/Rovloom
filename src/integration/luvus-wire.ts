@@ -23,15 +23,12 @@ import {
   boundedJson,
   contractRef,
   decodeWireFrame,
-  decodeWireObject,
   encodeWireFrame,
-  fragmentObject,
   fail,
   hash,
   LIMITS,
   MessageWindow,
   object,
-  ObjectAssembler,
   planResponseEvidence,
   providerFor,
   providerScopeAllowed,
@@ -133,8 +130,6 @@ type ResponseState = {
   contentExpires: number
   snapshotBytes: number
 }
-type AssemblySlot = { assembler: ObjectAssembler | undefined; expires: number; reserved: number }
-type AssemblyEntry = { connection: string; machine: string; objects: Map<string, AssemblySlot>; reserved: number }
 // 限制序列化字节数后复制输入，隔离外部对象修改与私有状态。
 const copy = <T>(value: T, maxBytes: number = LIMITS.frame_bytes): T => JSON.parse(boundedJson(value, maxBytes)) as T
 
@@ -206,7 +201,6 @@ export function createLuvusWireAdapter(
   let unsubscribe: (() => void) | undefined
   const pendingInvalidations = new Map<string, LedgerInvalidation>()
   const handles = new WeakMap<object, State>()
-  const assemblers = new Map<Direction, AssemblyEntry>()
   const windows = new Map<Direction, { connection: string; window: MessageWindow }>()
   let observedTime = -1
 
@@ -215,7 +209,7 @@ export function createLuvusWireAdapter(
     try {
       const value = backend.now()
       uint(value)
-      if (value < observedTime || !Number.isSafeInteger(value + LIMITS.transfer_timeout_ms)) {
+      if (value < observedTime || !Number.isSafeInteger(value)) {
         fail('clock_untrusted')
       }
       observedTime = value
@@ -225,61 +219,6 @@ export function createLuvusWireAdapter(
       invalidate({ kind: 'closed' })
       fail('clock_untrusted')
     }
-  }
-
-  // 释放该对象的全部组装引用，但继续保留有界 ID 墓碑，拒绝原传输在短期内重新开始。
-  function closeAssembly(entry: AssemblyEntry, slot: AssemblySlot, now: number): void {
-    if (slot.assembler) {
-      entry.reserved -= slot.reserved
-      slot.reserved = 0
-      slot.assembler = undefined
-      slot.expires = now + LIMITS.transfer_timeout_ms
-    }
-  }
-
-  // 部分内容尚不能可信解析到调用；按可信设备作用域丢弃在途正文，不受其它设备的广播通知影响。
-  function flushAssemblies(now: number, machine: string): void {
-    for (const entry of assemblers.values()) {
-      if (entry.machine !== machine) {
-        continue
-      }
-      for (const slot of entry.objects.values()) {
-        closeAssembly(entry, slot, now)
-      }
-    }
-  }
-
-  // 按首片固定截止时间主动释放空闲组装器，再按独立期限清理只含元数据的对象墓碑。
-  function maintainAssemblies(now: number): void {
-    for (const entry of assemblers.values()) {
-      for (const [objectId, slot] of entry.objects) {
-        if (now >= slot.expires) {
-          if (slot.assembler) {
-            closeAssembly(entry, slot, now)
-          } else {
-            entry.objects.delete(objectId)
-          }
-        }
-      }
-    }
-  }
-
-  // 只返回传输预约和对象数量，不暴露分片 Buffer、请求或响应正文。
-  function transferStats() {
-    let transfer_bytes = 0
-    let active_transfers = 0
-    let object_tombstones = 0
-    for (const entry of assemblers.values()) {
-      transfer_bytes += entry.reserved
-      for (const slot of entry.objects.values()) {
-        if (slot.assembler) {
-          active_transfers++
-        } else {
-          object_tombstones++
-        }
-      }
-    }
-    return { transfer_bytes, active_transfers, object_tombstones }
   }
 
   let undo: Map<string, State | undefined> | undefined
@@ -372,7 +311,6 @@ export function createLuvusWireAdapter(
     if (!state) {
       return
     }
-    flushAssemblies(time(), state.attempt.binding.machine_id)
     if (!state.permit || !state.retention) {
       dropExecution(name)
       return
@@ -466,14 +404,7 @@ export function createLuvusWireAdapter(
       for (const name of responseStates.keys()) {
         dropResponse(name)
       }
-      assemblers.clear()
       windows.clear()
-      return
-    }
-    try {
-      flushAssemblies(time(), event.machine_id)
-    } catch {
-      invalidate({ kind: 'closed' })
       return
     }
     for (const [name, state] of states) {
@@ -512,7 +443,6 @@ export function createLuvusWireAdapter(
       invalidate({ kind: 'closed' })
       return
     }
-    maintainAssemblies(now)
     for (const [name, state] of states) {
       if (state.retention && now >= state.retention.content_expires_at) {
         compact(name)
@@ -974,81 +904,6 @@ export function createLuvusWireAdapter(
       return encodeWireFrame(snapshot, context(direction))
     },
 
-    /** 只在原请求的私有 Wire 上下文中校验并分片响应，不向调用方暴露 context、validator 或许可。 */
-    encodeResponseObject(
-      frame: Extract<AuthenticatedEnvelope, { type: 'response' }>,
-      objectId: string
-    ): readonly string[] {
-      const snapshot = copy(frame, LIMITS.object_bytes)
-      if (snapshot.type !== 'response') {
-        fail('response_frame_required')
-      }
-      const ctx = context('connector_to_gateway')
-      return Object.freeze(
-        fragmentObject(snapshot, 'envelope', objectId, ctx).map(
-          /** 每片仍通过同一认证方向的现行 Wire 编码与单帧限制。 */
-          (chunk) => encodeWireFrame(chunk, ctx)
-        )
-      )
-    },
-
-    // 对重组后的对象再次执行 Wire 和原生校验，再同步流关闭状态。
-    decodeObject(input: Uint8Array, direction: Direction) {
-      return decodeWireObject(input, context(direction))
-    },
-
-    // 按方向和连接维护逐对象组装器，固定首片期限、总预约和 ID 墓碑，完成后执行完整对象校验。
-    acceptChunk(input: string | Uint8Array, direction: Direction) {
-      const ctx = context(direction)
-      const frame = decodeWireFrame(input, ctx)
-      if (frame.type !== 'object_chunk' || !('connection_epoch' in frame)) {
-        fail('invalid_chunk')
-      }
-      const stamp = boundedJson(ctx.connection)
-      const now = time()
-      let entry = assemblers.get(direction)
-      if (!entry || entry.connection !== stamp) {
-        entry = { connection: stamp, machine: ctx.connection.machine_id, objects: new Map(), reserved: 0 }
-        assemblers.set(direction, entry)
-      }
-      let slot = entry.objects.get(frame.payload.object_id)
-      if (slot && !slot.assembler) {
-        fail('object_closed')
-      }
-      if (!slot) {
-        if (frame.payload.index !== 0) {
-          fail('chunk_out_of_order')
-        }
-        let active = 0
-        for (const value of entry.objects.values()) {
-          if (value.assembler) {
-            active++
-          }
-        }
-        if (
-          active >= LIMITS.transfers ||
-          entry.objects.size >= LIMITS.dedup_entries ||
-          entry.reserved + frame.payload.total_bytes > LIMITS.buffered_bytes
-        ) {
-          fail('object_capacity')
-        }
-        slot = {
-          assembler: new ObjectAssembler(),
-          expires: now + LIMITS.transfer_timeout_ms,
-          reserved: frame.payload.total_bytes
-        }
-        entry.objects.set(frame.payload.object_id, slot)
-        entry.reserved += slot.reserved
-      }
-      const assembler = slot.assembler!
-      try {
-        return assembler.push(frame, ctx, now)
-      } finally {
-        if (assembler.activeTransfers === 0) {
-          closeAssembly(entry, slot, now)
-        }
-      }
-    },
     checkResult: result,
     checkResultRetention: resultRetention,
     // 按方向与连接维护消息去重窗口，冲突时由外层原子包装回滚新许可。
@@ -1140,14 +995,10 @@ export function createLuvusWireAdapter(
       executions: states.size,
       responses: responseStates.size,
       snapshot_bytes: retainedBytes,
-      ...transferStats(),
       closed
     }),
     decode: guarded(atomic(api.decode)),
     encode: guarded(atomic(api.encode)),
-    encodeResponseObject: guarded(atomic(api.encodeResponseObject)),
-    decodeObject: guarded(atomic(api.decodeObject)),
-    acceptChunk: guarded(atomic(api.acceptChunk)),
     checkResult: guarded(atomic(api.checkResult)),
     checkResultRetention: guarded(atomic(api.checkResultRetention)),
     observeMessage: guarded(atomic(api.observeMessage)),
