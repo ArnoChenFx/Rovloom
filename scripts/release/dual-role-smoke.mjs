@@ -116,7 +116,7 @@ export function startDualRoleSmokeProcess(
 }
 
 /** 只观察Connector自己真实创建的直接child；不以发现PID签发来源或补杀native进程。 */
-function nativeChildren(connector, binary) {
+export function nativeChildren(connector, binary) {
   const result = []
   // 部分Linux内核未启用/proc/<pid>/task/<pid>/children；仅按真实PPID筛选本轮子进程。
   for (const entry of readdirSync('/proc')) {
@@ -137,7 +137,7 @@ function nativeChildren(connector, binary) {
 }
 
 /** 内核启动tick区别已退出子进程与后来复用同一PID的无关进程。 */
-function sameNativeChildAlive(child) {
+export function sameNativeChildAlive(child) {
   try {
     const stat = readFileSync(`/proc/${child.pid}/stat`, 'utf8')
     return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] === child.started

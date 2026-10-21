@@ -165,6 +165,12 @@ test(
           ),
         { code: 'internal_error', message: 'Gateway service rejected the request' }
       )
+      f.readFailure(new GatewayError('request_key_conflict'))
+      await assert.rejects(
+        /* 同key不同意图是公开conflict，而不是internal_error。 */ () =>
+          f.service.execute('runtime_result_read', { result_id: 'result_fixture' }, f.context),
+        { code: 'conflict' }
+      )
       f.service.close()
       await assert.rejects(
         /* 关闭门面后不能再进入既有runtime.admit。 */ () => f.service.execute('runtime_call', f.args, f.context),
