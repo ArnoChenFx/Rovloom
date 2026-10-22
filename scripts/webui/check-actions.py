@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """通过真实 Chromium 与显式临时 Store/会话 handler 验证页面三动作；不接入用户设备。"""
+import os
 import argparse
 import json
 from pathlib import Path
@@ -67,7 +68,7 @@ def main():
         errors.append(str(error))
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         for language in ['zh-CN', 'en']:
             for theme in ['light', 'dark']:
                 for width in [1280, 320]:

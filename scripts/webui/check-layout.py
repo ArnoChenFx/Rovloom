@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """在真实 Chromium 验证控制台的可读布局与原生折叠交互；截图仅使用显式隔离 fixture。"""
+import os
 import argparse
 import json
 import runpy
@@ -69,7 +70,7 @@ def main():
         errors.append(str(error))
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = playwright.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         for language in ['zh-CN', 'en']:
             for theme in ['light', 'dark']:
                 context = browser.new_context(locale=language, color_scheme=theme,

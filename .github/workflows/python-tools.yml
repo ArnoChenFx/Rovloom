@@ -1,0 +1,28 @@
+# 维护者在升级 Herdr / Luvus 版本时使用的 Python 工具（契约采集、审计、只读验证）的单元测试。
+# 它们不属于产品运行路径，但会随原生契约变化被修改，所以不能再是无人执行的代码。
+name: Native contract tools
+on:
+  pull_request:
+    paths:
+      - scripts/herdr/**
+      - scripts/luvus/**
+      - test/herdr/**
+      - test/luvus/**
+      - test/fixtures/herdr/**
+      - .github/workflows/python-tools.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python-tools:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Unit tests
+        run: |
+          for file in test/herdr/test_*.py test/luvus/test_endpoint.py; do
+            echo "== $file"
+            python3 "$file"
+          done
