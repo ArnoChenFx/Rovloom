@@ -52,9 +52,9 @@ def main():
     try:
         docker('network', 'create', net)
         gateway_cmd = ['docker', 'run', '-it', '--rm', '--name', gw_name, '--network', net, '-p', '127.0.0.1:9444:9444',
-                       *common, '-e', 'PATH=/usr/bin:/bin', '-v', f'{home_g}:/home/rv', args.image, 'rovloom', 'gateway']
+                       *common, '-e', 'PATH=/usr/local/bin:/usr/bin:/bin', '-v', f'{home_g}:/home/rv', args.image, 'rovloom', 'gateway']
         connector_cmd = ['docker', 'run', '-it', '--rm', '--name', cn_name, '--network', net,
-                         *common, '-e', 'PATH=/opt/herdr:/usr/bin:/bin', '-v', f'{home_c}:/home/rv',
+                         *common, '-e', 'PATH=/opt/herdr:/usr/local/bin:/usr/bin:/bin', '-v', f'{home_c}:/home/rv',
                          '-v', f'{herdr_dir}:/opt/herdr:ro', args.image, 'rovloom', 'connector']
         env = {**os.environ}
         # Connector 首次启动自动生成用户文件，再按文档选择 Herdr。
@@ -65,7 +65,7 @@ def main():
         open(path_c, 'w').write(json.dumps(cc, indent=2) + '\n'); os.chmod(path_c, 0o600)
 
         # “Gateway 未安装 runtime”：Gateway 容器里找不到 herdr；Connector 容器看不到 Gateway 的数据目录。
-        probe = docker('run', '--rm', '--user', uid_gid, '-e', 'PATH=/usr/bin:/bin', args.image, 'sh', '-c', 'command -v herdr || echo absent')
+        probe = docker('run', '--rm', '--user', uid_gid, '-e', 'PATH=/usr/local/bin:/usr/bin:/bin', args.image, 'sh', '-c', 'command -v herdr || echo absent')
         assert probe.stdout.strip() == 'absent', probe.stdout
         gateway = Term('gateway', gateway_cmd, env, home_g); terms.append(gateway)
         gateway.expect('Pair one Connector'); gateway.send('y\n')
