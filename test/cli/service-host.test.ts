@@ -157,29 +157,44 @@ test(
         code: 'unsafe_installation'
       }
     )
-    for (const platform of ['darwin', 'win32'] as const) {
-      const target = sampleSpec(platform)
-      assert.throws(
-        /* 原生声明可生成，不代表角色运行时已跨平台。 */ () =>
-          assertServiceProduct(target, { ...environment, platform, executable: target.executable }),
-        { code: 'backend_unavailable' }
-      )
-    }
+    // macOS 的原生声明可生成，但 Connector 运行时尚未跨到该平台；Windows x64 已有真实 e2e，arm64 没有。
+    const darwin = sampleSpec('darwin')
+    assert.throws(
+      /* 原生声明可生成，不代表角色运行时已跨平台。 */ () =>
+        assertServiceProduct(darwin, { ...environment, platform: 'darwin', executable: darwin.executable }),
+      { code: 'backend_unavailable' }
+    )
+    const windows = sampleSpec('win32')
+    assertServiceProduct(windows, { ...environment, platform: 'win32', arch: 'x64', executable: windows.executable })
+    assert.throws(
+      /* Windows arm64 尚无 Connector 端到端验证。 */ () =>
+        assertServiceProduct(windows, {
+          ...environment,
+          platform: 'win32',
+          arch: 'arm64',
+          executable: windows.executable
+        }),
+      { code: 'backend_unavailable' }
+    )
   }
 )
 
 test(
-  'Windows当前单文件Gateway可接服务，仍拒绝尚无本机owner的Connector',
+  'Windows单文件Gateway可接服务（x64/arm64），Connector服务只接x64',
   /* 纯产品能力检查不注册任务、不读取另一用户目录。 */ () => {
     const spec = { ...sampleSpec('win32'), role: 'gateway' as const }
     for (const arch of ['x64', 'arm64']) {
       const environment = { platform: 'win32', arch, executable: spec.executable, standalone: true }
       assertServiceProduct(spec, environment)
-      assert.throws(
-        /* 服务后端不能赋予Windows尚未实现的native Connector能力。 */ () =>
-          assertServiceProduct({ ...spec, role: 'connector' }, environment),
-        { code: 'backend_unavailable' }
-      )
+      const connector = { ...spec, role: 'connector' as const }
+      if (arch === 'x64') {
+        assertServiceProduct(connector, environment)
+      } else {
+        assert.throws(
+          /* Windows arm64 尚无 Connector 端到端验证，继续拒绝。 */ () => assertServiceProduct(connector, environment),
+          { code: 'backend_unavailable' }
+        )
+      }
     }
   }
 )

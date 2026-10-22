@@ -118,6 +118,8 @@ def main():
     ap.add_argument('--luvus-dir', help='含 luvus.exe 的官方 Luvus 目录（与 --herdr-dir 二选一）')
     ap.add_argument('--pre-existing', action='store_true',
                     help='先像用户那样启动 Luvus default 会话，再部署 Connector：应附着它而不是再起第二个')
+    ap.add_argument('--service', action='store_true',
+                    help='就绪后停掉终端 Connector，改由开机任务（登录用户，S4U）运行并验证 MCP 链路')
     ap.add_argument('--kill-luvus', action='store_true', help='同 --kill-herdr，用于 Luvus')
     ap.add_argument('--work', help='工作目录（默认系统临时目录下新建）')
     ap.add_argument('--kill-herdr', action='store_true',
@@ -132,6 +134,9 @@ def main():
     work = os.path.abspath(args.work or tempfile.mkdtemp(prefix='rq-'))
     os.makedirs(work, exist_ok=True)
     home_g, home_c, tools = (os.path.join(work, n) for n in ('g', 'c', 'bin'))
+    if args.service:
+        # 开机任务的进程环境来自账户本身，不能被伪造；Connector 使用真实用户目录，状态目录与 PATH 显式写进配置。
+        home_c = os.environ['USERPROFILE']
     for home in (home_g, home_c):
         for sub in ('AppData\\Roaming', 'AppData\\Local\\Temp'):
             os.makedirs(os.path.join(home, sub), exist_ok=True)
@@ -152,6 +157,9 @@ def main():
         cfg = json.load(open(path, encoding='utf-8'))
         if kind == 'herdr':
             cfg['native'] = {'provider': 'herdr'}
+        if args.service:
+            cfg['data'] = {'directory': os.path.join(work, 'd')}
+            cfg.setdefault('native', {})['runtime_bin_dirs'] = [herdr_dir]
         open(path, 'w', encoding='utf-8').write(json.dumps(cfg, indent=2) + '\n')
 
         existing = []
@@ -201,6 +209,23 @@ def main():
         if args.pre_existing:
             assert servers == existing, f'Connector must attach, not start another: {existing} -> {servers}'
         status = 0
+        if args.service:
+            account = os.environ['USERNAME']
+            run = lambda *a: subprocess.run([rov, 'service', *a], capture_output=True, encoding='utf-8',
+                                            errors='replace', timeout=120)
+            connector.proc.terminate(force=True)  # 终端 Connector 退出，之后只由开机任务提供原生
+            time.sleep(2.0)
+            ready_before = gateway.clean_log().count('connector_ready')
+            for step in (['install', '--role', 'connector', '--workdir', home_c, '--user', account, '--config', path],
+                         ['start', '--role', 'connector']):
+                done = run(*step)
+                print('SERVICE', step[0], done.returncode, (done.stdout + done.stderr).strip()[:400], flush=True)
+                assert done.returncode == 0, f'service {step[0]} failed'
+            deadline = time.time() + 120
+            while time.time() < deadline and gateway.clean_log().count('connector_ready') <= ready_before:
+                time.sleep(1.0)
+            assert gateway.clean_log().count('connector_ready') > ready_before, 'service Connector did not connect'
+            print('SERVICE_READY', flush=True)
         if kill_server:
             before = native_servers(herdr_dir, exe)
             assert before, 'no server to kill'
@@ -235,6 +260,15 @@ def main():
     finally:
         for term in reversed(terms):
             term.stop()
+        if args.service:
+            # 先让任务收到正常停止请求，再撤销开机登记；尽力而为，不影响测试结论。
+            for step in (['stop', '--role', 'connector'], ['uninstall', '--role', 'connector']):
+                try:
+                    done = subprocess.run([rov, 'service', *step], capture_output=True, encoding='utf-8',
+                                          errors='replace', timeout=120)
+                    print('SERVICE', step[0], done.returncode, (done.stdout + done.stderr).strip()[:200], flush=True)
+                except Exception as error:
+                    print('SERVICE', step[0], 'error', error, flush=True)
         # 自建的 native 是用户的持久会话，Connector 退出后仍在运行；测试结束时清理本次部署的进程。
         subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command',
                         f"Get-Process {kind} -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -ieq '{os.path.join(herdr_dir, exe)}' }} | Stop-Process -Force"],

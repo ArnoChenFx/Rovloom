@@ -18,8 +18,9 @@ Boot startup does not require an interactive login. LaunchAgents, user login tas
 and `ONLOGON` are not used. A normal Bun executable is not registered as an SCM
 service: the Windows backend uses a native boot-triggered task with no stored password.
 S4U runs on a non-interactive desktop without requiring a login. Windows limits
-its network-resource and encrypted-file access; interactive native Connector
-sessions are not enabled by this backend. No profile directory is queried or created.
+its network-resource and encrypted-file access; the Connector service has no
+interactive desktop, only attaching to (or starting under that account) the persistent
+Herdr / Luvus processes, with no interactive terminal sessions. No profile directory is queried or created.
 
 - `install` enables future boot startup and does not start the role. Repeating the
   same registration is safe; another executable/config/account is a conflict.
@@ -61,7 +62,7 @@ Services receive no interactive input and do not enter CLI pairing/setup prompts
 Systemd uses null stdin, launchd uses `/dev/null`, and Windows runs under its
 selected user with `--non-interactive`. Task Scheduler can supply TTY handles on a
 non-interactive desktop, so this explicit flag disables local setup even then.
-It still validates the same configuration and role backend. Local native Connector capability remains Linux x64.
+It still validates the same configuration and role backend. Local native Connector capability is Linux x64 and Windows x64.
 Starting a configured service is distinct from native-provider or Agent readiness.
 
 System requests have bounded output/time; state observation is bounded and requires
@@ -109,7 +110,7 @@ Windows使用显式选择的既有用户开机任务，不另查或创建账户p
 
 Linux 使用系统 unit，macOS 使用 system LaunchDaemon，Windows 使用既有用户的S4U
 开机任务，不保存密码、不要求先登录，不把普通控制台程序冒充 SCM 服务。
-S4U是非交互桌面，Windows对其网络资源和加密文件访问有系统限制；不据此启用本机Connector会话。
+S4U是非交互桌面，Windows对其网络资源和加密文件访问有系统限制；Connector 服务没有交互桌面，只附着（或在该账户下自建）Herdr / Luvus 的持久进程，不提供交互式终端会话。
 系统服务需要正常 OS 授权；
 CLI 不自动提权、不创建账户、不修改已有系统权限。
 
@@ -119,7 +120,7 @@ CLI 不自动提权、不创建账户、不修改已有系统权限。
 UID/mode、ACL、祖先防替换或文件 ID 作为前提。服务不进入交互配对/初始化；Linux/macOS的stdin为空。
 Windows自动传入`--non-interactive`，即使Task Scheduler非交互桌面提供TTY句柄也不进入本地引导；
 仍核对同一配置及角色后端，不授予默认身份。
-本机 native Connector 仍限 Linux x64，监管 running 不证明 provider/Agent 就绪。
+本机 native Connector 支持 Linux x64 与 Windows x64，监管 running 不证明 provider/Agent 就绪。
 
 卸载不删除用户配置、数据库、日志、凭据或目录。仅清理所选角色的精确登记；同名异物拒绝
 覆盖。保留普通排他创建、fsync、数据库事务和必要互斥，防止重复操作与误删数据。

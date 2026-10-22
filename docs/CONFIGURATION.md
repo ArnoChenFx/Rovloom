@@ -405,9 +405,9 @@ stop/restart may terminate the task directly; do not treat it as native rollback
 | `config check` | Normal OS file access | Normal OS file access | Normal OS file access |
 | Missing role-file creation | Available | Available | Available |
 | Gateway startup / `config check-runtime` | Available | Available | Available |
-| First-pairing approval | Local terminal required | Not yet available | Not available |
-| Native Connector | This guide covers Linux x64 | Not supported | Not supported |
-| Service actions | Production systemd backend connected; native Connector on x64 | Gateway system LaunchDaemon; local Connector rejected | Gateway user BootTrigger task; native Connector rejected |
+| First-pairing approval | Local terminal required | Not yet available | Local terminal required (x64) |
+| Native Connector | Linux x64 | Not supported | x64: attaches to the Herdr / Luvus you already run (starts one only if absent); isolated managed mode is not supported on Windows |
+| Service actions | Production systemd backend connected; native Connector on x64 | Gateway system LaunchDaemon; local Connector rejected | Gateway and x64 native Connector both use a boot-triggered task for an existing user (S4U) |
 | `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
 
 There is no working Rovloom service-status query in this preview.

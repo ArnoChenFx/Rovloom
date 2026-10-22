@@ -5,7 +5,7 @@
 运行一个 **Gateway**，作为 AI 客户端的 MCP 入口。在每台运行 Luvus 或 Herdr 的机器上
 运行一个 **Connector**，由它主动连接 Gateway。两个角色也可以运行在同一台机器上。
 
-Gateway 支持 Linux/macOS/Windows，下面的首次配对和原生 Connector 引导要求 Linux x64。
+Gateway 支持 Linux/macOS/Windows，下面的首次配对和原生 Connector 引导支持 Linux x64 与 Windows x64（Windows 上 Connector 附着你已在运行的 Herdr / Luvus，没有才自建）。
 Agent/模型登录引导尚不可用；全新安装目前还不能只靠 Rovloom
 完成模型设置。
 
@@ -181,8 +181,8 @@ rovloom config check --role connector
 
 先在 Connector 按 Ctrl-C 并等待退出，再关闭 Gateway。下次使用相同用户文件和数据，
 运行相同命令即可。Gateway也可使用Linux systemd或macOS系统LaunchDaemon；本机Connector
-服务仍限Linux x64。[开机服务](SERVICE.md#简体中文)说明五项命令、正常系统授权及账户/配置选择。
-Windows Gateway使用既有用户开机任务及同一配置文件；本机Connector服务仍限Linux x64。
+服务支持Linux x64与Windows x64。[开机服务](SERVICE.md#简体中文)说明五项命令、正常系统授权及账户/配置选择。
+Windows的Gateway与x64本机Connector都使用既有用户开机任务及同一配置文件。
 自动替换程序更新仍不可用。
 
 | 问题 | 处理方法 |

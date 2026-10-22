@@ -7,7 +7,8 @@ on each machine where Luvus or Herdr runs; it connects out to the Gateway.
 Both roles can run on the same machine.
 
 Gateway runs on Linux/macOS/Windows. The guided first-pairing and native Connector
-flow below requires Linux x64. Guided Agent/model login is not available yet. A new installation cannot complete model setup through Rovloom alone.
+flow below runs on Linux x64 and Windows x64 (on Windows the Connector attaches to the
+Herdr / Luvus you already run, and starts one only if none is running). Guided Agent/model login is not available yet. A new installation cannot complete model setup through Rovloom alone.
 
 ## 1. Prepare the programs
 
@@ -207,10 +208,9 @@ also be absolute; `~` and environment variables are not expanded there.
 Stop the Connector with Ctrl-C and wait for it to exit, then stop the Gateway.
 Next time, run the same commands with the same user files and data. Gateway can
 also run as a Linux systemd or macOS system LaunchDaemon; native Connector service
-support remains Linux x64. See [boot services](SERVICE.md) for the five commands,
-required OS authorization and account/configuration choices. Windows Gateway uses
-an existing user's boot-triggered task and the same config file; native Connector
-service remains Linux x64. Automatic update replacement remains unavailable.
+support is Linux x64 and Windows x64. See [boot services](SERVICE.md) for the five commands,
+required OS authorization and account/configuration choices. On Windows both Gateway
+and the x64 native Connector use an existing user's boot-triggered task and the same config file. Automatic update replacement remains unavailable.
 
 | Problem | What to do |
 |---|---|
