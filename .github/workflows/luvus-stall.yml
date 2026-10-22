@@ -1,7 +1,9 @@
 # TEMP: 在 Windows 上重复运行 Luvus 场景以复现并定位 connector_accepted 停滞
 name: Luvus stall repro
 on:
-  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/luvus-stall.yml
 permissions:
   contents: read
 jobs:
