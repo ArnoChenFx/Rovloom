@@ -14,10 +14,12 @@ bun test ./test/site   # Translation coverage, real doc links, build and subpath
 ```
 
 The development server also serves the site under `/Rovloom/`, matching Pages.
-Relative assets work at both the domain root and the project path. The version
-label is read from `package.json`; it is not fetched from GitHub in the browser.
+Relative assets work at both the domain root and the project path. Offline previews
+read the version from `package.json`. CI fetches GitHub's `/releases/latest` metadata
+and supplies it through `SITE_RELEASE_FILE`; the build uses that release's tag for
+the download target and version label. Visitors make no GitHub API requests.
 The original transparent brand mark is copied byte-for-byte from `docs/assets/brand`.
-Update `content.js` in both languages when capabilities or Issue references change.
+Update `content.js` in both languages when capabilities change.
 
 ## GitHub Pages
 
@@ -30,6 +32,17 @@ artifact deployment and a job-scoped OIDC token, without a PAT or external host.
 Pages must be enabled for GitHub Actions; the configure action attempts initial
 enablement, which may require a repository administrator when account settings
 or integration permissions prevent it. No custom domain is configured.
+
+After this workflow is merged into the default branch, successful `Tagged product
+release` workflow runs automatically rebuild and deploy the site. A separate
+`release.published` trigger covers releases published manually or by another token;
+`workflow_run` covers the repository's publisher using `GITHUB_TOKEN`, which does
+not trigger a second workflow through `release.published`. Failed release runs and
+fork runs cannot initiate publishing. Release-triggered builds check out the
+default branch's site code and read the current latest public, non-prerelease
+Release, keeping the download and version aligned even when a prerelease or an
+older tag is published. Metadata fetch or validation failure fails the build and
+keeps the existing deployment. Manual workflow dispatch also refreshes metadata.
 
 Expected project URL: <https://arnochenfx.github.io/Rovloom/>.
 Do not claim a deployment succeeded until the deployment job and public HTTP

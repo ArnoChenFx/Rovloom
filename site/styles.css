@@ -245,7 +245,7 @@ summary:focus-visible,
 .secondary:hover {
   background: var(--wash);
 }
-.release-line {
+.hero-meta {
   display: flex;
   align-items: center;
   gap: 13px;
@@ -254,15 +254,6 @@ summary:focus-visible,
   line-height: 1.8;
   margin: 25px 0 0;
   flex-wrap: wrap;
-}
-.release-line a {
-  font-family: var(--mono);
-}
-.release-line a:hover {
-  color: var(--orange);
-}
-.release-divider {
-  color: #a2aa97;
 }
 .topology-block {
   padding-top: 11px;
@@ -790,134 +781,6 @@ code {
 .terminal-docs:hover {
   color: var(--orange);
 }
-.roadmap-section {
-  border-top: 1px solid var(--line);
-  padding-top: 77px;
-}
-.roadmap-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 60px;
-  margin-bottom: 38px;
-}
-.roadmap-heading h2 {
-  font-size: 33px;
-  letter-spacing: -0.6px;
-}
-.roadmap-heading .eyebrow {
-  font-size: 9px;
-}
-.roadmap-heading .section-description {
-  max-width: 690px;
-}
-.roadmap-heading > .text-link {
-  flex-shrink: 0;
-}
-.roadmap-grid {
-  display: grid;
-  grid-template-columns: 1fr 1.15fr;
-  gap: 50px;
-}
-.shipped-card {
-  padding: 32px;
-  background: #eff2e7;
-  border: 1px solid #dce3cf;
-  border-radius: 11px;
-  position: relative;
-  overflow: hidden;
-}
-.shipped-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 9px;
-  letter-spacing: 1px;
-  color: #62724f;
-}
-.shipped-label .status-dot {
-  background: #788862;
-}
-.shipped-card h3 {
-  font-weight: 600;
-  font-size: 23px;
-  letter-spacing: -0.5px;
-  margin: 25px 0 14px;
-}
-.shipped-card p {
-  font-size: 12px;
-  line-height: 1.9;
-  color: #647257;
-  max-width: 410px;
-}
-.platform-tags {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-  margin-block: 20px 23px;
-}
-.platform-tags span {
-  padding: 5px 8px;
-  font-size: 9px;
-  border: 1px solid #cbd5be;
-  color: #60744d;
-  border-radius: 3px;
-  background: #f8faf2;
-}
-.card-release {
-  position: absolute;
-  right: 22px;
-  bottom: 30px;
-  color: #6b7b5b;
-  font-family: var(--mono);
-  font-size: 9px;
-}
-.issue-heading {
-  font-size: 9px;
-  letter-spacing: 1.3px;
-  color: var(--quiet);
-  margin: 5px 0 14px;
-}
-.issue-item {
-  display: grid;
-  grid-template-columns: 45px 1fr 15px;
-  gap: 12px;
-  align-items: center;
-  border-top: 1px solid var(--line);
-  padding: 23px 0;
-}
-.issue-item:last-child {
-  border-bottom: 1px solid var(--line);
-}
-.issue-id {
-  font-size: 11px;
-  font-family: var(--mono);
-  color: #697a57;
-}
-.issue-item strong {
-  font-size: 15px;
-  font-weight: 550;
-  display: block;
-  line-height: 1.5;
-}
-.issue-item small {
-  font-size: 11px;
-  color: var(--muted);
-  display: block;
-  line-height: 1.8;
-  margin-top: 6px;
-}
-.issue-item > span:last-child {
-  color: #72825e;
-  font-size: 17px;
-  transition: transform 0.2s;
-}
-.issue-item:hover strong {
-  color: var(--orange);
-}
-.issue-item:hover > span:last-child {
-  transform: translate(2px, -2px);
-}
 .faq-section {
   display: grid;
   grid-template-columns: 0.8fr 1.2fr;
@@ -1200,9 +1063,6 @@ html[lang='en'] .feature h3 {
   .terminal-tabs button {
     font-size: 10px;
   }
-  .roadmap-grid {
-    gap: 35px;
-  }
   .faq-section {
     gap: 70px;
   }
@@ -1269,7 +1129,7 @@ html[lang='en'] .feature h3 {
     min-height: 47px;
     gap: 16px;
   }
-  .release-line {
+  .hero-meta {
     gap: 8px;
     font-size: 8px;
     margin-top: 20px;
@@ -1443,37 +1303,6 @@ html[lang='en'] .feature h3 {
     padding-inline: 18px;
     font-size: 10px;
   }
-  .roadmap-heading {
-    gap: 30px;
-  }
-  .roadmap-grid {
-    gap: 28px;
-  }
-  .shipped-card {
-    padding: 26px;
-  }
-  .shipped-card h3 {
-    font-size: 20px;
-  }
-  .shipped-card p {
-    font-size: 11px;
-  }
-  .card-release {
-    position: static;
-    display: block;
-    margin-top: 20px;
-  }
-  .issue-item {
-    gap: 8px;
-    grid-template-columns: 40px 1fr 15px;
-    padding-block: 20px;
-  }
-  .issue-item strong {
-    font-size: 13px;
-  }
-  .issue-item small {
-    font-size: 10px;
-  }
   .faq-section {
     gap: 55px;
     grid-template-columns: 0.8fr 1.2fr;
@@ -1635,7 +1464,7 @@ html[lang='en'] .feature h3 {
     min-height: 49px;
     gap: 19px;
   }
-  .release-line {
+  .hero-meta {
     font-size: 9px;
     gap: 10px;
     margin-top: 23px;
@@ -1881,51 +1710,6 @@ html[lang='en'] .feature h3 {
     min-height: 35px;
     top: 10px;
   }
-  .roadmap-heading {
-    display: block;
-    margin-bottom: 29px;
-  }
-  .roadmap-heading h2 {
-    font-size: 29px !important;
-  }
-  .roadmap-heading > .text-link {
-    margin-top: 19px;
-  }
-  .roadmap-grid {
-    grid-template-columns: 1fr;
-    gap: 29px;
-  }
-  .shipped-card {
-    padding: 28px;
-  }
-  .shipped-card h3 {
-    font-size: 22px;
-  }
-  .shipped-card p {
-    font-size: 12px;
-    max-width: 470px;
-  }
-  .card-release {
-    position: absolute;
-    bottom: 31px;
-    right: 24px;
-    margin: 0;
-    font-size: 8px;
-  }
-  .issue-heading {
-    font-size: 8px;
-  }
-  .issue-item {
-    grid-template-columns: 42px 1fr 15px;
-    gap: 10px;
-    padding-block: 22px;
-  }
-  .issue-item strong {
-    font-size: 14px;
-  }
-  .issue-item small {
-    font-size: 11px;
-  }
   .faq-section {
     grid-template-columns: 1fr;
     gap: 12px;
@@ -2030,7 +1814,7 @@ html[lang='en'] .feature h3 {
   .hero-description {
     font-size: 13px;
   }
-  .release-line {
+  .hero-meta {
     font-size: 8px;
     gap: 8px;
   }
@@ -2085,20 +1869,12 @@ html[lang='en'] .feature h3 {
   .terminal-tabs button {
     font-size: 10px;
   }
-  .card-release {
-    position: static;
-    display: block;
-    margin-top: 18px;
-  }
   .flow-track {
     padding-inline: 17px;
     gap: 18px 9px;
   }
   .flow-track > span {
     min-width: 104px;
-  }
-  .shipped-card {
-    padding: 25px;
   }
   .start-actions {
     gap: 19px;
@@ -2154,13 +1930,6 @@ html[lang='en'] .feature h3 {
 .how-note .arrow-icon {
   color: #f5a486;
   margin-top: 2px;
-}
-.issue-item > .arrow-icon {
-  color: #72825e;
-  transition: transform 0.2s;
-}
-.issue-item:hover > .arrow-icon {
-  transform: translate(2px, -2px);
 }
 @media (max-width: 700px) {
   .github-button > .arrow-icon {

@@ -1,5 +1,6 @@
 // Assemble a dependency-free, project-path-safe static website for GitHub Pages.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { copy, commands } from '../../site/content.js'
@@ -13,9 +14,16 @@ export function escapeHtml(value) {
   )
 }
 
-export function buildSite({ output = resolve(root, 'dist/site') } = {}) {
-  const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
-  const values = { ...copy.zh, version, command: commands.cli.zh }
+export function buildSite({ output = resolve(root, 'dist/site'), release } = {}) {
+  let version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
+  let releaseUrl = 'https://github.com/ArnoChenFx/Rovloom/releases/latest'
+  if (release !== undefined) {
+    assert(release && release.draft === false && release.prerelease === false, 'Expected a public latest release')
+    assert.match(release.tag_name, /^v?\d+\.\d+\.\d+(?:-[\dA-Za-z.-]+)?(?:\+[\dA-Za-z.-]+)?$/, 'Invalid release tag')
+    version = release.tag_name.replace(/^v/, '')
+    releaseUrl = `https://github.com/ArnoChenFx/Rovloom/releases/tag/${encodeURIComponent(release.tag_name)}`
+  }
+  const values = { ...copy.zh, version, releaseUrl, command: commands.cli.zh }
   const template = readFileSync(resolve(root, 'site/index.html'), 'utf8')
   const html = template.replace(/\{\{([\w.]+)\}\}/g, (_match, key) => {
     if (!Object.hasOwn(values, key)) {
@@ -48,6 +56,10 @@ export function buildSite({ output = resolve(root, 'dist/site') } = {}) {
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  const result = buildSite()
+  // CI supplies GitHub's latest release; offline previews use the local package version.
+  const release = process.env.SITE_RELEASE_FILE
+    ? JSON.parse(readFileSync(process.env.SITE_RELEASE_FILE, 'utf8'))
+    : undefined
+  const result = buildSite({ release })
   console.log(`Built Rovloom ${result.version} website: ${result.output}`)
 }

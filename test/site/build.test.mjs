@@ -85,3 +85,31 @@ test('commands use real entry points, keep credential placeholders and do not pr
     '&lt;script&gt;&quot;a&quot; &amp; &#39;b&#39;&lt;/script&gt;'
   )
 })
+
+test('published site version and download target follow the latest release instead of the source package', () => {
+  const output = mkdtempSync(join(tmpdir(), 'rovloom-site-release-'))
+  const release = { tag_name: 'v9.8.7', draft: false, prerelease: false }
+  try {
+    const { html, version } = buildSite({ output, release })
+    assert.equal(version, '9.8.7')
+    assert(html.includes('name="rovloom-version" content="9.8.7"'))
+    assert(html.includes('class="terminal-version">v9.8.7</span>'))
+    assert(html.includes('href="https://github.com/ArnoChenFx/Rovloom/releases/tag/v9.8.7"'))
+    const hero = html.match(/<section class="hero wrap"[\s\S]*?<\/section>/)[0]
+    assert(!hero.includes('v9.8.7'))
+    assert(!hero.includes('MIT'))
+    assert(!html.includes('roadmap'))
+    assert.equal(copy.en['hero.meta'], 'Self-hosted · Your local workflow')
+    for (const invalid of [
+      null,
+      { ...release, draft: true },
+      { ...release, prerelease: true },
+      { ...release, tag_name: '../unexpected' },
+      { ...release, tag_name: '<script>' }
+    ]) {
+      assert.throws(() => buildSite({ output, release: invalid }))
+    }
+  } finally {
+    rmSync(output, { recursive: true, force: true })
+  }
+})

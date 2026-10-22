@@ -1,4 +1,4 @@
-# Static marketing site; PRs build only, main/website pushes publish to Pages.
+# Static marketing site; successful releases refresh metadata from GitHub latest.
 name: Project website
 on:
   push:
@@ -19,6 +19,12 @@ on:
       - 'package.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
+  release:
+    types: [published]
+  # Releases published with GITHUB_TOKEN do not emit another workflow event.
+  workflow_run:
+    workflows: ['Tagged product release']
+    types: [completed]
 permissions:
   contents: read
 concurrency:
@@ -26,15 +32,28 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          # Release events build maintained site code, rather than the release tag.
+          ref: ${{ (github.event_name == 'workflow_run' || github.event_name == 'release') && github.event.repository.default_branch || '' }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
         with:
           version: '1.4.3'
+      - name: Read the latest public release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/site-release.json"
       - name: Check website content and build
+        env:
+          SITE_RELEASE_FILE: ${{ runner.temp }}/site-release.json
         run: |
           bun --no-env-file test ./test/site
           bun --no-env-file run site:build
@@ -42,7 +61,10 @@ jobs:
         with:
           path: dist/site
   deploy:
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/website')
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/website' ||
+       github.event_name == 'release' || github.event_name == 'workflow_run')
     needs: build
     runs-on: ubuntu-24.04
     permissions:

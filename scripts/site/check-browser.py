@@ -57,8 +57,8 @@ def main():
         assert json.loads(page.locator('#command').inner_text())['url'] == 'http://127.0.0.1:9444/mcp'
         page.locator('.faq-list summary').first.click()
         assert page.locator('.faq-list details').first.get_attribute('open') is not None
-        page.locator('#roadmap').scroll_into_view_if_needed()
-        page.screenshot(path=str(out / 'roadmap.png'))
+        page.locator('.faq-section').scroll_into_view_if_needed()
+        page.screenshot(path=str(out / 'faq.png'))
         page.locator('#language').click()
         page.reload(wait_until='networkidle')
         assert page.locator('html').get_attribute('lang') == 'en'
