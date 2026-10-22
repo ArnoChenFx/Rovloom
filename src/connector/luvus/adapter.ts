@@ -298,8 +298,6 @@ export class LuvusRpcAdapter {
     let key: string | undefined
     let activeAbort: AbortController | undefined
     let decodedBinding: AttemptBinding | undefined
-    let traceMark: (stage: string) => void = () => {}
-    let traceDone: () => void = () => {}
     try {
       if (this.#closed) {
         throw new LuvusAdapterError('adapter_closed')
@@ -358,36 +356,19 @@ export class LuvusRpcAdapter {
         linked()
       }
       this.#active.set(key, { binding, abort })
-      // TEMP-TRACE
-      const t0 = Date.now()
-      const marks: string[] = []
-      const mark = (stage: string) => marks.push(stage + '@' + (Date.now() - t0))
-      traceMark = mark
-      const watchdog = setTimeout(() => process.stderr.write('LUVUS_TRACE_STALL ' + marks.join(' ') + '\n'), 10_000)
-      traceDone = () => {
-        clearTimeout(watchdog)
-        if (Date.now() - t0 > 3000) {
-          process.stderr.write('LUVUS_TRACE_SLOW ' + marks.join(' ') + '\n')
-        }
-      }
       scope = deadline(abort.signal, Math.min(remaining, this.#limits.timeout_ms))
       const activeSignal = scope.signal
       const native = this.#nativeBoundary(binding, request.payload.native_request.method as string)
-      traceMark('start')
       const endpoint = await this.#discover(activeSignal)
-      traceMark('discovered')
       // 完整摘要验证在打开原生连接之前做完；连接建立后原生对空闲有期限，期间只复核身份戳。
       const installed = await interruptible(verifyInstallation(this.#config), activeSignal)
-      traceMark('verified')
       const raw = boundedJson(request)
       const prepare = /* 在已验证传输上获取认证、检查完整帧并申请唯一 claim，返回写入前的同步复核钩子。 */ async (
         evidence: NativeTransportEvidence,
         ioSignal: AbortSignal
       ): Promise<PreparedFrame> => {
         aborted(ioSignal)
-        traceMark('prepare')
         const auth = await interruptible(this.#host.nativeAuth(binding, evidence), ioSignal)
-        traceMark('authed')
         const bytes = requestFrame(
           request.payload.native_request,
           binding.native_request_id,
@@ -408,9 +389,7 @@ export class LuvusRpcAdapter {
         await interruptible(recheckInstallation(this.#config, installed), ioSignal)
         current()
         // 完整帧预算通过后才占用 durable dispatch claim；claim 必须拒绝已登记 attempt。
-        traceMark('prechecks')
         await interruptible(this.#host.claimDispatch(binding, evidence), ioSignal)
-        traceMark('claimed')
         // claim 期间可能改变安装来源；写入前同时重验 binary 和 endpoint。
         await interruptible(recheckInstallation(this.#config, installed), ioSignal)
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
@@ -421,7 +400,6 @@ export class LuvusRpcAdapter {
           beforeWrite() {
             current()
             dispatched = true
-            traceMark('write')
           }
         }
       }
@@ -434,10 +412,8 @@ export class LuvusRpcAdapter {
           native.response_bytes,
           activeSignal,
           /* 独立验证同一 socket 的 peer 身份，再为该连接准备受限请求帧。 */ async (socket, ioSignal) => {
-            traceMark('connected')
             await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
             const peer = await interruptible(this.#host.verifyPeer!(socket, endpoint, binding), ioSignal)
-            traceMark('peer')
             if (
               peer.uid !== endpoint.uid ||
               !Number.isSafeInteger(peer.pid) ||
@@ -466,7 +442,6 @@ export class LuvusRpcAdapter {
         exitCode = result.exit_code
         stderrBytes = result.stderr_bytes
       }
-      traceMark('io_done')
       const response = parseRpcFrame(output, native.response_bytes)
       // 原生 error 即使 exit=1 也按原样保留，不能改写成网关 error。
       if (exitCode !== null && exitCode !== 0 && !(exitCode === 1 && Object.hasOwn(response, 'error'))) {
@@ -484,11 +459,8 @@ export class LuvusRpcAdapter {
         stderr_bytes: stderrBytes
       })
     } catch (error) {
-      traceMark('error:' + (error instanceof LuvusAdapterError ? error.code : 'other'))
       throw this.#safe(error, dispatched)
     } finally {
-      traceMark('finally')
-      traceDone()
       scope?.close()
       if (linked) {
         signal?.removeEventListener('abort', linked)
