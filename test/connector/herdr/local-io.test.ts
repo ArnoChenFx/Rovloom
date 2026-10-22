@@ -686,6 +686,7 @@ test(
       ['../local/agent-path.js', new URL('../../../src/connector/local/agent-path.ts', import.meta.url).href],
       ['../local/linux-peer.js', new URL('../../../src/connector/local/linux-peer.ts', import.meta.url).href],
       ['../../platform/windows.js', new URL('../../../src/platform/windows.ts', import.meta.url).href],
+      ['../../platform/macos.js', new URL('../../../src/platform/macos.ts', import.meta.url).href],
       ['./review.js', new URL('../../../src/connector/herdr/review.ts', import.meta.url).href]
     ]) {
       derived = derived.replaceAll(relative!, url!)
