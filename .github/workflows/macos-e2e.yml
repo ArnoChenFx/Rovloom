@@ -30,3 +30,59 @@ jobs:
         run: bun --no-env-file test ./test/platform/macos.test.ts
       - name: Attach to a running Herdr / Luvus (peer proof, process image identity, crash recovery)
         run: bun --no-env-file test ./test/connector/herdr/attach.test.ts ./test/runtime/native-attach-macos.test.ts ./test/runtime/native-crash-recovery.test.ts
+  probe:
+    name: probe (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    steps:
+      - name: Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          uname -sm
+          gh release view v0.9.5 -R herdrdev/herdr --json assets -q '.assets[].name'
+          gh release view v0.14.3 -R RizRiyz/luvus --json assets -q '.assets[].name'
+      - name: Download and run official Herdr / Luvus (macOS)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          arch="$(uname -m)"
+          mkdir -p "$RUNNER_TEMP/herdr" "$RUNNER_TEMP/luvus"
+          herdr_asset="$(gh release view v0.9.5 -R herdrdev/herdr --json assets -q '.assets[].name' | grep -iE 'darwin|macos|apple' | grep -iE "$([ "$arch" = arm64 ] && echo 'aarch64|arm64' || echo 'x86_64|x64|amd64')" | head -1 || true)"
+          luvus_asset="$(gh release view v0.14.3 -R RizRiyz/luvus --json assets -q '.assets[].name' | grep -iE 'darwin|macos|apple' | grep -iE "$([ "$arch" = arm64 ] && echo 'aarch64|arm64' || echo 'x86_64|x64|amd64')" | head -1 || true)"
+          echo "herdr_asset=$herdr_asset luvus_asset=$luvus_asset"
+          if [ -n "$herdr_asset" ]; then
+            gh release download v0.9.5 -R herdrdev/herdr -p "$herdr_asset" -D "$RUNNER_TEMP/herdr"
+            cd "$RUNNER_TEMP/herdr" && ls -la && case "$herdr_asset" in *.tar.gz|*.tgz) tar xzf "$herdr_asset";; *.zip) unzip -o "$herdr_asset";; esac; find . -maxdepth 2 -type f | head -20
+          fi
+          if [ -n "$luvus_asset" ]; then
+            gh release download v0.14.3 -R RizRiyz/luvus -p "$luvus_asset" -D "$RUNNER_TEMP/luvus"
+            cd "$RUNNER_TEMP/luvus" && ls -la && case "$luvus_asset" in *.tar.gz|*.tgz) tar xzf "$luvus_asset";; *.zip) unzip -o "$luvus_asset";; esac; find . -maxdepth 2 -type f | head -20
+          fi
+          h="$(find "$RUNNER_TEMP/herdr" -type f -name herdr | head -1)"
+          l="$(find "$RUNNER_TEMP/luvus" -type f -name luvus | head -1)"
+          echo "herdr=$h luvus=$l"
+          if [ -n "$h" ]; then
+            chmod +x "$h"; "$h" --version || true
+            export PROBE_HOME="$RUNNER_TEMP/probe-home"; mkdir -p "$PROBE_HOME"
+            (HOME="$PROBE_HOME" "$h" server > "$RUNNER_TEMP/herdr-server.log" 2>&1 &) ; sleep 4
+            echo '--- herdr files'; find "$PROBE_HOME" | head -40
+            echo '--- herdr unix sockets'; lsof -U 2>/dev/null | grep -i herdr | head; ps -axo pid,uid,command | grep -i '[h]erdr' | head
+            cat "$RUNNER_TEMP/herdr-server.log" | head -20
+            pkill -f "$h" || true
+          fi
+          if [ -n "$l" ]; then
+            chmod +x "$l"; "$l" --version || true
+            export PROBE_HOME2="$RUNNER_TEMP/probe-home2"; mkdir -p "$PROBE_HOME2"
+            (HOME="$PROBE_HOME2" "$l" --session default server > "$RUNNER_TEMP/luvus-server.log" 2>&1 &) ; sleep 5
+            echo '--- luvus files'; find "$PROBE_HOME2" -maxdepth 4 | head -40
+            HOME="$PROBE_HOME2" "$l" session list --json || true
+            lsof -U 2>/dev/null | grep -i luvus | head; ps -axo pid,uid,command | grep -i '[l]uvus' | head
+            cat "$RUNNER_TEMP/luvus-server.log" | head -20
+            pkill -f "$l" || true
+          fi
