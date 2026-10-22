@@ -160,7 +160,7 @@ def compose_smoke(image, compose_path):
             edit = ("const p='/home/rovloom/.config/rovloom/gateway.json';"
                     "const d=JSON.parse(await Bun.file(p).text());"
                     "d.mcp.hostname='0.0.0.0'; d.devices.hostname='0.0.0.0'; d.management.hostname='0.0.0.0';"
-                    "await Bun.write(p, JSON.stringify(d,null,2)+'\n')")
+                    "await Bun.write(p, JSON.stringify(d,null,2)+'\\n')")
             command('exec', container, 'bun', '--no-env-file', '-e', edit)
             compose('restart', '--timeout', '10', 'gateway', timeout=30)
             healthy(container)
