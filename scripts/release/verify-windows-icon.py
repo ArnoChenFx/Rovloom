@@ -65,28 +65,49 @@ def resources(executable):
     return result
 
 
-# 将首选图标组逐项关联到 RT_ICON，要求唯一 192px 图像与受管 PNG 原字节一致。
-def verify(executable, png):
-    expected = Path(png).read_bytes()
+# 读取已提交 ICO 的目录与各帧 PNG 字节。
+def icon_frames(ico):
+    data = Path(ico).read_bytes()
+    reserved, kind, count = struct.unpack_from('<HHH', data)
+    if (reserved, kind) != (0, 1) or count < 1:
+        raise ValueError('invalid managed ICO')
+    frames = []
+    for index in range(count):
+        width, height, _, _, planes, bits, size, offset = struct.unpack_from('<BBBBHHII', data, 6 + 16 * index)
+        frames.append(((width or 256, height or 256, planes, bits), data[offset:offset + size]))
+    return frames
+
+
+# 将首选图标组逐项关联到 RT_ICON，要求帧集合与受管 ICO 逐字节一致（透明背景的多尺寸 PNG 帧）。
+def verify(executable, ico):
+    expected = icon_frames(ico)
     entries = resources(executable)
     groups = sorted((path, body) for path, body in entries if path[0] == 14)
     if not groups:
         raise ValueError('missing RT_GROUP_ICON')
     path, group = groups[0]
-    if struct.unpack_from('<HHH', group) != (0, 1, 1) or len(group) != 20:
-        raise ValueError('primary icon must contain the single source-resolution frame')
-    width, height, colors, reserved, planes, bits, size, icon_id = struct.unpack_from('<BBBBHHIH', group, 6)
-    if (width, height, colors, reserved, planes, bits, size) != (192, 192, 0, 0, 1, 32, len(expected)):
-        raise ValueError('icon frame metadata mismatch')
-    matches = [body for key, body in entries if key == (3, icon_id, path[2])]
-    if matches != [expected]:
-        raise ValueError('RT_ICON bytes differ from the original square logo')
+    reserved, kind, count = struct.unpack_from('<HHH', group)
+    if (reserved, kind, count) != (0, 1, len(expected)) or len(group) != 6 + 14 * count:
+        raise ValueError('primary icon must contain exactly the managed frames')
+    actual = []
+    for index in range(count):
+        width, height, colors, reserved, planes, bits, size, icon_id = struct.unpack_from(
+            '<BBBBHHIH', group, 6 + 14 * index
+        )
+        if (colors, reserved) != (0, 0):
+            raise ValueError('icon frame metadata mismatch')
+        matches = [body for key, body in entries if key == (3, icon_id, path[2])]
+        if len(matches) != 1 or size != len(matches[0]):
+            raise ValueError('RT_ICON entry missing or size mismatch')
+        actual.append(((width or 256, height or 256, planes, bits), matches[0]))
+    if sorted(actual) != sorted(expected):
+        raise ValueError('RT_ICON frames differ from the managed transparent icon')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Verify native Windows executable icon and console subsystem')
     parser.add_argument('executable')
-    parser.add_argument('--png', default='docs/assets/brand/rovloom-mark-orange.png')
+    parser.add_argument('--ico', default='docs/assets/brand/rovloom-icon.ico')
     arguments = parser.parse_args()
-    verify(arguments.executable, arguments.png)
-    print('PE icon: exact original 192px PNG; console subsystem: pass')
+    verify(arguments.executable, arguments.ico)
+    print('PE icon: exact managed transparent multi-size ICO frames; console subsystem: pass')

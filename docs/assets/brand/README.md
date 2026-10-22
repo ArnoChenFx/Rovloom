@@ -11,8 +11,12 @@ followed by dark ink-blue **ovloom**. Read the whole word as **Rovloom**.
 | [rovloom-logo-panel.svg](rovloom-logo-panel.svg) | README display panel with a fixed white background for light and dark themes / README 浅色底板展示包装，兼顾深浅主题 |
 | [rovloom-mark-black.png](rovloom-mark-black.png) | 192 × 192 PNG; black R for light surfaces / 黑色 R，适合浅色界面 |
 | [rovloom-mark-navy.png](rovloom-mark-navy.png) | 192 × 192 PNG; navy tile with white R for app icons and compact branding / 深蓝底白色 R，用于应用图标和紧凑品牌展示 |
+| [rovloom-mark-transparent.png](rovloom-mark-transparent.png) | 256 × 256 RGBA PNG; orange R with a transparent background / 透明背景的橙色 R |
+| [rovloom-icon.ico](rovloom-icon.ico) | Windows program icon: seven transparent RGBA frames, 16–256 px / Windows 程序图标，七个透明 RGBA 帧（16–256 像素） |
 | [rovloom-mark-orange.png](rovloom-mark-orange.png) | 192 × 192 PNG; orange R for light surfaces; Gateway WebUI header and favicon / 橙色 R，适合浅色界面；Gateway WebUI 顶栏与 favicon |
 
+The transparent mark and the icon are derived from the transparent wordmark with
+`scripts/maintenance/make-windows-icon.py`; rerun it if the wordmark changes.
 The three square marks retain their original backgrounds. They are opaque RGB
 PNGs, not transparent versions.
 

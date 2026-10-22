@@ -175,10 +175,12 @@ schema 工厂的 `compiler-worker.ts` 及 `compilerWorkerPlugin()` 列入固定�
 
 ## Windows 程序图标
 
-唯一来源是[独立橙色方形标](assets/brand/rovloom-mark-orange.png)。构建仅把原始 **192×192 PNG**
-封装进单帧 ICO，保留浅色背景、原字节和分辨率；不使用复合展示图、不重绘、不承诺更高尺寸。
+唯一来源是已提交的[透明背景多尺寸 ICO](assets/brand/rovloom-icon.ico)（16/24/32/48/64/128/256，
+每帧为 32 位 RGBA PNG，没有方形底色）。它由[维护脚本](../scripts/maintenance/make-windows-icon.py)从透明的
+[横版全名原图](assets/brand/rovloom-logo.png)取出橙色 R 并分别缩放生成；构建只按原字节复制该文件，
+不在构建时缩放或重绘。
 Windows 本机编译传入 `windows.icon`，保持控制台子系统以支持 CLI 诊断和交互。
-CI 解析实际 EXE 的 `RT_GROUP_ICON`/`RT_ICON`，逐字节比对原 PNG 并核对控制台子系统，
+CI 解析实际 EXE 的 `RT_GROUP_ICON`/`RT_ICON`，逐帧比对受管 ICO 的字节并核对控制台子系统，
 随后隔离执行；Linux 交叉编译不能作为 Windows 图标生效或 Windows runtime 通过的证据。
 构建器因此拒绝从非 Windows 主机生成带品牌图标的 Windows 候选。
 

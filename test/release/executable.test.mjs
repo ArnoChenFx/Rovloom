@@ -238,9 +238,11 @@ test(
       paths.get('/rovloom-mark-orange.png'),
       sha256(readFileSync('docs/assets/brand/rovloom-mark-orange.png'))
     )
-    const ico = readFileSync(`${output.directory}/rovloom.ico`)
-    assert.equal(ico.readUInt16LE(4), 1)
-    assert.deepEqual(ico.subarray(22), readFileSync('docs/assets/brand/rovloom-mark-orange.png'))
+    // 程序图标是已提交的透明多尺寸 ICO，构建目录里是同一份原字节。
+    assert.deepEqual(
+      readFileSync(`${output.directory}/rovloom.ico`),
+      readFileSync('docs/assets/brand/rovloom-icon.ico')
+    )
     assert.equal(output.manifest.runtimeAcceptance, 'pending')
     assert.equal(output.manifest.productWiring, 'pending')
   }
