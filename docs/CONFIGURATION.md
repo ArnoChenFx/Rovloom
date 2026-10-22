@@ -398,12 +398,12 @@ disconnect does not stop the Gateway.
 |---|---|---|---|
 | Help, version, template, `config check` | Yes | Yes | Yes |
 | Role file creation, Gateway start, `config check-runtime` | Yes | Yes | Yes |
-| First-pairing approval (local terminal) | Yes (x64) | No | Yes (x64) |
-| Native Connector | x64 | No | x64, attach mode only |
+| First-pairing approval (local terminal) | Yes (x64) | Yes (x64, arm64) | Yes (x64) |
+| Native Connector | x64 | x64, arm64, attach mode only | x64, attach mode only |
 | Service: Gateway | systemd | LaunchDaemon | boot task (S4U) |
-| Service: Connector | x64 | No | x64, boot task (S4U) |
+| Service: Connector | x64 | x64, arm64, LaunchDaemon | x64, boot task (S4U) |
 
-On Windows the Connector attaches to the Herdr or Luvus you already run and
+On macOS and Windows the Connector attaches to the Herdr or Luvus you already run and
 starts one only if none is present; `managed` mode is not supported there.
 
 ### Output and exit codes

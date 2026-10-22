@@ -23,7 +23,7 @@
 
 ## 3. 开机服务
 
-`rovloom service install|start|stop|restart|uninstall --role gateway|connector`：Linux systemd、macOS LaunchDaemon、Windows 用户开机任务（S4U）。Connector 服务支持 Linux x64 与 Windows x64，只在配对之后使用，因为首次配对需要真实终端。服务定义本身**不会**自动重拉退出的进程。详见 [SERVICE](SERVICE.md)。
+`rovloom service install|start|stop|restart|uninstall --role gateway|connector`：Linux systemd、macOS LaunchDaemon、Windows 用户开机任务（S4U）。Connector 服务支持 Linux x64、macOS（x64、arm64）与 Windows x64，只在配对之后使用，因为首次配对需要真实终端。服务定义本身**不会**自动重拉退出的进程。详见 [SERVICE](SERVICE.md)。
 
 ## 4. 凭据
 

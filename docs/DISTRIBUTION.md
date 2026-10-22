@@ -58,7 +58,7 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 
 目标依据 [Bun CompileTarget](https://github.com/oven-sh/bun/blob/main/packages/bun-types/bun.d.ts)、[Bun executables 文档](https://bun.com/docs/bundler/executables)和 [GitHub runner 列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。官方归档中的 `aarch64` 在产品契约里写作 `arm64`。不提供 musl、32 位、其它 arch 或模拟执行的资产。
 
-每个目标都必须在对应原生 runner 上通过 Gateway 产品 smoke。完整双角色原生 smoke 只在 Linux x64 运行；Windows x64 Connector（附着 Herdr / Luvus、开机任务、崩溃清理）由独立的 [Windows e2e](../.github/workflows/windows-e2e.yml) 验收。Windows 两种 arch 都要求原生图标资源检查，交叉编译不能替代。
+每个目标都必须在对应原生 runner 上通过 Gateway 产品 smoke。完整双角色原生 smoke 只在 Linux x64 运行；Windows x64 Connector（附着 Herdr / Luvus、开机任务、崩溃清理）由独立的 [Windows e2e](../.github/workflows/windows-e2e.yml) 验收；macOS（x64 / arm64）Connector（附着真实 Herdr / Luvus、LaunchDaemon、崩溃与重建）由独立的 [macOS e2e](../.github/workflows/macos-e2e.yml) 验收。Windows 两种 arch 都要求原生图标资源检查，交叉编译不能替代。
 
 ### 资产与 manifest 契约
 

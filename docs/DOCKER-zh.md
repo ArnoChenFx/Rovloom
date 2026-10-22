@@ -2,7 +2,7 @@
 
 [English](DOCKER.md) · [快速开始](QUICK-START-zh.md)
 
-Rovloom 的 Docker 方案运行 **Gateway**，包含管理页和 MCP 服务。Luvus/Herdr Connector 运行在原生程序所在的 Linux 主机上。
+Rovloom 的 Docker 方案运行 **Gateway**，包含管理页和 MCP 服务。Luvus/Herdr Connector 运行在原生程序所在的主机上（Linux x64、macOS 或 Windows x64）。
 
 ## 支持平台
 
@@ -51,7 +51,7 @@ docker compose run --rm --service-ports gateway
 
 必须带 `--service-ports`：`docker compose run` 默认不发布 Compose 里的端口，不带的话 Connector 连不上 Gateway。上面对 `devices.hostname` 的修改需要已经生效。
 
-保持这个终端开启，用于配对和原生安装批准。在 Linux x64 Connector 主机的另一个本地终端运行 `rovloom connector`，按[配对](QUICK-START-zh.md#3-配对)继续。不要让第二个 Gateway 使用同一份数据。
+保持这个终端开启，用于配对和原生安装批准。在 Connector 主机（Linux x64、macOS 或 Windows x64）的另一个本地终端运行 `rovloom connector`，按[配对](QUICK-START-zh.md#3-配对)继续。不要让第二个 Gateway 使用同一份数据。
 
 到达 `connector_ready` 后，先停止 Connector，再按 Ctrl-C 停止前台 Gateway。执行 `docker compose up -d`，然后重新启动主机 Connector。配置和配对保留在卷中。
 
@@ -89,7 +89,7 @@ docker compose down       # 删除容器和网络，保留命名卷
 
 ## Connector 运行位置
 
-Connector 应运行在 Luvus/Herdr 所在的 Linux x64 主机上。它要核验原生 binary 与 schema、进程归属、私有文件权限、Unix socket 对端和实例生命周期；容器内的用户、PID 和路径与主机不同，挂载宿主 socket 无法保持这些保证。因此 Compose 不含 Connector，不挂载 `/var/run/docker.sock`，也不要求 `privileged`、主机 PID 或额外 capability。
+Connector 应运行在 Luvus/Herdr 所在的主机上（Linux x64、macOS 或 Windows x64）。它要核验原生 binary 与 schema、进程归属、私有文件权限、Unix socket 对端和实例生命周期；容器内的用户、PID 和路径与主机不同，挂载宿主 socket 无法保持这些保证。因此 Compose 不含 Connector，不挂载 `/var/run/docker.sock`，也不要求 `privileged`、主机 PID 或额外 capability。
 
 ## 镜像构建
 
