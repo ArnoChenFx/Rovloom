@@ -18,8 +18,28 @@
 ## 2. 安装与升级
 
 - 安装：`install.sh` / `install.ps1` 只安装单文件二进制并核对 `SHA256SUMS`，不建配置、不起服务（[快速开始](QUICK-START-zh.md)）。Docker 只用于 Linux Gateway（[Docker 部署](DOCKER-zh.md)）。
-- 升级：先正常停 Connector 再停 Gateway，替换二进制（重新运行安装脚本，或 `docker compose pull && docker compose up -d`），再按原样启动。配置与数据沿用。脚本只安装官方 latest 稳定版；预发布版本从 Release 页面手动下载。
+- 升级：先正常停 Connector 再停 Gateway，替换二进制（重新运行安装脚本，或 `docker compose pull && docker compose up -d`），再按原样启动。数据库 schema 兼容时配置与数据沿用；从 v0.1.x 升级先按下节建立新状态。脚本只安装官方 latest 稳定版；预发布版本从 Release 页面手动下载。
 - 没有自更新。数据库版本不兼容时拒绝启动（`unsupported_database_version`），不会静默迁移。
+
+## Upgrading from v0.1.x
+
+v0.1.1 使用 Gateway schema 5，v0.2.0 使用 schema 6，设备身份、授权与 Connector 本机状态也已变化。**没有自动迁移器；不要修改数据库 version 数字来绕过检查。** 旧库启动时返回例如：
+
+```text
+unsupported_database_version found_schema=5 expected_schema=6 upgrade=https://github.com/ArnoChenFx/rovloom/blob/main/docs/OPERATIONS.md#upgrading-from-v01x
+```
+
+按以下流程在每台机器升级：
+
+1. 先停止所有 Connector，再停止 Gateway。前台进程正常退出；已安装服务用 `rovloom service stop --role connector` / `--role gateway`（自定义配置加 `--config`）。Docker 用 `docker compose stop`。确认已退出，再操作状态文件。
+2. 备份旧 Rovloom 二进制、两角色的配置文件及各自 **整个** `data.directory`，包括数据库、结果文件、managed 配置、凭据与 sidecar。备份只允许当前用户读取，不把含凭据的备份上传到 issue。默认配置在 `~/.config/rovloom`，数据在 `~/.local/share/rovloom`；自定义路径以实际配置为准。不要在进程运行时单独复制数据库文件。
+3. 安装 v0.2.0 或更新版。保留旧配置/数据的备份，给新版使用新的空状态目录；也可在确认停止、备份完成后将旧 Rovloom 配置与状态目录重命名，让新版按默认路径重新创建。不要删除或重置 Luvus / Herdr 自己的数据、工作区或模型配置，不要把旧 managed 文件混入新状态。
+4. 按[快速开始](QUICK-START-zh.md)运行 `rovloom gateway`，在每台机器运行 `rovloom connector`，逐台重新配对，并在 Connector 本机重新确认 provider 和授权。需要远程监听、反向代理、Herdr 或混合 provider 时，在新版配置中重新设置。新 MCP Bearer、管理员口令和设备凭据需要重新配置到客户端；旧凭据不导入。
+5. 验证 machines → providers → discover / describe → 一次新的只读调用 → get / result_read，再安装或启动新版服务。核对服务的可执行文件和配置路径，避免旧服务继续启动备份版本。
+
+Docker 升级同样需要离线备份实际挂载卷，再为新版选择一个新的空卷或空宿主目录，并重新初始化、配对；只改镜像 tag 不会转换旧库。不要用 `docker compose down -v` 作为升级步骤，它会删除数据卷。
+
+旧结果、审计、调用 key 和未完成调用不会迁移到新状态。先核对旧的 unknown 调用在 native 侧是否执行过；重新配对或换版本都不是重做写入的授权。保留旧备份供离线检查。若放弃升级，先停新版，再成套恢复原二进制、原配置与完整旧状态；不要混用两个版本或在同一状态上并行运行。
 
 ## 3. 开机服务
 

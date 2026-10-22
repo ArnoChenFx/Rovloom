@@ -1,4 +1,5 @@
 // 解析固定 CLI 命令并调用显式角色宿主；缺后端明确拒绝，标准输出与诊断通道分离。
+import { DatabaseVersionError, DATABASE_UPGRADE_URL } from '../storage/version.js'
 import type { Readable, Writable } from 'node:stream'
 import type { GatewayService } from '../mcp/types.js'
 import type { HttpAuthenticationProvider } from '../mcp/http.js'
@@ -382,6 +383,19 @@ export async function runCli(
     } while (reload && !io.signal.aborted)
     return 0
   } catch (error) {
+    if (error instanceof DatabaseVersionError) {
+      io.stderr.write(
+        error.code +
+          ' found_schema=' +
+          String(error.found ?? 'unknown') +
+          ' expected_schema=' +
+          String(error.expected) +
+          ' upgrade=' +
+          DATABASE_UPGRADE_URL +
+          '\n'
+      )
+      return 3
+    }
     if (error instanceof CliCancelled && io.signal.aborted) {
       return 0
     }

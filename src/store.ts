@@ -1,4 +1,5 @@
 // 持久化 SQLite 调用账本与设备生命周期，按固定期限治理内容、预算，并在提交后通知宿主回收上下文。
+import { DatabaseVersionError } from './storage/version.js'
 import { DatabaseSync } from 'node:sqlite'
 import { closeSync, existsSync, openSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -152,7 +153,7 @@ export class Store {
           version: number
         }[]
         if (version.length !== 1 || version[0]!.version !== SCHEMA_VERSION) {
-          throw new GatewayError('unsupported_database_version')
+          throw new DatabaseVersionError(version.length === 1 ? version[0]!.version : undefined, SCHEMA_VERSION)
         }
       } else {
         this.db.exec('BEGIN IMMEDIATE')
