@@ -149,6 +149,7 @@ def compose_smoke(image, compose_path):
                            '--file', str(override), *arguments, timeout=timeout)
 
         try:
+            compose('run', '--rm', 'gateway', 'config', 'init', 'gateway', '--container', timeout=45)
             compose('up', '--detach', timeout=45)
             container = compose('ps', '--all', '--quiet', 'gateway')
             assert re.fullmatch(r'[0-9a-f]{64}', container)
@@ -156,14 +157,8 @@ def compose_smoke(image, compose_path):
             assert network_mode != 'host' and network_mode.endswith('_rovloom')
             healthy(container)
             check_gateway(container)
-            # 按文档的配置编辑流程在卷内把三个监听改为通配绑定；原文件权限与属主保持不变。
-            edit = ("const p='/home/rovloom/.config/rovloom/gateway.json';"
-                    "const d=JSON.parse(await Bun.file(p).text());"
-                    "d.mcp.hostname='0.0.0.0'; d.devices.hostname='0.0.0.0'; d.management.hostname='0.0.0.0';"
-                    "await Bun.write(p, JSON.stringify(d,null,2)+'\\n')")
-            command('exec', container, 'bun', '--no-env-file', '-e', edit)
-            compose('restart', '--timeout', '10', 'gateway', timeout=30)
-            healthy(container)
+            parsed = json.loads(command('exec', container, 'cat', '/home/rovloom/.config/rovloom/gateway.json'))
+            assert all(parsed[part]['hostname'] == '0.0.0.0' for part in ['mcp', 'devices', 'management'])
             # bridge验收的落点在宿主机侧：发布端口必须经端口映射真实可达。
             assert host_status('http://127.0.0.1:9444/mcp') == 401
             assert host_status('http://127.0.0.1:9445/') == 200

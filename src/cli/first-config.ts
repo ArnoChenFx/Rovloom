@@ -16,8 +16,14 @@ export function privateDirectory(path: string): void {
   }
 }
 
+export type RoleInitialization = Readonly<{ provider?: 'luvus' | 'herdr' | 'mixed'; container?: true }>
+
 // 角色和状态目录分离；显式config只覆盖用户文件位置，默认数据仍属于当前用户的home。
-function defaults(role: RoleConfig['role'], environment?: ConfigPathEnvironment): RoleConfig {
+function defaults(
+  role: RoleConfig['role'],
+  environment: ConfigPathEnvironment | undefined,
+  initialization: RoleInitialization
+): RoleConfig {
   let home: string | undefined
   try {
     home = environment ? environment.home : homedir()
@@ -25,17 +31,25 @@ function defaults(role: RoleConfig['role'], environment?: ConfigPathEnvironment)
     throw new CliError('config_home_unavailable')
   }
   resolveRoleConfigPath(role, undefined, { home, platform: process.platform })
-  return parseConfig({
+  const config = parseConfig({
     ...configDocument(configTemplate(role)),
     data: { directory: join(home!, '.local', 'share', 'rovloom', role) }
   })
+  if (config.role === 'connector' && initialization.provider) {
+    return { ...config, native: { ...config.native, provider: initialization.provider } }
+  }
+  if (config.role === 'gateway' && initialization.container) {
+    return { ...config, mcp_hostname: '0.0.0.0', device_hostname: '0.0.0.0', management_hostname: '0.0.0.0' }
+  }
+  return config
 }
 
 // 只有缺失错误触发首次生成；完整临时文件通过原子link发布，不覆盖已有文件或留下写入残片。
 export function readOrCreateRoleConfig(
   role: RoleConfig['role'],
   path: string,
-  environment?: ConfigPathEnvironment
+  environment?: ConfigPathEnvironment,
+  initialization: RoleInitialization = {}
 ): RoleConfig {
   try {
     return readConfig(path)
@@ -44,7 +58,7 @@ export function readOrCreateRoleConfig(
       throw error
     }
   }
-  const config = defaults(role, environment)
+  const config = defaults(role, environment, initialization)
   const directory = dirname(path)
   privateDirectory(directory)
   const temporary = join(directory, '.rovloom-config-' + randomUUID() + '.tmp')

@@ -64,6 +64,7 @@ export const CLI_ERROR_CODES = [
   'config_not_protected',
   'config_unreadable',
   'config_changed',
+  'config_exists',
   'config_not_found',
   'config_home_unavailable',
   'configuration_required',

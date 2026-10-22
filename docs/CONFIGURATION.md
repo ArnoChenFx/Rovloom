@@ -8,6 +8,19 @@ Existing files are read strictly and never reset. All fields below are required
 unless marked optional. Defaults describe the generated file, not fallback values
 for missing fields. Examples contain no credentials.
 
+
+## Explicit initialization
+
+```sh
+rovloom config init connector --provider herdr
+rovloom config init gateway --container
+```
+
+`--provider` accepts `luvus`, `herdr` or `mixed` for Connector only. `--container` applies to Gateway only and explicitly binds MCP, devices and management to `0.0.0.0`; keep the maintained Compose MCP / management mappings on host loopback. Without this flag, Gateway keeps the normal loopback defaults. `--config` chooses the configuration file, while the default state path still belongs to the current user's home.
+
+Initialization does not start services, create device identities or authorize native access. It uses the same exclusive first-file publication as role startup. Existing files are never overwritten; an explicit provider / listener request that conflicts with them returns `config_exists`. To edit an existing deployment, first review its configuration and pairing state, then use `config check` before restarting.
+
+
 ## Complete minimal configurations
 
 Gateway, normally `~/.config/rovloom/gateway.json`:

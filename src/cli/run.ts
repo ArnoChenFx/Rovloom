@@ -30,6 +30,8 @@ export const HELP = `Rovloom ${PRODUCT_VERSION}
   rovloom --help
   rovloom --version
   rovloom config template gateway|connector
+  rovloom config init connector [--provider luvus|herdr|mixed] [--config /absolute/path/config.json]
+  rovloom config init gateway [--container] [--config /absolute/path/config.json]
   rovloom config check [--role gateway|connector] [--config /absolute/path/config.json]
   rovloom config check-runtime [--role gateway|connector] [--config /absolute/path/config.json]
   rovloom gateway [--add-device | --repair-device] [--config /absolute/path/config.json] [--non-interactive]
@@ -250,6 +252,12 @@ export async function runCli(
     if (args[0] === 'token') {
       const { handleTokenCommand } = await import('./token-command.js')
       return await handleTokenCommand(args, io, environment)
+    }
+    if (args[0] === 'config' && args[1] === 'init') {
+      const { initializeRoleConfig } = await import('./config-init.js')
+      initializeRoleConfig(args, environment)
+      io.stderr.write('config_ready\n')
+      return 0
     }
     const command = parseCommand(args, environment)
     if (command.action === 'help') {

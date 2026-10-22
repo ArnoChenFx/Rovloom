@@ -25,7 +25,7 @@ RUN groupadd --gid 10001 rovloom \
     && install -d -m 0700 -o 10001 -g 10001 /home/rovloom \
        /home/rovloom/.config /home/rovloom/.config/rovloom \
        /home/rovloom/.local /home/rovloom/.local/share /home/rovloom/.local/share/rovloom
-COPY --from=build /app/package.json /app/bun.lock /app/LICENSE ./
+COPY --from=build --chmod=0644 /app/package.json /app/bun.lock /app/LICENSE ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --chmod=0755 scripts/container/healthcheck.mjs /usr/local/bin/rovloom-healthcheck.mjs

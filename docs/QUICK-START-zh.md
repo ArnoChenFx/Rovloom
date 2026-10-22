@@ -55,9 +55,10 @@ mkdir rovloom && cd rovloom
 curl --fail --location --output docker-compose.yaml \
   https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/docker-compose.yaml
 docker compose pull
+docker compose run --rm gateway config init gateway --container
 ```
 
-9443、9444、9445 端口需要空闲（Compose 从 bridge 网络发布这三个端口），且生成的 `gateway.json` 需按 Docker 指南把监听改为 `0.0.0.0`。卷、备份和升级见 [Docker 部署](DOCKER-zh.md)。
+9443、9444、9445 端口需要空闲（Compose 从 bridge 网络发布这三个端口），`config init gateway --container` 会在首次配置时准备容器监听。卷、备份和升级见 [Docker 部署](DOCKER-zh.md)。
 
 ## 2. 准备 Connector 所在机器
 
@@ -69,12 +70,13 @@ Connector **附着到你已在运行的会话**，因此远程调用操作的是
 只有没有运行实例时，才会在你自己的配置目录里启动一个。
 程序通过 `PATH`（加上 `/usr/bin:/bin`）查找；其它位置见[安装目录](CONFIGURATION-zh.md#程序与-agent-安装目录)。
 
-默认使用 Luvus。要使用 Herdr（两者都用则填 `mixed`），先运行一次 `rovloom connector`，
-在地址提示处按 Ctrl-C（这会创建 `~/.config/rovloom/connector.json`），然后加入：
+默认使用 Luvus。首次配对前，用以下命令选择 Herdr（两者都用则填 `mixed`）：
 
-```json
-"native": { "provider": "herdr" }
+```sh
+rovloom config init connector --provider herdr
 ```
+
+只生成配置，不启动 Connector 或询问地址。已有配置不会覆盖；如果已选择其它 provider，命令返回 `config_exists`，请先核对再修改。
 
 ## 3. 配对
 

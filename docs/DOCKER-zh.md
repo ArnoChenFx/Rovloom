@@ -19,11 +19,12 @@ mkdir rovloom && cd rovloom
 curl --fail --location --output docker-compose.yaml \
   https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/docker-compose.yaml
 docker compose pull
+docker compose run --rm gateway config init gateway --container
 docker compose up -d
 docker compose ps
 ```
 
-默认镜像为 `ghcr.io/arnochenfx/rovloom:latest`。要固定版本，拉取前在 Compose 目录的 `.env` 写入 `ROVLOOM_VERSION=<版本>`。两个命名卷分别保存配置与数据，`docker compose down` 不会删除它们。首次启动生成 `/home/rovloom/.config/rovloom/gateway.json`，数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
+默认镜像为 `ghcr.io/arnochenfx/rovloom:latest`。要固定版本，拉取前在 Compose 目录的 `.env` 写入 `ROVLOOM_VERSION=<版本>`。两个命名卷分别保存配置与数据，`docker compose down` 不会删除它们。显式 init 命令生成 `/home/rovloom/.config/rovloom/gateway.json`，不会启动 Gateway，数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
 
 默认本机入口：
 
@@ -35,7 +36,7 @@ docker compose ps
 
 `healthy` 只说明 MCP 认证监听已响应，不表示设备已配对、管理员已存在或 Agent 已就绪。日志中的 `pairing_required` 表示等待配对。
 
-首次生成的配置把三个监听都绑在**容器内部**的回环上，宿主机无法经发布端口访问。把 `gateway.json` 里的 `mcp.hostname`、`devices.hostname` 与 `management.hostname` 改为 `0.0.0.0` 并重启（方法见下文“配置、停止与升级”）。之后 Compose 的发布范围是：
+`config init gateway --container` 把容器内部的三个监听设为 `0.0.0.0`。已有配置不会覆盖；旧版回环配置若返回 `config_exists`，请按下文的配置编辑步骤核对并修改。Compose 的发布范围是：
 
 - `9443`（Connector 设备通道）发布到宿主机所有网卡，其它机器上的 Connector 才能连接。跨出可信网络时请前置 TLS 反向代理，并用宿主机防火墙收口。
 - `9444`（MCP）与 `9445`（管理页）**只发布到宿主机回环**（`127.0.0.1`）。远程 MCP 客户端通过宿主机上转发到 `127.0.0.1:9444` 的反向代理访问，并设置 `mcp.public_url`（见[网络访问](CONFIGURATION-zh.md#网络访问)）。不要放宽这两个映射：监听是明文 HTTP，Host/Origin 校验只防浏览器 DNS 重绑定——网络上的客户端手工带回环 `Host` 头仍能走到 Bearer 或管理员密码这一步。
@@ -49,7 +50,7 @@ docker compose stop gateway
 docker compose run --rm --service-ports gateway
 ```
 
-必须带 `--service-ports`：`docker compose run` 默认不发布 Compose 里的端口，不带的话 Connector 连不上 Gateway。上面对 `devices.hostname` 的修改需要已经生效。
+必须带 `--service-ports`：`docker compose run` 默认不发布 Compose 里的端口，不带的话 Connector 连不上 Gateway。全新卷先执行上面的 init 命令。
 
 保持这个终端开启，用于配对和原生安装批准。在 Connector 主机（Linux x64、macOS 或 Windows x64）的另一个本地终端运行 `rovloom connector`，按[配对](QUICK-START-zh.md#3-配对)继续。不要让第二个 Gateway 使用同一份数据。
 

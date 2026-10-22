@@ -19,11 +19,12 @@ mkdir rovloom && cd rovloom
 curl --fail --location --output docker-compose.yaml \
   https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/docker-compose.yaml
 docker compose pull
+docker compose run --rm gateway config init gateway --container
 docker compose up -d
 docker compose ps
 ```
 
-The image defaults to `ghcr.io/arnochenfx/rovloom:latest`. To pin a version, set `ROVLOOM_VERSION=<version>` in the Compose directory's `.env` before pulling. Two named volumes keep configuration and data, and `docker compose down` does not delete them. First startup creates `/home/rovloom/.config/rovloom/gateway.json`. The data directory is `/home/rovloom/.local/share/rovloom/gateway`.
+The image defaults to `ghcr.io/arnochenfx/rovloom:latest`. To pin a version, set `ROVLOOM_VERSION=<version>` in the Compose directory's `.env` before pulling. Two named volumes keep configuration and data, and `docker compose down` does not delete them. The explicit init command creates `/home/rovloom/.config/rovloom/gateway.json` without starting Gateway. The data directory is `/home/rovloom/.local/share/rovloom/gateway`.
 
 Default local endpoints:
 
@@ -35,7 +36,7 @@ Default local endpoints:
 
 `healthy` means the MCP authentication listener responds. It does not mean a device is paired, an administrator exists or an Agent is ready. The `pairing_required` log line means setup is pending.
 
-The generated configuration binds every listener to loopback *inside the container*, which the host cannot reach through a published port. Set `mcp.hostname`, `devices.hostname` and `management.hostname` to `0.0.0.0` in `gateway.json` (see *Configure, stop and upgrade* below) and restart. Compose then publishes:
+`config init gateway --container` binds the three listeners to `0.0.0.0` inside the container. Existing configuration is preserved; if an older loopback configuration returns `config_exists`, use the configuration editing procedure below to review and update it. Compose publishes:
 
 - `9443` (Connector device channel) on all host interfaces, so Connectors on other machines can reach it. Put a TLS reverse proxy in front of anything outside a trusted network, and restrict it with the host firewall.
 - `9444` (MCP) and `9445` (management page) **only on the host's loopback** (`127.0.0.1`). Remote MCP clients go through a reverse proxy on the host that forwards to `127.0.0.1:9444`, with `mcp.public_url` set (see [Network access](CONFIGURATION.md#network-access)). Do not widen these mappings: the listeners speak plain HTTP, and the Host/Origin check only stops browser DNS rebinding — a network client that sends a loopback `Host` header still gets as far as the Bearer or administrator password.
@@ -49,7 +50,7 @@ docker compose stop gateway
 docker compose run --rm --service-ports gateway
 ```
 
-`--service-ports` is required: `docker compose run` does not publish the Compose ports by default, so without it the Connector cannot reach the Gateway. The `devices.hostname` change above must already be in place.
+`--service-ports` is required: `docker compose run` does not publish the Compose ports by default, so without it the Connector cannot reach the Gateway. Run the init command above before starting a fresh volume.
 
 Keep this terminal open for pairing and native installation approval. On the Connector host (Linux x64, macOS or Windows x64), run `rovloom connector` in another local terminal and follow [Pair](QUICK-START.md#3-pair). Never run a second Gateway on the same data.
 
