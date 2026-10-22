@@ -76,7 +76,7 @@ Open two real local terminals and keep them open:
 |---|---|
 | `rovloom gateway` | `rovloom connector` |
 
-Docker Gateway: run `docker compose run --rm gateway` in the Compose directory instead (stop
+Docker Gateway: run `docker compose run --rm --service-ports gateway` in the Compose directory instead (stop
 any running Gateway first with `docker compose stop gateway`).
 
 1. **Gateway terminal:** approve pairing to get a one-time code (valid for five minutes).

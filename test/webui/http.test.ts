@@ -9,6 +9,7 @@ import { managementReadPath, parseManagementReadPath } from '../../src/webui/htt
 import type { ManagementReadOperation } from '../../src/webui/read.js'
 import { checkManagementReadReply } from '../../src/webui/validate.js'
 import { fixtureReply } from './fixtures.js'
+import { statusWithHost } from '../mcp/wildcard-listener.js'
 
 const origin = 'http://127.0.0.1:43210'
 const identity = { caller: { principal_id: 'fixture-principal' }, management_session_ref: 'fixture-session' }
@@ -79,7 +80,7 @@ test(
 
 test(
   '缺少可信认证适配器或非 loopback 配置在开端口前失败',
-  /** 启动没有默认身份，且绑定范围不能被配置扩大。 */ () => {
+  /** 启动没有默认身份，且绑定范围不能被配置扩大。 */ async () => {
     assert.throws(
       /* 缺少 adapter 必须失败。 */ () => startManagementReadListener({ service: options().service, port: 0 } as never),
       /management_authentication_required/u
@@ -92,6 +93,13 @@ test(
     const wildcard = startManagementReadListener({ ...options(), port: 0, hostname: '0.0.0.0' })
     try {
       assert.match(wildcard.url, /^http:\/\/127\.0\.0\.1:\d+$/u)
+      // 通配绑定后非回环 Host 仍被拒绝，回环 Host 照常服务。
+      const port = Number(new URL(wildcard.url).port)
+      for (const host of ['example.com', `192.0.2.10:${port}`]) {
+        const status = await statusWithHost(port, host, '/admin/v1/status')
+        assert(status >= 400 && status !== 401, `${host} -> ${status}`)
+      }
+      assert.equal(await statusWithHost(port, `127.0.0.1:${port}`, '/admin/v1/status'), 200)
     } finally {
       wildcard.stop()
     }

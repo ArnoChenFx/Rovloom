@@ -20,6 +20,7 @@ import { createRuntimeCliRuntime } from './runtime.js'
 import type { CliSetup } from './setup-runtime.js'
 import { boundedJson, object, fields } from '../wire/index.js'
 import { readRuntimeConfig } from './runtime-config.js'
+import { canonicalLoopbackHost } from '../mcp/listen.js'
 import { loadProductManagementAssets } from './management-assets.js'
 import { openProtectedManagementSource } from './management-source.js'
 import {
@@ -119,12 +120,7 @@ function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySou
     throw error
   }
   // 本机 caller 的资源地址用规范回环地址，不写通配绑定地址。
-  const hostname =
-    config.mcp_hostname === '0.0.0.0'
-      ? '127.0.0.1'
-      : config.mcp_hostname === '::' || config.mcp_hostname === '::1'
-        ? '[::1]'
-        : config.mcp_hostname
+  const hostname = canonicalLoopbackHost(config.mcp_hostname)
   return {
     ...openCallerSource(
       path,

@@ -1,7 +1,6 @@
 /** 只接受官方成功的tag发行工作流；下载原发布资产，不从PR或第三方URL取得发布字节。 */
 import assert from 'node:assert/strict'
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { appendFileSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import {
   RELEASE_REPOSITORY,
@@ -9,7 +8,6 @@ import {
   assetName,
   parseReleaseJson,
   parseReleaseVersion,
-  validateReleaseManifest,
   versionFromTag
 } from '../../src/release/contract.ts'
 import { githubClient, verifyRemoteTag } from '../release/github.mjs'
@@ -61,58 +59,9 @@ export async function releaseContext(event, api) {
   return context
 }
 
-/** 原始资产固定在官方不可替换版本路径；不接受latest下载或环境提供的镜像站。 */
+/** 官方不可替换版本路径下的资产地址；不接受latest下载或环境提供的镜像站。 */
 function downloadUrl(tag, name) {
   return `https://github.com/${RELEASE_REPOSITORY}/releases/download/${tag}/${name}`
-}
-
-/** 公开下载不附带GITHUB_TOKEN；有界读取，最终跳转只接纳GitHub官方资产域。 */
-export async function download(tag, name, limit, request = fetch) {
-  const response = await request(downloadUrl(tag, name), { signal: AbortSignal.timeout(120_000) })
-  assert(response.ok, `Official release asset download failed (${response.status})`)
-  assert(
-    ['github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(
-      new URL(response.url).hostname
-    )
-  )
-  const chunks = []
-  let size = 0
-  for await (const chunk of response.body) {
-    size += chunk.byteLength
-    assert(size <= limit, 'Release asset exceeded byte limit')
-    chunks.push(Buffer.from(chunk))
-  }
-  assert(size > 0, 'Empty release asset')
-  return Buffer.concat(chunks)
-}
-
-/** 校验校验和文件精确记录、manifest来源和实际二进制全字节后才写Docker上下文。 */
-export function verifyBinary(context, platform, manifestBytes, checksumsBytes, binary) {
-  const manifest = validateReleaseManifest(parseReleaseJson(manifestBytes, 65_536), context.tag)
-  assert.equal(manifest.commit, context.commit)
-  assert.equal(manifest.assets.length, 6)
-  const records = new Map()
-  const lines = checksumsBytes.toString('utf8').split('\n')
-  assert.equal(lines.pop(), '')
-  for (const line of lines) {
-    const match = /^([0-9a-f]{64})  ([A-Za-z0-9.-]+)$/u.exec(line)
-    assert(match && !records.has(match[2]), 'Invalid or duplicate SHA256SUMS record')
-    records.set(match[2], match[1])
-  }
-  assert.equal(records.size, 7)
-  const digest = /** 所有摘要均来自实际收到的字节。 */ (bytes) => createHash('sha256').update(bytes).digest('hex')
-  assert.equal(records.get(RELEASE_MANIFEST), digest(manifestBytes))
-  for (const asset of manifest.assets) {
-    assert.equal(records.get(asset.name), asset.sha256)
-  }
-  const name = assetName(context.version, platform)
-  const selected = manifest.assets.find(
-    /** 每个原生runner只接受自己的唯一Linux/glibc产物。 */ (asset) => asset.name === name
-  )
-  assert(selected, 'Native platform asset missing')
-  assert.equal(binary.byteLength, selected.size)
-  assert.equal(digest(binary), selected.sha256)
-  return selected
 }
 
 /** 只在此版本仍为官方稳定latest时移动容器latest，后补旧版本和预发行只得固定标签。 */
@@ -265,25 +214,12 @@ export async function inspectTestedImages(context, actor, token, stem, configura
 }
 
 if (import.meta.main) {
-  const [action, directory] = process.argv.slice(2)
-  assert(['verify', 'stage', 'latest', 'available', 'version'].includes(action))
+  const [action] = process.argv.slice(2)
+  assert(['verify', 'latest', 'available', 'version'].includes(action))
   const api = githubClient(process.env.GITHUB_TOKEN)
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
   const context = await releaseContext(event, api)
-  if (action === 'stage') {
-    assert.equal(process.platform, 'linux', 'Container acceptance requires a native Linux runner')
-    assert(['x64', 'arm64'].includes(process.arch))
-    const platform = { os: 'linux', arch: process.arch, libc: 'glibc' }
-    const manifest = await download(context.tag, RELEASE_MANIFEST, 65_536)
-    const sums = await download(context.tag, 'SHA256SUMS', 8192)
-    const binary = await download(context.tag, assetName(context.version, platform), 256 * 1024 * 1024)
-    const asset = verifyBinary(context, platform, manifest, sums, binary)
-    const destination = resolve(directory)
-    mkdirSync(destination, { recursive: false })
-    writeFileSync(resolve(destination, 'rovloom'), binary, { mode: 0o755, flag: 'wx' })
-    chmodSync(resolve(destination, 'rovloom'), 0o755)
-    appendFileSync(process.env.GITHUB_OUTPUT, `sha256=${asset.sha256}\n`)
-  } else if (action === 'available') {
+  if (action === 'available') {
     await inspectVersion(context.version, process.env.GITHUB_ACTOR, process.env.GITHUB_TOKEN)
   } else if (action === 'version') {
     const existing = await inspectTestedImages(

@@ -14,6 +14,7 @@ import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import { REGISTRY_MAX_BYTES, parseRegistry } from './token-registry.js'
 import type { ProviderGrant, ProviderPolicy } from '../wire/types.js'
+import { canonicalLoopbackHost } from '../mcp/listen.js'
 
 type State = ReturnType<typeof openGatewayState>
 
@@ -227,12 +228,7 @@ export class GatewaySetup {
     }
     await publishSetupSchemas(reviewed, request.signal)
     // 本机客户端凭据记录的资源地址用规范回环地址，不写通配绑定地址。
-    const hostname =
-      this.config.mcp_hostname === '0.0.0.0'
-        ? '127.0.0.1'
-        : this.config.mcp_hostname === '::' || this.config.mcp_hostname === '::1'
-          ? '[::1]'
-          : this.config.mcp_hostname
+    const hostname = canonicalLoopbackHost(this.config.mcp_hostname)
     const resource = new URL('http://' + hostname + ':' + this.config.mcp_port + '/mcp').href
     const clientPath = runtimeReference(this.config.state_dir, 'mcp-client')
     const original = readSetupJson(clientPath)
