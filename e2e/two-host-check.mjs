@@ -1,7 +1,7 @@
 /** 两机验收（e2e/two_host.py）的 MCP 侧步骤。
  * 用法：MCP_CONFIG=<mcp.json> bun e2e/two-host-check.mjs <step>
  *   ping          重试直到 Herdr 对 ping 应答（最多 150 秒），打印版本
- *   offline       等到 Gateway 把设备判为非 online（最多 150 秒）
+ *   offline       等到 Gateway 把设备的 link 判为 offline（静默断网由心跳超时发现，最多 150 秒）
  *   unavailable   设备离线时一次调用必须在 15 秒内以未派发/不可用结束，不能悬挂
  */
 import assert from 'node:assert/strict'
@@ -68,13 +68,13 @@ try {
   } else if (step === 'offline') {
     for (let attempt = 0; attempt < 75; attempt++) {
       const machine = await tool('machines_get', { machine_id: target.machine_id })
-      if (!machine.isError && machine.data.status !== 'online') {
-        console.log(JSON.stringify({ ok: true, status: machine.data.status }))
+      if (!machine.isError && machine.data.link === 'offline') {
+        console.log(JSON.stringify({ ok: true, link: machine.data.link }))
         process.exit(0)
       }
       await pause(2000)
     }
-    throw new Error('device never left online')
+    throw new Error('device link never became offline')
   } else if (step === 'unavailable') {
     const started = Date.now()
     const view = await ping(15_000)
