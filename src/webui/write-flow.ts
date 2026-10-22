@@ -291,11 +291,7 @@ export function createDeviceManagementFlow(options: { transport: ManagementWrite
               ? 'devices_disconnect'
               : intent.action === 'device_revoke'
                 ? 'devices_revoke'
-                : intent.action === 'provider_disable'
-                  ? 'providers_disable'
-                  : intent.action === 'pairing_create'
-                    ? 'pairings_create'
-                    : 'pairings_cancel'
+                : 'providers_disable'
         const { action: _action, ...target } = intent
         const args = {
           ...write,

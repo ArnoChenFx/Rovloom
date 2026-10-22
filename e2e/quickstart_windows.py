@@ -83,7 +83,7 @@ class Term:
 
 def redact(text):
     text = CODE.sub('<CODE>', text)
-    return re.sub(r'(Bearer \(private\): )\S+', r'\1<SECRET>', text).strip()[-1000:]
+    return re.sub(r'((?:Bearer|Management password) \(private\)[^:]*: )\S+', r'\1<SECRET>', text).strip()[-1000:]
 
 
 def user_env(home, extra_path):

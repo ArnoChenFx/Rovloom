@@ -82,7 +82,7 @@ def luvus_servers(binary_dir):
 
 def redact(text):
     text = CODE.sub('<CODE>', text)
-    return re.sub(r'(Bearer \(private\): )\S+', r'\1<SECRET>', text).strip()[-1000:]
+    return re.sub(r'((?:Bearer|Management password) \(private\)[^:]*: )\S+', r'\1<SECRET>', text).strip()[-1000:]
 
 
 def main():
@@ -167,6 +167,10 @@ def main():
         info = {'url': re.search(r'MCP URL: (\S+)', log).group(1),
                 'token': re.search(r'Bearer \(private\): (\S+)', log).group(1),
                 'targets': json.loads(re.search(r'Targets: (\[.*\])', log).group(1))}
+        # 首次引导在已核验终端显示一次的管理页口令（用户名 admin），写进 mcp.json 供后续页面登录检查，不打印。
+        admin = re.search(r'Management password \(private\)[^:]*: (\S+)', log)
+        if admin:
+            info['admin'] = {'user': 'admin', 'password': admin.group(1), 'url': 'http://127.0.0.1:9445/'}
         out = os.path.join(work, 'mcp.json')
         open(out, 'w').write(json.dumps(info)); os.chmod(out, 0o600)
         print('READY', json.dumps({'mcp_url': info['url'], 'targets': info['targets'], 'config': out}), flush=True)

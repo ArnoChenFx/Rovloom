@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { configDocument, configTemplate } from '../../src/cli/config.js'
 import type { GatewayConfig } from '../../src/cli/config.js'
-import { handleAdminCommand } from '../../src/cli/admin-command.js'
+import { handleAdminCommand, managementSourceExists, writeAdminFiles } from '../../src/cli/admin-command.js'
 import { handleTokenCommand } from '../../src/cli/token-command.js'
 import { ADMIN_POLICY_REVISION, emptyManagement, issueAdmin, revokeAdmin } from '../../src/cli/admin-registry.js'
 import { digestToken, parseRegistry } from '../../src/cli/token-registry.js'
@@ -134,6 +134,28 @@ test('admin CLI creates, lists and revokes through the real files; the secret go
     assert.equal(result.out, '')
     result = await run('revoke')
     assert.notEqual(result.code, 0)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('first-setup helper writes both files once; only an absent source file triggers automatic creation', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rovloom-admin-setup-'))
+  try {
+    const state = join(root, 'gateway')
+    mkdirSync(join(state, 'managed'), { recursive: true, mode: 0o700 })
+    const config = { ...configTemplate('gateway'), state_dir: state } as GatewayConfig
+    writeFileSync(join(state, 'managed', 'mcp-callers.json'), JSON.stringify(callers(Date.now() - 1000)), {
+      mode: 0o600
+    })
+    assert.equal(managementSourceExists(config), false)
+    const first = writeAdminFiles(config, 'admin', Date.now())
+    assert.match(first.secret, /^[A-Za-z0-9_-]{43}$/)
+    assert.equal(managementSourceExists(config), true)
+    const stored = readFileSync(join(state, 'managed', 'management.json'), 'utf8')
+    assert(!stored.includes(first.secret))
+    const second = writeAdminFiles(config, 'admin', Date.now())
+    assert.notEqual(second.secret, first.secret)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

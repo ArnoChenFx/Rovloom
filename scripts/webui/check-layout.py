@@ -152,7 +152,7 @@ def main():
             if mode in ['empty', '401']:
                 assert page.locator('.device-card, .provider-card').count() == 0
             snapshot(page, output, f'state-{mode}')
-        checks.append('production unavailable and fixture empty, unknown, stale, pairing and session-error states remain honest and readable')
+        checks.append('production unavailable and fixture empty, unknown, stale and session-error states remain honest and readable')
         context.close()
         browser.close()
     assert not errors, errors

@@ -94,8 +94,7 @@ python3 scripts/webui/check-retry-deadline.py --url http://127.0.0.1:33231 --out
 
 该服务只在显式 `/fixtures/` 让生产 `browser.js` 消费 CLI 同式 meta，拒绝根入口，所有设备和会话均为本次内存 fixture。
 检查包括两语两主题、桌面/320px、实际改名/断开/撤销、一次确认、重复点击、错误恢复、
-取消/导航与迟到、丢响应后原回执核对及原确认截止。lifecycle检查另覆盖单实例禁用、
-启用证明缺失、注册表单/pending回执、不补devices_read，以及既有授权申请的pending/paired/cancelled/expired进度。
+取消/导航与迟到、丢响应后原回执核对及原确认截止。lifecycle检查另覆盖单实例禁用（精确确认、一次提交、其它实例不受影响，且页面没有启用入口）。
 fixture内兑换仅作用于自建临时设备，不是实际用户设备操作。bootstrap 检查额外覆盖实际 DOM 消费、
 重复/无效交付、在页过期及永久卸载；不验证真实管理员、宿主秘密交付或用户设备。
 跨截止检查在真实临时 Store 提交后延迟回执，验证提交中、未确认及查询中的重试事件均保留原关联，

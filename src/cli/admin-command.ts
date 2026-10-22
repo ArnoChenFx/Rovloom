@@ -1,7 +1,7 @@
 // rovloom admin：管理页管理员的签发、列表与撤销；口令原值只在 create 时写入 stdout 一次，Gateway 热读，无需重启。
 import type { Writable } from 'node:stream'
 import { boundedJson, fields, object } from '../wire/index.js'
-import { CLI_ERROR_CODES, CliError, readConfig } from './config.js'
+import { CLI_ERROR_CODES, CliError, readConfig, type GatewayConfig } from './config.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { readSetupJson, setupFileStamp, writeSetupFile } from './setup-files.js'
@@ -83,6 +83,31 @@ function loadManagement(path: string, port: number): { file: ManagementFile; exi
   return { file: value as unknown as ManagementFile, exists: true }
 }
 
+/** 在 Gateway 状态目录签发（或重新签发）一个管理员：先写调用方注册表再写来源文件；返回口令原值仅此一次。 */
+export function writeAdminFiles(
+  config: GatewayConfig,
+  principal: string,
+  at: number,
+  days?: number
+): { secret: string; expires_at: number } {
+  const callersPath = runtimeReference(config.state_dir, 'mcp-callers')
+  const managementPath = runtimeReference(config.state_dir, 'management')
+  const callersStamp = setupFileStamp(callersPath)
+  const callers = parseRegistry(readRuntimeJson(callersPath, REGISTRY_MAX_BYTES))
+  const { file, exists } = loadManagement(managementPath, config.management_port)
+  const stamp = exists ? setupFileStamp(managementPath) : undefined
+  const issued = issueAdmin(callers, file, principal, at, days)
+  // 先写注册表再写来源：中途失败至多留下无权限的占位主体，重跑 create 会替换它。
+  writeSetupFile(callersPath, boundedJson(issued.callers, REGISTRY_MAX_BYTES), true, callersStamp)
+  writeSetupFile(managementPath, boundedJson(issued.management, 65_536), exists, stamp)
+  return { secret: issued.secret, expires_at: issued.expires_at }
+}
+
+/** 管理页的来源文件是否已存在（首次引导只在没有任何管理员记录时才自动创建）。 */
+export function managementSourceExists(config: GatewayConfig): boolean {
+  return readSetupJson(runtimeReference(config.state_dir, 'management')) !== undefined
+}
+
 /** 处理 admin 子命令并返回退出码；诊断只含固定错误码。 */
 export async function handleAdminCommand(
   args: readonly string[],
@@ -102,23 +127,10 @@ export async function handleAdminCommand(
     }
     const callersPath = runtimeReference(config.state_dir, 'mcp-callers')
     const managementPath = runtimeReference(config.state_dir, 'management')
-    const callersStamp = setupFileStamp(callersPath)
-    const callers = parseRegistry(readRuntimeJson(callersPath, REGISTRY_MAX_BYTES))
-    const { file, exists } = loadManagement(managementPath, config.management_port)
     const at = now()
     const principal = flags.principal ?? 'admin'
-    if (flags.sub === 'list') {
-      for (const row of summarizeAdmins(file, at)) {
-        io.stdout.write([row.principal, row.status, new Date(row.expires_at).toISOString()].join('\t') + '\n')
-      }
-      return 0
-    }
-    const stamp = exists ? setupFileStamp(managementPath) : undefined
     if (flags.sub === 'create') {
-      const issued = issueAdmin(callers, file, principal, at, flags.days)
-      // 先写注册表再写来源：中途失败至多留下无权限的占位主体，重跑 create 会替换它。
-      writeSetupFile(callersPath, boundedJson(issued.callers, REGISTRY_MAX_BYTES), true, callersStamp)
-      writeSetupFile(managementPath, boundedJson(issued.management, 65_536), exists, stamp)
+      const issued = writeAdminFiles(config, principal, at, flags.days)
       io.stderr.write(
         'created administrator ' +
           principal +
@@ -133,6 +145,16 @@ export async function handleAdminCommand(
       io.stdout.write(issued.secret + '\n')
       return 0
     }
+    const callersStamp = setupFileStamp(callersPath)
+    const callers = parseRegistry(readRuntimeJson(callersPath, REGISTRY_MAX_BYTES))
+    const { file, exists } = loadManagement(managementPath, config.management_port)
+    if (flags.sub === 'list') {
+      for (const row of summarizeAdmins(file, at)) {
+        io.stdout.write([row.principal, row.status, new Date(row.expires_at).toISOString()].join('\t') + '\n')
+      }
+      return 0
+    }
+    const stamp = exists ? setupFileStamp(managementPath) : undefined
     const revoked = revokeAdmin(callers, file, principal)
     writeSetupFile(managementPath, boundedJson(revoked.management, 65_536), true, stamp)
     writeSetupFile(callersPath, boundedJson(revoked.callers, REGISTRY_MAX_BYTES), true, callersStamp)
