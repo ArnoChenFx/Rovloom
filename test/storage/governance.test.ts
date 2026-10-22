@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -17,7 +17,8 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { Store } from '../../src/store.js'
+import { GATEWAY_LOCK_FORMAT, Store } from '../../src/store.js'
+import { currentProcessIdentity } from '../../src/storage/process-identity.js'
 import { Router } from '../../src/router.js'
 import { management, connected, options, policy, respond, responseFrame, evidenceContext } from './helpers.js'
 import { planResponseEvidence } from '../../src/wire/index.js'
@@ -527,20 +528,66 @@ test(
     )
 )
 test(
-  'actual abrupt SQLite writer exit leaves lock; opening never auto-removes it',
-  /* 验证真实写进程突然退出后留下锁，后续打开不会自行删锁接管。 */ () =>
+  'actual abrupt SQLite writer exit leaves a lock that is recovered only because its owner is provably dead',
+  /* 验证真实写进程突然退出后留下带持有者身份的锁；有死亡证据才自动接管，没有证据的平台仍要求显式处理。 */ () =>
     disk(
-      /* 启动持锁后立即退出的隔离子进程，再检查退出码、残留锁及重新打开的拒绝结果。 */ (_root, path) => {
+      /* 启动持锁后立即退出的隔离子进程，再检查退出码、残留锁内容及重新打开的结果。 */ (_root, path) => {
         const script = `import {Store} from ${JSON.stringify(new URL('../../src/store.ts', import.meta.url).pathname)};new Store(${JSON.stringify(path)});process.exit(17)`
         const child = spawnSync(process.execPath, ['--no-env-file', '-e', script], {
           encoding: 'utf8'
         })
         assert.equal(child.status, 17, child.stderr)
         assert(existsSync(path + '.lock'))
-        assert.throws(
-          /* 在子进程崩溃遗留锁后重新打开数据库，确认必须显式处理锁文件。 */ () => new Store(path),
-          /EEXIST/
-        )
+        if (currentProcessIdentity() === undefined) {
+          assert.throws(/* 没有进程身份证据的平台保持 fail-closed。 */ () => new Store(path), /EEXIST/)
+          return
+        }
+        const recorded = JSON.parse(readFileSync(path + '.lock', 'utf8'))
+        assert.equal(recorded.format, GATEWAY_LOCK_FORMAT)
+        assert.equal(recorded.process.pid, child.pid)
+        const reopened = new Store(path)
+        try {
+          assert.equal(JSON.parse(readFileSync(path + '.lock', 'utf8')).process.pid, process.pid)
+        } finally {
+          reopened.close()
+        }
+        assert.equal(existsSync(path + '.lock'), false)
+      }
+    )
+)
+test(
+  'a lock whose recorded owner is alive, unrecognised or empty is never taken over; a reused PID is',
+  /* 验证接管只在“记录的进程确已不在”时发生：存活持有者、空锁、未知格式都保持拒绝，PID 被复用视为已死。 */ () =>
+    disk(
+      /* 用真实存活的子进程制造持有者身份，分别写入不同内容的残留锁。 */ (_root, path) => {
+        if (currentProcessIdentity() === undefined) {
+          return
+        }
+        const holder = spawn(process.execPath, ['--no-env-file', '-e', 'setInterval(() => {}, 1000)'], {
+          stdio: 'ignore'
+        })
+        try {
+          const alive = currentProcessIdentity(holder.pid!)
+          assert(alive)
+          const lock = path + '.lock'
+          for (const content of [
+            JSON.stringify({ format: GATEWAY_LOCK_FORMAT, process: alive }),
+            JSON.stringify({ format: 'other-format', process: { pid: 999_999, start: '1' } }),
+            '{"format":'
+          ]) {
+            writeFileSync(lock, content, { mode: 0o600 })
+            assert.throws(/* 存活持有者、未知格式、损坏内容都不接管。 */ () => new Store(path), /EEXIST/)
+            assert.equal(readFileSync(lock, 'utf8'), content)
+            rmSync(lock)
+          }
+          // 同 PID 但启动标识不同：该 PID 已被无关进程复用，原持有者已死，可以接管。
+          writeFileSync(lock, JSON.stringify({ format: GATEWAY_LOCK_FORMAT, process: { ...alive, start: 'reused' } }), {
+            mode: 0o600
+          })
+          new Store(path).close()
+        } finally {
+          holder.kill('SIGKILL')
+        }
       }
     )
 )
