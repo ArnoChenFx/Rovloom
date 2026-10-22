@@ -108,7 +108,9 @@ export class GatewayPairingHttp {
   constructor(
     readonly state: State,
     readonly approval: SetupApproval,
-    readonly native: (request: SetupNativeRequest) => Promise<unknown>
+    readonly native: (request: SetupNativeRequest) => Promise<unknown>,
+    // 重新配对没有原生环节：交付确认返回后通知宿主进入真实连上观察。
+    readonly repaired: () => void = () => {}
   ) {}
 
   // 每次短HTTP操作也经真实身份库/Store建立并复验fresh epoch，结束只断开该精确epoch。
@@ -339,6 +341,9 @@ export class GatewayPairingHttp {
     }
     exchange.acknowledgement(ack as CredentialDeliveryAck)
     const receipt = await exchange.task
+    if (this.approval.read(attempt).repair) {
+      this.repaired()
+    }
     return setupReply({ ...receipt, attempt_id: attempt })
   }
 

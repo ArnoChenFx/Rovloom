@@ -98,6 +98,8 @@ def main():
     ap.add_argument('--kill-luvus', action='store_true',
                     help='就绪后 kill -9 Luvus server：Connector 应自行重建并恢复调用')
     ap.add_argument('--crash', action='store_true', help='就绪后 kill -9 Connector 再重启，验证无需人工清理即可恢复')
+    ap.add_argument('--repair', action='store_true',
+                    help='就绪后重新配对同一设备（rovloom gateway --repair-device + connector --repair）：旧凭据被替换，MCP 授权不变')
     ap.add_argument('--then', help='就绪后执行的命令，环境变量 MCP_CONFIG 指向连接信息')
     args = ap.parse_args()
     if bool(args.herdr) == bool(args.luvus):
@@ -200,6 +202,32 @@ def main():
             restarted = Term('connector-restarted', [rov, 'connector'], env_c, home_c); terms.append(restarted)
             restarted.expect('provider_ready=true', timeout=60)
             print('RECOVERED', flush=True)
+        if args.repair:
+            def credential_files():
+                return [os.path.join(root, f) for root, _, files in os.walk(home_c) for f in files if f == 'device.json']
+            before = credential_files()
+            assert len(before) == 1, f'expected one device credential file: {before}'
+            old_secret = open(before[0]).read()
+            connector.stop(); gateway.stop()
+            gateway = Term('gateway-repair', [rov, 'gateway', '--repair-device'], env_g, home_g); terms.append(gateway)
+            gateway.expect('Re-pair the existing Connector device'); gateway.send('y\n')
+            code = CODE.search(gateway.expect('rovloom connector --repair')).group(0)
+            connector = Term('connector-repair', [rov, 'connector', '--repair'], env_c, home_c); terms.append(connector)
+            connector.expect('的一次性码'); connector.send(code + '\n')
+            connector.expect('[y/N]'); connector.send('y\n')
+            connector.expect('device_repaired')
+            deadline, ready = time.time() + 120, False
+            while time.time() < deadline and not ready:
+                connector.pump(1.0); gateway.pump(0.3)
+                ready = 'connector_ready' in ANSI.sub(b'', gateway.log).decode('utf8', 'replace') and \
+                    'provider_ready=true' in ANSI.sub(b'', connector.log).decode('utf8', 'replace')
+                for term in (connector, gateway):
+                    if term.child.poll() is not None:
+                        raise RuntimeError(f'{term.name} exited {term.child.returncode}: {redact(term.text())}')
+            assert ready, 'timeout waiting for connector_ready after repair'
+            new_secret = open(credential_files()[0]).read()
+            assert new_secret != old_secret, 'device credential was not replaced'
+            print('REPAIRED', flush=True)
         if args.then:
             status = subprocess.call(shlex.split(args.then), env={**os.environ, 'MCP_CONFIG': out})
             if status != 0:

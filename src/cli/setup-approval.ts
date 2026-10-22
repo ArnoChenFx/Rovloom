@@ -34,6 +34,8 @@ export type PairingPlan = Readonly<{
   enrollment_sha256?: string
   native_fingerprint?: string
   providers?: readonly NativeProviderKind[]
+  // 同一设备的重新配对：只更换设备凭据，不重做原生批准与授权。
+  repair?: true
 }>
 const phases = new Set([
   'registering',
@@ -54,7 +56,7 @@ function plan(value: unknown): PairingPlan {
     fields(
       row,
       ['schema_version', 'attempt_id', 'actor', 'uid', 'generation', 'name', 'created_at', 'expires_at', 'phase'],
-      ['machine_id', 'enrollment_sha256', 'native_fingerprint', 'providers']
+      ['machine_id', 'enrollment_sha256', 'native_fingerprint', 'providers', 'repair']
     )
     for (const key of ['attempt_id', 'actor', 'generation', 'name', ...(row.machine_id ? ['machine_id'] : [])]) {
       id(row[key])
@@ -79,6 +81,9 @@ function plan(value: unknown): PairingPlan {
     if (row.providers !== undefined) {
       setupProviderKinds(row.providers)
     }
+    if (row.repair !== undefined && (row.repair !== true || row.providers === undefined)) {
+      throw new CliError('invalid_config')
+    }
     if (!['registering', 'reserved'].includes(String(row.phase)) && (!row.machine_id || !row.enrollment_sha256)) {
       throw new CliError('invalid_config')
     }
@@ -93,6 +98,8 @@ function plan(value: unknown): PairingPlan {
 
 export class SetupApproval {
   readonly #providers = new Map<string, { confirmation: string; expires: number; generation: string }>()
+  // 重新配对时对精确设备/fence 的一次性重置确认，由本机终端确认后才建立。
+  readonly #resets = new Map<string, { confirmation: string; expires: number; fence: string }>()
   #state: State | undefined
 
   // 只接收真实终端实例；本模块没有默认管理员、默认允许或来自配置的authorize回调。
@@ -229,6 +236,100 @@ export class SetupApproval {
     return { plan: current, code: machine.machine_id + '.' + current.attempt_id + '.' + enrollment }
   }
 
+  // 重新配对已配对设备：本机确认后重置该设备（旧凭据立即失效、连接被关闭），再签发只用于同一设备的一次性码。
+  async issueRepair(): Promise<{ plan: PairingPlan; code: string }> {
+    const state = this.state()
+    const previous = this.active()
+    const retry = previous?.repair === true && ['issued', 'redeeming', 'unknown'].includes(previous.phase)
+    if (!previous?.machine_id || !previous.providers || (previous.phase !== 'ready' && !retry)) {
+      throw new CliError('configuration_required')
+    }
+    const machine = previous.machine_id
+    const device = state.store.machine(machine)
+    if (device.status === 'revoked') {
+      throw new CliError('configuration_required')
+    }
+    if (
+      !(await this.terminal.confirm(
+        'Re-pair the existing Connector device ' +
+          device.name +
+          ' (' +
+          machine +
+          ')? The credential it holds stops working now and in-flight calls become unknown. / 重新配对已有设备 ' +
+          device.name +
+          '（' +
+          machine +
+          '）？该设备当前凭据立即失效，进行中的调用结果变为未知。'
+      ))
+    ) {
+      throw new CliError('configuration_required')
+    }
+    for (let attempt = 0; ; attempt++) {
+      const epoch = state.store.deviceEpoch(machine)
+      const generation = state.store.generation()
+      this.#resets.set(machine, {
+        confirmation: randomUUID(),
+        expires: Date.now() + 60_000,
+        fence: boundedJson({ recovery_generation: generation, connection_epoch: epoch })
+      })
+      try {
+        // 与 lifecycle.reset 同序：Store 提交后关闭该设备全部旧 socket（旧 epoch 已在提交中清除）。
+        state.store.resetDeviceEnrollment(machine, generation, epoch)
+        state.channels.blockAndClose(machine)
+        break
+      } catch (error) {
+        this.#resets.delete(machine)
+        // 设备恰好在读取与重置之间连上会使 epoch 过期；最多重读两次，其余失败原样抛出。
+        if (attempt >= 2) {
+          throw error
+        }
+      }
+    }
+    const now = Date.now()
+    const attempt = randomUUID()
+    let current = this.save(
+      {
+        schema_version: 1,
+        attempt_id: attempt,
+        actor: this.terminal.actor,
+        uid: this.terminal.uid,
+        generation: state.store.generation(),
+        name: previous.name,
+        created_at: now,
+        expires_at: now + 300_000,
+        phase: 'reserved',
+        machine_id: machine,
+        providers: previous.providers,
+        repair: true
+      },
+      false
+    )
+    let issuance = false
+    const admin = new PairingAdmin(state.store, {
+      // 只持有这次确认的单个精确设备签发范围。
+      authorize: (action, target) => {
+        this.state()
+        if (
+          this.#state !== state ||
+          Date.now() >= current.expires_at ||
+          action !== 'enroll' ||
+          target !== machine ||
+          issuance
+        ) {
+          throw new CliError('configuration_required')
+        }
+        issuance = true
+      }
+    })
+    const enrollment = admin.issue(machine, Math.max(1, current.expires_at - Date.now()))
+    current = this.save(
+      { ...current, phase: 'issued', enrollment_sha256: createHash('sha256').update(enrollment).digest('hex') },
+      true
+    )
+    writeSetupJson(runtimeReference(this.directory, 'setup-active'), { attempt_id: attempt }, true)
+    return { plan: current, code: machine + '.' + current.attempt_id + '.' + enrollment }
+  }
+
   // 先核对原enrollment摘要与目标，再让原Store一次性消费，错误码不能消耗另一设备的token。
   claim(attempt: string, machine: string, enrollment: string): PairingPlan {
     const current = this.read(attempt)
@@ -251,7 +352,8 @@ export class SetupApproval {
     if (current.phase !== 'redeeming') {
       throw new CliError('configuration_required')
     }
-    return this.save({ ...current, phase: delivered ? 'paired' : 'unknown' }, true)
+    // 重新配对没有原生批准环节：交付确认后直接进入 configured，等待设备用新凭据真实连上。
+    return this.save({ ...current, phase: delivered ? (current.repair ? 'configured' : 'paired') : 'unknown' }, true)
   }
 
   // 配对不代表原生权限；实际安装信息经本地所有者再次明确批准后才准备provider管理确认。
@@ -299,6 +401,14 @@ export class SetupApproval {
   // 交给Store的既有management端口，每份批准仅限一个provider初次定义且严格消费一次。
   authorizeManagement(request: ManagementRequest): { actor: string; confirmation_id: string } {
     const state = this.state()
+    if (request.action === 'device_enrollment_reset') {
+      const reset = this.#resets.get(request.target)
+      if (!reset || reset.fence !== request.fence || Date.now() >= reset.expires) {
+        throw new CliError('configuration_required')
+      }
+      this.#resets.delete(request.target)
+      return { actor: this.terminal.actor, confirmation_id: reset.confirmation }
+    }
     const permit = this.#providers.get(request.target)
     if (
       request.action !== 'providers_manage' ||

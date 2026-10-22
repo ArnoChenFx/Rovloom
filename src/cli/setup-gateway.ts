@@ -36,7 +36,9 @@ export class GatewaySetup {
   // 只有正式prepare取得的真实本地终端可以构造；网络请求不能选择批准来源。
   constructor(
     readonly config: GatewayConfig,
-    readonly terminal: SetupTerminal
+    readonly terminal: SetupTerminal,
+    // repair：重新配对引导式配对过的设备（只换设备凭据），而不是首次配对。
+    private readonly options: { repair?: boolean } = {}
   ) {
     this.approval = new SetupApproval(terminal, config.state_dir)
   }
@@ -52,7 +54,9 @@ export class GatewaySetup {
     const http = new GatewayPairingHttp(
       state,
       this.approval,
-      /* 原生来源仍由配对设备证明和独立本机确认共同约束。 */ (request) => this.native(state, request)
+      /* 原生来源仍由配对设备证明和独立本机确认共同约束。 */ (request) => this.native(state, request),
+      /* 重新配对交付确认后重开 Gateway，由新一轮 listening 观察设备用新凭据真实连上。 */ () =>
+        setImmediate(() => this.#reload?.())
     )
     this.#active = http
     return http
@@ -60,6 +64,26 @@ export class GatewaySetup {
 
   // 设备listener和MCP真实启动后再显示一次性码；只写已核验TTY，不写普通stdout或诊断日志。
   async listening(gateway: RuntimeCliGateway, mcpUrl: string): Promise<void> {
+    if (this.options.repair && !this.#begun) {
+      this.#begun = true
+      const active = this.approval.active()
+      if (active?.repair && active.phase === 'configured') {
+        this.terminal.show(
+          'Resuming the device re-pairing; waiting for the Connector to reconnect. / 继续原重新配对，等待 Connector 重连。\n'
+        )
+      } else {
+        const issued = await this.approval.issueRepair()
+        this.terminal.show(
+          'Gateway MCP: ' +
+            mcpUrl +
+            '\nConnector endpoint: ' +
+            gateway.transport.url.replace(/\/connector$/, '') +
+            '\nOne-time re-pairing code for the existing device (5 minutes; keep private) / 已有设备的一次性重新配对码（5分钟，请保密）:\n' +
+            issued.code +
+            '\nStop that Connector, then run rovloom connector --repair on its machine and enter the code. The old credential no longer works.\n在该设备上停止 Connector，运行 rovloom connector --repair 并输入此码；旧凭据已失效。\n'
+        )
+      }
+    }
     const current = this.approval.active()
     if (!this.#begun && current?.phase !== 'configured' && current?.phase !== 'ready') {
       this.#begun = true
