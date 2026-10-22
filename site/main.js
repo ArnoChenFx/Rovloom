@@ -16,7 +16,7 @@ function updateCommands() {
   code.textContent = commands[tab][language]
   document.querySelector('#command-note').textContent = copy[language][`terminal.note.${tab}`]
   const documentName = documents[tab === 'docker' ? 'docker' : 'config'][language === 'zh' ? 0 : 1]
-  document.querySelector('.terminal-docs').href = `https://github.com/ArnoChenFx/Rovloom/blob/main/docs/${documentName}`
+  document.querySelector('.terminal-docs').href = `https://github.com/ArnoChenFx/rovloom/blob/main/docs/${documentName}`
   copyButton.querySelector('span').textContent = copy[language]['terminal.copy']
   copyStatus.textContent = ''
   clearTimeout(copyTimer)
@@ -32,7 +32,7 @@ function setLanguage(next) {
     element.setAttribute('aria-label', copy[language][element.dataset.i18nAria])
   }
   for (const link of document.querySelectorAll('[data-doc]')) {
-    link.href = `https://github.com/ArnoChenFx/Rovloom/blob/main/docs/${documents[link.dataset.doc][language === 'zh' ? 0 : 1]}`
+    link.href = `https://github.com/ArnoChenFx/rovloom/blob/main/docs/${documents[link.dataset.doc][language === 'zh' ? 0 : 1]}`
   }
   languageButton.textContent = language === 'zh' ? 'EN' : '中文'
   languageButton.lang = language === 'zh' ? 'en' : 'zh-CN'

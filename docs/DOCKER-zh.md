@@ -6,7 +6,7 @@ Rovloom 的 Docker 方案运行 **Gateway**。Gateway 镜像保留管理页和 M
 
 ## 当前可用范围
 
-官方镜像 `ghcr.io/arnochenfx/rovloom:latest` 和 `:0.1.1` 已发布并允许匿名拉取。最新稳定产品发行及其后续 GHCR 工作流均已通过，二进制见[官方 Release](https://github.com/ArnoChenFx/Rovloom/releases/latest)。
+官方镜像 `ghcr.io/arnochenfx/rovloom:latest` 和 `:0.1.1` 已发布并允许匿名拉取。最新稳定产品发行及其后续 GHCR 工作流均已通过，二进制见[官方 Release](https://github.com/ArnoChenFx/rovloom/releases/latest)。
 
 支持目标为原生 Linux rootful Docker Engine 的 `linux/amd64` 和 `linux/arm64`。两种架构分别由对应原生 CI runner 启动实际镜像；没有通过的架构不能以编译成功替代运行验收。当前 Compose 使用 Linux host 网络保留产品的回环监听；尚未验收 rootless Engine 或 Docker Desktop。
 
@@ -19,7 +19,7 @@ Rovloom 的 Docker 方案运行 **Gateway**。Gateway 镜像保留管理页和 M
 ```sh
 mkdir rovloom && cd rovloom
 curl --fail --location --output docker-compose.yaml \
-  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/docker-compose.yaml
+  https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/docker-compose.yaml
 docker compose pull
 docker compose up -d
 docker compose ps

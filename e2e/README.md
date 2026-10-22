@@ -113,7 +113,7 @@ provider 与模型在 opencode 配置中显式声明并关闭模型目录拉取�
   验证了跨网络路径，但仍在同一台宿主上，不等同真实跨机的 NAT / TLS / 防火墙 / 公网延迟。
 - **Luvus 的故障场景**：真实 Luvus 0.14.3 已覆盖首次配对 → 发现 → 描述 → 只读/写调用读回，以及崩溃接管、Luvus 被杀后重建、未知结果不重发、离线撤销（见下节）；“终端开关”“重复请求幂等”这类与 provider 无关的 Gateway 行为只在 Herdr 场景里验证。
 - **设备撤销是离线撤销**：管理员写入走带确认的 HTTP 管理接口，这里停 Gateway 后用正式 `Store.revoke` 代替，没有走 WebUI。
-- **崩溃自动恢复仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、旧格式记录、孤儿 native 仍活着时保持 fail-closed（见 [#167](https://github.com/ArnoChenFx/Rovloom/issues/167)）。
+- **崩溃自动恢复仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、旧格式记录、孤儿 native 仍活着时保持 fail-closed（见 [#167](https://github.com/ArnoChenFx/rovloom/issues/167)）。
 - **LLM Agent 单独脚本**：`e2e/agent.mjs` 让 opencode（1.19.3，DeepSeek `deepseek-chat`）经 MCP 完成 list → discover → ping → `workspace.create`，再由独立 MCP 客户端读回 workspace 数（0→1）。依赖模型 API 域名可达与 `DEEPSEEK_API_KEY`，不在默认场景集里；模型输出有随机性，仅作冒烟。
 - `unknown-outcome` 证明“新 native 未被重发”；被暂停后又恢复的旧 native 是否执行了该请求，不在 Rovloom 可观察范围内
   （这正是 `outcome_unknown` 的含义）。

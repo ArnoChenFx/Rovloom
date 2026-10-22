@@ -178,4 +178,4 @@ handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离�
 无原上下文时拒绝，
 不从账本或响应 JSON 创建 permit；证据计划与该 port 共用这一检查。
 
-宿主能力的交付范围与后续门禁见 [issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。
+宿主能力的交付范围与后续门禁见 [issue 跟踪](https://github.com/ArnoChenFx/rovloom/issues)。

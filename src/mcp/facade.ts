@@ -132,7 +132,7 @@ export function createMcpFacade(options: FacadeOptions): Server {
     { name: 'rovloom', version: PRODUCT_VERSION },
     {
       capabilities: { tools: {} },
-      instructions: '内部技术预览。工具存在不表示后端可用；执行、授权、确认、去重与结果保留由受信服务负责。'
+      instructions: '工具存在不表示后端可用；执行、授权、确认、去重与结果保留由受信服务负责。'
     }
   )
   let initialized = false

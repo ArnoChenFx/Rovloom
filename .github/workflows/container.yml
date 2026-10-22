@@ -12,8 +12,8 @@ jobs:
   release:
     if: >-
       github.event_name == 'workflow_run' &&
-      github.repository == 'ArnoChenFx/Rovloom' &&
-      github.event.workflow_run.head_repository.full_name == 'ArnoChenFx/Rovloom' &&
+      github.repository == 'ArnoChenFx/rovloom' &&
+      github.event.workflow_run.head_repository.full_name == 'ArnoChenFx/rovloom' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04

@@ -1,6 +1,6 @@
 # Rovloom 文档导航
 
-[DESIGN](DESIGN.md)是当前唯一权威系统设计（目标架构）。实现与设计的差距用 [GitHub issues](https://github.com/ArnoChenFx/Rovloom/issues) 跟踪（阶段 S0–S8，见 [简化方案](proposals/SIMPLIFICATION.md)）；专项规范目前描述现有实现，冲突时以 DESIGN 为准；历史版本、改名过程和开发进度使用 Git、CI 与 PR，不在当前规范追加修订流水。
+[DESIGN](DESIGN.md)是当前唯一权威系统设计（目标架构）。实现与设计的差距用 [GitHub issues](https://github.com/ArnoChenFx/rovloom/issues) 跟踪（阶段 S0–S8，见 [简化方案](proposals/SIMPLIFICATION.md)）；专项规范目前描述现有实现，冲突时以 DESIGN 为准；历史版本、改名过程和开发进度使用 Git、CI 与 PR，不在当前规范追加修订流水。
 
 | 需要了解 | 唯一维护职责/入口 |
 |---|---|
@@ -11,7 +11,7 @@
 | GHCR 镜像、Linux Gateway Compose 部署、持久卷与容器运行边界 | [Docker deployment](DOCKER.md) · [Docker 部署](DOCKER-zh.md) |
 | 开机注册、服务启停、账户/路径权限与 CLI 接缝 | [SERVICE](SERVICE.md) |
 | 系统目标、角色、Target/provider、授权、结果、去重、恢复和默认预算 | [DESIGN](DESIGN.md) |
-| 尚需交付的能力、依赖和联合验收 | [GitHub issues](https://github.com/ArnoChenFx/Rovloom/issues) |
+| 尚需交付的能力、依赖和联合验收 | [GitHub issues](https://github.com/ArnoChenFx/rovloom/issues) |
 | 管理页、管理员确认、状态展示和管理 API | [GATEWAY-WEBUI](GATEWAY-WEBUI.md) |
 | Wire 帧、协商、精确字段、编码、方向和协议限额 | [Wire 协议](protocol/WIRE-PROTOCOL.md) |
 | Native validator、handle、可信宿主与调用顺序 | [原生契约](protocol/NATIVE-CONTRACT.md)；准确签名见对应源码类型 |

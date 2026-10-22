@@ -6,32 +6,28 @@
 
 # Rovloom
 
-Connect your AI Agent / AI Bot to local Luvus and Herdr runtimes across devices through MCP.
-Rovloom is designed around one Gateway and one outbound Connector per device,
-so runtimes stay on their own machines with a common entry point for AI Agent / AI Bot.
+Rovloom gives AI agents and bots a single MCP endpoint to work with the
+[Herdr](https://github.com/herdrdev/herdr) and [Luvus](https://github.com/RizRiyz/luvus) sessions
+running on all of your machines. A **Gateway** exposes the MCP interface; a **Connector** on each
+machine connects out to it, so your workspaces and Agent logins stay where they are and no inbound
+port is opened on the machines that run them.
 
-**Availability:** Technical preview with a Linux/macOS/Windows Gateway and a Linux x64 /
-Windows x64 Connector (it attaches to the Herdr / Luvus you already run). Official binaries,
-installers and Linux Gateway Docker images are available; see the [Quick Start](docs/QUICK-START.md)
-and [Docker deployment](docs/DOCKER.md). Pairing needs a real local terminal; add further devices with
-`rovloom gateway --add-device`. Guided Agent/model login is not available yet.
+## Features
 
-## Core capabilities
+- **Multi-device access.** Every device runs one Connector that dials out to a shared Gateway.
+- **Explicit targets.** Each call names a device, runtime and session; nothing is chosen implicitly.
+- **Native runtimes.** Herdr and Luvus keep their own contracts and capabilities.
+- **Layered access control.** The Gateway and each device's local policy both apply to every call;
+  terminal execution is off unless the device owner enables it.
+- **Honest results.** A call whose outcome is uncertain after a disconnect is reported as unknown
+  and is never resent automatically.
+- **Management page.** Review devices and providers, rename, disconnect or revoke them, and issue
+  or rotate MCP Bearer tokens from the CLI.
 
-The target product is designed to provide:
+## How it works
 
-- **Multi-device access:** Connectors initiate outbound connections to a shared Gateway.
-- **Explicit targets:** Select a device, runtime instance and session for each operation.
-- **Native runtime adapters:** Keep Luvus and Herdr contracts and capabilities separate.
-- **Controlled access:** Apply Gateway and local policies to calls, results and streams,
-  with built-in device and runtime management.
-
-## Architecture
-
-AI Agent / AI Bot and CLI sit above the Gateway; each device below it runs one
-Connector and its local provider adapters. A Connector can manage multiple runtime instances.
-
-<!-- Keep this fence identical to docs/assets/architecture/target.en.mmd. -->
+AI Agents and CLIs talk to the Gateway over MCP. Each device runs one Connector with local provider
+adapters, which can manage several runtime instances.
 
 ```mermaid
 flowchart TB
@@ -73,45 +69,38 @@ flowchart TB
   CB -.->|"initiates outbound WSS"| GW
 ```
 
-## Typical use: two machines, one Agent
+## Typical setup: two machines, one Agent
 
-Your workstation runs Herdr (or Luvus) with the workspaces and Agent logins you actually use.
-A small always-on host runs the Gateway. Your AI client talks to the Gateway over MCP and acts on the
-workstation's real sessions — the Connector on the workstation only dials out, so the workstation needs no
-inbound port, and nothing but the Gateway's one MCP endpoint is exposed.
+Your workstation runs Herdr (or Luvus) with the workspaces and Agent logins you use every day. A small
+always-on host runs the Gateway. Your AI client reaches the Gateway over MCP and acts on the
+workstation's real sessions.
 
-1. On the Gateway host: `rovloom gateway` (set `devices.hostname` so the workstation can reach it; put
-   HTTPS/WSS in front for anything beyond a trusted network).
-2. On the workstation: `rovloom connector`, enter the Gateway address and the one-time code.
-3. Add the Gateway's MCP URL and Bearer to your AI client, and ask it to list the machine's workspaces.
+1. On the Gateway host: `rovloom gateway`.
+2. On the workstation: `rovloom connector`, then enter the Gateway address and the one-time code.
+3. Add the Gateway's MCP URL and Bearer to your AI client and ask it to list the workstation's workspaces.
 
-Calls whose outcome is uncertain after a disconnect are reported as unknown and never resent automatically.
-The [operations guide](docs/OPERATIONS.md) covers tokens, the management page, re-pairing and troubleshooting.
-
-## Quick start
-
-Follow the [Quick Start](docs/QUICK-START.md) for installation prerequisites,
-Gateway/Connector configuration paths, startup, HTTP MCP access and Agent use.
-The [configuration reference](docs/CONFIGURATION.md) lists the exact settings
-and complete non-secret templates. Local terminal setup can pair one Connector
-and initialize installed Luvus, Herdr or both; Agent/model setup remains a
-separate prerequisite.
+## Install
 
 ```sh
-rovloom --version
-rovloom --help
+curl --fail --silent --show-error --location https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/scripts/install.sh | sh
 ```
+
+Windows PowerShell and the Docker Gateway are covered in the [Quick Start](docs/QUICK-START.md).
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Gateway | x64, arm64 | x64, arm64 | x64, arm64 |
+| Connector | x64 | — | x64 |
+
+Pairing a Connector needs a real local terminal.
 
 ## Documentation
 
-- [Architecture and deployment](docs/DESIGN.md)
-- [Operations guide](docs/OPERATIONS.md) (中文)
-- [Protocol overview](docs/PROTOCOL.md) (中文)
-- [Runtime interfaces](docs/adr/0004-multi-runtime-provider.md)
-- [Roadmap (issues)](https://github.com/ArnoChenFx/Rovloom/issues)
-- [Management UI design](docs/GATEWAY-WEBUI.md)
-- [Development and validation](docs/DEVELOPMENT.md)
-- [Boot service module and integration limits](docs/SERVICE.md)
+- [Quick Start](docs/QUICK-START.md) · [Configuration](docs/CONFIGURATION.md) · [Docker](docs/DOCKER.md)
+- [Operations guide](docs/OPERATIONS.md) (中文) · [Boot services](docs/SERVICE.md)
+- [Architecture](docs/DESIGN.md) (中文) · [Protocols](docs/PROTOCOL.md) (中文)
+- [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)
+- [Documentation index](docs/README.md)
 
 ## License
 

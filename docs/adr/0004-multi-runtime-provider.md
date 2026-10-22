@@ -1,6 +1,6 @@
 # ADR 0004：多 runtime provider 与 Herdr 适配边界
 
-状态：采纳多 provider 架构与有限 Herdr 目标。系统语义唯一维护在 [DESIGN](../DESIGN.md)，精确类型/编码见 [Wire 协议](../protocol/WIRE-PROTOCOL.md)，实现差距和 P0-H/接线验收见 [issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。本 ADR 保存选择理由与外部研究依据，不另设公共字段字典或迁移算法。
+状态：采纳多 provider 架构与有限 Herdr 目标。系统语义唯一维护在 [DESIGN](../DESIGN.md)，精确类型/编码见 [Wire 协议](../protocol/WIRE-PROTOCOL.md)，实现差距和 P0-H/接线验收见 [issue 跟踪](https://github.com/ArnoChenFx/rovloom/issues)。本 ADR 保存选择理由与外部研究依据，不另设公共字段字典或迁移算法。
 
 ## 一设备身份、一连接，多个可信 runtime bindings
 

@@ -12,13 +12,13 @@ $script:asset = 'rovloom-0.2.3-windows-' + (Get-RovloomArchitecture ([Runtime.In
 $script:failure = ''
 $script:requests = @()
 $script:latestRequests = 0
-$script:latestUrl = 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3'
+$script:latestUrl = 'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3'
 
 # 只替换 latest 的网络响应；官方 URL 和稳定版本仍由产品真实门禁校验。
 function Resolve-RovloomLatestUrl {
     $script:latestRequests++
     if ($script:failure -ceq 'latest-404') { throw 'synthetic_latest_404' }
-    if ($script:latestRequests -gt 1) { return 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.9.9' }
+    if ($script:latestRequests -gt 1) { return 'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.9.9' }
     return $script:latestUrl
 }
 
@@ -26,7 +26,7 @@ function Resolve-RovloomLatestUrl {
 function Save-RovloomAsset {
     param([string]$Url, [string]$Path, [long]$MaximumBytes)
     $script:requests += $Url
-    $base = 'https://github.com/ArnoChenFx/Rovloom/releases/download/v0.2.3/'
+    $base = 'https://github.com/ArnoChenFx/rovloom/releases/download/v0.2.3/'
     if ($Url -ceq ($base + 'SHA256SUMS')) {
         if ($script:failure -ceq 'checksums-404') { throw 'synthetic_404' }
         $sums = "$script:digest  $script:asset`n"
@@ -96,12 +96,12 @@ try {
     Assert-Installer ([IO.File]::Exists($program)) 'new_install_failed'
     foreach ($url in @(
         'https://github.com/foreign/Rovloom/releases/tag/v0.2.3',
-        'http://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3',
-        'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3-rc.1',
-        'https://github.com/ArnoChenFx/Rovloom/releases/tag/v00.2.3',
-        'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3?x=1',
-        'https://github.com/ArnoChenFx/Rovloom/releases/tag/0.2.3',
-        "https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3`n"
+        'http://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3',
+        'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3-rc.1',
+        'https://github.com/ArnoChenFx/rovloom/releases/tag/v00.2.3',
+        'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3?x=1',
+        'https://github.com/ArnoChenFx/rovloom/releases/tag/0.2.3',
+        "https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3`n"
     )) {
         $script:latestUrl = $url
         $script:latestRequests = 0
@@ -112,7 +112,7 @@ try {
         Assert-Installer ($failed -and $script:requests.Count -eq $count) 'invalid_latest_tag_downloaded'
         Assert-Installer ([IO.File]::ReadAllText($program) -ceq 'old program') 'invalid_latest_changed_program'
     }
-    $script:latestUrl = 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3'
+    $script:latestUrl = 'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3'
     $script:latestRequests = 0
     $script:failure = 'latest-404'
     $failed = $false

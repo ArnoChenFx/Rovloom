@@ -45,7 +45,7 @@ test('the site builds without Gateway state and all relative assets work under a
     }
     for (const [, asset] of html.matchAll(/(?:src|href)="(\.\/[^"#]+)"/g)) {
       assert(existsSync(join(output, asset)), asset)
-      assert.equal(new URL(asset, 'https://example.test/Rovloom/').pathname, '/Rovloom/' + asset.slice(2))
+      assert.equal(new URL(asset, 'https://example.test/rovloom/').pathname, '/rovloom/' + asset.slice(2))
     }
     assert(!html.match(/(?:src|href)="\/(?!\/)/))
     for (const [, sprite] of html.matchAll(/<use href="#([^"]+)"/g)) {
@@ -94,7 +94,7 @@ test('published site version and download target follow the latest release inste
     assert.equal(version, '9.8.7')
     assert(html.includes('name="rovloom-version" content="9.8.7"'))
     assert(html.includes('class="terminal-version">v9.8.7</span>'))
-    assert(html.includes('href="https://github.com/ArnoChenFx/Rovloom/releases/tag/v9.8.7"'))
+    assert(html.includes('href="https://github.com/ArnoChenFx/rovloom/releases/tag/v9.8.7"'))
     const hero = html.match(/<section class="hero wrap"[\s\S]*?<\/section>/)[0]
     assert(!hero.includes('v9.8.7'))
     assert(!hero.includes('MIT'))

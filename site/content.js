@@ -224,8 +224,8 @@ export const commands = {
     en: '# Terminal 1 · Gateway machine\nrovloom gateway\n\n# Terminal 2 · Luvus / Herdr machine\nrovloom connector'
   },
   docker: {
-    zh: 'curl -fsSL -o docker-compose.yaml \\\n  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/docker-compose.yaml\ndocker compose pull\n\n# 在真实终端中完成首次配对\ndocker compose run --rm gateway\n\n# 配对完成并停止前台实例后\ndocker compose up -d',
-    en: 'curl -fsSL -o docker-compose.yaml \\\n  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/docker-compose.yaml\ndocker compose pull\n\n# Complete first pairing in a real terminal\ndocker compose run --rm gateway\n\n# After pairing and stopping the foreground instance\ndocker compose up -d'
+    zh: 'curl -fsSL -o docker-compose.yaml \\\n  https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/docker-compose.yaml\ndocker compose pull\n\n# 在真实终端中完成首次配对\ndocker compose run --rm gateway\n\n# 配对完成并停止前台实例后\ndocker compose up -d',
+    en: 'curl -fsSL -o docker-compose.yaml \\\n  https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/docker-compose.yaml\ndocker compose pull\n\n# Complete first pairing in a real terminal\ndocker compose run --rm gateway\n\n# After pairing and stopping the foreground instance\ndocker compose up -d'
   },
   mcp: {
     zh: '{\n  "url": "http://127.0.0.1:9444/mcp",\n  "headers": {\n    "Authorization": "Bearer YOUR_MCP_BEARER"\n  }\n}',

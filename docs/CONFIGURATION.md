@@ -3,12 +3,10 @@
 **English** · [简体中文](CONFIGURATION-zh.md) · [Quick Start](QUICK-START.md)
 
 Each role has **one user JSON file**: `~/.config/rovloom/gateway.json` or
-`~/.config/rovloom/connector.json`. The default file and user file are the same.
-Start the role to create its missing file; you do not have to copy a template or
-prepare additional configuration files. Existing documents are read strictly
-and are never reset. All fields below
-are required unless marked optional. Defaults describe the generated document,
-not fallback values for missing fields. Examples contain no credentials.
+`~/.config/rovloom/connector.json`. Starting a role creates its missing file.
+Existing files are read strictly and never reset. All fields below are required
+unless marked optional. Defaults describe the generated file, not fallback values
+for missing fields. Examples contain no credentials.
 
 ## Complete minimal configurations
 
@@ -38,10 +36,10 @@ Connector, normally `~/.config/rovloom/connector.json`:
 ```
 
 Replace `/home/your-user` with your actual home when saving an example. The
-program substitutes the real home on first creation. Gateway can start locally
-with these defaults and no identities; Connector's blank address is a valid
-saved configuration; a real local terminal prompts for it, while non-TTY startup returns `configuration_required` (2).
-Setting an address does not establish pairing or install a native provider.
+generated file already contains the real home. The Gateway starts with these
+defaults and no identities. A blank Connector address is valid: a local terminal
+prompts for it, and non-TTY startup returns `configuration_required` (2).
+Setting an address does not pair the device or install a native provider.
 
 ## Every user parameter
 
@@ -65,9 +63,9 @@ Setting an address does not establish pairing or install a native provider.
 | `gateway.url` | String, required | `""` while setup is pending; otherwise WS/WSS origin, ≤2048 characters, e.g. `ws://192.0.2.10:9443` or `wss://gateway.example`. No credentials/query/fragment/path except optional trailing `/`. Product selects `/connector`. |
 | Connector `allow_terminal_execution` | Boolean, optional | `false`, also when omitted. Only literal `true` enables direct terminal input and custom launch/restore commands through the existing local guard. Edit this single user file and restart Connector; it does not change installation settings or caller/local grants. |
 | Connector `native` | Object, optional | Absent by default. Contains only the provider-selection and installation-directory settings below; applied at first native initialization. |
-| `native.provider` | String enum, optional | Omitted: `luvus`; `herdr` selects Herdr, `mixed` selects one of each. Choose before native initialization; changing an initialized selection requires a future reconfiguration flow. |
-| `native.runtime_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Where to look for the selected `luvus`/`herdr` programs. Search order: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. Different programs may live in different directories. No shell expansion or executable argv. |
-| `native.agent_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Directories searched for Agent programs. At native setup the Agent PATH is fixed as: these directories in order, then the usable entries of the `PATH` the Connector was started with, then `/usr/bin:/bin`. It does not install or authenticate an Agent. |
+| `native.provider` | String enum, optional | Omitted: `luvus`; `herdr` selects Herdr, `mixed` selects one of each. Choose it before native initialization; it cannot change afterwards. |
+| `native.runtime_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Where to look for the selected `luvus`/`herdr` programs. Search order: these directories, then the usable entries of the Connector's `PATH`, then `/usr/bin:/bin` (not on Windows). Different programs may live in different directories. No shell expansion or executable argv. |
+| `native.agent_bin_dirs` | Array of 1–16 distinct normalized absolute directory strings (each ≤4096 characters), optional | Directories searched for Agent programs. The Agent PATH is fixed at native setup in the same order. Rovloom does not install or authenticate an Agent. |
 | `native.herdr.mode` | `"attach"` (default) or `"managed"`, optional | Herdr only. `attach`: connect to the Herdr you already run, start one in your own config directory only if none is running, and re-attach/re-create it when it disappears. `managed`: a private isolated instance owned by the Connector. See [Herdr: attach or managed](#herdr-attach-or-managed). |
 | `native.luvus.mode` | `"attach"` (default) or `"managed"`, optional | Luvus only. `attach`: connect to your own `default` session, start one in your own `LUVUS_HOME` only if none is running, and re-attach/re-create it when it disappears. `managed`: a private isolated instance (session `rovloom`) owned by the Connector. See [Luvus: attach or managed](#luvus-attach-or-managed). |
 | `native.luvus.state_root` | Normalized absolute directory string, optional | Attach mode: your Luvus state directory (default `$LUVUS_HOME` from the Connector's environment, else `~/.luvus`). Created with mode 0700 if missing; it must be private. |
@@ -76,60 +74,45 @@ Setting an address does not establish pairing or install a native provider.
 Enabled Gateway listeners must use different ports. Unknown fields, old flat
 fields, runtime/ref selectors, TLS/CA paths, schema hashes, binary pins and
 credential values are rejected. There are no user parameters for native roots,
-ledgers, bindings or identity digests. After native initialization, changing its
-installation settings is rejected; this preview has no guided native reconfiguration.
-Changing an initialized Connector's Gateway URL is also rejected before its saved
-device credential can be sent to another origin.
+ledgers, bindings or identity digests. After native initialization, changing the
+native installation settings or the Connector's Gateway URL is rejected, so a saved
+device credential is never sent to another origin.
 
-Paths are absolute and normalized, not relative to the JSON location. JSON does
-not expand `~` or environment variables. The default role path always uses the
-process user's home, including on Windows; it does not use AppData or an XDG
-override. `--config` takes an absolute file path and overrides only that file's
-location. Generated data still defaults to the role user's home. Existing explicit
-files do not need home resolution. Missing files need home to generate defaults.
+Paths are absolute and normalized, not relative to the JSON file. JSON does not
+expand `~` or environment variables. The default role path always uses the
+process user's home, including on Windows. `--config` takes an absolute file path
+and overrides only that file's location; generated data still defaults to the
+user's home.
 
-First-file creation, role-file checks and Gateway startup support
-Linux/macOS/Windows. First-pairing approval and the native Connector still require
-Linux. See [platform availability](#platform-availability-and-checking-state).
-Templates have platform-appropriate path separators. Files use normal OS access
-permissions. Newly created files/directories request `0600`/`0700` where supported;
-these modes are defaults, not validation requirements for existing files.
-Existing permissions and malformed files are never automatically repaired.
-User JSON is limited to 16 KiB. JSON has
-no comments; malformed encoding and duplicate keys are rejected.
+Newly created files and directories request `0600`/`0700` where supported.
+Existing permissions and malformed files are never repaired automatically.
+User JSON is limited to 16 KiB, has no comments, and rejects malformed encoding
+and duplicate keys. See [platform availability](#platform-availability) for
+supported systems.
 
 ## Program-managed data and authentication
 
-The user edits only the role file. `data.directory` selects where Rovloom keeps
-its databases, device credentials and native state. Its default is
-`~/.local/share/rovloom/gateway` or `~/.local/share/rovloom/connector`; the loader
-internally calls this value `state_dir`. Rovloom prepares its own data during
-startup and approved setup. Do not prepare `runtime.json`, a `refs/` directory,
-provider JSON or credential files; these are not additional user configuration.
-The old `runtime.json`/`refs/` format is not loaded or migrated.
+You edit only the role file. `data.directory` is where Rovloom keeps its
+databases, device credentials and native state. Rovloom prepares these itself
+during startup and approved setup; do not create `runtime.json`, `refs/`,
+provider JSON or credential files.
 
-Preserve the data directory as a whole, including companion database files.
-Do not edit its internal records or delete them to retry an uncertain setup.
-Herdr uses `<data.directory>/hr/` for its isolated `h/c/s/k/t/w/control` directories;
-Rovloom retains the measured schema and claims there. These are program-managed
-paths, not additional user configuration. Guided recovery is not yet available. For first
-Luvus setup, `data.directory` plus `/n` must fit within 52 UTF-8 bytes; select a
-shorter directory before pairing if necessary.
+Keep the data directory as a whole, including companion database files. Do not
+edit its records or delete them to retry an uncertain setup. Herdr uses
+`<data.directory>/hr/` for its isolated directories. For first Luvus setup,
+`data.directory` plus `/n` must fit within 52 UTF-8 bytes; choose a shorter
+directory before pairing if necessary.
 
-A Gateway with no caller state runs in a **pairing required** state. MCP returns
-401 and the management page shows only its empty shell (no device data) until an
-administrator exists (see below). Existing
-MCP access still comes from a caller's already issued Bearer for the exact
-`http://<MCP-host>:<port>/mcp` resource. First native approval creates one local
-caller for the exact reviewed Target; its Bearer is displayed only to the verified
-local terminal and retained privately by Rovloom. Copy it into
-the MCP client's secret storage. It expires after 30 days by default and is managed with
-`rovloom token` (see below). Device
-credentials, MCP Bearers and independent management proofs are distinct. Existing
-management authentication uses its own administrator password; an MCP
-Bearer cannot log in as administrator. When first pairing completes, the verified Gateway
-terminal creates the administrator `admin` and prints its password once next to the MCP Bearer;
-afterwards you manage administrators with `rovloom admin`.
+A Gateway with no caller state is in the **pairing required** state. MCP returns
+401 and the management page shows only an empty shell until an administrator
+exists. First native approval creates one local caller for the reviewed Target.
+Its Bearer is shown only on the verified local terminal and kept privately by
+Rovloom. Copy it into the MCP client's secret storage. It expires after 30 days
+by default and is managed with `rovloom token`. Device credentials, MCP Bearers
+and administrator passwords are separate; an MCP Bearer cannot sign in to the
+management page. When first pairing completes, the Gateway terminal creates the
+administrator `admin` and prints its password once next to the MCP Bearer.
+Manage administrators afterwards with `rovloom admin`.
 
 ### Managing the management-page administrator
 
@@ -144,12 +127,10 @@ the administrator ID (default `admin`) and the password is what `create` writes 
 (everything else goes to stderr). Gateway keeps only its SHA-256 digest in
 `managed/management.json`. Creating, re-issuing and revoking take effect **without a restart**:
 re-issuing an existing ID (the way to recover a lost password) replaces its password and
-invalidates browser sessions already signed in with the old one; revoking does the same. An
-administrator may see and manage every device and provider the Gateway knows, including ones paired
-later. It can not call MCP: the matching entry in the MCP caller registry has an empty policy and a
-token nobody knows (and is hidden from `rovloom token list`). Run `rovloom admin create` only after the
-first pairing completes, because it needs the caller registry that pairing creates (pairing itself
-already created `admin` and showed its password once). In Docker use
+invalidates browser sessions signed in with the old one; revoking does the same. An
+administrator can see and manage every device and provider the Gateway knows, including ones paired
+later, but cannot call MCP. Run `rovloom admin create` only after first pairing, because it
+needs the caller registry that pairing creates. In Docker use
 `docker compose exec gateway rovloom admin create`.
 
 ### Managing Bearer tokens
@@ -170,20 +151,27 @@ restart**, and revoking also invalidates established MCP sessions. `create` and
 a new principal's permissions are cloned from `--like`, never widened. `rotate`
 invalidates the old token immediately unless `--grace-minutes` gives clients a bounded
 switch-over window. A local `mcp-client.json` belonging to the same principal is
-updated too. A corrupt file denies all authentication and recovers once repaired.
-Optional OIDC is not available yet.
+updated too. A corrupt registry denies all authentication until it is repaired.
 
-Connector needs both a reachable Gateway address and completed pairing/native
-state. In a genuine local TTY, Gateway approval issues a five-minute one-time code;
-Connector asks for the address/code without echoing the code, exchanges the existing
-enrollment, saves its device credential privately, then acknowledges
-that exact durable delivery. Only a separate owner approval of the measured native
-installation permits provider/caller configuration. Non-TTY startup never waits
-for input or creates these permissions. Native initialization does not log in to a
-model provider, create an Agent or prove a model reply.
-Missing provider state is setup-required; corrupt or unsafe state is rejected.
-`config check-runtime` checks the existing managed provider registry, not caller
-credentials, TLS trust, native binaries or a model connection.
+### Pairing
+
+A Connector needs a reachable Gateway address and completed pairing. On a real
+local terminal, Gateway approval issues a five-minute one-time code. The
+Connector asks for the address and the code (not echoed), saves its device
+credential privately, then confirms delivery. A separate owner approval of the
+measured native installation allows provider and caller configuration. Non-TTY
+startup never waits for input and never creates these permissions. Native
+initialization does not log in to a model provider, create an Agent or prove a
+model reply.
+
+- `rovloom gateway --add-device` pairs another Connector on top of a finished
+  setup. The existing MCP Bearer then covers the new device.
+- `rovloom gateway --repair-device` and `rovloom connector --repair` re-pair
+  the same device after its credential is lost or leaked. The old credential
+  stops working; native settings and MCP grants stay.
+
+`config check-runtime` checks the existing provider registry only. It does not
+check caller credentials, TLS trust, native binaries or a model connection.
 
 ## Network access
 
@@ -191,29 +179,22 @@ Gateway uses ordinary HTTP/WS for local/trusted-network access. Public TLS belon
 to an external standard HTTPS/WSS reverse proxy. Connector WSS always uses system
 certificate validation. There is no custom CA or skip-verification option.
 
-## Native installation and pins
+## Native installation
 
-Install native programs through their official [latest Luvus](https://github.com/RizRiyz/luvus/releases/latest)
-or [latest Herdr](https://github.com/herdrdev/herdr/releases/latest) distribution. Compatibility
-uses the installed protocol, complete request/response schema and actual method
-capabilities. Version labels are diagnostic; no fixed native release or preset
-binary/schema digest is required. Missing or incompatible optional interfaces
-only make their dependent operations unavailable.
+Install the native programs from their official [Luvus](https://github.com/RizRiyz/luvus/releases/latest)
+or [Herdr](https://github.com/herdrdev/herdr/releases/latest) releases. Compatibility
+is decided by the installed protocol, the complete request/response schema and the
+methods actually offered. Version labels are diagnostic only. A missing or
+incompatible optional interface disables only the operations that depend on it.
 
 | Integration basis | Luvus | Herdr |
 |---|---|---|
 | Schema command | `luvus uhp schema` | `herdr api schema --json` |
-| Protocol basis | UHP v1 envelope and actual live method catalog | Actual schema protocol and complete JSON RPC roots |
-| Adapter revision | `managed-owned-luvus-0.14.3-1` | `herdr-workflow-4` |
-| Classification revision | `managed-owned-rpc-1` | `herdr-0.9.5-workflow-4` |
+| Protocol basis | UHP v1 envelope and live method catalog | Schema protocol and complete JSON RPC roots |
 
-Revision strings identify Rovloom adapter/classification code; their historical
-version text is not a native installation requirement. Protected program-managed
-state and each live source must still agree on the actual binary/schema hashes,
-complete target and generation. Preserve schema output as original bytes.
-Installed schema bytes are always fully compiled (about 0.7 s cold) within the compiler budget. These are integration checks, not user JSON fields.
-Internal discovery does not complete the user-facing provider setup or install
-native programs; first-file generation does not prepare native settings or model access.
+The program-managed state and each live source must agree on the binary and
+schema hashes. These are integration checks, not user JSON fields. Rovloom does
+not install native programs or prepare model access.
 
 ## Herdr: attach or managed
 
@@ -266,33 +247,28 @@ Nothing in your ordinary home is shared.
 ## Restart after a crash
 
 If the Connector is killed (`kill -9`, power loss), it leaves an owner record, the
-native endpoint sockets and the claim-ledger lock behind. On the next start the
-Connector clears them itself **only** when it can prove the previous owner is gone:
-the owner process recorded in the owner record no longer exists (Linux; checked by
-PID and kernel start time) and nothing listens on the native sockets. It then
-prints `herdr_crash_residue_cleared` to stderr and starts normally. The claim
-ledger and its dispatch records are never touched, so a possibly-executed call is
-never resent. If the old owner is still alive, a native process is still listening,
-the record is from an older version, or the platform is not Linux, the start is
-refused (exit code 3) exactly as before; stop the surviving process first.
+native endpoint sockets and the claim-ledger lock behind. On the next start it
+clears them **only** when it can prove the previous owner is gone: the recorded
+owner process no longer exists (Linux; checked by PID and kernel start time) and
+nothing listens on the native sockets. It then prints `herdr_crash_residue_cleared`
+to stderr and starts normally. The claim ledger and its dispatch records are never
+touched, so a possibly-executed call is never resent. If the old owner is alive,
+a native process still listens, the record is unreadable or the platform is not
+Linux, the start is refused (exit code 3). Stop the surviving process first.
 
-Luvus works the same way for its two crash locks: the claim-ledger lock and the
-root owner lock now record the owning process (PID and kernel start time). On the
-next start the Connector removes a lock only when that process is gone — and, for the
-owner lock, nothing listens on the session's Luvus sockets (a surviving orphan
-`luvus` server keeps the start refused). It prints `luvus_crash_residue_cleared` to
-stderr. Empty locks written by older versions, unreadable locks and non-Linux
-platforms stay refused until the lock is removed by hand. The claim ledger itself
-(and its dispatch records) is never touched.
+Luvus works the same way for its two crash locks, the claim-ledger lock and the
+root owner lock. Each records the owning process. A lock is removed only when that
+process is gone and, for the owner lock, nothing listens on the session's Luvus
+sockets. Rovloom then prints `luvus_crash_residue_cleared` to stderr. Unreadable
+locks and non-Linux platforms stay refused until you remove the lock by hand.
 
 ## Program and Agent installation directories
 
-Install the official runtime (`luvus`/`herdr`) and Agent, such as OpenCode, wherever
+Install the runtime (`luvus`/`herdr`) and the Agent, such as OpenCode, wherever
 suits the machine; they need not share a directory. By default Rovloom finds them
-through the `PATH` the Connector was started with, plus `/usr/bin:/bin`. Native
-integration does **not** run with your login shell's PATH: at native setup the
-search path is computed once, fixed in the protected installation record, and
-re-checked on every start.
+through the `PATH` the Connector was started with, plus `/usr/bin:/bin`. It does
+**not** use your login shell's PATH: the search path is computed once at native
+setup, stored in the protected installation record and re-checked on every start.
 
 Only some `PATH` entries qualify. An entry is used when it is a normalized absolute
 path to a real directory (not a symlink, file or missing path) owned by root or the
@@ -313,165 +289,134 @@ user file **before approving native setup**:
 Both fields are optional arrays of normalized absolute directories (no `~`, variables,
 relative paths, `..`, trailing slash or PATH-style `a:b` strings; no duplicates).
 Explicit directories are trusted exactly as written, so keep them under the machine
-owner's control, and a same-named program in an earlier directory wins. This is a native
-installation setting, not an executable path, MCP argument or CLI flag. Do not edit a
-managed root record or its digest to change an initialized installation.
+owner's control. A same-named program in an earlier directory wins. This is a native
+installation setting, not an executable path, MCP argument or CLI flag.
 
-Configure Agent/model access in the runtime's private HOME/XDG locations;
-for first setup its HOME is `<data.directory>/h` (Luvus) or `<data.directory>/hr/h` (Herdr). A login in your usual home
-is not copied. This preview has no guided model-login procedure for that isolated
-environment, so fresh model setup still needs the machine owner's preparation.
-Ordinary strict text conversation can keep local `allow_terminal_execution:false`.
-Do not use arbitrary argv/env or terminal input to work around missing PATH.
-The terminal switch does not sandbox an Agent's own tools. Binary/schema validation
-or `ready` alone is not evidence that a model replied.
+Configure Agent and model access in the runtime's private HOME/XDG locations.
+In managed mode its HOME is `<data.directory>/h` (Luvus) or `<data.directory>/hr/h`
+(Herdr). A login in your usual home is not copied, so the machine owner prepares
+model access for that environment. Plain text conversation works with
+`allow_terminal_execution` left `false`. The terminal switch does not sandbox an
+Agent's own tools. A `ready` state alone is not evidence that a model replied.
 
-Direct terminal operation uses the existing native methods: Luvus `pane.run` takes
-an explicit `pane` and `command`; read subsequent terminal output with `pane.read`.
-Its `ok` acknowledges PTY input, not command completion or a shell exit code.
-The current authenticated Gateway catalog hides direct input while local state is
-off or unknown; strict text variants retain their parameter restriction. Existing
-initialized policies may still exclude `pane.run`; enabling the switch does not
-amend them. See [terminal execution](TERMINAL-EXECUTION.md) for environment,
-output and unknown-result semantics.
+Direct terminal operation uses the native methods: Luvus `pane.run` takes an
+explicit `pane` and `command`; read the output with `pane.read`. Its `ok`
+acknowledges PTY input, not command completion or an exit code. The Gateway
+catalog hides direct input while the local switch is off or unknown. Policies
+created before the switch was enabled may still exclude `pane.run`. See
+[terminal execution](TERMINAL-EXECUTION.md).
 
-## Complete CLI reference
+## CLI reference
 
-These are all command forms accepted by the current product. `ROLE` means
-`gateway` or `connector`; `ABS` means a normalized absolute path supplied as a
-separate argument. Replace example paths with your own. Commands and option
-names are case-sensitive. No `--option=value` syntax, combined short flags or
-unspecified extra arguments are supported. Only top-level help has a short flag.
+`ROLE` means `gateway` or `connector`; `ABS` means a normalized absolute path
+passed as a separate argument. Commands and options are case-sensitive. The
+`--option=value` form, combined short flags and extra arguments are not
+accepted. Only top-level help has a short flag.
 
 ### Help, version and configuration
 
-| Command | Arguments / options | Default / effect | Valid example |
-|---|---|---|---|
-| `rovloom` | None | Prints top-level help; does not start a role. | `rovloom` |
-| `rovloom --help`, `rovloom -h`, `rovloom help` | No additional arguments | Equivalent offline help. | `rovloom -h` |
-| `rovloom --version` | No additional arguments | Prints product version. No `-v` alias. | `rovloom --version` |
-| `rovloom gateway --help`, `rovloom connector --help` | Exactly one `--help` flag | Prints top-level help; cannot combine with `--config`. | `rovloom connector --help` |
-| `rovloom config template ROLE` | Required positional enum `ROLE`; no options | Prints complete non-secret role JSON; writes no file. | `rovloom config template gateway` |
-| `rovloom config check [--role ROLE] [--config ABS]` | `--role`: optional `gateway`/`connector`; `--config`: optional absolute path string | No options: read both default user files and report each role. Role selects one; an explicit file overrides its path. Read-only, never creates missing files. | `rovloom config check` |
-| `rovloom config check-runtime [--role ROLE] [--config ABS]` | Same optional role and path options as `check` | Same default selection; additionally checks existing program-managed provider state. No creation, credential loading or Agent-readiness claim. | `rovloom config check-runtime --role connector` |
+| Command | Arguments / options | Effect |
+|---|---|---|
+| `rovloom`, `rovloom --help`, `rovloom -h`, `rovloom help` | None | Prints top-level help. |
+| `rovloom gateway --help`, `rovloom connector --help` | Exactly `--help` | Prints top-level help. |
+| `rovloom --version` | None | Prints the product version. There is no `-v` alias. |
+| `rovloom config template ROLE` | Required `ROLE` | Prints the complete non-secret role JSON; writes no file. |
+| `rovloom config check [--role ROLE] [--config ABS]` | Both optional, in either order | Without options, checks both default user files and reports each. `--role` selects one role; `--config` overrides its path. Read-only; never creates a file. |
+| `rovloom config check-runtime [--role ROLE] [--config ABS]` | Same as `check` | Also checks the existing program-managed provider state. No credentials are loaded and no Agent readiness is claimed. |
 
-For either check, `--role` and `--config` may appear in either order. An explicit
-file without a role uses the role declared in that file; with a role, a mismatch
-is an error. Checking both continues after a role error, reports both results,
-and returns nonzero if either fails. Neither check creates a missing file.
+An explicit file without `--role` is checked as the role it declares; with
+`--role`, a mismatch is an error. When both roles are checked, an error in one
+does not skip the other, and any failure returns nonzero.
 
 ### Run a role
 
-| Command | Arguments / options | Default / effect | Valid example |
-|---|---|---|---|
-| `rovloom gateway [--config ABS]` | `--config`: optional path string | Defaults to the current user's `~/.config/rovloom/gateway.json`; starts the foreground Gateway. | `rovloom gateway --config /home/rovloom/.config/rovloom/gateway.json` |
-| `rovloom connector [--config ABS]` | `--config`: optional path string | Defaults to the current user's `~/.config/rovloom/connector.json`; starts the foreground Connector. | `rovloom connector --config /home/rovloom/.config/rovloom/connector.json` |
+| Command | Effect |
+|---|---|
+| `rovloom gateway [--config ABS] [--non-interactive]` | Starts the foreground Gateway. Default file: `~/.config/rovloom/gateway.json`. |
+| `rovloom connector [--config ABS] [--non-interactive]` | Starts the foreground Connector. Default file: `~/.config/rovloom/connector.json`. |
+| `rovloom gateway --add-device [--config ABS]` | Pairs an additional Connector on a finished setup. Stop the Gateway first. |
+| `rovloom gateway --repair-device [--config ABS]` | Re-pairs a device whose credential is lost or leaked. |
+| `rovloom connector --repair [--config ABS]` | The Connector side of `--repair-device`. |
 
-Explicit paths take priority; there is no fallback from an invalid explicit path.
-The selected file must have the matching role. A missing file is generated on
-Linux/macOS/Windows at the selected path; an existing file is never overwritten. Defaults are
-resolved for the process user. Stop a foreground
-role with Ctrl-C; there is no separate top-level `start`, `stop` or `restart`.
-Network ports are JSON fields, not flags. Provider initialization is limited to
-the first local-terminal flow for selected Luvus/Herdr providers described above; Agent/model login is separate.
+An explicit `--config` takes priority and never falls back to the default. The
+file must match the role. A missing file is created at the selected path; an
+existing file is never overwritten. Stop a foreground role with Ctrl-C. There
+is no `start`, `stop` or `restart` command at the top level. Ports are JSON
+fields, not flags.
 
-### Service command syntax and current availability
+`--add-device`, `--repair-device` and `--repair` need a real local terminal and
+cannot be combined with `--non-interactive`. `--non-interactive` disables the
+local setup prompts; the Windows service passes it automatically.
 
-`rovloom service --help` is available offline. Gateway uses Linux systemd, macOS system LaunchDaemons or Windows user boot-triggered tasks. Installation requires the current standalone Rovloom
-binary, normal system-service authorization, an existing non-root account and an
-existing working directory. Existing JSON/role errors are checked; missing config
-is left for normal first startup. No UID/mode/ACL or ancestor proof is required,
-and existing permissions are not changed. Windows uses an explicitly selected existing user with S4U and the same absolute config file. Native definition
-parsing does not establish actual lifecycle acceptance.
-See [service prerequisites and platform limits](SERVICE.md).
+### Service commands
 
-| Command form | Required arguments | Meaning of the action | Linux syntax example |
-|---|---|---|---|
-| `rovloom service install` | `--role`, `--workdir`, `--user`; optional `--executable`, `--config` | Add/enable startup at boot; **does not start now**. | `rovloom service install --role gateway --executable /opt/rovloom/rovloom --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom` |
-| `rovloom service start` | `--role` only | Start an installed role now; does not create its installation. | `rovloom service start --role gateway` |
-| `rovloom service restart` | `--role` only | Stop the installed instance, then start it. | `rovloom service restart --role connector` |
-| `rovloom service stop` | `--role` only | Stop now; retain startup at the next boot. | `rovloom service stop --role connector` |
-| `rovloom service uninstall` | `--role` only | Remove startup at future boots; **does not stop** a running instance or delete user data. | `rovloom service uninstall --role gateway` |
+`rovloom service --help` works offline. Installation needs the current
+standalone binary, normal system-service authorization, an existing non-root
+account and an existing working directory. A missing configuration file is
+created at the first normal start. See [SERVICE](SERVICE.md) for prerequisites
+and platform limits.
 
-Every service action selects exactly one role; repeat separately for the other
-role. There is no default role, `all` role, `--now`, `--force`, `--purge` or
-`service status` command. Other actions cannot take install-only options.
-
-| Service option | Type / required / default | Purpose |
+| Command | Required arguments | Effect |
 |---|---|---|
-| `--role` | Required enum `gateway` or `connector`; no default | Select the role whose startup/instance is managed. |
-| `--executable` | Install-only, optional absolute path string, at most 4096 characters; defaults to the current standalone binary | Must equal the current canonical executable. Another installation, shell or interpreter is rejected. Windows path must end in `.exe`. |
-| `--config` | Install-only, optional absolute path string, at most 4096 characters | Uses the same current-user role file as foreground startup when omitted. Installation fixes this absolute path; background startup does not select another home. Pass the original user's absolute file explicitly when invoking through sudo. |
-| `--workdir` | Install-only, required absolute directory string, at most 4096 characters; no default | Working directory of the service; does not set or replace JSON `data.directory`. |
-| `--user` | Install-only, required account string; no default | Existing non-root account on Linux/macOS; existing Windows user name or user SID for S4U. No password is stored. This does not select another configuration directory. |
+| `rovloom service install` | `--role`, `--workdir`, `--user`; optional `--executable`, `--config` | Registers startup at boot. **Does not start now.** |
+| `rovloom service start` | `--role` | Starts an installed role now. |
+| `rovloom service restart` | `--role` | Stops the installed instance, then starts it. |
+| `rovloom service stop` | `--role` | Stops now and keeps startup at the next boot. |
+| `rovloom service uninstall` | `--role` | Removes startup at future boots. **Does not stop** a running instance or delete data. |
 
-Service path values are fixed at install time; later boot/start/restart uses the
-recorded absolute role configuration, rather than resolving a new home. The installer
-checks normal product, account, working-directory and existing JSON/role inputs;
-it does not impose ownership/permission or ACL rules. Missing state/config files
-are handled by normal role startup. The runtime account does not select a second
-configuration directory. Linux working directories cannot end in whitespace or a backslash.
+Example (Linux):
 
-The service action semantics keep installation and running state separate:
-install then start would request both boot startup and immediate running;
-uninstall then stop would request both no future boot startup and stopping now.
-Repeated start must not duplicate a running instance; start/restart requires an
-installed registration. Stopping does not itself remove boot startup. Windows
-stop/restart may terminate the task directly; do not treat it as native rollback.
+```sh
+rovloom service install --role gateway --workdir /home/rovloom --user rovloom
+rovloom service start --role gateway
+```
 
-### Platform availability and checking state
+Each action selects exactly one role; repeat it for the other role. There is no
+default role, `all`, `--now`, `--force`, `--purge` or `service status`.
 
-| Command group | Linux | macOS | Windows |
+| Option | Applies to | Meaning |
+|---|---|---|
+| `--role` | All actions | `gateway` or `connector`. |
+| `--executable` | install, optional | Absolute path, at most 4096 characters. Defaults to the current standalone binary and must equal it. On Windows it must end in `.exe`. |
+| `--config` | install, optional | Absolute path, at most 4096 characters. Defaults to the current user's role file. Install records this path; later starts do not resolve another home. Pass it explicitly when running through sudo. |
+| `--workdir` | install, required | Absolute working directory, at most 4096 characters. It does not replace `data.directory`. On Linux it cannot end in whitespace or a backslash. |
+| `--user` | install, required | Existing non-root account (Linux/macOS), or existing user name or SID (Windows, S4U, no password stored). |
+
+Start and restart require an installed registration. A repeated start does not
+create a second instance. Windows stop and restart may end the task directly.
+
+Successful service output is a JSON line on stderr with `bootEnabled`,
+`controlRetained` and `readiness: "not_checked"`. Use the foreground process and
+the checks in the [Quick Start](QUICK-START.md) to confirm readiness. A running
+process alone does not prove MCP or Agent readiness, and an HTTP client
+disconnect does not stop the Gateway.
+
+### Platform availability
+
+| Capability | Linux | macOS | Windows |
 |---|---|---|---|
-| Help/version/template output | Available | Available | Available |
-| `config check` | Normal OS file access | Normal OS file access | Normal OS file access |
-| Missing role-file creation | Available | Available | Available |
-| Gateway startup / `config check-runtime` | Available | Available | Available |
-| First-pairing approval | Local terminal required | Not yet available | Local terminal required (x64) |
-| Native Connector | Linux x64 | Not supported | x64: attaches to the Herdr / Luvus you already run (starts one only if absent); isolated managed mode is not supported on Windows |
-| Service actions | Production systemd backend connected; native Connector on x64 | Gateway system LaunchDaemon; local Connector rejected | Gateway and x64 native Connector both use a boot-triggered task for an existing user (S4U) |
-| `update --check` | x64/arm64, proven glibc required | x64/arm64 metadata check | x64/arm64 metadata check |
+| Help, version, template, `config check` | Yes | Yes | Yes |
+| Role file creation, Gateway start, `config check-runtime` | Yes | Yes | Yes |
+| First-pairing approval (local terminal) | Yes (x64) | No | Yes (x64) |
+| Native Connector | x64 | No | x64, attach mode only |
+| Service: Gateway | systemd | LaunchDaemon | boot task (S4U) |
+| Service: Connector | x64 | No | x64, boot task (S4U) |
 
-There is no working Rovloom service-status query in this preview.
-Use the foreground process and the management/MCP checks in the Quick Start to
-check current runtime readiness. A running process alone does not prove MCP or
-Agent readiness; an HTTP client disconnect does not stop Gateway.
-
-### Update commands
-
-| Command | Arguments / options | Effect and current limitation | Valid example |
-|---|---|---|---|
-| `rovloom update --help` | No extra arguments | Offline update help. | `rovloom update --help` |
-| `rovloom update --check` | `--check`: optional boolean switch selecting check-only mode; no value | Reads official stable release metadata over the network; does not replace the program. | `rovloom update --check` |
-| `rovloom update` | No arguments | Checks first. No newer release means no replacement and exit 0; if a newer release exists, the missing replacement backend causes `replacement_unavailable` (5). | `rovloom update` |
-
-No public release is currently available, so a network check can return
-`release_unavailable`. Exit 0 from `update` does not mean a new binary was
-installed. No URL, mirror, version selector, download path, script or confirmation
-flag is accepted. The release matrix describes update metadata targets, not full
-Gateway/Connector runtime support.
+On Windows the Connector attaches to the Herdr or Luvus you already run and
+starts one only if none is present; `managed` mode is not supported there.
 
 ### Output and exit codes
 
-Help, version, check diagnostics, service diagnostics and update status go to
-**stderr**. Template JSON goes to **stdout**. Stdout is not an MCP transport.
-No command accepts Bearers, TLS secrets, model secrets or arbitrary environment
-variables as CLI options. Commands such as `init`, `pair`, `status`, `--token`,
-`--port`, `--env` and `--agent-bin-dir` are not part of this CLI.
+Help, version, check results and service diagnostics go to **stderr**. Template
+JSON goes to **stdout**. Stdout is not an MCP transport. No option accepts
+Bearers, TLS or model secrets, or arbitrary environment variables.
 
-| Exit code | Role/configuration/service meaning | Update meaning |
-|---|---|---|
-| `0` | Help/template/check success, normal role shutdown; successful/idempotent service operation | Check succeeded or no replacement needed; actual replacement is not currently connected. |
-| `1` | Runtime/shutdown failure; service operation failure with a connected backend | Unexpected update failure. |
-| `2` | Invalid arguments/configuration; with a connected service backend, invalid options or missing verified default config | Invalid arguments/current version or unsupported platform. |
-| `3` | Backend/runtime unavailable or unsupported service platform | Network/release/manifest/download verification failure. |
-| `4` | Not a role/configuration/service success code | Permission/staging/lock/installation or incomplete-I/O/cleanup condition; not success. |
-| `5` | Not used for these commands | Replacement backend unavailable. |
-| `6` | Not used for these commands | Update rolled back (replacement module outcome). |
-| `7` | Not used for these commands | Recovery required (replacement module outcome). |
+| Exit code | Meaning |
+|---|---|
+| `0` | Success, normal shutdown, or an idempotent service action. |
+| `1` | Runtime or shutdown failure; service action failure (including `permission_denied`; Rovloom never invokes sudo). |
+| `2` | Invalid arguments or configuration, including `invalid_arguments` and `configuration_required`. |
+| `3` | Backend or runtime unavailable, unsupported service platform, or a start refused because of crash residue. |
 
-The product parses service options before authorization. Invalid options return
-`invalid_arguments` (2); insufficient Linux privilege returns `permission_denied`
-(1), without invoking sudo. Successful service diagnostics are fixed JSON on
-stderr with separate `bootEnabled`, `controlRetained` and `readiness: "not_checked"`.
-Keep error codes when asking for help; do not upload real configuration or secrets.
+Keep the error code when asking for help. Do not post real configuration,
+Bearers, administrator passwords or one-time codes.

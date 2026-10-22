@@ -305,7 +305,7 @@ SDK 实证 revision 为 `2025-11-25`，Bun 的 `process.version` 只是 Node 兼
 223 方法中 144 个只有 generic params object，不能宣称完整参数校验。
 原生接口与宿主接缝见 [原生校验](protocol/NATIVE-CONTRACT.md)，外层见
 [Wire v2](protocol/WIRE-PROTOCOL.md)。产品设计、保留/恢复规则及 Herdr 门禁以
-[DESIGN](DESIGN.md)、[issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)和 ADR 为准。
+[DESIGN](DESIGN.md)、[issue 跟踪](https://github.com/ArnoChenFx/rovloom/issues)和 ADR 为准。
 
 SQLite 使用 Bun 的 `node:sqlite`，当前规范 schema v6 要求全新库并拒绝未发布的旧库。
 Store/Router 已提供 provider/binding、固定原文期限、`client_request_key` 去重、全局预算、降级与隔离快照；

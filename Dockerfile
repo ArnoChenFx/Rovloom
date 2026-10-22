@@ -4,7 +4,7 @@ ARG VERSION
 ARG COMMIT
 ARG BINARY_SHA256
 LABEL org.opencontainers.image.title="Rovloom" \
-      org.opencontainers.image.source="https://github.com/ArnoChenFx/Rovloom" \
+      org.opencontainers.image.source="https://github.com/ArnoChenFx/rovloom" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
       io.rovloom.binary.sha256="${BINARY_SHA256}"

@@ -100,7 +100,7 @@ Windows 两种 arch 均要求原生 Windows 图标资源检查；不能用跨编
 
 ### 资产与更新器契约
 
-官方来源固定为 `ArnoChenFx/Rovloom` 的 GitHub Releases。
+官方来源固定为 `ArnoChenFx/rovloom` 的 GitHub Releases。
 每次发行恰有六个原始单文件 binary、`release-manifest.json` 与 `SHA256SUMS`，
 不上传探针、构建清单、源码目录、用户配置、数据库或凭据。
 binary 命名为 `rovloom-<version>-<os>-<arch>`，Windows 追加 `.exe`；version 不含 `v`。
@@ -112,7 +112,7 @@ binary 命名为 `rovloom-<version>-<os>-<arch>`，Windows 追加 `.exe`；versi
 | 字段 | 契约 |
 |---|---|
 | schemaVersion | 数字 `1` |
-| repository | 固定字符串 `ArnoChenFx/Rovloom` |
+| repository | 固定字符串 `ArnoChenFx/rovloom` |
 | tag / version | 精确原 tag / 去掉开头 `v` 的版本 |
 | commit | tag 对应完整 40 位小写提交 SHA |
 | bun | 构建所用 Bun 版本（点分数字，仅记录，不校验） |
@@ -122,7 +122,7 @@ binary 命名为 `rovloom-<version>-<os>-<arch>`，Windows 追加 `.exe`；versi
 | assets[].size | 正整数，原始 binary 字节长度 |
 | assets[].sha256 | binary 字节的 64 位小写 SHA256 十六进制 |
 
-下载路径固定为 `https://github.com/ArnoChenFx/Rovloom/releases/download/<tag>/<name>`，
+下载路径固定为 `https://github.com/ArnoChenFx/rovloom/releases/download/<tag>/<name>`，
 manifest 也来自同 tag 的 `release-manifest.json`。不接受 manifest 自报的其它仓库、镜像或下载 URL。
 更新器应精确匹配 OS/arch/libc、manifest 版本、资产名、长度和摘要；未知 schema/平台应拒绝。
 稳定版与预发布版由版本是否带预发布标识决定；预发布不会成为稳定 latest。

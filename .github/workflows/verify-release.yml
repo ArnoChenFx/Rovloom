@@ -39,7 +39,7 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "invalid tag"; exit 1; }
           version=${TAG#v}
           asset="rovloom-$version-$SUFFIX"
-          base="https://github.com/ArnoChenFx/Rovloom/releases/download/$TAG"
+          base="https://github.com/ArnoChenFx/rovloom/releases/download/$TAG"
           mkdir "$RUNNER_TEMP/dl"
           cd "$RUNNER_TEMP/dl"
           curl --fail --silent --show-error --location --proto '=https' -o SHA256SUMS "$base/SHA256SUMS"

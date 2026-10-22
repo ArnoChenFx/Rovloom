@@ -354,4 +354,4 @@ schema，由 Bun Worker 完整编译并生成 standalone，以 2 秒逻辑接纳
 
 MessageWindow 只是连接内存窗；窗口后/重启后的执行幂等性依赖宿主持久化，不能将窗口过期视为新派发许可。
 构建与验证命令见 [开发指引](../DEVELOPMENT.md)，后续宿主能力见
-[issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。
+[issue 跟踪](https://github.com/ArnoChenFx/rovloom/issues)。
