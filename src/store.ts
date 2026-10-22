@@ -30,6 +30,7 @@ import { exportSnapshot } from './storage/backup.js'
 import { assertBudget } from './storage/budget.js'
 import { auditRecord } from './storage/audit.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
+import { CachedDatabase } from './storage/database.js'
 import { createPrivate, databasePath, privateFile, privatePath } from './storage/files.js'
 import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
@@ -137,7 +138,7 @@ export class Store {
       if (path !== ':memory:' && !existsSync(path)) {
         createPrivate(path)
       }
-      this.db = new DatabaseSync(path)
+      this.db = new CachedDatabase(path)
 
       const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
       if (tables.length) {
