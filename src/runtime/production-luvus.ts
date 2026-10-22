@@ -9,7 +9,7 @@ import { boundedJson, contractRef, fields, hash, id, object, uint, validatePolic
 import type { LuvusConnectorAdmissionSource } from './connector-attempts.js'
 import {
   ConnectorAttemptBook,
-  CONNECTOR_ATTEMPT_RETENTION_MS,
+  CONNECTOR_MAX_DEADLINE_MS,
   createConnectorAdmissionBackend
 } from './connector-attempts.js'
 import { attachExistingLuvus } from './native-attach.js'
@@ -411,7 +411,7 @@ export function createLuvusProductionSources() {
           now: Date.now
         })
         const dispatchClaims = claims
-        const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: Date.now })
+        const book = new ConnectorAttemptBook({ maximum_deadline_ms: CONNECTOR_MAX_DEADLINE_MS, now: Date.now })
         let first: ReturnType<ControlledLuvusProcess['localOwner']>
         if (root) {
           if (await recoverLuvusOwnerLock(assertManagedRoot(root).record_path + '.owner.lock', fixed)) {

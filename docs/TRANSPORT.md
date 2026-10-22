@@ -48,7 +48,7 @@ Connector 主动出站连接 Gateway，Gateway 不连接设备。通道上的帧
 
 - Gateway 在派发记录持久化之后才发送 `request`。请求发送前失败的调用为 `not_dispatched`，发送后结果未知的为 `outcome_unknown`。
 - 每个调用只有一次 attempt。重复的 `client_request_key` 只返回原调用，不会再次发送，也不会延长期限。
-- Connector 收到请求后、执行前，记录 `call_id:attempt_id` 和请求摘要，并在本机持久化。同一 attempt 在任何 epoch 或重启后都不会再次写入原生。记录默认保留 30 天，覆盖请求期限。详见 [Wire 协议](protocol/WIRE-PROTOCOL.md#connector-本机去重)。
+- Connector 收到请求后、执行前，记录 `call_id:attempt_id` 和请求摘要，并在本机持久化。同一完整 attempt 在任何 epoch 或正常重启后都不会再次写入原生。记录保留至原执行 deadline（最多 10 分钟）；到期后请求始终被期限检查拒绝。回收与持久时钟高水位原子提交，拒绝回拨。Gateway 的 30 天调用 key 去重窗口不变。详见 [Wire 协议](protocol/WIRE-PROTOCOL.md#connector-本机去重)。
 - Connector 检查方向、完整绑定、当前双端权限、期限和并发额度，通过后才执行。`accepted` 只表示已接受，不表示原生完成。
 - 原生请求中的认证信息由 Connector 在本机注入，Gateway 不接触。
 

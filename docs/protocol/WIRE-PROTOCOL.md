@@ -189,7 +189,7 @@ codec 成功只证明消息边界。受保护配置先固定 schema 原字节及
 
 Gateway 在 Store 的派发事务提交（持久 `dispatching`）之后才发送 `request`。同一个 call 只有一次派发机会，断线后的变更调用保持 `outcome_unknown`，不自动重发。
 
-Connector 不依赖 Gateway 额外交付的期限或上下文。它用受保护配置固定的本机保留期（默认 30 天，必须覆盖请求的执行 deadline）：
+Connector 不依赖 Gateway 额外交付的 TTL 或上下文。受保护配置限制执行窗口最多 10 分钟，防重记录固定保留至原意图的执行 deadline（证明与信任边界见 [ADR 0005](../adr/0005-connector-claim-lifetime.md)）：
 
 - 在内存的 attempt book 中记录 `call_id:attempt_id`、请求摘要和首次固定的期限。
 - 用持久 claim 阻止同一 attempt 在任何 epoch、重启之后再次写入原生。
@@ -198,7 +198,7 @@ Connector 不依赖 Gateway 额外交付的期限或上下文。它用受保护�
 
 - 相同 call / attempt 的精确重复请求是幂等的，不刷新期限。请求摘要或绑定有任何变化，都按冲突拒绝。
 - 请求到达时核对认证连接、完整 attempt、provider 与契约、双方 policy revision 和 deadline。主体来自 Connector 受保护的完整 Target 路由，不采信消息自报。
-- 本机保留期、claim 与 attempt book 跨 epoch 共享。断连只释放该 epoch 的请求正文，不清除墓碑、不续期、不重放。
+- claim 与 attempt book 跨 epoch 共享。断连只释放该 epoch 的请求正文，不提前清除墓碑、不续期、不重放。deadline 到达后回收防重记录；原完整意图仍被期限检查拒绝。回收与持久时钟推进在同一事务完成，时钟回退不允许再次 claim。
 - 执行许可仍由 Wire、双方策略和 provider 自己的原生校验器建立。
 
 ## dispatch_refused

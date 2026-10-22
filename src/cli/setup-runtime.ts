@@ -96,6 +96,9 @@ export class CliSetup {
                 status.phase +
                 ' provider_ready=' +
                 String(ready) +
+                (status.capacity
+                  ? ' capacity=' + status.capacity.resource + ' reclaim_at=' + String(status.capacity.reclaim_at)
+                  : '') +
                 (status.failure ? ' reason=' + status.failure : '') +
                 '\n'
             )

@@ -1,3 +1,4 @@
+import { ConnectorCapacityError } from '../capacity.js'
 /** 将 Herdr 已评审 RPC 挂到既有 ConnectorWireSession，复用 Store/Wire 和持久唯一发送账本。 */
 import { LuvusDispatchClaims } from '../luvus/claims.js'
 import { LuvusAdapterError } from '../luvus/types.js'
@@ -168,6 +169,9 @@ export function createHerdrRuntime(
       const response = core.decodeResponse(raw, context)
       return Object.freeze({ binding, native_response: response })
     } catch (error) {
+      if (!dispatched && error instanceof ConnectorCapacityError) {
+        throw error
+      }
       const code =
         error instanceof HerdrLocalError || error instanceof WireError || error instanceof LuvusAdapterError
           ? error.code

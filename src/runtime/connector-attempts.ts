@@ -1,4 +1,5 @@
 // 在 Connector 受保护路由与原 Wire 校验之间保存有界准入锚点，不打开 Gateway Store 或生成执行许可。
+import { ConnectorCapacityError } from '../connector/capacity.js'
 import type { NativeWireBackend, TrustedAttempt } from '../integration/luvus-wire.js'
 import type { Adapter, Connection } from '../transport/index.js'
 import type { AttemptBinding, Direction, V2Target, WireEnvelope } from '../wire/types.js'
@@ -16,12 +17,12 @@ import {
   validateTarget
 } from '../wire/index.js'
 
-/** Connector 本机去重保留期默认值，与 Gateway 默认 metadata_ttl 对齐；必须覆盖请求执行期限。 */
-export const CONNECTOR_ATTEMPT_RETENTION_MS = 30 * 86_400_000
+/** Connector 接受的最长执行窗口，与 Gateway 登记上限一致；不是调用方的 key 去重窗口。 */
+export const CONNECTOR_MAX_DEADLINE_MS = 10 * 60_000
 type Entry = Readonly<{ binding: AttemptBinding; digest: string; expires: number }>
 export type ConnectorAttemptBookOptions = Readonly<{
-  // Connector 受保护配置固定的本机保留期，必须覆盖请求执行期限；不能从 Wire 请求字段推导。
-  retention_ms: number
+  // 受保护配置固定最长执行窗口；请求可选择更短的 deadline，不能延长已登记意图。
+  maximum_deadline_ms: number
   limits?: Readonly<{ entries: number; bytes: number }>
   now(): number
 }>
@@ -33,9 +34,9 @@ export class ConnectorAttemptBook {
   #clock = -1
   #bytes = 0
 
-  /** 固定受保护的 retention 和资源预算；调用消息无权调整这些值。 */
+  /** 固定受保护的最长执行窗口和资源预算；调用消息无权调整这些值。 */
   constructor(options: ConnectorAttemptBookOptions) {
-    uint(options.retention_ms, true)
+    uint(options.maximum_deadline_ms, true)
     const limits = { entries: 4096, bytes: 4_194_304, ...options.limits }
     uint(limits.entries, true)
     uint(limits.bytes, true)
@@ -49,7 +50,7 @@ export class ConnectorAttemptBook {
   #time(): number {
     const now = this.#options.now()
     uint(now)
-    if (now < this.#clock || !Number.isSafeInteger(now + this.#options.retention_ms)) {
+    if (now < this.#clock || !Number.isSafeInteger(now + this.#options.maximum_deadline_ms)) {
       fail('clock_untrusted')
     }
     this.#clock = now
@@ -81,17 +82,18 @@ export class ConnectorAttemptBook {
     const entry = {
       binding: JSON.parse(boundedJson(attempt.binding)) as AttemptBinding,
       digest,
-      expires: localExpiry ?? now + this.#options.retention_ms
+      expires: localExpiry ?? attempt.binding.registration.deadline
     }
-    // Connector 自有固定保留期必须覆盖执行期限；不能暗中延长配置或采信消息中的 TTL。
-    if (entry.expires < attempt.binding.registration.deadline) {
-      fail('connector_retention_insufficient')
+    // deadline 已由完整 Wire 校验固定；只在本机允许的窗口内准入，重试不刷新它。
+    if (entry.expires > now + this.#options.maximum_deadline_ms) {
+      fail('connector_deadline_limit')
     }
-    if (
-      this.#entries.size >= this.#options.limits!.entries ||
-      this.#bytes + Buffer.byteLength(boundedJson(entry)) > this.#options.limits!.bytes
-    ) {
-      fail('connector_attempt_capacity')
+    if (this.#entries.size >= this.#options.limits!.entries) {
+      const first = Math.min(...Array.from(this.#entries.values(), (value) => value.expires))
+      throw new ConnectorCapacityError('attempt_entries', first)
+    }
+    if (this.#bytes + Buffer.byteLength(boundedJson(entry)) > this.#options.limits!.bytes) {
+      throw new ConnectorCapacityError('attempt_bytes', null)
     }
     return entry
   }
@@ -100,7 +102,7 @@ export class ConnectorAttemptBook {
   admit<T>(attempt: TrustedAttempt, verify: () => T): T {
     const entry = this.#prepare(attempt)
     const result = verify()
-    // 本机 TTL 沿用首次预留，不能在 verify 中漂移。
+    // 两次检查使用同一意图的 deadline；校验耗时不能续期。
     const current = this.#prepare(attempt, entry.expires)
     if (
       current.digest !== entry.digest ||

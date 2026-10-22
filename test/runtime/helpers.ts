@@ -10,7 +10,7 @@ import { createGatewayRuntime } from '../../src/runtime/gateway.js'
 import { createConnectorRuntime } from '../../src/runtime/connector.js'
 import {
   ConnectorAttemptBook,
-  CONNECTOR_ATTEMPT_RETENTION_MS,
+  CONNECTOR_MAX_DEADLINE_MS,
   createConnectorAdmissionBackend
 } from '../../src/runtime/connector-attempts.js'
 import type { LuvusConnectorAdmissionSource } from '../../src/runtime/connector-attempts.js'
@@ -154,7 +154,7 @@ export async function runtimeFixture(
     limits: { entries: 128, bytes: 1_048_576 },
     now: Date.now
   })
-  const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: Date.now })
+  const book = new ConnectorAttemptBook({ maximum_deadline_ms: CONNECTOR_MAX_DEADLINE_MS, now: Date.now })
   native.respond(
     /** 保留实际请求 ID 的原生 error.data，检测 gateway 是否改写响应。 */
     (socket, raw) => {

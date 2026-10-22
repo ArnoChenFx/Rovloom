@@ -1,3 +1,4 @@
+import { ConnectorCapacityError } from '../capacity.js'
 /** 执行经过 Wire 与原生契约许可的单次本地 RPC，协调身份核验、完整帧预算及取消结果语义。 */
 import { compileBundle, createNativeValidator, DEFAULT_LIMITS, parseNativeJson } from '../../native-contract/index.js'
 import type { CompiledContract, Json } from '../../native-contract/index.js'
@@ -528,6 +529,9 @@ export class LuvusRpcAdapter {
   }
   /** 将内部异常收敛为无敏感内容的错误，并按是否可能发送保守标记结果。 */
   #safe(error: unknown, dispatched = false): LuvusAdapterError {
+    if (!dispatched && error instanceof ConnectorCapacityError) {
+      return error
+    }
     const code =
       error instanceof LuvusAdapterError || error instanceof WireError ? error.code : 'native_adapter_unavailable'
     const unknown = dispatched || (error instanceof LuvusAdapterError && error.outcome === 'outcome_unknown')

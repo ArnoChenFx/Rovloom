@@ -32,7 +32,7 @@ export {
 export {
   ConnectorAttemptBook,
   createConnectorAdmissionBackend,
-  CONNECTOR_ATTEMPT_RETENTION_MS
+  CONNECTOR_MAX_DEADLINE_MS
 } from './connector-attempts.js'
 export type {
   ConnectorAttemptBookOptions,

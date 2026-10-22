@@ -8,6 +8,7 @@ import { currentProcessIdentity } from '../../storage/process-identity.js'
 import { boundedJson, id, validateAttempt } from '../../wire/index.js'
 import type { AttemptBinding } from '../../wire/types.js'
 import { LuvusAdapterError } from './types.js'
+import { ConnectorCapacityError } from '../capacity.js'
 
 export const LUVUS_CLAIMS_LOCK_FORMAT = 'rovloom-luvus-claims-lock-v1'
 
@@ -136,7 +137,7 @@ export class LuvusDispatchClaims {
       const journalBytes = this.#sidecars()
       // 启动时也须容纳未来 rollback journal；降低配额不能靠 SQLite 自动缩库。
       if (databaseBytes > (options.limits.bytes - 65_536) / 2 || databaseBytes + journalBytes > options.limits.bytes) {
-        throw new LuvusAdapterError('claim_capacity')
+        throw new ConnectorCapacityError('claim_bytes', null)
       }
       this.#db = new DatabaseSync(options.path)
       this.#db.exec('PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA busy_timeout=0')
@@ -148,7 +149,7 @@ export class LuvusDispatchClaims {
         actualMaximum !== maximumPages ||
         Number(this.#db.prepare('PRAGMA page_count').get()!.page_count) > maximumPages
       ) {
-        throw new LuvusAdapterError('claim_capacity')
+        throw new ConnectorCapacityError('claim_bytes', null)
       }
       if (options.mode === 'create') {
         this.#db.exec('BEGIN IMMEDIATE; ' + metadataSql + '; ' + claimsSql)
@@ -217,8 +218,14 @@ export class LuvusDispatchClaims {
     const size = Number(this.#db!.prepare('PRAGMA page_size').get()!.page_size)
     const bytes = Math.max(pages * size, lstatSync(this.#options.path).size) + this.#sidecars()
     const count = Number(this.#db!.prepare('SELECT count(*) AS n FROM luvus_dispatch_claims').get()!.n)
-    if (bytes > this.#options.limits.bytes || count > this.#options.limits.entries) {
-      throw new LuvusAdapterError('claim_capacity')
+    if (bytes > this.#options.limits.bytes) {
+      throw new ConnectorCapacityError('claim_bytes', null)
+    }
+    if (count > this.#options.limits.entries) {
+      const first = this.#db!
+        .prepare("SELECT min(json_extract(binding,'$.registration.deadline')) AS deadline FROM luvus_dispatch_claims")
+        .get()!.deadline
+      throw new ConnectorCapacityError('claim_entries', Number.isSafeInteger(first) ? Number(first) : null)
     }
   }
 
@@ -234,12 +241,12 @@ export class LuvusDispatchClaims {
     privateFile(journal)
     const size = lstatSync(journal).size
     if (size > this.#options.limits.bytes) {
-      throw new LuvusAdapterError('claim_capacity')
+      throw new ConnectorCapacityError('claim_bytes', null)
     }
     return size
   }
 
-  /** 保存唯一发送墓碑；expires 必须来自原 Store 锚点的固定 dedup 截止，不能来自请求参数。 */
+  /** 保存唯一发送墓碑；expires 是宿主已核验的锚点上限，墓碑固定保留至原执行 deadline。 */
   claim(binding: AttemptBinding, expires: number): void {
     try {
       this.#claim(binding, expires)
@@ -281,11 +288,17 @@ export class LuvusDispatchClaims {
       ) {
         throw new LuvusAdapterError('dispatch_already_claimed')
       }
-      this.#db!.prepare('DELETE FROM luvus_dispatch_claims WHERE expires<=?').run(now)
+      // 旧版本 expires 为 30 天；只回收完整登记中 deadline 已过的旧墓碑，不改 schema。
+      // 清理、插入及持久时钟推进共用事务；重启或时钟回退不能复活已回收的意图。
+      this.#db!
+        .prepare(
+          "DELETE FROM luvus_dispatch_claims WHERE expires<=? OR json_extract(binding,'$.registration.deadline')<=?"
+        )
+        .run(now, now)
       const body = boundedJson(snapshot, 16_384)
       this.#db!
         .prepare('INSERT INTO luvus_dispatch_claims VALUES(?,?,?,?)')
-        .run(snapshot.call_id, snapshot.attempt_id, body, expires)
+        .run(snapshot.call_id, snapshot.attempt_id, body, snapshot.registration.deadline)
       this.#db!.prepare('UPDATE luvus_claim_meta SET clock=?').run(now)
       this.#budget()
       this.#db!.exec('COMMIT')
@@ -295,7 +308,7 @@ export class LuvusDispatchClaims {
         const row = reader
           .prepare('SELECT binding,expires FROM luvus_dispatch_claims WHERE call_id=? AND attempt_id=?')
           .get(snapshot.call_id, snapshot.attempt_id)
-        if (row?.binding !== body || row.expires !== expires) {
+        if (row?.binding !== body || row.expires !== snapshot.registration.deadline) {
           throw new LuvusAdapterError('claim_commit_unverified')
         }
       } finally {
@@ -310,6 +323,9 @@ export class LuvusDispatchClaims {
         }
       } else if (committed) {
         this.#degraded = true
+      }
+      if ((error as NodeJS.ErrnoException)?.code === 'SQLITE_FULL') {
+        throw new ConnectorCapacityError('claim_bytes', null)
       }
       throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('claim_storage_unavailable')
     } finally {

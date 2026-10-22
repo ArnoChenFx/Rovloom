@@ -1,6 +1,8 @@
 // 实现主动出站的 Connector 通道，隔离连接 epoch、原生执行与退避重连，禁止自动重放。
 import { randomUUID } from 'node:crypto'
 import { GatewayError } from '../contracts.js'
+import { ConnectorCapacityError } from '../connector/capacity.js'
+import type { ConnectorCapacity } from '../connector/capacity.js'
 import {
   assertBinding,
   boundedJson,
@@ -123,6 +125,7 @@ export function createConnector(options: ConnectorOptions) {
   let stopped = false
   let phase = 'disconnected'
   let failure: string | undefined
+  let capacity: ConnectorCapacity | undefined
   let next = 0
   let retries = 0
   let opened = 0
@@ -133,7 +136,7 @@ export function createConnector(options: ConnectorOptions) {
   let messages = 0
   let messageWindow = 0
   const running = new Map<string, { controller: AbortController; binding: AttemptBinding }>()
-  const seen = new Set<string>()
+  const seen = new Map<string, number>()
   const providerFences = new Map<string, ProviderBinding>()
   let received = new ReceiveWindow()
   let observedTime = 0
@@ -419,6 +422,16 @@ export function createConnector(options: ConnectorOptions) {
       connection_epoch: active.connection_epoch,
       ...frame.payload.attempt
     }
+    const now = trustedTime()
+    if (now >= binding.registration.deadline) {
+      fail('deadline_exceeded')
+    }
+    // 已过期意图在执行门禁恒被拒绝；只回收去重索引，不取消仍在收敛的原生工作。
+    for (const [key, deadline] of seen) {
+      if (now >= deadline) {
+        seen.delete(key)
+      }
+    }
     const name = binding.call_id + ':' + binding.attempt_id
     if (seen.has(name)) {
       fail('attempt_replay_rejected')
@@ -432,7 +445,7 @@ export function createConnector(options: ConnectorOptions) {
     if (trustedTime() >= binding.registration.deadline) {
       fail('deadline_exceeded')
     }
-    seen.add(name)
+    seen.set(name, binding.registration.deadline)
     const controller = new AbortController()
     running.set(name, { controller, binding })
     try {
@@ -636,6 +649,7 @@ export function createConnector(options: ConnectorOptions) {
             }
             phase = 'authenticated'
             failure = undefined
+            capacity = undefined
             last = now
             return
           }
@@ -679,8 +693,12 @@ export function createConnector(options: ConnectorOptions) {
           } else if (frame.type === 'request') {
             void request(frame, event.data, connection, session).catch(
               /** 仅关闭仍对应当前 socket 的失败执行，避免旧会话异常影响新连接。 */
-              () => {
+              (error) => {
                 if (ws === current) {
+                  if (error instanceof ConnectorCapacityError) {
+                    failure = error.code
+                    capacity = error.capacity
+                  }
                   try {
                     if (connection && session) {
                       reconcileProviders(connection, session)
@@ -780,6 +798,7 @@ export function createConnector(options: ConnectorOptions) {
     status() {
       return {
         ...(failure ? { failure } : {}),
+        ...(capacity ? { capacity } : {}),
         phase,
         running: running.size,
         reconnects: retries,

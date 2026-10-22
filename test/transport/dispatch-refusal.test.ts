@@ -1,6 +1,7 @@
 // 使用真实 loopback、Store 和 Wire，执行层为明确不启动原生进程的合成 stub。
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { ConnectorCapacityError } from '../../src/connector/capacity.js'
 import { LuvusAdapterError } from '../../src/connector/luvus/types.js'
 import { contractRef } from '../../src/wire/index.js'
 import { fixture, rawConnect, until } from './helpers.js'
@@ -358,6 +359,35 @@ test(
     } finally {
       unblock?.()
       await w.close()
+    }
+  }
+)
+
+test(
+  'capacity refusal reports local resource and reclaim time without forging a Wire terminal result',
+  /** 合成执行层只抛明确容量异常；原 transport 与 Store 仍按 unknown 收敛，不自动重发。 */ async () => {
+    const f = fixture()
+    const device = f.pair('synthetic_capacity')
+    const client = f.connector(/** 只用本用例无生产效力的身份。 */ () => device.credential, {
+      limits: { reconnect_ms: 5000, reconnect_max_ms: 5000 },
+      execute: /** 无 native 写入的容量拒绝 stub。 */ async () => {
+        throw new ConnectorCapacityError('claim_entries', f.now + 1000)
+      }
+    })
+    try {
+      await until(/** 等待真实认证连接。 */ () => client.status().phase === 'ready')
+      const call = f.call(device.target)
+      f.gateway.dispatch(call.call_id)
+      await until(
+        /** 未新增协议证明，仍保守保留未知结局。 */ () =>
+          f.store.call(f.principal.id, call.call_id).state === 'outcome_unknown'
+      )
+      assert.equal(client.status().failure, 'claim_capacity')
+      assert.deepEqual(client.status().capacity, { resource: 'claim_entries', reclaim_at: f.now + 1000 })
+      assert.equal(f.executions, 0)
+      assert.equal(f.store.call(f.principal.id, call.call_id).response, null)
+    } finally {
+      f.stop()
     }
   }
 )

@@ -57,3 +57,10 @@ Docker 部署的备份就是备份卷：`docker compose down` 保留卷，`down 
 ## 7. 验证你的部署
 
 仓库的 [`e2e/`](../e2e/README.md) 是同一流程的自动化版本，覆盖真实终端配对、官方 MCP SDK、崩溃、断网、未知结果、撤销和两容器两机。跨机的 NAT、TLS 和防火墙需要你在自己的两台机器上按[快速开始](QUICK-START-zh.md)走一遍。
+
+
+### Connector 容量
+
+Connector 发送墓碑保留至首次登记的执行 deadline（最长 10 分钟），到期后随下一次 claim 在事务内回收；旧版的 30 天墓碑也按其原 deadline 回收，不需要删库。Gateway 的 30 天调用 key 去重窗口不变。
+
+本地 `connector_transport` 观测中 `reason=claim_capacity` / `connector_attempt_capacity` 的 `capacity` 区分 `claim_entries`、`claim_bytes`、`attempt_entries`、`attempt_bytes`。`reclaim_at` 是已知最早回收时间（Unix 毫秒），不是重试授权。字节满额报告 `null`，需检查磁盘和配置预算。不要删除账本、回调系统时间、重发旧 attempt 或自动换 key 重做写入；已接收后断连的调用可能保持 `outcome_unknown`，应先核对原生结果。
