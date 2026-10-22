@@ -117,8 +117,8 @@ Luvus setup, `data.directory` plus `/n` must fit within 52 UTF-8 bytes; select a
 shorter directory before pairing if necessary.
 
 A Gateway with no caller state runs in a **pairing required** state. MCP returns
-401 and the management page cannot be signed in to (every request gets 401 until an
-administrator exists, see below). Existing
+401 and the management page shows only its empty shell (no device data) until an
+administrator exists (see below). Existing
 MCP access still comes from a caller's already issued Bearer for the exact
 `http://<MCP-host>:<port>/mcp` resource. First native approval creates one local
 caller for the exact reviewed Target; its Bearer is displayed only to the verified

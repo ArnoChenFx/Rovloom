@@ -101,7 +101,7 @@ Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用
 如有需要，请在配对前选择更短的目录。
 
 没有 caller 状态的 Gateway 以**待配对**状态运行，MCP 返回 401，管理页在创建管理员之前
-每个请求都返回 401、无法登录（见下）。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
+只显示空壳、没有设备数据（见下）。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
 首次原生批准为精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
 原值由 Rovloom 私密保留；复制到 MCP 客户端秘密存储。
 默认有效期30天，可用 `rovloom token` 管理（见下）。设备凭据、

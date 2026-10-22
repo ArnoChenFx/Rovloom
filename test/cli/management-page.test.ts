@@ -257,3 +257,28 @@ test(
     }
   }
 )
+
+test(
+  '函数式 challenge 随每次请求重算：没有管理员时交付原页面壳，有管理员后才返回 401 与 Basic 挑战',
+  /** 新用户先看到页面壳而不是登录框；创建管理员后无需重启，下一次请求即开始要求登录。 */ async () => {
+    const f = setup()
+    const authority = createManagementSessionAuthority(f.identities)
+    try {
+      let admins = 0
+      const initialize = createManagementPageInitializer(authority, async () => null, {
+        challenge: /** 模拟来源里的管理员数量。 */ () => (admins > 0 ? 'basic' : undefined)
+      })
+      const page = () => new Response(html, { headers: { 'content-type': 'text/html' } })
+      const signal = new AbortController().signal
+      const open = await initialize(new Request(origin + '/'), page(), signal)
+      assert.equal(open.status, 200)
+      assert.equal(await open.text(), html)
+      admins = 1
+      const locked = await initialize(new Request(origin + '/'), page(), signal)
+      assert.equal(locked.status, 401)
+      assert.match(locked.headers.get('www-authenticate') ?? '', /^Basic /)
+    } finally {
+      authority.close()
+    }
+  }
+)

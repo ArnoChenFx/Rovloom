@@ -67,7 +67,7 @@ Rootless Docker 和 Docker Desktop 尚未作为部署目标验收。
 
 管理页位于 `http://127.0.0.1:9445/`，MCP 位于 `http://127.0.0.1:9444/mcp`。
 全新 Gateway 尚未配对：`healthy` 只说明监听已响应，未认证的 MCP 请求返回 401。
-在创建管理员之前管理页也要求登录（见[配置说明](CONFIGURATION-zh.md#管理页管理员)）。
+在创建管理员之前管理页只是空壳（见[配置说明](CONFIGURATION-zh.md#管理页管理员)）。
 继续按下文在终端完成配对。Connector 运行在安装 Luvus/Herdr 的受支持 Linux x64 或 Windows x64 主机上。
 配置、备份与升级见 [Docker 部署](DOCKER-zh.md)；`docker compose down` 保留卷，
 `down -v` 会删除配置和数据。

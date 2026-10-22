@@ -72,7 +72,7 @@ Rootless Docker and Docker Desktop are not validated deployment targets.
 The management page is at `http://127.0.0.1:9445/`, and MCP at
 `http://127.0.0.1:9444/mcp`. A fresh Gateway is unpaired: `healthy` confirms the
 listener responds, and MCP returns 401 without authentication. The management
-page also asks for a sign-in until you create an administrator (see
+page stays an empty shell until you create an administrator (see
 [Configuration](CONFIGURATION.md#managing-the-management-page-administrator)). Continue with
 the terminal pairing below. Run the Connector on the supported Linux x64 or Windows x64 host
 that owns Luvus/Herdr. See [Docker deployment](DOCKER.md) for configuration,

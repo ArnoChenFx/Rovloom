@@ -268,7 +268,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
                       authority,
                       configuredManagement.resolveLease.bind(configuredManagement),
                       {
-                        challenge: configuredManagement.bootstrap_challenge
+                        challenge: () => configuredManagement.bootstrap_challenge
                       }
                     )
                   : undefined

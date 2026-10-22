@@ -278,7 +278,10 @@ export function openProtectedManagementSource(
   }
   const management: ProductionManagementHost = {
     port,
-    bootstrap_challenge: 'basic',
+    // 已有管理员才要求登录；零管理员时仍交付匿名页面壳（与未配置管理员的 Gateway 一致），不让新用户先撞上登录框。
+    get bootstrap_challenge() {
+      return source.sessions.length > 0 ? ('basic' as const) : undefined
+    },
     http: { assets: options.assets ?? loadProductManagementAssets() },
     resolveLease: /** 只认证实际同源根页面的独立证明；MCP Bearer、URL、普通header不建立租期。 */ async (
       request,
