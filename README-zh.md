@@ -85,7 +85,7 @@ Windows PowerShell 与 Docker Gateway 见[快速开始](docs/QUICK-START-zh.md)�
 | | Linux | macOS | Windows |
 |---|---|---|---|
 | Gateway | x64、arm64 | x64、arm64 | x64、arm64 |
-| Connector | x64 | — | x64 |
+| Connector | x64 | x64, arm64 | x64 |
 
 配对 Connector 需要真实的本地终端。
 

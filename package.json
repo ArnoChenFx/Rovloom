@@ -1,10 +1,18 @@
 {
   "name": "rovloom",
-  "version": "0.2.0-preview.2",
+  "version": "0.2.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "Rovloom: multi-machine MCP gateway and connector for Luvus/Herdr runtimes",
   "type": "module",
+  "bin": {
+    "rovloom": "dist/src/cli/main.js"
+  },
+  "files": [
+    "dist/src",
+    "LICENSE",
+    "README.md"
+  ],
   "engines": {
     "bun": ">=1.4.3"
   },

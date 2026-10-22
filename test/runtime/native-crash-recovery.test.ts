@@ -17,7 +17,8 @@ import { createNativeRecord } from '../../src/runtime/native-record-files.js'
 import { currentProcessIdentity } from '../../src/storage/process-identity.js'
 import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
 
-const linux = process.platform === 'linux'
+// 崩溃恢复依赖进程身份证据：Linux（/proc）与 macOS（libproc）有，Windows 另有 e2e。
+const unixHost = process.platform === 'linux' || process.platform === 'darwin'
 
 /** 退出后的真实子进程提供“PID 曾存在且已死”的身份。 */
 async function deadProcess() {
@@ -63,7 +64,7 @@ function fixture() {
   }
 }
 
-test('claim 账本锁：持有者已死则接管，空锁、旧格式、活进程与坏内容保持原样', { skip: !linux }, async () => {
+test('claim 账本锁：持有者已死则接管，空锁、旧格式、活进程与坏内容保持原样', { skip: !unixHost }, async () => {
   const f = fixture()
   try {
     const dead = await deadProcess()
@@ -88,7 +89,7 @@ test('claim 账本锁：持有者已死则接管，空锁、旧格式、活进�
   }
 })
 
-test('claim 账本实际写入持有者身份，进程内第二个实例仍被锁拒绝', { skip: !linux }, () => {
+test('claim 账本实际写入持有者身份，进程内第二个实例仍被锁拒绝', { skip: !unixHost }, () => {
   const f = fixture()
   try {
     const path = join(f.root, 'luvus-claims.db')
@@ -110,7 +111,7 @@ test('claim 账本实际写入持有者身份，进程内第二个实例仍被�
   }
 })
 
-test('owner 锁：持有者已死且端点无监听才接管', { skip: !linux }, async () => {
+test('owner 锁：持有者已死且端点无监听才接管', { skip: !unixHost }, async () => {
   const f = fixture()
   try {
     createNativeRecord(f.ownerLock, { root_id: 'r', format: LUVUS_OWNER_FORMAT, process: await deadProcess() })
@@ -123,7 +124,7 @@ test('owner 锁：持有者已死且端点无监听才接管', { skip: !linux },
   }
 })
 
-test('owner 锁：孤儿 server 仍在监听、无身份的旧锁、持有者仍活着都保持 fail-closed', { skip: !linux }, async () => {
+test('owner 锁：孤儿 server 仍在监听、无身份的旧锁、持有者仍活着都保持 fail-closed', { skip: !unixHost }, async () => {
   const f = fixture()
   try {
     createNativeRecord(f.ownerLock, { root_id: 'r', format: LUVUS_OWNER_FORMAT, process: await deadProcess() })

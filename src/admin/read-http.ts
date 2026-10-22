@@ -3,6 +3,7 @@ import type { AdminContext, GatewayManagementService } from '../mcp/management.j
 import { parseManagementReadPath, MANAGEMENT_URL_BYTES } from '../webui/http-contract.js'
 import { checkManagementReadReply } from '../webui/validate.js'
 import { ReadError, type ReadProblem } from '../webui/reader.js'
+import { canonicalLoopbackHost } from '../mcp/listen.js'
 
 export type ManagementHttpIdentity = Pick<AdminContext, 'caller' | 'management_session_ref'>
 export type ManagementAssets = ReadonlyMap<string, Uint8Array<ArrayBuffer>>
@@ -443,15 +444,7 @@ export function startManagementListener(options: ManagementListenerOptions) {
     error: () => failure('unavailable', 503)
   })
   // 通配绑定时交付的规范 origin 仍是对应回环地址，Host/会话校验不随绑定放宽。
-  const canonical =
-    options.hostname === '0.0.0.0' || options.hostname === undefined
-      ? '127.0.0.1'
-      : options.hostname === '::'
-        ? '[::1]'
-        : options.hostname === '::1'
-          ? '[::1]'
-          : options.hostname
-  const url = new URL(`http://${canonical}:${server.port}`).origin
+  const url = new URL(`http://${canonicalLoopbackHost(options.hostname)}:${server.port}`).origin
   try {
     handler = options.handler(url)
     if (typeof handler?.fetch !== 'function' || typeof handler.stop !== 'function') {

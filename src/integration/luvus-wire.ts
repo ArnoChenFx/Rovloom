@@ -105,8 +105,6 @@ type State = {
   validator: NativeValidator
   view: CapabilityView
   source: TrustedNativeContext
-  handle: object
-  sourceToken: object
   candidate?: DispatchCandidate
   permit?: DispatchPermit
   validatorCaps: unknown
@@ -118,8 +116,6 @@ type ResponseState = {
   attempt: Omit<TrustedAttempt, 'native_request'>
   validator: NativeValidator
   source: TrustedNativeContext
-  handle: object
-  sourceToken: object
   sealed: ResponseOnlyContext
   capsDigest: string
   expires: number
@@ -205,12 +201,10 @@ export function createLuvusWireAdapter(
   }
   const states = new Map<string, State>()
   const responseStates = new Map<string, ResponseState>()
-  const responseHandles = new WeakMap<object, ResponseState>()
   let closed = false
   let maintenance: ReturnType<typeof setInterval> | undefined
   let unsubscribe: (() => void) | undefined
   const pendingInvalidations = new Map<string, LedgerInvalidation>()
-  const handles = new WeakMap<object, State>()
   const windows = new Map<Direction, { connection: string; window: MessageWindow }>()
   let observedTime = -1
 
@@ -266,13 +260,8 @@ export function createLuvusWireAdapter(
         return result
       } catch (error) {
         for (const [name, saved] of pending) {
-          const current = states.get(name)
-          if (current) {
-            handles.delete(current.handle)
-          }
           if (saved) {
             states.set(name, saved)
-            handles.set(saved.handle, saved)
           } else {
             states.delete(name)
           }
@@ -290,16 +279,12 @@ export function createLuvusWireAdapter(
     }
   }
 
-  // 移除执行句柄并返还快照预算；有 RPC 许可时一并撤销原生候选及其全部许可。
+  // 移除执行句柄并返还快照预算；请求候选与许可随状态一起不再被引用。
   function dropExecution(name: string): void {
     const state = states.get(name)
     if (!state) {
       return
     }
-    if (state.permit) {
-      state.validator.releaseRequestContext(state.permit)
-    }
-    handles.delete(state.handle)
     retainedBytes -= state.snapshotBytes
     states.delete(name)
   }
@@ -310,7 +295,6 @@ export function createLuvusWireAdapter(
       return
     }
     state.validator.releaseResponseContext(state.sealed)
-    responseHandles.delete(state.handle)
     retainedBytes -= state.snapshotBytes
     responseStates.delete(name)
   }
@@ -370,8 +354,6 @@ export function createLuvusWireAdapter(
       attempt,
       validator: state.validator,
       source: state.source,
-      handle: Object.freeze({}),
-      sourceToken: Object.freeze({}),
       sealed: sealed.value,
       capsDigest,
       expires: state.retention.dedup_expires_at,
@@ -381,7 +363,6 @@ export function createLuvusWireAdapter(
     dropExecution(name)
     retainedBytes += snapshotBytes
     responseStates.set(name, response)
-    responseHandles.set(response.handle, response)
   }
   // 内容回收只压缩 RPC；调用或设备失效销毁两类缓存，关闭还会停维护并退订。
   // 校验中先排队合并通知，关闭立即阻止新入口，实际回收延至回滚表解除后执行。
@@ -616,30 +597,13 @@ export function createLuvusWireAdapter(
             binding: copy(response.attempt.binding),
             method: response.attempt.method,
             mode: response.attempt.mode,
-            transport: 'rpc',
-            native_handle: response.handle
+            transport: 'rpc'
           }
         }
         const resolved = resolve(value)
         const state = states.get(key(value))!
         ctx.policies = copy(backend.policies(state.attempt.principal_id))
         return resolved
-      },
-      // 按执行或密封状态核对独立来源，再返回该状态私有的来源令牌。
-      resolveNativeSource: (binding) => {
-        const response = responseStates.get(key(binding))
-        if (response) {
-          assertBinding(binding, response.attempt.binding)
-          refreshResponse(response)
-          return response.sourceToken
-        }
-        const state = states.get(key(binding))
-        if (!state) {
-          fail('native_handle_unavailable')
-        }
-        assertBinding(binding, state.attempt.binding)
-        refresh(state)
-        return state.sourceToken
       }
     }
     return ctx
@@ -703,33 +667,26 @@ export function createLuvusWireAdapter(
         validator: native,
         view,
         source: current.source,
-        handle: Object.freeze({}),
-        sourceToken: Object.freeze({}),
         validatorCaps: copy(current.registry.capabilities),
         capsJson: canonical(current.registry.capabilities),
         snapshotBytes,
         retention
       }
       states.set(key(value), state)
-      handles.set(state.handle, state)
     }
     refresh(state)
     return {
       binding: copy(state.attempt.binding),
       method: attempt.method,
-      mode: attempt.mode,
-      native_handle: state.handle
+      mode: attempt.mode
     }
   }
 
-  // 根据私有句柄及完整 Wire 上下文取得同一执行状态，拒绝复制或跨尝试句柄。
+  // 按完整 Wire 上下文取得同一尝试的执行状态；状态由本适配器的登记解析建立，消息不能凭空创建。
   function stateFor(c: NativeValidationContext): State {
-    if (!c.native_handle || typeof c.native_handle !== 'object') {
-      fail('native_handle_unavailable')
-    }
-    const state = handles.get(c.native_handle)
+    const state = states.get(key(c.binding))
     if (!state) {
-      fail('native_handle_mismatch')
+      fail('native_context_unavailable')
     }
     remember(key(state.attempt.binding))
     assertBinding(c.binding, state.attempt.binding)
@@ -803,26 +760,19 @@ export function createLuvusWireAdapter(
       state.permit ??= checked
     },
 
-    // 按私有句柄选择执行许可或密封响应约束，均复核来源令牌；密封校验不会恢复派发或读取能力。
+    // 按尝试选择执行许可或密封响应约束，均复核当前来源；密封校验不会恢复派发或读取能力。
     validateResponse(response, c) {
-      const retained =
-        c.native_handle && typeof c.native_handle === 'object' ? responseHandles.get(c.native_handle) : undefined
+      const retained = responseStates.get(key(c.binding))
       if (retained) {
         assertBinding(c.binding, retained.attempt.binding)
         if (c.method !== retained.attempt.method || c.mode !== retained.attempt.mode) {
           fail('attempt_binding_mismatch')
         }
         refreshResponse(retained)
-        if (c.trusted_source !== retained.sourceToken) {
-          fail('native_source_untrusted')
-        }
         unwrap(retained.validator.checkResponseOnly(retained.sealed, response, retained.source))
         return
       }
       const state = stateFor(c)
-      if (c.trusted_source !== state.sourceToken) {
-        fail('native_source_untrusted')
-      }
       unwrap(state.validator.checkResponse(permit(state), response, state.source))
     }
   })
@@ -956,7 +906,6 @@ export function createLuvusWireAdapter(
       remember(key(binding))
       assertBinding(binding, state.attempt.binding)
       retainedBytes -= state.snapshotBytes
-      handles.delete(state.handle)
       states.delete(key(binding))
     }
   }

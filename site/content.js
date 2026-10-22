@@ -10,7 +10,7 @@ export const copy = {
     'hero.eyebrow': '开源 · AGENT GATEWAY',
     'hero.title1': '一个 MCP 入口，',
     'hero.title2': '连接你的',
-    'hero.title3': '每台电脑。',
+    'hero.title3': '每台电脑',
     'hero.body':
       '让 AI 走进你真正的工作现场。通过一个 Gateway，连接多台设备上的 Luvus 与 Herdr，继续使用熟悉的工作区、终端和 Agent。',
     'hero.start': '开始使用',
@@ -111,9 +111,9 @@ export const copy = {
     'nav.menu': 'Open navigation',
     'nav.github': 'GitHub',
     'hero.eyebrow': 'OPEN SOURCE · AGENT GATEWAY',
-    'hero.title1': 'One agent.',
-    'hero.title2': 'Every machine.',
-    'hero.title3': 'All yours.',
+    'hero.title1': 'One agent',
+    'hero.title2': 'Every machine',
+    'hero.title3': 'All yours',
     'hero.body':
       'Bring AI to where your work actually happens. One Gateway connects Luvus and Herdr across your machines, with the workspaces, terminals and Agents you already use.',
     'hero.start': 'Get started',

@@ -47,7 +47,7 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `data` | object，必填 | 仅含 `directory`。 |
 | `data.directory` | 规范绝对路径 string，≤4096 字符，必填 | `<home>/.local/share/rovloom/<role>`；各角色独立私有数据。 |
 | Gateway `mcp` | object，必填 | 含 `hostname`、`port`；Streamable HTTP `/mcp`。 |
-| `mcp.hostname` | string，必填 | `127.0.0.1`，也接受 `::1`、`0.0.0.0`、`::`。通配绑定用于容器等隔离环境；Host/Origin 校验仍按对应回环地址，其它 Host 需配 `public_url`。 |
+| `mcp.hostname` | string，必填 | `127.0.0.1`，也接受 `::1`、`0.0.0.0`、`::`。通配绑定用于容器等隔离环境，监听所有网卡且为明文 HTTP（Gateway 会输出 `wildcard_listener` 告警）：Host/Origin 校验仍按对应回环地址，但那只防浏览器 DNS 重绑定，挡不住手工带回环 `Host` 的网络客户端。请用防火墙或 TLS 反向代理收口；其它 Host 需配 `public_url`。 |
 | `mcp.port` | integer 1–65535，必填 | `9444`。 |
 | `mcp.public_url` | 字符串，可选 | 反向代理 / TLS 终止后的受信对外地址，必须恰为 `https://host[:port]/mcp`（无凭据、查询或其它路径）。配置后 Gateway 额外接受 `Host` 为该主机的请求（及其 CORS 来源），其余 `Host` 仍被拒绝，也从不信任转发头；监听仍只在回环，仍需 Bearer。 |
 | Gateway `devices` | object，必填 | 含 `hostname`、`port`；WS `/connector`。 |
@@ -325,12 +325,12 @@ MCP 或 Agent 就绪，HTTP 客户端断开也不会停止 Gateway。
 |---|---|---|---|
 | 帮助、版本、模板、`config check` | 可用 | 可用 | 可用 |
 | 角色文件创建、Gateway 启动、`config check-runtime` | 可用 | 可用 | 可用 |
-| 首次配对审批（本地终端） | 可用（x64） | 不可用 | 可用（x64） |
-| 原生 Connector | x64 | 不支持 | x64，仅 attach 模式 |
+| 首次配对审批（本地终端） | 可用（x64） | 可用（x64、arm64） | 可用（x64） |
+| 原生 Connector | x64 | x64、arm64，仅 attach 模式 | x64，仅 attach 模式 |
 | Service：Gateway | systemd | LaunchDaemon | 开机任务（S4U） |
-| Service：Connector | x64 | 不支持 | x64，开机任务（S4U） |
+| Service：Connector | x64 | x64、arm64，LaunchDaemon | x64，开机任务（S4U） |
 
-Windows 上 Connector 附着你已在运行的 Herdr / Luvus，仅在没有实例时才启动一个；不支持 `managed` 模式。
+macOS 和 Windows 上 Connector 附着你已在运行的 Herdr / Luvus，仅在没有实例时才启动一个；不支持 `managed` 模式。
 
 ### 输出与退出码
 

@@ -1,5 +1,5 @@
 // 装配既有出站通道、Wire 和受限 Luvus RPC；每个认证 epoch 独立持有执行和关闭资源。
-import { LuvusAdapterError, LuvusBoundDelegation, LuvusRpcAdapter } from '../connector/luvus/index.js'
+import { LuvusAdapterError, LuvusRpcAdapter } from '../connector/luvus/index.js'
 import type { Socket } from 'node:net'
 import type { NativeTransportEvidence } from '../connector/luvus/index.js'
 import { createLuvusWireAdapter } from '../integration/luvus-wire.js'
@@ -54,11 +54,6 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
     let rpc: LuvusRpcAdapter | undefined
     let ended = false
     const pending = new Map<string, Pending>()
-    const delegations = new Set<LuvusBoundDelegation>()
-    const resolvedDelegations = new Map<string, LuvusBoundDelegation>()
-    let localOwner = false
-    let suppliedDelegation: typeof resource.delegation | undefined
-
     /** 每个外部构建回调返回后都复核角色状态，关闭中的资源只能进入清理分支。 */
     function assertSessionOpen(): void {
       if (stopping || ended) {
@@ -66,49 +61,10 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
       }
     }
 
-    /** 只在真实准入 binding 已建立后解析一次委托；后续复核沿用原对象，不能重新签发或刷新期限。 */
-    function getDelegation(binding: AttemptBinding): LuvusBoundDelegation {
-      if (stopping || ended) {
-        fail('runtime_closed')
-      }
-      const name = boundedJson(binding)
-      let delegation = resolvedDelegations.get(name)
-      if (!delegation) {
-        delegation =
-          typeof suppliedDelegation === 'function' ? suppliedDelegation(structuredClone(binding)) : suppliedDelegation
-        if (!(delegation instanceof LuvusBoundDelegation)) {
-          throw new LuvusAdapterError('native_delegation_unavailable')
-        }
-        delegations.add(delegation)
-        // 受保护延迟回调也可能同步关闭角色；返回的新对象必须立即回收，不能逃出关闭范围。
-        if (stopping || ended) {
-          cleanup([/** 回收同步关闭之后才返回的有限 token 引用。 */ () => delegation!.close()])
-          delegations.delete(delegation)
-          fail('runtime_closed')
-        }
-        resolvedDelegations.set(name, delegation)
-      }
-      return delegation
-    }
-
-    /** 清理全部已交付对象；未调用的延迟入口不会为了关闭而创建 token。 */
-    function closeDelegations(): void {
-      for (const delegation of delegations) {
-        cleanup([/** 某个委托关闭失败也继续回收其它已交付对象。 */ () => delegation.close()])
-      }
-      delegations.clear()
-      resolvedDelegations.clear()
-    }
-
     try {
-      // session 回调可能已同步关闭角色；先登记直接交付对象，确保复验失败也会清理，绝不调用 lazy。
-      suppliedDelegation = resource.delegation
-      if (suppliedDelegation instanceof LuvusBoundDelegation) {
-        delegations.add(suppliedDelegation)
-      }
-      localOwner = resource.authentication === 'local_owner'
+      const authentication = resource.authentication
       assertSessionOpen()
-      if (localOwner && typeof resource.nativeAuth !== 'function') {
+      if (authentication !== 'local_owner' || typeof resource.nativeAuth !== 'function') {
         fail('native_host_binding_required')
       }
       const configuredTransport = resource.config.transport
@@ -124,7 +80,7 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
         fail('connection_binding_mismatch')
       }
       assertSessionOpen()
-      /** 原 adapter 每次 beforeWrite 解码都经此来源端口复核同一实测 socket 和仍有效的 delegation。 */
+      /** 原 adapter 每次 beforeWrite 解码都经此来源端口复核同一实测 socket 与来源。 */
       function boundSource(call: string, attemptId: string): TrustedNativeContext | undefined {
         const source = resource.backend.nativeSource(call, attemptId)
         const tracked = pending.get(call + ':' + attemptId)
@@ -136,7 +92,7 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
           if (!tracked.socket) {
             fail('native_socket_unavailable')
           }
-          // EOF 后原 IO 已销毁 socket；结果校验仍核对实例与委托，不能要求结束的 fd 继续可读。
+          // EOF 后原 IO 已销毁 socket；结果校验仍核对实例与来源，不能要求结束的 fd 继续可读。
           if (
             !tracked.socket.destroyed &&
             resource.assertEvidence(attempt.binding, tracked.nativeEvidence) !== undefined
@@ -146,21 +102,13 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
           if (boundedJson(source) !== tracked.source || boundedJson(tracked.nativeEvidence) !== tracked.evidence) {
             fail('native_evidence_changed')
           }
-          if (!localOwner) {
-            getDelegation(attempt.binding).assertCurrent(
-              { config_ref: resource.config.config_ref, binding: source.binding },
-              source,
-              attempt.method,
-              resource.backend.now()
-            )
-          }
         }
         return source
       }
       const guardedBackend: NativeWireBackend = {
         ...resource.backend,
         nativeSource: boundSource,
-        /** 受保护 authority 回调结束后再复核 delegation，防止回调中的同步撤销漏过最终写入门禁。 */
+        /** 受保护 authority 回调结束后再复核来源，防止回调中的同步撤销漏过最终写入门禁。 */
         authority(attempt, binding) {
           const result = resource.backend.authority(attempt, binding)
           boundSource(attempt.binding.call_id, attempt.binding.attempt_id)
@@ -234,21 +182,14 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
           }
           return peer
         },
-        /** 先核对实际同一传输证据，再从当前完整原生来源读取固定的有限 delegation。 */
+        /** 先核对实际同一传输证据，再向宿主取得本机 Owner 认证。 */
         async nativeAuth(binding, evidence) {
           if (resource.assertEvidence(binding, evidence) !== undefined) {
             fail('synchronous_native_evidence_required')
           }
           const state = current(binding)
-          const token = localOwner
-            ? await resource.nativeAuth!(binding, evidence)
-            : getDelegation(binding).read(
-                { config_ref: resource.config.config_ref, binding: state.source.binding },
-                state.source,
-                state.attempt.method,
-                resource.backend.now()
-              )
-          if (localOwner && (typeof token !== 'object' || token?.kind !== 'local_owner')) {
+          const token = await resource.nativeAuth(binding, evidence)
+          if (typeof token !== 'object' || token?.kind !== 'local_owner') {
             fail('native_auth_required')
           }
           current(binding)
@@ -265,14 +206,6 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
           const state = current(binding)
           if (state.tracked.evidence !== boundedJson(evidence) || state.tracked.source !== boundedJson(state.source)) {
             throw new LuvusAdapterError('native_evidence_changed')
-          }
-          if (!localOwner) {
-            getDelegation(binding).assertCurrent(
-              { config_ref: resource.config.config_ref, binding: state.source.binding },
-              state.source,
-              state.attempt.method,
-              resource.backend.now()
-            )
           }
           const expires = resource.dedupExpires(binding)
           assertSessionOpen()
@@ -333,7 +266,6 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
           cleanup([
             /** 先中止原生等待并停其私有 Wire，再停 transport Wire。 */ () => execution.close(),
             /** 停止外层 Wire 并释放 admission 正文。 */ () => adapter.close(),
-            /** 丢弃有限 token 引用，不请求隐式 Owner 或撤销原生动作。 */ closeDelegations,
             /** 释放该 epoch 所有者交付的额外来源和 backend 资源。 */ () => resource.close()
           ])
           pending.clear()
@@ -351,7 +283,6 @@ export function createLuvusConnectorSessions(options: Pick<ConnectorRuntimeOptio
       cleanup([
         /** 创建中途失败也要停止已创建的 RPC。 */ () => rpc?.close(),
         /** 清理半建 Wire 的维护和订阅。 */ () => wire?.close(),
-        /** 创建失败不能继续保留本 epoch token。 */ closeDelegations,
         /** 始终通知本 epoch 所有者回收额外资源。 */ () => resource.close()
       ])
       throw error

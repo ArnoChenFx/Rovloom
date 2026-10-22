@@ -139,6 +139,13 @@ export async function prepareSetupNative(
     )
     throw new CliError('configuration_required')
   }
+  if (!attach && process.platform === 'darwin') {
+    // 隔离实例依赖 Linux 的 pidfd 进程模型；macOS 上目前只支持附着用户自己的会话。
+    terminal.show(
+      'luvus_managed_unsupported_on_macos: set native.luvus.mode to "attach". / macOS 上暂不支持 managed，请把 native.luvus.mode 设为 "attach"。\n'
+    )
+    throw new CliError('configuration_required')
+  }
   if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Luvus', attach)))) {
     throw new CliError('configuration_required')
   }
@@ -256,8 +263,7 @@ export async function prepareSetupNative(
   const rootRecord = join(control, 'luvus-root.json')
   const root = await initializeManagedLuvusRoot({
     record_path: rootRecord,
-    config: discovered.config,
-    custody_policy: { scopes: ['read'], methods: ['automation.list'], max_token_ttl_s: 300 }
+    config: discovered.config
   })
   try {
     const ledgerId = hash(boundedJson([reference, root.root_id, root.root_revision, root.config.target]))

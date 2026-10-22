@@ -8,7 +8,7 @@ Rovloom has two roles:
 - **Connector** — runs on each machine that has Herdr or Luvus and connects out to the Gateway.
 
 Both roles can run on the same machine. The Gateway runs on Linux, macOS and Windows; the
-Connector runs on Linux x64 and Windows x64.
+Connector runs on Linux x64, macOS (x64, arm64) and Windows x64. On macOS and Windows it attaches to the Herdr or Luvus you already run.
 
 ## 1. Install
 
@@ -36,6 +36,18 @@ rovloom --version
 
 Binaries are also on the [releases page](https://github.com/ArnoChenFx/rovloom/releases/latest);
 installer options are in [Distribution](DISTRIBUTION.md).
+
+**Already have Bun (1.4.3 or newer)?** Each release also carries the npm package as a release asset
+(it is not published to the npm registry). Install it globally, or run it once without installing:
+
+```sh
+bun add -g https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz
+rovloom --version
+bunx --package https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz rovloom --version
+```
+
+Upgrade by running `bun add -g` again with the new release's URL. The package only runs on Bun,
+and `rovloom service install` still requires the standalone binary above.
 
 **Gateway in Docker (Linux x64/arm64, Docker Compose v2)** — optional, instead of installing the
 binary on the Gateway host:
@@ -76,7 +88,7 @@ Open two real local terminals and keep them open:
 |---|---|
 | `rovloom gateway` | `rovloom connector` |
 
-Docker Gateway: run `docker compose run --rm gateway` in the Compose directory instead (stop
+Docker Gateway: run `docker compose run --rm --service-ports gateway` in the Compose directory instead (stop
 any running Gateway first with `docker compose stop gateway`).
 
 1. **Gateway terminal:** approve pairing to get a one-time code (valid for five minutes).

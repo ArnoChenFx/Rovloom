@@ -7,7 +7,7 @@
 
 用法：python3 e2e/quickstart.py --binary /path/rovloom --herdr /path/herdr-0.9.5 [--work DIR] [--then 'cmd ...']
 """
-import argparse, fcntl, json, os, pty, re, select, shlex, shutil, signal, subprocess, sys, tempfile, termios, time
+import argparse, fcntl, getpass, json, os, pty, re, select, shlex, shutil, signal, subprocess, sys, tempfile, termios, time
 
 ANSI = re.compile(rb'\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Z0-9]|\r')
 CODE = re.compile(r'm_[0-9a-f-]{36}\.[0-9a-f-]{36}\.[A-Za-z0-9_-]+')
@@ -65,8 +65,22 @@ class Term:
 
 
 def luvus_servers(binary_dir):
-    """本次部署使用的 Luvus server 进程（按可执行文件目录区分），返回 [(pid, start_tick)]。"""
+    """本次部署使用的 Luvus server 进程（按可执行文件目录区分），返回 [(pid, 启动标识)]。
+
+    Linux 读 /proc（启动标识是内核启动 tick）；macOS 没有 /proc，用 ps（启动标识是 lstart，秒级足以区分重建）。
+    """
     found = []
+    if sys.platform == 'darwin':
+        listing = subprocess.run(['ps', '-axo', 'pid=,lstart=,command='], capture_output=True, text=True).stdout
+        for line in listing.splitlines():
+            # 格式：<pid> <Mon Day HH:MM:SS Year 共 5 个字段> <command...>
+            parts = line.split(None, 6)
+            if len(parts) < 7 or not parts[0].isdigit():
+                continue
+            command = parts[6].split()
+            if command and command[0].startswith(binary_dir) and command[-1] == 'server' and '--session' in command:
+                found.append((int(parts[0]), ' '.join(parts[1:6])))
+        return sorted(found)
     for entry in os.listdir('/proc'):
         if not entry.isdigit():
             continue
@@ -78,6 +92,12 @@ def luvus_servers(binary_dir):
         except OSError:
             continue
     return sorted(found)
+
+
+def sudo_service(binary, *step):
+    """一次性 CI 虚拟机里用已有的免密 sudo 运行 `rovloom service ...`（产品代码自身从不提权）。"""
+    return subprocess.run(['/usr/bin/sudo', '-n', '--', binary, 'service', *step],
+                          capture_output=True, text=True, timeout=120, env={'LANG': 'C', 'PATH': '/usr/bin:/bin'})
 
 
 def redact(text):
@@ -106,17 +126,25 @@ def main():
                     help='（Herdr）就绪后用 rovloom gateway --add-device 再配对第二台 Connector（独立 HOME）：同一 Bearer 同时访问两台设备')
     ap.add_argument('--repair', action='store_true',
                     help='就绪后重新配对同一设备（rovloom gateway --repair-device + connector --repair）：旧凭据被替换，MCP 授权不变')
+    ap.add_argument('--service', action='store_true',
+                    help='（macOS，Herdr）就绪后终端 Connector 退出，改由 LaunchDaemon（sudo -n 安装并启动）提供原生连接；'
+                         'Connector 使用真实 HOME（服务以所选用户运行），MCP 链路成功即证明服务可用')
     ap.add_argument('--then', help='就绪后执行的命令，环境变量 MCP_CONFIG 指向连接信息')
     args = ap.parse_args()
     if bool(args.herdr) == bool(args.luvus):
         ap.error('exactly one of --herdr / --luvus is required')
     if args.second_device and not args.herdr:
         ap.error('--second-device is a Herdr scenario')
+    if args.service and not (args.herdr and sys.platform == 'darwin'):
+        ap.error('--service is a macOS Herdr scenario')
     if (args.unknown_outcome or args.revoke) and not args.luvus:
         ap.error('--unknown-outcome / --revoke are Luvus scenarios')
     work = os.path.abspath(args.work or tempfile.mkdtemp(prefix='.rq-', dir=os.path.expanduser('~')))
     os.makedirs(work, mode=0o700, exist_ok=True)
     home_g, home_c, tools, herdr_dir = (os.path.join(work, n) for n in ('g', 'c', 'bin', 'hb'))
+    if args.service:
+        # LaunchDaemon 以所选用户运行并使用其真实 HOME；Connector 的配置、凭据与原生端点都在真实 HOME 下（一次性 CI 虚拟机）。
+        home_c = os.path.expanduser('~')
     for d in (home_g, home_c, tools, herdr_dir):
         os.makedirs(d, mode=0o700, exist_ok=True)
     rov = os.path.join(tools, 'rovloom')
@@ -135,6 +163,9 @@ def main():
         cfg = json.load(open(path))
         if args.herdr:
             cfg['native'] = {'provider': 'herdr'}
+            if args.service:
+                # LaunchDaemon 的 PATH 只有系统目录：显式列出 herdr 所在目录。
+                cfg['native']['runtime_bin_dirs'] = [herdr_dir]
         elif args.luvus_mode == 'managed':
             # 隔离 Luvus 的状态路径上限 52 字节（Unix socket 限制），默认数据目录太长，按文档改用短路径。
             cfg['native'] = {'luvus': {'mode': 'managed'}}
@@ -313,8 +344,23 @@ def main():
             print('[two-devices]', (checked.stdout + checked.stderr).strip()[-600:], flush=True)
             assert checked.returncode == 0, 'two-devices check failed'
             print('TWO_DEVICES_OK', flush=True)
+        if args.service:
+            account = getpass.getuser()
+            connector.stop()  # 终端 Connector 退出，之后只由开机服务提供原生
+            time.sleep(2.0)
+            for step in (['install', '--role', 'connector', '--workdir', home_c, '--user', account, '--config', path],
+                         ['start', '--role', 'connector']):
+                done = sudo_service(rov, *step)
+                print('SERVICE', step[0], done.returncode, (done.stdout + done.stderr).strip()[:400], flush=True)
+                assert done.returncode == 0, f'service {step[0]} failed'
+            print('SERVICE_STARTED', flush=True)
         if args.then:
-            status = subprocess.call(shlex.split(args.then), env={**os.environ, 'MCP_CONFIG': out})
+            status = 1
+            for attempt in range(8 if args.service else 1):
+                status = subprocess.call(shlex.split(args.then), env={**os.environ, 'MCP_CONFIG': out})
+                if status == 0:
+                    break
+                time.sleep(10.0)  # 服务 Connector 尚在连接：MCP 链路成功本身就是就绪证明
             if status != 0:
                 connector.pump(1.0); gateway.pump(0.3)
                 print('--- gateway tail ---\n' + ANSI.sub(b'', gateway.log).decode('utf8', 'replace')[-1800:], flush=True)
@@ -323,6 +369,14 @@ def main():
     finally:
         for term in reversed(terms):
             term.stop()
+        if args.service:
+            # 先让服务收到正常停止请求，再撤销开机登记；尽力而为，不影响测试结论。
+            for step in (['stop', '--role', 'connector'], ['uninstall', '--role', 'connector']):
+                try:
+                    done = sudo_service(rov, *step)
+                    print('SERVICE', step[0], done.returncode, (done.stdout + done.stderr).strip()[:200], flush=True)
+                except Exception as error:
+                    print('SERVICE', step[0], 'error', error, flush=True)
 
 
 if __name__ == '__main__':

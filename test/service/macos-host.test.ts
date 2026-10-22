@@ -9,15 +9,21 @@ import { sampleSpec, model } from './helpers.js'
 import { ServiceManager } from '../../src/service/manager.js'
 
 test(
-  'Darwin只接通Gateway服务，不扩大本机Connector能力',
+  'Darwin的Gateway服务与本机Connector服务（x64/arm64）可接，其它架构拒绝',
   /* 纯能力检查不解析另一账户的home。 */ () => {
     const spec = { ...sampleSpec('darwin'), role: 'gateway' as const }
     assertServiceProduct(spec, { platform: 'darwin', arch: 'arm64', executable: spec.executable, standalone: true })
+    for (const arch of ['x64', 'arm64']) {
+      assertServiceProduct(
+        { ...spec, role: 'connector' },
+        { platform: 'darwin', arch, executable: spec.executable, standalone: true }
+      )
+    }
     assert.throws(
-      /* macOS纯Gateway不扩大本机native Connector能力。 */ () =>
+      /* 其它架构没有 Connector 端到端验证。 */ () =>
         assertServiceProduct(
           { ...spec, role: 'connector' },
-          { platform: 'darwin', arch: 'x64', executable: spec.executable, standalone: true }
+          { platform: 'darwin', arch: 'ia32', executable: spec.executable, standalone: true }
         ),
       { code: 'backend_unavailable' }
     )

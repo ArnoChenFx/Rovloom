@@ -98,7 +98,11 @@ export async function attachExistingLuvus(
   let scope: ReturnType<typeof deadline> | undefined
   try {
     const fixed = pinConfig(config)
-    if (fixed.transport !== 'ipc' || process.arch !== 'x64' || !process.versions.bun) {
+    if (
+      fixed.transport !== 'ipc' ||
+      !(process.arch === 'x64' || (process.arch === 'arm64' && process.platform === 'darwin')) ||
+      !process.versions.bun
+    ) {
       throw new LuvusAdapterError('native_attach_installation_unsupported')
     }
     const limits = localLimits(fixed.limits)

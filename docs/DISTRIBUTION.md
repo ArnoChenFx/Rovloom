@@ -37,7 +37,8 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 2. `quality`：复用完整 Bun verification。
 3. `preflight`：在 Linux x64 上构建真实产品并跑完整产品 smoke。
 4. `build`：六项矩阵分别在原生 runner 上重新编译，运行产品 smoke，上传收据与 binary。
-5. `publish`：核对恰好六项产物后创建草稿 Release、上传资产，校验通过才公开。
+5. `npm`：在 Linux 上构建 npm 包 tarball，并从干净目录 `bun add` 后验收（见下文“npm 包 tarball”）。
+6. `publish`：核对恰好六项产物和一个 tarball 后创建草稿 Release、上传资产，校验通过才公开。
 
 任何步骤失败都不公开 Release。只有 `publish` 具有 `contents: write`，其他 job 只有 `contents: read`，checkout 不保留凭据。流程不需要 PAT、长期秘密、签名服务或 OIDC 权限。
 
@@ -58,11 +59,11 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 
 目标依据 [Bun CompileTarget](https://github.com/oven-sh/bun/blob/main/packages/bun-types/bun.d.ts)、[Bun executables 文档](https://bun.com/docs/bundler/executables)和 [GitHub runner 列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。官方归档中的 `aarch64` 在产品契约里写作 `arm64`。不提供 musl、32 位、其它 arch 或模拟执行的资产。
 
-每个目标都必须在对应原生 runner 上通过 Gateway 产品 smoke。完整双角色原生 smoke 只在 Linux x64 运行；Windows x64 Connector（附着 Herdr / Luvus、开机任务、崩溃清理）由独立的 [Windows e2e](../.github/workflows/windows-e2e.yml) 验收。Windows 两种 arch 都要求原生图标资源检查，交叉编译不能替代。
+每个目标都必须在对应原生 runner 上通过 Gateway 产品 smoke。完整双角色原生 smoke 只在 Linux x64 运行；Windows x64 Connector（附着 Herdr / Luvus、开机任务、崩溃清理）由独立的 [Windows e2e](../.github/workflows/windows-e2e.yml) 验收；macOS（x64 / arm64）Connector（附着真实 Herdr / Luvus、LaunchDaemon、崩溃与重建）由独立的 [macOS e2e](../.github/workflows/macos-e2e.yml) 验收。Windows 两种 arch 都要求原生图标资源检查，交叉编译不能替代。
 
 ### 资产与 manifest 契约
 
-官方来源固定为 `ArnoChenFx/rovloom` 的 GitHub Releases。每次发行恰有六个原始单文件 binary、`release-manifest.json` 与 `SHA256SUMS`，不上传探针、构建清单、源码目录、用户配置、数据库或凭据。binary 命名为 `rovloom-<version>-<os>-<arch>`，Windows 追加 `.exe`，`<version>` 不含 `v`。
+官方来源固定为 `ArnoChenFx/rovloom` 的 GitHub Releases。每次发行恰有六个原始单文件 binary、一个 npm 包 tarball（`rovloom-<version>.tgz`）、`release-manifest.json` 与 `SHA256SUMS`，不上传探针、构建清单、源码目录、用户配置、数据库或凭据。binary 命名为 `rovloom-<version>-<os>-<arch>`，Windows 追加 `.exe`，`<version>` 不含 `v`。
 
 `release-manifest.json` 为 UTF-8 JSON，两空格缩进，字段与矩阵顺序固定，末尾 LF，不含时间戳或 runner 路径：
 
@@ -81,7 +82,19 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 
 下载路径固定为 `https://github.com/ArnoChenFx/rovloom/releases/download/<tag>/<name>`，manifest 来自同 tag 的 `release-manifest.json`。消费方必须精确匹配 OS/arch/libc、版本、资产名、长度和摘要，拒绝未知 schema 或平台，不接受 manifest 自报的其它仓库或下载 URL。
 
-版本带预发布标识即为预发布，不会成为 latest；稳定版使用 `make_latest: legacy`，避免后补的旧 tag 抢占 latest。`SHA256SUMS` 每行为 `<sha256>  <name>`，先列六个 binary，最后是 manifest，自身不入列。摘要保证字节完整性，不是发布者签名。真实发布者签名和 macOS 公证未配置，Bun 自带的本机签名不构成发行者认证。
+版本带预发布标识即为预发布，不会成为 latest；稳定版使用 `make_latest: legacy`，避免后补的旧 tag 抢占 latest。`SHA256SUMS` 每行为 `<sha256>  <name>`，先列六个 binary，再列 tarball，最后是 manifest，自身不入列。摘要保证字节完整性，不是发布者签名。真实发布者签名和 macOS 公证未配置，Bun 自带的本机签名不构成发行者认证。
+
+### npm 包 tarball
+
+已安装 Bun 的用户可以不下载内置运行时的单文件，直接 `bun add -g <Release 上的 rovloom-<version>.tgz>` 或 `bunx --package <URL> rovloom`。它**只是 Release 资产，不发布到 npm 注册表**（注册表发布另见 issue #202）。
+
+- [npm-package.mjs](../scripts/release/npm-package.mjs) 先执行 `scripts/bun/build.mjs`，再把 `dist/src`（去掉 sourcemap）、`LICENSE`、`README.md` 和精简的 `package.json`（只有运行所需字段；`bin` 指向 `dist/src/cli/main.js`，仍标 `private`）暂存后用 `bun pm pack` 生成 tarball，随后核对条目白名单。管理页静态资源与两个 schema 编译 Worker 已经内嵌在构建产物里；运行时依赖 `@modelcontextprotocol/sdk` 与 `ajv` 由安装时的 Bun 拉取。
+- 同一份源码重复打包得到逐字节相同的 tarball，所以重跑草稿的字节核对对它同样有效。
+- tarball 与二进制使用同一个 tag、版本和提交：tag 构建写出绑定三者与字节的收据，发布器据此核对。
+- 它的摘要只进入 `SHA256SUMS`，**不进 `release-manifest.json`**：已发布的客户端对 manifest 字段做封闭校验，新增字段会让它们无法读取新清单。
+- [npm-smoke.mjs](../scripts/release/npm-smoke.mjs) 在干净目录 `bun add` 该 tarball，验收 `bin` 链接、`--version`/`--help`/模板/`config check`、`bunx --package`、非 Bun 运行时（`node main.js`）的明确拒绝，并以 bun 直接运行已安装入口，复用 Gateway smoke 的认证 MCP、管理页内嵌资源、schema Worker 与正常关闭检查。它在 [Bun verification](../.github/workflows/bun.yml)、六平台 [Standalone CI](../.github/workflows/standalone.yml) 和 tag 发行的 `npm` job 中运行；需要访问 npm 注册表拉取两个运行时依赖。
+- 入口 `src/cli/runtime-guard.ts` 在非 Bun 运行时或低于 `engines.bun` 下限的 Bun 上直接给出明确提示。
+- 已知限制：`rovloom service install` 只接受单文件二进制；tarball 安装的程序暂不能注册开机服务。
 
 ### 失败、重跑与不可覆盖
 
@@ -91,7 +104,7 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 
 ### 发行后核验
 
-[Verify published release](../.github/workflows/verify-release.yml) 手动触发：从真实公开 Release 下载六平台二进制，按 `SHA256SUMS` 校验并运行 `--version`；同时在六个平台运行官方安装器，确认 latest 稳定路径可用。它不构建，也不写仓库。
+[Verify published release](../.github/workflows/verify-release.yml) 手动触发：从真实公开 Release 下载六平台二进制，按 `SHA256SUMS` 校验并运行 `--version`；同时在六个平台校验 tarball 摘要并按文档用法 `bun add` / `bunx` 运行，并运行官方安装器，确认 latest 稳定路径可用。它不构建，也不写仓库。
 
 ## Worker 与内置资源接口
 

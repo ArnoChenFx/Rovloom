@@ -48,12 +48,12 @@ function canonical(path: string): void {
   }
 }
 // Linux 按 uid/mode；Windows 按属主 SID + DACL（windowsInspectPath），命名管道端点按名称与服务端 PID 证明。
-/** Linux 提供有效 uid；Windows 没有 uid，返回占位 0（身份由路径属主/ACL 与管道服务端进程证明）；其他平台拒绝运行。 */
+/** Linux 与 macOS 提供有效 uid；Windows 没有 uid，返回占位 0（身份由路径属主/ACL 与管道服务端进程证明）；其他平台拒绝运行。 */
 function uid(): number {
   if (process.platform === 'win32') {
     return 0
   }
-  if (process.platform !== 'linux' || !process.geteuid) {
+  if ((process.platform !== 'linux' && process.platform !== 'darwin') || !process.geteuid) {
     throw new LuvusAdapterError('local_platform_unsupported')
   }
   return process.geteuid()

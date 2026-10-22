@@ -44,7 +44,7 @@ rovloom service uninstall --role gateway
 
 - Services receive no interactive input and never enter pairing or setup prompts. systemd uses null stdin, launchd uses `/dev/null`, and Windows starts the role with `--non-interactive`. Pair the device in a real terminal first.
 - A service does not restart a process that has exited. systemd uses `Restart=no` and launchd does not set `KeepAlive`.
-- A native Connector service is supported on Linux x64 and Windows x64.
+- A native Connector service is supported on Linux x64, macOS (x64, arm64) and Windows x64. On macOS the LaunchDaemon runs as the selected user, so list the native programs' directory in `native.runtime_bin_dirs` (the daemon's `PATH` has only system directories).
 - Command output and waiting time are bounded. The result reports `readiness: not_checked`, so a running service does not prove that a provider or Agent is ready.
 - On Windows, a running instance receives one stop request over a local named pipe and then runs its normal shutdown. If the pipe fails, the process is not killed. When a task is queued or starting, the command returns `service_busy`.
 - Cross-process role locks prevent concurrent control operations. A stale lock needs manual inspection.
@@ -83,7 +83,7 @@ Windows 以所选用户的 S4U 任务运行，不保存密码，也不要求先�
 
 - 服务没有交互输入，不会进入配对或初始化提示。systemd 使用空 stdin，launchd 使用 `/dev/null`，Windows 以 `--non-interactive` 启动角色。请先在真实终端完成配对。
 - 服务不会自动重启已退出的进程。systemd 为 `Restart=no`，launchd 不设置 `KeepAlive`。
-- 原生 Connector 服务支持 Linux x64 与 Windows x64。
+- 原生 Connector 服务支持 Linux x64、macOS（x64、arm64）与 Windows x64。macOS 上 LaunchDaemon 以所选用户运行，其 `PATH` 只有系统目录，请把原生程序所在目录写进 `native.runtime_bin_dirs`。
 - 命令的输出和等待时间有上限。结果带 `readiness: not_checked`，服务处于运行状态不代表 provider 或 Agent 已就绪。
 - Windows 上，运行中的实例通过本地命名管道收到一次停止请求，再执行正常关闭。管道失败时不会强杀进程。任务排队或正在启动时，命令返回 `service_busy`。
 - 跨进程的角色锁防止并发的控制操作。遗留的锁需要人工检查。

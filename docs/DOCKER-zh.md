@@ -2,7 +2,7 @@
 
 [English](DOCKER.md) · [快速开始](QUICK-START-zh.md)
 
-Rovloom 的 Docker 方案运行 **Gateway**，包含管理页和 MCP 服务。Luvus/Herdr Connector 运行在原生程序所在的 Linux 主机上。
+Rovloom 的 Docker 方案运行 **Gateway**，包含管理页和 MCP 服务。Luvus/Herdr Connector 运行在原生程序所在的主机上（Linux x64、macOS 或 Windows x64）。
 
 ## 支持平台
 
@@ -35,7 +35,10 @@ docker compose ps
 
 `healthy` 只说明 MCP 认证监听已响应，不表示设备已配对、管理员已存在或 Agent 已就绪。日志中的 `pairing_required` 表示等待配对。
 
-首次生成的配置在容器内把三个监听都绑在回环上，发布端口此时只在容器内可达。把 `gateway.json` 里的 `mcp.hostname`、`devices.hostname` 与 `management.hostname` 改为 `0.0.0.0` 并重启（方法见下文“配置、停止与升级”），三个端口才经 Compose 映射对外可达；映射绑宿主机全部网卡，按需用宿主机防火墙收口。远程 Connector 需要你自行在前面放置标准 TLS 反向代理（见[网络访问](CONFIGURATION-zh.md#网络访问)）。
+首次生成的配置把三个监听都绑在**容器内部**的回环上，宿主机无法经发布端口访问。把 `gateway.json` 里的 `mcp.hostname`、`devices.hostname` 与 `management.hostname` 改为 `0.0.0.0` 并重启（方法见下文“配置、停止与升级”）。之后 Compose 的发布范围是：
+
+- `9443`（Connector 设备通道）发布到宿主机所有网卡，其它机器上的 Connector 才能连接。跨出可信网络时请前置 TLS 反向代理，并用宿主机防火墙收口。
+- `9444`（MCP）与 `9445`（管理页）**只发布到宿主机回环**（`127.0.0.1`）。远程 MCP 客户端通过宿主机上转发到 `127.0.0.1:9444` 的反向代理访问，并设置 `mcp.public_url`（见[网络访问](CONFIGURATION-zh.md#网络访问)）。不要放宽这两个映射：监听是明文 HTTP，Host/Origin 校验只防浏览器 DNS 重绑定——网络上的客户端手工带回环 `Host` 头仍能走到 Bearer 或管理员密码这一步。
 
 ## 首次配对
 
@@ -43,14 +46,16 @@ docker compose ps
 
 ```sh
 docker compose stop gateway
-docker compose run --rm gateway
+docker compose run --rm --service-ports gateway
 ```
 
-保持这个终端开启，用于配对和原生安装批准。在 Linux x64 Connector 主机的另一个本地终端运行 `rovloom connector`，按[配对](QUICK-START-zh.md#3-配对)继续。不要让第二个 Gateway 使用同一份数据。
+必须带 `--service-ports`：`docker compose run` 默认不发布 Compose 里的端口，不带的话 Connector 连不上 Gateway。上面对 `devices.hostname` 的修改需要已经生效。
+
+保持这个终端开启，用于配对和原生安装批准。在 Connector 主机（Linux x64、macOS 或 Windows x64）的另一个本地终端运行 `rovloom connector`，按[配对](QUICK-START-zh.md#3-配对)继续。不要让第二个 Gateway 使用同一份数据。
 
 到达 `connector_ready` 后，先停止 Connector，再按 Ctrl-C 停止前台 Gateway。执行 `docker compose up -d`，然后重新启动主机 Connector。配置和配对保留在卷中。
 
-加入更多设备或重新配对某台设备时，先停止后台 Gateway，运行 `docker compose run --rm gateway gateway --add-device`（或 `gateway --repair-device`），再按快速开始在 Connector 主机上继续。
+加入更多设备或重新配对某台设备时，先停止后台 Gateway，运行 `docker compose run --rm --service-ports gateway gateway --add-device`（或 `gateway --repair-device`），再按快速开始在 Connector 主机上继续。
 
 ## 配置、停止与升级
 
@@ -84,7 +89,7 @@ docker compose down       # 删除容器和网络，保留命名卷
 
 ## Connector 运行位置
 
-Connector 应运行在 Luvus/Herdr 所在的 Linux x64 主机上。它要核验原生 binary 与 schema、进程归属、私有文件权限、Unix socket 对端和实例生命周期；容器内的用户、PID 和路径与主机不同，挂载宿主 socket 无法保持这些保证。因此 Compose 不含 Connector，不挂载 `/var/run/docker.sock`，也不要求 `privileged`、主机 PID 或额外 capability。
+Connector 应运行在 Luvus/Herdr 所在的主机上（Linux x64、macOS 或 Windows x64）。它要核验原生 binary 与 schema、进程归属、私有文件权限、Unix socket 对端和实例生命周期；容器内的用户、PID 和路径与主机不同，挂载宿主 socket 无法保持这些保证。因此 Compose 不含 Connector，不挂载 `/var/run/docker.sock`，也不要求 `privileged`、主机 PID 或额外 capability。
 
 ## 镜像构建
 

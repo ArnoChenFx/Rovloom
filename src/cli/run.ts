@@ -9,6 +9,7 @@ import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path
 import { serviceDiagnostic } from './service-output.js'
 import { readOrCreateRoleConfig } from './first-config.js'
 import { readRuntimeConfig } from './runtime-config.js'
+import { isWildcardHostname } from '../mcp/listen.js'
 import {
   CLI_ERROR_CODES,
   CliCancelled,
@@ -19,6 +20,9 @@ import {
   type ConnectorConfig,
   type GatewayConfig
 } from './config.js'
+
+const WILDCARD_LISTEN_WARNING =
+  'wildcard_listener\nMCP/management listen on all interfaces over plain HTTP; protect them with a firewall or a TLS reverse proxy.\nMCP/管理页监听所有网卡且为明文 HTTP；请用防火墙或 TLS 反向代理收口。\n'
 
 export const HELP = `Rovloom ${PRODUCT_VERSION}
 
@@ -43,7 +47,7 @@ config check 只读检查配置文件；check-runtime 另核对程序管理的�
 
 省略 --config 时读取 ~/.config/rovloom/gateway.json 或 connector.json（Windows 同样使用用户 home）。
 文件缺失时首次运行会生成默认配置，已有文件不会被覆盖或重置。
-Gateway 支持 Linux/macOS/Windows；Connector 支持 Linux x64 与 Windows x64。
+Gateway 支持 Linux/macOS/Windows；Connector 支持 Linux x64、Windows x64 与 macOS（x64 / arm64，仅附着已运行的 Herdr / Luvus）。
 首次引导按 Connector 的 native.provider 选择 luvus（默认）、herdr 或 mixed。
 Agent 与模型登录需独立准备；原生 ready 不代表模型已回复。
 退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
@@ -317,9 +321,19 @@ export async function runCli(
       throw new CliError('backend_unavailable', 3)
     }
     let reload = false
+    let warnedWildcard = false
     do {
       reload = false
       const gateway = await runtime.gateway(config)
+      // 通配监听是明文 HTTP 暴露到所有网卡：提示一次，防护靠 Bearer/管理员密码与宿主机防火墙或 TLS 反代。
+      if (
+        !warnedWildcard &&
+        (isWildcardHostname(config.mcp_hostname) ||
+          (config.management_enabled && isWildcardHostname(config.management_hostname)))
+      ) {
+        warnedWildcard = true
+        io.stderr.write(WILDCARD_LISTEN_WARNING)
+      }
       try {
         // 只有宿主建立后才加载HTTP SDK；stdin EOF和客户端断开均不结束Gateway。
         const { startHttpFacade } = await import('../mcp/http.js')

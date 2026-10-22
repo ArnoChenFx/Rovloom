@@ -289,16 +289,16 @@ test(
 )
 
 test(
-  'resolving the same complete binding preserves its private native handle',
+  'resolving the same complete binding reuses its registered state',
   /** 重复解析同一完整 binding，并验证返回对象修改不能污染私有状态。 */ () => {
     const fixture = backendFixture()
     const adapter = createHerdrReadonlyAdapter(fixture.backend)
     const first = adapter.resolve(fixture.identity)
     const second = adapter.resolve(fixture.identity)
-    assert.equal(second.native_handle, first.native_handle)
+    assert.deepEqual(second, first)
     const third = adapter.resolve(fixture.identity)
     second.binding.connection_epoch = 'mutated-result'
     assert.equal(third.binding.connection_epoch, fixture.binding.connection_epoch)
-    assert.equal(adapter.resolve(fixture.identity).native_handle, first.native_handle)
+    assert.deepEqual(adapter.resolve(fixture.identity), first)
   }
 )

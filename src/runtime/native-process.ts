@@ -11,8 +11,9 @@ import type { LuvusLocalConfig } from '../connector/luvus/types.js'
 import type { EndpointIdentity, PeerIdentity } from '../connector/luvus/types.js'
 import type { Socket } from 'node:net'
 import { readLinuxLuvusPeer } from '../connector/luvus/linux-peer.js'
-import { readWindowsLuvusPeer } from '../connector/luvus/peer.js'
+import { readMacosLuvusPeer, readWindowsLuvusPeer } from '../connector/luvus/peer.js'
 import { WINDOWS_PIPE } from '../connector/luvus/local.js'
+import { macosProcessArgv, macosProcessImage, macosProcessState, macosProcessUid } from '../platform/macos.js'
 import { windowsInspectPath, windowsProcessFacts, windowsProcessState } from '../platform/windows.js'
 
 export interface ReadonlyNativeProcess {
@@ -243,6 +244,15 @@ export function ownedPathStamp(path: string, kind: 'directory' | 'binary' | 'soc
   return stamps.join('\n')
 }
 
+/** 命令行固定为 `--session <name> server`；default 会话手动运行时可省略 `--session default`。 */
+function attachedServerArguments(config: LuvusLocalConfig, tail: readonly string[]): boolean {
+  const joined = tail.join('\0')
+  return (
+    joined === '--session\0' + config.target.session + '\0server' ||
+    (config.target.session === 'default' && joined === 'server')
+  )
+}
+
 /**
  * 附着用户自己的 Luvus：进程不是我们派生的，环境与工作目录都是用户的，所以只以内核事实证明身份——
  * 存活、exe 与已安装二进制是同一 inode（同属主）、argv 恰为 `server` 的固定形态。
@@ -261,16 +271,11 @@ function attachedProcessStamp(
   if (argv.at(-1) === '') {
     argv.pop()
   }
-  const tail = argv.slice(1).join('\0')
-  const accepted = ['--session\0' + config.target.session + '\0server']
-  if (config.target.session === 'default') {
-    accepted.push('server')
-  }
   if (
     !start ||
     !/^\d+$/u.test(start) ||
     ['Z', 'X', 'x'].includes(state!) ||
-    !accepted.includes(tail) ||
+    !attachedServerArguments(config, argv.slice(1)) ||
     executable.dev !== binary.dev ||
     executable.ino !== binary.ino ||
     executable.uid !== binary.uid ||
@@ -426,6 +431,91 @@ class LinuxLuvusObservation implements ObservedNativeProcess {
 }
 
 /**
+ * macOS：附着用户自己的 Luvus。对端 PID 与 uid/gid 来自实际 socket 的 LOCAL_PEERPID/LOCAL_PEERCRED；
+ * 进程镜像（proc_pidpath）必须是已安装 luvus 的同一文件（按文件身份比较，不信任路径文本），
+ * 命令行取自 KERN_PROCARGS2 且为固定的 server 形态，启动时间在整个观察期内不变。macOS 没有 pidfd：
+ * pid + 启动时间共同防止 PID 复用，每次使用都重新测量。
+ */
+class MacosLuvusObservation implements ObservedNativeProcess {
+  readonly #peer: PeerIdentity
+  readonly #config: LuvusLocalConfig
+  readonly #start: string
+  readonly #binary: string
+  readonly #directories: readonly [string, string][]
+
+  /** 只能由下方同 socket 测量入口创建，不接受公开 JSON PID。 */
+  constructor(socket: Socket, config: LuvusLocalConfig) {
+    this.#config = config
+    try {
+      this.#peer = readMacosLuvusPeer(socket)
+      if (this.#peer.uid !== process.geteuid!() || this.#peer.gid !== process.getegid!()) {
+        throw new LuvusAdapterError('attached_peer_mismatch')
+      }
+      this.#binary = ownedPathStamp(config.binary, 'binary')
+      this.#directories = [config.state_root, config.home, config.cwd].map(
+        /* 只读取明确配置的根目录身份，不枚举或读取其它会话。 */ (path) => [path, ownedPathStamp(path, 'directory')]
+      )
+      this.#start = this.#inspect()
+      if (JSON.stringify(readMacosLuvusPeer(socket)) !== JSON.stringify(this.#peer)) {
+        throw new LuvusAdapterError('attached_peer_mismatch')
+      }
+    } catch (error) {
+      throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('attached_process_unavailable')
+    }
+  }
+
+  /** 服务端进程存活、同属主、镜像是已安装的同一文件且命令行为固定形态，返回其启动时间。 */
+  #inspect(): string {
+    const pid = this.#peer.pid
+    const state = macosProcessState(pid)
+    const image = macosProcessImage(pid)
+    const argv = macosProcessArgv(pid)
+    if (state.kind !== 'alive' || image === undefined || argv === undefined) {
+      throw new LuvusAdapterError('attached_process_unavailable')
+    }
+    const executable = statSync(image, { bigint: true })
+    const installed = lstatSync(this.#config.binary, { bigint: true })
+    if (
+      macosProcessUid(pid) !== process.geteuid!() ||
+      executable.dev !== installed.dev ||
+      executable.ino !== installed.ino ||
+      executable.uid !== installed.uid ||
+      executable.uid !== BigInt(process.geteuid!()) ||
+      !attachedServerArguments(this.#config, argv.slice(1)) ||
+      macosProcessState(pid).kind !== 'alive'
+    ) {
+      throw new LuvusAdapterError('attached_process_identity_changed')
+    }
+    return state.start
+  }
+
+  /** 逐次核对启动时间不变、镜像与命令行仍是固定形态、安装与目录未被替换。 */
+  assertLive(): void {
+    try {
+      if (this.#inspect() !== this.#start || ownedPathStamp(this.#config.binary, 'binary') !== this.#binary) {
+        throw new LuvusAdapterError('attached_process_identity_changed')
+      }
+      for (const [path, stamp] of this.#directories) {
+        if (ownedPathStamp(path, 'directory') !== stamp) {
+          throw new LuvusAdapterError('attached_process_identity_changed')
+        }
+      }
+    } catch (error) {
+      throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('attached_process_unavailable')
+    }
+  }
+
+  /** 身份只能来自原 socket 的内核观测，使用时再次复验对应进程。 */
+  identity(): PeerIdentity {
+    this.assertLive()
+    return this.#peer
+  }
+
+  /** 没有需要释放的内核句柄；从不停止被观察的外部实例。 */
+  close(): void {}
+}
+
+/**
  * Windows：附着用户自己的 Luvus。对端 PID 来自命名管道服务端（内核回答），其镜像必须是已安装 luvus.exe 的同一文件
  * （按文件身份比较，不信任路径文本），创建时间在整个观察期内不变，且服务端 PID 始终是同一进程；命令行不作判据。
  */
@@ -501,14 +591,17 @@ class WindowsLuvusObservation implements ObservedNativeProcess {
   close(): void {}
 }
 
-/** 按平台建立只读进程观察：Linux 取自实际 socket 的 SO_PEERCRED，Windows 取自管道服务端 PID。 */
+/** 按平台建立只读进程观察：Linux 取自实际 socket 的 SO_PEERCRED，macOS 取自 LOCAL_PEERPID/LOCAL_PEERCRED，Windows 取自管道服务端 PID。 */
 export function observeLuvusProcess(
   socket: Socket,
   config: LuvusLocalConfig,
   endpoint: EndpointIdentity
 ): ObservedNativeProcess {
-  return process.platform === 'win32'
-    ? new WindowsLuvusObservation(endpoint, config)
+  if (process.platform === 'win32') {
+    return new WindowsLuvusObservation(endpoint, config)
+  }
+  return process.platform === 'darwin'
+    ? new MacosLuvusObservation(socket, config)
     : new LinuxLuvusObservation(socket, config)
 }
 

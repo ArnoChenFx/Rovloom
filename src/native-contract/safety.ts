@@ -1,6 +1,6 @@
 // 独立执行调用与结果读取门禁：按静态方法表、双端策略和 raw 授权校验后登记内存派发许可。
 import { authorize } from '../contracts.js'
-import { candidates, permits, views } from './internal.js'
+import { candidates, views } from './internal.js'
 import { luvusMethod } from './methods.js'
 import { attempt, equal, fail, object, snapshot } from './json.js'
 import { verifySource } from './validator.js'
@@ -34,6 +34,13 @@ function checkedAuthorization(candidate: DispatchCandidate, input: DispatchAutho
     reject('invalid_authorization_context')
   }
   return context
+}
+
+// 许可必须是 checkDispatch 签发的形状，且其候选仍是本校验器登记过的请求。
+export function checkedPermit(permit: DispatchPermit): void {
+  if (!permit || permit.kind !== 'permit' || !candidates.has(permit.candidate)) {
+    reject('invalid_permit_handle')
+  }
 }
 
 // 方法必须在静态表中，且实际安装契约广告的原生提示与表逐字段一致；表外方法一律拒绝。
@@ -145,16 +152,16 @@ export function checkDispatch(candidate: DispatchCandidate, input: DispatchAutho
       } else {
         reject('invalid_execution_mode')
       }
-      const permit: DispatchPermit = Object.freeze({
-        kind: 'permit',
+      return Object.freeze({
+        kind: 'permit' as const,
+        candidate,
+        principal_id: context.principal_id,
         binding: candidate.binding,
         method: candidate.method,
         mode: context.mode,
         validation: candidate.validation,
         ...(context.mode === 'raw_contract' ? { raw_grant_id: context.raw_grant!.id } : {})
       })
-      permits.set(permit, { candidate, principal: context.principal_id })
-      return permit
     }
   )
 }
@@ -164,13 +171,10 @@ export function checkResultBoundary(permit: DispatchPermit, input: ResultAuthori
   return attempt(
     'result',
     /* 读取真实许可并检查结果仍可用，拒绝其它主体或已撤权的读取。 */ () => {
-      const stored = permits.get(permit)
-      if (!stored) {
-        reject('invalid_permit_handle')
-      }
+      checkedPermit(permit)
       const context = snapshot(input) as unknown as ResultAuthorization
       if (
-        stored.principal !== context.principal_id ||
+        permit.principal_id !== context.principal_id ||
         context.caller_policy_allowed !== true ||
         context.local_policy_allowed !== true
       ) {
@@ -188,12 +192,9 @@ export function checkResultRetention(permit: DispatchPermit, input: DispatchAuth
   return attempt(
     'result',
     /* 重新验证当前授权来源，并要求仍是派发时的主体。 */ () => {
-      const stored = permits.get(permit)
-      if (!stored) {
-        reject('invalid_permit_handle')
-      }
-      const context = checkedAuthorization(stored.candidate, input)
-      if (stored.principal !== context.principal_id) {
+      checkedPermit(permit)
+      const context = checkedAuthorization(permit.candidate, input)
+      if (permit.principal_id !== context.principal_id) {
         reject('forbidden')
       }
     }

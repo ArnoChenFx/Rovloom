@@ -63,8 +63,28 @@ export function encode(value) {
   return JSON.stringify(value, null, 2) + '\n'
 }
 
-/** 聚合每项验收后的最小收据，检查恰好完整矩阵及全部原始文件摘要。 */
-export function assemble(context, directory) {
+/** npm tarball 的唯一资产名；与 bun pm pack 的输出同名，只由版本决定。 */
+export function npmAssetName(version) {
+  return `rovloom-${version}.tgz`
+}
+
+/**
+ * 校验 npm 包目录恰好含 tarball 与同 tag/提交/字节的收据。tarball 不进 release-manifest.json：
+ * 已发布客户端对清单字段是封闭校验，新增字段会让它们无法自更新；摘要只进入 SHA256SUMS。
+ */
+function assembleNpm(context, directory) {
+  const name = npmAssetName(context.version)
+  assert.deepEqual(readdirSync(directory).sort(), [name, 'receipt.json'].sort())
+  const path = resolve(directory, name)
+  const asset = { name, ...fileMetadata(path) }
+  assert(lstatSync(resolve(directory, 'receipt.json')).isFile())
+  const receipt = JSON.parse(readFileSync(resolve(directory, 'receipt.json'), 'utf8'))
+  assert.deepEqual(receipt, { ...context, asset }, 'npm receipt does not match tag, commit or bytes')
+  return { ...asset, path }
+}
+
+/** 聚合每项验收后的最小收据，检查恰好完整矩阵及全部原始文件摘要；npm 包目录可选（发布流程必填）。 */
+export function assemble(context, directory, npmDirectory = undefined) {
   const entries = readdirSync(directory).sort()
   assert.deepEqual(entries, platforms.map(/** 每个平台只占一个固定目录。 */ (item) => item.target).sort())
   const assets = []
@@ -92,8 +112,12 @@ export function assemble(context, directory) {
   )
   const manifestBytes = encode(manifest)
   const sums = assets.map(/** 按矩阵固定顺序输出每个二进制摘要。 */ (asset) => `${asset.sha256}  ${asset.name}`)
+  const npm = npmDirectory === undefined ? undefined : assembleNpm(context, npmDirectory)
+  if (npm) {
+    sums.push(`${npm.sha256}  ${npm.name}`)
+  }
   sums.push(`${createHash('sha256').update(manifestBytes).digest('hex')}  ${manifestName}`)
-  return { manifest, manifestBytes, checksumsBytes: sums.join('\n') + '\n', files }
+  return { manifest, manifestBytes, checksumsBytes: sums.join('\n') + '\n', files, ...(npm ? { npm } : {}) }
 }
 
 if (import.meta.main) {

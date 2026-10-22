@@ -7,7 +7,7 @@ Rovloom 有两个角色：
 - **Gateway**：AI 客户端访问的 MCP 入口。
 - **Connector**：运行在每台装有 Herdr 或 Luvus 的机器上，主动连接 Gateway。
 
-两个角色可以运行在同一台机器上。Gateway 支持 Linux、macOS 和 Windows；Connector 支持 Linux x64 和 Windows x64。
+两个角色可以运行在同一台机器上。Gateway 支持 Linux、macOS 和 Windows；Connector 支持 Linux x64、macOS（x64、arm64）和 Windows x64；在 macOS 和 Windows 上附着你已在运行的 Herdr / Luvus。
 
 ## 1. 安装
 
@@ -35,6 +35,18 @@ rovloom --version
 
 也可以从 [Release 页面](https://github.com/ArnoChenFx/rovloom/releases/latest)下载二进制；
 安装器选项见[分发说明](DISTRIBUTION.md)。
+
+**已经装了 Bun（1.4.3 及以上）？** 每个发行同时附带 npm 包 tarball（只是 Release 资产，不在 npm 注册表）。
+可以全局安装，也可以不安装直接运行一次：
+
+```sh
+bun add -g https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz
+rovloom --version
+bunx --package https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz rovloom --version
+```
+
+升级时用新发行的地址再执行一次 `bun add -g`。这个包只能在 Bun 上运行，
+`rovloom service install` 仍然需要上面的单文件二进制。
 
 **Docker 运行 Gateway（Linux x64/arm64，Docker Compose v2）**——可选，无需在 Gateway 主机安装二进制：
 
@@ -72,7 +84,7 @@ Connector **附着到你已在运行的会话**，因此远程调用操作的是
 |---|---|
 | `rovloom gateway` | `rovloom connector` |
 
-Docker Gateway：在 Compose 目录运行 `docker compose run --rm gateway` 代替（先用 `docker compose stop gateway` 停掉正在运行的 Gateway）。
+Docker Gateway：在 Compose 目录运行 `docker compose run --rm --service-ports gateway` 代替（先用 `docker compose stop gateway` 停掉正在运行的 Gateway）。
 
 1. **Gateway 终端**：批准配对，得到一次性码（5 分钟有效）。
 2. **Connector 终端**：输入 Gateway 地址（同一台机器用 `ws://127.0.0.1:9443`）和该码，并确认信任此 Gateway。
