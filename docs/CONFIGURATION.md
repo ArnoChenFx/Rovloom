@@ -421,3 +421,17 @@ Bearers, TLS or model secrets, or arbitrary environment variables.
 
 Keep the error code when asking for help. Do not post real configuration,
 Bearers, administrator passwords or one-time codes.
+
+
+### Result cleanup permission
+
+Caller registries may include `principal.permissions: { "discard_response": true }`. It defaults to false. The local operator can change it without restarting Gateway:
+
+```sh
+rovloom token permissions --principal owner --discard-response true
+rovloom token permissions --principal owner --discard-response false
+```
+
+Use the actual principal ID from `rovloom token list`. This grants result deletion for the caller's own results, subject to the current method read policies; it changes neither method grants nor token expiry. `token create --like` copies this permission along with the method policy.
+
+After reading and saving a result, call `runtime_response_discard` with its `call_id` to delete the original content and handles and release read capacity. Reading to EOF keeps the result available until its fixed TTL. Gateway retains at most 128 read contexts by default; clients making repeated calls should explicitly discard finished results they no longer need. Other retained results remain readable. Discard cannot be undone.
