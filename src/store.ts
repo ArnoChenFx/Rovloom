@@ -32,6 +32,7 @@ import { auditRecord } from './storage/audit.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { CachedDatabase } from './storage/database.js'
 import { createPrivate, databasePath, privateFile, privatePath } from './storage/files.js'
+import { lockContent, recoverStaleLock } from './storage/lock-recovery.js'
 import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
 export { DEFAULT_RETENTION }
@@ -67,6 +68,9 @@ export type ResponseAnchorObservation = Readonly<{
   now: number
   entries: readonly (Readonly<{ available: true; anchor: ResponseAnchor }> | Readonly<{ available: false }>)[]
 }>
+
+/** Gateway 写锁的内容格式；带持有者进程身份，供异常退出后证明持有者已死再接管。 */
+export const GATEWAY_LOCK_FORMAT = 'rovloom-gateway-lock-v1'
 
 export class Store {
   private db!: DatabaseSync
@@ -131,7 +135,9 @@ export class Store {
     if (path !== ':memory:') {
       path = databasePath(path)
       this.path = path
-      createPrivate(path + '.lock')
+      // 上次异常退出留下的锁：只有锁里记录的持有者进程已死才删除，其余（存活、空锁、旧格式）仍报 EEXIST。
+      recoverStaleLock(path + '.lock', GATEWAY_LOCK_FORMAT)
+      createPrivate(path + '.lock', lockContent(GATEWAY_LOCK_FORMAT))
       this.lock = openSync(path + '.lock', 'r')
     }
     try {
