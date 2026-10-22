@@ -36,7 +36,7 @@ rovloom --version
 也可以从 [Release 页面](https://github.com/ArnoChenFx/rovloom/releases/latest)下载二进制；
 安装器选项见[分发说明](DISTRIBUTION.md)。
 
-**Docker 运行 Gateway（Linux x64/arm64，Docker Compose v2）**——可选，无需在 Gateway 主机安装二进制：
+**Docker 运行 Gateway（Linux x64/arm64，Docker Compose v2**）——可选，无需在 Gateway 主机安装二进制：
 
 ```sh
 mkdir rovloom && cd rovloom
@@ -74,10 +74,10 @@ Connector **附着到你已在运行的会话**，因此远程调用操作的是
 
 Docker Gateway：在 Compose 目录运行 `docker compose run --rm gateway` 代替（先用 `docker compose stop gateway` 停掉正在运行的 Gateway）。
 
-1. **Gateway 终端：**批准配对，得到一次性码（5 分钟有效）。
-2. **Connector 终端：**输入 Gateway 地址（同一台机器用 `ws://127.0.0.1:9443`）和该码，并确认信任此 Gateway。
-3. **Connector 终端：**批准发现 Herdr/Luvus 安装。
-4. **Gateway 终端：**批准显示的安装及其工作区/Agent 访问。
+1. **Gateway 终端**：批准配对，得到一次性码（5 分钟有效）。
+2. **Connector 终端**：输入 Gateway 地址（同一台机器用 `ws://127.0.0.1:9443`）和该码，并确认信任此 Gateway。
+3. **Connector 终端**：批准发现 Herdr/Luvus 安装。
+4. **Gateway 终端**：批准显示的安装及其工作区/Agent 访问。
 5. 保存 Gateway 打印的 **MCP 地址和 Bearer**（以及只显示一次的管理员密码）。等待 `connector_ready`。
 
 Connector 在另一台机器时，需设置 Gateway 的 `devices.hostname` 使其监听回环以外的地址；
