@@ -234,6 +234,7 @@ and the x64 native Connector use an existing user's boot-triggered task and the 
 | Address in use / cannot connect | Check the configured ports, Gateway listener address and network reachability. |
 | HTTP 401 | Check the `/mcp` URL, Bearer and expiry; pairing must be complete. |
 | Agent executable missing / no model reply | Check the Agent installation directory and model login in the isolated Agent environment; shell login alone is insufficient. |
+| Connector credential lost, leaked or rejected (`invalid_device_credential`) | Re-pair the **same** device, keeping its native setup, MCP Bearer and access: stop that Connector, run `rovloom gateway --repair-device` in a real Gateway terminal, confirm, then run `rovloom connector --repair` on the Connector machine and enter the new one-time code. The old credential stops working as soon as you confirm; in-flight calls become unknown. A revoked device cannot be re-paired. |
 | Setup or shutdown interrupted with an uncertain outcome | Keep the existing data and ask your administrator for help; do not delete it and register again. |
 
 Keep error codes when asking for help; keep your Bearer and private data secret.

@@ -28,14 +28,15 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom config template gateway|connector
   rovloom config check [--role gateway|connector] [--config /absolute/path/config.json]
   rovloom config check-runtime [--role gateway|connector] [--config /absolute/path/config.json]
-  rovloom gateway [--config /absolute/path/config.json] [--non-interactive]
-  rovloom connector [--config /absolute/path/config.json] [--non-interactive]
+  rovloom gateway [--repair-device] [--config /absolute/path/config.json] [--non-interactive]
+  rovloom connector [--repair] [--config /absolute/path/config.json] [--non-interactive]
   rovloom service --help
   rovloom token --help
   rovloom admin --help
 
 token 子命令管理 MCP Bearer 令牌（创建/续期/轮换/吊销，热生效），详见 token --help。
 admin 子命令管理管理页（HTTP Basic）管理员的签发与撤销，热生效，详见 admin --help。
+--repair-device / --repair 重新配对已配对的同一设备（凭据丢失或泄漏），保留原生设置与 MCP 授权；需真实本地终端，不可与 --non-interactive 合用。
 省略 --config 时分别读取 ~/.config/rovloom/gateway.json 或 connector.json；Windows 同样使用用户 home。
 角色文件读取、首次生成及Gateway运行支持Linux/macOS/Windows；原生Connector和首次配对审批支持Linux x64与Windows x64。
 显式 --config 优先。角色首次缺失配置时生成单份默认配置，不覆盖已有文件；无法确定home返回config_home_unavailable。
@@ -79,18 +80,25 @@ export type CliServiceHost = Omit<ServiceCommandHost, 'diagnostic'>
 export type CliRuntime = {
   service?: CliServiceHost
   // 只在角色启动调用本机引导；help/check/template不创建状态或读取stdin。
-  prepare?(config: GatewayConfig | ConnectorConfig, path: string, io: CliIo): Promise<GatewayConfig | ConnectorConfig>
+  prepare?(
+    config: GatewayConfig | ConnectorConfig,
+    path: string,
+    io: CliIo,
+    options?: CliPrepareOptions
+  ): Promise<GatewayConfig | ConnectorConfig>
   // 建立受信服务及 caller 绑定并交出资源所有权；未提供时角色启动明确拒绝。
   gateway?: (config: GatewayConfig) => Promise<GatewayRuntime>
   // 启动受信出站宿主并返回其生命周期；具体认证和传输不由 CLI 补造。
   connector?: (config: ConnectorConfig) => Promise<RunningConnector>
 }
+// 已配对设备的重新配对：Gateway 用 --repair-device 签发新码，Connector 用 --repair 兑换。
+export type CliPrepareOptions = { repair?: true }
 export type CliIo = { stdin: Readable; stdout: Writable; stderr: Writable; signal: AbortSignal }
 type Command =
   | { action: 'help' | 'version' }
   | { action: 'template'; role: 'gateway' | 'connector' }
   | { action: 'check' | 'check-runtime'; checks: readonly { role?: 'gateway' | 'connector'; path: string }[] }
-  | { action: 'gateway' | 'connector'; path: string; nonInteractive?: true; serviceId?: string }
+  | { action: 'gateway' | 'connector'; path: string; nonInteractive?: true; serviceId?: string; repair?: true }
 
 // 解析固定命令形状，未知参数只返回稳定错误，不回显 argv。
 export function parseCommand(args: readonly string[], environment?: ConfigPathEnvironment): Command {
@@ -146,7 +154,14 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
   if (serviceId !== undefined && (!nonInteractive || !/^[a-f0-9]{64}$/u.test(serviceId))) {
     throw new CliError('invalid_arguments')
   }
-  const roleArgs = nonInteractive ? serviceArgs.slice(0, -1) : serviceArgs
+  const withoutNonInteractive = nonInteractive ? serviceArgs.slice(0, -1) : serviceArgs
+  // 重新配对标志只属于各自角色且必须交互：Gateway 是 --repair-device，Connector 是 --repair。
+  const repairFlag = withoutNonInteractive[0] === 'gateway' ? '--repair-device' : '--repair'
+  const repair = withoutNonInteractive[1] === repairFlag
+  if (repair && nonInteractive) {
+    throw new CliError('invalid_arguments')
+  }
+  const roleArgs = repair ? [withoutNonInteractive[0]!, ...withoutNonInteractive.slice(2)] : withoutNonInteractive
   if (
     (roleArgs[0] === 'gateway' || roleArgs[0] === 'connector') &&
     (roleArgs.length === 1 || (roleArgs.length === 3 && roleArgs[1] === '--config'))
@@ -155,7 +170,8 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
       action: roleArgs[0],
       path: resolveRoleConfigPath(roleArgs[0], roleArgs[2], environment),
       ...(nonInteractive ? { nonInteractive: true } : {}),
-      ...(serviceId ? { serviceId } : {})
+      ...(serviceId ? { serviceId } : {}),
+      ...(repair ? { repair: true as const } : {})
     }
   }
   throw new CliError('invalid_arguments')
@@ -275,7 +291,8 @@ export async function runCli(
       return 0
     }
     if (!command.nonInteractive) {
-      config = (await runtime.prepare?.(config, command.path, io)) ?? config
+      config =
+        (await runtime.prepare?.(config, command.path, io, command.repair ? { repair: true } : undefined)) ?? config
     }
     if (config.role !== command.action) {
       throw new CliError('config_role_mismatch')

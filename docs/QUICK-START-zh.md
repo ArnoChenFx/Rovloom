@@ -205,6 +205,7 @@ Windows的Gateway与x64本机Connector都使用既有用户开机任务及同一
 | 地址占用或连接失败 | 检查端口、Gateway 监听地址和网络可达性。 |
 | HTTP 401 | 检查 `/mcp` URL、Bearer 和有效期；配对必须已完成。 |
 | 找不到 Agent 或没有模型回复 | 检查 Agent 安装目录和隔离 Agent 环境的模型登录；仅在普通 shell 登录并不足够。 |
+| Connector 凭据丢失、泄漏或被拒绝（`invalid_device_credential`） | 重新配对**同一台**设备，保留其原生设置、MCP Bearer 与授权：先停止该 Connector，在 Gateway 的真实终端运行 `rovloom gateway --repair-device` 并确认，再在 Connector 所在机器运行 `rovloom connector --repair`，输入新的一次性码。确认后旧凭据立即失效，进行中的调用结果变为未知。已撤销的设备不能重新配对。 |
 | 初始化或关闭中断，结果不确定 | 保留已有数据并请管理员协助，不要删除数据后重新登记。 |
 
 求助时保留错误代码，不要公开 Bearer 或私有数据。

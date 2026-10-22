@@ -457,6 +457,9 @@ export class Store {
   credentialRevision(machine: string): number {
     return this.devices.credentialRevision(machine)
   }
+  deviceEpoch(machine: string): string | null {
+    return this.devices.deviceEpoch(machine)
+  }
   rename(machine: string, name: string): Machine {
     return this.devices.rename(machine, name)
   }

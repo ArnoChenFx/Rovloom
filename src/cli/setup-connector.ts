@@ -63,7 +63,7 @@ export async function responseJson(response: Response): Promise<Record<string, u
 }
 
 // URL只由严格角色origin解析；系统TLS验证和fetch重定向拒绝保持开启，原body不会发给另一origin。
-async function post(config: ConnectorConfig, path: string, value: unknown, signal: AbortSignal, timeout = 5000) {
+export async function post(config: ConnectorConfig, path: string, value: unknown, signal: AbortSignal, timeout = 5000) {
   const origin = new URL(config.gateway_url)
   origin.protocol = origin.protocol === 'wss:' ? 'https:' : 'http:'
   return await responseJson(
