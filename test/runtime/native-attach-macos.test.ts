@@ -1,43 +1,27 @@
 /** macOS 上附着用户自己的 Luvus：用真实 Unix socket 服务进程验证 LOCAL_PEERPID/PEERCRED + libproc 的进程身份证明。 */
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, rmSync } from 'node:fs'
 import { connect } from 'node:net'
 import type { Socket } from 'node:net'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { observeLuvusProcess } from '../../src/runtime/native-process.js'
 import { LuvusAdapterError } from '../../src/connector/luvus/index.js'
 import type { EndpointIdentity, LuvusLocalConfig } from '../../src/connector/luvus/index.js'
+import { listenerExecutable } from '../platform/listener-fixture.js'
 import { privateHerdrTestRoot } from '../connector/herdr/private-root.js'
 
 const darwin = process.platform === 'darwin'
-const script =
-  "import { createServer } from 'node:net'\nimport { chmodSync } from 'node:fs'\nconst path = process.env.FIXTURE_SOCKET!\ncreateServer(() => {}).listen(path, () => {\n  chmodSync(path, 0o600)\n  console.log('up')\n})\n"
-let compiled: string | undefined
-
-/** 把监听脚本编译成忽略命令行参数的独立可执行文件，进程镜像就是被复制的那一份。 */
-function executable(): string {
-  if (!compiled) {
-    const directory = mkdtempSync(join(tmpdir(), 'rovloom-luvus-fixture-'))
-    const source = join(directory, 'server.ts')
-    writeFileSync(source, script)
-    compiled = join(directory, 'fixture')
-    execFileSync(process.execPath, ['build', '--compile', source, '--outfile', compiled], { stdio: 'ignore' })
-  }
-  return compiled
-}
-
 function fixture() {
   const root = privateHerdrTestRoot('.luvus-mac-')
   for (const name of ['state', 'home', 'work', 'bin']) {
     mkdirSync(join(root, name), { mode: 0o700 })
   }
   const binary = join(root, 'bin', 'luvus')
-  copyFileSync(executable(), binary)
+  copyFileSync(listenerExecutable(), binary)
   chmodSync(binary, 0o700)
   const config = {
     target: { machine_id: 'm', provider_id: 'p', profile: 'session', session: 'fixedsession' },
@@ -114,7 +98,7 @@ test('监听者不是已安装的 luvus（不同文件）或命令行不是固�
   try {
     // 另一份二进制（不同 inode）在端点监听：uid 相同、peer pid 真实，也不是配置里那个 luvus。
     const impostor = join(f.root, 'bin', 'impostor')
-    copyFileSync(executable(), impostor)
+    copyFileSync(listenerExecutable(), impostor)
     chmodSync(impostor, 0o700)
     const fake = await f.serve(impostor)
     assert.throws(() => observeLuvusProcess(fake.client, f.config, endpoint), {

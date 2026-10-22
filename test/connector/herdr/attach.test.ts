@@ -1,6 +1,6 @@
 /** 附着已运行的 Herdr：用真实 unix socket 服务进程验证对端身份证明；不执行任何真实 native。 */
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import {
@@ -13,7 +13,6 @@ import {
   symlinkSync,
   writeFileSync
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { observeHerdrServer } from '../../../src/connector/herdr/attach.js'
@@ -26,6 +25,7 @@ import {
   pinHerdrConfig
 } from '../../../src/connector/herdr/local.js'
 import type { HerdrLocalConfig } from '../../../src/connector/herdr/local.js'
+import { listenerExecutable } from '../../platform/listener-fixture.js'
 import { privateHerdrTestRoot } from './private-root.js'
 
 const darwin = process.platform === 'darwin'
@@ -35,26 +35,12 @@ const python = '/usr/bin/python3'
 const script =
   'import socket,os\\ns=socket.socket(socket.AF_UNIX);p=os.environ["FIXTURE_SOCKET"]\\ns.bind(p);os.chmod(p,0o600);s.listen(4)\\nprint("up",flush=True)\\nwhile True:\\n    c,_=s.accept()\\n'
 
-const compiledScript =
-  "import { createServer } from 'node:net'\nimport { chmodSync } from 'node:fs'\nconst path = process.env.FIXTURE_SOCKET!\ncreateServer(() => {}).listen(path, () => {\n  chmodSync(path, 0o600)\n  console.log('up')\n})\n"
-let compiled: string | undefined
-
 /**
  * 充当“已安装的 herdr”的可执行文件：Linux 用 python3 本身；macOS 的 /usr/bin/python3 是会转交给另一个镜像的 Xcode shim，
- * 改为把监听脚本编译成独立可执行文件（忽略命令行参数），进程镜像就是被复制的那一份。
+ * 改用编译出的极小监听程序（忽略命令行参数），进程镜像就是被复制的那一份。
  */
 function runtimeExecutable(): string {
-  if (!darwin) {
-    return python
-  }
-  if (!compiled) {
-    const directory = mkdtempSync(join(tmpdir(), 'rovloom-attach-fixture-'))
-    const source = join(directory, 'server.ts')
-    writeFileSync(source, compiledScript)
-    compiled = join(directory, 'fixture')
-    execFileSync(process.execPath, ['build', '--compile', source, '--outfile', compiled], { stdio: 'ignore' })
-  }
-  return compiled
+  return darwin ? listenerExecutable() : python
 }
 
 /** 用该可执行文件的拷贝充当“已安装的 herdr”：其进程镜像就是这份拷贝，命令行为 `herdr server`。 */
