@@ -8,7 +8,7 @@ Rovloom has two roles:
 - **Connector** — runs on each machine that has Herdr or Luvus and connects out to the Gateway.
 
 Both roles can run on the same machine. The Gateway runs on Linux, macOS and Windows; the
-Connector runs on Linux x64 and Windows x64.
+Connector runs on Linux x64, macOS (x64, arm64) and Windows x64. On macOS and Windows it attaches to the Herdr or Luvus you already run.
 
 ## 1. Install
 

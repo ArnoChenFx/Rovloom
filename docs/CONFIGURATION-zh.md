@@ -325,12 +325,12 @@ MCP 或 Agent 就绪，HTTP 客户端断开也不会停止 Gateway。
 |---|---|---|---|
 | 帮助、版本、模板、`config check` | 可用 | 可用 | 可用 |
 | 角色文件创建、Gateway 启动、`config check-runtime` | 可用 | 可用 | 可用 |
-| 首次配对审批（本地终端） | 可用（x64） | 不可用 | 可用（x64） |
-| 原生 Connector | x64 | 不支持 | x64，仅 attach 模式 |
+| 首次配对审批（本地终端） | 可用（x64） | 可用（x64、arm64） | 可用（x64） |
+| 原生 Connector | x64 | x64、arm64，仅 attach 模式 | x64，仅 attach 模式 |
 | Service：Gateway | systemd | LaunchDaemon | 开机任务（S4U） |
-| Service：Connector | x64 | 不支持 | x64，开机任务（S4U） |
+| Service：Connector | x64 | x64、arm64，LaunchDaemon | x64，开机任务（S4U） |
 
-Windows 上 Connector 附着你已在运行的 Herdr / Luvus，仅在没有实例时才启动一个；不支持 `managed` 模式。
+macOS 和 Windows 上 Connector 附着你已在运行的 Herdr / Luvus，仅在没有实例时才启动一个；不支持 `managed` 模式。
 
 ### 输出与退出码
 

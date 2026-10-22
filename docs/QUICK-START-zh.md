@@ -7,7 +7,7 @@ Rovloom 有两个角色：
 - **Gateway**：AI 客户端访问的 MCP 入口。
 - **Connector**：运行在每台装有 Herdr 或 Luvus 的机器上，主动连接 Gateway。
 
-两个角色可以运行在同一台机器上。Gateway 支持 Linux、macOS 和 Windows；Connector 支持 Linux x64 和 Windows x64。
+两个角色可以运行在同一台机器上。Gateway 支持 Linux、macOS 和 Windows；Connector 支持 Linux x64、macOS（x64、arm64）和 Windows x64；在 macOS 和 Windows 上附着你已在运行的 Herdr / Luvus。
 
 ## 1. 安装
 

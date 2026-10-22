@@ -70,14 +70,14 @@ export class SetupTerminal {
     }
   }
 
-  // Linux：真实 uid/euid 未变；Windows：令牌用户 SID 未变。其它平台没有等价证据，一律拒绝。
+  // Linux / macOS：真实 uid/euid 未变；Windows：令牌用户 SID 未变。其它平台没有等价证据，一律拒绝。
   #ownerUnchanged(): boolean {
     if (process.platform === 'win32') {
       return this.sid !== undefined && windowsCurrentUserSid() === this.sid
     }
     const user = userInfo()
     return (
-      process.platform === 'linux' &&
+      (process.platform === 'linux' || process.platform === 'darwin') &&
       user.uid >= 0 &&
       user.uid === this.uid &&
       process.getuid?.() === this.uid &&

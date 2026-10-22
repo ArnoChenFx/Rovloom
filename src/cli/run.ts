@@ -47,7 +47,7 @@ config check 只读检查配置文件；check-runtime 另核对程序管理的�
 
 省略 --config 时读取 ~/.config/rovloom/gateway.json 或 connector.json（Windows 同样使用用户 home）。
 文件缺失时首次运行会生成默认配置，已有文件不会被覆盖或重置。
-Gateway 支持 Linux/macOS/Windows；Connector 支持 Linux x64 与 Windows x64。
+Gateway 支持 Linux/macOS/Windows；Connector 支持 Linux x64、Windows x64 与 macOS（x64 / arm64，仅附着已运行的 Herdr / Luvus）。
 首次引导按 Connector 的 native.provider 选择 luvus（默认）、herdr 或 mixed。
 Agent 与模型登录需独立准备；原生 ready 不代表模型已回复。
 退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。

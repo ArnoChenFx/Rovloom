@@ -90,7 +90,7 @@ Windows PowerShell and the Docker Gateway are covered in the [Quick Start](docs/
 | | Linux | macOS | Windows |
 |---|---|---|---|
 | Gateway | x64, arm64 | x64, arm64 | x64, arm64 |
-| Connector | x64 | — | x64 |
+| Connector | x64 | x64, arm64 | x64 |
 
 Pairing a Connector needs a real local terminal.
 

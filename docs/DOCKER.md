@@ -2,7 +2,7 @@
 
 [中文](DOCKER-zh.md) · [Quick Start](QUICK-START.md)
 
-The Docker setup runs the **Gateway**, including its management page and MCP service. Run the Luvus/Herdr Connector on the Linux host that owns the native application.
+The Docker setup runs the **Gateway**, including its management page and MCP service. Run the Luvus/Herdr Connector on the host that owns the native application (Linux x64, macOS or Windows x64).
 
 ## Supported platforms
 
@@ -51,7 +51,7 @@ docker compose run --rm --service-ports gateway
 
 `--service-ports` is required: `docker compose run` does not publish the Compose ports by default, so without it the Connector cannot reach the Gateway. The `devices.hostname` change above must already be in place.
 
-Keep this terminal open for pairing and native installation approval. On the Linux x64 Connector host, run `rovloom connector` in another local terminal and follow [Pair](QUICK-START.md#3-pair). Never run a second Gateway on the same data.
+Keep this terminal open for pairing and native installation approval. On the Connector host (Linux x64, macOS or Windows x64), run `rovloom connector` in another local terminal and follow [Pair](QUICK-START.md#3-pair). Never run a second Gateway on the same data.
 
 When setup reaches `connector_ready`, stop the Connector, then stop the foreground Gateway with Ctrl-C. Run `docker compose up -d` and restart the host Connector. Configuration and pairing stay in the volumes.
 
@@ -89,7 +89,7 @@ docker compose down       # Remove containers and networks; keep volumes
 
 ## Where to run the Connector
 
-Run the Connector on the Linux x64 host that runs Luvus/Herdr. It verifies the native binary and schema, process ownership, private file permissions, the Unix socket peer and the instance lifecycle. A container has different users, PIDs and paths, and mounting a host socket does not preserve those guarantees. The Compose file therefore has no Connector, no `/var/run/docker.sock` mount, and no `privileged`, host PID or extra capabilities.
+Run the Connector on the host that runs Luvus/Herdr (Linux x64, macOS or Windows x64). It verifies the native binary and schema, process ownership, private file permissions, the Unix socket peer and the instance lifecycle. A container has different users, PIDs and paths, and mounting a host socket does not preserve those guarantees. The Compose file therefore has no Connector, no `/var/run/docker.sock` mount, and no `privileged`, host PID or extra capabilities.
 
 ## Image build
 

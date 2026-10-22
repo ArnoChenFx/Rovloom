@@ -30,3 +30,85 @@ jobs:
         run: bun --no-env-file test ./test/platform/macos.test.ts
       - name: Attach to a running Herdr / Luvus (peer proof, process image identity, crash recovery)
         run: bun --no-env-file test ./test/connector/herdr/attach.test.ts ./test/runtime/native-attach-macos.test.ts ./test/runtime/native-crash-recovery.test.ts
+  quickstart:
+    name: quickstart (${{ matrix.runner }}, ${{ matrix.scenario }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+        scenario: [first-run, connector-crash, second-device, repair, boot-service]
+        include:
+          - scenario: first-run
+            flags: ''
+          - scenario: connector-crash
+            flags: --crash
+          - scenario: second-device
+            flags: --second-device
+          - scenario: repair
+            flags: --repair
+          - scenario: boot-service
+            flags: --service
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Download official Herdr (macOS)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"; suffix="$([ "$arch" = arm64 ] && echo aarch64 || echo x86_64)"
+          mkdir -p "$RUNNER_TEMP/herdr"
+          gh release download v0.9.5 -R herdrdev/herdr -p "herdr-macos-$suffix" -D "$RUNNER_TEMP/herdr"
+          chmod +x "$RUNNER_TEMP/herdr/herdr-macos-$suffix"
+          echo "HERDR_BIN=$RUNNER_TEMP/herdr/herdr-macos-$suffix" >> "$GITHUB_ENV"
+          echo "TARGET=bun-darwin-$([ "$arch" = arm64 ] && echo arm64 || echo x64)" >> "$GITHUB_ENV"
+      - name: Build actual standalone product
+        run: bun --no-env-file run release:build
+      - name: Quick Start on macOS (real pty pairing, attach to real Herdr, MCP chain)
+        run: python3 e2e/quickstart.py --binary "dist/release/$TARGET/candidate/rovloom" --herdr "$HERDR_BIN" ${{ matrix.flags }} --then "bun --no-env-file e2e/herdr-session.mjs"
+  luvus:
+    name: luvus (${{ matrix.runner }}, ${{ matrix.scenario }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+        scenario: [first-run, attach-existing, connector-crash, luvus-killed]
+        include:
+          - scenario: first-run
+            flags: ''
+          - scenario: attach-existing
+            flags: --pre-existing
+          - scenario: connector-crash
+            flags: --crash
+          - scenario: luvus-killed
+            flags: --pre-existing --kill-luvus
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Download official Luvus (macOS)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"; suffix="$([ "$arch" = arm64 ] && echo aarch64 || echo x86_64)"
+          mkdir -p "$RUNNER_TEMP/luvus"
+          gh release download v0.14.3 -R RizRiyz/luvus -p "luvus-v0.14.3-$suffix-apple-darwin.tar.gz" -D "$RUNNER_TEMP/luvus"
+          tar xzf "$RUNNER_TEMP/luvus/luvus-v0.14.3-$suffix-apple-darwin.tar.gz" -C "$RUNNER_TEMP/luvus"
+          echo "LUVUS_BIN=$(find "$RUNNER_TEMP/luvus" -type f -name luvus | head -1)" >> "$GITHUB_ENV"
+          echo "TARGET=bun-darwin-$([ "$arch" = arm64 ] && echo arm64 || echo x64)" >> "$GITHUB_ENV"
+      - name: Build actual standalone product
+        run: bun --no-env-file run release:build
+      - name: Quick Start on macOS with Luvus (real pty pairing, attach to real Luvus, MCP chain)
+        env:
+          LUVUS_WRITE: '{}'
+        run: python3 e2e/quickstart.py --binary "dist/release/$TARGET/candidate/rovloom" --luvus "$LUVUS_BIN" ${{ matrix.flags }} --then "bun --no-env-file e2e/luvus-session.mjs"

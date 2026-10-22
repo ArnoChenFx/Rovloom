@@ -27,9 +27,11 @@ export function productServiceEnvironment(): ProductServiceEnvironment {
   }
 }
 
-// 本机 native Connector 的服务支持范围：Linux x64 与 Windows x64（均有真实 e2e）；其它平台/架构明确拒绝。
+// 本机 native Connector 的服务支持范围：Linux x64、Windows x64 与 macOS（x64 / arm64，LaunchDaemon 以所选用户运行；均有真实 e2e）；其它平台/架构明确拒绝。
 function connectorServiceSupported(platform: string, arch: string): boolean {
-  return arch === 'x64' && (platform === 'linux' || platform === 'win32')
+  return platform === 'darwin'
+    ? arch === 'x64' || arch === 'arm64'
+    : arch === 'x64' && (platform === 'linux' || platform === 'win32')
 }
 
 // 不先执行安装目标；先证明它是本次正在执行的单文件，并保留现有角色平台限制。
@@ -40,7 +42,7 @@ export function assertServiceProduct(spec: ServiceSpec, environment: ProductServ
   if (spec.platform !== environment.platform || spec.executable !== environment.executable) {
     throw new ServiceError('unsafe_installation')
   }
-  // Gateway服务支持三个平台；本机native Connector限Linux x64与Windows x64。
+  // Gateway服务支持三个平台；本机native Connector限Linux x64、Windows x64与macOS。
   if (
     !['linux', 'darwin', 'win32'].includes(environment.platform) ||
     (spec.role === 'connector' && !connectorServiceSupported(environment.platform, environment.arch))
