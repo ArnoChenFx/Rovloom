@@ -83,7 +83,12 @@ export async function packNpm(destination) {
   const name = npmAssetName(source.version)
   assert.deepEqual(readdirSync(destination), [name], 'Unexpected pack output')
   const path = join(destination, name)
-  const listing = spawnSync('tar', ['-tzf', path], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+  // 用相对文件名在目录内调用：GNU tar 会把 `D:\...` 的盘符当作 host:path。
+  const listing = spawnSync('tar', ['-tzf', name], {
+    cwd: destination,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024
+  })
   assert.equal(listing.status, 0, 'Cannot list npm tarball')
   assertTarballEntries(listing.stdout.split('\n').filter(Boolean))
   return { version: source.version, name, path, ...fileMetadata(path) }
