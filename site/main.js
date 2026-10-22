@@ -34,8 +34,7 @@ function setLanguage(next) {
   for (const link of document.querySelectorAll('[data-doc]')) {
     link.href = `https://github.com/ArnoChenFx/Rovloom/blob/main/docs/${documents[link.dataset.doc][language === 'zh' ? 0 : 1]}`
   }
-  languageButton.innerHTML =
-    language === 'zh' ? 'EN <span aria-hidden="true">↔</span>' : '中文 <span aria-hidden="true">↔</span>'
+  languageButton.textContent = language === 'zh' ? 'EN' : '中文'
   languageButton.lang = language === 'zh' ? 'en' : 'zh-CN'
   languageButton.setAttribute('aria-label', language === 'zh' ? 'Switch to English' : '切换到中文')
   document.title =

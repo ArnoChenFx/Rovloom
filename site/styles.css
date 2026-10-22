@@ -2140,3 +2140,30 @@ html[lang='en'] .feature h3 {
     display: none;
   }
 }
+
+/* SVG arrows avoid font-dependent missing glyphs after switching languages. */
+.arrow-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.node-corner.arrow-icon {
+  width: 11px;
+  height: 11px;
+}
+.how-note .arrow-icon {
+  color: #f5a486;
+  margin-top: 2px;
+}
+.issue-item > .arrow-icon {
+  color: #72825e;
+  transition: transform 0.2s;
+}
+.issue-item:hover > .arrow-icon {
+  transform: translate(2px, -2px);
+}
+@media (max-width: 700px) {
+  .github-button > .arrow-icon {
+    display: none;
+  }
+}
