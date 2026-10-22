@@ -36,6 +36,8 @@ export const HELP = `Rovloom ${PRODUCT_VERSION}
   rovloom connector [--repair] [--config /absolute/path/config.json] [--non-interactive]
   rovloom service --help
   rovloom token --help
+  rovloom doctor --help
+  rovloom storage --help
   rovloom admin --help
 
 gateway / connector 启动对应角色。首次运行时在真实本地终端完成一次性配对与原生安装批准；
@@ -246,6 +248,10 @@ export async function runCli(
     if (args[0] === 'admin') {
       const { handleAdminCommand } = await import('./admin-command.js')
       return await handleAdminCommand(args, io, environment)
+    }
+    if (args[0] === 'doctor' || args[0] === 'storage') {
+      const { handleStorageCommand } = await import('./storage-command.js')
+      return await handleStorageCommand(args, io, environment)
     }
     if (args[0] === 'token') {
       const { handleTokenCommand } = await import('./token-command.js')

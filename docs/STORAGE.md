@@ -2,6 +2,14 @@
 
 Gateway 的全部状态保存在单个 SQLite 库 `<data.directory>/gateway.db` 中，单 writer。系统保留默认值与安全语义见 [DESIGN §6](DESIGN.md#6-持久化与默认限额)，部署与升级见 [运维指南](OPERATIONS.md)。
 
+
+## 本机离线运维
+
+`rovloom storage check --role gateway --json` 在同一写锁下打开只读事务，不构造 Store、不改变连接或调用状态。`doctor --role gateway|connector --json` 同时检查所选角色配置，不生成缺失状态或查询另一角色的凭据。
+
+`storage backup --role gateway --output /separate/backup/snapshot.db` 和 `storage resume --role gateway` 只在 Gateway 停止后运行，复用原 Store writer、管理 fence、一次性确认、预算与审计。备份是上述脱敏快照（默认两份 / 七天），不是完整状态备份；resume 不能绕过损坏、时钟或配额。操作步骤与中断处理见[运维指南](OPERATIONS.md#离线检查快照与解除降级)。
+
+
 ## 数据库与文件
 
 - 数据库 schema 版本为 6。遇到其他版本拒绝启动（`unsupported_database_version`），不做迁移。
