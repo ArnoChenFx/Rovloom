@@ -1,6 +1,6 @@
 # Architecture / 架构
 
-Sources: [English](target.en.mmd) · [中文](target.zh.mmd).
+Sources: [English](architecture.en.mmd) · [中文](architecture.zh.mmd).
 The matching Mermaid fences are embedded in the [English README](../../../README.md#how-it-works)
 and the [中文 README](../../../README-zh.md#工作方式). Update each source and its README
 fence together, and keep node IDs, roles and edges consistent across languages.
