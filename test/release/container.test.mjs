@@ -14,7 +14,7 @@ import {
 import { assetName } from '../../src/release/contract.ts'
 
 /** 内存元数据严格对应现行发布合同，fake二进制只测字节验证，不作为产品验收。 */
-function fixture() {
+function fixture(npm = false) {
   const context = { tag: 'v0.1.0', version: '0.1.0', commit: 'a'.repeat(40) }
   const run = {
     id: 7,
@@ -42,27 +42,26 @@ function fixture() {
   const manifest = Buffer.from(
     JSON.stringify({ schemaVersion: 1, repository: 'ArnoChenFx/rovloom', ...context, bun: '1.4.3', assets }) + '\n'
   )
-  const sums = Buffer.from(
-    assets.map(/** 摘要只对应相同字节，不复用随意声明。 */ (asset) => `${asset.sha256}  ${asset.name}\n`).join('') +
-      `${hash(manifest)}  release-manifest.json\n`
-  )
+  const files = new Map(assets.map((asset) => [asset.name, bytes]))
+  files.set('release-manifest.json', manifest)
+  if (npm) {
+    files.set(`rovloom-${context.version}.tgz`, Buffer.from('synthetic-npm-tarball'))
+  }
+  const sums = Buffer.from([...files].map(([name, data]) => `${hash(data)}  ${name}\n`).join(''))
+  files.set('SHA256SUMS', sums)
   const release = {
     draft: false,
     prerelease: false,
     tag_name: context.tag,
     target_commitish: 'main',
     body: `fixture <!-- rovloom-release:1 ${context.tag} ${context.commit} -->`,
-    assets: [
-      ...assets.map(/** REST字段与正式下载名一一对应。 */ (asset) => asset.name),
-      'release-manifest.json',
-      'SHA256SUMS'
-    ].map(
-      /** 公共元数据只能指向固定官方版本路径。 */ (name) => ({
-        name,
-        state: 'uploaded',
-        browser_download_url: `https://github.com/ArnoChenFx/rovloom/releases/download/${context.tag}/${name}`
-      })
-    )
+    assets: [...files].map(([name, data]) => ({
+      name,
+      size: data.length,
+      digest: `sha256:${hash(data)}`,
+      state: 'uploaded',
+      browser_download_url: `https://github.com/ArnoChenFx/rovloom/releases/download/${context.tag}/${name}`
+    }))
   }
   const event = { repository: { full_name: 'ArnoChenFx/rovloom' }, workflow_run: structuredClone(run) }
   const api = /** 只响应实际验证路径，意外网络路径立即失败。 */ async (path) => {
@@ -77,7 +76,15 @@ function fixture() {
     }
     assert.fail('unexpected container metadata path')
   }
-  return { context, run, event, api, release, manifest, sums, bytes }
+  const request = async (url, options) => {
+    const base = `https://github.com/ArnoChenFx/rovloom/releases/download/${context.tag}/`
+    assert(url.startsWith(base))
+    assert.equal(options.headers, undefined, 'Public metadata downloads must not carry credentials')
+    const data = files.get(url.slice(base.length))
+    assert(data, 'Unexpected metadata download')
+    return new Response(data)
+  }
+  return { context, run, event, api, request, release, manifest, sums, bytes, files, hash }
 }
 
 test(
@@ -85,7 +92,7 @@ test(
   /** 无真实registry请求。 */ async () => {
     const f = fixture()
     assert.equal(image, 'ghcr.io/arnochenfx/rovloom')
-    assert.deepEqual(await releaseContext(f.event, f.api), f.context)
+    assert.deepEqual(await releaseContext(f.event, f.api, f.request), f.context)
     for (const mutation of [
       'fork',
       'pull_request',
@@ -121,7 +128,7 @@ test(
       if (mutation === 'foreign-asset') {
         changed.release.assets[0].browser_download_url = 'https://example.invalid/payload'
       }
-      await assert.rejects(releaseContext(changed.event, changed.api), mutation)
+      await assert.rejects(releaseContext(changed.event, changed.api, changed.request), mutation)
     }
   }
 )
@@ -132,18 +139,19 @@ test(
     const f = fixture()
     for (const hint of ['main', 'release/0.1', f.context.commit, 'b'.repeat(40)]) {
       f.release.target_commitish = hint
-      assert.deepEqual(await releaseContext(f.event, f.api), f.context)
+      assert.deepEqual(await releaseContext(f.event, f.api, f.request), f.context)
     }
     await assert.rejects(
       releaseContext(
         f.event,
         /** 单独移动远端标签，保留工作流与 Release 创建提示，确认仍拒绝错误提交。 */ async (path) =>
-          path.includes('/git/ref/tags/') ? { object: { type: 'commit', sha: 'b'.repeat(40) } } : f.api(path)
+          path.includes('/git/ref/tags/') ? { object: { type: 'commit', sha: 'b'.repeat(40) } } : f.api(path),
+        f.request
       ),
       /Remote tag moved from the event commit/u
     )
     f.release.body = `fixture <!-- rovloom-release:1 ${f.context.tag} ${'b'.repeat(40)} -->`
-    await assert.rejects(releaseContext(f.event, f.api))
+    await assert.rejects(releaseContext(f.event, f.api, f.request))
   }
 )
 
@@ -157,6 +165,86 @@ test(
     assert.equal(await isLatest({ ...f.context, version: '0.2.0-rc.1' }, f.api), false)
   }
 )
+
+test('container publisher accepts legacy assets and a checksummed same-version npm tarball', async () => {
+  for (const npm of [false, true]) {
+    const f = fixture(npm)
+    assert.equal(f.release.assets.length, npm ? 9 : 8)
+    assert.deepEqual(await releaseContext(f.event, f.api, f.request), f.context)
+  }
+})
+
+test('container publisher rejects extra, duplicate, incomplete or mismatched release bytes', async () => {
+  for (const mutation of [
+    'extra',
+    'duplicate',
+    'missing',
+    'tarball-name',
+    'tarball-digest',
+    'size',
+    'digest',
+    'checksum',
+    'manifest',
+    'manifest-commit',
+    'download',
+    'oversize'
+  ]) {
+    const f = fixture(true)
+    const npm = f.release.assets.find((asset) => asset.name.endsWith('.tgz'))
+    if (mutation === 'extra') {
+      f.release.assets.push({ ...npm, name: 'unexpected.tgz' })
+    }
+    if (mutation === 'duplicate') {
+      f.release.assets.push({ ...npm })
+    }
+    if (mutation === 'missing') {
+      f.release.assets.shift()
+    }
+    if (mutation === 'tarball-name') {
+      npm.name = 'rovloom-9.9.9.tgz'
+    }
+    if (mutation === 'tarball-digest') {
+      npm.digest = 'sha256:' + 'f'.repeat(64)
+    }
+    if (mutation === 'size') {
+      f.release.assets[0].size++
+    }
+    if (mutation === 'digest') {
+      f.release.assets[0].digest = null
+    }
+    if (mutation === 'checksum') {
+      f.files.set('SHA256SUMS', Buffer.from('corrupt'))
+    }
+    if (mutation === 'manifest') {
+      f.files.set('release-manifest.json', Buffer.from('corrupt'))
+    }
+    if (mutation === 'manifest-commit') {
+      const bytes = Buffer.from(f.manifest.toString().replace(f.context.commit, 'b'.repeat(40)))
+      f.files.set('release-manifest.json', bytes)
+      const asset = f.release.assets.find((value) => value.name === 'release-manifest.json')
+      asset.size = bytes.length
+      asset.digest = 'sha256:' + f.hash(bytes)
+    }
+    const request =
+      mutation === 'download'
+        ? async () => new Response('', { status: 503 })
+        : mutation === 'oversize'
+          ? async () => new Response(new Uint8Array(1_048_577))
+          : f.request
+    await assert.rejects(releaseContext(f.event, f.api, request), mutation)
+  }
+})
+
+test('manual recovery resolves an official successful run and rechecks its tag and assets', async () => {
+  const f = fixture(true)
+  const event = { repository: f.event.repository, inputs: { release_run_id: '7' } }
+  assert.deepEqual(await releaseContext(event, f.api, f.request), f.context)
+  for (const id of ['', '0', '-1', '7.0', '7/payload', '9007199254740992']) {
+    await assert.rejects(releaseContext({ ...event, inputs: { release_run_id: id } }, f.api, f.request))
+  }
+  f.run.conclusion = 'failure'
+  await assert.rejects(releaseContext(event, f.api, f.request))
+})
 
 /** 合成registry只交付固定manifest/config摘要；不会构建或推送真实镜像。 */
 function registryFixture(mode = 'matching') {
