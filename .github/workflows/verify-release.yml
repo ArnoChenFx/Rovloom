@@ -86,7 +86,8 @@ jobs:
           out=$(bunx rovloom --version 2>&1 | tr -d '\r')
           echo "$out"
           [ "$out" = "Rovloom $version" ] || { echo "unexpected version output"; exit 1; }
-          out=$(bunx --package "$base/$asset" rovloom --version 2>&1 | tr -d '\r')
+          # Silence only bunx installation diagnostics; the CLI output and exit status remain checked.
+          out=$(bunx --silent --package "$base/$asset" rovloom --version 2>&1 | tr -d '\r')
           [ "$out" = "Rovloom $version" ] || { echo "unexpected bunx output"; exit 1; }
   install-latest:
     # install.sh / install.ps1 只跟随官方 latest 稳定版；预发行不会被它们选中，这里验证稳定安装路径本身。
