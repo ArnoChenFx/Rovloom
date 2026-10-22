@@ -92,9 +92,9 @@ Linux 真实产品打包 smoke 通过后才启动六项矩阵；每项都重新�
 不提供 musl、32 位、其它 arch 或模拟执行的发行资产；runner 系统版本不代表已验证所有更旧系统。
 此表同时决定原生构建和Gateway验收目标。真实 Gateway 的普通文件层支持Linux/macOS/Windows x64/arm64；
 这六项须分别通过本机完整 Gateway 隔离验收，不能用编译或无认证启动替代。
-完整双角色原生验收仅接纳Linux x64，原生Owner并未随Gateway文件层扩展；
-回环双进程验收不等同双机验收。Windows Gateway系统任务生命周期由独立原生CI验收，
-不代表Windows Connector或原生Owner已支持；发行仍不能凭六平台编译成功公开资产。
+发行验收的完整双角色原生 smoke 仅接纳Linux x64；Windows x64 的 Connector（附着 Herdr / Luvus、开机任务、崩溃恢复）
+由独立的 [Windows e2e](../.github/workflows/windows-e2e.yml) 在真实 Windows runner 上验收。
+回环双进程验收不等同双机验收。Windows Gateway系统任务生命周期由独立原生CI验收；发行仍不能凭六平台编译成功公开资产。
 支持目标须在该次 tag 的相应真实产品 smoke 全部通过后才实际交付。
 Windows 两种 arch 均要求原生 Windows 图标资源检查；不能用跨编译代替。
 

@@ -324,9 +324,9 @@ start/restart 要求已有安装记录。stop 本身不删除开机自启。Wind
 | `config check` | 普通操作系统文件访问 | 普通操作系统文件访问 | 普通操作系统文件访问 |
 | 缺失角色文件创建 | 可用 | 可用 | 可用 |
 | Gateway 启动 / `config check-runtime` | 可用 | 可用 | 可用 |
-| 首次配对审批 | 要求本地终端 | 尚不可用 | 不可用 |
-| 原生 Connector | 本指引覆盖 Linux x64 | 不支持 | 不支持 |
-| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | Gateway用户BootTrigger开机任务；本机Connector仍拒绝 |
+| 首次配对审批 | 要求本地终端 | 尚不可用 | 要求本地终端（x64） |
+| 原生 Connector | Linux x64 | 不支持 | x64：附着用户已运行的 Herdr / Luvus（不存在才自建）；Windows 上不支持隔离 managed 模式 |
+| Service 动作 | 生产systemd后端已连接；本机Connector限x64 | Gateway系统LaunchDaemon；本机Connector仍拒绝 | Gateway与x64本机Connector均用登录用户的BootTrigger开机任务（S4U） |
 | `update --check` | x64/arm64，需要实测 glibc | x64/arm64 元数据检查 | x64/arm64 元数据检查 |
 
 本预览没有可用的 Rovloom 服务状态查询，
