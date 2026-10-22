@@ -261,6 +261,10 @@ def main():
                     print(title, (probe.stdout + probe.stderr)[-1500:], flush=True)
             status = done.returncode
             print(done.stdout, done.stderr, sep='\n', flush=True)
+            # TEMP-TRACE: 成功时也输出 Luvus 阶段耗时行
+            for line in connector.clean_log().splitlines():
+                if 'LUVUS_TRACE' in line:
+                    print(line, flush=True)
             if status != 0:
                 print('--- gateway tail ---\n' + redact(gateway.clean_log()[-3000:]), flush=True)
                 print('--- connector tail ---\n' + redact(connector.clean_log()), flush=True)
