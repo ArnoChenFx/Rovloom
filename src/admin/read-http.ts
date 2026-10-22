@@ -366,8 +366,10 @@ export function createManagementReadHandler(options: ManagementHttpOptions & { o
   )
 }
 
-/** 只在配置可信会话适配器与共享服务后打开独立 loopback listener；没有默认管理员或 token。 */
-export function startManagementReadListener(options: ManagementHttpOptions & { port: number; hostname?: '127.0.0.1' }) {
+/** 只在配置可信会话适配器与共享服务后打开独立管理 listener；没有默认管理员或 token。 */
+export function startManagementReadListener(
+  options: ManagementHttpOptions & { port: number; hostname?: '127.0.0.1' | '::1' | '0.0.0.0' | '::' }
+) {
   if (!options) {
     throw new Error('management_listener_invalid')
   }
@@ -393,20 +395,20 @@ export function startManagementReadListener(options: ManagementHttpOptions & { p
 export type ManagementListenerHandler = { fetch(request: Request): Promise<Response>; stop(): void }
 export type ManagementListenerOptions = {
   port: number
-  hostname?: '127.0.0.1'
+  hostname?: '127.0.0.1' | '::1' | '0.0.0.0' | '::'
   maxRequestBodySize: 1 | 16_384
   /** 实际绑定后交付规范origin，只有受信组合代码可选择现行读/写handler。 */
   handler(origin: string): ManagementListenerHandler
 }
 
-/** 读写管理面共用唯一loopback绑定与关闭顺序；正文上限只允许现行只读或窄写契约。 */
+/** 读写管理面共用唯一绑定与关闭顺序；正文上限只允许现行只读或窄写契约。 */
 export function startManagementListener(options: ManagementListenerOptions) {
   if (
     !options ||
     !Number.isInteger(options.port) ||
     options.port < 0 ||
     options.port > 65535 ||
-    (options.hostname !== undefined && options.hostname !== '127.0.0.1') ||
+    (options.hostname !== undefined && !['127.0.0.1', '::1', '0.0.0.0', '::'].includes(options.hostname)) ||
     ![1, 16_384].includes(options.maxRequestBodySize) ||
     typeof options.handler !== 'function'
   ) {
@@ -431,7 +433,7 @@ export function startManagementListener(options: ManagementListenerOptions) {
     }
   ).Bun
   const server = bun.serve({
-    hostname: '127.0.0.1',
+    hostname: options.hostname ?? '127.0.0.1',
     port: options.port,
     maxRequestBodySize: options.maxRequestBodySize,
     idleTimeout: 10,
@@ -440,7 +442,16 @@ export function startManagementListener(options: ManagementListenerOptions) {
     /** 不使用 Bun 默认错误页，防止堆栈或请求信息离开边界。 */
     error: () => failure('unavailable', 503)
   })
-  const url = new URL(`http://127.0.0.1:${server.port}`).origin
+  // 通配绑定时交付的规范 origin 仍是对应回环地址，Host/会话校验不随绑定放宽。
+  const canonical =
+    options.hostname === '0.0.0.0' || options.hostname === undefined
+      ? '127.0.0.1'
+      : options.hostname === '::'
+        ? '[::1]'
+        : options.hostname === '::1'
+          ? '[::1]'
+          : options.hostname
+  const url = new URL(`http://${canonical}:${server.port}`).origin
   try {
     handler = options.handler(url)
     if (typeof handler?.fetch !== 'function' || typeof handler.stop !== 'function') {

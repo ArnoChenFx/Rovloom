@@ -124,10 +124,10 @@ Windows 本机编译传入 `windows.icon`，保持控制台子系统以支持 CL
 [容器 workflow](../.github/workflows/container.yml) 构建 Linux Gateway 镜像，部署方式见 [Docker deployment](DOCKER.md) 与 [Docker 部署](DOCKER-zh.md)。
 
 - PR 与 main 只构建并在原生 `amd64`、`arm64` runner 上启动测试，不登录也不推送 registry。
-- 正式发布只在官方 `Tagged product release` 成功后触发：先核验 tag、commit、公开 Release、六平台清单与 `SHA256SUMS`，再用其中两个 Linux binary 构建镜像。
+- 正式发布只在官方 `Tagged product release` 成功后触发：先核验 tag、commit、公开 Release、六平台清单与 `SHA256SUMS`，再从该发行提交的源码用官方 Bun 镜像构建镜像（构建层与运行层同一 Bun 版本，按 digest 固定）。
 - 两个架构测试都通过后，发布 job 以临时 `GITHUB_TOKEN` 和最小 `packages: write` 推送 GHCR，并创建带实际版本的多架构 manifest。`latest` 只指向当前官方最新稳定版的同批镜像。
 - 已有版本只有在两个完整镜像摘要与本次已测试产物完全一致时才复用，用于补齐失败的 latest 步骤；字节不同或 registry 查询不确定时拒绝覆盖。
-- 容器 smoke 在无外网的临时容器和私有命名卷中核对非 root 运行、准确的 binary 摘要、单文件首次配置、真实数据库、MCP 401、内置管理资源、正常终止和重启持久性。
+- 容器 smoke 在无外网的临时容器和私有命名卷中核对非 root 运行、dist 入口版本、单文件首次配置、真实数据库、MCP 401、内置管理资源、正常终止和重启持久性；Compose smoke 另把三个监听改为通配绑定，从宿主机经 bridge 发布端口核对 MCP 401 与管理页 200。
 - GHCR 新包默认是 private。维护者需在首次发布后确认包为公开、且仓库有写入权限；工作流不修改账号或包设置。匿名拉取失败时先检查这两项，不要加入长期 token。
 
 ## 更新

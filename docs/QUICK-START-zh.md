@@ -45,7 +45,7 @@ curl --fail --location --output docker-compose.yaml \
 docker compose pull
 ```
 
-9443、9444、9445 端口需要空闲（Compose 使用主机网络）。卷、备份和升级见 [Docker 部署](DOCKER-zh.md)。
+9443、9444、9445 端口需要空闲（Compose 从 bridge 网络发布这三个端口），且生成的 `gateway.json` 需按 Docker 指南把监听改为 `0.0.0.0`。卷、备份和升级见 [Docker 部署](DOCKER-zh.md)。
 
 ## 2. 准备 Connector 所在机器
 

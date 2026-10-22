@@ -99,7 +99,6 @@ test('published site version and download target follow the latest release inste
     assert(!hero.includes('v9.8.7'))
     assert(!hero.includes('MIT'))
     assert(!html.includes('roadmap'))
-    assert.equal(copy.en['hero.meta'], 'Self-hosted · Your local workflow')
     for (const invalid of [
       null,
       { ...release, draft: true },

@@ -97,11 +97,11 @@ Pairing a Connector needs a real local terminal.
 ## Documentation
 
 - [Quick Start](docs/QUICK-START.md) · [Configuration](docs/CONFIGURATION.md) · [Docker](docs/DOCKER.md)
-- [Operations guide](docs/OPERATIONS.md) (中文) · [Boot services](docs/SERVICE.md)
-- [Architecture](docs/DESIGN.md) (中文) · [Protocols](docs/PROTOCOL.md) (中文)
+- [Operations guide](docs/OPERATIONS.md) · [Boot services](docs/SERVICE.md)
+- [Architecture](docs/DESIGN.md) · [Protocols](docs/PROTOCOL.md)
 - [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)
 - [Documentation index](docs/README.md)
 
 ## License
 
-[MIT License](LICENSE)
+[Apache License 2.0](LICENSE)

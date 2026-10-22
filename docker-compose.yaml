@@ -1,9 +1,13 @@
-# Linux Docker Engine：产品监听保持宿主回环；不将管理/MCP端口转成公网监听。
 services:
   gateway:
     image: ghcr.io/arnochenfx/rovloom:${ROVLOOM_VERSION:-latest}
     command: [gateway]
-    network_mode: host
+    networks: [rovloom]
+    ports:
+      - "9443:9443" # Connector 设备通道
+      - "9444:9444" # MCP
+      - "9445:9445" # 管理页
+    init: true # Bun 作为 PID 1 时补一个 init 收割 schema Worker 等子进程僵尸
     user: "10001:10001"
     read_only: true
     cap_drop: [ALL]
@@ -14,9 +18,19 @@ services:
       - gateway-config:/home/rovloom/.config/rovloom
       - gateway-data:/home/rovloom/.local/share/rovloom
     environment:
+      # 只供 healthcheck 跟随端口；改监听端口仍走 gateway.json
       ROVLOOM_HEALTH_PORT: "${ROVLOOM_MCP_PORT:-9444}"
     stop_grace_period: 15s
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    pids_limit: 256
+
+networks:
+  rovloom:
+    driver: bridge
+
 volumes:
   gateway-config:
   gateway-data:

@@ -118,7 +118,13 @@ function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySou
     }
     throw error
   }
-  const hostname = config.mcp_hostname === '::1' ? '[::1]' : config.mcp_hostname
+  // 本机 caller 的资源地址用规范回环地址，不写通配绑定地址。
+  const hostname =
+    config.mcp_hostname === '0.0.0.0'
+      ? '127.0.0.1'
+      : config.mcp_hostname === '::' || config.mcp_hostname === '::1'
+        ? '[::1]'
+        : config.mcp_hostname
   return {
     ...openCallerSource(
       path,
@@ -257,6 +263,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
         const management = managementHost
           ? {
               port: managementHost.port,
+              hostname: config.management_hostname,
               listening: managementHost.listening?.bind(managementHost),
               pairingPolicy: managementHost.pairingPolicy?.bind(managementHost),
               providerEnable: managementHost.providerEnable?.bind(managementHost),

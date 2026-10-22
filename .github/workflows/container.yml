@@ -1,4 +1,4 @@
-# PR只在原生Linux runner构建和测试；正式镜像仅继承已成功公开的tag产品发行。
+# PR只在原生Linux runner构建和测试；正式镜像仅由已成功公开的tag发行对应提交的源码构建。
 name: GHCR product images
 on:
   pull_request:
@@ -67,37 +67,17 @@ jobs:
           actual=$(docker info --format '{{.Architecture}}')
           case "$EXPECTED_ARCH:$actual" in amd64:x86_64|amd64:amd64|arm64:aarch64|arm64:arm64) ;; *) exit 1 ;; esac
           docker compose config --quiet
-      - name: Stage exact published binary and verify Release provenance
-        if: github.event_name == 'workflow_run'
-        id: asset
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p dist
-          bun --no-env-file scripts/container/release.mjs stage dist/container
-      - name: Compile product candidate for read-only PR/main acceptance
-        if: github.event_name != 'workflow_run'
-        env:
-          BUN_ARCH: ${{ matrix.bunArch }}
-        run: |
-          set -euo pipefail
-          bun --no-env-file install --frozen-lockfile --ignore-scripts
-          bun --no-env-file run release:build
-          bun --no-env-file run release:smoke "$PWD/dist/release/bun-linux-$BUN_ARCH/candidate/rovloom"
-          mkdir -p dist/container
-          install -m 0755 "dist/release/bun-linux-$BUN_ARCH/candidate/rovloom" dist/container/rovloom
-      - name: Build once and exercise that exact image natively
+      - name: Build once from source and exercise that exact image natively
         env:
           RELEASE_VERSION: ${{ needs.release.outputs.version }}
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           version=${RELEASE_VERSION:-$(bun --no-env-file -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')}
-          binary_sha=$(sha256sum dist/container/rovloom | cut -d' ' -f1)
           docker build --platform "linux/$EXPECTED_ARCH" \
             --build-arg "VERSION=$version" --build-arg "COMMIT=$(git rev-parse HEAD)" \
-            --build-arg "BINARY_SHA256=$binary_sha" -t "rovloom-container:$EXPECTED_ARCH" .
-          python3 scripts/container/smoke.py "rovloom-container:$EXPECTED_ARCH" "$binary_sha" "$version" --compose docker-compose.yaml
+            -t "rovloom-container:$EXPECTED_ARCH" .
+          python3 scripts/container/smoke.py "rovloom-container:$EXPECTED_ARCH" "$version" --compose docker-compose.yaml
           docker image save --output "$RUNNER_TEMP/container-$EXPECTED_ARCH.tar" "rovloom-container:$EXPECTED_ARCH"
       - name: Upload only tested image bytes for the trusted publisher
         if: github.event_name == 'workflow_run'

@@ -245,16 +245,6 @@ summary:focus-visible,
 .secondary:hover {
   background: var(--wash);
 }
-.hero-meta {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  color: var(--quiet);
-  font-size: 10px;
-  line-height: 1.8;
-  margin: 25px 0 0;
-  flex-wrap: wrap;
-}
 .topology-block {
   padding-top: 11px;
   min-width: 0;
@@ -1037,11 +1027,6 @@ html[lang='en'] .feature h3 {
     min-height: 47px;
     gap: 16px;
   }
-  .hero-meta {
-    gap: 8px;
-    font-size: 8px;
-    margin-top: 20px;
-  }
   .map-node strong {
     font-size: 9px;
   }
@@ -1331,11 +1316,6 @@ html[lang='en'] .feature h3 {
     padding: 14px 18px;
     min-height: 49px;
     gap: 19px;
-  }
-  .hero-meta {
-    font-size: 9px;
-    gap: 10px;
-    margin-top: 23px;
   }
   .topology-block {
     padding-top: 0;
@@ -1639,10 +1619,6 @@ html[lang='en'] .feature h3 {
   }
   .hero-description {
     font-size: 13px;
-  }
-  .hero-meta {
-    font-size: 8px;
-    gap: 8px;
   }
   .map-node strong {
     font-size: 9px;

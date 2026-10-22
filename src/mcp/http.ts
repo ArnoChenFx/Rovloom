@@ -458,12 +458,12 @@ export function createHttpFacade(options: HttpFacadeOptions & { origin: string }
   return { handleRequest, close }
 }
 
-// 默认只开放本机回环；公网TLS和认证反向代理必须由明确可信宿主另行组合。
+// 默认只开放本机回环；显式通配绑定用于容器等隔离环境，对外暴露由宿主网络层收口。
 export function startHttpFacade(
-  options: HttpFacadeOptions & { hostname?: '127.0.0.1' | '::1'; port?: number }
+  options: HttpFacadeOptions & { hostname?: '127.0.0.1' | '::1' | '0.0.0.0' | '::'; port?: number }
 ): RunningHttp {
   const hostname = options.hostname ?? '127.0.0.1'
-  if (hostname !== '127.0.0.1' && hostname !== '::1') {
+  if (!['127.0.0.1', '::1', '0.0.0.0', '::'].includes(hostname)) {
     throw new Error('invalid_http_listener')
   }
   const port = options.port ?? 9444
@@ -495,7 +495,9 @@ export function startHttpFacade(
     fetch: /* listener创建后才接受请求，拒绝意外的未初始化窗口。 */ (request) =>
       facade ? facade.handleRequest(request) : Promise.resolve(denied(503))
   })
-  const origin = new URL(`http://${hostname === '::1' ? '[::1]' : hostname}:${listener.port}`).origin
+  // 通配绑定时 Host/Origin 校验仍按对应回环规范地址，不随绑定地址放宽。
+  const canonical = hostname === '0.0.0.0' ? '127.0.0.1' : hostname === '::' ? '::1' : hostname
+  const origin = new URL(`http://${canonical === '::1' ? '[::1]' : canonical}:${listener.port}`).origin
   try {
     facade = createHttpFacade({ ...options, origin })
   } catch (error) {
