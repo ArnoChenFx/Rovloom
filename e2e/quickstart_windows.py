@@ -235,6 +235,17 @@ def main():
                                            capture_output=True, encoding='utf-8', errors='replace', timeout=60)
                     print(title, (probe.stdout + probe.stderr)[-1500:], flush=True)
                 print('GATEWAY_LOG_TAIL', gateway.clean_log()[-2000:], flush=True)
+                # 停掉任务后在前台用同一命令行复现，区分配置问题与开机任务（S4U）上下文问题。
+                run('stop', '--role', 'connector')
+                foreground = subprocess.Popen([rov, 'connector', '--config', path, '--non-interactive'], env=env_c,
+                                              cwd=home_c, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                              stderr=subprocess.STDOUT, encoding='utf-8', errors='replace')
+                try:
+                    out, _ = foreground.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    foreground.kill()
+                    out, _ = foreground.communicate()
+                print('FOREGROUND_CONNECTOR', out[-3000:], flush=True)
                 raise AssertionError('service Connector did not connect')
             print('SERVICE_READY', flush=True)
         if kill_server:
