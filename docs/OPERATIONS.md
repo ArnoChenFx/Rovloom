@@ -13,7 +13,7 @@
 
 每个角色只有一份用户配置：`~/.config/rovloom/gateway.json` / `connector.json`（Windows 同样用用户 home）。参数全集见[配置参考](CONFIGURATION.md)。程序自己的数据在 `data.directory`（默认 `~/.local/share/rovloom/<role>`），**整个目录一起保留**，不要手改里面的文件。
 
-> 当前引导式配对一次只配一台 Connector（见 [#192](https://github.com/ArnoChenFx/Rovloom/issues/192)）；其余设备要等该 issue 落地。
+> 加入第二台及以后设备：停止 Gateway，运行 `rovloom gateway --add-device`，在新机器的 `rovloom connector` 输入地址与一次性码（详见 [Quick Start](QUICK-START-zh.md)）；现有 MCP Bearer 自动覆盖新设备，`token create --like` 克隆的令牌需重新克隆。
 
 ## 2. 安装与升级
 

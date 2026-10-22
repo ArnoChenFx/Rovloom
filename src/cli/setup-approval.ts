@@ -36,6 +36,8 @@ export type PairingPlan = Readonly<{
   providers?: readonly NativeProviderKind[]
   // 同一设备的重新配对：只更换设备凭据，不重做原生批准与授权。
   repair?: true
+  // 加入第 2 台及以后设备：沿用首台设备那次引导的策略修订标签（见 setup-policy.ts），使所有设备共用同一个本机策略修订。
+  lineage?: string
 }>
 const phases = new Set([
   'registering',
@@ -56,7 +58,7 @@ function plan(value: unknown): PairingPlan {
     fields(
       row,
       ['schema_version', 'attempt_id', 'actor', 'uid', 'generation', 'name', 'created_at', 'expires_at', 'phase'],
-      ['machine_id', 'enrollment_sha256', 'native_fingerprint', 'providers', 'repair']
+      ['machine_id', 'enrollment_sha256', 'native_fingerprint', 'providers', 'repair', 'lineage']
     )
     for (const key of ['attempt_id', 'actor', 'generation', 'name', ...(row.machine_id ? ['machine_id'] : [])]) {
       id(row[key])
@@ -83,6 +85,9 @@ function plan(value: unknown): PairingPlan {
     }
     if (row.repair !== undefined && (row.repair !== true || row.providers === undefined)) {
       throw new CliError('invalid_config')
+    }
+    if (row.lineage !== undefined) {
+      id(row.lineage)
     }
     if (!['registering', 'reserved'].includes(String(row.phase)) && (!row.machine_id || !row.enrollment_sha256)) {
       throw new CliError('invalid_config')
@@ -191,6 +196,8 @@ export class SetupApproval {
     }
     const now = Date.now()
     const attempt = randomUUID()
+    // 已完成过引导（ready）再配对一台：沿用首台设备那次引导的策略修订标签。
+    const lineage = previous?.phase === 'ready' ? (previous.lineage ?? previous.attempt_id) : undefined
     let current = this.save(
       {
         schema_version: 1,
@@ -198,6 +205,7 @@ export class SetupApproval {
         actor: this.terminal.actor,
         uid: this.terminal.uid,
         generation: state.store.generation(),
+        ...(lineage ? { lineage } : {}),
         name: 'connector-' + attempt.slice(0, 8),
         created_at: now,
         expires_at: now + 300_000,
@@ -300,7 +308,8 @@ export class SetupApproval {
         phase: 'reserved',
         machine_id: machine,
         providers: previous.providers,
-        repair: true
+        repair: true,
+        ...(previous.lineage ? { lineage: previous.lineage } : {})
       },
       false
     )

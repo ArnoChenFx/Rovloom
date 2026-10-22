@@ -53,8 +53,10 @@ export function setupProviderKinds(input: unknown): readonly NativeProviderKind[
 }
 
 // 两个来源各有精确Target和各自已审方法，不把provider、session和方法做笛卡尔授权。
+// 修订标签取自 lineage（首台设备那次引导的 attempt）：所有设备的本机策略共用同一修订，Gateway 才能同时就绪；
+// 标签只是命名这一代引导，策略内容（授权集合）随加入的设备增长。
 export function selectedSetupPolicies(
-  plan: Pick<PairingPlan, 'attempt_id' | 'actor'>,
+  plan: Pick<PairingPlan, 'attempt_id' | 'actor' | 'lineage'>,
   machine: string,
   kinds: readonly NativeProviderKind[],
   sessions: SetupSessions = {}
@@ -69,8 +71,8 @@ export function selectedSetupPolicies(
   return {
     principal_id: plan.actor,
     policies: {
-      caller: { revision: 'setup_caller_' + plan.attempt_id, grants },
-      local: { revision: 'setup_local_' + plan.attempt_id, grants: structuredClone(grants) }
+      caller: { revision: 'setup_caller_' + (plan.lineage ?? plan.attempt_id), grants },
+      local: { revision: 'setup_local_' + (plan.lineage ?? plan.attempt_id), grants: structuredClone(grants) }
     }
   }
 }

@@ -196,6 +196,7 @@ export class GatewayPairingHttp {
               machine_id: plan.machine_id,
               recovery_generation: plan.generation,
               phase: plan.phase,
+              ...(plan.lineage ? { lineage: plan.lineage } : {}),
               authorization: selectedSetupPolicies(plan, credential.machine_id, providers, sessions)
             })
           }

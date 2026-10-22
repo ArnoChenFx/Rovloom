@@ -139,6 +139,15 @@ Docker 的 Gateway 文件位于配置卷中的 `/home/rovloom/.config/rovloom/ga
 在原生批准前停止 Connector，编辑 `connector.json` 后重新启动。
 [配置参考](CONFIGURATION-zh.md)列出完整示例和全部可配置参数。
 
+### 加入更多设备
+
+第一台 Connector 达到 `ready` 后，可以逐台加入更多设备。先停止正在运行的 Gateway，
+在 Gateway 的真实终端运行 `rovloom gateway --add-device` 并确认，再在新机器的
+`rovloom connector` 里输入显示的地址和一次性码，最后回到 Gateway 终端批准新设备实测的原生安装。
+已有设备、MCP Bearer 与策略保持不变，现有 Bearer 自动覆盖新设备（不再重复显示）；
+用 `rovloom token create --like` 克隆出的令牌是创建时的快照，需要重新克隆才包含新设备。
+用 `machines_list` 选择目标。Herdr 与 Luvus 设备可以混合；每台 Herdr 设备是独立的会话组。
+
 Connector 在另一台设备时，先设置 Gateway `devices.hostname`，让它监听回环以外的地址，
 再在 Connector 输入可达的 WS/WSS 地址。默认只接受本机连接。
 公网访问需要管理员安排 HTTPS/WSS 代理或隧道，参见[网络设置](CONFIGURATION-zh.md#网络访问)。

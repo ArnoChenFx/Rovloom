@@ -166,6 +166,19 @@ to listen beyond loopback and enter its reachable WS/WSS address in the Connecto
 Defaults accept local connections only. Public access needs your administrator's
 HTTPS/WSS proxy or tunnel arrangement; see [network settings](CONFIGURATION.md#network-access).
 
+### Add another device
+
+After the first Connector is `ready`, pair more devices one at a time. In a real
+Gateway terminal run `rovloom gateway --add-device` (stop the running Gateway
+first; running Connectors reconnect when it restarts), confirm, and enter the
+displayed address and one-time code in `rovloom connector` on the new machine.
+Approve the new device's measured native installation back in the Gateway
+terminal. The Gateway keeps its existing devices, MCP Bearer and policy; the
+Bearer now also covers the new device (it is not shown again). Bearers made with
+`rovloom token create --like` are snapshots: re-create them to include the new
+device. Pick targets with `machines_list`. A Herdr device and a Luvus device may
+be mixed; each Herdr device is its own session group.
+
 ## 3. Connect your MCP client
 
 Add a server in an AI client that supports **Streamable HTTP**:

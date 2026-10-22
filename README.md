@@ -13,9 +13,8 @@ so runtimes stay on their own machines with a common entry point for AI Agent / 
 **Availability:** Technical preview with a Linux/macOS/Windows Gateway and a Linux x64 /
 Windows x64 Connector (it attaches to the Herdr / Luvus you already run). Official binaries,
 installers and Linux Gateway Docker images are available; see the [Quick Start](docs/QUICK-START.md)
-and [Docker deployment](docs/DOCKER.md). First pairing needs a real local terminal and currently
-pairs one Connector per Gateway ([#192](https://github.com/ArnoChenFx/Rovloom/issues/192));
-guided Agent/model login is not available yet.
+and [Docker deployment](docs/DOCKER.md). Pairing needs a real local terminal; add further devices with
+`rovloom gateway --add-device`. Guided Agent/model login is not available yet.
 
 ## Core capabilities
 
