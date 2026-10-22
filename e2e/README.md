@@ -72,6 +72,12 @@ workspace 计数（1→2）。
 - `--pre-existing --kill-luvus`：就绪后 `kill -9` 该 server，断言 Connector 自行重建（新 PID）并重连，随后的读写调用通过。
 - `--crash`：就绪后 `kill -9` Connector 再重启，断言 claim 锁自动接管并重新附着仍在运行的 Luvus；`--luvus-mode managed` 则是隔离实例的同一验证。
 
+Luvus 故障场景（`--pre-existing`，经 `e2e/luvus-faults.mjs` 分步驱动，同样用真实 Luvus 0.14.3）：
+
+- `--unknown-outcome`：先对 Luvus server 发 `SIGSTOP`，再提交 `workspace.new`，随后 `kill -9` Connector 并恢复 Luvus、重启 Connector。断言该调用收敛为
+  `outcome_unknown`，workspace 数最多比调用前多 1 且 10 秒内保持稳定（没有第二次执行），同一设备上的新写调用照常成功。
+- `--revoke`：停止两个角色，经正式 Store 离线撤销设备，再重启。断言 `machines_get` 为 `revoked`、调用被拒绝、Connector 始终不会就绪。
+
 这条路径发现过两个只有真实 Luvus 才暴露的缺陷（均已修复并有回归测试）：Luvus 自建 `sessions` 目录继承宿主
 umask（022 → 0755）而被 0700 门禁拒绝，托管 Luvus 在普通用户环境根本起不来；MCP 默认 `validation:"strict"` 与
 Luvus 通用方法要求的 `raw-contract` 不符时，Wire 编码失败发生在派发之后，调用变成 `outcome_unknown` 并断开设备连接
@@ -96,7 +102,7 @@ provider 与模型在 opencode 配置中显式声明并关闭模型目录拉取�
 
 - **单台主机**：Gateway 与 Connector 是两个独立进程，状态目录、`HOME`、`PATH` 各自独立，经真实回环 WebSocket 通信，
   但不是两台物理机；“Gateway 未安装 runtime”以空 `PATH` + 只含单文件产物来体现，不等同跨机网络（NAT / TLS / 防火墙）。
-- **Luvus 只有链路验收，没有故障场景**：真实 Luvus 0.14.3（官方 release 的 musl 二进制）已经过首次配对 → 发现 → 描述 → 只读调用 → 写调用读回（见下节），但重启/崩溃/未知结果/撤销这些故障场景只在 Herdr 上有 e2e。
+- **Luvus 的故障场景**：真实 Luvus 0.14.3 已覆盖首次配对 → 发现 → 描述 → 只读/写调用读回，以及崩溃接管、Luvus 被杀后重建、未知结果不重发、离线撤销（见下节）；“终端开关”“重复请求幂等”这类与 provider 无关的 Gateway 行为只在 Herdr 场景里验证。
 - **设备撤销是离线撤销**：管理员写入走带确认的 HTTP 管理接口，这里停 Gateway 后用正式 `Store.revoke` 代替，没有走 WebUI。
 - **崩溃自动恢复仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、旧格式记录、孤儿 native 仍活着时保持 fail-closed（见 [#167](https://github.com/ArnoChenFx/Rovloom/issues/167)）。
 - **LLM Agent 单独脚本**：`e2e/agent.mjs` 让 opencode（1.19.3，DeepSeek `deepseek-chat`）经 MCP 完成 list → discover → ping → `workspace.create`，再由独立 MCP 客户端读回 workspace 数（0→1）。依赖模型 API 域名可达与 `DEEPSEEK_API_KEY`，不在默认场景集里；模型输出有随机性，仅作冒烟。
