@@ -7,7 +7,7 @@ export const copy = {
     'nav.start': '快速开始',
     'nav.menu': '打开导航',
     'nav.github': 'GitHub',
-    'hero.eyebrow': '开源 · MCP GATEWAY · 公开预览',
+    'hero.eyebrow': '开源 · AGENT GATEWAY',
     'hero.title1': '一个 MCP 入口，',
     'hero.title2': '连接你的',
     'hero.title3': '每台电脑。',
@@ -15,7 +15,6 @@ export const copy = {
       '让 AI 走进你真正的工作现场。通过一个 Gateway，连接多台设备上的 Luvus 与 Herdr，继续使用熟悉的工作区、终端和 Agent。',
     'hero.start': '开始使用',
     'hero.how': '了解工作原理',
-    'hero.meta': '自部署 · 保留本地工作流',
     'map.agent': '你的 AI 客户端',
     'map.aria':
       'AI 客户端通过 Gateway 连接个人电脑、VPS、Docker 容器与 Agent Sandbox 的部署场景示意（个人电脑包括 Linux、Windows 和 macOS）',
@@ -111,7 +110,7 @@ export const copy = {
     'nav.start': 'Get started',
     'nav.menu': 'Open navigation',
     'nav.github': 'GitHub',
-    'hero.eyebrow': 'OPEN SOURCE · MCP GATEWAY · PUBLIC PREVIEW',
+    'hero.eyebrow': 'OPEN SOURCE · AGENT GATEWAY',
     'hero.title1': 'One agent.',
     'hero.title2': 'Every machine.',
     'hero.title3': 'All yours.',
@@ -119,7 +118,6 @@ export const copy = {
       'Bring AI to where your work actually happens. One Gateway connects Luvus and Herdr across your machines, with the workspaces, terminals and Agents you already use.',
     'hero.start': 'Get started',
     'hero.how': 'See how it works',
-    'hero.meta': 'Self-hosted · Your local workflow',
     'map.agent': 'Your AI client',
     'map.aria':
       'Deployment illustration: an AI client connects through Gateway to personal computers (Linux, Windows, macOS), VPS, Docker containers and Agent Sandbox',
