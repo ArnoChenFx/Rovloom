@@ -52,7 +52,8 @@ function fixture() {
       windowsHide: true
     })
     children.push(child)
-    for (let attempt = 0; attempt < 100; attempt++) {
+    const deadline = performance.now() + 10_000
+    while (performance.now() < deadline && child.exitCode === null && child.signalCode === null) {
       if (await herdrServerPresent(config).catch(() => false)) {
         return child
       }
@@ -82,23 +83,30 @@ function fixture() {
   }
 }
 
-test('Windows：已运行的官方 herdr 被证明后附着并可打开安装；进程消失后不再存在', { skip: !enabled }, async () => {
-  const f = fixture()
-  try {
-    assert.equal(await herdrServerPresent(f.config), false)
-    const server = await f.serve()
-    const binding = await observeHerdrServer(f.config)
-    assert(isHerdrInstanceBinding(binding))
-    assert.equal(binding.pid, server.pid)
-    binding.assert(f.config)
-    const installation = await HerdrInstallation.open(f.config, binding)
-    installation.close()
-    await f.stop(server)
-    assert.throws(() => binding.assert(f.config), { code: 'herdr_native_instance_untrusted' })
-    // 服务端退出后管道消失：没有遗留端点被当作存在（记录文件可能还在）。
-    assert.equal(await herdrServerPresent(f.config), false)
-    await assert.rejects(observeHerdrServer(f.config))
-  } finally {
-    await f.close()
+test(
+  'Windows：已运行的官方 herdr 被证明后附着并可打开安装；进程消失后不再存在',
+  { skip: !enabled, timeout: 30_000 },
+  async (t) => {
+    const f = fixture()
+    try {
+      assert.equal(await herdrServerPresent(f.config), false)
+      const started = performance.now()
+      const server = await f.serve()
+      t.diagnostic('herdr_cold_start_ms=' + Math.round(performance.now() - started))
+      const binding = await observeHerdrServer(f.config)
+      assert(isHerdrInstanceBinding(binding))
+      assert.equal(binding.pid, server.pid)
+      binding.assert(f.config)
+      const installation = await HerdrInstallation.open(f.config, binding)
+      installation.close()
+      t.diagnostic('herdr_attach_verified_ms=' + Math.round(performance.now() - started))
+      await f.stop(server)
+      assert.throws(() => binding.assert(f.config), { code: 'herdr_native_instance_untrusted' })
+      // 服务端退出后管道消失：没有遗留端点被当作存在（记录文件可能还在）。
+      assert.equal(await herdrServerPresent(f.config), false)
+      await assert.rejects(observeHerdrServer(f.config))
+    } finally {
+      await f.close()
+    }
   }
-})
+)
