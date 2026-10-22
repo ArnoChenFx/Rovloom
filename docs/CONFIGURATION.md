@@ -211,8 +211,7 @@ Revision strings identify Rovloom adapter/classification code; their historical
 version text is not a native installation requirement. Protected program-managed
 state and each live source must still agree on the actual binary/schema hashes,
 complete target and generation. Preserve schema output as original bytes.
-A known precompiled digest is a cache key; unknown schema bytes are fully compiled
-within the same compiler budget. These are integration checks, not user JSON fields.
+Installed schema bytes are always fully compiled (about 0.7 s cold) within the compiler budget. These are integration checks, not user JSON fields.
 Internal discovery does not complete the user-facing provider setup or install
 native programs; first-file generation does not prepare native settings or model access.
 

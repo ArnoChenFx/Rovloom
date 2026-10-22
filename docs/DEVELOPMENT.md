@@ -28,7 +28,7 @@ bun run smoke
 构建先清空 `dist`，向 `dist/src/` 输出 contracts/store/router/protocol、
 native-contract、wire、integration、persistence、transport、runtime、Herdr、webui、admin、Luvus connector、mcp、cli、service 模块及 CLI main 的 Bun ESM 入口、共享 chunk 与外部
 source maps，依赖外置；准确入口清单由`scripts/bun/build.mjs`维护。共享 chunk 保持错误类型和内存 handle 身份。
-原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv 与精确绑定的完整预编译资产；不增加第二运行时、
+原生编译 Worker 由同一 Bun 构建入口独立打包并内嵌，含锁定 Ajv；不增加第二运行时、
 原生归档或 FFI。源码直接使用固定本地 Worker，产物不回退读取 TS 源码。
 smoke 从产物验证原生离线编译、request/error/result 边界、v2 往返及旧帧/缺失 provider 拒绝、
 SQLite 文件重开、无副作用的 service 模块导入，以及 CLI help 和配置模板解析。缺后端启动的退出码与输出由
@@ -130,12 +130,8 @@ SDK 运行报告打印到 stdout，不写回仓库快照。
 `coverage.json` 由 `bun scripts/luvus/audit-fixtures.mjs --write` 从固定原文生成；
 
 
-`src/native-contract/generated/` 保存完整 standalone 资产及独立摘要目录，
-审核输入位于 `scripts/native-contract/precompiled-inputs.json`。仅在来源、编译器或锁定依赖
-变更已审核后运行 `bun run native:generate`，并一起审查派生文件；不手改生成代码。
-`bun run native:check` 在独立 Worker 重新完整编译并逐字节比较，正式模块与单文件构建
-强制执行该检查，失败不会自动重建。原生 fixture 字节不规范化，生成器实现摘要只统一源码 LF。
-构建观察上限独立于 Luvus 的 2 秒和 Herdr 的 10 秒接纳期限；运行时完整检查和精确失配回退见
+原生 schema 没有预编译资产：Worker 对每份安装 schema 用锁定 Ajv 完整编译（冷编译约 0.7 秒，接纳期限 10 秒）。原生 fixture 字节不规范化。
+运行时完整检查和精确失配回退见
 [原生契约](protocol/NATIVE-CONTRACT.md#编译-worker-与生成物接纳)。
 Herdr 的 `src/connector/herdr/generated/` 同样保存固定 0.9.5 正式 schema 的完整根资产，
 由独立 provenance、现行 binary/schema 身份、编译器源码及实际 Ajv 包摘要绑定。
