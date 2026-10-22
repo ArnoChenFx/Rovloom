@@ -32,8 +32,8 @@ export const copy = {
     'strip.label': '连接已有工具，不改变你的习惯',
     'strip.end': '为你自己的设备而造',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
-    'why.title1': '机器各就其位。',
-    'why.title2': '工作流连在一起。',
+    'why.title1': '机器各就其位',
+    'why.title2': '工作流连在一起',
     'why.body': '不必为了远程访问，再搭一套工作环境。让每台机器继续做自己擅长的事。',
     'why.localTitle': '沿用真实会话',
     'why.localBody': '默认附着你已在使用的 Luvus / Herdr，复用工作区和 Agent 登录。也可显式选择隔离的 managed 实例。',
@@ -45,7 +45,7 @@ export const copy = {
     'why.recoveryBody': '原生实例消失后重新附着或重建。可能已经送达的变更不会自动重发，不确定的结果会明确保留。',
     'how.label': '02 / ONE GATEWAY. MANY POSSIBILITIES.',
     'how.title1': '跨设备，',
-    'how.title2': '不迁移你的工作现场。',
+    'how.title2': '不迁移你的工作现场',
     'how.body': '一个管理员，几台自己的机器，一个主 Agent。把连接交给 Rovloom，把原生能力留给原生工具。',
     'how.oneTitle': '连接',
     'how.oneBody': '每台设备运行一个 Connector，主动通过 WSS 连接 Gateway。首次连接在终端完成配对批准。',
@@ -57,7 +57,7 @@ export const copy = {
     'how.note': 'Runtime 留在各自机器上。Rovloom 连接它们，不复制它们。',
     'start.label': '03 / FROM DOWNLOAD TO FIRST CONNECTION',
     'start.title1': '接入下一台机器，',
-    'start.title2': '从这里开始。',
+    'start.title2': '从这里开始',
     'start.body':
       '下载独立可执行程序，启动 Gateway 与 Connector，再将 MCP 地址加入你的 AI 客户端。完整配对与平台说明见快速开始。',
     'start.download': '下载最新版本',
@@ -79,7 +79,7 @@ export const copy = {
     'terminal.note.mcp': '将 URL 与配对后获得的 Bearer 填入客户端的 MCP 设置。配对码不是 MCP Bearer。',
     'terminal.guide': '查看完整配置说明',
     'faq.label': 'GOOD QUESTIONS',
-    'faq.title': '开始之前，你可能想知道。',
+    'faq.title': '开始之前，你可能想知道',
     'faq.q1': 'Rovloom 与 Luvus、Herdr 是什么关系？',
     'faq.a1':
       'Luvus 与 Herdr 是本地原生 Runtime，负责各自的工作区、会话和 Agent。Rovloom 在它们之上提供跨设备 MCP 入口，保留各自的原生协议与能力。',
@@ -92,7 +92,7 @@ export const copy = {
     'faq.q4': '可以直接暴露到公网吗？',
     'faq.a4':
       '默认监听本机回环地址。跨设备部署应按配置文档设置可达的设备监听、HTTPS / WSS 反向代理与受信 MCP public_url，并保管好设备凭据和调用方 Bearer。',
-    'end.title': '让你的下一次调用，走得更远。',
+    'end.title': '让你的下一次调用，走得更远',
     'end.body': '从一台 Gateway 开始，把自己的机器连接起来。',
     'end.action': '开始连接',
     'footer.tagline': '你的机器，你的工作流。',
@@ -139,8 +139,8 @@ export const copy = {
     'strip.label': 'Connect your tools. Keep your habits.',
     'strip.end': 'BUILT FOR YOUR OWN MACHINES',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
-    'why.title1': 'Separate machines.',
-    'why.title2': 'Connected work.',
+    'why.title1': 'Separate machines',
+    'why.title2': 'Connected work',
     'why.body':
       'Remote access should not mean rebuilding your working environment. Let each machine keep doing what it does best.',
     'why.localTitle': 'Your actual sessions',
@@ -156,8 +156,8 @@ export const copy = {
     'why.recoveryBody':
       'Reattach or rebuild when a native instance disappears. Mutations that may have arrived are never automatically replayed; unknown outcomes stay explicit.',
     'how.label': '02 / ONE GATEWAY. MANY POSSIBILITIES.',
-    'how.title1': 'Work across devices.',
-    'how.title2': 'Keep your workspace.',
+    'how.title1': 'Work across devices',
+    'how.title2': 'Keep your workspace',
     'how.body':
       'One administrator, a few of your own machines, one primary Agent. Rovloom handles the connections. Native tools keep their capabilities.',
     'how.oneTitle': 'Connect',
@@ -173,7 +173,7 @@ export const copy = {
     'how.note': 'Runtimes stay on their machines. Rovloom connects them, without copying them.',
     'start.label': '03 / FROM DOWNLOAD TO FIRST CONNECTION',
     'start.title1': 'Your next machine',
-    'start.title2': 'starts here.',
+    'start.title2': 'starts here',
     'start.body':
       'Download a standalone binary, start Gateway and Connector, then add the MCP endpoint to your AI client. The Quick Start covers pairing and platform details.',
     'start.download': 'Download latest release',
@@ -198,7 +198,7 @@ export const copy = {
       'Add the URL and Bearer obtained after pairing to your client settings. The pairing code is not the MCP Bearer.',
     'terminal.guide': 'Read the configuration guide',
     'faq.label': 'GOOD QUESTIONS',
-    'faq.title': 'A few things before you begin.',
+    'faq.title': 'A few things before you begin',
     'faq.q1': 'How does Rovloom relate to Luvus and Herdr?',
     'faq.a1':
       'Luvus and Herdr are local native runtimes for workspaces, sessions and Agents. Rovloom provides cross-device MCP access above them, preserving their native protocols and capabilities.',
@@ -211,7 +211,7 @@ export const copy = {
     'faq.q4': 'Can I expose it directly to the Internet?',
     'faq.a4':
       'Listeners bind to loopback by default. For cross-device access, follow the configuration guide for reachable device listeners, HTTPS / WSS reverse proxies and the trusted MCP public_url. Protect device credentials and caller Bearers.',
-    'end.title': 'Let your next call go further.',
+    'end.title': 'Let your next call go further',
     'end.body': 'Start with one Gateway. Connect your own machines.',
     'end.action': 'Make the connection',
     'footer.tagline': 'Your machines. Your workflow.',
