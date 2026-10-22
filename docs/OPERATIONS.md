@@ -20,11 +20,6 @@
 - 安装：`install.sh` / `install.ps1` 只安装单文件二进制并核对 `SHA256SUMS`，不建配置、不起服务（[快速开始](QUICK-START-zh.md)）。Docker 只用于 Linux Gateway（[Docker 部署](DOCKER-zh.md)）。
 - 升级：先正常停 Connector 再停 Gateway，替换二进制（重新运行安装脚本，或 `docker compose pull && docker compose up -d`），再按原样启动。配置与数据沿用。脚本只安装官方 latest 稳定版；预发布版本从 Release 页面手动下载。
 - 没有自更新。数据库版本不兼容时拒绝启动（`unsupported_database_version`），不会静默迁移。
-- **从 v0.1.x 升级到 v0.2.0 及以后**：数据库 schema 由 v5 变为 v6，设备身份、授权和 Connector 本机账本的模型也已改变，旧状态不能原地升级，也没有迁移工具。流程是新建状态并重新配对：
-  1. 正常停 Connector，再停 Gateway；
-  2. 备份旧的配置和数据目录（`~/.config/rovloom`、`~/.local/share/rovloom`；Docker 用户备份两个命名卷），确认无误后再移走旧目录；
-  3. 安装新版，按[快速开始](QUICK-START-zh.md)重新运行 `rovloom gateway` 和 `rovloom connector` 配对，并保存新的 MCP URL 与 Bearer；
-  4. 旧的调用结果、审计历史和旧令牌不会带过来；已配置的 MCP 客户端需要换成新的地址与 Bearer。
 
 ## 3. 开机服务
 
