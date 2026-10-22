@@ -157,11 +157,19 @@ test(
         code: 'unsafe_installation'
       }
     )
-    // macOS 的原生声明可生成，但 Connector 运行时尚未跨到该平台；Windows x64 已有真实 e2e，arm64 没有。
+    // macOS 的 Connector 服务（LaunchDaemon 以所选用户运行）x64 与 arm64 都有真实 e2e；Windows x64 有，arm64 没有。
     const darwin = sampleSpec('darwin')
+    for (const arch of ['x64', 'arm64']) {
+      assertServiceProduct(darwin, { ...environment, platform: 'darwin', arch, executable: darwin.executable })
+    }
     assert.throws(
-      /* 原生声明可生成，不代表角色运行时已跨平台。 */ () =>
-        assertServiceProduct(darwin, { ...environment, platform: 'darwin', executable: darwin.executable }),
+      /* 其它架构没有 Connector 端到端验证。 */ () =>
+        assertServiceProduct(darwin, {
+          ...environment,
+          platform: 'darwin',
+          arch: 'ia32',
+          executable: darwin.executable
+        }),
       { code: 'backend_unavailable' }
     )
     const windows = sampleSpec('win32')

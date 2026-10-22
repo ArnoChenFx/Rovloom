@@ -65,8 +65,22 @@ class Term:
 
 
 def luvus_servers(binary_dir):
-    """本次部署使用的 Luvus server 进程（按可执行文件目录区分），返回 [(pid, start_tick)]。"""
+    """本次部署使用的 Luvus server 进程（按可执行文件目录区分），返回 [(pid, 启动标识)]。
+
+    Linux 读 /proc（启动标识是内核启动 tick）；macOS 没有 /proc，用 ps（启动标识是 lstart，秒级足以区分重建）。
+    """
     found = []
+    if sys.platform == 'darwin':
+        listing = subprocess.run(['ps', '-axo', 'pid=,lstart=,command='], capture_output=True, text=True).stdout
+        for line in listing.splitlines():
+            # 格式：<pid> <Mon Day HH:MM:SS Year 共 5 个字段> <command...>
+            parts = line.split(None, 6)
+            if len(parts) < 7 or not parts[0].isdigit():
+                continue
+            command = parts[6].split()
+            if command and command[0].startswith(binary_dir) and command[-1] == 'server' and '--session' in command:
+                found.append((int(parts[0]), ' '.join(parts[1:6])))
+        return sorted(found)
     for entry in os.listdir('/proc'):
         if not entry.isdigit():
             continue
