@@ -224,7 +224,18 @@ def main():
             deadline = time.time() + 120
             while time.time() < deadline and gateway.clean_log().count('connector_ready') <= ready_before:
                 time.sleep(1.0)
-            assert gateway.clean_log().count('connector_ready') > ready_before, 'service Connector did not connect'
+            if gateway.clean_log().count('connector_ready') <= ready_before:
+                # 失败时先留下任务结果、进程命令行与 Gateway 日志，再失败。
+                for title, command in (
+                    ('TASK', 'schtasks /query /tn rovloom-connector /v /fo list'),
+                    ('PROCESSES', "Get-CimInstance Win32_Process -Filter \"Name='rovloom.exe'\" | "
+                                  "Select-Object ProcessId,ParentProcessId,CommandLine | Format-List | Out-String"),
+                ):
+                    probe = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', command],
+                                           capture_output=True, encoding='utf-8', errors='replace', timeout=60)
+                    print(title, (probe.stdout + probe.stderr)[-1500:], flush=True)
+                print('GATEWAY_LOG_TAIL', gateway.clean_log()[-2000:], flush=True)
+                raise AssertionError('service Connector did not connect')
             print('SERVICE_READY', flush=True)
         if kill_server:
             before = native_servers(herdr_dir, exe)
