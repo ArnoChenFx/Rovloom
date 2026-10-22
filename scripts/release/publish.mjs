@@ -8,7 +8,7 @@ import { findRelease, githubClient, verifyRemoteTag } from './github.mjs'
 
 /** 只生成公开版本和提交说明，固定标记用于阻止借用不属于此契约的已有 Release。 */
 function releaseBody(context) {
-  return `Rovloom ${context.version}\n\nCommit: ${context.commit}\n\nBinaries are not publisher-signed or notarized. Verify release-manifest.json and SHA256SUMS.\n\n<!-- rovloom-release:1 ${context.tag} ${context.commit} -->`
+  return `Rovloom ${context.version}\n\nCommit: ${context.commit}\n\nBinaries are not publisher-signed or notarized. Verify release-manifest.json and SHA256SUMS.\n\nWith Bun installed you can also run the npm package from this release: \`bunx --package <url of rovloom-${context.version}.tgz> rovloom --version\`.\n\n<!-- rovloom-release:1 ${context.tag} ${context.commit} -->`
 }
 
 /** 在每次恢复和公开前核对资产集合、长度和 GitHub 存储端摘要；不允许同名覆盖。 */
@@ -35,6 +35,9 @@ export async function publish(context, bundle, api) {
   const files = new Map()
   for (const asset of bundle.manifest.assets) {
     files.set(asset.name, { ...asset, path: bundle.files.get(asset.name) })
+  }
+  if (bundle.npm) {
+    files.set(bundle.npm.name, { ...bundle.npm })
   }
   for (const [name, contents] of [
     [manifestName, bundle.manifestBytes],
@@ -94,8 +97,8 @@ export async function publish(context, bundle, api) {
 }
 
 if (import.meta.main) {
-  assert.equal(process.argv.length, 3, 'Usage: bun scripts/release/publish.mjs /staged-platforms')
+  assert.equal(process.argv.length, 4, 'Usage: bun scripts/release/publish.mjs /staged-platforms /staged-npm')
   const context = releaseContext()
-  const bundle = assemble(context, resolve(process.argv[2]))
+  const bundle = assemble(context, resolve(process.argv[2]), resolve(process.argv[3]))
   console.log(JSON.stringify(await publish(context, bundle, githubClient(process.env.GITHUB_TOKEN))))
 }

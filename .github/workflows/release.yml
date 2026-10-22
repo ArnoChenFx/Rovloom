@@ -74,8 +74,33 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+  npm:
+    # 与二进制同一 tag 的 npm 包 tarball：Release 资产，不发布到 npm 注册表。
+    needs: [validate, preflight]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Pack the tarball and accept it from a clean bun add
+        run: |
+          bun --no-env-file scripts/release/npm-package.mjs "$RUNNER_TEMP/release-npm"
+          version="${GITHUB_REF_NAME#v}"
+          bun --no-env-file scripts/release/npm-smoke.mjs "$RUNNER_TEMP/release-npm/rovloom-$version.tgz" "$version"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-${{ needs.validate.outputs.artifactSet }}-npm
+          path: ${{ runner.temp }}/release-npm/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
   publish:
-    needs: [validate, build]
+    needs: [validate, build, npm]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -90,7 +115,11 @@ jobs:
           pattern: release-${{ needs.validate.outputs.artifactSet }}-bun-*
           path: ${{ runner.temp }}/release-stage
           merge-multiple: true
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-${{ needs.validate.outputs.artifactSet }}-npm
+          path: ${{ runner.temp }}/release-npm
       - name: Verify complete bytes, resume matching draft, then publish
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bun --no-env-file scripts/release/publish.mjs "$RUNNER_TEMP/release-stage"
+        run: bun --no-env-file scripts/release/publish.mjs "$RUNNER_TEMP/release-stage" "$RUNNER_TEMP/release-npm"
