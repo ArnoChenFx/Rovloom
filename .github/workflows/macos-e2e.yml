@@ -54,7 +54,7 @@ jobs:
           arch="$(uname -m)"
           mkdir -p "$RUNNER_TEMP/herdr" "$RUNNER_TEMP/luvus"
           herdr_asset="$(gh release view v0.9.5 -R herdrdev/herdr --json assets -q '.assets[].name' | grep -iE 'darwin|macos|apple' | grep -iE "$([ "$arch" = arm64 ] && echo 'aarch64|arm64' || echo 'x86_64|x64|amd64')" | head -1 || true)"
-          luvus_asset="$(gh release view v0.14.3 -R RizRiyz/luvus --json assets -q '.assets[].name' | grep -iE 'darwin|macos|apple' | grep -iE "$([ "$arch" = arm64 ] && echo 'aarch64|arm64' || echo 'x86_64|x64|amd64')" | head -1 || true)"
+          luvus_asset="$(gh release view v0.14.3 -R RizRiyz/luvus --json assets -q '.assets[].name' | grep -E 'apple-darwin\.tar\.gz$' | grep -iE "$([ "$arch" = arm64 ] && echo 'aarch64|arm64' || echo 'x86_64|x64|amd64')" | head -1 || true)"
           echo "herdr_asset=$herdr_asset luvus_asset=$luvus_asset"
           if [ -n "$herdr_asset" ]; then
             gh release download v0.9.5 -R herdrdev/herdr -p "$herdr_asset" -D "$RUNNER_TEMP/herdr"
@@ -64,7 +64,7 @@ jobs:
             gh release download v0.14.3 -R RizRiyz/luvus -p "$luvus_asset" -D "$RUNNER_TEMP/luvus"
             cd "$RUNNER_TEMP/luvus" && ls -la && case "$luvus_asset" in *.tar.gz|*.tgz) tar xzf "$luvus_asset";; *.zip) unzip -o "$luvus_asset";; esac; find . -maxdepth 2 -type f | head -20
           fi
-          h="$(find "$RUNNER_TEMP/herdr" -type f -name herdr | head -1)"
+          h="$RUNNER_TEMP/herdr/$herdr_asset"
           l="$(find "$RUNNER_TEMP/luvus" -type f -name luvus | head -1)"
           echo "herdr=$h luvus=$l"
           if [ -n "$h" ]; then
