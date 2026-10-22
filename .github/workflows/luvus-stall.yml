@@ -1,0 +1,45 @@
+# TEMP: 在 Windows 上重复运行 Luvus 场景以复现并定位 connector_accepted 停滞
+name: Luvus stall repro
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  luvus:
+    name: luvus (${{ matrix.scenario }} ${{ matrix.n }})
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [attach-existing, connector-crash]
+        n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        include:
+          - scenario: attach-existing
+            flags: --pre-existing
+          - scenario: connector-crash
+            flags: --crash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Download official Luvus (Windows x86_64)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'luvus'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/RizRiyz/luvus/releases/download/v0.14.3/luvus-v0.14.3-x86_64-pc-windows-msvc.zip' -OutFile "$dir\luvus.zip"
+          Expand-Archive -Path "$dir\luvus.zip" -DestinationPath $dir -Force
+          Remove-Item "$dir\luvus.zip"
+          "LUVUS_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build actual standalone product
+        run: bun --no-env-file run release:build
+      - name: Quick Start on Windows with Luvus
+        shell: pwsh
+        env:
+          LUVUS_WRITE: '{}'
+        run: |
+          python -m pip install pywinpty
+          python e2e\quickstart_windows.py --binary dist\release\bun-windows-x64\candidate\rovloom.exe --luvus-dir $env:LUVUS_DIR ${{ matrix.flags }} --then "bun --no-env-file e2e\luvus-session.mjs"
