@@ -213,7 +213,7 @@ export class LuvusDispatchClaims {
   }
 
   /** 计入已分配数据库页及当前 rollback journal，并限制未回收墓碑的行数。 */
-  #budget(): void {
+  #budget(candidate?: AttemptBinding): void {
     const pages = Number(this.#db!.prepare('PRAGMA page_count').get()!.page_count)
     const size = Number(this.#db!.prepare('PRAGMA page_size').get()!.page_size)
     const bytes = Math.max(pages * size, lstatSync(this.#options.path).size) + this.#sidecars()
@@ -223,8 +223,10 @@ export class LuvusDispatchClaims {
     }
     if (count > this.#options.limits.entries) {
       const first = this.#db!
-        .prepare("SELECT min(json_extract(binding,'$.registration.deadline')) AS deadline FROM luvus_dispatch_claims")
-        .get()!.deadline
+        .prepare(
+          "SELECT min(json_extract(binding,'$.registration.deadline')) AS deadline FROM luvus_dispatch_claims WHERE call_id<>? OR attempt_id<>?"
+        )
+        .get(candidate?.call_id ?? '', candidate?.attempt_id ?? '')!.deadline
       throw new ConnectorCapacityError('claim_entries', Number.isSafeInteger(first) ? Number(first) : null)
     }
   }
@@ -300,7 +302,7 @@ export class LuvusDispatchClaims {
         .prepare('INSERT INTO luvus_dispatch_claims VALUES(?,?,?,?)')
         .run(snapshot.call_id, snapshot.attempt_id, body, snapshot.registration.deadline)
       this.#db!.prepare('UPDATE luvus_claim_meta SET clock=?').run(now)
-      this.#budget()
+      this.#budget(snapshot)
       this.#db!.exec('COMMIT')
       committed = true
       const reader = new DatabaseSync(this.#options.path, { readOnly: true })

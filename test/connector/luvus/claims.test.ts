@@ -159,9 +159,15 @@ test(
         failure('claim_deadline_invalid')
       )
       claims.claim(binding(), 1000)
+      const early = binding('call2')
+      early.registration.deadline = 400
       assert.throws(
-        /* 行数配额满时第二个 attempt 不可放行。 */ () => claims.claim(binding('call2'), 1000),
-        failure('claim_capacity')
+        /* 被拒候选不会持久化，不能把它较早的 deadline 当作可回收时间。 */ () => claims.claim(early, 1000),
+        (error: unknown) => {
+          assert(error instanceof ConnectorCapacityError)
+          assert.deepEqual(error.capacity, { resource: 'claim_entries', reclaim_at: 500 })
+          return true
+        }
       )
       claims.close()
       claims = f.open()
