@@ -8,9 +8,12 @@ import { getSystemErrorName } from 'node:util'
 import { childEnvironment, withPrivateUmask } from '../connector/luvus/local.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import type { LuvusLocalConfig } from '../connector/luvus/types.js'
-import type { PeerIdentity } from '../connector/luvus/types.js'
+import type { EndpointIdentity, PeerIdentity } from '../connector/luvus/types.js'
 import type { Socket } from 'node:net'
 import { readLinuxLuvusPeer } from '../connector/luvus/linux-peer.js'
+import { readWindowsLuvusPeer } from '../connector/luvus/peer.js'
+import { WINDOWS_PIPE } from '../connector/luvus/local.js'
+import { windowsInspectPath, windowsProcessFacts, windowsProcessState } from '../platform/windows.js'
 
 export interface ReadonlyNativeProcess {
   assertLive(): void
@@ -181,6 +184,20 @@ export async function stopOwnedProcess(
 
 /** 对路径链逐层检查归属与可写性；目录 ctime 的正常内容变化不改变其身份。 */
 export function ownedPathStamp(path: string, kind: 'directory' | 'binary' | 'socket'): string {
+  if (process.platform === 'win32') {
+    // Windows：命名管道端点以名称为身份；目录/二进制按属主 SID + DACL 逐级核验。
+    if (kind === 'socket') {
+      if (!WINDOWS_PIPE.test(path)) {
+        throw new LuvusAdapterError('owned_path_untrusted')
+      }
+      return path
+    }
+    try {
+      return windowsInspectPath(path, kind)
+    } catch {
+      throw new LuvusAdapterError('owned_path_untrusted')
+    }
+  }
   if (typeof path !== 'string' || !isAbsolute(path) || resolve(path) !== path || path.includes('\0')) {
     throw new LuvusAdapterError('owned_path_untrusted')
   }
@@ -406,6 +423,93 @@ class LinuxLuvusObservation implements ObservedNativeProcess {
       this.#libc.symbols.close(fd)
     }
   }
+}
+
+/**
+ * Windows：附着用户自己的 Luvus。对端 PID 来自命名管道服务端（内核回答），其镜像必须是已安装 luvus.exe 的同一文件
+ * （按文件身份比较，不信任路径文本），创建时间在整个观察期内不变，且服务端 PID 始终是同一进程；命令行不作判据。
+ */
+class WindowsLuvusObservation implements ObservedNativeProcess {
+  readonly #peer: PeerIdentity
+  readonly #config: LuvusLocalConfig
+  readonly #start: string
+  readonly #binary: string
+  readonly #directories: readonly [string, string][]
+
+  /** 只能由下方同端点测量入口创建，不接受公开 JSON PID。 */
+  constructor(endpoint: EndpointIdentity, config: LuvusLocalConfig) {
+    this.#config = config
+    try {
+      this.#peer = readWindowsLuvusPeer(endpoint)
+      this.#binary = ownedPathStamp(config.binary, 'binary')
+      this.#directories = [config.state_root, config.home, config.cwd].map(
+        /* 只读取明确配置的根目录身份，不枚举或读取其它会话。 */ (path) => [path, ownedPathStamp(path, 'directory')]
+      )
+      this.#start = this.#inspect()
+    } catch (error) {
+      throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('attached_process_unavailable')
+    }
+  }
+
+  /** 服务端进程存活、镜像是已安装的同一文件，返回其创建时间。 */
+  #inspect(): string {
+    const facts = windowsProcessFacts(this.#peer.pid)
+    if (!facts) {
+      throw new LuvusAdapterError('attached_process_unavailable')
+    }
+    const image = statSync(facts.image, { bigint: true })
+    const installed = statSync(this.#config.binary, { bigint: true })
+    if (image.dev !== installed.dev || image.ino !== installed.ino) {
+      throw new LuvusAdapterError('attached_process_identity_changed')
+    }
+    return facts.created.toString()
+  }
+
+  /**
+   * 逐次核对 PID 仍存活且创建时间不变、镜像仍是已安装的同一文件、安装与目录未被替换。
+   * 不在这里再开管道连接读服务端 PID：每次调用的 verifyPeer 会用同一端点读一次新值并与 identity() 比较，
+   * 管道由同一进程服务的证明正来自那次比较；频繁开管道客户端会干扰服务端。
+   */
+  assertLive(): void {
+    try {
+      const state = windowsProcessState(this.#peer.pid)
+      if (
+        state.kind !== 'alive' ||
+        state.start !== this.#start ||
+        this.#inspect() !== this.#start ||
+        ownedPathStamp(this.#config.binary, 'binary') !== this.#binary
+      ) {
+        throw new LuvusAdapterError('attached_process_identity_changed')
+      }
+      for (const [path, stamp] of this.#directories) {
+        if (ownedPathStamp(path, 'directory') !== stamp) {
+          throw new LuvusAdapterError('attached_process_identity_changed')
+        }
+      }
+    } catch (error) {
+      throw error instanceof LuvusAdapterError ? error : new LuvusAdapterError('attached_process_unavailable')
+    }
+  }
+
+  /** 身份只能来自命名管道服务端的内核回答，使用时再次复验对应进程。 */
+  identity(): PeerIdentity {
+    this.assertLive()
+    return this.#peer
+  }
+
+  /** 没有需要释放的内核句柄；从不停止被观察的外部实例。 */
+  close(): void {}
+}
+
+/** 按平台建立只读进程观察：Linux 取自实际 socket 的 SO_PEERCRED，Windows 取自管道服务端 PID。 */
+export function observeLuvusProcess(
+  socket: Socket,
+  config: LuvusLocalConfig,
+  endpoint: EndpointIdentity
+): ObservedNativeProcess {
+  return process.platform === 'win32'
+    ? new WindowsLuvusObservation(endpoint, config)
+    : new LinuxLuvusObservation(socket, config)
 }
 
 /** 从实际已连接 socket 建立只读进程观察，不提供按 PID 认领入口。 */

@@ -1,7 +1,7 @@
 /** 复用受控实例的完整来源绑定和同 socket peer；不签发 token 或建立有限授权策略。 */
 import { isDeepStrictEqual } from 'node:util'
 import type { Socket } from 'node:net'
-import { readLinuxLuvusPeer, LuvusAdapterError } from '../connector/luvus/index.js'
+import { readLuvusPeer, LuvusAdapterError } from '../connector/luvus/index.js'
 import type {
   EndpointIdentity,
   LuvusLocalConfig,
@@ -136,7 +136,7 @@ export abstract class NativeInstanceContext {
     }
     await recheckEndpoint(this.config, endpoint)
     this.source(binding)
-    const peer = readLinuxLuvusPeer(socket)
+    const peer = readLuvusPeer(socket, endpoint)
     if (!isDeepStrictEqual(peer, this.#process.identity())) {
       throw new LuvusAdapterError('owned_peer_mismatch')
     }
@@ -154,7 +154,7 @@ export abstract class NativeInstanceContext {
       !proof ||
       proof.binding !== boundedJson(binding) ||
       !isDeepStrictEqual(evidence.peer, proof.peer) ||
-      !isDeepStrictEqual(readLinuxLuvusPeer(proof.socket), proof.peer) ||
+      !isDeepStrictEqual(readLuvusPeer(proof.socket, evidence.endpoint), proof.peer) ||
       !isDeepStrictEqual(proof.peer, this.#process.identity())
     ) {
       throw new LuvusAdapterError('owned_evidence_untrusted')

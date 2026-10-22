@@ -7,7 +7,15 @@ import { assertBinding, boundedJson, WireError } from '../../wire/index.js'
 import type { AttemptBinding, AuthenticatedEnvelope, JsonObject } from '../../wire/types.js'
 import { aborted, deadline, interruptible, runFixedProcess, runSocket } from './io.js'
 import type { PreparedFrame } from './io.js'
-import { inspectEndpoint, localLimits, pinConfig, recheckEndpoint, verifyInstallation } from './local.js'
+import {
+  LUVUS_ENDPOINT_TRANSPORT,
+  inspectEndpoint,
+  localLimits,
+  pinConfig,
+  recheckEndpoint,
+  recheckInstallation,
+  verifyInstallation
+} from './local.js'
 import { LuvusAdapterError } from './types.js'
 import { assertTerminalExecutionAllowed } from '../terminal-execution.js'
 import type {
@@ -208,7 +216,7 @@ export class LuvusRpcAdapter {
       throw new LuvusAdapterError('native_session_unavailable')
     }
     const endpoint = object(row.endpoint ?? null)
-    if (endpoint.transport !== 'unix_socket' || typeof endpoint.address !== 'string') {
+    if (endpoint.transport !== LUVUS_ENDPOINT_TRANSPORT || typeof endpoint.address !== 'string') {
       throw new LuvusAdapterError('native_endpoint_unsupported')
     }
     return interruptible(inspectEndpoint(this.#config, endpoint.address), signal)
@@ -352,6 +360,8 @@ export class LuvusRpcAdapter {
       const activeSignal = scope.signal
       const native = this.#nativeBoundary(binding, request.payload.native_request.method as string)
       const endpoint = await this.#discover(activeSignal)
+      // 完整摘要验证在打开原生连接之前做完；连接建立后原生对空闲有期限，期间只复核身份戳。
+      const installed = await interruptible(verifyInstallation(this.#config), activeSignal)
       const raw = boundedJson(request)
       const prepare = /* 在已验证传输上获取认证、检查完整帧并申请唯一 claim，返回写入前的同步复核钩子。 */ async (
         evidence: NativeTransportEvidence,
@@ -376,12 +386,12 @@ export class LuvusRpcAdapter {
           terminalBoundary()
         }
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
-        await interruptible(verifyInstallation(this.#config), ioSignal)
+        await interruptible(recheckInstallation(this.#config, installed), ioSignal)
         current()
         // 完整帧预算通过后才占用 durable dispatch claim；claim 必须拒绝已登记 attempt。
         await interruptible(this.#host.claimDispatch(binding, evidence), ioSignal)
         // claim 期间可能改变安装来源；写入前同时重验 binary 和 endpoint。
-        await interruptible(verifyInstallation(this.#config), ioSignal)
+        await interruptible(recheckInstallation(this.#config, installed), ioSignal)
         await interruptible(recheckEndpoint(this.#config, endpoint), ioSignal)
         aborted(ioSignal)
         return {

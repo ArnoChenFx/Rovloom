@@ -252,7 +252,14 @@ export function windowsInspectPath(path: string, kind: WindowsPathKind): string 
       }
     }
     stamps.push(
-      [current, entry.dev, entry.ino, entry.mode, last ? entry.ctimeNs : '', last ? entry.size : ''].join(':')
+      [
+        current,
+        entry.dev,
+        entry.ino,
+        entry.mode,
+        last && kind !== 'directory' ? entry.ctimeNs : '',
+        last && kind !== 'directory' ? entry.size : ''
+      ].join(':')
     )
   }
   return stamps.join('\n')

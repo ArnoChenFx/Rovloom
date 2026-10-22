@@ -7,6 +7,7 @@ import { boundedJson } from '../wire/index.js'
 import { LuvusAdapterError, readLinuxLuvusPeer } from '../connector/luvus/index.js'
 import type { EndpointIdentity, LuvusLocalConfig } from '../connector/luvus/index.js'
 import {
+  LUVUS_ENDPOINT_TRANSPORT,
   localLimits,
   pinConfig,
   measureLuvusInstallation,
@@ -149,7 +150,10 @@ export async function startControlledLuvus(
         throw new LuvusAdapterError('native_control_discovery_invalid')
       }
       if (matches.length === 1) {
-        if (matches[0].endpoint?.transport !== 'unix_socket' || typeof matches[0].endpoint?.address !== 'string') {
+        if (
+          matches[0].endpoint?.transport !== LUVUS_ENDPOINT_TRANSPORT ||
+          typeof matches[0].endpoint?.address !== 'string'
+        ) {
           throw new LuvusAdapterError('native_control_discovery_invalid')
         }
         endpoint = await inspectEndpoint(fixed, matches[0].endpoint.address)

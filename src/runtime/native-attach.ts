@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { createNativeValidator, parseNativeJson } from '../native-contract/index.js'
 import { boundedJson, object } from '../wire/index.js'
-import { LuvusAdapterError, readLinuxLuvusPeer } from '../connector/luvus/index.js'
+import { LuvusAdapterError, readLuvusPeer } from '../connector/luvus/index.js'
 import type { EndpointIdentity, LuvusLocalConfig, NativeTransportEvidence } from '../connector/luvus/index.js'
 import type { AttemptBinding } from '../wire/types.js'
 import {
+  LUVUS_ENDPOINT_TRANSPORT,
   inspectEndpoint,
   localLimits,
   pinConfig,
@@ -16,7 +17,7 @@ import {
 import { aborted, deadline, runFixedProcess, runSocket } from '../connector/luvus/io.js'
 import { parseRpcFrame } from '../connector/luvus/adapter.js'
 import { NativeInstanceContext } from './native-instance-context.js'
-import { observeLinuxLuvusProcess } from './native-process.js'
+import { observeLuvusProcess } from './native-process.js'
 import type { ObservedNativeProcess } from './native-process.js'
 import { MANAGED_LUVUS_REVISION, registerLocalOwnerLuvus, observedLuvusContract } from './native-source.js'
 import type { LocalOwnerLuvusInstance } from './native-source.js'
@@ -123,7 +124,7 @@ export async function attachExistingLuvus(
       throw new LuvusAdapterError('native_session_unavailable')
     }
     const address = object(object(matches[0]).endpoint)
-    if (address.transport !== 'unix_socket' || typeof address.address !== 'string') {
+    if (address.transport !== LUVUS_ENDPOINT_TRANSPORT || typeof address.address !== 'string') {
       throw new LuvusAdapterError('native_endpoint_unsupported')
     }
     const endpoint = await inspectEndpoint(fixed, address.address)
@@ -135,12 +136,12 @@ export async function attachExistingLuvus(
       scope.signal,
       /** 写入前从该实际 socket 的 SO_PEERCRED 建立只读 pidfd/启动身份观察。 */ async (socket) => {
         await recheckEndpoint(fixed, endpoint)
-        observation = observeLinuxLuvusProcess(socket, fixed)
+        observation = observeLuvusProcess(socket, fixed, endpoint)
         return {
           bytes,
           /** 最后一次 await 后继续复核同一内核 peer，防切换或旧 PID 冒充。 */ beforeWrite() {
             observation!.assertLive()
-            if (!isDeepStrictEqual(readLinuxLuvusPeer(socket), observation!.identity())) {
+            if (!isDeepStrictEqual(readLuvusPeer(socket, endpoint), observation!.identity())) {
               throw new LuvusAdapterError('attached_peer_mismatch')
             }
           }

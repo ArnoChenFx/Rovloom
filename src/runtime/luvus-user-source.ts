@@ -39,6 +39,28 @@ function userShell(): string {
 
 /** 自建 server 用用户真实的 HOME 与 shell（Agent 登录、Git 配置才可用），不继承 SSH agent、API key 等其它变量。 */
 export function userLuvusEnvironment(config: LuvusLocalConfig): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') {
+    const system = process.env.SystemRoot ?? 'C:\\Windows'
+    const home = config.user_home!
+    const local = process.env.LOCALAPPDATA
+    const roaming = process.env.APPDATA
+    return {
+      PATH: agentSearchPath(config.agent_bin_dirs, `${system}\\System32;${system}`),
+      // 用户真实的配置位置：Agent 登录、Git 配置才可用；不继承 SSH agent、API key 等其它变量。
+      USERPROFILE: home,
+      HOME: home,
+      ...(roaming && isAbsolute(roaming) ? { APPDATA: roaming } : {}),
+      ...(local && isAbsolute(local) ? { LOCALAPPDATA: local } : {}),
+      TEMP: process.env.TEMP ?? `${home}\\AppData\\Local\\Temp`,
+      TMP: process.env.TMP ?? process.env.TEMP ?? `${home}\\AppData\\Local\\Temp`,
+      LUVUS_HOME: config.state_root,
+      SystemRoot: system,
+      windir: system,
+      ComSpec: process.env.ComSpec ?? `${system}\\System32\\cmd.exe`,
+      PATHEXT: process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD',
+      TERM: 'xterm-256color'
+    }
+  }
   const env: NodeJS.ProcessEnv = {
     PATH: agentSearchPath(config.agent_bin_dirs, '/usr/bin:/bin'),
     HOME: config.user_home!,
@@ -86,7 +108,8 @@ async function startDetachedServer(config: LuvusLocalConfig): Promise<void> {
       env: userLuvusEnvironment(config),
       shell: false,
       stdio: 'ignore',
-      detached: true
+      detached: true,
+      windowsHide: true
     })
   )
   await new Promise<void>((resolve, reject) => {
