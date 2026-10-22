@@ -38,8 +38,8 @@ const server = Bun.serve({
     } catch {
       return new Response('Bad request', { status: 400 })
     }
-    if (pathname.startsWith('/Rovloom/')) {
-      pathname = pathname.slice('/Rovloom'.length)
+    if (pathname.startsWith('/rovloom/')) {
+      pathname = pathname.slice('/rovloom'.length)
     }
     const path = resolve(output, '.' + (pathname === '/' ? '/index.html' : pathname))
     if (!path.startsWith(output + sep)) {
@@ -54,4 +54,4 @@ const server = Bun.serve({
     })
   }
 })
-console.log(`Rovloom site: http://127.0.0.1:${server.port}/Rovloom/`)
+console.log(`Rovloom site: http://127.0.0.1:${server.port}/rovloom/`)

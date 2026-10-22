@@ -1,181 +1,105 @@
-# SQLite 运行治理
+# 存储与数据保留
 
-> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+Gateway 的全部状态保存在单个 SQLite 库 `<data.directory>/gateway.db` 中，单 writer。系统保留默认值与安全语义见 [DESIGN §6](DESIGN.md#6-持久化与默认限额)，部署与升级见 [运维指南](OPERATIONS.md)。
 
-本文说明当前 Store/Router 的本机宿主接口和操作边界。系统保留默认值与安全语义以
-[DESIGN §6](DESIGN.md#6-持久化与默认限额)为准，精确类型见
-[Store](../src/store.ts)、[Router](../src/router.ts)与
-[持久化接线](../src/integration/persistence.ts)。产品 CLI 和管理服务通过 runtime 宿主使用这些
-接口；本节说明进程内存储边界，不把本机维护接口自动开放为远程 API。
+## 数据库与文件
 
-## 状态库与宿主信任
+- 数据库 schema 版本为 6。遇到其他版本拒绝启动（`unsupported_database_version`），不做迁移。
+- SQLite 使用 DELETE journal 与 FULL synchronous，打开时做完整性检查。它依赖操作系统和文件系统的持久性。
+- 访问权限由操作系统决定，程序不检查 UID、现有 mode 或 Windows ACL，也不修改已有文件和目录的权限。新建目录和文件分别请求 `0700` 和 `0600`。
+- 路径必须是规范绝对路径。数据库文件的符号链接会解析到目标；数据库硬链接被拒绝，因为无法确定唯一的写锁路径。
+- 数据目录内的文件和子目录计入受管存储，不要放入不相关文件。符号链接文件按目标大小计入，不递归符号链接目录。
+- Gateway 运行时持有 `gateway.db.lock`，正常退出时删除。异常退出会留下它，Gateway 不会自动删除并拒绝启动。确认没有 Gateway 进程仍在运行后，手工删除该文件再启动。
+- 配置文件和 managed JSON 先写入排他临时文件并同步，再原子发布。已有文件损坏时不会被默认值覆盖。
 
-Store 创建规范 schema v6，只接收全新库或同版本库，拒绝未发布的 v1–v5，且不修改其
-源文件。现存旧库应保留在隔离目录供人工核对；不要靠重命名版本号、补默认 provider 或
-导入旧 key 继续执行。不提供旧库迁移或隐式升级入口。
+## 重启行为
 
-文件库与运行配置使用 Linux/macOS/Windows 的普通文件访问：路径须为绝对规范路径，
-目录与文件类型须正确，访问权限由操作系统决定，不额外检查 UID、现存 mode 或 Windows ACL，
-也不禁止普通符号链接。新建目录/文件仍请求 0700/0600，不修改已有路径的权限。
-数据库的符号链接会解析到同一锁路径；数据库硬链接仍拒绝，避免同库绕过单 writer 锁。
-专用状态目录内的文件与子目录计入受管存储；符号链接文件计入目标大小，不递归符号链接目录。
-不要放入不相关文件。普通文件兼容性不代表各平台原生 Connector 或后台服务均已交付。
+Gateway 重启时：
 
-`.lock` 使用独占创建；成功关闭才释放自己的锁。异常退出留下的锁不会自动删除。
-完整性检查或版本检查失败不能继续写业务。SQLite 使用 FULL synchronous、DELETE journal；
-它们依赖操作系统/文件系统的持久性，不承诺抵抗管理员直接替换整机状态或失效硬件。
+- 在线设备先标记为离线，需要重新连接。
+- 未派发的调用变为 `not_dispatched`。
+- 已派发但未完成的调用变为 `outcome_unknown`，不会重新派发。
 
-Store 是受信进程内接口。认证、当前双端策略、精确本地 binding、契约与分类、原生 endpoint
-来源和确认记录必须独立提供；不能把模型参数、设备广告或 JSON 中的 true 当作这些事实。
-`management` 回调默认不存在，provider 管理、设备撤销、审计读取、备份、降级恢复、解除隔离
-和恢复设备重新配对均因此拒绝。宿主回调须核实真实管理员、独立操作权限、目标、当前 fence
-和一次性真实确认；Store 在同一事务消费 confirmation_id，阻止重复使用。该回调不是管理员
-身份服务的替代品。注册与普通 enrollment 签发也只能置于受保护的本机管理面。
+## 设备凭据
 
-## 设备凭据与生命周期
+设备凭据只以 SHA-256 摘要保存在设备记录中，与设备状态和连接 epoch 在同一事务内更新。
 
-设备凭据的 SHA-256 摘要与设备状态、连接 epoch、`credential_revision` 同在 `machines` 行，所有变化都在
-Store 的单个 writer 事务内完成，没有第二个数据库或外部确认桥。
+- 配对：一次性配对码兑换后生成设备凭据，原值只交给 Connector 保存。
+- 认证：每次连接核对摘要，拒绝已撤销、待确认和重复在线的设备，并分配新的连接 epoch。
+- 凭据不会过期，直到被撤销或重新配对。
+- 撤销：清除凭据，收敛该设备的调用，并断开连接。撤销不表示已发出的原生动作已停止。
+- 重新配对：同一设备 ID 清除旧凭据，回到待配对状态，旧连接立即失效。该设备未派发的调用变为 `not_dispatched`，未完成的调用变为 `outcome_unknown`。命令见 [运维指南](OPERATIONS.md#4-凭据)。
+- 凭据交付失败或结果未知时，Gateway 清除该凭据并要求重新配对。
 
-`redeem(token)` 在一个事务内消费 enrollment、生成凭据、保存摘要并递增 `credential_revision`；
-`connect(machine, credential)` 在一个事务内核对摘要、拒绝 revoked、待确认和重复在线设备，并分配 fresh
-epoch 与审计；`assertConnection(connection, lease?)` 核对当前代次、在线状态、epoch 以及（可选）该
-连接认证时的凭据摘要。返回 epoch 不代表 provider ready。凭据不过期，直到撤销或重配。
+## 调用登记与去重
 
-`resetDeviceEnrollment(machineId, recoveryGeneration, expectedEpoch): void` 供受保护的同 ID 重配使用，
-`expectedEpoch` 必须为当前 epoch 或离线时的 null。独立 `management` 确认的 action 是
-`device_enrollment_reset`，target 是 machineId；fence 是按 `boundedJson` 序列化的
-`{ recovery_generation, connection_epoch: expectedEpoch }`，不能仅按设备名确认。事务清除旧
-credential hash、enrollment 和 epoch，设备变为同 ID pending；该设备所有 providers 的未派发调用变为
-not_dispatched，未完成的已派发调用收敛为 outcome_unknown，不重放旧调用。本库成功 COMMIT 后发布设备级
-fence，释放该设备全部 provider、旧 epoch 的执行/仅响应上下文；即使没有调用行
-也发布。回收通知带可信设备作用域。缺少确认、代次或 epoch 不符、预算或最终提交
-失败均整体回滚且不发布通知；宿主在成功返回后关闭该设备的实际 socket。
+- 每个调用在登记时固定执行期限和保留期限，之后的读取、重试和迟到响应都不会刷新它们。
+- 带 `client_request_key` 的调用按 `(调用方, key)` 去重。窗口等于 `metadata_ttl`。窗口内同 key 同请求返回原调用，同 key 不同请求报 `request_key_conflict`，窗口结束后同 key 视为新调用。没有 key 的调用没有去重保证。
+- 每个调用只派发一次，没有自动重试。重连、超时、取消和重启都不会重新派发。
+- 调用元数据不含响应原文。响应原文只能通过结果读取返回，每次读取都重新检查归属和当前权限。
 
-`denyDelivery(machine, credentialDigest)` 在凭据交付失败或结果未知时，仅当摘要匹配当前凭据才清除它、断开
-在线 epoch，并把设备置为 pending 且要求确认；之后只能经确认的重新配对恢复。降级时也可执行（收紧权限）。
+## 保留期与容量
 
-## 登记、派发与读取
+以下默认值固定，不能通过配置文件修改。
 
-新调用必须带完整 Wire v2 Target、expected binding revision、contract_ref、验证模式与双方
-policy revision。Router 按完整 target/method/action grant 双端求交，并持续重授权读取、派发
-和取消；discard_response 另需独立权限。provider 启停消耗独立管理确认并递增 revision，旧
-attempt/句柄不复用。设备撤销覆盖所有 providers，且不表示原生动作已经停止。
+| 项 | 默认 |
+|---|---|
+| `result_ttl`（结果原文与结果句柄） | 1 小时 |
+| `metadata_ttl`（调用元数据、key 去重窗口、审计） | 30 天 |
+| `content_bytes`（结果原文与句柄总量） | 128 MiB |
+| `storage_total_bytes`（数据库、journal、数据目录文件与备份） | 512 MiB |
+| 安全预留 | 64 MiB，不用于普通准入 |
+| 每次派发预约 | 16 KiB，终态提交时释放 |
+| 备份 | 最多 2 份，保留 7 天，合计不超过 128 MiB |
 
-`Router.admit(principal, target, request, options)` 使用必填的绝对毫秒 `deadline`，返回
-`{ call, created }`；底层为 `Store.admitCall`。首次登记须满足 `now < deadline <= now + 600000`，
-非正安全整数或与 `timeoutMs` 混用返回 invalid_deadline，首次已到期返回 deadline_exceeded。
-双端当前授权、policy revision 复验、完整 provider 绑定、`(principal, client_request_key)` 摘要查询、新行和审计在同一
-writer 事务内完成，预算及 COMMIT 成功后才返回 `created: true`。同主体同 key 的精确重复返回
-原调用及 `created: false`，原执行期限已过也不续期；任何登记条件差异返回
-request_key_conflict。key 的窗口到 `metadata_ttl` 结束，窗口外同 key 即为全新意图。调用方必须仅对首次登记尝试取得派发锚点，
-重复返回即使仍为 created 状态也不得重发；`created: true` 本身不是派发或原生执行许可。
-Router 登记和取消统一返回 `response: null` 的元数据投影；响应原文仅由另经当前 read 授权的
-get/readResult 返回，命中已完成旧调用也不能凭 dispatch/cancel 权限取得原文。
-`runtime_call_get` 每轮由 `Router.get` → `Store.call` 取得最新持久时钟并重验归属、恢复及双端 ACL，
-不跨轮缓存时间。共同 provider 结果层的前置 `Router.checkResultRead` 与实际分页共用句柄、期限和
-参数校验，但不构造正文页；原 Wire 与当前权限末次复验后仍由 `Store.readResult` 重新读页，
-句柄删除或到期必须拒绝。本轮预检成功不授予后续读取权，也不刷新任何期限或取消时钟高水位。
-`Router.saveResult` 先以当前归属、内容和期限读取已有句柄元数据，命中时保留原 ID/摘要/期限，
-不进入签发事务或全量预算检查；缺失时仍由原 `Store.saveResult` 事务执行签发与预算检查。
-provider 结果层在此路径前后仍复验原 Wire 与当前授权，不用缓存句柄代替本次授权。
-Store 的可选 `authorize` 是独立可信宿主参数，必须同步返回 undefined；异常或非 undefined
-返回值回滚登记，不支持异步授权，也不承诺撤销异步回调已产生的外部影响。Router 不从工具 JSON
-接收该回调。内部 `Router.create` / `Store.createCall` 保留相对 `timeoutMs` 和原有 Call 返回值，
-共用上述 writer 登记；旧键仍须匹配首次持续时长，不能按重送时间刷新绝对期限。
+- 内容到期或被丢弃后不能再读取，也不能重新生成句柄。到期时请求和响应原文被清空，丢弃立即清空，状态和摘要证据保留。
+- 结果句柄的期限与内容相同，不单独续期。每页读取返回的 `expires` 是该次读取的绝对截止时间。
+- 过期数据每秒清理一次。读取、派发和响应提交也会检查期限，不依赖清理恰好运行。
+- 调用元数据、审计和安全元数据没有单独的字节配额，由各自 TTL 和总容量约束。
+- 派发预约保证最小终态证据和必要审计有空间写入。`outcome_unknown` 的调用在保留期内一直占用预约。
+- 这些限制是应用层预算，不是操作系统磁盘预留。部署时还应对磁盘、进程和日志设置外部配额。
 
-`createCall` 保存不可变意图和期限；`dispatch` 在同一 writer 事务固定 machine/provider/kind/
-revision、恢复代次、连接 epoch、call/attempt/native ID、契约、登记条件和审计，并预约收尾
-空间。只有事务成功返回的 binding 才可用于实际发送。当前每个调用只允许一次 attempt，
-不提供自动只读重试；重连、超时、取消或重启均不重派。
+## 时钟
 
-宿主可用 persistentBackend 提供账本事实，再注入独立来源创建 Luvus adapter。编码和 native
-派发许可仍须逐次通过真实 native/Wire 门禁；取得 binding 本身不是原生执行授权。响应使用
-commitLuvusResponse：在同一事务重新核对原锚点并执行 adapter.planEvidence，提交成功后才
-能对外发布 durable responded。相同证据幂等，冲突或任何关联不匹配均拒绝。超时/取消审计
-保留，迟到证据另记到达事件，不增加 attempt，也不刷新内容期限。同一合法原生锚点的冲突
-响应拒绝且保留原结果，每个调用在审计保留窗内最多一条脱敏冲突记录；不保存冲突载荷。
-冲突审计须先提交才返回通常的冲突拒绝；配额或提交失败返回 storage_degraded，不声称已记录。
+Gateway 记录已观察到的最大时间。时钟回拨时拒绝相关操作并进入存储降级。它不能证明关机期间经过的真实时间，也不能检测整个数据库连同状态一起被回滚。
 
-`persistentBackend` 订阅 Store 的提交后回收通知。RPC 内容到期或 discard 后，adapter 从原真实
-permit 密封仅响应上下文，释放原请求、候选、permit 和能力广告引用；密封失败或预算不足时
-直接释放执行上下文，不保留原文作为后备。密封元数据与执行缓存共享 attempt 数量及快照字节
-预算，固定原内容/去重期限；`stats` 只返回数量和计量，不暴露业务内容。Store 清理事务失败
-不会发布回收通知，adapter 另有默认每秒的内存期限维护，即使空闲或账本清理失败也按可信时间
-回收原文。`maintenance_interval_ms` 可设为 1–60,000 毫秒；无法取得可信时钟则关闭并释放上下文。
-adapter.close 停止自身定时器并取消订阅；Store.close、重配、断连、撤销、provider fence 或去重到期
-释放对应上下文，不能靠新连接恢复。
+## 存储降级
 
-Store 默认每秒维护到期状态、原文、句柄、墓碑和审计，close 停止定时器；可配置为
-1–60,000 毫秒，确定性测试可显式 expire。读取、派发和响应提交也核对关键期限，不依赖定时器
-恰好运行。Router.wait 只等待本地状态，最多 25 秒，返回 call_id/状态；它不改变执行 deadline。
-未派发到期收敛为 not_dispatched，可能已经送达则保持 outcome_unknown。取消只收敛桥接状态。
+SQLite 写失败、磁盘满、审计或元数据配额耗尽、时钟异常时，Gateway 进入 `storage_degraded`：
 
-## 去重与分层保留
+- 拒绝新的派发、配对、认证和新结果句柄。
+- 仍获授权的有界读取和过期清理继续工作。
+- 失败的响应事务不会发布 `responded`，不会补发原动作。
+- 磁盘满时无法写入的状态由内存保持。已提交的派发记录保留，重启后相应调用为 `outcome_unknown`。
 
-带 `client_request_key` 的调用在 `(principal, key)` 上去重，没有单独的范围对象：查询、冲突判断与首次登记在
-同一事务完成，key 的窗口等于调用元数据的 `metadata_ttl`，窗口内同 key 同摘要返回原调用，不同摘要报
-`request_key_conflict`；窗口结束且墓碑清理后同 key 是新意图。无 key 调用没有客户端重送去重保证，也没有自动重放入口。
+降级状态记录在数据库和 `gateway.db.degraded` 标记文件中，重启后仍然保持。目前没有 CLI 命令解除降级。排除磁盘或权限问题后，按下节从备份恢复。
 
-所有内容从首次登记固定期限，包括保存的请求参数与 inline 响应。句柄仅引用该内容，不复制
-载荷；句柄期限与原内容相同（`result_ttl`），不单独续签。内容到期/discard 后不可重新读取或生成句柄。到期维护将请求和响应清空；discard 即时清空并
-保留状态和摘要证据。metadata-only 迟到证据不复活内容。调用元数据期限即去重墓碑期限，配置缩短不改写既有对象的固定期限。
+## 备份与恢复
 
-`readResult` 的每页返回实际 `results.expires`，是 Store 时钟使用的绝对毫秒截止时间；
-`now < expires` 才有效，等于截止时间即拒绝。句柄期限可以早于原内容期限，不能用
-`content_expires` 替代。读取只查询既有句柄，不调用 saveResult、不重建或续期；若授权检查后
-句柄已被清理或到期，分页元数据查询返回 result_not_found。返回期限仅是本次读取的快照，
-后续 discard、设备撤销或策略撤权仍可提前阻止读取，结果读取继续沿用现有授权及分页上限。
+Store 的备份接口导出一份脱敏快照，包含设备记录、provider 绑定、调用状态和审计，不含：
 
-Store 的时间高水位在内存中随读取推进（读路径不写库），每个写事务提交时持久化该事务时间，
-`close()` 再补写一次，启动时载入。事务外每次观察仍核对宿主时间，不缓存授权、结果或跨操作时钟。时钟回拨进入降级并拒绝相关操作。它不能证明关机
-期间的真实经过时间，也不能自动检测整个数据库与防回滚状态一起回退；恢复必须走隔离流程。
+- 请求与响应原文、结果句柄；
+- 设备凭据摘要和一次性配对码。
 
-## 预算与降级
+快照写入独立的备份目录，不能放在数据目录内。目前没有 CLI 命令导出快照。直接复制整个数据目录得到的是完整状态，包含有效的凭据摘要，恢复后回到备份时点，设备不需要重新配对。
 
-全局预算涵盖 SQLite 已分配/空闲页、事务 journal、状态目录内对象/日志/维护文件，以及配置的
-独立备份目录，受 `storage_total_bytes` 约束；内容原文与结果句柄共用 `content_bytes`，备份受
-`backup_bytes` 约束。调用元数据、审计与安全元数据不再各设字节子额，由各自 TTL 清理和全库总额约束
-（逐表 JSON 统计已移除，写事务不再全表扫描）。provider 数量不会增加总额。默认 64 MiB 安全预留不用于普通准入；
-每个实际 dispatch 固定预约 `attempt_reserve_bytes`（默认 16 KiB）用于最小证据与必要审计，终态提交释放，
-unknown 在保留期内仍占预约，其它调用和管理写入不得占用该预约；事务失败不释放预约。
+从快照恢复时，设备全部回到待配对状态，provider 全部禁用并升版，未完成的调用记为 `outcome_unknown`，内容不可用。
 
-容量检查与提交失败都会阻止发送许可返回；SQLite FULL/I/O、审计/元数据或预留耗尽进入
-storage_degraded。内存、数据库模式和尽力写入的 `.degraded` 标记共同保持拒绝；磁盘满时
-标记本身也可能无法写入，已提交的 dispatch 锚点仍保留，重启保守 unknown。降级阻止新派发、
-新配对/认证和新增句柄；仍获授权的有界读取与清理可继续。失败的响应事务不会发布 responded，
-不会补发原动作，原始 SQL/异常/参数不会写入普通错误。
+恢复步骤：
 
-恢复写入后先合法清理到期数据，核对空间、子额与 SQLite 完整性，再由独立管理调用
-resumeStorage。它不自动重试旧调用。应用预算与预约并非操作系统磁盘预留；备份和其它进程也
-可能抢占空间。部署还须以独立磁盘/进程配额及受管日志策略约束宿主。
+1. 停止 Gateway，确认没有进程仍在写原数据库，并保留原数据目录。
+2. 把快照复制到新的数据目录，保持私有权限，作为 `gateway.db`。
+3. 正常启动 Gateway。没有单独的恢复模式。
+4. 用 `rovloom gateway --repair-device` 和 `rovloom connector --repair` 逐个设备重新配对（见 [运维指南](OPERATIONS.md#4-凭据)），再逐个确认 provider。当前 caller 和本机策略由快照之外的配置提供。
 
-## 备份与受控恢复
+旧的调用、授权和已消费的配对码在恢复后没有任何效力，不会重新派发。
 
-只在隔离测试资源验证这些步骤；真实数据库的清理、删锁或恢复需要另行授权。
+## unknown 对账
 
-1. 用受保护管理面调用 backup，目标为配置的独立 0700 backupDirectory 内全新文件。
-   快照为全新逻辑 SQLite 导出，默认不含请求/响应原文、结果句柄、credential hash 或 enrollment；
-   保留必要最小历史与审计，设备回到 pending、新 generation、provider 禁用并升版、旧 scope 关闭。
-   备份数量、容量和固定 TTL 受限；到期清理不删除带 writer 锁的备份。
-2. 恢复前停旧 writer，并在旧备份之外核实无写进程及源库/锁归属；先保留源备份和相关文件。
-   不自动删崩溃锁，不执行备份内命令，不直接打开仍由原库管理 TTL 的备份作为生产库。复制到
-   全新独立 0700 恢复目录、保持 0600 后才打开。
-3. **备份恢复 = 重新配对**：恢复后的 Gateway 直接以正常模式启动，没有单独的隔离/解除步骤，
-   因为快照里没有任何可用于连接或派发的凭据。旧凭据和 enrollment 仍失效；逐设备重新配对，
-   逐 provider 重新确认并使用新 revision；当前 caller/local 策略由备份外来源提供。
-   快照中的旧管理员数据、权限或已消费配对不具备任何效力。
-4. 旧 attempt/scope/pending 不转绑到新代次，恢复内容保持 unavailable，不因重新授权恢复原文。
-   只为明确的新意图发放新 scope。
+`outcome_unknown` 的调用只能由原连接上同一 attempt 的响应补记。Gateway 核对设备、连接 epoch、完整 provider 绑定和原生句柄后才写入 `responded`，补记不增加 attempt，也不刷新期限。
 
-unknown 对账只允许仍处在原有效连接、同一恢复代次和 binding 的可靠证据，经原 opaque native
-handle 与原生来源复验后补充。内容清理后仍存活的 RPC 密封上下文只允许 metadata-only 对账，
-持续复核完整 binding、契约、能力摘要、原 native ID、method-result 和含 LF 的在线帧预算；不取回
-请求、不授权响应原文读取或保留、不生成派发许可、不续期限。证据事务失败不发布 responded，原有效
-密封上下文保留到其固定期限，受保护恢复后可以对账但不能补发。没有重启后的响应上下文恢复工厂；
-丢失 handle、重启、旧 epoch 或恢复 generation 均保持拒绝，不能从旧 JSON/hash 构造 permit。
-Store 的 metadata-only 事务能力不等于这些原生来源已恢复，也不证明远端动作没有执行。
+连接断开、重启或 provider 失效后，调用保持 `outcome_unknown`。Gateway 不会从旧 JSON 或摘要重建执行上下文，也不证明远端动作没有执行。
 
-SQL DELETE/secure_delete 和逻辑 TTL 均不承诺物理擦除。空闲页、journal、文件系统快照、外部
-副本、已移动备份或设备缓存仍可能残留；受管备份外的副本不会被 Store 自动删除。需要物理销毁
-时使用另行审查的存储生命周期机制，不能以“内容不可读”宣称字节已消失。
+## 物理删除
+
+SQL 删除、`secure_delete` 和 TTL 到期都不承诺物理擦除。空闲页、journal、文件系统快照、外部副本和已移走的备份中仍可能残留数据。需要物理销毁时，应使用单独的存储生命周期机制。

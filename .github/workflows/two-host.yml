@@ -1,4 +1,4 @@
-# 两台“机器”的验收（#153）：Gateway 与 Connector 各在独立容器里（文件系统互不可见，只经 Docker 网络上的真实 TCP 通信），
+# 两台“机器”的验收：Gateway 与 Connector 各在独立容器里（文件系统互不可见，只经 Docker 网络上的真实 TCP 通信），
 # 在真实 TTY 里按 Quick Start 配对，经官方 MCP SDK 走完整 Herdr 链路，并制造网络断开与恢复。
 name: Two-host e2e
 on:

@@ -24,7 +24,6 @@ PNGs, not transparent versions.
 
 Original PNG: **2172 × 724**, **428,629 bytes**.
 SHA256: `e0940cf61b4feee2c6db2226a8fe6c998f057427819f04e40a0902b3639d7dbe`.
-Git blob: `a6aec714299977b40b6bb98a663559e0c5df2993`.
 
 The display SVG embeds the exact original PNG bytes over a white rectangle.
 It contains no remote resources, scripts, font dependencies or redrawn lettering.
@@ -35,6 +34,6 @@ Keep the transparent source and its checksum when updating the display wrapper.
 
 Gateway WebUI builds copy the transparent orange mark and the horizontal wordmark
 into the static artifact without changing bytes, backgrounds or aspect ratios.
-The header and favicon use the standalone transparent orange R; brand resources are served locally.
+The header and favicon use the standalone transparent orange R. Brand resources are served locally.
 
-Gateway WebUI 顶栏与 favicon 使用独立透明背景橙色 R，构建同时保留横版全名图。两者均保持原始字节、背景与纵横比，使用本机静态资源。
+Gateway WebUI 构建将透明背景橙色 R 和横版全名图原样复制到静态产物，不改变字节、背景与纵横比。顶栏与 favicon 使用橙色 R，品牌资源由本机提供。

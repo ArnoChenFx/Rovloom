@@ -1,4 +1,4 @@
-# 真实 Windows runner 上的验收（#173）：Win32 原语、附着官方 Herdr / Luvus，以及按 Quick Start 在 ConPTY 里从零配对并经 MCP 走完整链路（含崩溃恢复）。
+# 真实 Windows runner 上的验收：Win32 原语、附着官方 Herdr / Luvus，以及按 Quick Start 在 ConPTY 里从零配对并经 MCP 走完整链路（含崩溃恢复）。
 name: Windows e2e
 on:
   workflow_dispatch:
