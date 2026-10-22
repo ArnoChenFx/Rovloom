@@ -142,7 +142,7 @@ function certificate(refs) {
 }
 
 /** 子进程固定15秒期限与2MiB输出上限；失败及关闭均等待直接child的真实close。 */
-async function withGateway(binary, f, cwd, env, inspect) {
+async function withGateway(binary, f, cwd, env, inspect, prefix = []) {
   // Windows复用既有角色关停管道；标识仅绑定本轮自有启动，不登记系统任务或声称服务验收。
   const controlId =
     process.platform === 'win32'
@@ -152,7 +152,13 @@ async function withGateway(binary, f, cwd, env, inspect) {
       : undefined
   const child = spawn(
     binary,
-    ['gateway', '--config', f.configPath, ...(controlId ? ['--non-interactive', '--service-id', controlId] : [])],
+    [
+      ...prefix,
+      'gateway',
+      '--config',
+      f.configPath,
+      ...(controlId ? ['--non-interactive', '--service-id', controlId] : [])
+    ],
     {
       cwd,
       env,
@@ -229,11 +235,15 @@ async function withGateway(binary, f, cwd, env, inspect) {
   }
 }
 
-/** 六平台均以实际产品验收Gateway；Windows通过既有管道请求正常关闭，不用强杀充当成功。 */
+/**
+ * 六平台均以实际产品验收Gateway；Windows通过既有管道请求正常关闭，不用强杀充当成功。
+ * launch 用于 npm 包：由绝对路径的 bun 直接运行已安装入口（不复制文件），identity 记录被验收包的摘要。
+ */
 export async function smokeGatewayProduct(
   binary,
   version,
-  assets = loadManagementAssets(join(dirname(binary), 'webui'))
+  assets = loadManagementAssets(join(dirname(binary), 'webui')),
+  launch = undefined
 ) {
   assert(['linux', 'darwin', 'win32'].includes(process.platform), 'product_gateway_storage_platform_unsupported')
   assert(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(version), 'product_smoke_version_required')
@@ -256,9 +266,12 @@ export async function smokeGatewayProduct(
     for (const path of [cwd, home, emptyPath]) {
       mkdirSync(path, { mode: 0o700 })
     }
-    const executable = join(f.root, basename(binary))
-    copyFileSync(binary, executable)
-    const productSha256 = createHash('sha256').update(readFileSync(executable)).digest('hex')
+    const prefix = launch ? [launch.entry] : []
+    const executable = launch ? binary : join(f.root, basename(binary))
+    if (!launch) {
+      copyFileSync(binary, executable)
+    }
+    const productSha256 = launch ? launch.identity : createHash('sha256').update(readFileSync(executable)).digest('hex')
     const env = {
       PATH: emptyPath,
       HOME: home,
@@ -269,7 +282,7 @@ export async function smokeGatewayProduct(
         ? { USERPROFILE: home, TEMP: f.root, TMP: f.root, SystemRoot: process.env.SystemRoot }
         : {})
     }
-    const checked = await runSmokeChild(executable, ['--version'], { cwd, env })
+    const checked = await runSmokeChild(executable, [...prefix, '--version'], { cwd, env })
     assert.equal(checked.status, 0)
     assert.equal(checked.stdout, '')
     assert.equal(checked.stderr, `Rovloom ${version}\n`)
@@ -291,7 +304,17 @@ export async function smokeGatewayProduct(
         assert(page, 'product_gateway_not_listening')
         assert.equal(page.status, 401)
         assert.equal(page.headers.get('set-cookie'), null)
-        const unauthenticated = await fetch(f.callers.resource, { signal: AbortSignal.timeout(1000) })
+        // 管理页与 MCP 监听器相继就绪；同样有界等待 MCP 端口，不依赖二者同时可连。
+        let unauthenticated
+        for (let attempt = 0; attempt < 200 && alive(); attempt++) {
+          try {
+            unauthenticated = await fetch(f.callers.resource, { signal: AbortSignal.timeout(1000) })
+            break
+          } catch {
+            await pause(25)
+          }
+        }
+        assert(unauthenticated, 'product_mcp_not_listening')
         assert.equal(unauthenticated.status, 401)
         const auth = 'Basic ' + Buffer.from(f.lease.caller.principal_id + ':' + managementProof).toString('base64')
         const accepted = await fetch(f.origin, { headers: { authorization: auth } })
@@ -369,7 +392,8 @@ export async function smokeGatewayProduct(
         flow = undefined
         writer.close()
         writer = undefined
-      }
+      },
+      prefix
     )
     for (const name of ['gateway.db.lock']) {
       assert.equal(existsSync(join(f.state, name)), false, 'product_gateway_lock_not_released')

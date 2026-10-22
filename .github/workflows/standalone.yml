@@ -147,3 +147,11 @@ jobs:
           path: |
             dist/release/${{ matrix.target }}/candidate/rovloom*
             dist/release/${{ matrix.target }}/candidate/manifest.json
+      # 放在最后：打包会重新构建并清空 dist/，之前的候选产物必须已经上传。
+      - name: Pack the npm tarball and run it from a clean bun add (CLI, bunx, Gateway start/stop)
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
+          bun --no-env-file scripts/release/npm-package.mjs "$RUNNER_TEMP/npm-package"
+          bun --no-env-file scripts/release/npm-smoke.mjs "$RUNNER_TEMP/npm-package/rovloom-$version.tgz" "$version"
