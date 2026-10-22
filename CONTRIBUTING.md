@@ -1,8 +1,7 @@
 # Contributing
 
-Use Bun (the minimum version is in `package.json` `engines.bun`; CI runs the minimum and the latest).
-Dependencies use `^` ranges; commit `bun.lock` with dependency changes. Project JavaScript and
-TypeScript commands run through Bun.
+Use Bun. The minimum version is in `package.json` under `engines.bun`; CI runs the minimum and the latest.
+Dependencies use `^` ranges; commit `bun.lock` with dependency changes. Run project JavaScript and TypeScript through Bun.
 
 Run the same gates as [CI](.github/workflows/bun.yml) from the repository root:
 
@@ -16,24 +15,14 @@ bun run build
 bun run smoke
 ```
 
-See [package.json](package.json) for individual commands. Maintain tests for the current behavior
-and keep them in the suite run by `bun run test`; skips and disabled tests are not accepted.
-Versioned protocol inputs live under `test/fixtures/`; keep their source/version proof and original bytes.
-Runtime reports and collector output belong outside the checkout.
-As part of each change, review added files and directories for a lasting responsibility:
-group product modules, tools and tests by capability, and keep fixed protocol inputs
-under their provider/version. Reuse existing entry points and checks. A new feature
-directory is welcome when it has a distinct purpose; development phases and issue
-numbers do not define permanent ownership. Remove one-off migration wrappers,
-command logs and duplicate historical snapshots once their useful assertions have
-maintained regression coverage. Use `bun run native:generate` only for reviewed native precompiled input/compiler changes;
-commit the generated catalog and complete assets together. `bun run native:check`
-recompiles independently and every module/standalone build rejects drift.
-Document generators for retained derived inputs,
-and keep native bytes, provenance and licenses needed by current regressions.
-Comments are for readers: describe a module's responsibility, public interfaces, non-obvious
-constraints and security decisions. Do not restate names, and keep execution logs out of code.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the individual commands, build output, fixtures and browser checks.
 
-Keep English/Chinese README shell blocks and each architecture diagram synchronized.
-Put worker logs, command output, handovers and per-run acceptance summaries in CI/PR evidence
-or a temporary directory; keep versioned fixtures, provenance and maintained contracts in the repository.
+## Guidelines
+
+- Keep tests for current behavior in the suite run by `bun run test`. Skipped or disabled tests are not accepted.
+- Versioned protocol inputs live under `test/fixtures/`. Keep their source and version proof and the original bytes.
+- Group modules, tools and tests by lasting responsibility, not by development phase. Reuse existing entry points and checks. A new directory is welcome when it has a distinct purpose.
+- Remove one-off migration wrappers, command logs and duplicate snapshots once maintained tests cover their assertions.
+- Comments describe a module's responsibility, public interfaces, non-obvious constraints and security decisions. Do not restate names or include execution logs.
+- Keep the English and Chinese README shell blocks and each architecture diagram in sync.
+- Keep worker logs, command output and per-run acceptance summaries in CI/PR evidence or a temporary directory outside the checkout.

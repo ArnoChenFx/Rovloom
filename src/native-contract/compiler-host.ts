@@ -169,11 +169,14 @@ export class SchemaCompiler {
   #closed = false
 
   // 由受信模块固定 Worker 工厂；不在公共编译 API 接收代码或文件路径。
-  constructor(private readonly createWorker: () => CompilerPort) {}
+  constructor(
+    private readonly createWorker: () => CompilerPort,
+    private readonly timeoutMs = COMPILE_TIMEOUT_MS
+  ) {}
 
   // 输入先复制并计量，计时覆盖 Worker 启动、生成、消息与主线程代码初始化；不承诺硬实时物理退出。
   compile(bytes: Uint8Array | string, options: CompileOptions, signal?: AbortSignal): Promise<Check<CompiledContract>> {
-    const until = performance.now() + COMPILE_TIMEOUT_MS
+    const until = performance.now() + this.timeoutMs
     if (this.#closed) {
       return Promise.resolve(failure('compiler_unavailable'))
     }

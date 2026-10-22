@@ -86,6 +86,14 @@ export class DeviceLedger {
     }
     return Number(row.credential_revision)
   }
+  // 当前连接 epoch（离线为 null），供管理确认绑定精确 fence；不含任何凭据信息。
+  deviceEpoch(machine: string): string | null {
+    const row = this.db.prepare('SELECT epoch FROM machines WHERE machine_id=?').get(machine)
+    if (!row) {
+      throw new GatewayError('machine_not_found')
+    }
+    return typeof row.epoch === 'string' ? row.epoch : null
+  }
   /** 私有读取设备行，批观察不经可由宿主覆盖的公开入口。 */
   storedMachine(machine_id: string): Machine {
     const row = this.db.prepare('SELECT machine_id,name,status FROM machines WHERE machine_id=?').get(machine_id)

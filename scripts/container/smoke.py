@@ -39,7 +39,7 @@ def check_gateway(name):
     html = command('exec', name, 'curl', '--noproxy', '*', '--fail', '--silent', 'http://127.0.0.1:9445/')
     assert 'browser.js' in html and 'manage.css' in html
     assert 'rovloom-management-bootstrap' not in html
-    for resource in ['browser.js', 'theme.js', 'manage.css', 'rovloom-mark-orange.png', 'rovloom-logo.png']:
+    for resource in ['browser.js', 'theme.js', 'manage.css', 'rovloom-mark-transparent.png', 'rovloom-logo.png']:
         command('exec', name, 'curl', '--noproxy', '*', '--fail', '--silent', '--output', '/dev/null',
                 'http://127.0.0.1:9445/' + resource)
     command('exec', name, 'test', '-s', '/home/rovloom/.local/share/rovloom/gateway/gateway.db')

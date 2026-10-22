@@ -33,7 +33,7 @@ export async function buildWebui(directory) {
   for (const asset of ['index.html', 'manage.css']) {
     copyFileSync(`src/webui/${asset}`, resolve(directory, asset))
   }
-  for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
+  for (const asset of ['rovloom-mark-transparent.png', 'rovloom-logo.png']) {
     copyFileSync(`docs/assets/brand/${asset}`, resolve(directory, asset))
   }
   return browser.outputs.length + theme.outputs.length

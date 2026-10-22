@@ -111,6 +111,8 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
           identities: resource.options.identities,
           localPolicies: resource.options.localPolicies,
           catalog: resource.catalog ?? gateway.catalog,
+          // 管理页的连接、认证与 provider 就绪来自同一个实际传输的只读观测。
+          transportObservations: gateway.transport.observations,
           managementCapabilities: managementOptions
             ? /* 只观察已装配端口及当前持久状态，不在提示读取时执行启用证明或确认。 */ (target) => {
                 const capabilities = ['devices_rename', 'devices_disconnect', 'devices_revoke'] as const

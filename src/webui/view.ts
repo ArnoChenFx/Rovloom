@@ -29,12 +29,6 @@ const authenticationNames = {
   expired: 'authentication.expired',
   revoked: 'authentication.revoked'
 } as const satisfies Record<string, MessageKey>
-const runtimeNames = {
-  ready: 'runtime.ready',
-  unreachable: 'runtime.unreachable',
-  binding_mismatch: 'runtime.binding_mismatch',
-  migration_unresolved: 'runtime.migration_unresolved'
-} as const satisfies Record<string, MessageKey>
 const readinessNames = {
   ready: 'readiness.ready',
   unavailable: 'readiness.unavailable',
@@ -254,7 +248,7 @@ function deviceBadges(device: DeviceSnapshot, freshness: Freshness): HTMLElement
 }
 
 /** 只展示未接后端操作的含义，不提交确认或变更。 */
-function unavailableActions(kind: 'device' | 'provider' | 'list', i18n: Localizer): HTMLElement {
+function unavailableActions(kind: 'device' | 'provider', i18n: Localizer): HTMLElement {
   const { t } = i18n
   const section = node('section', '', 'actions')
   const noteId = `unavailable-${kind}`
@@ -262,11 +256,7 @@ function unavailableActions(kind: 'device' | 'provider' | 'list', i18n: Localize
   note.id = noteId
   section.append(note)
   const labels =
-    kind === 'list'
-      ? [t('actions.register')]
-      : kind === 'provider'
-        ? [t('actions.provider')]
-        : [t('actions.rename'), t('actions.pair'), t('actions.disconnect'), t('actions.revoke')]
+    kind === 'provider' ? [t('actions.provider')] : [t('actions.rename'), t('actions.disconnect'), t('actions.revoke')]
   for (const label of labels) {
     const button = node('button', label)
     button.type = 'button'
@@ -294,14 +284,11 @@ function deviceActions(page: PageView, freshness: Freshness, connected: boolean)
     current(page.device.observed_at, freshness) &&
     current(permission.observed_at, freshness) &&
     freshness.now < permission.expires_at
-  const actions = ['device_rename', null, 'device_disconnect', 'device_revoke'] as const
-  const grants = ['devices_rename', '', 'devices_disconnect', 'devices_revoke']
+  const actions = ['device_rename', 'device_disconnect', 'device_revoke'] as const
+  const grants = ['devices_rename', 'devices_disconnect', 'devices_revoke']
   const buttons = section.querySelectorAll('button')
   for (let index = 0; index < actions.length; index++) {
-    const action = actions[index]
-    if (!action) {
-      continue
-    }
+    const action = actions[index]!
     const button = buttons[index]!
     button.dataset.deviceAction = action
     button.disabled =
@@ -311,20 +298,11 @@ function deviceActions(page: PageView, freshness: Freshness, connected: boolean)
           decision.action === grants[index] && decision.allowed && decision.reason_code === 'allowed'
       )
   }
-  const pair = buttons[1]!
-  pair.dataset.pairingAction = 'create'
-  pair.textContent = freshness.i18n.t('pairing.new')
-  pair.disabled = !allowed || page.device?.persisted_state !== 'pending'
-  const progress = node('button', freshness.i18n.t('pairing.lookup'))
-  progress.type = 'button'
-  progress.dataset.pairingAction = 'lookup'
-  progress.disabled = !allowed
-  section.append(progress, node('p', freshness.i18n.t('pairing.repairUnavailable'), 'muted'))
   return section
 }
 
 /** 列表只展示后端返回的授权页，不将页长宣称为设备总数。 */
-function deviceList(page: PageView, freshness: Freshness, management = false): PageSection {
+function deviceList(page: PageView, freshness: Freshness): PageSection {
   const { i18n } = freshness
   const { t } = i18n
   const heading = node('header', '', 'page-heading')
@@ -392,19 +370,6 @@ function deviceList(page: PageView, freshness: Freshness, management = false): P
     list.append(row)
   }
   section.append(list)
-  const actions = unavailableActions('list', i18n)
-  const register = actions.querySelector('button')!
-  register.dataset.pairingAction = 'create'
-  register.disabled = !management
-  const progress = node('button', t('pairing.lookup'))
-  progress.type = 'button'
-  progress.dataset.pairingAction = 'lookup'
-  progress.disabled = !management
-  actions.append(progress)
-  if (management) {
-    actions.querySelector('p')!.textContent = t('pairing.createNote')
-  }
-  section.append(actions)
   if (page.devices.next_cursor !== undefined) {
     const next = node('a', t('devices.next'), 'button-link')
     next.href = routeHref({ machineId: null, cursor: page.devices.next_cursor, providerCursor: null })
@@ -438,15 +403,8 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
     header.append(node('h3', `${provider.kind === 'luvus' ? 'Luvus' : 'Herdr'} · ${provider.provider_id}`))
     const states = node('div', '', 'provider-states')
     const registryCurrent = current(provider.observed_at, freshness)
-    const runtime = provider.runtime.verification === 'verified' ? provider.runtime : null
-    const runtimeCurrent = runtime !== null && current(runtime.observed_at, freshness)
     const ready =
-      registryCurrent &&
-      provider.enabled &&
-      provider.readiness === 'ready' &&
-      runtimeCurrent &&
-      runtime.value.state === 'ready' &&
-      currentDeviceLink(device, freshness)
+      registryCurrent && provider.enabled && provider.readiness === 'ready' && currentDeviceLink(device, freshness)
     states.append(
       badge(
         registryCurrent
@@ -467,23 +425,6 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
         ready ? 'good' : 'warning'
       )
     )
-    states.append(
-      runtime
-        ? badge(
-            runtimeCurrent
-              ? t(runtimeNames[runtime.value.state])
-              : t('providers.runtimeHistory', { state: t(runtimeNames[runtime.value.state]) }),
-            runtimeCurrent ? 'neutral' : 'warning'
-          )
-        : badge(
-            t('providers.runtimeUnknown', {
-              reason: i18n.reason(
-                provider.runtime.verification === 'unverified' ? provider.runtime.reason_code : 'not_recorded'
-              )
-            }),
-            'warning'
-          )
-    )
     header.append(states)
     row.append(header)
     row.append(
@@ -491,24 +432,7 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
         [
           [t('providers.bindingRevision'), String(provider.binding_revision)],
           [t('providers.configRef'), provider.config_ref ?? t('value.unverified')],
-          [
-            runtimeCurrent ? t('providers.contractRef') : t('providers.contractHistory'),
-            runtime?.value.contract_ref ?? t('value.noExecutionPermission')
-          ],
-          [
-            t('providers.digests'),
-            runtime
-              ? `${runtime.value.binary_sha256 ?? t('value.unverified')} / ${runtime.value.schema_sha256 ?? t('value.unverified')}`
-              : t('value.unverified')
-          ],
-          [t('providers.classification'), runtime?.value.classification_revision ?? t('value.unverified')],
-          [
-            runtimeCurrent ? t('providers.transports') : t('providers.transportsHistory'),
-            runtime?.value.supported_transports.join(' · ') || t('value.unverified')
-          ],
-          [t('providers.source'), runtime?.source ?? t('value.unverified')],
-          [t('providers.observed'), observationTime(provider.observed_at, freshness)],
-          [t('providers.nativeObserved'), observationTime(runtime?.observed_at ?? null, freshness)]
+          [t('providers.observed'), observationTime(provider.observed_at, freshness)]
         ],
         'provider-facts'
       )
@@ -519,13 +443,7 @@ function providerList(page: PageView, device: DeviceSnapshot, freshness: Freshne
     disable.dataset.providerAction = 'disable'
     disable.dataset.providerId = provider.provider_id
     disable.disabled = !management || !registryCurrent || !current(device.observed_at, freshness) || !provider.enabled
-    const enable = node('button', t('provider.enable'))
-    enable.type = 'button'
-    enable.disabled = true
-    const note = node('p', t('provider.unavailable'), 'muted')
-    note.id = `provider-unavailable-${provider.provider_id}`
-    enable.setAttribute('aria-describedby', note.id)
-    actions.append(disable, enable, note)
+    actions.append(disable)
     row.append(actions)
     section.append(row)
   }
@@ -752,7 +670,7 @@ export function renderPage(
     }
     const section =
       route.machineId === null
-        ? deviceList(page, freshness, management && status.mode === 'active' && !state.stale)
+        ? deviceList(page, freshness)
         : deviceDetail(page, freshness, management && status.mode === 'active' && !state.stale)
     view.append(section.heading, gateway, section.body)
   }

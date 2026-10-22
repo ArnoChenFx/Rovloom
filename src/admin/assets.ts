@@ -37,7 +37,7 @@ export function loadManagementAssets(directory: string): ManagementAssets {
     '/browser.js',
     '/theme.js',
     '/manage.css',
-    '/rovloom-mark-orange.png',
+    '/rovloom-mark-transparent.png',
     '/rovloom-logo.png'
   ]) {
     if (!result.has(path)) {

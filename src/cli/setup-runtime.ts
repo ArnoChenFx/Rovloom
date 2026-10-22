@@ -1,9 +1,11 @@
 // 将真实本地终端的首次引导接到唯一CLI；离线命令和非TTY运行不创建确认对象或读取stdin。
 import type { RoleConfig, GatewayConfig } from './config.js'
-import type { CliIo, RunningConnector } from './run.js'
+import type { CliIo, CliPrepareOptions, RunningConnector } from './run.js'
 import { SetupTerminal } from './setup-terminal.js'
 import { GatewaySetup } from './setup-gateway.js'
 import { setupConnector } from './setup-connector.js'
+import { repairConnector } from './setup-repair.js'
+import { CliError } from './config.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import { HerdrLocalError } from '../connector/herdr/local.js'
 import { readRuntimeConfig } from './runtime-config.js'
@@ -16,14 +18,39 @@ export class CliSetup {
   #observation: ReturnType<typeof setInterval> | undefined
 
   // 仅角色命令在读到实际用户文件后调用；缺少OS TTY时保留原明确待配置行为。
-  async prepare(config: RoleConfig, path: string, io: CliIo): Promise<RoleConfig> {
+  async prepare(config: RoleConfig, path: string, io: CliIo, options?: CliPrepareOptions): Promise<RoleConfig> {
     const terminal = SetupTerminal.open(path, config, io)
     if (!terminal) {
+      // 重新配对必须有已核验的本地终端；没有时明确拒绝，而不是悄悄按普通启动继续。
+      if (options?.repair || options?.addDevice) {
+        throw new CliError('configuration_required')
+      }
       return config
     }
     this.#terminal = terminal
     if (config.role === 'connector') {
+      if (options?.repair) {
+        await repairConnector(config, terminal)
+        terminal.finishQuestions()
+        return config
+      }
       return await setupConnector(config, terminal)
+    }
+    if (options?.addDevice) {
+      // 在已完成的引导之上加入下一台设备；没有任何引导记录时请直接运行 rovloom gateway 完成首次配对。
+      if (readSetupJson(runtimeReference(config.state_dir, 'setup-active')) === undefined) {
+        throw new CliError('configuration_required')
+      }
+      this.#gateway = new GatewaySetup(config, terminal, { addDevice: true })
+      return config
+    }
+    if (options?.repair) {
+      // 只能重新配对引导式配对过的设备：必须已有 Gateway 的引导记录。
+      if (readSetupJson(runtimeReference(config.state_dir, 'setup-active')) === undefined) {
+        throw new CliError('configuration_required')
+      }
+      this.#gateway = new GatewaySetup(config, terminal, { repair: true })
+      return config
     }
     if (
       readRuntimeConfig(config).providers.length &&

@@ -18,7 +18,7 @@ export type ManagementPageLeaseSource = (
 export function createManagementPageInitializer(
   authority: ManagementSessionAuthority,
   resolveLease: ManagementPageLeaseSource,
-  options: Readonly<{ challenge?: 'basic' }> = {}
+  options: Readonly<{ challenge?: 'basic' | (() => 'basic' | undefined) }> = {}
 ): NonNullable<ManagementHttpOptions['initializePage']> {
   if (typeof resolveLease !== 'function') {
     throw new Error('management_page_source_required')
@@ -43,7 +43,9 @@ export function createManagementPageInitializer(
         throw new ReadError('unavailable')
       }
       if (lease === null) {
-        if (options.challenge === 'basic') {
+        // challenge 可以是随每次请求重新计算的函数：尚无管理员时不挑战，仍交付只读页面壳。
+        const challenge = typeof options.challenge === 'function' ? options.challenge() : options.challenge
+        if (challenge === 'basic') {
           const headers = new Headers(page.headers)
           headers.delete('content-length')
           headers.set('cache-control', 'no-store')

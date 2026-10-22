@@ -22,7 +22,7 @@ const shell = join(root, 'scripts/install.sh')
 const payload = Buffer.from('synthetic release bytes, never executed\n')
 const digest = createHash('sha256').update(payload).digest('hex')
 const version = '0.2.3'
-const latestEndpoint = 'https://github.com/ArnoChenFx/Rovloom/releases/latest'
+const latestEndpoint = 'https://github.com/ArnoChenFx/rovloom/releases/latest'
 
 /** 假命令只选择合成资产；保留当前 PATH 并补充测试所需的 POSIX 工具路径。 */
 function fixture({
@@ -30,7 +30,7 @@ function fixture({
   arch = 'x86_64',
   libc = 'glibc 2.39',
   failure = '',
-  latestUrl = `https://github.com/ArnoChenFx/Rovloom/releases/tag/v${version}`
+  latestUrl = `https://github.com/ArnoChenFx/rovloom/releases/tag/v${version}`
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'rovloom-install-'))
   const commands = join(directory, 'commands')
@@ -82,13 +82,13 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s\\n' "$url" >> "$FIXTURE_REQUESTS"
 case "$url" in
-  https://github.com/ArnoChenFx/Rovloom/releases/latest)
+  https://github.com/ArnoChenFx/rovloom/releases/latest)
     [ "$FIXTURE_FAILURE" != latest-404 ] || exit 22
     printf '%s' "$FIXTURE_LATEST_URL" ;;
-  https://github.com/ArnoChenFx/Rovloom/releases/download/v0.2.3/SHA256SUMS)
+  https://github.com/ArnoChenFx/rovloom/releases/download/v0.2.3/SHA256SUMS)
     [ "$FIXTURE_FAILURE" != checksums-404 ] || exit 22
     /bin/cp "$FIXTURE_CHECKSUMS" "$output" ;;
-  "https://github.com/ArnoChenFx/Rovloom/releases/download/v0.2.3/$FIXTURE_ASSET")
+  "https://github.com/ArnoChenFx/rovloom/releases/download/v0.2.3/$FIXTURE_ASSET")
     [ "$FIXTURE_FAILURE" != binary-404 ] || exit 22
     /bin/cp "$FIXTURE_BINARY" "$output" ;;
   *) exit 91;;
@@ -172,8 +172,8 @@ if (process.platform !== 'win32') {
         assert.deepEqual(readdirSync(f.install), ['rovloom'])
         assert.deepEqual(readFileSync(f.requests, 'utf8').trim().split('\n'), [
           latestEndpoint,
-          `https://github.com/ArnoChenFx/Rovloom/releases/download/v${version}/SHA256SUMS`,
-          `https://github.com/ArnoChenFx/Rovloom/releases/download/v${version}/${f.asset}`
+          `https://github.com/ArnoChenFx/rovloom/releases/download/v${version}/SHA256SUMS`,
+          `https://github.com/ArnoChenFx/rovloom/releases/download/v${version}/${f.asset}`
         ])
       } finally {
         f.close()
@@ -205,12 +205,12 @@ if (process.platform !== 'win32') {
       for (const input of [
         { failure: 'latest-404' },
         { latestUrl: 'https://github.com/foreign/Rovloom/releases/tag/v0.2.3' },
-        { latestUrl: 'http://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3' },
-        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3-rc.1' },
-        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v00.2.3' },
-        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3?x=1' },
-        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/0.2.3' },
-        { latestUrl: 'https://github.com/ArnoChenFx/Rovloom/releases/tag/v0.2.3\nforeign' }
+        { latestUrl: 'http://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3' },
+        { latestUrl: 'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3-rc.1' },
+        { latestUrl: 'https://github.com/ArnoChenFx/rovloom/releases/tag/v00.2.3' },
+        { latestUrl: 'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3?x=1' },
+        { latestUrl: 'https://github.com/ArnoChenFx/rovloom/releases/tag/0.2.3' },
+        { latestUrl: 'https://github.com/ArnoChenFx/rovloom/releases/tag/v0.2.3\nforeign' }
       ]) {
         const f = fixture(input)
         try {

@@ -6,9 +6,8 @@ import type { ReaderState } from './reader.js'
 import { createLocalizer } from './i18n.js'
 import { createUiPreferences, type UiPreferences } from './preferences.js'
 import { createPreferenceControl } from './preference-control.js'
-import { createPairingProgress } from './pairing-progress.js'
 import { createDeviceActions } from './device-actions.js'
-import type { ManagementWriteTransport, DeviceManagementIntent } from './write-contract.js'
+import type { ManagementWriteTransport } from './write-contract.js'
 
 /** 接入共享管理读取后的页面投影函数；不是授权接口，不能代替每次后端鉴权。 */
 export type PageRead = (route: Readonly<PageRoute>, signal: AbortSignal) => Promise<TimedSnapshot<PageView>>
@@ -41,7 +40,7 @@ export function mountWebUi(
   const brand = element('a', '', 'brand')
   brand.href = '#'
   const logo = element('img', '', 'brand-logo')
-  logo.src = './rovloom-mark-orange.png'
+  logo.src = './rovloom-mark-transparent.png'
   logo.alt = 'Rovloom'
   logo.width = 48
   logo.height = 48
@@ -94,22 +93,6 @@ export function mountWebUi(
   let reader: SnapshotReader<PageView>
   let disposed = false
   let i18n = createLocalizer('en')
-  const pairing = management
-    ? createPairingProgress({
-        transport: management,
-        /** 取消申请与其它管理动作共用同一个确认/未知回执实例。 */
-        cancel(machine_id, pairing_id, trigger) {
-          actions?.open({ action: 'pairing_cancel', machine_id, pairing_id }, trigger)
-        },
-        /** 失效会话清空整个页面，进度403则由局部控件说明。 */
-        authorizationLost() {
-          reader.dispose()
-          actions?.clear()
-          pairing?.clear()
-          paint({ snapshot: null, pending: false, stale: true, ageMs: 0, problem: 'unauthenticated' }, route)
-        }
-      })
-    : undefined
   const actions = management
     ? createDeviceActions({
         transport: management,
@@ -120,10 +103,6 @@ export function mountWebUi(
             start()
           }
         },
-        /** 注册回执仅携带原申请引用，不自动获取新设备权限。 */
-        pairingCreated(machine, id) {
-          pairing?.open(machine, id)
-        },
         /** 写请求发现会话/权限失效时同样清空读数据，不能让旧页面继续操作。 */
         authorizationLost(problem) {
           if (disposed) {
@@ -131,13 +110,12 @@ export function mountWebUi(
           }
           reader.dispose()
           actions?.clear()
-          pairing?.clear()
           paint({ snapshot: null, pending: false, stale: true, ageMs: 0, problem }, route)
         }
       })
     : undefined
   if (actions) {
-    footer.before(actions.region, pairing!.region)
+    footer.before(actions.region)
   }
 
   /** 稳定工具栏与当前快照重新本地化；不替换 reader、路由、等待信号或时间锚点。 */
@@ -158,14 +136,8 @@ export function mountWebUi(
     sectionLink.setAttribute('aria-current', current.machineId === null ? 'page' : 'location')
     if (['unauthenticated', 'forbidden', 'not_found'].includes(state.problem ?? '')) {
       actions?.clear()
-      pairing?.clear()
     }
     actions?.update(
-      i18n,
-      !!state.snapshot && !state.stale && state.snapshot.value.status.mode === 'active',
-      state.snapshot ? state.snapshot.observedAt + state.ageMs : undefined
-    )
-    pairing?.update(
       i18n,
       !!state.snapshot && !state.stale && state.snapshot.value.status.mode === 'active',
       state.snapshot ? state.snapshot.observedAt + state.ageMs : undefined
@@ -238,9 +210,7 @@ export function mountWebUi(
   function deviceAction(event: MouseEvent): void {
     const button =
       event.target instanceof Element
-        ? event.target.closest<HTMLButtonElement>(
-            'button[data-device-action],button[data-provider-action],button[data-pairing-action]'
-          )
+        ? event.target.closest<HTMLButtonElement>('button[data-device-action],button[data-provider-action]')
         : null
     if (!actions || !button || button.disabled || !content.contains(button)) {
       return
@@ -248,20 +218,6 @@ export function mountWebUi(
     const snapshot = reader.state()
     const page = snapshot.snapshot?.value
     if (!page || snapshot.stale || page.status.mode !== 'active') {
-      return
-    }
-    if (button.dataset.pairingAction === 'lookup') {
-      pairing?.open(page.device?.machine_id)
-      return
-    }
-    if (button.dataset.pairingAction === 'create') {
-      const value: DeviceManagementIntent = page.device
-        ? { action: 'pairing_create', machine_id: page.device.machine_id, policy_ref: '' }
-        : { action: 'pairing_create', name: '', labels: [], policy_ref: '' }
-      if (page.device && page.device.persisted_state !== 'pending') {
-        return
-      }
-      actions.open(value, button)
       return
     }
     const device = page.device
@@ -298,7 +254,6 @@ export function mountWebUi(
   /** 哈希导航、后退与分页都先清理旧路由资源，再获取新目标。 */
   function navigate(): void {
     actions?.suspend()
-    pairing?.suspend()
     language.close()
     theme.close()
     if (location.hash === '#management-content') {
@@ -315,7 +270,6 @@ export function mountWebUi(
   function visibility(): void {
     if (document.visibilityState === 'hidden') {
       actions?.suspend()
-      pairing?.suspend()
     }
     reader.visible(document.visibilityState !== 'hidden')
   }
@@ -333,7 +287,6 @@ export function mountWebUi(
   /** 页面离开时销毁在途请求及定时器，后退不会重复任何写入。 */
   function hide(): void {
     actions?.suspend()
-    pairing?.suspend()
     language.close()
     theme.close()
     reader.dispose()
@@ -348,7 +301,6 @@ export function mountWebUi(
     disposed = true
     reader.dispose()
     actions?.dispose()
-    pairing?.dispose()
     content.removeEventListener('click', deviceAction)
     skip.removeEventListener('click', skipContent)
     refresh.removeEventListener('click', refreshPage)

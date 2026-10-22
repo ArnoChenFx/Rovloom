@@ -169,16 +169,37 @@ export async function measureLuvusInstallation(binary: string): Promise<Readonly
   return Object.freeze({ stamp: before, sha256: digest.digest('hex') })
 }
 
+// 已按完整摘要核验过的安装：路径+期望摘要 → 核验当时的路径链身份戳。
+// 摘要要读完整个二进制，Windows 慢盘上一次可达 8–10 秒，而一次调用会用到两次（会话发现与派发）；
+// 身份戳（dev、ino、ctime 纳秒、大小、属主、模式，含整条路径链）不变就说明文件没有被改写，不必重读。
+// 任何变化（包括被替换成同内容的新文件）都会使缓存失效并重新计算完整摘要。
+const verifiedInstallations = new Map<string, string>()
+let measurements = 0
+
+/** 完整摘要实际计算的次数，仅供回归测试确认缓存生效。 */
+export function installationMeasurementCount(): number {
+  return measurements
+}
+
 /** 检查本轮实际安装未被替换，同时要求状态和子进程目录保持私有。 */
 export async function verifyInstallation(config: LuvusLocalConfig): Promise<string> {
-  const measured = await measureLuvusInstallation(config.binary)
-  if (measured.sha256 !== config.binary_sha256) {
-    throw new LuvusAdapterError('binary_identity_changed')
+  const key = config.binary + '\0' + config.binary_sha256
+  const current = await inspect(config.binary, 'binary')
+  let stamp = current
+  if (verifiedInstallations.get(key) !== current) {
+    verifiedInstallations.delete(key)
+    measurements++
+    const measured = await measureLuvusInstallation(config.binary)
+    if (measured.sha256 !== config.binary_sha256) {
+      throw new LuvusAdapterError('binary_identity_changed')
+    }
+    verifiedInstallations.set(key, measured.stamp)
+    stamp = measured.stamp
   }
   for (const path of [config.state_root, config.home, config.cwd, ...childDirectories(config)]) {
     await inspect(path, 'directory')
   }
-  return measured.stamp
+  return stamp
 }
 /**
  * 不重算摘要的安装复核：二进制与各私有目录的路径链身份戳必须与 {@link verifyInstallation} 当时一致。

@@ -63,7 +63,7 @@ export async function responseJson(response: Response): Promise<Record<string, u
 }
 
 // URL只由严格角色origin解析；系统TLS验证和fetch重定向拒绝保持开启，原body不会发给另一origin。
-async function post(config: ConnectorConfig, path: string, value: unknown, signal: AbortSignal, timeout = 5000) {
+export async function post(config: ConnectorConfig, path: string, value: unknown, signal: AbortSignal, timeout = 5000) {
   const origin = new URL(config.gateway_url)
   origin.protocol = origin.protocol === 'wss:' ? 'https:' : 'http:'
   return await responseJson(
@@ -221,7 +221,11 @@ async function pair(
     },
     terminal.io.signal
   )
-  fields(status, ['attempt_id', 'machine_id', 'recovery_generation', 'phase', 'authorization'])
+  fields(status, ['attempt_id', 'machine_id', 'recovery_generation', 'phase', 'authorization'], ['lineage'])
+  // 加入第 2 台及以后设备时，Gateway 告知沿用的策略修订标签；它只是命名，授权内容仍须与本机推导的完全相同。
+  if (status.lineage !== undefined) {
+    id(status.lineage)
+  }
   if (
     status.attempt_id !== current.attempt_id ||
     status.machine_id !== credential.machine_id ||
@@ -234,7 +238,11 @@ async function pair(
   fields(authorization, ['principal_id', 'policies'])
   id(authorization.principal_id)
   const expected = selectedSetupPolicies(
-    { attempt_id: current.attempt_id, actor: authorization.principal_id },
+    {
+      attempt_id: current.attempt_id,
+      actor: authorization.principal_id,
+      ...(status.lineage ? { lineage: status.lineage as string } : {})
+    },
     credential.machine_id,
     selectedNativeProviders(config),
     setupSessionsFor(config)

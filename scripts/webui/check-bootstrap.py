@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """通过真实 Chromium 验证生产 browser.js 消费 CLI meta；仅连接显式临时 Store/会话 fixture。"""
+import os
 import argparse
 import json
 from pathlib import Path
@@ -29,7 +30,7 @@ def main():
         errors.append(str(error))
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         for variant in ['valid', 'missing', 'duplicate', 'bad_token', 'bad_expiry', 'expired', 'live_expiry', 'no_root', 'permanent_exit']:
             context = browser.new_context(locale='en', viewport={'width': 1280, 'height': 900})
             reset = context.request.post(base + '/__fixture', data={'mode': 'reset'}, headers={'origin': base})

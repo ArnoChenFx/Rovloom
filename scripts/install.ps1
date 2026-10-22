@@ -20,7 +20,7 @@ function Get-RovloomArchitecture {
 
 # latest 的网络接缝只返回最终 URL；每跳只接受 HTTPS 且不携带用户凭据。
 function Resolve-RovloomLatestUrl {
-    $url = [Uri]'https://github.com/ArnoChenFx/Rovloom/releases/latest'
+    $url = [Uri]'https://github.com/ArnoChenFx/rovloom/releases/latest'
     for ($redirect = 0; $redirect -le 5; $redirect++) {
         $request = [Net.HttpWebRequest]::Create($url)
         $request.Method = 'HEAD'
@@ -49,7 +49,7 @@ function Resolve-RovloomLatestUrl {
 # 网络返回值仍经真实版本门禁；只接受唯一官方仓库的规范稳定 tag。
 function Get-RovloomLatestVersion {
     $url = Resolve-RovloomLatestUrl
-    $match = [Regex]::Match($url, '\Ahttps://github\.com/ArnoChenFx/Rovloom/releases/tag/v((?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8}))\z')
+    $match = [Regex]::Match($url, '\Ahttps://github\.com/ArnoChenFx/rovloom/releases/tag/v((?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8}))\z')
     if (-not $match.Success) { throw 'Latest release did not resolve to a canonical official stable tag; existing program was kept.' }
     return $match.Groups[1].Value
 }
@@ -142,7 +142,7 @@ function Install-Rovloom {
     $stage = Join-Path $directoryInfo.FullName ('.rovloom-install.' + [Guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($stage)
     try {
-        $base = "https://github.com/ArnoChenFx/Rovloom/releases/download/v$SelectedVersion"
+        $base = "https://github.com/ArnoChenFx/rovloom/releases/download/v$SelectedVersion"
         $checksums = Join-Path $stage 'SHA256SUMS'
         $candidate = Join-Path $stage 'rovloom.exe'
         Save-RovloomAsset "$base/SHA256SUMS" $checksums 65536

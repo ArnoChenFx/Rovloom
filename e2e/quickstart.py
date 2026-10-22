@@ -82,7 +82,7 @@ def luvus_servers(binary_dir):
 
 def redact(text):
     text = CODE.sub('<CODE>', text)
-    return re.sub(r'(Bearer \(private\): )\S+', r'\1<SECRET>', text).strip()[-1000:]
+    return re.sub(r'((?:Bearer|Management password) \(private\)[^:]*: )\S+', r'\1<SECRET>', text).strip()[-1000:]
 
 
 def main():
@@ -98,10 +98,22 @@ def main():
     ap.add_argument('--kill-luvus', action='store_true',
                     help='就绪后 kill -9 Luvus server：Connector 应自行重建并恢复调用')
     ap.add_argument('--crash', action='store_true', help='就绪后 kill -9 Connector 再重启，验证无需人工清理即可恢复')
+    ap.add_argument('--unknown-outcome', action='store_true',
+                    help='（Luvus）暂停原生后提交写调用并杀掉 Connector：调用必须收敛为 outcome_unknown，且不被重发')
+    ap.add_argument('--revoke', action='store_true',
+                    help='（Luvus）停止 Gateway 后经正式 Store 撤销设备再重启：调用被拒绝，Connector 不会就绪')
+    ap.add_argument('--second-device', action='store_true',
+                    help='（Herdr）就绪后用 rovloom gateway --add-device 再配对第二台 Connector（独立 HOME）：同一 Bearer 同时访问两台设备')
+    ap.add_argument('--repair', action='store_true',
+                    help='就绪后重新配对同一设备（rovloom gateway --repair-device + connector --repair）：旧凭据被替换，MCP 授权不变')
     ap.add_argument('--then', help='就绪后执行的命令，环境变量 MCP_CONFIG 指向连接信息')
     args = ap.parse_args()
     if bool(args.herdr) == bool(args.luvus):
         ap.error('exactly one of --herdr / --luvus is required')
+    if args.second_device and not args.herdr:
+        ap.error('--second-device is a Herdr scenario')
+    if (args.unknown_outcome or args.revoke) and not args.luvus:
+        ap.error('--unknown-outcome / --revoke are Luvus scenarios')
     work = os.path.abspath(args.work or tempfile.mkdtemp(prefix='.rq-', dir=os.path.expanduser('~')))
     os.makedirs(work, mode=0o700, exist_ok=True)
     home_g, home_c, tools, herdr_dir = (os.path.join(work, n) for n in ('g', 'c', 'bin', 'hb'))
@@ -167,6 +179,10 @@ def main():
         info = {'url': re.search(r'MCP URL: (\S+)', log).group(1),
                 'token': re.search(r'Bearer \(private\): (\S+)', log).group(1),
                 'targets': json.loads(re.search(r'Targets: (\[.*\])', log).group(1))}
+        # 首次引导在已核验终端显示一次的管理页口令（用户名 admin），写进 mcp.json 供后续页面登录检查，不打印。
+        admin = re.search(r'Management password \(private\)[^:]*: (\S+)', log)
+        if admin:
+            info['admin'] = {'user': 'admin', 'password': admin.group(1), 'url': 'http://127.0.0.1:9445/'}
         out = os.path.join(work, 'mcp.json')
         open(out, 'w').write(json.dumps(info)); os.chmod(out, 0o600)
         print('READY', json.dumps({'mcp_url': info['url'], 'targets': info['targets'], 'config': out}), flush=True)
@@ -196,6 +212,107 @@ def main():
             restarted = Term('connector-restarted', [rov, 'connector'], env_c, home_c); terms.append(restarted)
             restarted.expect('provider_ready=true', timeout=60)
             print('RECOVERED', flush=True)
+        def faults(*step):
+            command = ['bun', '--no-env-file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'luvus-faults.mjs'), *step]
+            done = subprocess.run(command, env={**os.environ, 'MCP_CONFIG': out, 'LUVUS_WRITE': '{}'},
+                                  capture_output=True, text=True, timeout=300)
+            print(f'[faults {step[0]}]', (done.stdout + done.stderr).strip()[-600:], flush=True)
+            assert done.returncode == 0, f'faults {step[0]} failed'
+        if args.unknown_outcome:
+            marker = os.path.join(work, 'unknown.json')
+            servers = [str(pid) for pid, _ in luvus_servers(herdr_dir)]
+            assert servers, 'no Luvus server to pause'
+            faults('submit-write', marker, *servers)
+            connector.child.kill(); connector.child.wait(10)  # SIGKILL：写请求已发出但未应答
+            for pid in servers:
+                os.kill(int(pid), signal.SIGCONT)  # 旧原生恢复：它可能执行那一次旧请求，但 Gateway 不得再发第二次
+            restarted = Term('connector-restarted', [rov, 'connector'], env_c, home_c); terms.append(restarted)
+            restarted.expect('provider_ready=true', timeout=90)
+            faults('check-unknown', marker)
+            print('UNKNOWN_OUTCOME_OK', flush=True)
+        if args.revoke:
+            machine = info['targets'][0]['machine_id']
+            connector.stop(); gateway.stop()
+            faults('revoke', os.path.join(home_g, '.local', 'share', 'rovloom', 'gateway'), machine)
+            gateway = Term('gateway-restarted', [rov, 'gateway'], env_g, home_g); terms.append(gateway)
+            connector = Term('connector-revoked', [rov, 'connector'], env_c, home_c); terms.append(connector)
+            deadline = time.time() + 60
+            while True:
+                try:
+                    faults('check-revoked')
+                    break
+                except AssertionError:
+                    assert time.time() < deadline, 'Gateway never reported the device as revoked'
+                    time.sleep(2)
+            connector.pump(15.0)
+            assert 'provider_ready=true' not in ANSI.sub(b'', connector.log).decode('utf8', 'replace'), \
+                'revoked device must not become ready'
+            print('REVOKE_OK', flush=True)
+        if args.repair:
+            def credential_files():
+                return [os.path.join(root, f) for root, _, files in os.walk(home_c) for f in files if f == 'device.json']
+            before = credential_files()
+            assert len(before) == 1, f'expected one device credential file: {before}'
+            old_secret = open(before[0]).read()
+            connector.stop(); gateway.stop()
+            gateway = Term('gateway-repair', [rov, 'gateway', '--repair-device'], env_g, home_g); terms.append(gateway)
+            gateway.expect('Re-pair the existing Connector device'); gateway.send('y\n')
+            code = CODE.search(gateway.expect('rovloom connector --repair')).group(0)
+            connector = Term('connector-repair', [rov, 'connector', '--repair'], env_c, home_c); terms.append(connector)
+            connector.expect('的一次性码'); connector.send(code + '\n')
+            connector.expect('[y/N]'); connector.send('y\n')
+            connector.expect('device_repaired')
+            deadline, ready = time.time() + 120, False
+            while time.time() < deadline and not ready:
+                connector.pump(1.0); gateway.pump(0.3)
+                ready = 'connector_ready' in ANSI.sub(b'', gateway.log).decode('utf8', 'replace') and \
+                    'provider_ready=true' in ANSI.sub(b'', connector.log).decode('utf8', 'replace')
+                for term in (connector, gateway):
+                    if term.child.poll() is not None:
+                        raise RuntimeError(f'{term.name} exited {term.child.returncode}: {redact(term.text())}')
+            assert ready, 'timeout waiting for connector_ready after repair'
+            new_secret = open(credential_files()[0]).read()
+            assert new_secret != old_secret, 'device credential was not replaced'
+            print('REPAIRED', flush=True)
+        if args.second_device:
+            home_c2 = os.path.join(work, 'c2'); os.makedirs(home_c2, mode=0o700, exist_ok=True)
+            env_c2 = {**base, 'HOME': home_c2, 'PATH': f'{herdr_dir}:/usr/bin:/bin'}
+            probe = Term('connector2-0', [rov, 'connector'], env_c2, home_c2); probe.expect('Gateway address'); probe.stop()
+            path2 = os.path.join(home_c2, '.config', 'rovloom', 'connector.json')
+            cfg2 = json.load(open(path2)); cfg2['native'] = {'provider': 'herdr'}
+            open(path2, 'w').write(json.dumps(cfg2, indent=2) + '\n'); os.chmod(path2, 0o600)
+            gateway.stop()  # 第一台 Connector 继续运行，会自行重连新的 Gateway 进程
+            gateway = Term('gateway-add', [rov, 'gateway', '--add-device'], env_g, home_g); terms.append(gateway)
+            gateway.expect('Pair one Connector'); gateway.send('y\n')
+            code = CODE.search(gateway.expect('Gateway address and code')).group(0)
+            connector2 = Term('connector2', [rov, 'connector'], env_c2, home_c2); terms.append(connector2)
+            connector2.expect('Gateway address'); connector2.send('ws://127.0.0.1:9443\n')
+            connector2.expect('配对码'); connector2.send(code + '\n')
+            deadline, ready = time.time() + 180, False
+            while time.time() < deadline and not ready:
+                connector2.pump(1.0); gateway.pump(0.3)
+                for term in (connector2, gateway):
+                    text = term.text()
+                    if text.strip().endswith('[y/N]'):
+                        print(f'[{term.name}]', redact(text), '\n  -> y', flush=True)
+                        term.buf = b''; term.send('y\n')
+                ready = 'connector_ready' in ANSI.sub(b'', gateway.log).decode('utf8', 'replace') and \
+                    'provider_ready=true' in ANSI.sub(b'', connector2.log).decode('utf8', 'replace')
+                for term in (connector2, gateway):
+                    if term.child.poll() is not None:
+                        print('[gateway-add log]', redact(ANSI.sub(b'', gateway.log).decode('utf8', 'replace'))[-1500:], flush=True)
+                        raise RuntimeError(f'{term.name} exited {term.child.returncode}: {redact(term.text())}')
+            assert ready, 'timeout waiting for the second device'
+            second = json.loads(re.search(r'Targets: (\[.*\])', ANSI.sub(b'', gateway.log).decode('utf8', 'replace')).group(1))
+            assert second[0]['machine_id'] != info['targets'][0]['machine_id']
+            print('SECOND_DEVICE_READY', json.dumps(second), flush=True)
+            checked = subprocess.run(
+                ['bun', '--no-env-file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'two-devices-check.mjs')],
+                env={**os.environ, 'MCP_CONFIG': out, 'MCP_TARGETS': json.dumps(info['targets'] + second)},
+                capture_output=True, text=True, timeout=400)
+            print('[two-devices]', (checked.stdout + checked.stderr).strip()[-600:], flush=True)
+            assert checked.returncode == 0, 'two-devices check failed'
+            print('TWO_DEVICES_OK', flush=True)
         if args.then:
             status = subprocess.call(shlex.split(args.then), env={**os.environ, 'MCP_CONFIG': out})
             if status != 0:

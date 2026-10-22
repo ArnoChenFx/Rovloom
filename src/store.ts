@@ -30,6 +30,7 @@ import { exportSnapshot } from './storage/backup.js'
 import { assertBudget } from './storage/budget.js'
 import { auditRecord } from './storage/audit.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
+import { CachedDatabase } from './storage/database.js'
 import { createPrivate, databasePath, privateFile, privatePath } from './storage/files.js'
 import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
@@ -137,7 +138,7 @@ export class Store {
       if (path !== ':memory:' && !existsSync(path)) {
         createPrivate(path)
       }
-      this.db = new DatabaseSync(path)
+      this.db = new CachedDatabase(path)
 
       const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
       if (tables.length) {
@@ -457,6 +458,9 @@ export class Store {
   credentialRevision(machine: string): number {
     return this.devices.credentialRevision(machine)
   }
+  deviceEpoch(machine: string): string | null {
+    return this.devices.deviceEpoch(machine)
+  }
   rename(machine: string, name: string): Machine {
     return this.devices.rename(machine, name)
   }
@@ -507,6 +511,22 @@ export class Store {
   // 按设备和 provider 双重作用域查询绑定，避免同设备方法同名发生串用。
   provider(machine: string, provider: string): ProviderBinding | undefined {
     return this.storedProvider(machine, provider)
+  }
+  /** 只读枚举当前全部设备及其 provider，供管理员授权按现状生成；不含凭据，不修改任何状态。 */
+  resources(): { machine_id: string; provider_ids: string[] }[] {
+    const providers = this.db
+      .prepare('SELECT machine_id,provider_id FROM providers ORDER BY machine_id,provider_id')
+      .all() as {
+      machine_id: string
+      provider_id: string
+    }[]
+    const machines = this.db.prepare('SELECT machine_id FROM machines ORDER BY machine_id').all() as {
+      machine_id: string
+    }[]
+    return machines.map((row) => ({
+      machine_id: row.machine_id,
+      provider_ids: providers.filter((entry) => entry.machine_id === row.machine_id).map((entry) => entry.provider_id)
+    }))
   }
   /** 复用原 provider SQL 与启用投影，私有批观察不调用宿主公开覆写。 */
   private storedProvider(machine: string, provider: string): ProviderBinding | undefined {

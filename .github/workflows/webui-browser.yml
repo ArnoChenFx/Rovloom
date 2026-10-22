@@ -1,0 +1,37 @@
+# WebUI 的真实 Chromium 检查（展示、语言/主题、布局、三动作、生命周期、引导、跨截止重试）：
+# 只验证合成数据下的页面行为，不验证真实管理后端（真实后端由 gateway-platforms 与 e2e 覆盖）。
+name: WebUI browser checks
+on:
+  pull_request:
+    paths:
+      - src/webui/**
+      - src/admin/**
+      - scripts/webui/**
+      - test/webui/**
+      - .github/workflows/webui-browser.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Build
+        run: bun --no-env-file run build
+      - name: Playwright and Chromium
+        run: |
+          python3 -m pip install playwright==1.55.0
+          python3 -m playwright install --with-deps chromium
+      - name: Browser checks
+        run: scripts/webui/check-all.sh "$RUNNER_TEMP/webui-checks"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: failure()
+        with:
+          name: webui-checks
+          path: ${{ runner.temp }}/webui-checks

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """在真实 Chromium 验证语言、主题与偏好存储；仅使用显式隔离 fixture，不证明生产会话或设备链路。"""
+import os
 import argparse
 import json
 from pathlib import Path
@@ -157,7 +158,7 @@ def first_paint(browser, base, output, checks, page_error):
         assert held
         assert page.locator('#rovloom-management').inner_text() == ''
         assert page.evaluate('''/** 检查初始化脚本仍是同步经典脚本。 */ ({})=>{const script=document.querySelector('script[src="./theme.js"]');return script.type===''&&!script.async&&!script.defer}''', {})
-        page.screenshot(path=str(output / f'first-paint-{saved}.png'))
+        # 主模块暂停时文档仍在加载，Playwright 的截图会一直等待字体就绪；这里只做属性/背景断言，不截图。
         page.wait_for_function('''/* 验证浏览器已交付真实first-paint记录。 */ ()=>window.themePaints.some(/** 仅筛选首次绘制。 */entry=>entry.name==='first-paint')''')
         paints = page.evaluate('window.themePaints')
         assert all(paint['theme'] == saved and paint['background'] == background for paint in paints), paints
@@ -219,7 +220,7 @@ def main():
         errors.append(str(error))
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = playwright.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         first_paint(browser, base, output, checks, page_error)
         icon_context = browser.new_context(locale='zh-CN', color_scheme='light')
         icon_page = icon_context.new_page()
@@ -257,7 +258,7 @@ def main():
                 assert page.get_by_role('heading', name=device_name, exact=True).count() == 1
                 assert page.locator('main code').first.inner_text() == 'fixture-a'
                 logo = page.get_by_role('img', name='Rovloom', exact=True)
-                assert logo.evaluate('/* 核对品牌原图与实际显示尺寸。 */ (el)=>el.complete&&el.naturalWidth===192&&el.naturalHeight===192&&el.width===48&&el.height===48')
+                assert logo.evaluate('/* 核对品牌原图与实际显示尺寸。 */ (el)=>el.complete&&el.naturalWidth===256&&el.naturalHeight===256&&el.width===48&&el.height===48')
                 contrast_check(page)
                 page.evaluate("window.webUiFixture.mode='hold'")
                 page.get_by_role('button', name=words['refresh'], exact=True).click()
@@ -373,7 +374,7 @@ def main():
         count = page.evaluate('window.webUiFixture.reads')
         language_control.choose('zh-CN')
         theme_control.choose('light')
-        page.get_by_text('运行观测已过期', exact=False).first.wait_for(timeout=3500)
+        page.get_by_text('连接观测已过期', exact=False).first.wait_for(timeout=3500)
         assert page.locator('main .badges .good,.provider-card .good').count() == 0
         assert page.evaluate('window.webUiFixture.reads') == count
         checks.append('language/theme switches preserve the original monotonic expiry boundary without a new read')

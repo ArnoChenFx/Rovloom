@@ -1,0 +1,32 @@
+# 两台“机器”的验收：Gateway 与 Connector 各在独立容器里（文件系统互不可见，只经 Docker 网络上的真实 TCP 通信），
+# 在真实 TTY 里按 Quick Start 配对，经官方 MCP SDK 走完整 Herdr 链路，并制造网络断开与恢复。
+name: Two-host e2e
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - e2e/two_host.py
+      - e2e/two-host-check.mjs
+      - e2e/quickstart.py
+      - .github/workflows/two-host.yml
+permissions:
+  contents: read
+jobs:
+  two-host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Frozen install
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Download official Herdr 0.9.5
+        run: |
+          curl --fail --location -o "$RUNNER_TEMP/herdr" https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-x86_64
+          echo "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d  $RUNNER_TEMP/herdr" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/herdr"
+      - name: Build actual standalone product
+        run: bun --no-env-file run release:build
+      - name: Two containers, real TCP, real TTY pairing
+        run: python3 e2e/two_host.py --binary dist/release/bun-linux-x64/candidate/rovloom --herdr "$RUNNER_TEMP/herdr"

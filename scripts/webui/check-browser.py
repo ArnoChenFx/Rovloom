@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """通过 Chromium 检查隔离 UI 展示与交互；不证明管理后端、认证或真实设备链路。"""
+import os
 import argparse
 import json
 from pathlib import Path
@@ -31,7 +32,7 @@ def main():
         errors.append(error)
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = playwright.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         context = browser.new_context(viewport={'width': 1280, 'height': 960}, locale='zh-CN')
         page = context.new_page()
         page.on('pageerror', browser_error)
@@ -42,25 +43,25 @@ def main():
         assert page.evaluate('typeof window.webUiFixture') == 'undefined'
         logo = page.get_by_role('img', name='Rovloom', exact=True)
         logo.wait_for()
-        assert logo.evaluate('(el) => el.complete && el.naturalWidth === 192 && el.naturalHeight === 192')
+        assert logo.evaluate('(el) => el.complete && el.naturalWidth === 256 && el.naturalHeight === 256')
         assert logo.evaluate('(el) => el.width === 48 && el.height === 48')
-        logo_response = page.request.get(base + '/rovloom-mark-orange.png')
+        logo_response = page.request.get(base + '/rovloom-mark-transparent.png')
         assert logo_response.ok
         assert logo_response.headers['content-type'] == 'image/png'
-        assert logo_response.body() == (repo / 'docs/assets/brand/rovloom-mark-orange.png').read_bytes()
-        assert page.locator('link[rel="icon"]').get_attribute('href') == './rovloom-mark-orange.png'
+        assert logo_response.body() == (repo / 'docs/assets/brand/rovloom-mark-transparent.png').read_bytes()
+        assert page.locator('link[rel="icon"]').get_attribute('href') == './rovloom-mark-transparent.png'
         wordmark = page.request.get(base + '/rovloom-logo.png')
         assert wordmark.ok and wordmark.headers['content-type'] == 'image/png'
         assert wordmark.body() == (repo / 'docs/assets/brand/rovloom-logo.png').read_bytes()
         checks.append('生产入口不可用且无 fixture 数据或身份回退')
-        checks.append('顶栏和 favicon 使用独立192px橙R并保留原背景，横版全名图仍可用；两资产原字节可加载')
+        checks.append('顶栏和 favicon 使用独立256px透明背景橙R，横版全名图仍可用；两资产原字节可加载')
 
         page.goto(base + '/fixtures/')
         page.locator('.device-card').first.wait_for()
         assert page.locator('.device-card').count() == 2
         assert page.locator('.device-card img').count() == 0
         assert page.get_by_role('img', name='Rovloom', exact=True).evaluate(
-            '(el) => el.complete && el.naturalWidth === 192 && el.naturalHeight === 192')
+            '(el) => el.complete && el.naturalWidth === 256 && el.naturalHeight === 256')
         assert '<img src=x' in page.locator('.device-name').first.inner_text()
         page.locator('.device-name').first.focus()
         page.wait_for_timeout(1200)
@@ -84,8 +85,8 @@ def main():
         page.locator('.device-name').first.click()
         page.get_by_role('heading', name='Runtime providers').wait_for()
         assert page.locator('.provider-card').count() == 3
-        assert '不可达' in page.locator('.provider-card').nth(1).inner_text()
-        assert '来源待核实' in page.locator('.provider-card').nth(2).inner_text()
+        assert '管理 readiness：不可用' in page.locator('.provider-card').nth(1).inner_text()
+        assert '未核实' in page.locator('.provider-card').nth(2).inner_text()
         assert '在线' in page.locator('main .badges').first.inner_text()
         assert '身份已撤销' not in page.locator('main .badges').first.inner_text()
         assert page.get_by_role('button', name='断开当前连接', exact=True).is_disabled()
@@ -97,7 +98,7 @@ def main():
 
         for mode, text in [('stale_device', '设备观测已过期'), ('stale_connection', '连接观测已过期'),
                            ('stale_auth', '认证观测已过期'), ('stale_provider', '启停观测已过期'),
-                           ('stale_runtime', '运行观测已过期'), ('stale_children', '运行观测已过期')]:
+                           ('stale_children', '连接观测已过期')]:
             page.evaluate('(mode) => { window.webUiFixture.mode=mode }', mode)
             page.get_by_role('button', name='刷新', exact=True).click()
             page.get_by_text(text, exact=False).first.wait_for()
@@ -113,7 +114,7 @@ def main():
         page.evaluate("window.webUiFixture.mode='near_stale'")
         page.get_by_role('button', name='刷新', exact=True).click()
         page.get_by_text('管理 readiness：就绪 (ready)', exact=True).wait_for()
-        page.get_by_text('运行观测已过期', exact=False).first.wait_for()
+        page.get_by_text('连接观测已过期', exact=False).first.wait_for()
         assert page.get_by_text('快照有效', exact=True).count() == 1
         assert page.locator('.provider-card .good, main .badges .good').count() == 0
         checks.append('子观测按单调经过时间独立跨过十五秒过期边界')

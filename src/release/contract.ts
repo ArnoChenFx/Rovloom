@@ -1,6 +1,6 @@
 // 为发布器与自更新共享无 I/O 的版本、平台、资产命名和清单校验；导入不读配置或磁盘。
 import { parseNativeJson } from '../native-contract/json.js'
-export const RELEASE_REPOSITORY = 'ArnoChenFx/Rovloom'
+export const RELEASE_REPOSITORY = 'ArnoChenFx/rovloom'
 export const RELEASE_MANIFEST = 'release-manifest.json'
 export const RELEASE_MAX_BINARY_BYTES = 256 * 1024 * 1024
 export type ReleaseOs = 'linux' | 'darwin' | 'windows'

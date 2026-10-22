@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """在真实 Chromium 验证控制台的可读布局与原生折叠交互；截图仅使用显式隔离 fixture。"""
+import os
 import argparse
 import json
 import runpy
@@ -69,7 +70,7 @@ def main():
         errors.append(str(error))
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = playwright.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         for language in ['zh-CN', 'en']:
             for theme in ['light', 'dark']:
                 context = browser.new_context(locale=language, color_scheme=theme,
@@ -152,7 +153,7 @@ def main():
             if mode in ['empty', '401']:
                 assert page.locator('.device-card, .provider-card').count() == 0
             snapshot(page, output, f'state-{mode}')
-        checks.append('production unavailable and fixture empty, unknown, stale, pairing and session-error states remain honest and readable')
+        checks.append('production unavailable and fixture empty, unknown, stale and session-error states remain honest and readable')
         context.close()
         browser.close()
     assert not errors, errors

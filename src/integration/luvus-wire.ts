@@ -110,6 +110,7 @@ type State = {
   candidate?: DispatchCandidate
   permit?: DispatchPermit
   validatorCaps: unknown
+  capsJson: string
   snapshotBytes: number
   retention?: { content_expires_at: number; dedup_expires_at: number }
 }
@@ -124,6 +125,20 @@ type ResponseState = {
   expires: number
   contentExpires: number
   snapshotBytes: number
+}
+// 能力快照注册后是只读的解析数据（注册表条目已冻结），同一对象的规范 JSON 只计算一次：
+// 每次读取门禁都重新序列化约 400 KB 的能力快照，实测占一次 call_get CPU 的大头。不同对象仍按内容比较。
+const canonicalCache = new WeakMap<object, string>()
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return boundedJson(value)
+  }
+  let text = canonicalCache.get(value)
+  if (text === undefined) {
+    text = boundedJson(value)
+    canonicalCache.set(value, text)
+  }
+  return text
 }
 // 限制序列化字节数后复制输入，隔离外部对象修改与私有状态。
 const copy = <T>(value: T, maxBytes: number = LIMITS.frame_bytes): T => JSON.parse(boundedJson(value, maxBytes)) as T
@@ -480,7 +495,7 @@ export function createLuvusWireAdapter(
     const current = source(state.attempt, ctx)
     if (
       boundedJson(current.source) !== boundedJson(state.source) ||
-      hash(boundedJson(current.registry.capabilities)) !== state.capsDigest
+      hash(canonical(current.registry.capabilities)) !== state.capsDigest
     ) {
       fail('capability_stale')
     }
@@ -640,7 +655,7 @@ export function createLuvusWireAdapter(
     const current = source(attempt, ctx)
     if (
       boundedJson(current.source) !== boundedJson(state.source) ||
-      boundedJson(current.registry.capabilities) !== boundedJson(state.validatorCaps)
+      canonical(current.registry.capabilities) !== state.capsJson
     ) {
       fail('capability_stale')
     }
@@ -691,6 +706,7 @@ export function createLuvusWireAdapter(
         handle: Object.freeze({}),
         sourceToken: Object.freeze({}),
         validatorCaps: copy(current.registry.capabilities),
+        capsJson: canonical(current.registry.capabilities),
         snapshotBytes,
         retention
       }

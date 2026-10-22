@@ -16,7 +16,7 @@ trap 'exit 1' HUP INT TERM
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 usage() {
   printf '%s\n' 'Usage: sh install.sh [--install-dir /absolute/path] [--print-asset]' \
-    'Installs the latest stable ArnoChenFx/Rovloom release to ~/.local/bin.' \
+    'Installs the latest stable ArnoChenFx/rovloom release to ~/.local/bin.' \
     'Requires curl and sha256sum (Linux) or shasum (macOS). Linux requires glibc.' \
     'Installing a binary does not establish Gateway/Connector platform support.'
 }
@@ -53,11 +53,11 @@ if [ -e "$destination" ] && [ ! -f "$destination" ]; then fail 'Existing program
 # latest 只解析一次；只接受官方规范稳定 tag，后续摘要和二进制均绑定这个版本。
 latest_url=$(curl --head --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
   --connect-timeout 15 --max-time 120 --output /dev/null --write-out '%{url_effective}' \
-  https://github.com/ArnoChenFx/Rovloom/releases/latest) \
+  https://github.com/ArnoChenFx/rovloom/releases/latest) \
   || fail 'Latest release is unavailable; existing program was kept.'
 case "$latest_url" in
-  https://github.com/ArnoChenFx/Rovloom/releases/tag/v*)
-    version=${latest_url#https://github.com/ArnoChenFx/Rovloom/releases/tag/v} ;;
+  https://github.com/ArnoChenFx/rovloom/releases/tag/v*)
+    version=${latest_url#https://github.com/ArnoChenFx/rovloom/releases/tag/v} ;;
   *) fail 'Latest release did not resolve to an official tag; existing program was kept.' ;;
 esac
 case "$version" in *[!0-9.]*) fail 'Latest release must resolve to a canonical stable version; existing program was kept.';; esac
@@ -76,7 +76,7 @@ mkdir -p -- "$install_dir"
 [ -d "$install_dir" ] || fail 'Install directory is not a directory.'
 stage=$(mktemp -d "$install_dir/.rovloom-install.XXXXXXXX")
 chmod 700 "$stage"
-base=https://github.com/ArnoChenFx/Rovloom/releases/download/v$version
+base=https://github.com/ArnoChenFx/rovloom/releases/download/v$version
 # 强制 HTTPS，拒绝 HTTP 失败并限制时间和大小；没有第三方镜像或自定义下载来源。
 download() {
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \

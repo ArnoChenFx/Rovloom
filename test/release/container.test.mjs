@@ -26,8 +26,8 @@ function fixture() {
     head_sha: context.commit,
     head_branch: context.tag,
     path: '.github/workflows/release.yml',
-    repository: { full_name: 'ArnoChenFx/Rovloom' },
-    head_repository: { full_name: 'ArnoChenFx/Rovloom' }
+    repository: { full_name: 'ArnoChenFx/rovloom' },
+    head_repository: { full_name: 'ArnoChenFx/rovloom' }
   }
   const bytes = Buffer.from('synthetic-container-binary')
   const hash = /** 合成内容仍由真实摘要算法核验。 */ (value) => createHash('sha256').update(value).digest('hex')
@@ -41,7 +41,7 @@ function fixture() {
       )
   )
   const manifest = Buffer.from(
-    JSON.stringify({ schemaVersion: 1, repository: 'ArnoChenFx/Rovloom', ...context, bun: '1.4.3', assets }) + '\n'
+    JSON.stringify({ schemaVersion: 1, repository: 'ArnoChenFx/rovloom', ...context, bun: '1.4.3', assets }) + '\n'
   )
   const sums = Buffer.from(
     assets.map(/** 摘要只对应相同字节，不复用随意声明。 */ (asset) => `${asset.sha256}  ${asset.name}\n`).join('') +
@@ -61,11 +61,11 @@ function fixture() {
       /** 公共元数据只能指向固定官方版本路径。 */ (name) => ({
         name,
         state: 'uploaded',
-        browser_download_url: `https://github.com/ArnoChenFx/Rovloom/releases/download/${context.tag}/${name}`
+        browser_download_url: `https://github.com/ArnoChenFx/rovloom/releases/download/${context.tag}/${name}`
       })
     )
   }
-  const event = { repository: { full_name: 'ArnoChenFx/Rovloom' }, workflow_run: structuredClone(run) }
+  const event = { repository: { full_name: 'ArnoChenFx/rovloom' }, workflow_run: structuredClone(run) }
   const api = /** 只响应实际验证路径，意外网络路径立即失败。 */ async (path) => {
     if (path.endsWith('/actions/runs/7')) {
       return structuredClone(run)

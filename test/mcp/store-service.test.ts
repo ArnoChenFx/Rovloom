@@ -598,3 +598,79 @@ test(
     }
   }
 )
+
+test(
+  '管理读取接入真实传输观测：有观测的设备显示在线与认证，没有观测的保持未核实，native 不由传输推断',
+  /** 观测来源只提供 gateway_transport 事实；Store 的持久 offline 状态不会被当作现场状态，原生层如实未核实。 */ async () => {
+    const f = storeFixture()
+    try {
+      const health = f.store.health()
+      const at = f.store.clock()
+      const verified = <T>(value: T) => ({
+        verification: 'verified' as const,
+        observed_at: at,
+        source: 'gateway_transport' as const,
+        value
+      })
+      const service = new StoreGatewayService({
+        store: f.store,
+        identities: f.identities,
+        localPolicies: f.localPolicies,
+        transportObservations: {
+          snapshot: () => ({
+            observed_at: at,
+            recovery_generation: health.generation,
+            transport: verified('available' as const),
+            devices: [
+              {
+                machine_id: 'machine_a',
+                connection: verified({
+                  state: 'online' as const,
+                  connection_epoch_ref: 'epoch_ref',
+                  last_heartbeat_at: at - 1000
+                }),
+                authentication: verified({ state: 'authenticated' as const, last_failure: null }),
+                providers: []
+              }
+            ]
+          })
+        }
+      })
+      const status = await service.management.execute('status', {}, adminContext())
+      assert.equal(status.components.transport, 'available')
+      assert.equal(status.components.native, 'unverified')
+      const online = await service.management.execute('devices_get', { machine_id: 'machine_a' }, adminContext())
+      assert(online.connection.verification === 'verified')
+      assert.equal(online.connection.value.state, 'online')
+      assert.equal(online.connection.value.last_heartbeat_at, at - 1000)
+      assert(online.authentication.verification === 'verified')
+      const other = await service.management.execute('devices_get', { machine_id: 'machine_b' }, adminContext())
+      assert.equal(other.connection.verification, 'unverified')
+      assert.equal(other.authentication.verification, 'unverified')
+      // 没有观测来源时与之前完全一致：传输不可用、设备现场状态未核实。
+      const bare = await f.service.management.execute('devices_get', { machine_id: 'machine_a' }, adminContext())
+      assert.equal(bare.connection.verification, 'unverified')
+      assert.equal(
+        (await f.service.management.execute('status', {}, adminContext())).components.transport,
+        'unavailable'
+      )
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  'Store.resources 只读枚举全部设备及其 provider',
+  /** 管理员的全设备授权据此按现状生成；不含凭据，不改变任何状态。 */ () => {
+    const f = storeFixture()
+    try {
+      assert.deepEqual(f.store.resources(), [
+        { machine_id: 'machine_a', provider_ids: ['herdr_a', 'luvus_a'] },
+        { machine_id: 'machine_b', provider_ids: ['luvus_b'] }
+      ])
+    } finally {
+      f.close()
+    }
+  }
+)

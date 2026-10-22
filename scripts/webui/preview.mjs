@@ -83,8 +83,11 @@ const server = Bun.serve({
     } else if (url.pathname === '/rovloom-logo.png' || url.pathname === '/fixtures/rovloom-logo.png') {
       body = readFileSync(root + 'dist/webui/rovloom-logo.png')
       type = 'image/png'
-    } else if (url.pathname === '/rovloom-mark-orange.png' || url.pathname === '/fixtures/rovloom-mark-orange.png') {
-      body = readFileSync(root + 'dist/webui/rovloom-mark-orange.png')
+    } else if (
+      url.pathname === '/rovloom-mark-transparent.png' ||
+      url.pathname === '/fixtures/rovloom-mark-transparent.png'
+    ) {
+      body = readFileSync(root + 'dist/webui/rovloom-mark-transparent.png')
       type = 'image/png'
     } else if (url.pathname === '/theme.js' || url.pathname === '/fixtures/theme.js') {
       body = readFileSync(root + 'dist/webui/theme.js')

@@ -39,7 +39,7 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "invalid tag"; exit 1; }
           version=${TAG#v}
           asset="rovloom-$version-$SUFFIX"
-          base="https://github.com/ArnoChenFx/Rovloom/releases/download/$TAG"
+          base="https://github.com/ArnoChenFx/rovloom/releases/download/$TAG"
           mkdir "$RUNNER_TEMP/dl"
           cd "$RUNNER_TEMP/dl"
           curl --fail --silent --show-error --location --proto '=https' -o SHA256SUMS "$base/SHA256SUMS"
@@ -49,9 +49,9 @@ jobs:
           if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$asset" | awk '{print $1}'); else actual=$(shasum -a 256 "$asset" | awk '{print $1}'); fi
           [ "$expected" = "$actual" ] || { echo "checksum mismatch"; exit 1; }
           chmod +x "$asset"
-          out=$("./$asset" --version)
+          out=$("./$asset" --version 2>&1 | tr -d '\r')
           echo "$out"
-          [ "$out" = "$version" ] || [ "$out" = "rovloom $version" ] || { echo "unexpected version output"; exit 1; }
+          [ "$out" = "Rovloom $version" ] || { echo "unexpected version output"; exit 1; }
   install-latest:
     # install.sh / install.ps1 只跟随官方 latest 稳定版；预发行不会被它们选中，这里验证稳定安装路径本身。
     strategy:

@@ -1,4 +1,4 @@
-/** 设备、provider与配对操作的持久页面控件；复用既有确认/回执 flow，不创建身份或重放未确认动作。 */
+/** 设备与provider操作的持久页面控件；复用既有确认/回执 flow，不创建身份或重放未确认动作。 */
 import type { Localizer, MessageKey } from './i18n.js'
 import { createDeviceManagementFlow, type DeviceManagementState } from './write-flow.js'
 import type { DeviceManagementIntent, ManagementClientProblem, ManagementWriteTransport } from './write-contract.js'
@@ -7,9 +7,7 @@ const actionKeys: Record<DeviceManagementIntent['action'], MessageKey> = {
   device_rename: 'actions.rename',
   device_disconnect: 'actions.disconnect',
   device_revoke: 'actions.revoke',
-  provider_disable: 'provider.disable',
-  pairing_create: 'actions.register',
-  pairing_cancel: 'pairing.cancel'
+  provider_disable: 'provider.disable'
 }
 const effectKeys = {
   unchanged: 'manage.unchanged',
@@ -42,7 +40,6 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className = ''): HT
 export function createDeviceActions(options: {
   transport: ManagementWriteTransport
   committed(machineId: string): void
-  pairingCreated(machineId: string, pairingId: string): void
   authorizationLost(problem: 'unauthenticated' | 'forbidden'): void
 }) {
   const region = node('div', 'operation-region')
@@ -67,18 +64,9 @@ export function createDeviceActions(options: {
   hint.id = 'management-name-hint'
   name.setAttribute('aria-describedby', hint.id)
   label.append(caption, name)
-  const policyLabel = node('label')
-  const policyCaption = node('span')
-  const policy = node('input')
-  policy.name = 'pairing-policy'
-  policy.required = true
-  policy.maxLength = 128
-  policy.pattern = '[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}'
-  policy.autocomplete = 'off'
-  policyLabel.append(policyCaption, policy)
   const prepare = node('button')
   prepare.type = 'submit'
-  form.append(label, policyLabel, hint, prepare)
+  form.append(label, hint, prepare)
   const message = node('p', 'operation-status')
   message.setAttribute('role', 'status')
   message.setAttribute('aria-live', 'polite')
@@ -141,14 +129,8 @@ export function createDeviceActions(options: {
     dialog.dataset.phase = phase
     heading.textContent = intent ? i18n.t(actionKeys[intent.action]) : i18n.t('manage.heading')
     target.textContent = intent && 'machine_id' in intent ? intent.machine_id : ''
-    label.hidden = intent?.action === 'pairing_create' && 'machine_id' in intent
-    name.required = !label.hidden
-    policyLabel.hidden = intent?.action !== 'pairing_create'
-    policy.required = !policyLabel.hidden
-    policy.disabled = !live
-    policyCaption.textContent = i18n.t('pairing.policy')
     caption.textContent = i18n.t('manage.name')
-    hint.textContent = i18n.t(intent?.action === 'pairing_create' ? 'pairing.createNote' : 'manage.nameHint')
+    hint.textContent = i18n.t('manage.nameHint')
     prepare.textContent = i18n.t('manage.prepare')
     confirm.textContent = i18n.t('manage.confirm')
     check.textContent = i18n.t('manage.check')
@@ -205,11 +187,7 @@ export function createDeviceActions(options: {
           ? 'manage.revokeEffect'
           : intent?.action === 'provider_disable'
             ? 'provider.effect'
-            : intent?.action === 'pairing_create'
-              ? 'pairing.createNote'
-              : intent?.action === 'pairing_cancel'
-                ? 'pairing.cancelNote'
-                : 'manage.nativeEffect'
+            : 'manage.nativeEffect'
     )
     if (review) {
       fact('manage.action', i18n.t(actionKeys[intent!.action]))
@@ -223,15 +201,6 @@ export function createDeviceActions(options: {
       if (review.summary.action === 'provider_disable') {
         fact('provider.target', `${review.summary.target.kind} / ${review.summary.target.provider_id}`)
         fact('providers.bindingRevision', String(review.summary.expected_binding_revision))
-      }
-      if (review.summary.action === 'pairing_create') {
-        fact('pairing.policy', review.summary.target.policy_ref)
-        if ('name' in review.summary.target) {
-          fact('manage.name', review.summary.target.name)
-        }
-      }
-      if (review.summary.action === 'pairing_cancel') {
-        fact('pairing.id', review.summary.target.pairing_id)
       }
       fact('manage.revision', String(review.summary.expected_revision))
       fact('manage.reason', review.summary.reason)
@@ -254,12 +223,6 @@ export function createDeviceActions(options: {
       fact('provider.target', 'provider_id' in state.receipt.target ? (state.receipt.target.provider_id ?? '—') : '—')
       fact('providers.bindingRevision', String(state.receipt.new_binding_revision ?? '—'))
       fact('actions.provider', i18n.t(effectKeys[state.receipt.effects.provider]))
-      if (state.receipt.pairing_id) {
-        fact('manage.machine', state.receipt.machine_id!)
-        fact('pairing.id', state.receipt.pairing_id)
-        fact('pairing.status', i18n.t('pairing.pending'))
-        fact('pairing.issuance', i18n.t('value.unverified'))
-      }
       fact('manage.observed', i18n.timestamp(state.receipt.observed_at))
       fact('manage.audit', state.receipt.audit_event_ids.join(', '))
     }
@@ -289,9 +252,6 @@ export function createDeviceActions(options: {
     }
     if (result.phase === 'committed' && !notified && currentIntent) {
       notified = true
-      if (result.receipt.machine_id && result.receipt.pairing_id) {
-        options.pairingCreated(result.receipt.machine_id, result.receipt.pairing_id)
-      }
       if ('machine_id' in result.receipt.target) {
         options.committed(result.receipt.target.machine_id)
       }
@@ -310,12 +270,6 @@ export function createDeviceActions(options: {
     notified = false
     if (intent.action === 'device_rename') {
       intent = { ...intent, name: name.value }
-    }
-    if (intent.action === 'pairing_create') {
-      intent =
-        'machine_id' in intent
-          ? { ...intent, policy_ref: policy.value }
-          : { ...intent, name: name.value, policy_ref: policy.value }
     }
     editing = false
     void run(/** 仅准备当前明确意图，不执行业务提交。 */ () => flow!.prepare(intent!))
@@ -348,7 +302,7 @@ export function createDeviceActions(options: {
     if (!live || !intent || !flow || !canPrepareAgain(flow.state())) {
       return
     }
-    if (intent.action === 'device_rename' || intent.action === 'pairing_create') {
+    if (intent.action === 'device_rename') {
       flow?.dispose()
       flow = undefined
       editing = true
@@ -419,13 +373,12 @@ export function createDeviceActions(options: {
         flow = undefined
         intent = value
         name.value = 'name' in value ? value.name : ''
-        policy.value = value.action === 'pairing_create' ? value.policy_ref : ''
-        editing = value.action === 'device_rename' || value.action === 'pairing_create'
+        editing = value.action === 'device_rename'
       }
       dialog.showModal()
       paint()
       if (editing) {
-        ;(label.hidden ? policy : name).focus()
+        name.focus()
       } else if (!flow) {
         start()
       }
@@ -451,7 +404,6 @@ export function createDeviceActions(options: {
       flow = undefined
       intent = undefined
       name.value = ''
-      policy.value = ''
       editing = false
       live = false
       if (dialog.open) {

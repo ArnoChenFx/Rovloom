@@ -1,184 +1,119 @@
-# Luvus 原生校验与宿主接口
+# 原生契约校验与宿主接口
 
-`src/native-contract/index.ts` 提供异步安装契约编译，以及同步原生校验和授权内核，
-`src/integration/luvus-wire.ts` 的 `createLuvusWireAdapter(backend, limits?)`
-将其接入 [Wire v2](WIRE-PROTOCOL.md)。准确签名以源码及
-`src/native-contract/types.ts` 为准；安全原则、provider 模型和恢复设计分别见
-[ADR 0002](../adr/archive/0002-safety-retention-recovery-late-evidence.md)、
-[ADR 0004](../adr/0004-multi-runtime-provider.md)。模块接入不代表可部署服务。
+本文说明 Luvus 与 Herdr 安装契约的编译、原生请求与响应的校验，以及宿主必须提供的可信来源。
 
-`src/connector/luvus/index.ts` 提供固定配置的本地普通 RPC 传输，复用上述 Wire
-校验器；资源归属、完整 frame 预算、取消语义及所需宿主证明见
-[Luvus 本地 adapter](LUVUS-LOCAL-ADAPTER.md)。缺少可信宿主接线时拒绝派发。
+- `src/native-contract/index.ts`：异步契约编译，同步的原生校验与授权内核。准确签名见 `src/native-contract/types.ts`。
+- `src/integration/luvus-wire.ts`：`createLuvusWireAdapter(backend, limits?)` 把内核接入 [Wire v2](WIRE-PROTOCOL.md)。
+- `src/connector/luvus/`、`src/connector/herdr/`：Connector 上的本机 adapter。
+- 设计取舍见 [ADR 0004](../adr/0004-multi-runtime-provider.md)。
 
 ## 契约与内存许可
 
-`await compileBundle(bytes, options, signal?)` 在 Bun Worker 中接纳安装 bundle 的完整根、条件及引用闭包；精确命中固定官方资产时复用已生成代码，其余使用 Ajv2020 离线完整编译并生成官方 standalone 校验代码。
-不联网解析 $ref，不读路径，不补默认值、不转换类型、不删除原生字段。
-URL 是 bundle 内索引。未知方言、关键字、缺引用、副本冲突及资源超限拒绝。
-`parseNativeJson` 执行有界 JSON 检查；对象入口只供内部无行为 JSON。
-字符串与 UTF-8 字节入口均拒绝 BOM。引用遍历使用显式栈，结构嵌套不消耗
-JS 调用栈；循环和超过预算的引用链返回 schema_unavailable，不生成 handle。
+`await compileBundle(bytes, options, signal?)` 在 Bun Worker 中接纳安装 bundle 的完整根、条件及引用闭包。使用 Ajv2020 离线完整编译，并生成 standalone 校验代码。
+
+- 不联网解析 `$ref`，不读路径，不补默认值，不转换类型，不删除原生字段。
+- URL 只是 bundle 内的索引。未知方言、未知关键字、缺失引用、副本冲突和资源超限一律拒绝。
+- `parseNativeJson` 做有界 JSON 检查。字符串与 UTF-8 字节入口都拒绝 BOM。
+- 引用遍历使用显式栈。循环和超过预算的引用链返回 `schema_unavailable`，不生成 handle。
 
 | 原生内核预算 | 默认上界 |
 |---|---|
-| 单 JSON 对象 | 1 MiB、深度 64、100,000 个 value 节点 |
-| 安装 bundle | 2 MiB、150,000 个 value 节点 |
+| 单个 JSON 对象 | 1 MiB、深度 64、100,000 个节点 |
+| 安装 bundle | 2 MiB、150,000 个节点 |
 | documents | 64 份，每份 512 KiB |
-| 引用 | 2,048 条，任一路径至多 32 条 $ref；结构边不计引用深度 |
-| terminal.frame JSON 编码 | 64 KiB（不含 LF）；另验原生 text/bytes/lines 约束 |
+| 引用 | 2,048 条，任一路径至多 32 条 `$ref`（结构边不计） |
+| `terminal.frame` JSON 编码 | 64 KiB（不含 LF），另验原生 text / bytes / lines 约束 |
 
-该 64 KiB 不适用于所有 terminal event；如 terminal.metadata_changed 仍按单 JSON
-对象及当前在线帧预算校验。control 也受 `terminal_frame_bytes` 的 JSON 编码预算约束，
-此项同样不含 LF；下述在线 request/response 帧预算则包含 LF，两项分别执行。
-
-`CompileOptions.limits` 只能降低这些上界。Wire 的 16 MiB bundle 重组上界不扩大
-原生编译预算。以上为结构/字节预算，不代表 JS heap 大小或 CPU 隔离。
+- 64 KiB 的限制只适用于 `terminal.frame`。其它终端事件，如 `terminal.metadata_changed`，按单个 JSON 对象预算校验。
+- 在线 request、response 帧的预算包含结尾 LF。session capability 必须提供正安全整数的 `limits.frame_bytes`、`terminal.limits.request_bytes` 和 `terminal.limits.response_bytes`。请求与响应取通用预算与终端预算的交集。
+- `CompileOptions.limits` 只能降低这些上界。预算按结构和字节计量，不代表 JS heap 或 CPU 隔离。
 
 ### 编译 Worker 与生成物接纳
 
-使用宿主实际安装导出的 schema 原字节，按协议和实际接口能力判断兼容性；版本仅作诊断，不设原生发行版或预设 binary/schema 摘要白名单。缺失的可选接口仅使依赖功能不可用。远端 Gateway 可独立接收受保护
-配置交付的同一固定资料，本地 Worker 编译，不要求安装或运行 Luvus；不自动信任 Wire 重组对象、远端 URL 或 caller
-提交的 schema。公共工厂只收原字节、安装身份/限额和可选取消信号，不接收代码、路径或
-Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；构建时内嵌 Worker 模块。
-能力广告可携带额外诊断字段；方法描述仅投影 method/access/scope/idempotent，无法理解的授权语义只隔离对应方法。
-server_version 缺失时保留 null，Wire 快照仍核对真实协议、运行代次及目标绑定。Herdr 目录只解析原文内可准确描述的引用分支，未知或不兼容分支不阻断健康方法；执行始终校验完整原生根。
-Worker 每次先完成原字节摘要、文档、方言、关键字、引用闭包、alias 与当前预算检查，
-再以精确 binary/schema SHA 查询受保护的内嵌资产目录。命中时核对编译器、锁定 Ajv、
-代码、完整元数据及独立资产摘要，只缓存冻结产物数据，宿主仍逐次登记独立 opaque handle。
-未知 binary/schema SHA 继续使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译；
-禁止未知方言/关键字、自定义 format/keyword、在线 resolver 和裁剪约束。
+Rovloom 使用宿主实际安装的程序导出的 schema 原字节，按协议和实际接口能力判断兼容性。版本只用于诊断，不设发行版或 binary / schema 摘要白名单。缺失的可选接口只使依赖它的功能不可用。
 
-固定输入目录为 `scripts/native-contract/precompiled-inputs.json`，只引用已审核的仓库原字节
-及收集记录，不接受外部路径或 URL。`bun run native:generate` 显式重新完整编译并更新资产；
-`bun run native:check` 与正常构建在独立 Worker 中重新完整编译核对，生成器不查询现有资产，
-缺失、额外或过期生成文件均拒绝。构建观察预算为 30 秒，独立于 Luvus 的 2 秒和 Herdr 的 10 秒接纳期限。
-单文件打包探针同时验证官方资产内嵌、禁止 Ajv 重新编译的命中路径，以及合成未知 schema
-经实际 Worker 完整编译与两个 runtime helper 的正反例；此探针不验证 CLI 或真实原生执行。
+- 远端 Gateway 可以使用受保护配置交付的同一份 schema，在本地 Worker 中编译，不要求安装或运行 Luvus。Gateway 不信任 Wire 传来的对象、远端 URL 或调用方提交的 schema。
+- 公共工厂只接收原字节、安装身份、限额和可选取消信号，不接收代码、路径或 Worker 工厂。源码和构建产物使用同一个固定 Worker 入口，构建时内嵌 Worker 模块。
+- Worker 先检查原字节摘要、文档、方言、关键字、引用闭包、alias 与预算，再用锁定的 Ajv 8.20.0 和固定选项完整编译，覆盖完整根、条件、引用闭包和事件分支。没有预编译资产，冷编译约 0.7 秒。
+- 禁止未知方言和关键字、自定义 format / keyword、在线 resolver 和裁剪约束。
+- 能力广告可带额外诊断字段。方法描述只取 `method / access / scope / idempotent`，无法理解的授权语义只隔离对应方法。`server_version` 缺失时保持 null。
+- Herdr 目录只解析原文内可准确描述的引用分支，未知或不兼容的分支不阻断健康方法。执行时始终校验完整原生根。
 
-每进程至多一个在途编译、没有等待队列；并发返回 `compiler_busy`。从工厂调用开始的
-接纳期限为 Luvus 2 秒、Herdr 10 秒，覆盖启动、预检、资产核对或完整编译/standalone 生成、消息与宿主初始化。失败只返回安全
-错误码和固定 reason，不透传 schema、生成代码、私人路径或异常原文。普通 schema
-拒绝统一投影为 `origin: contract / code: schema_unavailable / stage: compile` 和固定 reason，
-包括缺失字段、非法根/目录形状及离线引用失败；拒绝后 Worker 可复用。宿主仍严格拒绝
-错误命名空间、阶段、缺失/额外字段等私有协议损坏。取消、期限或 Worker/私有协议故障会永久退役当前编译服务，
-请求终止 Worker，并拒绝后续任务及所有迟到回复；恢复需要角色进程重新初始化，
-不会自动补建 Worker。预先取消的调用不启动 Worker。角色宿主须等待工厂成功后才发布
-就绪，初始化取消/关闭通过 signal 传播；空闲 Worker 不保持进程存活。
+接纳控制：
 
-宿主只消费自己当前 Worker 的当前任务回复。私有协议准确版本为 1，未知版本/字段、
-错误任务身份一律拒绝。产物绑定 binary/schema/revision、固定 Ajv/生成器版本、生成选项
-摘要及源码摘要；摘要只检验一致性，来源由私有任务通道保证。生成源码至多 8 MiB，
-元数据按单 JSON 对象预算检查；必须完整覆盖所有根和事件导出。宿主用私有 CJS
-容器初始化生成函数，`require` 只映射锁定 Ajv 的 `ucs2length` 和 `equal` 两个纯 helper；
-不创建 Ajv 实例、不重编译 schema，也不以 ESM 全局模块缓存保留产物。核对和加载均
-在期限内通过才登记真实 CompiledContract。既有同步 validator、opaque 许可及事务
-接口不变；复制 Worker/JSON 数据不能恢复许可。已接纳契约不依赖编译 Worker 存活。
+- 每个进程至多一个在途编译，没有等待队列。并发请求返回 `compiler_busy`。
+- 接纳期限为 10 秒（Luvus 与 Herdr 相同），从工厂调用开始，覆盖 Worker 启动、预检、完整编译、standalone 生成、消息传递和宿主初始化。
+- 失败只返回安全错误码和固定 reason，不透传 schema、生成代码、私人路径或异常原文。普通 schema 拒绝统一为 `origin: contract / code: schema_unavailable / stage: compile`，Worker 可继续复用。
+- 取消、期限到达或 Worker 与私有协议故障会永久退役当前编译服务：终止 Worker，拒绝后续任务和所有迟到回复。恢复需要角色进程重新初始化。已取消的调用不启动 Worker。
+- 宿主只消费自己当前 Worker 的当前任务回复。私有协议版本为 1，未知版本、未知字段和错误的任务身份一律拒绝。
+- 产物绑定 binary、schema、revision、Ajv 与生成器版本、生成选项摘要和源码摘要。生成源码至多 8 MiB，必须覆盖所有根和事件导出。
+- 宿主用私有 CJS 容器初始化生成函数，`require` 只映射 Ajv 的 `ucs2length` 和 `equal` 两个纯 helper。核对和加载都在期限内通过，才登记 `CompiledContract`。已接纳的契约不依赖 Worker 存活。
 
-这是可取消、可拒绝迟到产物的编译边界，不承诺 64 MiB 硬 heap 隔离、Worker 在指定
-时刻物理退出或主线程硬实时响应。主线程仍需解析生成 JavaScript，并同步执行后续
-校验；这些阶段没有独立 CPU/heap 硬隔离。`smol`、终止事件、定时器及字节/节点
-计量都不是硬资源上限的证明；任意不受信 schema 自动编译不在首版范围。
+这个边界可取消，也能拒绝迟到产物，但不提供硬 heap 隔离，也不保证 Worker 在指定时刻退出。主线程仍要解析生成的 JavaScript 并同步执行校验。因此不会自动编译不受信任的 schema。
 
-session capability 必须提供正安全整数的 `limits.frame_bytes`、
-`terminal.limits.request_bytes` 与 `terminal.limits.response_bytes`。
-原请求、bound response、event 和 control 分别执行通用与适用终端预算的交集，
-计入完整 UTF-8 JSON 和结束 LF。`checkResponseShape` 没有原 capability，不能证明
-在线较低预算或来源关联通过。Connector 注入受保护 auth 后，实际写出入口还须
-重新计量完整帧；禁止用注入前长度作为可发送证明。
+## 校验接口
 
-`checkCapabilitiesShape(input, expected)` 复用原响应 schema、完整方法目录、protocol、
-session/generation 和 terminal 预算检查，只返回 shape 结果；它不读取认证标志或登记
-view、response handle、candidate、permit。远端 epoch 接纳可在没有 MCP caller 时用它
-拒绝非法快照。之后 `bindCapabilities` 仍必须取得独立当前 `TrustedNativeContext`，
-并生成 Gateway 本地 opaque view；shape 成功不授予读取或派发权限。
+`NativeValidator` 的主要入口（见 `src/native-contract/types.ts`）：
 
-固定 Luvus 0.14.3 有 29 文档、223 方法，其中 79 个有条件参数分支，144 个只有
-通用 params object；79 个也不代表业务语义完备。session、Host 与未接入的
-access_machines 分开，machine.* 不用作 Gateway 设备注册。数据及审计入口见
-[开发指引](../DEVELOPMENT.md#固定输入与维护用途)。
+| 入口 | 作用 |
+|---|---|
+| `checkCapabilitiesShape(input, expected)` | 校验能力响应、完整方法目录、protocol、session / generation 和终端预算。只返回结构结果，不认证来源，不登记任何 handle。远端 epoch 接纳可用它拒绝非法快照 |
+| `bindCapabilities(response, source)` | 取得独立的当前 `TrustedNativeContext` 后，生成 Gateway 本地的 opaque 能力视图 |
+| `describe(view, method)` | 返回方法描述，不授予执行权限 |
+| `checkRequestShape(request)` | 有界复制后检查请求。已收录方法检查完整请求根，未知方法只检查 raw 最小信封。成功返回 void，不表示参数覆盖完整，不授予任何权限 |
+| `checkRequest` / `checkRawRequest` | 建立候选。`checkRawRequest` 允许未收录方法产生 `unavailable` 候选 |
+| `checkDispatch` | 全部门禁通过后签发不可从 JSON 复制的 `DispatchPermit` |
+| `checkResponseShape` / `checkResponse` | 前者只证明结构。后者再关联原候选或 permit、native ID、方法结果和可信来源 |
+| `sealResponseContext` / `checkResponseOnly` / `releaseResponseContext` | 从真实 RPC permit 封存最小响应约束，供内容清理后核对迟到响应。`checkResponseOnly` 只返回校验结论，不返回载荷，不授予读取或派发能力 |
+| `releaseRequestContext` | 撤销同一 RPC 候选的全部许可及请求登记 |
 
-`checkRequestShape` 使用原有有界复制：已收录方法检查完整已编译请求根，未知方法只检查
-既有 raw 最小信封。成功返回 void，不表示参数覆盖完整或获得 raw 授权；不登记
-能力视图、候选、来源或执行许可，不检查在线能力及方法表授权。Gateway 可将它接入既有
-Store 首次登记事务的同步 preflight，非法参数回滚登记；后续原 Wire 与实际 IO 门禁仍完整复验。
+Gateway 可把 `checkRequestShape` 接入首次登记事务的同步预检。非法参数使登记回滚，后续 Wire 与实际 I/O 门禁仍完整复验。
 
-`checkRequest`/`checkRawRequest` 建立候选，`checkDispatch` 成功才产生不可从 JSON 复制的
-DispatchPermit。方法必须在静态方法表（`src/native-contract/methods.ts`）中，且实际安装契约
-广告的 access/scope/idempotent 提示与表项逐字段一致，否则拒绝（`method_not_listed` /
-`method_contract_mismatch`）；表中没有的方法（含流、token、host/server 管理）一律拒绝。
-strict 拒绝 generic/unavailable；raw_contract 只在 Owner 显式选择、可信精确范围 grant 有效且
-其它门禁均满足时放宽参数覆盖，保留实际 validation；不能借 raw 让表外方法或已存在的 schema
-约束失效。
+### 方法表与 raw 授权
 
-raw 的 validation=unavailable 仅适用于已有可信、可编译 bundle 及可用 response
-边界，但在线方法未收录于该 bundle 的方法 schema 的情形。整个 bundle 编译失败仍为
-schema_unavailable，不能建立 validator/许可，也不能借 raw 作为无 schema 执行入口。
-原生 method_contracts 仅用于核对静态方法表，不单独授权；raw grant 绑定 principal、完整目标、
-精确方法、契约/revisions 与时效。表只是上限，具体 provider 仍用自己的白名单进一步收窄。
+`checkDispatch` 的门禁：
 
-`checkResponseShape` 仅证明结构；`checkResponse` 再关联原候选/permit、native ID、
-方法结果及可信来源。RPC 可由真实 permit 的 `sealResponseContext` 固定最小结果约束、
-原生 ID、完整 NativeBinding 与含 LF 的在线响应帧预算；独立 opaque 上下文不保留请求参数、
-原 permit/candidate 或完整 capabilities。`releaseRequestContext` 撤销同一 RPC 候选的全部许可，
-一并断开原请求登记；持有先前 CheckedResponse 也不能通过内部关联反向保留原请求。
-宿主同步丢弃自己的原文引用。`checkResponseOnly` 只返回 `Check<void>`，复验同一契约和来源，
-不返回载荷、不授予读取/派发/开流能力；`releaseResponseContext` 释放它。没有 JSON 恢复工厂，
-不能让旧 epoch 或恢复代次重新有效。
-Luvus adapter 把内容清理后的 RPC 切换为这种上下文；仅响应状态共享 attempt/快照预算，
-只允许原固定去重期限内的 metadata-only 证据提交。Store 提交后通知与 adapter 独立内存期限维护
-共同回收原文；断连、撤销、provider fence、关闭或去重到期释放句柄。证据提交失败不变更已提交
-结果，也不触发重发；存储恢复后仍须使用原存活句柄及当前独立来源复验。
-流（open/event/control 帧）机制未接入任何产品入口，已删除；流类方法不在方法表中，不进入 RPC 派发。
-保留完整原生 error/data，网关错误不写回原生 error。
+- 方法必须在静态方法表（`src/native-contract/methods.ts`）中，并且目标 profile 为 session、传输为单请求 RPC。表外方法（包括流、token、Host 与 server 管理方法）返回 `method_not_listed`。
+- 安装契约广告的 `access / scope / idempotent` 提示必须与表项逐字段一致，否则返回 `method_contract_mismatch`。
+- 调用方与本机策略都必须授权该方法。
+- `strict` 模式拒绝参数覆盖不完整（`parameter_schema_incomplete`）和不可用（`schema_unavailable`）的方法。
+- `raw_contract` 模式只在 Owner 显式选择、可信的精确范围 grant 有效、其它门禁均满足时，放宽参数覆盖要求。已有的 schema 约束仍然生效，表外方法也不能借 raw 通过。
+
+raw 的 `validation=unavailable` 只适用于 bundle 已可信、可编译，但在线方法未收录于该 bundle 的情形。整个 bundle 编译失败时仍是 `schema_unavailable`，不能借 raw 作为无 schema 的执行入口。
+
+原生 `method_contracts` 只用于核对静态方法表，不单独授权。raw grant 绑定调用主体、完整目标、精确方法、契约与 revision、有效期。方法表是上限，具体 provider 仍用自己的白名单进一步收窄。
+
+固定的 Luvus 0.14.3 输入有 29 份 schema 文档、223 个方法。部分方法只有通用 params 对象，不能宣称完整参数校验。session、Host 与 access_machines 三类接口分开，`machine.*` 不用作 Gateway 设备注册。数据与审计入口见 [开发指引](../DEVELOPMENT.md#固定输入与维护用途)。
 
 ## 宿主必须提供的可信来源
 
-`NativeWireBackend` 必须由认证、账本、双端受保护配置及原生 endpoint 证明实现。
-不得用 caller、消息、设备广告或相同 hash 自证信任。
+`NativeWireBackend` 由认证、账本、双端受保护配置和原生 endpoint 证明实现。调用方、消息、设备广告或相同的 hash 都不能自证信任。
 
 | backend 来源 | 必须保证 |
 |---|---|
-| connection / currentPrincipal | 当前已认证且 active 的连接、恢复代次、epoch 与读取身份 |
-| attempt | 原登记完整 AttemptBinding、请求、principal、method/mode |
-| provider / localProvider | 双端独立受保护配置，完整 binding 精确一致 |
-| contract | 不可变 ContractSource、真实编译 handle、能力 revision；重算 ref 并核对 binary/schema |
-| nativeSource | 独立 endpoint/身份实证，authenticated/source_verified 成立且完整 NativeBinding 匹配 |
-| policies / authority | 当前双方精确 Target grant、Owner/raw grant（方法表是静态常量，不由宿主提供） |
-| now / contentStatus / responseAnchor | 受信时钟、固定内容状态与 durable 原派发锚点；不从回复补建 |
+| `connection` / `currentPrincipal` | 当前已认证且 active 的连接、恢复代次、epoch 与读取身份 |
+| `attempt` | 原登记的完整 AttemptBinding、请求、主体、method 与 mode |
+| `provider` / `localProvider` | 双端独立的受保护配置，完整 binding 精确一致 |
+| `contract` | 不可变的 ContractSource、真实编译 handle、能力 revision。重算 `contract_ref` 并核对 binary / schema |
+| `nativeSource` | 独立的 endpoint 与身份实证，`authenticated` / `source_verified` 成立且完整 NativeBinding 匹配 |
+| `policies` / `authority` | 当前双方精确的 Target grant、Owner 与 raw grant。方法表是静态常量，不由宿主提供 |
+| `now` / `contentStatus` / `responseAnchor` | 受信时钟、固定的内容状态与持久的原派发锚点，不从回复补建 |
 
-direction 来自宿主角色。v2 Target 显式投影为原生 Target，kind/provider/revision/
-contract_source_ref 单独保存在 NativeBinding；revision 不作字符串/数字转换。
-组合 contract_ref 不能强转为 schema hash。完整 provider tuple 求双方权限交集
-后才投影给原生 Policy，不从独立数组拼笛卡尔授权。方法表只含单请求 RPC，流类方法不自动适配。
-`contract` resolver 只能返回已接纳的 handle。opaque handle、permit 和来源 token 均不能跨进程/重启序列化后恢复为原凭证。
+- direction 来自宿主角色。Wire 的 `V2Target` 投影为原生 Target。`kind / provider / revision / contract_source_ref` 单独保存在 NativeBinding，revision 不做字符串与数字转换。
+- 组合后的 `contract_ref` 不能强转为 schema hash。
+- 完整 provider tuple 求双方权限交集后才投影给原生 Policy，不从独立数组拼出笛卡尔授权。
+- `contract` resolver 只能返回已接纳的 handle。opaque handle、permit 和来源 token 都不能序列化后跨进程或重启恢复。
 
-## 请求、控制与交付生命周期
+## 请求、控制与交付
 
-- 每帧重新读取原 attempt、双端 binding、契约和原生来源，核对原请求；caller 的
-  id/auth 拒绝，native ID 从登记绑定注入，auth 仅由 Connector 受保护注入。
-  validateRequest 即 checkDispatch；Check 失败只转 code/reason，不记录 payload。backend 异常返回 native_adapter_unavailable。
-- adapter 按完整 AttemptBinding 私有保存最初 permit，重复编解码不替换。
-  高级图片/上传无 adapter 证明时不启用。
-- `checkResult(binding, nativeFrame?)` 检查实际 response；省略 frame 仅核对当前读取权限。
-  解码/顺序校验成功不授予内容读取权限。
-- checkResultBoundary 另验当前 reader、双方 read grant 和内容状态。planEvidence 只返回待持久化
-  意图，仅当前读取者仍是派发主体且双端读权限有效时才能包含 payload。
-  过期/discarded/unavailable 或撤权不得输出原文、生成句柄或延长期限；事务成功前不能发布 durable responded。
-- 宿主须先 observeMessage 过滤重复，重复不得
-  再执行。
-  内存 handle/source token 不序列化，关闭、到期、撤权须 release；恢复缺 handle
-  时拒绝，不从回复重建 permit，不通过重新派发恢复结果。
-
-默认至多 128 attempts、合计 16 MiB 保留 JSON 快照；
-快照逐项扣 UTF-8/转义/键/标点预算，超限先拒绝。共享 CompiledContract 可共享
-handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离。
-
-响应必须放入单个 Wire 帧（1 MiB）；超限响应不分片，Connector 写出时以预算错误失败，调用保持 outcome_unknown。发送与受保护的活读取解析见 [transport 接线](../TRANSPORT.md#响应与原始读取)。
-
-结果层创建句柄前使用原 adapter 的 `checkResultRetention(binding, nativeFrame): void`。
-它先核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发主体与当前来源；
-无原上下文时拒绝，
-不从账本或响应 JSON 创建 permit；证据计划与该 port 共用这一检查。
-
-宿主能力的交付范围与后续门禁见 [issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)。
+- 每帧重新读取原 attempt、双端 binding、契约和原生来源，并核对原请求。调用方提交的 id / auth 被拒绝，native ID 从登记绑定注入，auth 只由 Connector 在本机注入。校验失败只返回 code 与 reason，不记录载荷。backend 异常返回 `native_adapter_unavailable`。
+- adapter 按完整 AttemptBinding 私有保存最初的 permit，重复编解码不替换。
+- `checkResult(binding, nativeFrame?)` 检查实际响应。省略 frame 时只核对当前读取权限。解码与顺序校验成功不授予内容读取权限。
+- `checkResultBoundary` 另验当前读取者、双方 read grant 和内容状态。`planEvidence` 只返回待持久化的意图，只有当前读取者仍是派发主体且双端读权限有效，才能包含载荷。内容过期、被丢弃、不可用或撤权时，不输出原文，不生成句柄，不延长期限。事务提交成功前不发布持久的 `responded`。
+- 创建结果句柄前使用 `checkResultRetention(binding, nativeFrame)`。它核对活的原请求、精确响应和当前读取授权，再用原 permit 复验派发主体与当前来源。没有原上下文时拒绝，不从账本或响应 JSON 创建 permit。
+- 宿主先用 `observeMessage` 过滤重复，重复消息不得再执行。内存中的 handle 与 source token 不序列化，关闭、到期、撤权时必须释放。缺失 handle 时拒绝，不从回复重建 permit，不通过重新派发恢复结果。
+- 默认至多 128 个 attempt，合计 16 MiB 保留 JSON 快照。快照逐项计入 UTF-8、转义、键和标点，超限先拒绝。共享同一 `CompiledContract` 的 attempt 可共享 handle，但完整可信 binding 仍须一致。该计量不是 JS heap 隔离。
+- 响应必须放入单个 1 MiB Wire 帧，超限不分片，Connector 写出时因预算错误失败，调用保持 `outcome_unknown`。读取细节见 [通道](../TRANSPORT.md)。
+- 内容到期或被丢弃后，adapter 把 RPC 切换为仅响应上下文，只允许在原去重期限内提交仅元数据的证据，不恢复内容读取、原请求或派发权限。Store 提交后的回收通知与 adapter 的内存期限维护共同回收原文。断连、撤销、provider fence、关闭或去重到期都会释放句柄。
+- 原生 error 与 data 原样保留，网关错误不写回原生 error。
+- 不提供流（open / event / control 帧），流类方法不在方法表中，不进入 RPC 派发。

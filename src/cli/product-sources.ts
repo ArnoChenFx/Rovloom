@@ -35,22 +35,31 @@ export function routeProductionSources(registry: ProductionSourceRegistry): Prod
       }
       kinds.add(value.kind)
     }
-    if (kinds.size > 1) {
-      return (['luvus', 'herdr'] as const).map(
-        /** 先核对两个固定kind的实际工厂都存在，再形成原引用分组。 */ (kind): ProductionSourceGroup => {
+    const isKind = /** 引用已在上面逐项核对过 kind。 */ (entry: ProductionProviderReference, kind: string) =>
+      (entry.value as { kind: string }).kind === kind
+    const herdrReferences = references.filter(/** 每台设备各一份 Herdr 引用。 */ (entry) => isKind(entry, 'herdr'))
+    // Gateway 上每份 Herdr 引用是一台设备的一个独立中性会话组；Luvus 的多份引用由其注册表整体处理。
+    // Connector 只会有各 kind 一份引用，仍按 kind 分组。
+    if (kinds.size > 1 || (!connector && herdrReferences.length > 1)) {
+      const groups: ProductionSourceGroup[] = []
+      const luvusReferences = references.filter(/** Luvus 引用整体交给其注册表。 */ (entry) => isKind(entry, 'luvus'))
+      for (const [kind, grouped] of [
+        ['luvus', luvusReferences.length ? [luvusReferences] : []],
+        [
+          'herdr',
+          connector ? (herdrReferences.length ? [herdrReferences] : []) : herdrReferences.map((entry) => [entry])
+        ]
+      ] as const) {
+        for (const group of grouped) {
+          /** 先核对固定kind的实际工厂存在，再形成原引用分组。 */
           const source = sources[kind]
           if (!source || (connector ? !source.connector : !source.gateway)) {
             throw new CliError('backend_unavailable', 3)
           }
-          return {
-            kind,
-            source,
-            references: references.filter(
-              /** 每个组只取得属于自己kind的原受保护引用。 */ (entry) => (entry.value as { kind: string }).kind === kind
-            )
-          }
+          groups.push({ kind, source, references: group })
         }
-      )
+      }
+      return groups
     }
     const kind = [...kinds][0] ?? 'luvus'
     const source = kind === 'luvus' ? sources.luvus : sources.herdr

@@ -16,12 +16,12 @@ export function escapeHtml(value) {
 
 export function buildSite({ output = resolve(root, 'dist/site'), release } = {}) {
   let version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
-  let releaseUrl = 'https://github.com/ArnoChenFx/Rovloom/releases/latest'
+  let releaseUrl = 'https://github.com/ArnoChenFx/rovloom/releases/latest'
   if (release !== undefined) {
     assert(release && release.draft === false && release.prerelease === false, 'Expected a public latest release')
     assert.match(release.tag_name, /^v?\d+\.\d+\.\d+(?:-[\dA-Za-z.-]+)?(?:\+[\dA-Za-z.-]+)?$/, 'Invalid release tag')
     version = release.tag_name.replace(/^v/, '')
-    releaseUrl = `https://github.com/ArnoChenFx/Rovloom/releases/tag/${encodeURIComponent(release.tag_name)}`
+    releaseUrl = `https://github.com/ArnoChenFx/rovloom/releases/tag/${encodeURIComponent(release.tag_name)}`
   }
   const values = { ...copy.zh, version, releaseUrl, command: commands.cli.zh }
   const template = readFileSync(resolve(root, 'site/index.html'), 'utf8')
@@ -40,11 +40,11 @@ export function buildSite({ output = resolve(root, 'dist/site'), release } = {})
   writeFileSync(resolve(output, '.nojekyll'), '')
   writeFileSync(
     resolve(output, 'robots.txt'),
-    'User-agent: *\nAllow: /\nSitemap: https://arnochenfx.github.io/Rovloom/sitemap.xml\n'
+    'User-agent: *\nAllow: /\nSitemap: https://arnochenfx.github.io/rovloom/sitemap.xml\n'
   )
   writeFileSync(
     resolve(output, 'sitemap.xml'),
-    '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://arnochenfx.github.io/Rovloom/</loc></url></urlset>\n'
+    '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://arnochenfx.github.io/rovloom/</loc></url></urlset>\n'
   )
   writeFileSync(
     resolve(output, '404.html'),

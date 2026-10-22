@@ -259,34 +259,6 @@ summary:focus-visible,
   padding-top: 11px;
   min-width: 0;
 }
-.topology {
-  height: 446px;
-  position: relative;
-  border: 1px solid #dce1d1;
-  background-color: #f0f2e9;
-  background-image: radial-gradient(#cdd5c0 0.8px, transparent 0.8px);
-  background-size: 16px 16px;
-  border-radius: 18px;
-  overflow: hidden;
-}
-.map-label {
-  position: absolute;
-  top: 22px;
-  left: 23px;
-  margin: 0;
-  color: #727e64;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 1.4px;
-}
-.connections {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  inset: 0;
-  stroke: #9faa8d;
-  stroke-width: 1.2;
-}
 .packet {
   color: var(--orange);
   stroke: none;
@@ -304,17 +276,20 @@ summary:focus-visible,
   min-height: 70px;
   text-align: left;
   color: var(--ink);
-  transition:
-    background 0.2s,
-    border-color 0.2s,
-    box-shadow 0.2s;
 }
 .map-node:hover {
   background: #fff9ee;
   border-color: #b4bfa3;
-  box-shadow: 0 4px 18px #27302308;
 }
 .map-node.selected {
+  background: #fff7ef;
+  border-color: var(--orange);
+}
+.active-route {
+  stroke: var(--orange);
+  stroke-width: 1.8;
+}
+.gateway-node {
   background: #fff7ef;
   border-color: var(--orange);
 }
@@ -355,69 +330,6 @@ summary:focus-visible,
 .gateway-mark {
   width: 34px;
   flex-shrink: 0;
-}
-.node-corner {
-  font-size: 11px;
-  position: absolute;
-  right: 10px;
-  top: 9px;
-  color: #859575;
-}
-.agent-node {
-  left: 50%;
-  top: 70px;
-  transform: translateX(-50%);
-  width: 205px;
-}
-.gateway-node {
-  left: 50%;
-  top: 194px;
-  transform: translateX(-50%);
-  width: 226px;
-}
-.linux-node {
-  left: 4.4%;
-  top: 321px;
-  width: 42.3%;
-}
-.windows-node {
-  right: 4.4%;
-  top: 321px;
-  width: 42.3%;
-}
-.wire-label {
-  position: absolute;
-  padding: 2px 6px;
-  background: #f0f2e9;
-  color: #68765a;
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: 0.7px;
-}
-.mcp-label {
-  left: calc(50% + 13px);
-  top: 158px;
-}
-.wss-label {
-  left: calc(50% + 13px);
-  top: 277px;
-}
-.map-caption {
-  position: absolute;
-  left: 23px;
-  bottom: 17px;
-  margin: 0;
-  font-size: 9px;
-  color: #68765a;
-  line-height: 1.6;
-}
-.node-detail {
-  font-size: 11px;
-  line-height: 1.8;
-  color: #687160;
-  min-height: 40px;
-  padding-left: 2px;
-  margin: 14px 0 0;
 }
 .tool-strip {
   display: flex;
@@ -985,9 +897,6 @@ html[lang='en'] .feature h3 {
   .hero-description {
     font-size: 14px;
   }
-  .topology {
-    height: 420px;
-  }
   .map-node {
     gap: 8px;
     padding-inline: 10px;
@@ -1005,22 +914,6 @@ html[lang='en'] .feature h3 {
   .node-icon svg {
     width: 20px;
     height: 20px;
-  }
-  .connections {
-    height: 446px;
-  }
-  .linux-node,
-  .windows-node {
-    top: 321px;
-  }
-  .map-caption {
-    bottom: 10px;
-    font-size: 8px;
-    left: 15px;
-  }
-  .map-label {
-    left: 15px;
-    font-size: 8px;
   }
   .strip-end {
     display: none;
@@ -1134,31 +1027,11 @@ html[lang='en'] .feature h3 {
     font-size: 8px;
     margin-top: 20px;
   }
-  .topology {
-    height: 390px;
-  }
   .map-node strong {
     font-size: 9px;
   }
   .map-node small {
     font-size: 6px;
-  }
-  .agent-node {
-    width: 180px;
-    top: 60px;
-    min-height: 65px;
-  }
-  .gateway-node {
-    width: 200px;
-    top: 176px;
-    min-height: 66px;
-  }
-  .linux-node,
-  .windows-node {
-    top: 296px;
-    min-height: 64px;
-    padding-inline: 8px;
-    gap: 6px;
   }
   .map-node .node-icon {
     width: 23px;
@@ -1170,26 +1043,6 @@ html[lang='en'] .feature h3 {
   }
   .gateway-mark {
     width: 28px;
-  }
-  .connections {
-    height: 410px;
-    top: -2px;
-  }
-  .mcp-label {
-    top: 143px;
-    font-size: 6px;
-  }
-  .wss-label {
-    top: 253px;
-    font-size: 6px;
-  }
-  .map-caption {
-    font-size: 7px;
-  }
-  .node-detail {
-    font-size: 9px;
-    line-height: 1.7;
-    min-height: 44px;
   }
   .tool-strip {
     gap: 19px;
@@ -1475,37 +1328,11 @@ html[lang='en'] .feature h3 {
     width: 100%;
     justify-self: center;
   }
-  .topology {
-    height: 392px;
-    border-radius: 13px;
-  }
-  .map-label {
-    font-size: 8px;
-    top: 20px;
-    left: 20px;
-  }
-  .agent-node {
-    width: 192px;
-    top: 60px;
-  }
-  .gateway-node {
-    width: 212px;
-    top: 176px;
-  }
   .map-node strong {
     font-size: 11px;
   }
   .map-node small {
     font-size: 7px;
-  }
-  .node-corner {
-    right: 9px;
-  }
-  .linux-node,
-  .windows-node {
-    top: 296px;
-    padding-inline: 10px;
-    gap: 9px;
   }
   .map-node .node-icon {
     width: 27px;
@@ -1514,22 +1341,6 @@ html[lang='en'] .feature h3 {
   .node-icon svg {
     width: 21px;
     height: 21px;
-  }
-  .map-caption {
-    font-size: 8px;
-    left: 20px;
-    bottom: 13px;
-  }
-  .mcp-label {
-    font-size: 7px;
-  }
-  .wss-label {
-    font-size: 7px;
-  }
-  .node-detail {
-    font-size: 10px;
-    min-height: 36px;
-    margin-top: 12px;
   }
   .tool-strip {
     flex-wrap: wrap;
@@ -1818,21 +1629,11 @@ html[lang='en'] .feature h3 {
     font-size: 8px;
     gap: 8px;
   }
-  .map-label {
-    font-size: 7px;
-    left: 15px;
-    letter-spacing: 0.9px;
-  }
   .map-node strong {
     font-size: 9px;
   }
   .map-node small {
     font-size: 6px;
-  }
-  .linux-node,
-  .windows-node {
-    padding-inline: 7px;
-    gap: 6px;
   }
   .map-node .node-icon {
     width: 24px;
@@ -1841,10 +1642,6 @@ html[lang='en'] .feature h3 {
   .node-icon svg {
     width: 17px;
     height: 17px;
-  }
-  .map-caption {
-    font-size: 7px;
-    left: 15px;
   }
   .feature {
     padding: 21px 14px;
@@ -1923,10 +1720,6 @@ html[lang='en'] .feature h3 {
   height: 14px;
   flex-shrink: 0;
 }
-.node-corner.arrow-icon {
-  width: 11px;
-  height: 11px;
-}
 .how-note .arrow-icon {
   color: #f5a486;
   margin-top: 2px;
@@ -1934,5 +1727,108 @@ html[lang='en'] .feature h3 {
 @media (max-width: 700px) {
   .github-button > .arrow-icon {
     display: none;
+  }
+}
+
+/* Diagram positions share the SVG's 560 × 480 coordinate system. */
+.topology {
+  height: 480px;
+  position: relative;
+  border: 1px solid #dce1d1;
+  background: radial-gradient(#cdd5c0 0.8px, transparent 0.8px) 0 0 / 16px 16px #f0f2e9;
+  border-radius: 18px;
+  overflow: hidden;
+}
+.connections {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  stroke: #9faa8d;
+  stroke-width: 1.2;
+  fill: none;
+}
+.agent-node,
+.gateway-node {
+  left: 50%;
+  transform: translateX(-50%);
+  height: 64px;
+  min-height: 64px;
+}
+.agent-node {
+  top: 10.8333%;
+  width: 205px;
+}
+.gateway-node {
+  top: 35.4167%;
+  width: 226px;
+}
+.environment-node {
+  width: 42.5%;
+  height: 72px;
+  min-height: 72px;
+  padding: 10px;
+  gap: 9px;
+}
+.environment-node strong {
+  white-space: normal;
+  line-height: 1.3;
+}
+.environment-node small {
+  white-space: normal;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.map-node.environment-node .node-copy strong {
+  font-size: 11px;
+}
+.map-node.environment-node .node-copy small {
+  font-size: 8px;
+}
+.pc-node,
+.docker-node {
+  left: 4.4643%;
+}
+.vps-node,
+.sandbox-node {
+  right: 4.4643%;
+}
+.pc-node,
+.vps-node {
+  top: 59.5833%;
+}
+.docker-node,
+.sandbox-node {
+  top: 77.9167%;
+}
+@media (max-width: 900px) {
+  .agent-node {
+    width: 180px;
+  }
+  .gateway-node {
+    width: 200px;
+  }
+  .environment-node {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+}
+@media (max-width: 700px) {
+  .topology {
+    border-radius: 13px;
+  }
+  .agent-node {
+    width: 192px;
+  }
+  .gateway-node {
+    width: 212px;
+  }
+}
+@media (max-width: 375px) {
+  .environment-node .node-icon {
+    display: none;
+  }
+  .environment-node {
+    padding-inline: 10px;
   }
 }
