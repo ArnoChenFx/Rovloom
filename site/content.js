@@ -100,7 +100,7 @@ export const copy = {
     'footer.docs': '文档',
     'footer.source': '源码',
     'footer.issues': 'Issues',
-    'footer.license': 'MIT 开源许可',
+    'footer.license': 'Apache-2.0 开源许可',
     'meta.description':
       'Rovloom 为 Luvus 与 Herdr 提供跨设备 MCP 入口。自部署 Gateway，连接多台机器上的本地工作区、会话与 Agent。'
   },
@@ -220,7 +220,7 @@ export const copy = {
     'footer.docs': 'Docs',
     'footer.source': 'Source',
     'footer.issues': 'Issues',
-    'footer.license': 'MIT licensed',
+    'footer.license': 'Apache-2.0 licensed',
     'meta.description':
       'Rovloom brings cross-device MCP access to Luvus and Herdr. Self-host a Gateway and connect local workspaces, sessions and Agents across your own machines.'
   }

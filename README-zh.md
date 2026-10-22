@@ -99,4 +99,4 @@ Windows PowerShell 与 Docker Gateway 见[快速开始](docs/QUICK-START-zh.md)�
 
 ## 许可证
 
-[MIT 许可证](LICENSE)
+[Apache-2.0 许可证](LICENSE)
