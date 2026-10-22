@@ -59,7 +59,7 @@ test(
             expires_at: meta.expires
           })
           // 每次服务查询仍真实观察设备 fence；已有句柄不再重复整轮保留检查。
-          assert(identityReads > 0 && identityReads <= 45, String(identityReads))
+          assert(identityReads > 0 && identityReads <= 40, String(identityReads))
         }
       } finally {
         service.close()
