@@ -155,8 +155,7 @@ test(
       assert.equal(await readLuvusVersion(f.config, new AbortController().signal), 'synthetic-future-version')
       const root = await initializeManagedLuvusRoot({
         record_path: join(f.root, 'control', 'root.json'),
-        config: f.config,
-        custody_policy: { scopes: ['read'], methods: ['automation.list'], max_token_ttl_s: 60 }
+        config: f.config
       })
       assert.equal(root.config.binary_sha256, hash(readFileSync(f.config.binary)))
       assert.equal(root.config.allow_terminal_execution, false)

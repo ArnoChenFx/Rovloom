@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { createConnectorRuntime } from '../../src/runtime/connector.js'
 import type { ConnectorRuntimeOptions } from '../../src/runtime/types.js'
 import { join } from 'node:path'
-import { LuvusBoundDelegation, LuvusDispatchClaims } from '../../src/connector/luvus/index.js'
+import { LuvusDispatchClaims } from '../../src/connector/luvus/index.js'
 import { fixture as localFixture } from '../connector/luvus/helpers.js'
 import { fixture as transportFixture, until } from '../transport/helpers.js'
 
@@ -87,7 +87,7 @@ test(
 type ReentrantStage = 'session' | 'authentication' | 'connection' | 'wire' | 'rpc' | 'readiness'
 
 /** 通过真实 authenticate/welcome 验证关闭重入或认证属性失败；安装、原生权限与设备身份仅属隔离 fixture。 */
-async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose = false): Promise<void> {
+async function welcomeReentry(stage: ReentrantStage, failingClose = false): Promise<void> {
   const native = await localFixture()
   const gateway = transportFixture()
   const paired = gateway.pair('isolated_reentrant_connector')
@@ -103,36 +103,14 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
   let sessionCalls = 0
   let authenticationReads = 0
   let resourceCloses = 0
-  let delegationCloses = 0
-  let lazyCalls = 0
   let subscriptions = 0
   let unsubscribes = 0
   let releases = 0
-  let direct: LuvusBoundDelegation | undefined
 
   /** 只在已分配真实 epoch 的回调栈内关闭；重入观察者必须共享同一个完成结果。 */
   function stopFromCallback(): void {
     callbackClose ??= runtime.close()
     assert.equal(runtime.close(), callbackClose)
-  }
-
-  /** 给直接交付对象计量关闭，不从 lazy 关闭路径补造委托。 */
-  function delegation(): LuvusBoundDelegation {
-    const value = new LuvusBoundDelegation({
-      config_ref: native.config.config_ref,
-      binding: native.native,
-      scopes: ['read', 'orchestration'],
-      methods: ['task.add'],
-      token: 'isolated_reentry_token',
-      issued_at: native.state.now,
-      expires_at: native.state.now + 60_000
-    })
-    const close = value.close.bind(value)
-    value.close = /** 保留真实 token 清理，同时计量工厂关闭次数。 */ () => {
-      delegationCloses++
-      close()
-    }
-    return value
   }
 
   try {
@@ -170,26 +148,20 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
             }
           }
         }
-        if (!lazy) {
-          direct = delegation()
-        }
         const resource: ReturnType<ConnectorRuntimeOptions['session']> = {
           backend,
           config: { ...native.config, transport: 'ipc' },
-          /** 新认证模式的属性失败也属于已交付会话，不能绕过原资源及直接委托的回收。 */
-          get authentication(): 'delegated' {
+          /** 认证属性失败也属于已交付会话，不能绕过原资源回收。 */
+          get authentication(): 'local_owner' {
             authenticationReads++
             if (stage === 'authentication') {
               throw new Error('isolated_authentication_getter_failure')
             }
-            return 'delegated'
+            return 'local_owner'
           },
-          delegation: lazy
-            ? /** 关闭阶段绝不应为了清理而调用此入口。 */ () => {
-                lazyCalls++
-                return delegation()
-              }
-            : direct!,
+          nativeAuth: /** 无请求，不应进入原生认证。 */ () => {
+            throw new Error('unexpected_native_auth')
+          },
           claims,
           verifyPeer: native.host.verifyPeer!,
           dedupExpires: /** 无请求，任何固定截止查询都表示错误派发。 */ () => {
@@ -223,7 +195,6 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
         releases++
         assert.equal(resourceCloses, 1)
         assert.equal(subscriptions, unsubscribes)
-        assert.equal(delegationCloses, lazy ? 0 : 1)
         claims.close()
       }
     })
@@ -245,11 +216,9 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
     assert.equal(sessionCalls, 1)
     assert.equal(resourceCloses, 1)
     assert.equal(releases, 1)
-    assert.equal(lazyCalls, 0)
     if (stage === 'authentication') {
       assert.equal(authenticationReads, 1)
     }
-    assert.equal(delegationCloses, lazy ? 0 : 1)
     assert.equal(
       subscriptions,
       stage === 'session' || stage === 'authentication' || stage === 'connection' ? 0 : stage === 'wire' ? 1 : 2
@@ -257,18 +226,6 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
     assert.equal(unsubscribes, subscriptions)
     assert.equal(runtime.transport.status().phase, 'stopped')
     assert.equal(native.state.responses, 0)
-    if (direct) {
-      assert.throws(
-        /** 直接交付且未使用的委托也已不可逆关闭。 */ () =>
-          direct!.read(
-            { config_ref: native.config.config_ref, binding: native.native },
-            native.source(),
-            'task.add',
-            native.state.now
-          ),
-        /native_delegation_unavailable/
-      )
-    }
   } finally {
     try {
       await runtime?.close().catch(/** 失败关闭已经在断言中验证，清理阶段继续停止隔离资源。 */ () => {})
@@ -283,22 +240,17 @@ async function welcomeReentry(stage: ReentrantStage, lazy = false, failingClose 
 for (const stage of ['session', 'connection', 'wire', 'rpc', 'readiness'] as const) {
   test(
     'Connector cleans resources when a real welcome ' + stage + ' callback reenters close',
-    /** 各个真实构建边界都必须回收返回的直接委托、Wire/RPC 和宿主资源。 */ async () => welcomeReentry(stage)
+    /** 各个真实构建边界都必须回收返回的 Wire/RPC 和宿主资源。 */ async () => welcomeReentry(stage)
   )
 }
 
 test(
-  'Connector cleans the returned session and direct delegation when its authentication getter throws',
-  /** 属性异常发生于真实 welcome 之后，原会话与直接交付 token 均须关闭一次且不得建 Wire 或原生派发。 */ async () =>
+  'Connector cleans the returned session when its authentication getter throws',
+  /** 属性异常发生于真实 welcome 之后，原会话须关闭一次且不得建 Wire 或原生派发。 */ async () =>
     welcomeReentry('authentication')
 )
 
 test(
-  'Connector welcome reentry does not resolve an unused lazy delegation',
-  /** session 回调返回 lazy 资源时，同步关闭只清理所有者而不创建 token。 */ async () => welcomeReentry('session', true)
-)
-
-test(
   'Connector welcome reentry cleanup failure rejects the original closed result',
-  /** 回调重入后的清理错误不能被先前安排的成功 closed 覆盖。 */ async () => welcomeReentry('session', false, true)
+  /** 回调重入后的清理错误不能被先前安排的成功 closed 覆盖。 */ async () => welcomeReentry('session', true)
 )

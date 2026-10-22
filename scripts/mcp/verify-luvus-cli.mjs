@@ -248,8 +248,7 @@ try {
   stage = 'native_root'
   nativeRoot = await initializeManagedLuvusRoot({
     record_path: join(root, 'control', 'root.json'),
-    config,
-    custody_policy: { scopes: ['read'], methods: ['automation.list'], max_token_ttl_s: 120 }
+    config
   })
   if (args['opencode-binary']) {
     stage = 'prepare_isolated_opencode'

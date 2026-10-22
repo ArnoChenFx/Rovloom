@@ -14,7 +14,7 @@ import {
   createConnectorAdmissionBackend
 } from '../../src/runtime/connector-attempts.js'
 import type { LuvusConnectorAdmissionSource } from '../../src/runtime/connector-attempts.js'
-import { LuvusBoundDelegation, LuvusDispatchClaims, readLinuxLuvusPeer } from '../../src/connector/luvus/index.js'
+import { LuvusDispatchClaims, readLinuxLuvusPeer } from '../../src/connector/luvus/index.js'
 import { contractRef, assertBinding, fail } from '../../src/wire/index.js'
 import type { AttemptBinding, ProviderPolicy } from '../../src/wire/types.js'
 import type { NativeBinding, TrustedNativeContext } from '../../src/native-contract/index.js'
@@ -170,7 +170,7 @@ export async function runtimeFixture(
       offer: { major: 2, minor: 0, capabilities: ['rpc', 'history_scope'], required: ['rpc'] },
       limits: { heartbeat_ms: 5000, idle_ms: 20_000, reconnect_ms: 1000 }
     },
-    /** 每个实际 welcome 建立独立准入后端与委托，身份不从业务帧自报取得。 */
+    /** 每个实际 welcome 建立独立准入后端，身份不从业务帧自报取得。 */
     session(connection) {
       const services: LuvusConnectorAdmissionSource = {
         /** 双方 provider 均从各自显式固定配置中解析，不从请求创建。 */
@@ -192,19 +192,12 @@ export async function runtimeFixture(
           source: services,
           book
         })
-      const delegation = new LuvusBoundDelegation({
-        config_ref: binding.config_ref,
-        binding: nativeBinding(connection),
-        scopes: ['read', 'orchestration'],
-        methods: ['task.add'],
-        token: native.state.auth,
-        issued_at: Date.now(),
-        expires_at: Date.now() + 60_000
-      })
       return {
         backend,
         config: { ...native.config, target, transport: 'ipc' },
-        delegation,
+        authentication: 'local_owner' as const,
+        /** 官方本机 Owner 省略 native auth 字段；同一 socket 证据由 assertEvidence 另行核验。 */
+        nativeAuth: async () => ({ kind: 'local_owner' as const }),
         claims,
         verifyPeer: /** 对测试自建 listener 也实测同一 socket 的内核身份。 */ async (socket) =>
           readLinuxLuvusPeer(socket),

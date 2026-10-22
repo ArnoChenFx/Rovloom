@@ -18,8 +18,7 @@ import {
   LuvusAdapterError,
   createLuvusResultAccess,
   LuvusDispatchClaims,
-  readLinuxLuvusPeer,
-  LuvusBoundDelegation
+  readLinuxLuvusPeer
 } from '../../../src/connector/luvus/index.ts'
 
 const binaryHash = '895073022da8edd231c9d4c810d68627b954b61e4e9f9f2d5d19e2c2fcf282a9'
@@ -102,7 +101,6 @@ export async function officialIpc(binaryPath) {
   let store
   let claims
   let claimReader
-  let delegation
   let wire
   let responseWire
   const adapters = new Set()
@@ -365,17 +363,7 @@ export async function officialIpc(binaryPath) {
       classification_revision: origin.classification_revision,
       contract: compiled.value.identity
     }
-    const delegationContext = { config_ref: provider.config_ref, binding: nativeBinding }
-    // 这里只绑定本轮自有进程引导取得的真实委托；不冒称已有生产 custody 发行者。
-    delegation = new LuvusBoundDelegation({
-      ...delegationContext,
-      scopes: issued.result.scopes,
-      methods,
-      issued_at: store.clock(),
-      expires_at: tokenExpires,
-      token
-    })
-    const source = /* 来源只在真实存活实例、有限委托、当前 Store epoch 和原 binding 同时成立时可用。 */ (
+    const source = /* 来源只在真实存活实例、自有 token、当前 Store epoch 和原 binding 同时成立时可用。 */ (
       callId,
       attemptId
     ) => {
@@ -392,7 +380,6 @@ export async function officialIpc(binaryPath) {
           source_verified: true,
           binding: nativeBinding
         }
-        delegation.assertCurrent(delegationContext, current, attempt.method, store.clock())
         return current
       } catch {
         return undefined
@@ -455,19 +442,15 @@ export async function officialIpc(binaryPath) {
     const host = {
       backend,
       verifyPeer: /* 同一连接内核证明；没有 CLI provenance 放行回调。 */ async (socket) => peer(socket),
-      nativeAuth: /* 只返回本次真实限期委托；退出、过期或 binding 变化均拒绝，无 Owner 回退。 */ async (
+      nativeAuth: /* 只返回本次引导取得的限期 token；退出、过期或 binding 变化均拒绝，无 Owner 回退。 */ async (
         binding,
         evidence
       ) => {
         const current = source(binding.call_id, binding.attempt_id)
         assert(current && evidence.transport === 'ipc')
         assert.deepEqual(evidence.peer, { pid: child.pid, uid, gid })
-        return delegation.read(
-          delegationContext,
-          current,
-          store.attempt(binding.call_id, binding.attempt_id).method,
-          store.clock()
-        )
+        assert(store.attempt(binding.call_id, binding.attempt_id).method && Date.now() < tokenExpires)
+        return token
       },
       claimDispatch: /* 独立 SQLite FULL 事务提交唯一 claim；原 Wire 还在实际写入前复核当前许可。 */ async (
         binding,
@@ -716,7 +699,6 @@ export async function officialIpc(binaryPath) {
       }
       wire?.close()
       responseWire?.close()
-      delegation?.close()
       claimReader?.close()
       claims?.close()
       store?.close()
