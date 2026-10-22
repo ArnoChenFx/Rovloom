@@ -1,5 +1,7 @@
 # Luvus 原生校验与宿主接口
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](../DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](../README.md)，总览见 [协议总览](../PROTOCOL.md)）。
+
 `src/native-contract/index.ts` 提供异步安装契约编译，以及同步原生校验和授权内核，
 `src/integration/luvus-wire.ts` 的 `createLuvusWireAdapter(backend, limits?)`
 将其接入 [Wire v2](WIRE-PROTOCOL.md)。准确签名以源码及

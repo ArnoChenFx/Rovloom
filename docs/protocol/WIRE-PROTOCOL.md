@@ -1,5 +1,7 @@
 # Rovloom Wire v2：provider 绑定与执行边界
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](../DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](../README.md)，总览见 [协议总览](../PROTOCOL.md)）。
+
 执行版本 major **2** / minor **0**。Wire codec、provider scope、关联和有界对象判断通过 `src/integration/luvus-wire.ts` 接入真实 Luvus NativeValidator，见 [原生校验与宿主接口](NATIVE-CONTRACT.md)。认证、存储和传输由宿主提供可信实现。
 
 原生 runtime Luvus/Herdr、UHP 标识与源协议 fixture 保持原样。

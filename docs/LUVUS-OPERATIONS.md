@@ -1,5 +1,7 @@
 # Luvus 窗口和 Agent 角色装配
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+
 `createLuvusProductionSources()` 供唯一 CLI 的 `ProductionCliSources` 静态调用。
 它消费 CLI 已解析的 `{reference,value}`，不读取第二份 CLI 配置、不实现 MCP/HTTP
 入口。Gateway 返回 `providers/release`；Connector 返回去掉 `transport` 的

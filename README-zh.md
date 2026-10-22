@@ -10,9 +10,10 @@
 Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构，
 让 runtime 留在各自机器上，AI Agent / AI Bot 通过同一入口访问。
 
-**当前可用范围：** Linux/macOS/Windows Gateway 与 Linux x64 Connector 设置的技术预览。
+**当前可用范围：** Linux/macOS/Windows Gateway 与 Linux x64 / Windows x64 Connector（附着你已在运行的 Herdr / Luvus）的技术预览。
 已提供官方二进制、安装脚本和 Linux Gateway Docker 镜像，参见[快速开始](docs/QUICK-START-zh.md)
-与 [Docker 部署](docs/DOCKER-zh.md)。首次配对审批要求 Linux，Agent/模型登录引导尚不可用。
+与 [Docker 部署](docs/DOCKER-zh.md)。首次配对需要真实本地终端，目前一个 Gateway 引导式配对一台 Connector
+（[#192](https://github.com/ArnoChenFx/Rovloom/issues/192)）；Agent/模型登录引导尚不可用。
 
 ## 核心能力
 
@@ -70,6 +71,18 @@ flowchart TB
   CB -.->|"主动发起出站 WSS"| GW
 ```
 
+## 典型用法：两台机器，一个 Agent
+
+你的工作站上运行着真正在用的 Herdr（或 Luvus），里面有你的工作区和 Agent 登录；一台常开的小主机运行 Gateway。
+AI 客户端通过 MCP 访问 Gateway，并操作工作站上的真实会话——工作站上的 Connector 只向外拨号，
+工作站不需要开放入站端口，对外只暴露 Gateway 的一个 MCP 入口。
+
+1. Gateway 主机：`rovloom gateway`（设置 `devices.hostname` 让工作站能连上；跨出可信网络时在前面放 HTTPS/WSS 代理）。
+2. 工作站：`rovloom connector`，输入 Gateway 地址和一次性码。
+3. 把 Gateway 的 MCP 地址和 Bearer 加到 AI 客户端，让它列出这台机器的工作区。
+
+断线后结果不确定的调用会标为未知，不会自动重发。令牌、管理页、重新配对和排错见[运维指南](docs/OPERATIONS.md)。
+
 ## 快速开始
 
 从[快速开始](docs/QUICK-START-zh.md)了解安装前提、Gateway/Connector 配置路径、启动、
@@ -85,6 +98,8 @@ rovloom --help
 ## 文档
 
 - [系统架构与部署](docs/DESIGN.md)
+- [运维指南](docs/OPERATIONS.md)
+- [协议总览](docs/PROTOCOL.md)
 - [Runtime 接口](docs/adr/0004-multi-runtime-provider.md)
 - [路线（issues）](https://github.com/ArnoChenFx/Rovloom/issues)
 - [管理 UI 设计](docs/GATEWAY-WEBUI.md)

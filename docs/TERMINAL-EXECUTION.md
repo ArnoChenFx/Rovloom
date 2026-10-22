@@ -1,5 +1,7 @@
 # Connector 直接终端执行
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+
 标准 CLI 从唯一 Connector 用户文件（默认 `~/.config/rovloom/connector.json`）的根字段
 `allow_terminal_execution` 读取开关。模板明确写 `false`，省略也关闭；只有字面量
 `true` 开启。字符串、数字、null 或对象会被配置解析拒绝。无密钥完整模板及字段表见

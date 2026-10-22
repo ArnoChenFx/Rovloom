@@ -1,5 +1,7 @@
 # SQLite 运行治理
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+
 本文说明当前 Store/Router 的本机宿主接口和操作边界。系统保留默认值与安全语义以
 [DESIGN §6](DESIGN.md#6-持久化与默认限额)为准，精确类型见
 [Store](../src/store.ts)、[Router](../src/router.ts)与

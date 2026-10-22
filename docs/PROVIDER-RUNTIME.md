@@ -1,5 +1,7 @@
 # 通用 provider 的角色接缝
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+
 通用 runtime 在既有认证通道和唯一 Store/Router 上提供 Gateway/Connector 装配接口；
 公开 CLI/HTTP MCP、配置解析和资源 loader 由唯一入口负责。`createGatewayRuntime`与
 `createProviderGatewayRuntime`调用同一 Gateway 装配核心，Luvus result factory 保留兼容接口。

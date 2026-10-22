@@ -4,6 +4,8 @@
 
 | 需要了解 | 唯一维护职责/入口 |
 |---|---|
+| 运维总览：安装、配置、服务、Docker、令牌/管理员/重新配对、备份、升级、排错 | [运维指南](OPERATIONS.md) |
+| 三层协议（MCP、Wire v2、原生契约）的现行事实总览 | [协议总览](PROTOCOL.md) |
 | 安装前提、角色配置路径、启动连接、HTTP MCP 与 Agent 使用 | [Quick Start](QUICK-START.md) · [快速开始](QUICK-START-zh.md) |
 | 每角色唯一用户配置、全部参数与安装要求 | [Configuration](CONFIGURATION.md) · [配置参考](CONFIGURATION-zh.md) |
 | GHCR 镜像、Linux Gateway Compose 部署、持久卷与容器运行边界 | [Docker deployment](DOCKER.md) · [Docker 部署](DOCKER-zh.md) |
