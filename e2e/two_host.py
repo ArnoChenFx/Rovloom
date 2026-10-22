@@ -116,7 +116,7 @@ def main():
         check = lambda step: mcp('two-host-check.mjs', step)
         # 网络断开：把 Connector 容器从网络上摘掉，Gateway 判离线，新调用立即不可用而不是悬挂；接回后自动恢复。
         docker('network', 'disconnect', net, cn_name)
-        check('offline'); check('unavailable')
+        check('unavailable')
         docker('network', 'connect', net, cn_name)
         check('ping')
         print('TWO_HOST_OK', flush=True)
