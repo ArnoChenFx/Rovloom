@@ -30,19 +30,26 @@ int main(void) {
   }
 }
 `
-let compiled: string | undefined
-
 /**
- * 编译一次并返回可执行文件路径；体积只有几十 KB，满足安装二进制的大小上限
- * （独立编译的 bun 可执行文件会超过 64 MiB）。被复制成“已安装的 herdr/luvus”后，进程镜像就是那份拷贝。
+ * 在 macOS 上于模块加载时编译一次（首次调用 Xcode 工具链可能要十几秒，不能算进单个用例的 5 秒超时），
+ * 并返回可执行文件路径；体积只有几十 KB，满足安装二进制的大小上限（独立编译的 bun 可执行文件会超过 64 MiB）。
+ * 被复制成“已安装的 herdr/luvus”后，进程镜像就是那份拷贝。其它平台不使用本夹具。
  */
+function compile(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'rovloom-listener-fixture-'))
+  const file = join(directory, 'listener.c')
+  writeFileSync(file, source)
+  const output = join(directory, 'listener')
+  execFileSync('cc', ['-O1', '-o', output, file], { stdio: 'ignore', timeout: 120_000 })
+  return output
+}
+
+const compiled = process.platform === 'darwin' ? compile() : undefined
+
+/** 返回预编译好的监听程序；只在 macOS 上可用。 */
 export function listenerExecutable(): string {
   if (!compiled) {
-    const directory = mkdtempSync(join(tmpdir(), 'rovloom-listener-fixture-'))
-    const file = join(directory, 'listener.c')
-    writeFileSync(file, source)
-    compiled = join(directory, 'listener')
-    execFileSync('cc', ['-O1', '-o', compiled, file], { stdio: 'ignore' })
+    throw new Error('listener_fixture_requires_macos')
   }
   return compiled
 }
