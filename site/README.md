@@ -62,6 +62,5 @@ The output must be a new directory outside the checkout. The check covers both
 languages, six viewport widths, keyboard tabs, clipboard success and denial,
 blocked preference storage, no-JavaScript fallback, mobile navigation and
 reduced motion. Screenshots and the JSON report remain outside the repository.
-`social-card.svg` is the editable source for `social-card.png`; export it at
-1200 × 630 in Chromium when changing the share artwork. The PNG is a maintained
-social preview asset, not a per-run screenshot.
+The social preview reuses the existing brand mark. No generated PNGs or review
+screenshots are committed.

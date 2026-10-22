@@ -37,8 +37,6 @@ export function buildSite({ output = resolve(root, 'dist/site'), release } = {})
     copyFileSync(resolve(root, 'site', name), resolve(output, name))
   }
   copyFileSync(resolve(root, 'docs/assets/brand/rovloom-mark-transparent.png'), resolve(output, 'assets/mark.png'))
-  copyFileSync(resolve(root, 'site/social-card.svg'), resolve(output, 'assets/social-card.svg'))
-  copyFileSync(resolve(root, 'site/social-card.png'), resolve(output, 'assets/social-card.png'))
   writeFileSync(resolve(output, '.nojekyll'), '')
   writeFileSync(
     resolve(output, 'robots.txt'),
