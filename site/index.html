@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="{{meta.description}}" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; font-src 'self'; base-uri 'self'; form-action 'none'"
+    />
+    <meta name="theme-color" content="#faf9f5" />
+    <meta name="rovloom-version" content="{{version}}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Rovloom — Your machines. One connection." />
+    <meta property="og:description" content="{{meta.description}}" />
+    <meta property="og:image" content="https://arnochenfx.github.io/Rovloom/assets/social-card.png" />
+    <meta property="og:url" content="https://arnochenfx.github.io/Rovloom/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://arnochenfx.github.io/Rovloom/" />
+    <link rel="icon" href="./assets/mark.png" type="image/png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>Rovloom — 一个 MCP 入口，连接你的每台电脑。</title>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main" data-i18n="skip">{{skip}}</a>
+    <header class="site-header wrap">
+      <a class="brand" href="#" aria-label="Rovloom"
+        ><img src="./assets/mark.png" width="38" height="38" alt="" /><span>Rovloom</span></a
+      >
+      <button
+        class="menu-toggle"
+        type="button"
+        aria-controls="navigation"
+        aria-expanded="false"
+        data-i18n-aria="nav.menu"
+      >
+        <span></span><span></span><span></span>
+      </button>
+      <nav id="navigation" aria-label="Main navigation">
+        <a href="#why" data-i18n="nav.why">{{nav.why}}</a><a href="#how" data-i18n="nav.how">{{nav.how}}</a
+        ><a href="#start" data-i18n="nav.start">{{nav.start}}</a
+        ><a href="#roadmap" data-i18n="nav.roadmap">{{nav.roadmap}}</a>
+      </nav>
+      <div class="header-actions">
+        <button id="language" type="button" lang="en" aria-label="Switch to English">
+          EN <span aria-hidden="true">↔</span></button
+        ><a class="github-button" href="https://github.com/ArnoChenFx/Rovloom"
+          ><svg class="icon" aria-hidden="true"><use href="#github-icon"></use></svg
+          ><span data-i18n="nav.github">{{nav.github}}</span><span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="status-dot" aria-hidden="true"></span><span data-i18n="hero.eyebrow">{{hero.eyebrow}}</span>
+          </p>
+          <h1 id="hero-title">
+            <span data-i18n="hero.title1">{{hero.title1}}</span><br /><span data-i18n="hero.title2"
+              >{{hero.title2}}</span
+            ><em data-i18n="hero.title3">{{hero.title3}}</em>
+          </h1>
+          <p class="hero-description" data-i18n="hero.body">{{hero.body}}</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#start"
+              ><span data-i18n="hero.start">{{hero.start}}</span><span aria-hidden="true">↗</span></a
+            ><a class="button secondary" href="#how"
+              ><span data-i18n="hero.how">{{hero.how}}</span><span aria-hidden="true">↓</span></a
+            >
+          </div>
+          <p class="release-line">
+            <a href="https://github.com/ArnoChenFx/Rovloom/releases/latest">v{{version}}</a
+            ><span class="release-divider" aria-hidden="true">/</span><span data-i18n="hero.meta">{{hero.meta}}</span>
+          </p>
+        </div>
+        <div class="topology-block">
+          <div class="topology" role="group" aria-label="MCP client, Gateway and two Connector devices">
+            <p class="map-label" data-i18n="map.label">{{map.label}}</p>
+            <svg class="connections" viewBox="0 0 560 446" preserveAspectRatio="none" aria-hidden="true">
+              <path class="wire" d="M280 141V194"></path>
+              <path class="wire" d="M280 265V281Q280 296 265 296H145Q133 296 133 308V321"></path>
+              <path class="wire" d="M280 265V281Q280 296 295 296H415Q427 296 427 308V321"></path>
+              <circle class="packet packet-one" r="3" fill="currentColor">
+                <animateMotion dur="5s" repeatCount="indefinite" path="M280 141V194"></animateMotion>
+              </circle>
+              <circle class="packet" r="3" fill="currentColor">
+                <animateMotion
+                  dur="7s"
+                  repeatCount="indefinite"
+                  path="M133 321V308Q133 296 145 296H265Q280 296 280 281V265"
+                ></animateMotion>
+              </circle>
+            </svg>
+            <button class="map-node agent-node" type="button" data-node="agent" aria-pressed="false">
+              <span class="node-icon"
+                ><svg aria-hidden="true"><use href="#spark-icon"></use></svg></span
+              ><span class="node-copy"
+                ><strong data-i18n="map.agent">{{map.agent}}</strong><small>MCP CLIENT</small></span
+              ><span class="node-corner" aria-hidden="true">↗</span>
+            </button>
+            <span class="wire-label mcp-label">STREAMABLE HTTP</span>
+            <button class="map-node gateway-node selected" type="button" data-node="gateway" aria-pressed="true">
+              <span class="gateway-mark"><img src="./assets/mark.png" alt="" width="34" height="34" /></span
+              ><span class="node-copy"
+                ><strong>Rovloom Gateway</strong><small data-i18n="map.gateway">{{map.gateway}}</small></span
+              ><span class="node-corner" aria-hidden="true">↗</span>
+            </button>
+            <span class="wire-label wss-label">OUTBOUND WSS</span>
+            <button class="map-node linux-node" type="button" data-node="linux" aria-pressed="false">
+              <span class="node-icon"
+                ><svg aria-hidden="true"><use href="#server-icon"></use></svg></span
+              ><span class="node-copy"
+                ><strong data-i18n="map.linux">{{map.linux}}</strong><small>CONNECTOR → HERDR</small></span
+              >
+            </button>
+            <button class="map-node windows-node" type="button" data-node="windows" aria-pressed="false">
+              <span class="node-icon"
+                ><svg aria-hidden="true"><use href="#window-icon"></use></svg></span
+              ><span class="node-copy"
+                ><strong data-i18n="map.windows">{{map.windows}}</strong><small>CONNECTOR → LUVUS</small></span
+              >
+            </button>
+            <p class="map-caption" data-i18n="map.note">{{map.note}}</p>
+          </div>
+          <p id="node-detail" class="node-detail" aria-live="polite" data-i18n="map.gatewayDetail">
+            {{map.gatewayDetail}}
+          </p>
+        </div>
+      </section>
+      <div class="tool-strip wrap">
+        <span data-i18n="strip.label">{{strip.label}}</span><a href="https://modelcontextprotocol.io/">MCP</a
+        ><a href="https://github.com/RizRiyz/luvus">Luvus</a><a href="https://github.com/herdrdev/herdr">Herdr</a
+        ><a href="https://www.docker.com/">Docker</a><span class="strip-end" data-i18n="strip.end">{{strip.end}}</span>
+      </div>
+      <section id="why" class="why-section section wrap" aria-labelledby="why-title">
+        <div class="section-intro">
+          <p class="eyebrow" data-i18n="why.label">{{why.label}}</p>
+          <h2 id="why-title">
+            <span data-i18n="why.title1">{{why.title1}}</span><br /><span data-i18n="why.title2">{{why.title2}}</span>
+          </h2>
+          <p class="section-description" data-i18n="why.body">{{why.body}}</p>
+          <div class="woven-motif" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        </div>
+        <div class="features">
+          <article class="feature">
+            <svg class="feature-icon" aria-hidden="true"><use href="#workspace-icon"></use></svg
+            ><span class="feature-number">01 — LOCAL FIRST</span>
+            <h3 data-i18n="why.localTitle">{{why.localTitle}}</h3>
+            <p data-i18n="why.localBody">{{why.localBody}}</p>
+          </article>
+          <article class="feature">
+            <svg class="feature-icon" aria-hidden="true"><use href="#target-icon"></use></svg
+            ><span class="feature-number">02 — EXPLICIT TARGETS</span>
+            <h3 data-i18n="why.targetTitle">{{why.targetTitle}}</h3>
+            <p data-i18n="why.targetBody">{{why.targetBody}}</p>
+          </article>
+          <article class="feature">
+            <svg class="feature-icon" aria-hidden="true"><use href="#lock-icon"></use></svg
+            ><span class="feature-number">03 — YOUR CONTROL</span>
+            <h3 data-i18n="why.controlTitle">{{why.controlTitle}}</h3>
+            <p data-i18n="why.controlBody">{{why.controlBody}}</p>
+          </article>
+          <article class="feature">
+            <svg class="feature-icon" aria-hidden="true"><use href="#route-icon"></use></svg
+            ><span class="feature-number">04 — HONEST OUTCOMES</span>
+            <h3 data-i18n="why.recoveryTitle">{{why.recoveryTitle}}</h3>
+            <p data-i18n="why.recoveryBody">{{why.recoveryBody}}</p>
+          </article>
+        </div>
+      </section>
+      <section id="how" class="how-section" aria-labelledby="how-title">
+        <div class="wrap">
+          <div class="how-heading">
+            <div>
+              <p class="eyebrow" data-i18n="how.label">{{how.label}}</p>
+              <h2 id="how-title">
+                <span data-i18n="how.title1">{{how.title1}}</span><br /><span data-i18n="how.title2"
+                  >{{how.title2}}</span
+                >
+              </h2>
+            </div>
+            <div>
+              <p data-i18n="how.body">{{how.body}}</p>
+              <a
+                class="text-link light"
+                href="https://github.com/ArnoChenFx/Rovloom/blob/main/docs/DESIGN.md"
+                data-doc="design"
+                ><span data-i18n="how.docs">{{how.docs}}</span><span aria-hidden="true">↗</span></a
+              >
+            </div>
+          </div>
+          <div class="flow-track" aria-label="MCP Client to Gateway to Connector to local runtime">
+            <span>MCP CLIENT</span><i aria-hidden="true">→</i
+            ><span class="flow-gateway"><img src="./assets/mark.png" width="24" height="24" alt="" />GATEWAY</span
+            ><i aria-hidden="true">←</i><span>CONNECTOR</span><i aria-hidden="true">→</i><span>LUVUS / HERDR</span>
+          </div>
+          <div class="steps">
+            <article>
+              <span class="step-number">01</span>
+              <h3 data-i18n="how.oneTitle">{{how.oneTitle}}</h3>
+              <p data-i18n="how.oneBody">{{how.oneBody}}</p>
+            </article>
+            <article>
+              <span class="step-number">02</span>
+              <h3 data-i18n="how.twoTitle">{{how.twoTitle}}</h3>
+              <p data-i18n="how.twoBody">{{how.twoBody}}</p>
+            </article>
+            <article>
+              <span class="step-number">03</span>
+              <h3 data-i18n="how.threeTitle">{{how.threeTitle}}</h3>
+              <p data-i18n="how.threeBody">{{how.threeBody}}</p>
+            </article>
+          </div>
+          <p class="how-note"><span aria-hidden="true">↳</span><span data-i18n="how.note">{{how.note}}</span></p>
+        </div>
+      </section>
+      <section id="start" class="start-section section wrap" aria-labelledby="start-title">
+        <div class="start-copy">
+          <p class="eyebrow" data-i18n="start.label">{{start.label}}</p>
+          <h2 id="start-title">
+            <span data-i18n="start.title1">{{start.title1}}</span><br /><span data-i18n="start.title2"
+              >{{start.title2}}</span
+            >
+          </h2>
+          <p class="section-description" data-i18n="start.body">{{start.body}}</p>
+          <div class="start-actions">
+            <a class="button primary" href="https://github.com/ArnoChenFx/Rovloom/releases/latest"
+              ><span data-i18n="start.download">{{start.download}}</span><span aria-hidden="true">↗</span></a
+            ><a
+              class="text-link"
+              data-doc="quick"
+              href="https://github.com/ArnoChenFx/Rovloom/blob/main/docs/QUICK-START-zh.md"
+              ><span data-i18n="start.docs">{{start.docs}}</span><span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="platform-line" data-i18n="start.platforms">{{start.platforms}}</p>
+          <p class="platform-line" data-i18n="start.connector">{{start.connector}}</p>
+        </div>
+        <div class="terminal-shell">
+          <div class="terminal-top">
+            <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span>rovloom / getting-started</span><span class="terminal-version">v{{version}}</span>
+          </div>
+          <div class="terminal-tabs" role="tablist" data-i18n-aria="terminal.label" aria-label="选择接入方式">
+            <button
+              type="button"
+              id="tab-cli"
+              role="tab"
+              aria-selected="true"
+              aria-controls="command-panel"
+              data-tab="cli"
+              data-i18n="terminal.cli"
+            >
+              {{terminal.cli}}</button
+            ><button
+              type="button"
+              id="tab-docker"
+              role="tab"
+              tabindex="-1"
+              aria-selected="false"
+              aria-controls="command-panel"
+              data-tab="docker"
+              data-i18n="terminal.docker"
+            >
+              {{terminal.docker}}</button
+            ><button
+              type="button"
+              id="tab-mcp"
+              role="tab"
+              tabindex="-1"
+              aria-selected="false"
+              aria-controls="command-panel"
+              data-tab="mcp"
+              data-i18n="terminal.mcp"
+            >
+              {{terminal.mcp}}
+            </button>
+          </div>
+          <div id="command-panel" role="tabpanel" aria-labelledby="tab-cli" tabindex="0">
+            <button type="button" class="copy-button" id="copy-command">
+              <svg aria-hidden="true"><use href="#copy-icon"></use></svg
+              ><span data-i18n="terminal.copy">{{terminal.copy}}</span>
+            </button>
+            <pre><code id="command">{{command}}</code></pre>
+          </div>
+          <p id="command-note" class="terminal-note" data-i18n="terminal.note.cli">{{terminal.note.cli}}</p>
+          <a
+            class="terminal-docs"
+            data-doc="config"
+            href="https://github.com/ArnoChenFx/Rovloom/blob/main/docs/CONFIGURATION-zh.md"
+            ><span data-i18n="terminal.guide">{{terminal.guide}}</span><span aria-hidden="true">↗</span></a
+          ><span id="copy-status" class="visually-hidden" role="status" aria-live="polite"></span>
+        </div>
+      </section>
+      <section id="roadmap" class="roadmap-section section wrap" aria-labelledby="roadmap-title">
+        <div class="roadmap-heading">
+          <div>
+            <p class="eyebrow" data-i18n="roadmap.label">{{roadmap.label}}</p>
+            <h2 id="roadmap-title" data-i18n="roadmap.title">{{roadmap.title}}</h2>
+            <p class="section-description" data-i18n="roadmap.body">{{roadmap.body}}</p>
+          </div>
+          <a class="text-link" href="https://github.com/ArnoChenFx/Rovloom/issues"
+            ><span data-i18n="roadmap.issues">{{roadmap.issues}}</span><span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="roadmap-grid">
+          <article class="shipped-card">
+            <span class="shipped-label"
+              ><span class="status-dot" aria-hidden="true"></span
+              ><span data-i18n="roadmap.shipped">{{roadmap.shipped}}</span></span
+            >
+            <h3 data-i18n="roadmap.shippedTitle">{{roadmap.shippedTitle}}</h3>
+            <p data-i18n="roadmap.shippedBody">{{roadmap.shippedBody}}</p>
+            <div class="platform-tags"><span>Linux</span><span>macOS</span><span>Windows</span><span>Docker</span></div>
+            <a class="text-link" href="https://github.com/ArnoChenFx/Rovloom/releases"
+              ><span data-i18n="roadmap.release">{{roadmap.release}}</span><span aria-hidden="true">↗</span></a
+            ><span class="card-release">v{{version}}</span>
+          </article>
+          <div class="issue-list">
+            <p class="issue-heading" data-i18n="roadmap.active">{{roadmap.active}}</p>
+            <a class="issue-item" href="https://github.com/ArnoChenFx/Rovloom/issues/185"
+              ><span class="issue-id">#185</span
+              ><span
+                ><strong data-i18n="roadmap.admin">{{roadmap.admin}}</strong
+                ><small data-i18n="roadmap.adminBody">{{roadmap.adminBody}}</small></span
+              ><span aria-hidden="true">↗</span></a
+            ><a class="issue-item" href="https://github.com/ArnoChenFx/Rovloom/issues/165"
+              ><span class="issue-id">#165</span
+              ><span
+                ><strong data-i18n="roadmap.credentials">{{roadmap.credentials}}</strong
+                ><small data-i18n="roadmap.credentialsBody">{{roadmap.credentialsBody}}</small></span
+              ><span aria-hidden="true">↗</span></a
+            ><a class="issue-item" href="https://github.com/ArnoChenFx/Rovloom/issues/153"
+              ><span class="issue-id">#153</span
+              ><span
+                ><strong data-i18n="roadmap.e2e">{{roadmap.e2e}}</strong
+                ><small data-i18n="roadmap.e2eBody">{{roadmap.e2eBody}}</small></span
+              ><span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </div>
+      </section>
+      <section class="faq-section wrap section" aria-labelledby="faq-title">
+        <div>
+          <p class="eyebrow" data-i18n="faq.label">{{faq.label}}</p>
+          <h2 id="faq-title" data-i18n="faq.title">{{faq.title}}</h2>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>
+              <span data-i18n="faq.q1">{{faq.q1}}</span><span class="faq-plus" aria-hidden="true">+</span>
+            </summary>
+            <p data-i18n="faq.a1">{{faq.a1}}</p>
+          </details>
+          <details>
+            <summary>
+              <span data-i18n="faq.q2">{{faq.q2}}</span><span class="faq-plus" aria-hidden="true">+</span>
+            </summary>
+            <p data-i18n="faq.a2">{{faq.a2}}</p>
+          </details>
+          <details>
+            <summary>
+              <span data-i18n="faq.q3">{{faq.q3}}</span><span class="faq-plus" aria-hidden="true">+</span>
+            </summary>
+            <p data-i18n="faq.a3">{{faq.a3}}</p>
+          </details>
+          <details>
+            <summary>
+              <span data-i18n="faq.q4">{{faq.q4}}</span><span class="faq-plus" aria-hidden="true">+</span>
+            </summary>
+            <p data-i18n="faq.a4">{{faq.a4}}</p>
+          </details>
+        </div>
+      </section>
+      <section class="closing wrap">
+        <div>
+          <h2 data-i18n="end.title">{{end.title}}</h2>
+          <p data-i18n="end.body">{{end.body}}</p>
+        </div>
+        <a class="button primary" href="#start"
+          ><span data-i18n="end.action">{{end.action}}</span><span aria-hidden="true">↗</span></a
+        >
+        <div class="closing-weave" aria-hidden="true">R</div>
+      </section>
+    </main>
+    <footer class="wrap">
+      <div>
+        <a class="brand" href="#"><img src="./assets/mark.png" width="30" height="30" alt="" /><span>Rovloom</span></a>
+        <p data-i18n="footer.tagline">{{footer.tagline}}</p>
+      </div>
+      <div class="footer-links">
+        <a
+          data-doc="index"
+          href="https://github.com/ArnoChenFx/Rovloom/blob/main/docs/README.md"
+          data-i18n="footer.docs"
+          >{{footer.docs}}</a
+        ><a href="https://github.com/ArnoChenFx/Rovloom" data-i18n="footer.source">{{footer.source}}</a
+        ><a href="https://github.com/ArnoChenFx/Rovloom/issues" data-i18n="footer.issues">{{footer.issues}}</a
+        ><a href="https://github.com/ArnoChenFx/Rovloom/blob/main/LICENSE" data-i18n="footer.license"
+          >{{footer.license}}</a
+        >
+      </div>
+      <span class="footer-note">BUILT FOR YOUR OWN MACHINES.</span>
+    </footer>
+    <svg class="svg-symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="github-icon" viewBox="0 0 24 24">
+          <path
+            fill="currentColor"
+            stroke="none"
+            d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.61-3.37-1.18-3.37-1.18-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02A9.6 9.6 0 0 1 12 6.97c.85 0 1.71.11 2.51.34 1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.95.36.31.68.92.68 1.85v2.59c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"
+          ></path>
+        </symbol>
+        <symbol id="spark-icon" viewBox="0 0 24 24">
+          <path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"></path>
+        </symbol>
+        <symbol id="server-icon" viewBox="0 0 24 24">
+          <rect x="5" y="3" width="14" height="18" rx="2"></rect>
+          <path d="M5 9h14M5 15h14M8 6h1M8 12h1M8 18h1"></path>
+        </symbol>
+        <symbol id="window-icon" viewBox="0 0 24 24">
+          <rect x="4" y="4" width="16" height="16" rx="1"></rect>
+          <path d="M12 4v16M4 12h16"></path>
+        </symbol>
+        <symbol id="workspace-icon" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="15" rx="2"></rect>
+          <path d="M3 9h18M8 9v10M7 6.5h.01M10 6.5h.01"></path>
+        </symbol>
+        <symbol id="target-icon" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="7"></circle>
+          <circle cx="12" cy="12" r="2"></circle>
+          <path d="M12 2v3M22 12h-3M12 22v-3M2 12h3"></path>
+        </symbol>
+        <symbol id="lock-icon" viewBox="0 0 24 24">
+          <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path>
+        </symbol>
+        <symbol id="route-icon" viewBox="0 0 24 24">
+          <circle cx="5" cy="5" r="2"></circle>
+          <circle cx="19" cy="19" r="2"></circle>
+          <path d="M5 7v7a5 5 0 0 0 5 5h7M9 5h6a4 4 0 0 1 4 4v2M16 8l3 3 3-3"></path>
+        </symbol>
+        <symbol id="copy-icon" viewBox="0 0 24 24">
+          <rect x="8" y="8" width="12" height="13" rx="2"></rect>
+          <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"></path>
+        </symbol>
+      </defs>
+    </svg>
+  </body>
+</html>

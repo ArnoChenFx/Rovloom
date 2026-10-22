@@ -1,0 +1,60 @@
+# Static marketing site; PRs build only, main/website pushes publish to Pages.
+name: Project website
+on:
+  push:
+    branches: [main, website]
+    paths:
+      - 'site/**'
+      - 'scripts/site/**'
+      - 'test/site/**'
+      - 'docs/assets/brand/**'
+      - 'package.json'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'scripts/site/**'
+      - 'test/site/**'
+      - 'docs/assets/brand/**'
+      - 'package.json'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: project-website-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+        with:
+          version: '1.4.3'
+      - name: Check website content and build
+        run: |
+          bun --no-env-file test ./test/site
+          bun --no-env-file run site:build
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: dist/site
+  deploy:
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/website')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+        with:
+          enablement: true
+      - name: Deploy the tested static artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

@@ -1,0 +1,87 @@
+// Verify the public site's content, links and standalone Pages artifact.
+import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
+import { buildSite, escapeHtml } from '../../scripts/site/build.mjs'
+import { copy, commands, documents } from '../../site/content.js'
+
+const root = new URL('../../', import.meta.url)
+
+test('both languages cover the same content and every rendered translation key', () => {
+  assert.deepEqual(Object.keys(copy.zh).sort(), Object.keys(copy.en).sort())
+  const template = readFileSync(new URL('site/index.html', root), 'utf8')
+  for (const [, key] of template.matchAll(/data-i18n(?:-aria)?="([\w.]+)"/g)) {
+    for (const language of ['zh', 'en']) {
+      assert.equal(typeof copy[language][key], 'string', `${language}: ${key}`)
+      assert(copy[language][key].length > 0)
+    }
+  }
+  for (const names of Object.values(documents)) {
+    for (const name of names) {
+      assert(existsSync(new URL(`docs/${name}`, root)), name)
+    }
+  }
+})
+
+test('the site builds without Gateway state and all relative assets work under a project path', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'rovloom-site-build-'))
+  try {
+    const output = join(temporary, 'public')
+    const { html, version } = buildSite({ output })
+    const pkg = JSON.parse(readFileSync(new URL('package.json', root), 'utf8'))
+    assert.equal(version, pkg.version)
+    assert(html.includes(`v${version}`))
+    assert(!html.includes('{{'))
+    assert(html.includes(copy.zh['hero.title1']))
+    assert(html.includes('http-equiv="Content-Security-Policy"'))
+    assert(html.includes('id="main"'))
+    assert(html.includes('href="#main"'))
+    const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1])
+    assert.equal(ids.length, new Set(ids).size)
+    for (const [, anchor] of html.matchAll(/href="#([^"\s]+)"/g)) {
+      assert(ids.includes(anchor), `Missing anchor: ${anchor}`)
+    }
+    for (const [, asset] of html.matchAll(/(?:src|href)="(\.\/[^"#]+)"/g)) {
+      assert(existsSync(join(output, asset)), asset)
+      assert.equal(new URL(asset, 'https://example.test/Rovloom/').pathname, '/Rovloom/' + asset.slice(2))
+    }
+    assert(!html.match(/(?:src|href)="\/(?!\/)/))
+    for (const [, sprite] of html.matchAll(/<use href="#([^"]+)"/g)) {
+      assert(ids.includes(sprite), `Missing SVG symbol: ${sprite}`)
+    }
+    assert(existsSync(join(output, '.nojekyll')))
+    assert(existsSync(join(output, '404.html')))
+    assert(existsSync(join(output, 'sitemap.xml')))
+    assert.equal(
+      readFileSync(join(output, 'assets/mark.png')).compare(
+        readFileSync(new URL('docs/assets/brand/rovloom-mark-transparent.png', root))
+      ),
+      0
+    )
+    const second = join(temporary, 'again')
+    buildSite({ output: second })
+    for (const name of readdirSync(output).filter((name) => name !== 'assets')) {
+      assert.deepEqual(readFileSync(join(output, name)), readFileSync(join(second, name)))
+    }
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
+test('commands use real entry points, keep credential placeholders and do not promise automatic pairing', () => {
+  for (const language of ['zh', 'en']) {
+    assert(commands.cli[language].includes('rovloom gateway'))
+    assert(commands.cli[language].includes('rovloom connector'))
+    assert(commands.docker[language].includes('/main/docker-compose.yaml'))
+    assert(commands.docker[language].includes('docker compose run --rm gateway'))
+    const mcp = JSON.parse(commands.mcp[language])
+    assert.equal(mcp.url, 'http://127.0.0.1:9444/mcp')
+    assert.equal(mcp.headers.Authorization, 'Bearer YOUR_MCP_BEARER')
+  }
+  assert.equal(
+    escapeHtml('<script>"a" & \'b\'</script>'),
+    '&lt;script&gt;&quot;a&quot; &amp; &#39;b&#39;&lt;/script&gt;'
+  )
+})

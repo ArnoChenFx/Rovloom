@@ -1,0 +1,54 @@
+# Rovloom public website
+
+This is the public product homepage, separate from the authenticated Gateway UI.
+It is plain HTML, CSS and browser JavaScript with no framework or runtime API.
+Chinese is the default; the language switch persists English or Chinese locally.
+`?lang=en` and `?lang=zh` explicitly select a language.
+
+From the repository root:
+
+```sh
+bun run site:dev       # Local development server, port 4173; refresh after edits
+bun run site:build     # Static artifact in dist/site/
+bun test ./test/site   # Translation coverage, real doc links, build and subpath checks
+```
+
+The development server also serves the site under `/Rovloom/`, matching Pages.
+Relative assets work at both the domain root and the project path. The version
+label is read from `package.json`; it is not fetched from GitHub in the browser.
+The original transparent brand mark is copied byte-for-byte from `docs/assets/brand`.
+Update `content.js` in both languages when capabilities or Issue references change.
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` builds on relevant PRs and deploys on `main` or the
+maintainer-controlled `website` branch. The latter supports an initial public
+website before the implementation PR is merged; it does not merge application
+changes into `main`. After merge, `main` is the normal source of future updates.
+PR runs build an artifact only and cannot publish. Publishing uses GitHub Pages'
+artifact deployment and a job-scoped OIDC token, without a PAT or external host.
+Pages must be enabled for GitHub Actions; the configure action attempts initial
+enablement, which may require a repository administrator when account settings
+or integration permissions prevent it. No custom domain is configured.
+
+Expected project URL: <https://arnochenfx.github.io/Rovloom/>.
+Do not claim a deployment succeeded until the deployment job and public HTTP
+checks pass. Test rendering at 320, 375, 390, 768, 1024 and 1440 pixels, keyboard
+navigation, language persistence, command copying, blocked storage/clipboard,
+and reduced motion before publishing design changes.
+
+## Browser checks and screenshots
+
+With Python Playwright and Chromium installed:
+
+```sh
+python3 scripts/site/check-browser.py --url http://127.0.0.1:4173/Rovloom/ --output /tmp/rovloom-site-review-new
+```
+
+The output must be a new directory outside the checkout. The check covers both
+languages, six viewport widths, keyboard tabs, clipboard success and denial,
+blocked preference storage, no-JavaScript fallback, mobile navigation and
+reduced motion. Screenshots and the JSON report remain outside the repository.
+`social-card.svg` is the editable source for `social-card.png`; export it at
+1200 × 630 in Chromium when changing the share artwork. The PNG is a maintained
+social preview asset, not a per-run screenshot.

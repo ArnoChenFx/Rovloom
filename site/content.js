@@ -1,0 +1,277 @@
+// Project copy is kept together so both languages describe the same capabilities.
+export const copy = {
+  zh: {
+    skip: '跳到主要内容',
+    'nav.why': '为什么 Rovloom',
+    'nav.how': '工作原理',
+    'nav.start': '快速开始',
+    'nav.roadmap': '路线图',
+    'nav.menu': '打开导航',
+    'nav.github': 'GitHub',
+    'hero.eyebrow': '开源 · MCP GATEWAY · 公开预览',
+    'hero.title1': '一个 MCP 入口，',
+    'hero.title2': '连接你的',
+    'hero.title3': '每台电脑。',
+    'hero.body':
+      '让 AI 走进你真正的工作现场。通过一个 Gateway，连接多台设备上的 Luvus 与 Herdr，继续使用熟悉的工作区、终端和 Agent。',
+    'hero.start': '开始使用',
+    'hero.how': '了解工作原理',
+    'hero.meta': '自部署 · MIT · 保留本地工作流',
+    'map.label': 'YOUR MACHINES. ONE CONNECTION.',
+    'map.agent': '你的 AI 客户端',
+    'map.gateway': '一个入口，清晰的目标',
+    'map.linux': 'Linux 工作站',
+    'map.windows': 'Windows 电脑',
+    'map.note': '连接拓扑示意 · 点击节点了解职责',
+    'map.gatewayDetail': 'Gateway 统一提供 MCP 接口、设备认证和调用路由。Runtime 不必迁移到这里。',
+    'map.agentDetail': '支持 Streamable HTTP 的 MCP 客户端，通过同一入口发现设备、选择实例并发起调用。',
+    'map.linuxDetail': 'Connector 主动出站连接 Gateway，附着本机 Herdr 会话，工作区与 Agent 登录仍在本机。',
+    'map.windowsDetail': 'Windows x64 Connector 连接本机 Luvus，通过命名管道核对对端，再桥接原生能力。',
+    'strip.label': '连接已有工具，不改变你的习惯',
+    'strip.end': '为你自己的设备而造',
+    'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
+    'why.title1': '机器各就其位。',
+    'why.title2': '工作流连在一起。',
+    'why.body': '不必为了远程访问，再搭一套工作环境。让每台机器继续做自己擅长的事。',
+    'why.localTitle': '沿用真实会话',
+    'why.localBody': '默认附着你已在使用的 Luvus / Herdr，复用工作区和 Agent 登录。也可显式选择隔离的 managed 实例。',
+    'why.targetTitle': '每次调用都有目标',
+    'why.targetBody': '明确选择设备、Provider 与会话。自己的 Linux 工作站和 Windows 电脑，各自保留独立的运行环境。',
+    'why.controlTitle': '控制权留在你手中',
+    'why.controlBody': 'Gateway 核对调用权限，本机终端执行开关默认关闭。设备凭据与 MCP Bearer 各自管理。',
+    'why.recoveryTitle': '断线，也有明确边界',
+    'why.recoveryBody': '原生实例消失后重新附着或重建。可能已经送达的变更不会自动重发，不确定的结果会明确保留。',
+    'how.label': '02 / ONE GATEWAY. MANY POSSIBILITIES.',
+    'how.title1': '跨设备，',
+    'how.title2': '不迁移你的工作现场。',
+    'how.body': '一个管理员，几台自己的机器，一个主 Agent。把连接交给 Rovloom，把原生能力留给原生工具。',
+    'how.oneTitle': '连接',
+    'how.oneBody': '每台设备运行一个 Connector，主动通过 WSS 连接 Gateway。首次连接在终端完成配对批准。',
+    'how.twoTitle': '发现',
+    'how.twoBody': '从同一个 MCP 入口发现可见设备与 Provider，读取实际安装版本的接口能力。',
+    'how.threeTitle': '调用',
+    'how.threeBody': '指定设备和实例操作工作区、窗格或 Agent，再通过调用 ID 获取结果。',
+    'how.docs': '阅读系统设计',
+    'how.note': 'Runtime 留在各自机器上。Rovloom 连接它们，不复制它们。',
+    'start.label': '03 / FROM DOWNLOAD TO FIRST CONNECTION',
+    'start.title1': '接入下一台机器，',
+    'start.title2': '从这里开始。',
+    'start.body':
+      '下载独立可执行程序，启动 Gateway 与 Connector，再将 MCP 地址加入你的 AI 客户端。完整配对与平台说明见快速开始。',
+    'start.download': '下载最新版本',
+    'start.docs': '打开快速开始',
+    'start.platforms': 'Gateway：Linux / macOS / Windows',
+    'start.connector': 'Connector：Linux x64 / Windows x64',
+    'start.step1': '下载对应平台程序',
+    'start.step2': '在终端完成配对',
+    'start.step3': '连接 MCP 客户端',
+    'terminal.cli': '启动角色',
+    'terminal.docker': 'Docker',
+    'terminal.mcp': 'MCP 客户端',
+    'terminal.copy': '复制',
+    'terminal.copied': '已复制',
+    'terminal.copyFail': '请选中命令手动复制',
+    'terminal.label': '选择接入方式',
+    'terminal.note.cli': '在两个终端运行；按提示批准配对。Luvus / Herdr 和 Agent 需预先安装。',
+    'terminal.note.docker': '用于原生 Linux Docker Engine。首次配对需前台终端；完整步骤见 Docker 文档。',
+    'terminal.note.mcp': '将 URL 与配对后获得的 Bearer 填入客户端的 MCP 设置。配对码不是 MCP Bearer。',
+    'terminal.guide': '查看完整配置说明',
+    'roadmap.label': '04 / BUILT IN THE OPEN',
+    'roadmap.title': '现在能用什么，接下来做什么。',
+    'roadmap.body': '公开预览仍在演进。已发布能力以 Release 为准，后续设计与验收进度都在 Issues 中公开跟踪。',
+    'roadmap.shipped': '公开预览已提供',
+    'roadmap.shippedTitle': '连接真实工作环境',
+    'roadmap.shippedBody':
+      '跨平台 Gateway、Linux / Windows x64 Connector、附着既有会话、MCP 令牌管理与 Docker Gateway。',
+    'roadmap.release': '查看发行记录',
+    'roadmap.active': '规划与实现跟踪',
+    'roadmap.admin': '最小设备管理页',
+    'roadmap.adminBody': '管理员登录、设备状态与基础快捷操作。',
+    'roadmap.credentials': '设备凭据轮换与重配',
+    'roadmap.credentialsBody': '已配对设备的凭据更新和重新配对入口。',
+    'roadmap.e2e': '真实双机端到端验收',
+    'roadmap.e2eBody': '独立机器、真实 MCP 客户端与故障场景验证。',
+    'roadmap.issues': '查看全部 Issues',
+    'faq.label': 'GOOD QUESTIONS',
+    'faq.title': '开始之前，你可能想知道。',
+    'faq.q1': 'Rovloom 与 Luvus、Herdr 是什么关系？',
+    'faq.a1':
+      'Luvus 与 Herdr 是本地原生 Runtime，负责各自的工作区、会话和 Agent。Rovloom 在它们之上提供跨设备 MCP 入口，保留各自的原生协议与能力。',
+    'faq.q2': '需要把工作区或账号迁移到云端吗？',
+    'faq.a2':
+      '不需要。你自行部署 Gateway，Connector 在原设备访问本机会话。默认附着模式复用实际工作区与已有 Agent 登录；隔离 managed 模式需单独准备登录。',
+    'faq.q3': '哪些平台可以使用？',
+    'faq.a3':
+      'Gateway 提供 Linux、macOS、Windows 的 x64 / ARM64 二进制。原生 Connector 引导支持 Linux x64 和 Windows x64。Docker Gateway 支持原生 Linux AMD64 / ARM64；具体限制以快速开始为准。',
+    'faq.q4': '可以直接暴露到公网吗？',
+    'faq.a4':
+      '默认监听本机回环地址。跨设备部署应按配置文档设置可达的设备监听、HTTPS / WSS 反向代理与受信 MCP public_url，并保管好设备凭据和调用方 Bearer。',
+    'end.title': '让你的下一次调用，走得更远。',
+    'end.body': '从一台 Gateway 开始，把自己的机器连接起来。',
+    'end.action': '开始连接',
+    'footer.tagline': '你的机器，你的工作流。',
+    'footer.docs': '文档',
+    'footer.source': '源码',
+    'footer.issues': 'Issues',
+    'footer.license': 'MIT 开源许可',
+    'meta.description':
+      'Rovloom 为 Luvus 与 Herdr 提供跨设备 MCP 入口。自部署 Gateway，连接 Linux 和 Windows 上的本地工作区、会话与 Agent。'
+  },
+  en: {
+    skip: 'Skip to content',
+    'nav.why': 'Why Rovloom',
+    'nav.how': 'How it works',
+    'nav.start': 'Get started',
+    'nav.roadmap': 'Roadmap',
+    'nav.menu': 'Open navigation',
+    'nav.github': 'GitHub',
+    'hero.eyebrow': 'OPEN SOURCE · MCP GATEWAY · PUBLIC PREVIEW',
+    'hero.title1': 'One agent.',
+    'hero.title2': 'Every machine.',
+    'hero.title3': 'All yours.',
+    'hero.body':
+      'Bring AI to where your work actually happens. One Gateway connects Luvus and Herdr across your machines, with the workspaces, terminals and Agents you already use.',
+    'hero.start': 'Get started',
+    'hero.how': 'See how it works',
+    'hero.meta': 'Self-hosted · MIT · Your local workflow',
+    'map.label': 'YOUR MACHINES. ONE CONNECTION.',
+    'map.agent': 'Your AI client',
+    'map.gateway': 'One entry. Explicit targets.',
+    'map.linux': 'Linux workstation',
+    'map.windows': 'Windows desktop',
+    'map.note': 'Architecture illustration · Select a node to explore',
+    'map.gatewayDetail':
+      'Gateway brings together MCP access, device authentication and call routing. Your runtimes do not have to move here.',
+    'map.agentDetail':
+      'An MCP client supporting Streamable HTTP discovers machines, selects a runtime and makes calls through one entry point.',
+    'map.linuxDetail':
+      'Connector connects outbound to Gateway and attaches to a local Herdr session. Workspaces and Agent logins stay on the machine.',
+    'map.windowsDetail':
+      'Windows x64 Connector reaches local Luvus, verifies the named-pipe peer and bridges its native capabilities.',
+    'strip.label': 'Connect your tools. Keep your habits.',
+    'strip.end': 'BUILT FOR YOUR OWN MACHINES',
+    'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
+    'why.title1': 'Separate machines.',
+    'why.title2': 'Connected work.',
+    'why.body':
+      'Remote access should not mean rebuilding your working environment. Let each machine keep doing what it does best.',
+    'why.localTitle': 'Your actual sessions',
+    'why.localBody':
+      'Attach to the Luvus / Herdr you already use, with existing workspaces and Agent logins. Choose an isolated managed instance when you need one.',
+    'why.targetTitle': 'Every call has a destination',
+    'why.targetBody':
+      'Select the machine, Provider and session explicitly. Your Linux workstation and Windows desktop keep their own environments.',
+    'why.controlTitle': 'You stay in control',
+    'why.controlBody':
+      'Gateway checks caller permissions. Local terminal execution is off by default. Device credentials and MCP Bearers are managed separately.',
+    'why.recoveryTitle': 'Clear boundaries on failure',
+    'why.recoveryBody':
+      'Reattach or rebuild when a native instance disappears. Mutations that may have arrived are never automatically replayed; unknown outcomes stay explicit.',
+    'how.label': '02 / ONE GATEWAY. MANY POSSIBILITIES.',
+    'how.title1': 'Work across devices.',
+    'how.title2': 'Keep your workspace.',
+    'how.body':
+      'One administrator, a few of your own machines, one primary Agent. Rovloom handles the connections. Native tools keep their capabilities.',
+    'how.oneTitle': 'Connect',
+    'how.oneBody':
+      'One Connector per machine makes an outbound WSS connection to Gateway. Approve first pairing in a local terminal.',
+    'how.twoTitle': 'Discover',
+    'how.twoBody':
+      'Discover visible machines and Providers through one MCP entry point, using the capabilities of the actual installed runtime.',
+    'how.threeTitle': 'Call',
+    'how.threeBody':
+      'Target a machine and runtime to work with workspaces, panes or Agents. Retrieve the result using its call ID.',
+    'how.docs': 'Read the architecture',
+    'how.note': 'Runtimes stay on their machines. Rovloom connects them, without copying them.',
+    'start.label': '03 / FROM DOWNLOAD TO FIRST CONNECTION',
+    'start.title1': 'Your next machine',
+    'start.title2': 'starts here.',
+    'start.body':
+      'Download a standalone binary, start Gateway and Connector, then add the MCP endpoint to your AI client. The Quick Start covers pairing and platform details.',
+    'start.download': 'Download latest release',
+    'start.docs': 'Read the Quick Start',
+    'start.platforms': 'Gateway: Linux / macOS / Windows',
+    'start.connector': 'Connector: Linux x64 / Windows x64',
+    'start.step1': 'Download your binary',
+    'start.step2': 'Pair in a terminal',
+    'start.step3': 'Connect your MCP client',
+    'terminal.cli': 'Run the roles',
+    'terminal.docker': 'Docker',
+    'terminal.mcp': 'MCP client',
+    'terminal.copy': 'Copy',
+    'terminal.copied': 'Copied',
+    'terminal.copyFail': 'Select and copy the commands manually',
+    'terminal.label': 'Choose a connection method',
+    'terminal.note.cli':
+      'Run in two terminals and approve pairing. Install Luvus / Herdr and your Agent separately first.',
+    'terminal.note.docker':
+      'For native Linux Docker Engine. First pairing needs a foreground terminal; see the Docker guide.',
+    'terminal.note.mcp':
+      'Add the URL and Bearer obtained after pairing to your client settings. The pairing code is not the MCP Bearer.',
+    'terminal.guide': 'Read the configuration guide',
+    'roadmap.label': '04 / BUILT IN THE OPEN',
+    'roadmap.title': 'What works today. What comes next.',
+    'roadmap.body':
+      'The public preview is evolving. Releases describe shipped capabilities; Issues track the next designs and validation work in the open.',
+    'roadmap.shipped': 'IN THE PUBLIC PREVIEW',
+    'roadmap.shippedTitle': 'Connect your real workspace',
+    'roadmap.shippedBody':
+      'Cross-platform Gateway, Linux / Windows x64 Connector, existing-session attachment, MCP token management and Docker Gateway.',
+    'roadmap.release': 'Explore releases',
+    'roadmap.active': 'DESIGN & IMPLEMENTATION TRACKING',
+    'roadmap.admin': 'A minimal device management UI',
+    'roadmap.adminBody': 'Administrator login, device state and essential actions.',
+    'roadmap.credentials': 'Device credential rotation',
+    'roadmap.credentialsBody': 'Credential updates and re-pairing for existing devices.',
+    'roadmap.e2e': 'Real two-machine acceptance',
+    'roadmap.e2eBody': 'Separate machines, a real MCP client and failure scenarios.',
+    'roadmap.issues': 'Explore all Issues',
+    'faq.label': 'GOOD QUESTIONS',
+    'faq.title': 'A few things before you begin.',
+    'faq.q1': 'How does Rovloom relate to Luvus and Herdr?',
+    'faq.a1':
+      'Luvus and Herdr are local native runtimes for workspaces, sessions and Agents. Rovloom provides cross-device MCP access above them, preserving their native protocols and capabilities.',
+    'faq.q2': 'Do I have to move my workspace or accounts to the cloud?',
+    'faq.a2':
+      'No. You host Gateway, while Connector accesses sessions on their original machines. Default attachment reuses real workspaces and existing Agent logins; isolated managed instances need their own login setup.',
+    'faq.q3': 'Which platforms are supported?',
+    'faq.a3':
+      'Gateway has Linux, macOS and Windows binaries for x64 / ARM64. Native Connector setup supports Linux x64 and Windows x64. Docker Gateway targets native Linux AMD64 / ARM64. See the Quick Start for exact limits.',
+    'faq.q4': 'Can I expose it directly to the Internet?',
+    'faq.a4':
+      'Listeners bind to loopback by default. For cross-device access, follow the configuration guide for reachable device listeners, HTTPS / WSS reverse proxies and the trusted MCP public_url. Protect device credentials and caller Bearers.',
+    'end.title': 'Let your next call go further.',
+    'end.body': 'Start with one Gateway. Connect your own machines.',
+    'end.action': 'Make the connection',
+    'footer.tagline': 'Your machines. Your workflow.',
+    'footer.docs': 'Docs',
+    'footer.source': 'Source',
+    'footer.issues': 'Issues',
+    'footer.license': 'MIT licensed',
+    'meta.description':
+      'Rovloom brings cross-device MCP access to Luvus and Herdr. Self-host a Gateway and connect local workspaces, sessions and Agents on Linux and Windows.'
+  }
+}
+
+export const commands = {
+  cli: {
+    zh: '# 终端 1 · Gateway 所在设备\nrovloom gateway\n\n# 终端 2 · 运行 Luvus / Herdr 的设备\nrovloom connector',
+    en: '# Terminal 1 · Gateway machine\nrovloom gateway\n\n# Terminal 2 · Luvus / Herdr machine\nrovloom connector'
+  },
+  docker: {
+    zh: 'curl -fsSL -o docker-compose.yaml \\\n  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/docker-compose.yaml\ndocker compose pull\n\n# 在真实终端中完成首次配对\ndocker compose run --rm gateway\n\n# 配对完成并停止前台实例后\ndocker compose up -d',
+    en: 'curl -fsSL -o docker-compose.yaml \\\n  https://raw.githubusercontent.com/ArnoChenFx/Rovloom/main/docker-compose.yaml\ndocker compose pull\n\n# Complete first pairing in a real terminal\ndocker compose run --rm gateway\n\n# After pairing and stopping the foreground instance\ndocker compose up -d'
+  },
+  mcp: {
+    zh: '{\n  "url": "http://127.0.0.1:9444/mcp",\n  "headers": {\n    "Authorization": "Bearer YOUR_MCP_BEARER"\n  }\n}',
+    en: '{\n  "url": "http://127.0.0.1:9444/mcp",\n  "headers": {\n    "Authorization": "Bearer YOUR_MCP_BEARER"\n  }\n}'
+  }
+}
+
+export const documents = {
+  quick: ['QUICK-START-zh.md', 'QUICK-START.md'],
+  config: ['CONFIGURATION-zh.md', 'CONFIGURATION.md'],
+  docker: ['DOCKER-zh.md', 'DOCKER.md'],
+  design: ['DESIGN.md', 'DESIGN.md'],
+  index: ['README.md', 'README.md']
+}
