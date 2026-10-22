@@ -35,7 +35,7 @@ Default local endpoints:
 
 `healthy` means the MCP authentication listener responds. It does not mean a device is paired, an administrator exists or an Agent is ready. The `pairing_required` log line means setup is pending.
 
-Host networking uses the host's ports directly. Keep those ports free and do not add `ports` mappings. The defaults open no public listener. For remote Connectors, put a standard TLS reverse proxy in front yourself (see [OPERATIONS](OPERATIONS.md)).
+Host networking uses the host's ports directly. Keep those ports free and do not add `ports` mappings. The defaults open no public listener. For remote Connectors, put a standard TLS reverse proxy in front yourself (see [Network access](CONFIGURATION.md#network-access)).
 
 ## First pairing
 
@@ -46,7 +46,7 @@ docker compose stop gateway
 docker compose run --rm gateway
 ```
 
-Keep this terminal open for pairing and native installation approval. On the Linux x64 Connector host, run `rovloom connector` in another local terminal and follow [Start and pair](QUICK-START.md#2-start-and-pair). Never run a second Gateway on the same data.
+Keep this terminal open for pairing and native installation approval. On the Linux x64 Connector host, run `rovloom connector` in another local terminal and follow [Pair](QUICK-START.md#3-pair). Never run a second Gateway on the same data.
 
 When setup reaches `connector_ready`, stop the Connector, then stop the foreground Gateway with Ctrl-C. Run `docker compose up -d` and restart the host Connector. Configuration and pairing stay in the volumes.
 

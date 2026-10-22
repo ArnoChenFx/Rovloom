@@ -43,9 +43,6 @@ python3 e2e/quickstart.py --binary dist/release/bun-linux-x64/candidate/rovloom 
 `--then` 会拿到 `MCP_CONFIG`（URL、Bearer、target）。`agent-session.mjs` 让 opencode + DeepSeek 经 MCP 完成
 list → discover → ping → 读结果，再由独立 MCP 客户端取真实版本核对 Agent 的回答。
 
-这条路径发现过夹具掩盖的三个产品缺陷（均已修复并有回归测试）：Gateway 返回非 200 时 Connector 因响应流已锁定而崩溃；
-Herdr 自建端点目录按宿主 umask 为 0755 被 0700 门禁拒绝；Herdr 私有 socket 路径检查漏算更长的 `herdr-client.sock`。
-
 `--repair` 在就绪后重新配对同一设备（`rovloom gateway --repair-device` + `rovloom connector --repair`，均在 pty 里）：断言本机凭据文件被替换、
 `connector_ready` 再次出现，并用**未改变的 MCP Bearer** 跑 `--then` 链路（授权与原生设置不变）。
 
@@ -56,7 +53,7 @@ Herdr 自建端点目录按宿主 umask 为 0755 被 0700 门禁拒绝；Herdr �
 `e2e/two_host.py`（CI：`.github/workflows/two-host.yml`）把 Gateway 和 Connector 放进两个 Docker 容器：各自独立的文件系统（互相看不到对方的数据目录、凭据和程序），
 只通过 Docker 网络上的真实 TCP 通信；Gateway 容器里没有 Herdr，设备监听 `0.0.0.0`，Connector 用容器 DNS 名 `ws://rv-gw-…:9443` 连接。
 配对仍在两个容器的真实 TTY（`docker run -it`）里按 Quick Start 完成；MCP 只在 Gateway 的回环上（设计如此），客户端容器共享该网络命名空间，用官方 MCP SDK 走完整 Herdr 链路。
-随后 `docker network disconnect` 把 Connector 摘出网络：Gateway 在空闲超时（20 秒）内发现，新调用立即不可用而不是悬挂（记录值约 19 秒）；接回后数秒内自动恢复。
+随后 `docker network disconnect` 把 Connector 摘出网络：Gateway 在空闲超时（20 秒）内发现，新调用立即不可用而不是悬挂；接回后数秒内自动恢复。
 
 ## 真实 Luvus 链路
 
@@ -67,11 +64,11 @@ LUVUS_WRITE='{}' python3 e2e/quickstart.py --work ~/.rq1 --binary dist/release/b
   --luvus /tmp/luvus --then "bun --no-env-file e2e/luvus-session.mjs"
 ```
 
-加 `--crash` 会在就绪后 `kill -9` Connector 再重启：Luvus 的 claim 锁与 owner 锁由新 Connector 自行接管，随后的读写调用照常通过（不加则无此项）。
+加 `--crash` 会在就绪后 `kill -9` Connector 再重启：Luvus 的 claim 锁与 owner 锁由新 Connector 自行接管，随后的读写调用照常通过。
 
 `--luvus` 走 Quick Start 的默认 Luvus 引导（隔离状态，不动你的 Luvus）。Luvus 的状态路径上限 52 字节，所以脚本把
 `data.directory` 改成 `<work>/d`，`--work` 请用短路径。`luvus-session.mjs` 经 MCP 完成 machines → providers →
-discover（33 个方法）→ describe → `workspace.list` → `session.snapshot`；设置 `LUVUS_WRITE` 后再 `workspace.new` 并读回
+discover→ describe → `workspace.list` → `session.snapshot`；设置 `LUVUS_WRITE` 后再 `workspace.new` 并读回
 workspace 计数（1→2）。
 
 默认（`--luvus-mode attach`）走附着方式：没有实例时 Connector 在 Connector 用户的 `~/.luvus` 里自建 default 会话。
@@ -87,11 +84,6 @@ Luvus 故障场景（`--pre-existing`，经 `e2e/luvus-faults.mjs` 分步驱动�
   `outcome_unknown`，workspace 数最多比调用前多 1 且 10 秒内保持稳定（没有第二次执行），同一设备上的新写调用照常成功。
 - `--revoke`：停止两个角色，经正式 Store 离线撤销设备，再重启。断言 `machines_get` 为 `revoked`、调用被拒绝、Connector 始终不会就绪。
 
-这条路径发现过两个只有真实 Luvus 才暴露的缺陷（均已修复并有回归测试）：Luvus 自建 `sessions` 目录继承宿主
-umask（022 → 0755）而被 0700 门禁拒绝，托管 Luvus 在普通用户环境根本起不来；MCP 默认 `validation:"strict"` 与
-Luvus 通用方法要求的 `raw-contract` 不符时，Wire 编码失败发生在派发之后，调用变成 `outcome_unknown` 并断开设备连接
-——现在省略 `validation` 按方法选择，显式不符在登记前拒绝。
-
 ## 真实 LLM Agent（可选）
 
 ```sh
@@ -102,18 +94,17 @@ DEEPSEEK_API_KEY=… bun e2e/agent.mjs dist/release/bun-linux-x64/candidate/rovl
 provider 与模型在 opencode 配置中显式声明并关闭模型目录拉取（`models.opencode.ai` 在受限网络下不可达）。
 密钥只经环境变量传入，Agent 只继承代理/证书变量。通过条件由 Rovloom 侧独立读回，不采信 Agent 自述。
 
-## 已记录的结果（2026-10-21，Linux 6.18 x64，Bun 1.4.3，Herdr 0.9.5）
+## Windows
 
-7/7 通过；真实 Agent 冒烟通过（opencode 1.19.3 + deepseek-chat，29 秒，workspace 0→1）。过程中发现并修复一个产品缺陷：同 key 不同意图的 `request_key_conflict` 原先以 `internal_error` 暴露，
-现映射为公开码 `conflict`。
+`quickstart_windows.py` 在真实 Windows runner 的 ConPTY 里完成同样的从零配对，并附着官方 Herdr 或 Luvus（`--herdr-dir` / `--luvus-dir`），可选 `--pre-existing`、`--service`、`--kill-herdr`、`--kill-luvus`。CI 见 [Windows e2e](../.github/workflows/windows-e2e.yml)。
 
-## 诚实的边界
+## 边界
 
 - **单台主机**：默认场景里 Gateway 与 Connector 是两个独立进程，经回环 WebSocket 通信；“两台机器”场景用两个容器（独立文件系统与网络命名空间、真实 TCP）
   验证了跨网络路径，但仍在同一台宿主上，不等同真实跨机的 NAT / TLS / 防火墙 / 公网延迟。
-- **Luvus 的故障场景**：真实 Luvus 0.14.3 已覆盖首次配对 → 发现 → 描述 → 只读/写调用读回，以及崩溃接管、Luvus 被杀后重建、未知结果不重发、离线撤销（见下节）；“终端开关”“重复请求幂等”这类与 provider 无关的 Gateway 行为只在 Herdr 场景里验证。
+- **Luvus 的故障场景**：真实 Luvus 0.14.3 已覆盖首次配对 → 发现 → 描述 → 只读/写调用读回，以及崩溃接管、Luvus 被杀后重建、未知结果不重发、离线撤销（见“真实 Luvus 链路”）；“终端开关”“重复请求幂等”这类与 provider 无关的 Gateway 行为只在 Herdr 场景里验证。
 - **设备撤销是离线撤销**：管理员写入走带确认的 HTTP 管理接口，这里停 Gateway 后用正式 `Store.revoke` 代替，没有走 WebUI。
-- **崩溃自动恢复仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、旧格式记录、孤儿 native 仍活着时保持 fail-closed（见 [#167](https://github.com/ArnoChenFx/rovloom/issues/167)）。
-- **LLM Agent 单独脚本**：`e2e/agent.mjs` 让 opencode（1.19.3，DeepSeek `deepseek-chat`）经 MCP 完成 list → discover → ping → `workspace.create`，再由独立 MCP 客户端读回 workspace 数（0→1）。依赖模型 API 域名可达与 `DEEPSEEK_API_KEY`，不在默认场景集里；模型输出有随机性，仅作冒烟。
+- **崩溃后自动清理仅限 Linux**：证据是 owner 进程已死（PID + 内核启动 tick）且端点无监听；其它平台、记录不可读、孤儿 native 仍活着时保持 fail-closed。
+- **LLM Agent 单独脚本**：`e2e/agent.mjs` 让 opencode（DeepSeek `deepseek-chat`）经 MCP 完成 list → discover → ping → `workspace.create`，再由独立 MCP 客户端读回 workspace 数（0→1）。依赖模型 API 域名可达与 `DEEPSEEK_API_KEY`，不在默认场景集里；模型输出有随机性，仅作冒烟。
 - `unknown-outcome` 证明“新 native 未被重发”；被暂停后又恢复的旧 native 是否执行了该请求，不在 Rovloom 可观察范围内
   （这正是 `outcome_unknown` 的含义）。
