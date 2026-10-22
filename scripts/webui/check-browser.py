@@ -42,25 +42,25 @@ def main():
         assert page.evaluate('typeof window.webUiFixture') == 'undefined'
         logo = page.get_by_role('img', name='Rovloom', exact=True)
         logo.wait_for()
-        assert logo.evaluate('(el) => el.complete && el.naturalWidth === 192 && el.naturalHeight === 192')
+        assert logo.evaluate('(el) => el.complete && el.naturalWidth === 256 && el.naturalHeight === 256')
         assert logo.evaluate('(el) => el.width === 48 && el.height === 48')
-        logo_response = page.request.get(base + '/rovloom-mark-orange.png')
+        logo_response = page.request.get(base + '/rovloom-mark-transparent.png')
         assert logo_response.ok
         assert logo_response.headers['content-type'] == 'image/png'
-        assert logo_response.body() == (repo / 'docs/assets/brand/rovloom-mark-orange.png').read_bytes()
-        assert page.locator('link[rel="icon"]').get_attribute('href') == './rovloom-mark-orange.png'
+        assert logo_response.body() == (repo / 'docs/assets/brand/rovloom-mark-transparent.png').read_bytes()
+        assert page.locator('link[rel="icon"]').get_attribute('href') == './rovloom-mark-transparent.png'
         wordmark = page.request.get(base + '/rovloom-logo.png')
         assert wordmark.ok and wordmark.headers['content-type'] == 'image/png'
         assert wordmark.body() == (repo / 'docs/assets/brand/rovloom-logo.png').read_bytes()
         checks.append('生产入口不可用且无 fixture 数据或身份回退')
-        checks.append('顶栏和 favicon 使用独立192px橙R并保留原背景，横版全名图仍可用；两资产原字节可加载')
+        checks.append('顶栏和 favicon 使用独立256px透明背景橙R，横版全名图仍可用；两资产原字节可加载')
 
         page.goto(base + '/fixtures/')
         page.locator('.device-card').first.wait_for()
         assert page.locator('.device-card').count() == 2
         assert page.locator('.device-card img').count() == 0
         assert page.get_by_role('img', name='Rovloom', exact=True).evaluate(
-            '(el) => el.complete && el.naturalWidth === 192 && el.naturalHeight === 192')
+            '(el) => el.complete && el.naturalWidth === 256 && el.naturalHeight === 256')
         assert '<img src=x' in page.locator('.device-name').first.inner_text()
         page.locator('.device-name').first.focus()
         page.wait_for_timeout(1200)

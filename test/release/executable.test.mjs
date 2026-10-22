@@ -235,8 +235,8 @@ test(
       assert.equal(paths.get(path), sha256(bytes))
     }
     assert.equal(
-      paths.get('/rovloom-mark-orange.png'),
-      sha256(readFileSync('docs/assets/brand/rovloom-mark-orange.png'))
+      paths.get('/rovloom-mark-transparent.png'),
+      sha256(readFileSync('docs/assets/brand/rovloom-mark-transparent.png'))
     )
     // 程序图标是已提交的透明多尺寸 ICO，构建目录里是同一份原字节。
     assert.deepEqual(

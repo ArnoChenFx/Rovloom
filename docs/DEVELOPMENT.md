@@ -42,7 +42,7 @@ SQLite 文件重开、无副作用的 service 模块导入，以及 CLI help 和
 管理页另以 browser target 输出 `dist/webui/` 的 ESM、HTML/CSS 与外部 source maps，
 不依赖 Node、远端字体或 UI 框架。默认入口以固定同源 GET 读取管理 API；未配置宿主 listener/服务时显示不可用，不加载测试数据。
 `dist/src/admin/index.js` 只提供宿主组合模块，不自动启动；可信会话与共享 service 的注入边界见 [管理页设计](GATEWAY-WEBUI.md#只读-http-宿主桥)。
-顶栏与 favicon 复用[独立橙色 R](assets/brand/rovloom-mark-orange.png)；[横版全名图](assets/brand/rovloom-logo.png)仍保留在静态产物中。构建和隔离验证保持两张原 PNG 的字节、背景及纵横比。
+顶栏与 favicon 复用[透明背景的橙色 R](assets/brand/rovloom-mark-transparent.png)；[横版全名图](assets/brand/rovloom-logo.png)仍保留在静态产物中。构建和隔离验证保持两张原 PNG 的字节、背景及纵横比。
 
 ## 管理页面的隔离验证
 

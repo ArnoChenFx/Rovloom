@@ -257,7 +257,7 @@ def main():
                 assert page.get_by_role('heading', name=device_name, exact=True).count() == 1
                 assert page.locator('main code').first.inner_text() == 'fixture-a'
                 logo = page.get_by_role('img', name='Rovloom', exact=True)
-                assert logo.evaluate('/* 核对品牌原图与实际显示尺寸。 */ (el)=>el.complete&&el.naturalWidth===192&&el.naturalHeight===192&&el.width===48&&el.height===48')
+                assert logo.evaluate('/* 核对品牌原图与实际显示尺寸。 */ (el)=>el.complete&&el.naturalWidth===256&&el.naturalHeight===256&&el.width===48&&el.height===48')
                 contrast_check(page)
                 page.evaluate("window.webUiFixture.mode='hold'")
                 page.get_by_role('button', name=words['refresh'], exact=True).click()
