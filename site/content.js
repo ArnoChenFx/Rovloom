@@ -24,6 +24,12 @@ export const copy = {
     'map.vps': 'VPS',
     'map.docker': 'Docker 容器',
     'map.sandbox': 'Agent Sandbox',
+    'map.agentFlow': 'AI 客户端通过 MCP 连接 Gateway，选择工作环境并发起调用。',
+    'map.gatewayFlow': 'Gateway 校验请求，将调用路由到目标 Connector，再把执行结果返回客户端。',
+    'map.pcFlow': '请求经 Gateway 到达个人电脑的 Connector，调用本机 Luvus / Herdr 并返回结果。',
+    'map.vpsFlow': '请求经 Gateway 到达 VPS 的 Connector，在远程工作区执行并返回结果。',
+    'map.dockerFlow': '请求经 Gateway 和 Connector 到达容器工作区，执行结果沿原路径返回。',
+    'map.sandboxFlow': '请求经 Gateway 和 Connector 到达 Agent Sandbox，在沙箱工作区执行并返回结果。',
     'strip.label': '连接已有工具，不改变你的习惯',
     'strip.end': '为你自己的设备而造',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
@@ -122,6 +128,16 @@ export const copy = {
     'map.vps': 'VPS',
     'map.docker': 'Docker container',
     'map.sandbox': 'Agent Sandbox',
+    'map.agentFlow': 'The AI client connects to Gateway over MCP, selects a workspace and sends a call.',
+    'map.gatewayFlow': 'Gateway checks the request, routes it to the target Connector and returns the result.',
+    'map.pcFlow':
+      'Gateway routes the call to your computer’s Connector, which invokes local Luvus / Herdr and returns the result.',
+    'map.vpsFlow':
+      'Gateway routes the call to the VPS Connector, which runs it in the remote workspace and returns the result.',
+    'map.dockerFlow':
+      'The call reaches the container workspace through Gateway and Connector. Results return along the same path.',
+    'map.sandboxFlow':
+      'The call reaches Agent Sandbox through Gateway and Connector, runs in its workspace and returns the result.',
     'strip.label': 'Connect your tools. Keep your habits.',
     'strip.end': 'BUILT FOR YOUR OWN MACHINES',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
