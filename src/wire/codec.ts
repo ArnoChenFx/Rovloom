@@ -203,21 +203,8 @@ function anchored(frame: JsonObject, p: JsonObject, ctx: AuthContext): NativeVal
   return {
     binding,
     method: anchor.method,
-    mode: anchor.mode,
-    native_handle: anchor.native_handle
+    mode: anchor.mode
   }
-}
-
-// 要求既有原生句柄和独立来源，并将可信来源注入校验上下文。
-function nativeContext(n: NativeValidationContext, ctx: AuthContext): NativeValidationContext {
-  if (n.native_handle === undefined || n.native_handle === null) {
-    fail('native_handle_unavailable')
-  }
-  const source = ctx.resolveNativeSource?.(n.binding)
-  if (source === undefined || source === null) {
-    fail('native_source_unavailable')
-  }
-  return { ...n, trusted_source: source }
 }
 
 // 核对请求与登记锚点、当前双端权限和原生参数门禁。
@@ -424,11 +411,11 @@ function decode(input: string | Uint8Array, context: CodecContext, limit: number
     }
     case 'response': {
       fields(p, ['attempt', 'native_response'])
-      const n = nativeContext(anchored(frame, p, context), context)
+      const n = anchored(frame, p, context)
       const r = object(p.native_response)
       const validator = validatorFor(n.binding, context)
       nativeVoid(
-        /* 以绑定的原生许可和可信来源校验完整响应。 */ () => validator.validateResponse(r, n),
+        /* 以登记的原请求上下文校验完整响应。 */ () => validator.validateResponse(r, n),
         'native_response_invalid'
       )
       break

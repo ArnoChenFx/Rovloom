@@ -24,7 +24,6 @@ import {
   context,
   frame,
   fixtureValidator,
-  nativeHandle,
   rejects
 } from './helpers.js'
 
@@ -395,37 +394,8 @@ test(
 )
 
 test(
-  '响应必须沿用原 opaque handle 和当前独立 source，native 异常只返回 code',
-  /* 验证响应必须沿用原 opaque handle 和当前独立 source，native 异常只返回 code。 */ () => {
-    const absent = context('connector_to_gateway')
-    absent.resolveAttempt = /* 返回缺少私有原生句柄的调用锚点。 */ () => ({
-      binding,
-      mode: 'strict',
-      method: 'ping',
-      transport: 'rpc'
-    })
-    rejects(
-      /* 提交该用例输入，确认调用缺少既有原生句柄时被拒绝。 */ () => decode(response, absent),
-      'native_handle_unavailable'
-    )
-    const noSource = context('connector_to_gateway')
-    delete noSource.resolveNativeSource
-    rejects(
-      /* 提交该用例输入，确认查不到独立原生来源时被拒绝。 */ () => decode(response, noSource),
-      'native_source_unavailable'
-    )
-    const wrong = context('connector_to_gateway')
-    wrong.resolveAttempt = /* 返回带伪造原生句柄的调用锚点。 */ () => ({
-      binding,
-      mode: 'strict',
-      method: 'ping',
-      transport: 'rpc',
-      native_handle: {}
-    })
-    rejects(
-      /* 提交该用例输入，确认句柄不是该调用创建的原生句柄时被拒绝。 */ () => decode(response, wrong),
-      'native_handle_mismatch'
-    )
+  '响应校验的原生异常只返回 code',
+  /* 验证原生校验器异常不会泄露正文，只返回固定错误码。 */ () => {
     const leaking = fixtureValidator()
     leaking.validateResponse = /* 模拟携带私密文本的原生校验异常，检验错误收敛。 */ () => {
       throw Error('synthetic-private-payload')
@@ -435,15 +405,6 @@ test(
         decode(response, context('connector_to_gateway', leaking)),
       /* 确认只返回固定原生响应错误码，且错误消息不含私密内容。 */ (e: any) =>
         e.code === 'native_response_invalid' && !e.message.includes('synthetic-private-payload')
-    )
-    const responseWithHandle = {
-      ...response,
-      payload: { ...response.payload, native_handle: nativeHandle }
-    }
-    rejects(
-      /* 提交该用例输入，确认消息字段缺失或包含额外字段时被拒绝。 */ () =>
-        decode(responseWithHandle, context('connector_to_gateway')),
-      'invalid_frame_fields'
     )
   }
 )

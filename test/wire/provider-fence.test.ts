@@ -86,14 +86,11 @@ test(
 )
 
 test(
-  '已失效来源的迟到数据只能丢弃，不能生成结果、原生来源或执行许可',
+  '已失效来源的迟到数据只能丢弃，不能生成结果或执行许可',
   /** 故意提供不能通过原生 schema 的合成正文；返回值只能是丢弃布尔值。 */ () => {
     const ctx = authenticated()
     ctx.resolveAttempt = /** 丢弃路径不得恢复旧原请求上下文。 */ () => {
       throw new Error('native_context_must_not_run')
-    }
-    ctx.resolveNativeSource = /** 丢弃路径不得重新查询旧原生身份。 */ () => {
-      throw new Error('native_source_must_not_run')
     }
     const response = frame('response', { attempt, native_response: { synthetic_invalid_native: true } })
     assert.equal(discardFencedWireFrame(JSON.stringify(response), ctx, [provider]), true)

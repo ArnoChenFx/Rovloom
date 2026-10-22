@@ -1,16 +1,6 @@
 // 根据固定 Luvus 契约及宿主可信来源校验能力、请求、响应与流，并管理内存许可和仅响应上下文。
 import { validateTarget } from '../contracts.js'
-import {
-  candidates,
-  contracts,
-  permits,
-  responses,
-  responseContexts,
-  SCOPES,
-  STREAM_METHODS,
-  UHP,
-  views
-} from './internal.js'
+import { candidates, contracts, responseContexts, SCOPES, UHP, views } from './internal.js'
 import type { ResponseRules } from './internal.js'
 import { attempt, equal, fail, object, snapshot, text } from './json.js'
 import type {
@@ -381,7 +371,7 @@ function describeCapability(
     if (binding.target.profile === 'host') {
       transport = 'host_stdio_proxy'
     } else {
-      transport = STREAM_METHODS.has(name) ? 'persistent_local_stream' : 'single_request_rpc'
+      transport = 'single_request_rpc'
     }
     schemaStatus = paths.length ? 'conditional_branch' : 'generic_params_only'
   }
@@ -396,14 +386,13 @@ function describeCapability(
   })
 }
 
-// 从真实请求或派发句柄查询原候选，拒绝伪造或已释放的上下文。
+// 从真实请求或派发许可取得原候选，拒绝伪造的上下文。
 function candidateOf(context: CheckedRequest | DispatchPermit): DispatchCandidate {
   if (context.kind === 'permit') {
-    const value = permits.get(context)
-    if (!value) {
+    if (!candidates.has(context.candidate)) {
       fail('invalid_permit_handle')
     }
-    return value.candidate
+    return context.candidate
   }
   if (context.kind !== 'request' || !candidates.has(context)) {
     fail('invalid_request_handle')
@@ -414,26 +403,14 @@ function candidateOf(context: CheckedRequest | DispatchPermit): DispatchCandidat
 // 为一个已登记契约创建校验入口，所有可信状态均保存在私有句柄表中。
 export function createNativeValidator(contract: CompiledContract): NativeValidator {
   data(contract)
-  // 复制并校验响应族 schema；纯能力检查不登记响应，其余入口仅为流 ack 保留开流关联。
-  function responseShape(
-    input: unknown,
-    family: 'general' | 'terminal',
-    bound: boolean,
-    candidate: DispatchCandidate | null,
-    permit: DispatchPermit | null = null,
-    registerResponse = true
-  ): CheckedResponse {
+  // 复制并校验响应族 schema。
+  function responseShape(input: unknown, family: 'general' | 'terminal', bound: boolean): CheckedResponse {
     const response = copy(contract, input)
     validate(contract, `${UHP}response.schema.json`, response, 'native_response_invalid')
     if (family === 'terminal') {
       validate(contract, `${UHP}schema/terminal/response.schema.json`, response, 'native_response_invalid')
     }
-    const result = Object.freeze({ response, identity: contract.identity, bound })
-    const streamAck = candidate !== null && permit !== null && STREAM_METHODS.has(candidate.method)
-    if (registerResponse) {
-      responses.set(result, { candidate: streamAck ? candidate : null, contract, permit: streamAck ? permit : null })
-    }
-    return result
+    return Object.freeze({ response, identity: contract.identity, bound })
   }
   // 已收录方法检查完整根；未知方法仅复用 raw 的最小信封，后续门禁仍独立决定是否可执行。
   function requestShape(request: JsonObject, allowRaw: boolean): string {
@@ -516,7 +493,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           ) {
             fail('invalid_context')
           }
-          const response = responseShape(input, 'general', false, null, null, false).response
+          const response = responseShape(input, 'general', false).response
           shapeCapabilities(object(response.result, 'capability_invalid'), binding)
         }
       )
@@ -530,7 +507,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           if (!equal(binding.contract, contract.identity)) {
             fail('capability_stale', 'discovery', 'contract')
           }
-          const response = responseShape(input, 'general', false, null).response
+          const response = responseShape(input, 'general', false).response
           const value = object(response.result, 'capability_invalid')
           const hints = shapeCapabilities(value, binding)
           const methods = new Map<string, MethodDescriptor>()
@@ -576,7 +553,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           if (!['general', 'terminal'].includes(family)) {
             fail('invalid_context')
           }
-          return responseShape(input, family, false, null)
+          return responseShape(input, family, false)
         }
       )
     },
@@ -590,13 +567,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
           viewData(contract, stored.view)
           verifySource(source, candidate.binding)
           const terminal = candidate.method.startsWith('terminal.backend.')
-          const checked = responseShape(
-            input,
-            terminal ? 'terminal' : 'general',
-            true,
-            candidate,
-            context.kind === 'permit' ? context : null
-          )
+          const checked = responseShape(input, terminal ? 'terminal' : 'general', true)
           frameLimit(contract, stored.view, checked.response, 'native_response_invalid', terminal, 'response')
           const request = candidate.request
           // schema 合法之后仍须绑定原请求 ID、结果类型和适用的原生实例标识。
@@ -615,19 +586,9 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
       return attempt(
         'response_context',
         /* 拒绝流与控制候选，并只复制绑定、ID、方法、帧预算和有界身份匹配字段。 */ () => {
-          const stored = permits.get(permit)
-          if (!stored) {
-            fail('invalid_permit_handle')
-          }
-          const candidate = stored.candidate
-          const original = candidates.get(candidate)
-          if (!original) {
-            fail('invalid_request_handle')
-          }
+          const candidate = candidateOf(permit)
+          const original = candidates.get(candidate)!
           viewData(contract, original.view)
-          if (STREAM_METHODS.has(candidate.method)) {
-            fail('response_context_unavailable')
-          }
           const rules = responseRules(candidate)
           if (
             Object.values(rules.identities).some(
@@ -666,7 +627,7 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
             fail('invalid_response_context')
           }
           verifySource(source, retained.binding)
-          const checked = responseShape(input, retained.rules.terminal ? 'terminal' : 'general', true, null)
+          const checked = responseShape(input, retained.rules.terminal ? 'terminal' : 'general', true)
           if (
             retained.frame_bytes !== null &&
             Buffer.byteLength(JSON.stringify(checked.response)) + 1 > retained.frame_bytes
@@ -680,29 +641,6 @@ export function createNativeValidator(contract: CompiledContract): NativeValidat
             validateBoundResult(retained.rules, retained.binding, object(checked.response.result))
           }
           // 只返回验证结果，不能取得 CheckedResponse/payload 或用它开流。
-        }
-      )
-    },
-    // 撤销同一 RPC 候选的全部许可及请求登记；宿主仍须丢弃自己持有的候选与原文引用。
-    releaseRequestContext(permit) {
-      return attempt(
-        'response_context',
-        /* 确认许可与候选属于当前契约后，断开整个候选分组并删除请求登记。 */ () => {
-          const stored = permits.get(permit)
-          if (!stored) {
-            fail('invalid_permit_handle')
-          }
-          const candidate = stored.candidate
-          const original = candidates.get(candidate)
-          if (!original) {
-            fail('invalid_request_handle')
-          }
-          viewData(contract, original.view)
-          if (STREAM_METHODS.has(candidate.method)) {
-            fail('response_context_unavailable')
-          }
-          permits.revoke(candidate)
-          candidates.delete(candidate)
         }
       )
     },

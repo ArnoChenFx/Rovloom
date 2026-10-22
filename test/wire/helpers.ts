@@ -48,11 +48,8 @@ export function fixtureValidator(): NativePayloadValidator {
         throw new WireError('native_request_invalid')
       }
     },
-    // 核对测试句柄、独立来源与原生 ID，再校验响应 schema。
+    // 核对原生 ID，再校验响应 schema。
     validateResponse(r, c) {
-      if (c.native_handle !== nativeHandle || c.trusted_source !== trustedSource) {
-        throw new WireError('native_handle_mismatch')
-      }
       if (r.id !== c.binding.native_request_id) {
         throw new WireError('native_id_mismatch')
       }
@@ -112,8 +109,6 @@ export const attempt: AttemptIdentity = {
   }
 }
 export const binding: AttemptBinding = { ...identity, ...attempt }
-export const nativeHandle = Object.freeze({ synthetic_test_handle: true })
-export const trustedSource = Object.freeze({ synthetic_test_source: true })
 const methods = JSON.parse(
   readFileSync(new URL('../fixtures/native-contract/coverage.json', import.meta.url), 'utf8')
 ).methods.map(/* 从覆盖清单中提取可供测试授权的方法名称。 */ (r: any) => r.method)
@@ -156,14 +151,11 @@ export function context(
       caller: { revision: 'caller_policy_1', grants: structuredClone(grants) },
       local: { revision: 'local_policy_1', grants: structuredClone(grants) }
     },
-    // 提供独立注入的测试原生来源令牌。
-    resolveNativeSource: () => trustedSource,
-    // 返回测试登记锚点及其专属原生句柄和传输配置。
+    // 返回测试登记锚点及传输配置。
     resolveAttempt: () => ({
       binding: anchor,
       method,
-      mode,
-      native_handle: nativeHandle
+      mode
     })
   }
 }
