@@ -50,7 +50,7 @@ Setting an address does not pair the device or install a native provider.
 | `data` | Object, required | Contains only `directory`. |
 | `data.directory` | Normalized absolute path string, ≤4096 characters, required | `<home>/.local/share/rovloom/<role>`; separate private data for each role. |
 | Gateway `mcp` | Object, required | Contains `hostname`, `port`; Streamable HTTP `/mcp`. |
-| `mcp.hostname` | String, required | `127.0.0.1`; also accepts `::1`, `0.0.0.0`, `::`. Wildcard binds are for isolated environments such as containers; Host/Origin validation still uses the matching loopback address, and any other Host needs `public_url`. |
+| `mcp.hostname` | String, required | `127.0.0.1`; also accepts `::1`, `0.0.0.0`, `::`. Wildcard binds are for isolated environments such as containers. They listen on every interface over plain HTTP (the Gateway logs a `wildcard_listener` warning): Host/Origin validation still uses the matching loopback address, but that only stops browser DNS rebinding, not a network client that sends a loopback `Host`. Keep a firewall or TLS reverse proxy in front; any other Host needs `public_url`. |
 | `mcp.port` | Integer 1–65535, required | `9444`. |
 | `mcp.public_url` | String, optional | Trusted external address behind a reverse proxy / TLS terminator, exactly `https://host[:port]/mcp` (no credentials, query or other path). When set, the Gateway also accepts requests whose `Host` is that host (and its CORS origin); every other `Host` is still rejected, and forwarded headers are never trusted. The listener itself stays on loopback; the Bearer is still required. |
 | Gateway `devices` | Object, required | Contains `hostname`, `port`; WS `/connector`. |

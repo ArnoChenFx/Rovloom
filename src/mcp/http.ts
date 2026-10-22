@@ -5,6 +5,7 @@ import { JSONRPCMessageSchema, InitializeRequestSchema, type JSONRPCMessage } fr
 import { parseNativeJson } from '../native-contract/json.js'
 import { createMcpFacade, type DiagnosticCode } from './facade.js'
 import { FacadeHttpTransport, type RequestReservation } from './http-transport.js'
+import { canonicalLoopbackHost } from './listen.js'
 import type { CallerIdentity, GatewayService, ServiceContext } from './types.js'
 
 export const HTTP_BODY_BYTES = 1_048_576
@@ -496,8 +497,7 @@ export function startHttpFacade(
       facade ? facade.handleRequest(request) : Promise.resolve(denied(503))
   })
   // 通配绑定时 Host/Origin 校验仍按对应回环规范地址，不随绑定地址放宽。
-  const canonical = hostname === '0.0.0.0' ? '127.0.0.1' : hostname === '::' ? '::1' : hostname
-  const origin = new URL(`http://${canonical === '::1' ? '[::1]' : canonical}:${listener.port}`).origin
+  const origin = new URL(`http://${canonicalLoopbackHost(hostname)}:${listener.port}`).origin
   try {
     facade = createHttpFacade({ ...options, origin })
   } catch (error) {

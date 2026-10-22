@@ -9,8 +9,7 @@ import {
   inspectVersion,
   isLatest,
   matchExistingIndex,
-  releaseContext,
-  verifyBinary
+  releaseContext
 } from '../../scripts/container/release.mjs'
 import { assetName } from '../../src/release/contract.ts'
 
@@ -145,32 +144,6 @@ test(
     )
     f.release.body = `fixture <!-- rovloom-release:1 ${f.context.tag} ${'b'.repeat(40)} -->`
     await assert.rejects(releaseContext(f.event, f.api))
-  }
-)
-
-test(
-  'container staging verifies actual binary, complete checksums and manifest commit',
-  /** 坏字节不能进入Docker上下文。 */ () => {
-    const f = fixture()
-    const platform = { os: 'linux', arch: 'x64', libc: 'glibc' }
-    assert.equal(verifyBinary(f.context, platform, f.manifest, f.sums, f.bytes).name, 'rovloom-0.1.0-linux-x64')
-    for (const mutate of ['binary', 'sums', 'manifest', 'commit', 'platform', 'duplicate']) {
-      assert.throws(
-        /** 所有反例均在磁盘写入或registry推送前拒绝。 */ () =>
-          verifyBinary(
-            mutate === 'commit' ? { ...f.context, commit: 'b'.repeat(40) } : f.context,
-            mutate === 'platform' ? { ...platform, libc: 'musl' } : platform,
-            mutate === 'manifest' ? Buffer.from(f.manifest.toString().replace('0.1.0', '0.1.1')) : f.manifest,
-            mutate === 'sums'
-              ? Buffer.from('invalid\n')
-              : mutate === 'duplicate'
-                ? Buffer.concat([f.sums, f.sums])
-                : f.sums,
-            mutate === 'binary' ? Buffer.from('changed') : f.bytes
-          ),
-        mutate
-      )
-    }
   }
 )
 

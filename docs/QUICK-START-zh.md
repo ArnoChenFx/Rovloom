@@ -72,7 +72,7 @@ Connector **附着到你已在运行的会话**，因此远程调用操作的是
 |---|---|
 | `rovloom gateway` | `rovloom connector` |
 
-Docker Gateway：在 Compose 目录运行 `docker compose run --rm gateway` 代替（先用 `docker compose stop gateway` 停掉正在运行的 Gateway）。
+Docker Gateway：在 Compose 目录运行 `docker compose run --rm --service-ports gateway` 代替（先用 `docker compose stop gateway` 停掉正在运行的 Gateway）。
 
 1. **Gateway 终端**：批准配对，得到一次性码（5 分钟有效）。
 2. **Connector 终端**：输入 Gateway 地址（同一台机器用 `ws://127.0.0.1:9443`）和该码，并确认信任此 Gateway。

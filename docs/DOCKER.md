@@ -35,7 +35,10 @@ Default local endpoints:
 
 `healthy` means the MCP authentication listener responds. It does not mean a device is paired, an administrator exists or an Agent is ready. The `pairing_required` log line means setup is pending.
 
-The generated configuration binds every listener to loopback inside the container, so the published ports answer only inside the container until you opt in. Set `mcp.hostname`, `devices.hostname` and `management.hostname` to `0.0.0.0` in `gateway.json` (see *Configure, stop and upgrade* below) and restart: the three ports are then reachable through the Compose port mappings, which bind all host interfaces. Restrict them with the host firewall as needed, and for remote Connectors put a standard TLS reverse proxy in front (see [Network access](CONFIGURATION.md#network-access)).
+The generated configuration binds every listener to loopback *inside the container*, which the host cannot reach through a published port. Set `mcp.hostname`, `devices.hostname` and `management.hostname` to `0.0.0.0` in `gateway.json` (see *Configure, stop and upgrade* below) and restart. Compose then publishes:
+
+- `9443` (Connector device channel) on all host interfaces, so Connectors on other machines can reach it. Put a TLS reverse proxy in front of anything outside a trusted network, and restrict it with the host firewall.
+- `9444` (MCP) and `9445` (management page) **only on the host's loopback** (`127.0.0.1`). Remote MCP clients go through a reverse proxy on the host that forwards to `127.0.0.1:9444`, with `mcp.public_url` set (see [Network access](CONFIGURATION.md#network-access)). Do not widen these mappings: the listeners speak plain HTTP, and the Host/Origin check only stops browser DNS rebinding — a network client that sends a loopback `Host` header still gets as far as the Bearer or administrator password.
 
 ## First pairing
 
@@ -43,14 +46,16 @@ The background service has no interactive terminal. In a real terminal in the Co
 
 ```sh
 docker compose stop gateway
-docker compose run --rm gateway
+docker compose run --rm --service-ports gateway
 ```
+
+`--service-ports` is required: `docker compose run` does not publish the Compose ports by default, so without it the Connector cannot reach the Gateway. The `devices.hostname` change above must already be in place.
 
 Keep this terminal open for pairing and native installation approval. On the Linux x64 Connector host, run `rovloom connector` in another local terminal and follow [Pair](QUICK-START.md#3-pair). Never run a second Gateway on the same data.
 
 When setup reaches `connector_ready`, stop the Connector, then stop the foreground Gateway with Ctrl-C. Run `docker compose up -d` and restart the host Connector. Configuration and pairing stay in the volumes.
 
-To add another device or re-pair a device, stop the background Gateway and run `docker compose run --rm gateway gateway --add-device` (or `gateway --repair-device`). Then continue on the Connector host as in the Quick Start.
+To add another device or re-pair a device, stop the background Gateway and run `docker compose run --rm --service-ports gateway gateway --add-device` (or `gateway --repair-device`). Then continue on the Connector host as in the Quick Start.
 
 ## Configure, stop and upgrade
 
