@@ -1,138 +1,92 @@
 # Boot services / 开机服务
 
-The CLI provides `service install`, `uninstall`, `start`, `restart`, and `stop` for
-an explicit `gateway` or `connector` role. Linux product wiring uses systemd and macOS uses system LaunchDaemons.
-Windows uses an existing user's native boot-triggered task. Native command plans exist for all
-three systems. Format/model tests do not establish a platform's actual lifecycle
-or reboot acceptance.
+The `rovloom service` command registers a Gateway or Connector to start at boot. Commands: `install`, `uninstall`, `start`, `restart`, `stop`. Every command selects one role with `--role gateway|connector`.
+
+`rovloom service` 命令把 Gateway 或 Connector 注册为开机自启。命令有 `install`、`uninstall`、`start`、`restart`、`stop`，每条命令用 `--role gateway|connector` 选择一个角色。
 
 ## English
 
 | Platform | Boot registration | Control | Account |
 |---|---|---|---|
-| Linux | `/etc/systemd/system/rovloom-{role}.service`, `multi-user.target` | system `systemctl` | Explicit existing non-root account |
-| macOS | `/Library/LaunchDaemons/io.rovloom.{role}.plist`, system domain | `launchctl bootstrap`, `kickstart`, `kill`, `bootout` | Explicit existing non-root account |
-| Windows | Task Scheduler `\rovloom-{role}`, `BootTrigger` | System Task Scheduler COM | Explicit existing user, S4U |
+| Linux | `/etc/systemd/system/rovloom-{role}.service`, `multi-user.target` | system `systemctl` | existing non-root account |
+| macOS | `/Library/LaunchDaemons/io.rovloom.{role}.plist`, system domain | `launchctl` | existing non-root account |
+| Windows | Task Scheduler `\rovloom-{role}`, `BootTrigger` | Task Scheduler | existing user, S4U |
 
-Boot startup does not require an interactive login. LaunchAgents, user login tasks
-and `ONLOGON` are not used. A normal Bun executable is not registered as an SCM
-service: the Windows backend uses a native boot-triggered task with no stored password.
-S4U runs on a non-interactive desktop without requiring a login. Windows limits
-its network-resource and encrypted-file access; the Connector service has no
-interactive desktop, only attaching to (or starting under that account) the persistent
-Herdr / Luvus processes, with no interactive terminal sessions. No profile directory is queried or created.
+Boot startup does not need an interactive login. LaunchAgents, login tasks and `ONLOGON` are not used.
 
-- `install` enables future boot startup and does not start the role. Repeating the
-  same registration is safe; another executable/config/account is a conflict.
-- `start` starts an installed role; an already running role is not duplicated.
-- `restart` waits for the old instance to stop, then starts it. macOS retains a
-  loaded job during restart so a disabled boot policy need not be re-enabled.
-- `stop` stops the selected role and preserves boot enablement.
-- `uninstall` only disables future boot startup. It does not stop a running role.
-  Its control record remains available for an explicit stop/restart as needed.
+On Windows the task runs as the chosen user with S4U, so no password is stored and no login is required. S4U runs on a non-interactive desktop, which limits access to network resources and encrypted files. A Connector service has no interactive desktop. It attaches to the persistent Luvus or Herdr processes, or starts them under that account, and provides no interactive terminal sessions.
 
-Linux retains disabled declarations until explicit stop also cancels any pending
-systemd Job. macOS retains loaded jobs; Windows disables only the BootTrigger,
-keeping demand Run/Stop available. Safe cleanup removes only this role's exact
-registration, never configuration, databases, logs, accounts or user directories.
-A same-name foreign/edited registration is a conflict and is not overwritten.
+### Commands
+
+- `install` enables boot startup and does not start the role. Repeating the same registration is safe. A registration with a different executable, config or account is a conflict.
+- `start` starts an installed role. A running role is not started twice.
+- `restart` waits for the old instance to stop, then starts it.
+- `stop` stops the role and keeps boot startup enabled.
+- `uninstall` disables boot startup only. It does not stop a running instance and does not delete configuration, databases, logs, accounts or directories. It removes only the exact registration of the selected role. A registration with the same name that Rovloom did not create is a conflict and is not overwritten.
 
 ```sh
 rovloom service install --role gateway --config /home/rovloom/.config/rovloom/gateway.json --workdir /home/rovloom --user rovloom
 rovloom service start --role gateway
 rovloom service restart --role gateway
-rovloom service uninstall --role gateway
 rovloom service stop --role gateway
+rovloom service uninstall --role gateway
 ```
 
-Installation records the current standalone executable and absolute role config.
-An explicit `--executable` must refer to that same product. Without `--config`,
-installation selects the same current-user role file as foreground startup and
-stores its absolute path. Background startup does not resolve another home.
-When invoking through sudo, pass the original user's absolute config path explicitly.
-`--user` selects the runtime account, not another configuration directory.
-`--workdir` must exist. Existing configuration is checked for JSON/role
-errors; missing configuration is left for normal first startup to generate.
-The service installer does not impose UID/mode, ACL, ancestor or file-ID rules,
-change existing permissions, create accounts or automatically elevate itself.
-Insufficient system-service privilege is an ordinary error; operators must
-explicitly run the command with the required OS authorization.
+### Installation
 
-Services receive no interactive input and do not enter CLI pairing/setup prompts.
-Systemd uses null stdin, launchd uses `/dev/null`, and Windows runs under its
-selected user with `--non-interactive`. Task Scheduler can supply TTY handles on a
-non-interactive desktop, so this explicit flag disables local setup even then.
-It still validates the same configuration and role backend. Local native Connector capability is Linux x64 and Windows x64.
-Starting a configured service is distinct from native-provider or Agent readiness.
+- `install` records the current standalone executable and the absolute path of the role config. An explicit `--executable` must be that same executable.
+- Without `--config`, it uses the same current-user file as foreground startup. When running through sudo, pass the original user's absolute config path.
+- `--user` selects the account the service runs as. It does not select another configuration directory.
+- `--workdir` must exist. An existing config is checked for JSON and role errors. A missing config is generated at the first normal start.
+- The installer does not create accounts, change existing permissions or elevate itself. Without enough system privileges the command fails, and you must run it with the required OS authorization.
 
-System requests have bounded output/time; state observation is bounded and requires
-one continuous second of running state. Results report `readiness: not_checked`.
-POSIX uses the supervisor's normal termination policy. Running Windows services
-receive one fixed stop request over a local named pipe, entering the existing Abort
-cleanup before Scheduler exit is checked. The endpoint binds the full registered
-declaration and current executable/role/config; ordinary foreground startup does
-not create it. It uses normal OS access without changing ACLs or adding config/PID
-files. Pipe failure does not fall back to killing the process. Queued tasks or a
-startup race return `service_busy`; cancellation must not terminate an instance
-that started after the earlier query. Unknown command cleanup retains the role lock and
-returns a failure rather than silently retrying. Cross-process role locks prevent
-duplicate controller operations; stale locks require explicit inspection.
+### Running
 
-### Host integration
-
-`src/service/index.ts` exports `ServiceManager`, `createNativeServiceBackend` and
-the CLI parser. The product uses one `CliRuntime.service` host. Its preflight
-checks product/role/configuration support; there is no ACL/Authz installation port.
-Ordinary registration file I/O retains exact-content checks, exclusive creation,
-fsync and role mutual exclusion. `service --help` is available without OS access.
-Errors use fixed codes and nonzero exit status. Installation itself does not
-start Gateway, connect a provider, generate credentials or call a model.
-
-Native CI format probes use systemd-analyze/plutil or an unregistered Task Scheduler
-COM definition. The separate lifecycle script is restricted to explicitly enabled
-GitHub-hosted temporary VMs: it checks for name collisions, uses the existing
-runner account and a temporary Gateway dataset, explicitly invokes `sudo -n`,
-and removes only its own registration. It checks real MCP 401, restart and data
-preservation. Reboot acceptance is reported separately; the script never runs on
-an ordinary user's machine or a self-hosted runner.
+- Services receive no interactive input and never enter pairing or setup prompts. systemd uses null stdin, launchd uses `/dev/null`, and Windows starts the role with `--non-interactive`. Pair the device in a real terminal first.
+- A service does not restart a process that has exited. systemd uses `Restart=no` and launchd does not set `KeepAlive`.
+- A native Connector service is supported on Linux x64 and Windows x64.
+- Command output and waiting time are bounded. The result reports `readiness: not_checked`, so a running service does not prove that a provider or Agent is ready.
+- On Windows, a running instance receives one stop request over a local named pipe and then runs its normal shutdown. If the pipe fails, the process is not killed. When a task is queued or starting, the command returns `service_busy`.
+- Cross-process role locks prevent concurrent control operations. A stale lock needs manual inspection.
 
 ## 简体中文
 
-五项命令均显式选择 `gateway` 或 `connector`。Linux产品入口使用systemd，macOS使用system LaunchDaemon；
-Windows使用显式选择的既有用户开机任务，不另查或创建账户profile。三平台已有原生命令计划，
-不能把格式解析或状态模型通过当作实际安装、生命周期或重启验收通过。
+| 平台 | 开机登记 | 控制方式 | 运行账户 |
+|---|---|---|---|
+| Linux | `/etc/systemd/system/rovloom-{role}.service`，`multi-user.target` | 系统 `systemctl` | 既有非 root 账户 |
+| macOS | `/Library/LaunchDaemons/io.rovloom.{role}.plist`，system 域 | `launchctl` | 既有非 root 账户 |
+| Windows | 任务计划程序 `\rovloom-{role}`，`BootTrigger` | 任务计划程序 | 既有用户，S4U |
 
-- `install`：加入/启用未来开机自动启动，不立即启动。相同登记可重复，另一产物/配置/账户不能覆盖。
-- `start`：启动已安装角色；已运行时不创建第二实例。
-- `restart`：等待原实例停止再启动。macOS 重启保留 loaded job，避免暗中重新启用已撤销的开机策略。
-- `stop`：停止所选角色，不取消开机启动。
-- `uninstall`：只撤销未来开机启动，不停止当前实例；必要时保留控制记录供显式启停。
+开机启动不需要交互登录。不使用 LaunchAgent、登录任务和 `ONLOGON`。
 
-Linux 使用系统 unit，macOS 使用 system LaunchDaemon，Windows 使用既有用户的S4U
-开机任务，不保存密码、不要求先登录，不把普通控制台程序冒充 SCM 服务。
-S4U是非交互桌面，Windows对其网络资源和加密文件访问有系统限制；Connector 服务没有交互桌面，只附着（或在该账户下自建）Herdr / Luvus 的持久进程，不提供交互式终端会话。
-系统服务需要正常 OS 授权；
-CLI 不自动提权、不创建账户、不修改已有系统权限。
+Windows 以所选用户的 S4U 任务运行，不保存密码，也不要求先登录。S4U 运行在非交互桌面上，Windows 会限制它对网络资源和加密文件的访问。Connector 服务没有交互桌面，只附着 Luvus 或 Herdr 的持久进程（或在该账户下启动它们），不提供交互式终端会话。
 
-登记引用当前单文件及与前台相同的角色配置绝对路径；后台不再按运行账户另选home。
-通过sudo安装时显式传入原用户配置绝对路径。`--user`只选择运行账户，不另建配置目录。
-工作目录应存在。已有文件检查 JSON/角色错误，缺失配置由正常首次启动生成。安装器不以
-UID/mode、ACL、祖先防替换或文件 ID 作为前提。服务不进入交互配对/初始化；Linux/macOS的stdin为空。
-Windows自动传入`--non-interactive`，即使Task Scheduler非交互桌面提供TTY句柄也不进入本地引导；
-仍核对同一配置及角色后端，不授予默认身份。
-本机 native Connector 支持 Linux x64 与 Windows x64，监管 running 不证明 provider/Agent 就绪。
+### 命令
 
-卸载不删除用户配置、数据库、日志、凭据或目录。仅清理所选角色的精确登记；同名异物拒绝
-覆盖。保留普通排他创建、fsync、数据库事务和必要互斥，防止重复操作与误删数据。
-Windows运行实例经本地命名管道接收唯一固定停止请求，进入既有Abort清理，再核对Scheduler实例退出。
-端点绑定整份登记清单与当前二进制/角色/配置；普通前台启动不创建端点，不新增配置或PID文件、不设置ACL。
-请求失败不回退强杀；排队或启动状态竞态返回`service_busy`，不能通过Scheduler取消时误强停刚开始运行的实例。
-控制台SIGHUP也接入原关停，不应称为原生工作的回滚。
+- `install`：启用开机自启，不立即启动。相同登记可重复执行。可执行文件、配置或账户不同的登记会报冲突。
+- `start`：启动已安装的角色。已在运行时不会启动第二个实例。
+- `restart`：等原实例停止后再启动。
+- `stop`：停止角色，保留开机自启。
+- `uninstall`：只取消开机自启，不停止正在运行的实例，也不删除配置、数据库、日志、账户或目录。它只清理所选角色的精确登记。同名但不是 Rovloom 创建的登记会报冲突，不会被覆盖。
 
-命令时间/输出和监管等待均有界；未知回收返回失败并保留角色锁，不静默重试。
-`service --help` 可离线使用。云端原生生命周期回归只在显式启用的 GitHub-hosted 临时 VM
-中，以既有 runner 账户、临时 Gateway 数据和明确的 sudo -n 操作执行；先排除同名登记，
-结束只清理本轮服务。检查真实 MCP 401、重启与数据保留，开机重启实测另行标明。
+示例见上方命令块。
+
+### 安装
+
+- `install` 记录当前单文件程序和角色配置的绝对路径。显式的 `--executable` 必须是这个程序。
+- 省略 `--config` 时，使用与前台启动相同的当前用户配置文件。通过 sudo 安装时，请显式传入原用户配置文件的绝对路径。
+- `--user` 只选择运行账户，不会另选配置目录。
+- `--workdir` 必须存在。已有配置会检查 JSON 与角色错误，缺失的配置由首次正常启动生成。
+- 安装器不创建账户、不修改已有权限、不自行提权。系统服务权限不足时命令失败，需要用有相应系统权限的方式重新运行。
+
+### 运行
+
+- 服务没有交互输入，不会进入配对或初始化提示。systemd 使用空 stdin，launchd 使用 `/dev/null`，Windows 以 `--non-interactive` 启动角色。请先在真实终端完成配对。
+- 服务不会自动重启已退出的进程。systemd 为 `Restart=no`，launchd 不设置 `KeepAlive`。
+- 原生 Connector 服务支持 Linux x64 与 Windows x64。
+- 命令的输出和等待时间有上限。结果带 `readiness: not_checked`，服务处于运行状态不代表 provider 或 Agent 已就绪。
+- Windows 上，运行中的实例通过本地命名管道收到一次停止请求，再执行正常关闭。管道失败时不会强杀进程。任务排队或正在启动时，命令返回 `service_busy`。
+- 跨进程的角色锁防止并发的控制操作。遗留的锁需要人工检查。
 
 ## Official references / 官方依据
 

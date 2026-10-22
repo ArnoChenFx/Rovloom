@@ -17,7 +17,7 @@ Gateway 的全部状态保存在单个 SQLite 库 `<data.directory>/gateway.db` 
 Gateway 重启时：
 
 - 在线设备先标记为离线，需要重新连接。
-- 尚未派发的调用变为 `not_dispatched`。
+- 未派发的调用变为 `not_dispatched`。
 - 已派发但未完成的调用变为 `outcome_unknown`，不会重新派发。
 
 ## 设备凭据
@@ -90,7 +90,7 @@ Store 的备份接口导出一份脱敏快照，包含设备记录、provider �
 1. 停止 Gateway，确认没有进程仍在写原数据库，并保留原数据目录。
 2. 把快照复制到新的数据目录，保持私有权限，作为 `gateway.db`。
 3. 正常启动 Gateway。没有单独的恢复模式。
-4. 逐个设备重新配对（见 [运维指南](OPERATIONS.md#4-凭据)），再逐个确认 provider。当前 caller 和本机策略由快照之外的配置提供。
+4. 用 `rovloom gateway --repair-device` 和 `rovloom connector --repair` 逐个设备重新配对（见 [运维指南](OPERATIONS.md#4-凭据)），再逐个确认 provider。当前 caller 和本机策略由快照之外的配置提供。
 
 旧的调用、授权和已消费的配对码在恢复后没有任何效力，不会重新派发。
 

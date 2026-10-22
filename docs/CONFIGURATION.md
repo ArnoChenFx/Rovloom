@@ -207,7 +207,7 @@ environment, or `native.herdr.config_home`). On every start the Connector:
 2. otherwise starts `herdr --session <name> server` in your config directory, detached — it keeps
    running (and keeps your workspaces) after the Connector exits;
 3. watches the instance. If it disappears, the Connector closes the old resources, re-attaches or
-   starts a new one with backoff, and ends the current connection so the next authenticated epoch
+   starts a new one with backoff, and ends the current connection so the next connection
    uses the new instance. Calls in flight at that moment stay `outcome_unknown` and are never resent.
 
 A listener that is **not** your installed `herdr` is never attached and never replaced. The server
@@ -233,7 +233,7 @@ prompt shows `session: default`). Setup records your real `HOME` and state direc
    and `LUVUS_HOME` (but not SSH agent or API-key variables), so it keeps running after the
    Connector exits;
 3. watches the instance. If it disappears, the Connector re-attaches or starts a new one with
-   backoff and ends the current connection so the next authenticated epoch uses the new
+   backoff and ends the current connection so the next connection uses the new
    instance. Calls in flight at that moment stay `outcome_unknown` and are never resent.
 
 A server on that endpoint that is **not** your installed `luvus` is never attached or replaced.

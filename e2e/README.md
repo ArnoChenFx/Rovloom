@@ -25,7 +25,7 @@ Herdr 二进制必须是固定的 0.9.5（SHA-256 `14d9e8bc…929d`，夹具会�
 | `connector-crash` | `kill -9`：Gateway 立即判不可用；孤儿 native 仍在监听时**重启被拒（退出码 3，fail-closed）且不触碰孤儿**；native 也消失（等同掉电）后重启自动清理遗留并恢复 |
 | `attach-existing` | 用户已运行 Herdr：Connector 附着它（不再起第二个）；Connector 退出后用户的实例继续存在 |
 | `attach-create-persist` | 没有实例：Connector 自建并放手；Connector 退出后仍运行，重启后附着同一个（之前创建的 workspace 还在） |
-| `attach-recover` | 附着的实例被 `kill -9`：Connector 自行重建并结束当前连接周期，数秒内调用恢复，Connector 进程不退出 |
+| `attach-recover` | 附着的实例被 `kill -9`：Connector 自行重建并结束当前连接，数秒内调用恢复，Connector 进程不退出 |
 | `device-revoke` | Gateway 停止后经正式 Store 撤销设备，重启后设备为 `revoked`，调用不可达，Connector 持续重试而不得服务 |
 | `unknown-outcome` | native 已收到请求但未应答时 Connector 被杀：调用为 `outcome_unknown`；Connector 重启后状态不变，新 native 收不到该请求（不自动重发） |
 
