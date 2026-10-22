@@ -16,13 +16,7 @@ import type {
   WireConnectorOptions
 } from '../transport/index.js'
 import type { ProviderSnapshot, TerminalExecutionState } from '../wire/types.js'
-import type {
-  LuvusLocalConfig,
-  LuvusBoundDelegation,
-  LuvusDispatchClaims,
-  LuvusRpcHost,
-  LuvusNativeAuth
-} from '../connector/luvus/index.js'
+import type { LuvusLocalConfig, LuvusDispatchClaims, LuvusRpcHost, LuvusNativeAuth } from '../connector/luvus/index.js'
 import type { AttemptBinding, JsonObject, ProviderBinding, V2Target } from '../wire/types.js'
 
 export type RuntimeProviderBinding = Readonly<{
@@ -124,43 +118,33 @@ export type ConnectorRuntimeOptions = Readonly<{
   // 来源被后台替换（用户的 Luvus 重启/重建）后结束当前连接周期，使下一个认证 epoch 取到新实例。
   session_replaced?(listener: () => void): () => void
   // 每个 epoch 使用独立 backend；来源由可信宿主提供，不重复打开 Gateway writer。
-  session(connection: Connection): Readonly<
-    {
-      backend: NativeWireBackend
-      // 当前宿主只接已验证 IPC；CLI proxy 需要另行交付可信归属，不能借 verifyPeer 放行。
-      config: LuvusLocalConfig & { readonly transport: 'ipc' }
-      claims: LuvusDispatchClaims
-      verifyPeer: NonNullable<LuvusRpcHost['verifyPeer']>
-      // 本机受保护配置的同步读取器；省略时使用本 epoch 固定的本地显式开关。
-      terminalExecution?: LuvusRpcHost['terminalExecution']
-      // 固定 dedup 截止必须来自受保护准入记录；不得按重连时间重新计算。
-      dedupExpires(binding: Parameters<LuvusRpcHost['claimDispatch']>[0]): number
-      // 独立验证同一 socket 的实测证据后才可读 delegation 或登记 claim。
-      assertEvidence: (
-        binding: Parameters<LuvusRpcHost['claimDispatch']>[0],
-        evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
-      ) => void
-      readiness(): Readiness
-      providerSnapshot?(): readonly ProviderSnapshot[]
-      /** 与同一执行端guard共用的本地开关观察值，不包含路径或秘密。 */
-      terminalExecutionState?(): readonly TerminalExecutionState[]
-      close(): void
-    } & (
-      | {
-          authentication?: 'delegated'
-          delegation: LuvusBoundDelegation | ((binding: AttemptBinding) => LuvusBoundDelegation)
-          nativeAuth?: never
-        }
-      | {
-          authentication: 'local_owner'
-          delegation?: never
-          nativeAuth(
-            binding: AttemptBinding,
-            evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
-          ): LuvusNativeAuth | Promise<LuvusNativeAuth>
-        }
-    )
-  >
+  session(connection: Connection): Readonly<{
+    backend: NativeWireBackend
+    // 当前宿主只接已验证 IPC；CLI proxy 需要另行交付可信归属，不能借 verifyPeer 放行。
+    config: LuvusLocalConfig & { readonly transport: 'ipc' }
+    claims: LuvusDispatchClaims
+    verifyPeer: NonNullable<LuvusRpcHost['verifyPeer']>
+    // 本机受保护配置的同步读取器；省略时使用本 epoch 固定的本地显式开关。
+    terminalExecution?: LuvusRpcHost['terminalExecution']
+    // 固定 dedup 截止必须来自受保护准入记录；不得按重连时间重新计算。
+    dedupExpires(binding: Parameters<LuvusRpcHost['claimDispatch']>[0]): number
+    // 独立验证同一 socket 的实测证据后才可认证或登记 claim。
+    assertEvidence: (
+      binding: Parameters<LuvusRpcHost['claimDispatch']>[0],
+      evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
+    ) => void
+    readiness(): Readiness
+    providerSnapshot?(): readonly ProviderSnapshot[]
+    /** 与同一执行端guard共用的本地开关观察值，不包含路径或秘密。 */
+    terminalExecutionState?(): readonly TerminalExecutionState[]
+    close(): void
+    // 当前只支持官方本机 Owner 认证；peer 与 socket 证据由宿主另行核验。
+    authentication: 'local_owner'
+    nativeAuth(
+      binding: AttemptBinding,
+      evidence: Parameters<LuvusRpcHost['claimDispatch']>[1]
+    ): LuvusNativeAuth | Promise<LuvusNativeAuth>
+  }>
   // 停止重连和全部 epoch 资源之后释放长期 claims/custody；不能清除墓碑或自动撤销原生工作。
   release(): Promise<void>
 }>

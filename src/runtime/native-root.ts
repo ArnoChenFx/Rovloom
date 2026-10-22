@@ -18,53 +18,16 @@ import {
 } from './native-record-files.js'
 
 const rootBrand = Symbol('managed-luvus-root')
-export type NativeCustodyPolicy = Readonly<{
-  scopes: readonly ('read' | 'orchestration')[]
-  methods: readonly string[]
-  max_token_ttl_s: number
-}>
 export interface ManagedLuvusRoot {
   readonly [rootBrand]: true
   readonly root_id: string
   readonly root_revision: number
   readonly config: LuvusLocalConfig & { readonly transport: 'ipc' }
   readonly config_digest: string
-  readonly custody_policy: NativeCustodyPolicy
   close(): void
 }
 type RootState = { path: string; stamp: string; roots: readonly [string, string][]; closed: boolean }
 const roots = new WeakMap<ManagedLuvusRoot, RootState>()
-
-/** 精确方法是逐项审核的普通 RPC，scope/read 标签本身不能扩大此清单。 */
-export function checkedCustodyPolicy(input: NativeCustodyPolicy): NativeCustodyPolicy {
-  const value = object(JSON.parse(boundedJson(input, 4096)))
-  fields(value, ['scopes', 'methods', 'max_token_ttl_s'])
-  if (
-    (!isDeepStrictEqual(value.scopes, ['read']) && !isDeepStrictEqual(value.scopes, ['read', 'orchestration'])) ||
-    !Array.isArray(value.methods) ||
-    !value.methods.length ||
-    value.methods.length > 3 ||
-    new Set(value.methods).size !== value.methods.length ||
-    !Number.isSafeInteger(value.max_token_ttl_s) ||
-    (value.max_token_ttl_s as number) < 1 ||
-    (value.max_token_ttl_s as number) > 300
-  ) {
-    throw new LuvusAdapterError('native_custody_policy_invalid')
-  }
-  for (const method of value.methods) {
-    if (
-      !['automation.list', 'task.add', 'task.update'].includes(method) ||
-      (method !== 'automation.list' && !(value.scopes as string[]).includes('orchestration'))
-    ) {
-      throw new LuvusAdapterError('native_custody_policy_invalid')
-    }
-  }
-  return Object.freeze({
-    scopes: Object.freeze([...(value.scopes as ('read' | 'orchestration')[])]),
-    methods: Object.freeze([...value.methods] as string[]),
-    max_token_ttl_s: value.max_token_ttl_s as number
-  })
-}
 
 /** 要求彼此分离的管理/native 目录，避免原生程序能够改写控制记录或批准文件。 */
 export function assertManagedControlDirectory(config: LuvusLocalConfig, control: string): void {
@@ -106,16 +69,12 @@ function assertInitialBlank(config: LuvusLocalConfig): void {
 function rootHandle(path: string, expected: { root_id: string; root_revision: number }): ManagedLuvusRoot {
   const record = readNativeRecord(path)
   const value = object(record.value)
-  fields(value, [
-    'format',
-    'root_id',
-    'root_revision',
-    'config',
-    'config_digest',
-    'custody_policy',
-    'roots',
-    'created_at'
-  ])
+  // custody_policy 是旧版本记录遗留字段：仍可读取，但不再有任何用途，新记录不写入。
+  fields(
+    value,
+    ['format', 'root_id', 'root_revision', 'config', 'config_digest', 'roots', 'created_at'],
+    ['custody_policy']
+  )
   id(value.root_id)
   if (
     value.format !== 'rovloom-luvus-root-v1' ||
@@ -155,7 +114,6 @@ function rootHandle(path: string, expected: { root_id: string; root_revision: nu
     root_revision: expected.root_revision,
     config: config as LuvusLocalConfig & { readonly transport: 'ipc' },
     config_digest: digest,
-    custody_policy: checkedCustodyPolicy(value.custody_policy as NativeCustodyPolicy),
     /** 关闭记录来源使后续使用拒绝，不假装已经停止仍受控的子进程。 */ close() {
       state.closed = true
     }
@@ -170,7 +128,6 @@ export async function initializeManagedLuvusRoot(
     record_path: string
     root_id?: string
     config: LuvusLocalConfig
-    custody_policy: NativeCustodyPolicy
   }>
 ): Promise<ManagedLuvusRoot> {
   const config = pinConfig(options.config)
@@ -180,7 +137,6 @@ export async function initializeManagedLuvusRoot(
   nativeRecordParent(options.record_path)
   assertManagedControlDirectory(config, dirname(options.record_path))
   assertInitialBlank(config)
-  const policy = checkedCustodyPolicy(options.custody_policy)
   const rootId = options.root_id ?? randomUUID()
   id(rootId)
   await verifyInstallation(config)
@@ -197,7 +153,6 @@ export async function initializeManagedLuvusRoot(
     root_revision: 1,
     config,
     config_digest: createHash('sha256').update(boundedJson(config)).digest('hex'),
-    custody_policy: policy,
     roots: captured,
     created_at: Date.now()
   })

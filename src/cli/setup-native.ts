@@ -256,8 +256,7 @@ export async function prepareSetupNative(
   const rootRecord = join(control, 'luvus-root.json')
   const root = await initializeManagedLuvusRoot({
     record_path: rootRecord,
-    config: discovered.config,
-    custody_policy: { scopes: ['read'], methods: ['automation.list'], max_token_ttl_s: 300 }
+    config: discovered.config
   })
   try {
     const ledgerId = hash(boundedJson([reference, root.root_id, root.root_revision, root.config.target]))
