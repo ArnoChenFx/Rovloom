@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { CapabilityView, NativeBinding } from '../../src/native-contract/index.js'
-import { candidates, responses, responseContexts, views } from '../../src/native-contract/internal.js'
+import { candidates, responseContexts, views } from '../../src/native-contract/internal.js'
 import { G, json, rejects, source, unwrap, validator } from './helpers.js'
 
 /** 只观察本测试同步调用是否写入真实私有登记表，结束后恢复原方法。 */
@@ -86,7 +86,6 @@ test(
     const restore = [
       observeRegistrations(views, counted),
       observeRegistrations(candidates, counted),
-      observeRegistrations(responses, counted),
       observeRegistrations(responseContexts, counted)
     ]
     try {

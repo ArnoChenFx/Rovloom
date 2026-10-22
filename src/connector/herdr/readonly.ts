@@ -184,14 +184,12 @@ export function createHerdrCodec(source: ContractSource, schemas: HerdrSchemas) 
   })
 }
 
-/** 私有 attempt 状态只保存共享身份和不可序列化句柄，不缓存原生结果或重新派发队列。 */
+/** 私有 attempt 状态只保存共享身份，不缓存原生结果或重新派发队列。 */
 type State = {
   key: string
-  handle: object
   attempt: Omit<TrustedAttempt, 'native_request'> & { native_request?: TrustedAttempt['native_request'] }
   contract: HerdrContractRecord
   source: HerdrNativeSource
-  sourceToken: object
   requestRoot: HerdrSchemas['request']
   responseRoot: HerdrSchemas['response']
   permitted: boolean
@@ -203,7 +201,6 @@ type State = {
 
 /** 生产接缝逐次调用共享 provider gate，仅接纳固定已评审来源和真实完整根编译品牌。 */
 export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
-  const handles = new Map<object, State>()
   const states = new Map<string, State>()
   let closed = false
   let invalidationRevision = 0
@@ -212,7 +209,6 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
 
   /** 销毁能力句柄；释放不发送 Herdr cancel，也不重派原工作。 */
   function drop(state: State): void {
-    handles.delete(state.handle)
     states.delete(state.key)
   }
 
@@ -246,7 +242,6 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       try {
         stop?.()
       } finally {
-        handles.clear()
         states.clear()
       }
       return
@@ -342,11 +337,11 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     return attempt
   }
 
-  /** 核对私有句柄与完整上下文；释放旧句柄也不能改用另一条 binding。 */
+  /** 按完整 binding 取得已登记的状态；消息不能创建状态，也不能改用另一条 binding。 */
   function stateFor(context: NativeValidationContext): State {
-    const state = handles.get(context.native_handle as object)
+    const state = states.get(boundedJson(context.binding))
     if (!state) {
-      fail('native_handle_unavailable')
+      fail('native_context_unavailable')
     }
     assertBinding(context.binding, state.attempt.binding)
     if (context.method !== state.attempt.method || context.mode !== 'strict') {
@@ -355,13 +350,12 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     return state
   }
 
-  /** 复用同一完整 binding 的句柄，但从不把旧 epoch/recovery 改写为当前身份。 */
+  /** 复用同一完整 binding 的状态，但从不把旧 epoch/recovery 改写为当前身份。 */
   function resolved(state: State): ResolvedAttempt {
     return {
       binding: JSON.parse(boundedJson(state.attempt.binding)) as AttemptBinding,
       method: state.attempt.method,
-      mode: 'strict',
-      native_handle: state.handle
+      mode: 'strict'
     }
   }
 
@@ -377,7 +371,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         }
       } catch {
         drop(state)
-        fail('native_handle_unavailable')
+        fail('native_context_unavailable')
       }
       // 宿主回调可能同步关闭或 fence 当前句柄，不能继续使用回调前的状态。
       stateFor(context)
@@ -441,8 +435,8 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     if (contract.wire.support_status !== 'validated' || !isCompiledHerdrSchemas(contract.schemas)) {
       fail('herdr_schema_uncompiled')
     }
-    if (closed || handles.get(state.handle) !== state) {
-      fail('native_handle_unavailable')
+    if (closed || states.get(state.key) !== state) {
+      fail('native_context_unavailable')
     }
     if (state.responseOnly && (access === 'dispatch' || access === 'read')) {
       fail('content_unavailable')
@@ -493,12 +487,8 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     validateRequest(request: JsonObject, context: NativeValidationContext) {
       checkedRequest(request, context)
     },
-    /** Wire 回包还须匹配宿主持有的来源 token；不能由 caller 自报原生来源。 */
+    /** Wire 回包的原生来源由 current 按宿主可信回调复核；不能由 caller 自报。 */
     validateResponse(response: JsonObject, context: NativeValidationContext) {
-      const state = current(context, 'evidence')
-      if (context.trusted_source !== state.sourceToken) {
-        fail('native_source_untrusted')
-      }
       decodeResponse(Buffer.from(boundedJson(response) + '\n'), context)
     }
   })
@@ -535,7 +525,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       const attempt = anchor(identity)
       providerFor(attempt.binding, backend.context(attempt.principal_id, 'gateway_to_connector'))
       const key = boundedJson(attempt.binding)
-      if (handles.size >= 128) {
+      if (states.size >= 128) {
         fail('adapter_limit')
       }
       const contract = backend.contract(attempt.binding.contract_ref)
@@ -572,14 +562,11 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       ) {
         fail('attempt_anchor_unavailable')
       }
-      const handle = Object.freeze({})
       const state: State = {
         key,
-        handle,
         attempt,
         contract: { wire: JSON.parse(boundedJson(contract.wire)) as ContractRecord, schemas: contract.schemas },
         source: { ...source, binding: JSON.parse(boundedJson(source.binding)) as AttemptBinding },
-        sourceToken: Object.freeze({}),
         requestRoot: contract.schemas.request,
         responseRoot: contract.schemas.response,
         permitted: false,
@@ -593,7 +580,6 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
       if (observedInvalidation !== invalidationRevision) {
         fail('attempt_context_invalidated')
       }
-      handles.set(handle, state)
       states.set(key, state)
       return resolved(state)
     },
@@ -610,19 +596,9 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
           const state = stateFor(found)
           ctx.policies = backend.context(state.attempt.principal_id, direction).policies
           return found
-        },
-        /** 仅返回已登记句柄对应的私有来源令牌，不使用响应字段。 */
-        resolveNativeSource(binding) {
-          const found = api.resolve(identityOf(binding))
-          assertBinding(binding, found.binding)
-          return api.trustedSource(found)
         }
       }
       return ctx
-    },
-    /** 仅给可信 Wire 证据 resolver；无需当前读者，但来源对象不能序列化或扩大交付权。 */
-    trustedSource(context: NativeValidationContext): object {
-      return current(context, 'evidence').sourceToken
     },
     /** 实际交付前重查 Store 的原期限/discard；解析原生响应本身不建立可读内容。 */
     checkResult(context: NativeValidationContext): void {
@@ -641,9 +617,7 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
         direction: 'connector_to_gateway',
         validators: { ...ctx.validators, herdr: validator },
         resolveAttempt: /** 只解析本适配器已登记的原 attempt，不能由响应帧生成新许可。 */ (identity) =>
-          api.resolve(identity),
-        resolveNativeSource: /** 完整来源仍在可信回调中复核，不采信响应自报。 */ (binding) =>
-          api.trustedSource(api.resolve(identityOf(binding)))
+          api.resolve(identity)
       }
       let retain = false
       if (!state.responseOnly) {
@@ -660,9 +634,9 @@ export function createHerdrReadonlyAdapter(backend: HerdrReadonlyBackend) {
     },
     /** 释放桥接句柄，不关闭 pane/agent，也不向 Herdr 发送 cancel。 */
     release(context: NativeValidationContext): void {
-      if (handles.has(context.native_handle as object)) {
-        const state = stateFor(context)
-        drop(state)
+      const state = states.get(boundedJson(context.binding))
+      if (state) {
+        drop(stateFor(context))
       }
     },
     /** 仅以原完整 binding 释放缓存；清理不依赖仍有效的调用者授权或可恢复请求原文。 */

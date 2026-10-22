@@ -61,7 +61,7 @@ export function createHerdrWireAdapter(backend: HerdrReadonlyBackend, core = cre
   function checkResult(binding: AttemptBinding, response?: JsonObject): void {
     const context = resolve(binding)
     if (response !== undefined) {
-      core.validator.validateResponse(response, { ...context, trusted_source: core.trustedSource(context) })
+      core.validator.validateResponse(response, context)
     }
     core.checkResult(context)
   }

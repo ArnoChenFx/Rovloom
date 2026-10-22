@@ -3,10 +3,7 @@ import type { ValidateFunction } from 'ajv'
 import type {
   CapabilityView,
   CheckedRequest,
-  CheckedResponse,
   CompiledContract,
-  DispatchCandidate,
-  DispatchPermit,
   JsonObject,
   Limits,
   MethodDescriptor,
@@ -17,12 +14,6 @@ import type {
 
 export const UHP = 'https://luvus.dev/protocol/uhp/v1/'
 export const SCOPES = new Set(['read', 'workspace', 'agent', 'terminal', 'orchestration', 'extensions', 'admin'])
-export const STREAM_METHODS = new Set([
-  'events.subscribe',
-  'terminal.backend.events.subscribe',
-  'terminal.backend.observe',
-  'terminal.backend.control'
-])
 export type ContractData = {
   limits: Limits
   validators: Map<string, ValidateFunction>
@@ -38,51 +29,10 @@ export type CandidateData = {
   view: CapabilityView
   descriptor: MethodDescriptor
 }
-export type PermitData = {
-  candidate: DispatchCandidate
-  principal: string
-}
 // WeakMap 防止从 JSON 伪造 handle；来源仍按各 handle 的 contract/binding 核对。
 export const contracts = new WeakMap<CompiledContract, ContractData>()
 export const views = new WeakMap<CapabilityView, ViewData>()
 export const candidates = new WeakMap<CheckedRequest | RawRequestCandidate, CandidateData>()
-type PermitGroup = { entries: WeakMap<DispatchPermit, PermitData> | undefined }
-const permitGroups = new WeakMap<DispatchPermit, PermitGroup>()
-const candidateGroups = new WeakMap<DispatchCandidate, PermitGroup>()
-// 候选只拥有一个可撤销分组；不枚举弱键、不积累强引用集合，撤销时一起断开正文与分类引用。
-export const permits = {
-  // 只有仍存活的候选分组才能解析许可；分组撤销后所有同候选许可同时失效。
-  get(permit: DispatchPermit): PermitData | undefined {
-    return permitGroups.get(permit)?.entries?.get(permit)
-  },
-  // 检查逻辑许可是否有效，而非仅检查其弱键是否仍被调用方持有。
-  has(permit: DispatchPermit): boolean {
-    return this.get(permit) !== undefined
-  },
-  // 将真实授权后的许可放入对应候选的弱键分组，保留原许可各自的 principal 与分类事实。
-  set(permit: DispatchPermit, value: PermitData): void {
-    let group = candidateGroups.get(value.candidate)
-    if (!group) {
-      group = { entries: new WeakMap() }
-      candidateGroups.set(value.candidate, group)
-    }
-    group.entries!.set(permit, value)
-    permitGroups.set(permit, group)
-  },
-  // 销毁整个请求分组；调用方即使还持有其它许可，也无法再从内部登记到达原请求或分类。
-  revoke(candidate: DispatchCandidate): void {
-    const group = candidateGroups.get(candidate)
-    if (group) {
-      group.entries = undefined
-      candidateGroups.delete(candidate)
-    }
-  }
-}
-// 普通 RPC 响应不保存请求或许可关联；只有流 ack 保留后续开流所需的同许可关系。
-export const responses = new WeakMap<
-  CheckedResponse,
-  { candidate: DispatchCandidate | null; contract: CompiledContract; permit: DispatchPermit | null }
->()
 
 // 结果匹配所需的最小字段；封存时另行限制身份值的类型和编码大小。
 export type ResponseRules = {

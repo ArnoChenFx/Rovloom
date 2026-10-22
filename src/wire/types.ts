@@ -76,9 +76,6 @@ export type NativeValidationContext = {
   binding: AttemptBinding
   mode: ValidationMode
   method: string
-  // opaque handle/source 只从独立可信上下文注入；不会序列化或由消息构造。
-  native_handle?: unknown
-  trusted_source?: unknown
 }
 export type ResolvedAttempt = NativeValidationContext
 export interface NativePayloadValidator {
@@ -162,7 +159,6 @@ export type AuthenticatedContext = {
   resolveContract?: (contract_ref: string) => ContractRecord | undefined
   validators?: Partial<Record<ProviderKind, NativePayloadValidator>>
   resolveAttempt?: (attempt: AttemptIdentity) => ResolvedAttempt | undefined
-  resolveNativeSource?: (binding: AttemptBinding) => unknown
 }
 export type CodecContext =
   | { phase: 'preauth'; direction: Direction; offer?: VersionOffer; handshake_message_id?: string }

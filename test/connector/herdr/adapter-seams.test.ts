@@ -21,8 +21,7 @@ function prepared() {
   const context = adapter.resolve(state.identity)
   const request = { ...state.record.native_request, id: state.binding.native_request_id }
   adapter.encodeRequest(request, context)
-  const token = adapter.trustedSource(context)
-  return { ...state, adapter, context, request, token }
+  return { ...state, adapter, context, request }
 }
 
 test(
@@ -35,15 +34,14 @@ test(
 )
 
 test(
-  'repeated resolution preserves permit and native source receipt',
-  /** 重复解析原 binding 后回放响应，检查 permit 和私有来源凭据保持一致。 */ () => {
+  'repeated resolution preserves the permit',
+  /** 重复解析原 binding 后回放响应，检查 permit 保持一致。 */ () => {
     const state = prepared()
     const next = state.adapter.resolve(state.identity)
-    assert.equal(next.native_handle, state.context.native_handle)
-    assert.equal(state.adapter.trustedSource(next), state.token)
+    assert.deepEqual(next, state.context)
     assert.doesNotThrow(
-      /** 用重复解析返回的句柄验证原 permit 对应响应。 */ () =>
-        state.adapter.validator.validateResponse(fixture().response, { ...next, trusted_source: state.token })
+      /** 用重复解析返回的上下文验证原 permit 对应响应。 */ () =>
+        state.adapter.validator.validateResponse(fixture().response, next)
     )
   }
 )
@@ -52,7 +50,6 @@ test(
   'valid native evidence survives read revocation while content delivery remains forbidden',
   /** 撤回 read grant 后保留原生证据校验，同时拒绝内容交付。 */ () => {
     const state = prepared()
-    state.context = { ...state.context, trusted_source: state.token }
     state.backend.context('principal1', 'connector_to_gateway').policies!.local.grants[0]!.actions = ['dispatch']
     assert.doesNotThrow(
       /** 验证已派发调用的合法回包不因读取撤权被丢弃。 */ () =>
@@ -72,7 +69,7 @@ test(
     state.backend.context('principal1', 'connector_to_gateway').policies!.local.revision = 'local2'
     assert.doesNotThrow(
       /** 使用原 permit 验证策略变化后的合法回包。 */ () =>
-        state.adapter.validator.validateResponse(fixture().response, { ...state.context, trusted_source: state.token })
+        state.adapter.validator.validateResponse(fixture().response, state.context)
     )
     assert.doesNotThrow(/** 检查仍有当前 read grant 的内容交付边界。 */ () => state.adapter.checkResult(state.context))
     assert.throws(
@@ -89,10 +86,9 @@ test(
     const state = prepared()
     state.backend.currentPrincipal = /** 模拟后台处理回包时没有当前 caller。 */ () => undefined
     const next = state.adapter.resolve(state.identity)
-    assert.equal(state.adapter.trustedSource(next), state.token)
     assert.doesNotThrow(
       /** 在没有当前读者时校验原私有来源的响应。 */ () =>
-        state.adapter.validator.validateResponse(fixture().response, { ...next, trusted_source: state.token })
+        state.adapter.validator.validateResponse(fixture().response, next)
     )
     assert.throws(
       /** 尝试向不存在的当前读者交付内容。 */ () => state.adapter.checkResult(next),
@@ -103,17 +99,14 @@ test(
 
 for (const key of ['connection_epoch', 'recovery_generation'] as const) {
   test(
-    `old ${key} evidence cannot attach to the current connection or reuse its handle`,
-    /** 切换连接或恢复代次，检查旧证据拒绝及新句柄不继承 permit。 */ () => {
+    `old ${key} evidence cannot attach to the current connection or reuse its permit`,
+    /** 切换连接或恢复代次，检查旧证据拒绝及新状态不继承 permit。 */ () => {
       const state = prepared()
       const wire = state.backend.context('principal1', 'connector_to_gateway')
       wire.connection[key] = 'new-value'
       assert.throws(
         /** 将旧句柄回包交给已变化的当前连接上下文。 */ () =>
-          state.adapter.validator.validateResponse(fixture().response, {
-            ...state.context,
-            trusted_source: state.token
-          }),
+          state.adapter.validator.validateResponse(fixture().response, state.context),
         /attempt_binding_mismatch/
       )
       assert.throws(
@@ -122,7 +115,6 @@ for (const key of ['connection_epoch', 'recovery_generation'] as const) {
       )
       state.binding[key] = 'new-value'
       const next = state.adapter.resolve(state.identity)
-      assert.notEqual(next.native_handle, state.context.native_handle)
       assert.throws(
         /** 向新句柄提交旧响应，检查没有原 permit 时拒绝。 */ () =>
           state.adapter.decodeResponse(Buffer.from(JSON.stringify(fixture().response) + '\n'), next),
@@ -130,10 +122,7 @@ for (const key of ['connection_epoch', 'recovery_generation'] as const) {
       )
       assert.throws(
         /** 建立新句柄后再次提交旧句柄证据，防止旧状态被重绑。 */ () =>
-          state.adapter.validator.validateResponse(fixture().response, {
-            ...state.context,
-            trusted_source: state.token
-          }),
+          state.adapter.validator.validateResponse(fixture().response, state.context),
         /attempt_binding_mismatch/
       )
     }
@@ -153,10 +142,7 @@ for (const change of ['disabled', 'revision'] as const) {
       })
       assert.throws(
         /** 使用失效 provider 上下文验证原响应。 */ () =>
-          state.adapter.validator.validateResponse(fixture().response, {
-            ...state.context,
-            trusted_source: state.token
-          }),
+          state.adapter.validator.validateResponse(fixture().response, state.context),
         change === 'disabled' ? /provider_disabled/ : /provider_binding_mismatch/
       )
     }
@@ -164,14 +150,9 @@ for (const change of ['disabled', 'revision'] as const) {
 }
 
 test(
-  'source replacement and caller-invented receipt remain invalid for evidence',
-  /** 分别伪造私有来源凭据和替换 endpoint token，验证证据来源隔离。 */ () => {
+  'source replacement remains invalid for evidence',
+  /** 替换 endpoint token，验证证据来源隔离。 */ () => {
     const state = prepared()
-    assert.throws(
-      /** 提交调用方自行构造的来源对象。 */ () =>
-        state.adapter.validator.validateResponse(fixture().response, { ...state.context, trusted_source: {} }),
-      /native_source_untrusted/
-    )
     state.backend.nativeSource = /** 每次返回不同的私有 endpoint token，模拟本机实例替换。 */ () => ({
       role: 'local_installation',
       binding: state.binding,
@@ -183,7 +164,7 @@ test(
     )
     assert.throws(
       /** 来源替换后提交原句柄的回包证据。 */ () =>
-        state.adapter.validator.validateResponse(fixture().response, { ...state.context, trusted_source: state.token }),
+        state.adapter.validator.validateResponse(fixture().response, state.context),
       /native_source_untrusted/
     )
   }
@@ -195,20 +176,17 @@ test(
     const state = backendFixture()
     const adapter = createHerdrReadonlyAdapter(state.backend)
     const first = adapter.resolve(state.identity)
-    const token = adapter.trustedSource(first)
     assert.throws(
       /** 编码前提交合法回包，检查缺少 dispatch permit。 */ () =>
-        adapter.validator.validateResponse(fixture().response, { ...first, trusted_source: token }),
+        adapter.validator.validateResponse(fixture().response, first),
       /dispatch_permit_unavailable/
     )
     adapter.release(first)
-    const next = adapter.resolve(state.identity)
-    assert.notEqual(first.native_handle, next.native_handle)
     assert.throws(
-      /** 释放后使用原句柄和来源凭据提交回包。 */ () =>
-        adapter.validator.validateResponse(fixture().response, { ...first, trusted_source: token }),
-      /native_handle_unavailable/
+      /** 释放后没有登记状态可取。 */ () => adapter.validator.validateResponse(fixture().response, first),
+      /native_context_unavailable/
     )
+    const next = adapter.resolve(state.identity)
     assert.throws(
       /** 向重新解析的句柄提交回包，确认不继承已释放状态的 permit。 */ () =>
         adapter.decodeResponse(Buffer.from(JSON.stringify(fixture().response) + '\n'), next),
@@ -225,10 +203,7 @@ for (const status of ['expired', 'discarded', 'unavailable'] as const) {
       state.backend.contentStatus = /** 返回当前子场景固定保留状态，不更新原期限。 */ () => status
       assert.doesNotThrow(
         /** 在测试 backend 仍保留原 attempt 时校验响应证据。 */ () =>
-          state.adapter.validator.validateResponse(fixture().response, {
-            ...state.context,
-            trusted_source: state.token
-          })
+          state.adapter.validator.validateResponse(fixture().response, state.context)
       )
       assert.throws(
         /** 按当前保留状态检查内容交付必须拒绝。 */ () => state.adapter.checkResult(state.context),
@@ -619,7 +594,7 @@ for (const cleanup of ['ttl', 'discard', 'late'] as const) {
         assert.throws(
           /** 原去重期限到达即撤销密封响应规则。 */ () =>
             state.adapter.decodeResponse(Buffer.from(JSON.stringify(response) + '\n'), state.context),
-          /native_handle_unavailable/
+          /native_context_unavailable/
         )
       } finally {
         state.close()
@@ -753,7 +728,7 @@ for (const cleanup of ['ttl', 'discard'] as const) {
         assert.equal(state.adapter.stats().responses, 1)
         assert(state.adapter.stats().attempt_bytes < before)
         const context = state.adapter.resolve(state.identity)
-        assert.equal(context.native_handle, state.context.native_handle)
+        assert.deepEqual(context, state.context)
         assert.deepEqual(
           state.adapter.decodeResponse(Buffer.from(JSON.stringify(fixture().response) + '\n'), context),
           fixture().response
@@ -870,7 +845,7 @@ test(
       assert.equal(state.adapter.stats().responses, 0)
       assert.throws(
         /** 到期后没有旧句柄可取。 */ () => state.adapter.decodeResponse(Buffer.alloc(0), state.context),
-        /native_handle_unavailable/
+        /native_context_unavailable/
       )
     } finally {
       state.adapter.close()

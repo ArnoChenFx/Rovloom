@@ -54,7 +54,7 @@ export type CompileOptions = Readonly<{
 }>
 export type ParameterValidation = 'schema' | 'generic' | 'unavailable'
 export type SchemaStatus = 'conditional_branch' | 'generic_params_only' | 'unavailable'
-export type NativeTransport = 'single_request_rpc' | 'host_stdio_proxy' | 'persistent_local_stream'
+export type NativeTransport = 'single_request_rpc' | 'host_stdio_proxy'
 export type NativeMethodContract = Readonly<{
   method: string
   access: 'read' | 'write'
@@ -120,15 +120,18 @@ export type DispatchAuthorization = Readonly<{
   raw_grant?: RawContractGrant
   now: number
 }>
+// 一次派发授权的结果：携带通过门禁的候选与授权主体，供响应校验、封存和结果读取复核使用。
 export type DispatchPermit = Readonly<{
   kind: 'permit'
+  candidate: DispatchCandidate
+  principal_id: string
   binding: NativeBinding
   method: string
   mode: 'strict' | 'raw_contract'
   validation: ParameterValidation
   raw_grant_id?: string
 }>
-// 只能由真实非流 RPC permit 封存；独立 WeakMap 校验，不能用于派发、开流或读取原文。
+// 只能由真实 RPC permit 封存；独立 WeakMap 校验，不能用于派发或读取原文。
 // retained_bytes 是封存元数据按契约身份编码后的 JSON 字节数，不代表共享编译状态或堆内存大小。
 export type ResponseOnlyContext = Readonly<{ kind: 'response_context'; retained_bytes: number }>
 export type ResultAuthorization = Readonly<{
@@ -153,7 +156,7 @@ export interface NativeValidator {
   checkRawRequest(view: CapabilityView, request: unknown): Check<CheckedRequest | RawRequestCandidate>
   // 只校验指定响应族的结构，不声称其已与请求、许可或原生来源绑定。
   checkResponseShape(response: unknown, family?: 'general' | 'terminal'): Check<CheckedResponse>
-  // 复核原请求上下文、来源、在线帧预算及结果约束，登记绑定后的响应句柄。
+  // 复核原请求上下文、来源、在线帧预算及结果约束。
   checkResponse(
     context: CheckedRequest | DispatchPermit,
     response: unknown,
@@ -163,8 +166,6 @@ export interface NativeValidator {
   sealResponseContext(permit: DispatchPermit): Check<ResponseOnlyContext>
   // 用密封元数据校验迟到响应并仅返回校验结论，不产生读取或派发能力。
   checkResponseOnly(context: ResponseOnlyContext, response: unknown, source: TrustedNativeContext): Check<void>
-  // 撤销同一 RPC 候选的全部许可及请求登记；宿主仍须丢弃自己持有的候选与原文引用。
-  releaseRequestContext(permit: DispatchPermit): Check<void>
   // 删除密封响应句柄的私有登记，使其不能继续验证迟到响应。
   releaseResponseContext(context: ResponseOnlyContext): Check<void>
 }
