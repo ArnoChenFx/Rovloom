@@ -36,7 +36,7 @@ rovloom --version
 也可以从 [Release 页面](https://github.com/ArnoChenFx/rovloom/releases/latest)下载二进制；
 安装器选项见[分发说明](DISTRIBUTION.md)。
 
-**Docker 运行 Gateway（Linux x64/arm64，Docker Compose v2**）——可选，无需在 Gateway 主机安装二进制：
+**Docker 运行 Gateway（Linux x64/arm64，Docker Compose v2）**——可选，无需在 Gateway 主机安装二进制：
 
 ```sh
 mkdir rovloom && cd rovloom
