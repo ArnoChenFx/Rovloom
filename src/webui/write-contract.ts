@@ -11,23 +11,16 @@ export type DeviceManagementIntent =
       kind: 'luvus' | 'herdr'
       expected_binding_revision: number
     }
-  | { action: 'pairing_create'; name: string; policy_ref: string; labels: readonly string[] }
-  | { action: 'pairing_create'; machine_id: string; policy_ref: string }
-  | { action: 'pairing_cancel'; machine_id: string; pairing_id: string }
-type DeviceSummary = Exclude<ConfirmationView['summary'], { action: 'provider_enable' }>
-export type BrowserReceipt = OperationReceipt & Partial<ManagementReply['pairings_create']>
-export type DeviceWriteOperation =
-  | 'devices_rename'
-  | 'devices_disconnect'
-  | 'devices_revoke'
-  | 'providers_disable'
-  | 'pairings_create'
-  | 'pairings_cancel'
+type DeviceSummary = Exclude<
+  ConfirmationView['summary'],
+  { action: 'provider_enable' | 'pairing_create' | 'pairing_cancel' }
+>
+export type BrowserReceipt = OperationReceipt
+export type DeviceWriteOperation = 'devices_rename' | 'devices_disconnect' | 'devices_revoke' | 'providers_disable'
 export type ManagementClientOperation =
   | 'history_open'
   | 'write_state_get'
   | 'operations_get'
-  | 'pairings_get'
   | 'confirmations_create'
   | 'confirmations_confirm'
   | DeviceWriteOperation
@@ -63,15 +56,8 @@ export const MANAGEMENT_WRITE_REQUEST_BYTES = 16_384
 export const MANAGEMENT_WRITE_REPLY_BYTES = 32_768
 const id = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/
 const digest = /^[a-f0-9]{64}$/
-const reasons = ['administrator_request', 'maintenance', 'device_lost', 'pairing_cancelled']
-const actions = [
-  'device_rename',
-  'device_disconnect',
-  'device_revoke',
-  'provider_disable',
-  'pairing_create',
-  'pairing_cancel'
-]
+const reasons = ['administrator_request', 'maintenance', 'device_lost']
+const actions = ['device_rename', 'device_disconnect', 'device_revoke', 'provider_disable']
 const fields = ['request_id', 'history_epoch', 'confirmation_id', 'recovery_generation', 'expected_revision', 'reason']
 
 /** 只抛固定边界错误，绝不附上收到的正文。 */
@@ -168,34 +154,26 @@ export function checkDeviceIntent(value: unknown): DeviceManagementIntent {
   record(
     value,
     ['action'],
-    ['machine_id', 'name', 'provider_id', 'kind', 'expected_binding_revision', 'policy_ref', 'labels', 'pairing_id'],
+    ['machine_id', 'name', 'provider_id', 'kind', 'expected_binding_revision'],
     'invalid_request'
   )
   const action = value.action
   const targetKeys =
-    action === 'pairing_create'
-      ? 'name' in value
-        ? ['name', 'policy_ref', 'labels']
-        : ['machine_id', 'policy_ref']
-      : action === 'provider_disable'
-        ? ['machine_id', 'provider_id', 'kind', 'expected_binding_revision']
-        : action === 'pairing_cancel'
-          ? ['machine_id', 'pairing_id']
-          : action === 'device_rename'
-            ? ['machine_id', 'name']
-            : ['machine_id']
+    action === 'provider_disable'
+      ? ['machine_id', 'provider_id', 'kind', 'expected_binding_revision']
+      : action === 'device_rename'
+        ? ['machine_id', 'name']
+        : ['machine_id']
   record(value, ['action', ...targetKeys], [], 'invalid_request')
   const { action: _action, name: renamed, expected_binding_revision, ...target } = value
   const operation =
     action === 'device_rename'
       ? { action, target, name: renamed }
-      : action === 'pairing_create'
-        ? { action, target: { ...target, ...(renamed !== undefined ? { name: renamed } : {}) } }
-        : action === 'device_disconnect'
-          ? { action, target, expected_connection_epoch: 'validation' }
-          : action === 'provider_disable'
-            ? { action, target, expected_binding_revision }
-            : { action, target }
+      : action === 'device_disconnect'
+        ? { action, target, expected_connection_epoch: 'validation' }
+        : action === 'provider_disable'
+          ? { action, target, expected_binding_revision }
+          : { action, target }
   summary(
     { ...operation, recovery_generation: 'validation', expected_revision: 0, reason: 'administrator_request' },
     'invalid_request'
@@ -227,52 +205,18 @@ function summary(value: unknown, problem: 'invalid_request' | 'invalid_response'
   }
   choice(v.reason, reasons, problem)
   const target = v.target
-  if (v.action === 'pairing_create') {
-    record(target, ['policy_ref'], ['machine_id', 'name', 'labels'], problem)
-    identifier(v.target.policy_ref, problem)
-    if ('name' in v.target) {
-      record(target, ['name', 'policy_ref', 'labels'], [], problem)
-      name(v.target.name, problem)
-      array(v.target.labels, 16)
-      if (new Set(v.target.labels).size !== v.target.labels.length) {
-        invalid(problem)
-      }
-      for (const label of v.target.labels) {
-        identifier(label, problem)
-      }
-    } else {
-      record(target, ['machine_id', 'policy_ref'], [], problem)
-      identifier(v.target.machine_id, problem)
-    }
-  } else {
-    record(
-      target,
-      [
-        'machine_id',
-        ...(v.action === 'provider_disable'
-          ? ['provider_id', 'kind']
-          : v.action === 'pairing_cancel'
-            ? ['pairing_id']
-            : [])
-      ],
-      [],
-      problem
-    )
-    identifier(v.target.machine_id, problem)
-    if (v.action === 'provider_disable') {
-      identifier(v.target.provider_id, problem)
-      choice(v.target.kind, ['luvus', 'herdr'], problem)
-      revision(v.expected_binding_revision, problem)
-    }
-    if (v.action === 'pairing_cancel') {
-      identifier(v.target.pairing_id, problem)
-    }
-    if (v.action === 'device_rename') {
-      name(v.name, problem)
-    }
-    if (v.action === 'device_disconnect') {
-      identifier(v.expected_connection_epoch, problem)
-    }
+  record(target, ['machine_id', ...(v.action === 'provider_disable' ? ['provider_id', 'kind'] : [])], [], problem)
+  identifier(v.target.machine_id, problem)
+  if (v.action === 'provider_disable') {
+    identifier(v.target.provider_id, problem)
+    choice(v.target.kind, ['luvus', 'herdr'], problem)
+    revision(v.expected_binding_revision, problem)
+  }
+  if (v.action === 'device_rename') {
+    name(v.name, problem)
+  }
+  if (v.action === 'device_disconnect') {
+    identifier(v.expected_connection_epoch, problem)
   }
   return v
 }
@@ -300,15 +244,12 @@ export function managementWriteBody<K extends ManagementClientOperation>(
       'history_open',
       'write_state_get',
       'operations_get',
-      'pairings_get',
       'confirmations_create',
       'confirmations_confirm',
       'devices_rename',
       'devices_disconnect',
       'devices_revoke',
-      'providers_disable',
-      'pairings_create',
-      'pairings_cancel'
+      'providers_disable'
     ].includes(operation)
   ) {
     invalid('invalid_request')
@@ -322,10 +263,6 @@ export function managementWriteBody<K extends ManagementClientOperation>(
     if (args.provider_id !== undefined) {
       identifier(args.provider_id, 'invalid_request')
     }
-  } else if (operation === 'pairings_get') {
-    record(args, ['machine_id', 'pairing_id'], [], 'invalid_request')
-    identifier(args.machine_id, 'invalid_request')
-    identifier(args.pairing_id, 'invalid_request')
   } else if (operation === 'operations_get') {
     record(args, ['request_id', 'history_epoch', 'recovery_generation'], [], 'invalid_request')
     for (const item of Object.values(args)) {
@@ -350,13 +287,10 @@ export function managementWriteBody<K extends ManagementClientOperation>(
         'operation_digest',
         'machine_id',
         'name',
-        'labels',
-        'policy_ref',
         'provider_id',
         'kind',
         'expected_binding_revision',
-        'expected_connection_epoch',
-        'pairing_id'
+        'expected_connection_epoch'
       ],
       'invalid_request'
     )
@@ -381,22 +315,16 @@ export function managementWriteBody<K extends ManagementClientOperation>(
             ? 'device_disconnect'
             : operation === 'devices_revoke'
               ? 'device_revoke'
-              : operation === 'providers_disable'
-                ? 'provider_disable'
-                : operation === 'pairings_create'
-                  ? 'pairing_create'
-                  : 'pairing_cancel'
+              : 'provider_disable'
       const { name: renamed, expected_connection_epoch, expected_binding_revision, ...resource } = target
       const intent =
-        action === 'pairing_create'
-          ? { action, target }
-          : action === 'device_rename'
-            ? { action, target: resource, name: renamed }
-            : action === 'device_disconnect'
-              ? { action, target: resource, expected_connection_epoch }
-              : action === 'provider_disable'
-                ? { action, target: resource, expected_binding_revision }
-                : { action, target: resource }
+        action === 'device_rename'
+          ? { action, target: resource, name: renamed }
+          : action === 'device_disconnect'
+            ? { action, target: resource, expected_connection_epoch }
+            : action === 'provider_disable'
+              ? { action, target: resource, expected_binding_revision }
+              : { action, target: resource }
       summary(
         {
           ...intent,
@@ -478,7 +406,7 @@ function receipt(value: unknown): BrowserReceipt {
       'evidence',
       'effects'
     ],
-    ['machine_id', 'pairing_id', 'status', 'expires_at', 'requires_local_issuance'],
+    [],
     'invalid_response'
   )
   for (const field of ['request_id', 'history_epoch', 'recovery_generation'] as const) {
@@ -495,23 +423,6 @@ function receipt(value: unknown): BrowserReceipt {
   revision(v.new_revision, 'invalid_response', true)
   revision(v.new_binding_revision, 'invalid_response', true)
   if (v.action !== 'provider_disable' && v.new_binding_revision !== null) {
-    invalid('invalid_response')
-  }
-  if (v.action === 'pairing_create' && v.operation_state === 'committed') {
-    identifier(v.pairing_id, 'invalid_response')
-    if (
-      v.machine_id !== (v.target as { machine_id: string }).machine_id ||
-      v.status !== 'pending' ||
-      v.requires_local_issuance !== true
-    ) {
-      invalid('invalid_response')
-    }
-    time(v.expires_at)
-  } else if (
-    ['machine_id', 'pairing_id', 'status', 'expires_at', 'requires_local_issuance'].some(
-      /** 非注册回执不接受附带申请字段。 */ (key) => Object.hasOwn(v, key)
-    )
-  ) {
     invalid('invalid_response')
   }
   time(v.observed_at)
@@ -570,23 +481,6 @@ export function checkManagementWriteReply<K extends ManagementClientOperation>(
     if (value.connection_epoch !== null) {
       identifier(value.connection_epoch, 'invalid_response')
     }
-  } else if (operation === 'pairings_get') {
-    record(
-      value,
-      ['machine_id', 'pairing_id', 'status', 'expires_at', 'issuance', 'requires_local_issuance'],
-      [],
-      'invalid_response'
-    )
-    if (
-      value.machine_id !== input.machine_id ||
-      value.pairing_id !== input.pairing_id ||
-      value.issuance !== 'unverified' ||
-      value.requires_local_issuance !== true
-    ) {
-      invalid('invalid_response')
-    }
-    choice(value.status, ['pending', 'paired', 'cancelled', 'expired'])
-    time(value.expires_at)
   } else if (operation === 'confirmations_create' || operation === 'confirmations_confirm') {
     const v = confirmation(value)
     if (
@@ -621,11 +515,7 @@ export function checkManagementWriteReply<K extends ManagementClientOperation>(
             ? 'device_disconnect'
             : operation === 'devices_revoke'
               ? 'device_revoke'
-              : operation === 'providers_disable'
-                ? 'provider_disable'
-                : operation === 'pairings_create'
-                  ? 'pairing_create'
-                  : 'pairing_cancel'
+              : 'provider_disable'
       if (
         v.action !== expected ||
         ('machine_id' in input && (v.target as { machine_id: string }).machine_id !== input.machine_id) ||

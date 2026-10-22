@@ -105,8 +105,8 @@ Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用
 首次原生批准为精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
 原值由 Rovloom 私密保留；复制到 MCP 客户端秘密存储。
 默认有效期30天，可用 `rovloom token` 管理（见下）。设备凭据、
-MCP Bearer 与独立管理证明互不替代。管理页使用独立的管理员密码，MCP Bearer 不能登录管理员；
-首次引导不创建默认管理员，需要用 `rovloom admin create` 创建。
+MCP Bearer 与独立管理证明互不替代。管理页使用独立的管理员密码，MCP Bearer 不能登录管理员。首次配对完成时，已核验的 Gateway 终端会创建管理员 `admin`，
+并在 MCP Bearer 旁边只显示一次它的密码；之后用 `rovloom admin` 管理。
 
 ### 管理页管理员
 
@@ -121,7 +121,7 @@ rovloom admin revoke [--principal admin]
 保存它的 SHA-256 摘要。创建、重新签发和撤销都**无需重启**：对已有 ID 重新 `create`（忘记密码时的做法）会替换密码，
 并使用旧密码已登录的浏览器会话立即失效；`revoke` 同样立即生效。管理员能查看并管理 Gateway 已知的全部设备和
 provider，包括之后才配对的。管理员不能调用 MCP：MCP 调用方注册表里对应的条目策略为空、令牌无人知晓，
-并且不出现在 `rovloom token list` 里。请在首次配对完成后再运行 `rovloom admin create`（它依赖配对创建的调用方注册表）。
+并且不出现在 `rovloom token list` 里。请在首次配对完成后再运行 `rovloom admin create`（它依赖配对创建的调用方注册表；配对本身已经创建了 `admin` 并显示过一次密码）。
 Docker 里用 `docker compose exec gateway rovloom admin create`。
 
 ### Bearer 令牌管理

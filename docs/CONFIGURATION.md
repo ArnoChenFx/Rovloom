@@ -127,8 +127,9 @@ the MCP client's secret storage. It expires after 30 days by default and is mana
 `rovloom token` (see below). Device
 credentials, MCP Bearers and independent management proofs are distinct. Existing
 management authentication uses its own administrator password; an MCP
-Bearer cannot log in as administrator, and first setup creates no default
-administrator: you create one with `rovloom admin create`.
+Bearer cannot log in as administrator. When first pairing completes, the verified Gateway
+terminal creates the administrator `admin` and prints its password once next to the MCP Bearer;
+afterwards you manage administrators with `rovloom admin`.
 
 ### Managing the management-page administrator
 
@@ -146,8 +147,9 @@ re-issuing an existing ID (the way to recover a lost password) replaces its pass
 invalidates browser sessions already signed in with the old one; revoking does the same. An
 administrator may see and manage every device and provider the Gateway knows, including ones paired
 later. It can not call MCP: the matching entry in the MCP caller registry has an empty policy and a
-token nobody knows (and is hidden from `rovloom token list`). Run `rovloom admin create` after the
-first pairing completes, because it needs the caller registry that pairing creates. In Docker use
+token nobody knows (and is hidden from `rovloom token list`). Run `rovloom admin create` only after the
+first pairing completes, because it needs the caller registry that pairing creates (pairing itself
+already created `admin` and showed its password once). In Docker use
 `docker compose exec gateway rovloom admin create`.
 
 ### Managing Bearer tokens

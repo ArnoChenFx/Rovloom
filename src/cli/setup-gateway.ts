@@ -1,8 +1,9 @@
-// 在唯一产品Gateway双库上接入本机终端配对与实测来源批准；不设置默认管理员或修改原认证门禁。
+// 在唯一产品Gateway双库上接入本机终端配对与实测来源批准；首次完成时在已核验终端创建并只显示一次管理页管理员口令，不修改原认证门禁。
 import { createHash, randomBytes } from 'node:crypto'
 import type { openGatewayState } from '../runtime/state.js'
 import type { RuntimeCliGateway } from './runtime.js'
 import { boundedJson, fields, object } from '../wire/index.js'
+import { managementSourceExists, writeAdminFiles } from './admin-command.js'
 import { CliError, type GatewayConfig } from './config.js'
 import { SetupApproval } from './setup-approval.js'
 import { GatewayPairingHttp, type SetupNativeRequest } from './pairing-http.js'
@@ -263,6 +264,24 @@ export class GatewaySetup {
       }
     }
     this.approval.finishNative(request.plan.attempt_id, fingerprint)
+    // 同时为管理页创建管理员：口令只在这个已核验的本地终端显示一次；失败不影响配对，可稍后手动 rovloom admin create。
+    let adminNote = ''
+    if (this.config.management_enabled && !managementSourceExists(this.config)) {
+      const page = 'http://127.0.0.1:' + this.config.management_port + '/'
+      try {
+        const admin = writeAdminFiles(this.config, 'admin', Date.now())
+        adminNote =
+          '\nManagement page / 管理页: ' +
+          page +
+          '\nManagement user / 管理员: admin' +
+          '\nManagement password (private) / 管理员密码: ' +
+          admin.secret +
+          '\n(Shown once; run rovloom admin create to re-issue. / 只显示一次；丢失后运行 rovloom admin create 重新签发。)'
+      } catch {
+        adminNote =
+          '\nManagement administrator was not created; run rovloom admin create. / 未能创建管理页管理员，请稍后运行 rovloom admin create。'
+      }
+    }
     this.terminal.show(
       'Native configuration saved; Gateway will reopen its real providers. / 原生配置已保存，Gateway 将重开实际 provider。\nMCP credential file / MCP 凭据文件: ' +
         clientPath +
@@ -273,6 +292,7 @@ export class GatewaySetup {
         '\nBinding revision: 1' +
         '\nBearer (private): ' +
         client.token +
+        adminNote +
         '\n'
     )
     // 不将响应写出当作业务确认；若本响应因重开丢失，客户端只查询原attempt，不重复签发或初始化。
