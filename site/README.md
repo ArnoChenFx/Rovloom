@@ -34,11 +34,11 @@ enablement, which may require a repository administrator when account settings
 or integration permissions prevent it. No custom domain is configured.
 
 After this workflow is merged into the default branch, successful `Tagged product
-release` workflow runs automatically rebuild and deploy the site. A separate
-`release.published` trigger covers releases published manually or by another token;
-`workflow_run` covers the repository's publisher using `GITHUB_TOKEN`, which does
-not trigger a second workflow through `release.published`. Failed release runs and
-fork runs cannot initiate publishing. Release-triggered builds check out the
+release` workflow runs automatically rebuild and deploy the site. `workflow_run`
+covers the repository's publisher using `GITHUB_TOKEN`, which does not trigger a
+second workflow through `release.published`. Its default-branch deployment also
+matches the Pages environment's branch rules. Failed release runs and fork runs
+cannot initiate publishing. Release-triggered builds check out the
 default branch's site code and read the current latest public, non-prerelease
 Release, keeping the download and version aligned even when a prerelease or an
 older tag is published. Metadata fetch or validation failure fails the build and

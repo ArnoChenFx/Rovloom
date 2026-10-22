@@ -19,9 +19,8 @@ on:
       - 'package.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
-  release:
-    types: [published]
-  # Releases published with GITHUB_TOKEN do not emit another workflow event.
+  # The publisher uses GITHUB_TOKEN, which does not trigger release.published.
+  # workflow_run also deploys from main, matching the Pages environment rules.
   workflow_run:
     workflows: ['Tagged product release']
     types: [completed]
@@ -41,8 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          # Release events build maintained site code, rather than the release tag.
-          ref: ${{ (github.event_name == 'workflow_run' || github.event_name == 'release') && github.event.repository.default_branch || '' }}
+          # Successful releases build maintained site code, rather than the release tag.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.repository.default_branch || '' }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
         with:
@@ -64,7 +63,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/website' ||
-       github.event_name == 'release' || github.event_name == 'workflow_run')
+       github.event_name == 'workflow_run')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
