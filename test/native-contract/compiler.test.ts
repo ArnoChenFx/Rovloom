@@ -415,10 +415,10 @@ test(
   '宿主初始化超期拒绝句柄，不声称可以抢占主线程',
   /* 固定有限测试代码延长初始化，验证加载成本计入期限且超期服务不可恢复。 */ async () => {
     const port = new TestPort()
-    const compiler = new SchemaCompiler(/* 仅供此内部故障用例使用的自有端口。 */ () => port)
+    const compiler = new SchemaCompiler(/* 仅供此内部故障用例使用的自有端口。 */ () => port, 300)
     const pending = compiler.compile(bytes, { identity })
     const changed = clone(artifact)
-    changed.code = 'const loadUntil = Date.now() + 2100; while (Date.now() < loadUntil) {}\n' + changed.code
+    changed.code = 'const loadUntil = Date.now() + 400; while (Date.now() < loadUntil) {}\n' + changed.code
     changed.code_sha256 = hash(changed.code)
     port.reply({ ok: true, value: changed })
     reason(await pending, 'compiler_timeout')
@@ -435,11 +435,12 @@ test(
       /* 启动固定测试忙循环入口，不接触真实安装或凭据。 */ () => {
         starts++
         return new RuntimeWorker(new URL('./compiler-busy-fixture.ts', import.meta.url).href, { smol: true })
-      }
+      },
+      300
     )
     const started = performance.now()
     reason(await compiler.compile(bytes, { identity }), 'compiler_timeout')
-    assert(performance.now() - started >= 1900)
+    assert(performance.now() - started >= 250)
     reason(await compiler.compile(bytes, { identity }), 'compiler_unavailable')
     assert.equal(starts, 1)
   }

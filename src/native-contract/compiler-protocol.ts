@@ -6,7 +6,8 @@ export const ARTIFACT_VERSION = 1
 export const GENERATOR_VERSION = 'luvus-standalone-1'
 export const AJV_VERSION = '8.20.0'
 export const CODE_LIMIT = 8 * 1024 * 1024
-export const COMPILE_TIMEOUT_MS = 2000
+// 未知 schema 冷编译约 0.7 秒（本机实测），慢机器按数倍留余量。
+export const COMPILE_TIMEOUT_MS = 10_000
 export const AJV_OPTIONS: Options = Object.freeze({
   strict: false,
   allErrors: false,
@@ -32,8 +33,6 @@ export type CompilerArtifact = {
   code_sha256: string
   options_sha256: string
 }
-// 仅由固定 Worker 模块传入的资产查询；公共编译 API 和私有消息均不接受该端口。
-export type PrecompiledLookup = (identity: ContractIdentity, budget: Limits) => CompilerArtifact | undefined
 export type CompileJob = {
   version: number
   job_id: string

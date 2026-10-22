@@ -5,7 +5,7 @@ import { attempt, ContractFault, equal, fail, hash, limits, object, parse, point
 import { UHP } from './internal.js'
 import standaloneModule from 'ajv/dist/standalone/index.js'
 import { AJV_OPTIONS, AJV_VERSION, ARTIFACT_VERSION, CODE_LIMIT, GENERATOR_VERSION } from './compiler-protocol.js'
-import type { CompilerArtifact, PrecompiledLookup } from './compiler-protocol.js'
+import type { CompilerArtifact } from './compiler-protocol.js'
 import ajvPackage from 'ajv/package.json' with { type: 'json' }
 import type { Check, CompileOptions, ContractIdentity, JsonObject, Limits } from './types.js'
 
@@ -232,11 +232,7 @@ function aliases(bundle: JsonObject, docs: Record<string, unknown>): void {
 }
 
 // 只在 Worker 内校验完整闭包并生成官方 standalone 代码，不生成宿主权限句柄。
-export function compileArtifact(
-  bytes: Uint8Array | string,
-  options: CompileOptions,
-  precompiled?: PrecompiledLookup
-): Check<CompilerArtifact> {
+export function compileArtifact(bytes: Uint8Array | string, options: CompileOptions): Check<CompilerArtifact> {
   const result = attempt<CompilerArtifact>(
     'compile',
     /* 依次完成预算校验、文档预检和 Ajv 编译，成功后登记方法分支覆盖信息。 */ () => {
@@ -315,11 +311,6 @@ export function compileArtifact(
       // 只在已提供的文档闭包内解析引用；预检和别名核对完成后才交给 Ajv。
       preflight(documents, budget)
       aliases(bundle, documents)
-      // 只有原字节、完整闭包和本次预算均通过后才查询固定资产；未命中仍完整编译。
-      const prepared = precompiled?.(identity, budget)
-      if (prepared) {
-        return prepared
-      }
       const validators = new Map<string, ValidateFunction>()
       const ajv = new Ajv2020(AJV_OPTIONS)
       try {

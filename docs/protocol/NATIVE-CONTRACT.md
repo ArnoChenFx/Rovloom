@@ -44,17 +44,12 @@ Worker 工厂。源码和构建产物使用同一个固定 Bun Worker 入口；�
 能力广告可携带额外诊断字段；方法描述仅投影 method/access/scope/idempotent，无法理解的授权语义只隔离对应方法。
 server_version 缺失时保留 null，Wire 快照仍核对真实协议、运行代次及目标绑定。Herdr 目录只解析原文内可准确描述的引用分支，未知或不兼容分支不阻断健康方法；执行始终校验完整原生根。
 Worker 每次先完成原字节摘要、文档、方言、关键字、引用闭包、alias 与当前预算检查，
-再以精确 binary/schema SHA 查询受保护的内嵌资产目录。命中时核对编译器、锁定 Ajv、
-代码、完整元数据及独立资产摘要，只缓存冻结产物数据，宿主仍逐次登记独立 opaque handle。
-未知 binary/schema SHA 继续使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译；
+再使用锁定 Ajv 8.20.0 和固定选项执行完整根、条件、引用闭包及事件分支编译（没有预编译资产：本机实测冷编译约 0.7 秒，
+接纳期限 Luvus 与 Herdr 均为 10 秒）；宿主逐次登记独立 opaque handle。
 禁止未知方言/关键字、自定义 format/keyword、在线 resolver 和裁剪约束。
 
-固定输入目录为 `scripts/native-contract/precompiled-inputs.json`，只引用已审核的仓库原字节
-及收集记录，不接受外部路径或 URL。`bun run native:generate` 显式重新完整编译并更新资产；
-`bun run native:check` 与正常构建在独立 Worker 中重新完整编译核对，生成器不查询现有资产，
-缺失、额外或过期生成文件均拒绝。构建观察预算为 30 秒，独立于 Luvus 的 2 秒和 Herdr 的 10 秒接纳期限。
-单文件打包探针同时验证官方资产内嵌、禁止 Ajv 重新编译的命中路径，以及合成未知 schema
-经实际 Worker 完整编译与两个 runtime helper 的正反例；此探针不验证 CLI 或真实原生执行。
+单文件打包探针验证合成未知 schema 经实际 Worker 完整编译、坏输入与未知关键字被拒绝，以及两个 runtime helper 的正反例；
+此探针不验证 CLI 或真实原生执行。
 
 每进程至多一个在途编译、没有等待队列；并发返回 `compiler_busy`。从工厂调用开始的
 接纳期限为 Luvus 2 秒、Herdr 10 秒，覆盖启动、预检、资产核对或完整编译/standalone 生成、消息与宿主初始化。失败只返回安全

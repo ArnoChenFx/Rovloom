@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import schema from '../fixtures/luvus/0.14.3/linux/schema-bundle.json' with { type: 'file' }
 import { compileBundle, createNativeValidator } from '../../src/native-contract/index.ts'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { unknownSchemaBundle } from '../native-contract/unknown-schema-fixture.ts'
 import herdrSchema from '../fixtures/herdr/0.9.5/schema.json' with { type: 'file' }
 import { compileHerdrSchemas, isCompiledHerdrSchemas } from '../../src/connector/herdr/compiler-api.ts'
@@ -21,28 +21,6 @@ const error = { id: 'packaging', error: { code: 'synthetic', message: 'synthetic
 const checked = createNativeValidator(compiled.value).checkResponseShape(error)
 assert(checked.ok, JSON.stringify(checked))
 assert.deepEqual(checked.value.response, error)
-// 这个测试 Worker 导入生产消息处理器，仅封死其 Ajv 方法；缺嵌入资产就不能生成结果。
-const worker = new Worker(new URL('./precompiled-worker.ts', import.meta.url).href, { smol: true })
-let timer
-try {
-  const artifact = await new Promise(
-    /* 探针也用 2 秒观察上限，不把诊断或构建预算当产品预算。 */ (resolve, reject) => {
-      timer = setTimeout(/* 禁止测试悬挂。 */ () => reject(new Error('precompiled probe timeout')), 2000)
-      worker.onerror = /* 只返回固定故障，不输出生成源码。 */ (event) => {
-        event.preventDefault()
-        reject(new Error('precompiled probe failed'))
-      }
-      worker.onmessage = /* 仅检查生成物是否成功，不把原文写入 stdout。 */ ({ data }) => resolve(data.result)
-      worker.postMessage({ version: 1, job_id: randomUUID(), bytes, options: { identity } })
-    }
-  )
-  assert(artifact.ok, JSON.stringify(artifact))
-  assert.equal(artifact.value.documents.length, 29)
-  assert.equal(artifact.value.schemas.length, 92)
-} finally {
-  clearTimeout(timer)
-  worker.terminate()
-}
 // 未知原字节必须真实进入完整 Worker；坏输入后仍能接纳合法根，不能只证明固定资产可用。
 const malformed = await compileBundle('{}', {
   identity: { ...identity, schema_sha256: createHash('sha256').update('{}').digest('hex') }
@@ -141,36 +119,11 @@ assert(!unknownHerdr.request({ id: 'synthetic', method: 'synthetic', params: { t
 assert(unknownHerdr.response({ id: 'synthetic', result: { preserved: { synthetic: true }, count: 1 } }))
 assert(!unknownHerdr.response({ id: 'synthetic', result: { preserved: { synthetic: false }, count: 1 } }))
 assert(!unknownHerdr.response({ id: 'synthetic', result: { preserved: { synthetic: true }, count: -1 } }))
-// 自有 Worker 禁止 Ajv 编译；单文件必须真正包含 Herdr 资产，不能从 checkout 或实时编译补包。
-const herdrWorker = new Worker(new URL('./herdr-precompiled-worker.ts', import.meta.url).href, { smol: true })
-let herdrTimer
-try {
-  const artifact = await new Promise(
-    /** 与原生产接纳预算一致，资产验证失败不能被重试或预热掩盖。 */ (resolve, reject) => {
-      herdrTimer = setTimeout(
-        /** 限定探针观察，不增加产品期限。 */ () => reject(new Error('Herdr asset probe timeout')),
-        2000
-      )
-      herdrWorker.onerror = /** 不输出 schema、代码或底层路径。 */ (event) => {
-        event.preventDefault()
-        reject(new Error('Herdr asset probe failed'))
-      }
-      herdrWorker.onmessage = /** 只读取固定结果，产物代码不进入 stdout。 */ ({ data }) => resolve(data.result)
-      herdrWorker.postMessage({ version: 1, job_id: randomUUID(), bytes: readFileSync(herdrSchema) })
-    }
-  )
-  assert(artifact.ok)
-  assert.deepEqual(artifact.value.roots, ['request', 'success_response', 'error_response'])
-} finally {
-  clearTimeout(herdrTimer)
-  herdrWorker.terminate()
-}
 console.log(
   JSON.stringify({
     scope: 'native-contract-probe',
     documents: 29,
     errorDataPreserved: true,
-    precompiledEmbedded: true,
     unknownSchemaWorker: {
       documents: 9,
       malformedRejected: true,
@@ -181,7 +134,6 @@ console.log(
       version: '0.9.5',
       originalRoots: true,
       compiledBrand: true,
-      precompiledEmbedded: true,
       unknownSchemaWorker: true
     }
   })

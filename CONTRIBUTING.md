@@ -26,10 +26,7 @@ under their provider/version. Reuse existing entry points and checks. A new feat
 directory is welcome when it has a distinct purpose; development phases and issue
 numbers do not define permanent ownership. Remove one-off migration wrappers,
 command logs and duplicate historical snapshots once their useful assertions have
-maintained regression coverage. Use `bun run native:generate` only for reviewed native precompiled input/compiler changes;
-commit the generated catalog and complete assets together. `bun run native:check`
-recompiles independently and every module/standalone build rejects drift.
-Document generators for retained derived inputs,
+maintained regression coverage. Document generators for retained derived inputs,
 and keep native bytes, provenance and licenses needed by current regressions.
 Comments are for readers: describe a module's responsibility, public interfaces, non-obvious
 constraints and security decisions. Do not restate names, and keep execution logs out of code.

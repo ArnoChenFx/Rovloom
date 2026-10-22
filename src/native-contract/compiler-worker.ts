@@ -1,6 +1,5 @@
 // 私有 Bun Worker 只编译审核安装契约，保留完整根与引用约束，不处理 RPC 原文或授权。
 import { compileArtifact } from './compiler-core.js'
-import { precompiledArtifact } from './precompiled.js'
 import { ARTIFACT_VERSION } from './compiler-protocol.js'
 import type { CompileJob } from './compiler-protocol.js'
 
@@ -42,6 +41,6 @@ channel.onmessage = /* 编译和输出仅限当前私有任务，失败不发送
     })
     return
   }
-  const result = compileArtifact(job.bytes, job.options, precompiledArtifact)
+  const result = compileArtifact(job.bytes, job.options)
   channel.postMessage({ version: ARTIFACT_VERSION, job_id: job.job_id, result })
 }
