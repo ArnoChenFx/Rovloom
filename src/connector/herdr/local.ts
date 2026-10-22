@@ -19,6 +19,13 @@ import type { Socket } from 'node:net'
 import { readLinuxPeer } from '../local/linux-peer.js'
 import type { NativePeer } from '../local/linux-peer.js'
 import { windowsInspectPath, windowsPipeServerPid, windowsProcessFacts } from '../../platform/windows.js'
+import {
+  macosPeer,
+  macosProcessArgv,
+  macosProcessImage,
+  macosProcessState,
+  macosProcessUid
+} from '../../platform/macos.js'
 import { pinTerminalExecution } from '../terminal-execution.js'
 import { agentSearchPath } from '../local/agent-path.js'
 
@@ -60,11 +67,18 @@ export function peerIsCurrentUser(peer: NativePeer): boolean {
   return process.platform === 'win32' || (peer.uid === process.geteuid!() && peer.gid === process.getegid!())
 }
 
-/** 从实际连接取得对端：Linux 读内核 SO_PEERCRED；Windows 由管道名向内核查询服务端 pid。 */
+/** 从实际连接取得对端：Linux 读内核 SO_PEERCRED，macOS 读 LOCAL_PEERPID/LOCAL_PEERCRED；Windows 由管道名向内核查询服务端 pid。 */
 export async function readHerdrPeer(socket: Socket, endpoint: HerdrEndpoint): Promise<NativePeer> {
   if (process.platform === 'win32') {
     try {
       return Object.freeze({ pid: windowsPipeServerPid(endpoint.address), uid: 0, gid: 0 })
+    } catch {
+      throw new HerdrLocalError('herdr_native_instance_untrusted')
+    }
+  }
+  if (process.platform === 'darwin') {
+    try {
+      return macosPeer(socket)
     } catch {
       throw new HerdrLocalError('herdr_native_instance_untrusted')
     }
@@ -86,7 +100,7 @@ export function inspectHerdrPath(path: string, kind: 'directory' | 'shared_direc
     if (process.platform === 'win32') {
       return windowsInspectPath(path, kind === 'binary' ? 'binary' : kind === 'socket' ? 'file' : 'directory')
     }
-    if (process.platform !== 'linux' || !process.geteuid || !process.getegid) {
+    if ((process.platform !== 'linux' && process.platform !== 'darwin') || !process.geteuid || !process.getegid) {
       throw new HerdrLocalError('herdr_local_platform_unsupported')
     }
     const owner = process.geteuid()
@@ -294,6 +308,7 @@ function userShell(): string {
 export function measureHerdrInstallation(config: HerdrLocalConfig): Readonly<{ stamp: string; sha256: string }> {
   if (
     !(process.platform === 'linux' && process.arch === 'x64') &&
+    !(process.platform === 'darwin' && (process.arch === 'x64' || process.arch === 'arm64')) &&
     !(process.platform === 'win32' && (process.arch === 'x64' || process.arch === 'arm64'))
   ) {
     throw new HerdrLocalError('herdr_local_platform_unsupported')
@@ -437,8 +452,12 @@ export class HerdrProcessBinding {
 /** 已运行 Herdr 服务端进程的内核证据：PID 与启动 tick 共同防止 PID 重用被当作同一实例。 */
 export type ObservedHerdrProcess = Readonly<{ pid: number; start: string }>
 
-/** 读取 /proc/<pid>/stat 的状态与启动 tick；进程不存在或已成僵尸返回 undefined。 */
+/** 读取启动标识（Linux /proc/<pid>/stat 的启动 tick，macOS 的内核启动时间）；进程不存在或已成僵尸返回 undefined。 */
 function readProcessStart(pid: number): string | undefined {
+  if (process.platform === 'darwin') {
+    const state = macosProcessState(pid)
+    return state.kind === 'alive' ? state.start : undefined
+  }
   if (process.platform === 'win32') {
     // Windows：进程创建时间（FILETIME）在存活期间不变，且与 PID 一起防止复用。
     try {
@@ -480,6 +499,39 @@ function inspectWindowsHerdrServer(config: HerdrLocalConfig, pid: number): Obser
   return Object.freeze({ pid, start: before.created.toString() })
 }
 
+/** 命令行恰为 `server` 或 `--session <name> server`（用户自行运行 `herdr` 时由客户端拉起的形态）。 */
+function herdrServerArguments(config: HerdrLocalConfig, tail: readonly string[]): boolean {
+  return (
+    (tail.length === 1 && tail[0] === 'server') ||
+    (tail.length === 3 && tail[0] === '--session' && tail[1] === config.target.session && tail[2] === 'server')
+  )
+}
+
+/**
+ * macOS：属主是当前用户；proc_pidpath 给出的镜像与已安装二进制是同一文件（按文件身份比较，不信任路径文本）；
+ * 命令行取自 KERN_PROCARGS2；启动时间在整个检查期间不变。
+ */
+function inspectMacosHerdrServer(config: HerdrLocalConfig, pid: number): ObservedHerdrProcess {
+  const start = readProcessStart(pid)
+  const owner = macosProcessUid(pid)
+  const image = macosProcessImage(pid)
+  const argv = macosProcessArgv(pid)
+  if (start === undefined || owner !== process.geteuid!() || image === undefined || argv === undefined) {
+    throw new HerdrLocalError('herdr_native_instance_untrusted')
+  }
+  const executable = statSync(image)
+  const installed = statSync(config.binary)
+  if (
+    executable.dev !== installed.dev ||
+    executable.ino !== installed.ino ||
+    !herdrServerArguments(config, argv.slice(1)) ||
+    readProcessStart(pid) !== start
+  ) {
+    throw new HerdrLocalError('herdr_native_instance_untrusted')
+  }
+  return Object.freeze({ pid, start })
+}
+
 /**
  * 核对对端 PID 确实是本机已安装 herdr 的服务端进程：
  * 属主是当前用户；/proc/<pid>/exe 与配置的二进制是同一 inode（被替换/删除后的旧映像不接受）；
@@ -492,6 +544,9 @@ export function inspectHerdrServerProcess(config: HerdrLocalConfig, pid: number)
     }
     if (process.platform === 'win32') {
       return inspectWindowsHerdrServer(config, pid)
+    }
+    if (process.platform === 'darwin') {
+      return inspectMacosHerdrServer(config, pid)
     }
     const start = readProcessStart(pid)
     const owner = statSync(`/proc/${pid}`).uid
@@ -507,10 +562,7 @@ export function inspectHerdrServerProcess(config: HerdrLocalConfig, pid: number)
       owner !== process.geteuid!() ||
       executable.dev !== installed.dev ||
       executable.ino !== installed.ino ||
-      !(
-        (tail.length === 1 && tail[0] === 'server') ||
-        (tail.length === 3 && tail[0] === '--session' && tail[1] === config.target.session && tail[2] === 'server')
-      ) ||
+      !herdrServerArguments(config, tail) ||
       readProcessStart(pid) !== start
     ) {
       throw new HerdrLocalError('herdr_native_instance_untrusted')
