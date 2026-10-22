@@ -6,6 +6,16 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
 
+def settle_topology(page):
+    page.evaluate("""async () => {
+        const diagram = document.querySelector('.topology-block');
+        for (const route of diagram.querySelectorAll('.active-route')) getComputedStyle(route).opacity;
+        await Promise.all(diagram.getAnimations({subtree: true})
+            .filter(animation => animation.effect.getTiming().iterations !== Infinity)
+            .map(animation => animation.finished.catch(() => {})));
+    }""")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', required=True, help='Site root URL, including project path')
@@ -28,6 +38,7 @@ def main():
         page.on('requestfailed', lambda request: errors.append(request.url))
         page.on('request', lambda request: requests.append(request.url))
         page.goto(base, wait_until='networkidle')
+        expect(page.locator('#node-flow')).to_be_empty()
         page.screenshot(path=str(out / 'desktop.png'))
         for language in ['zh', 'en']:
             if page.locator('html').get_attribute('lang') != ('zh-CN' if language == 'zh' else 'en'):
@@ -51,30 +62,54 @@ def main():
                     for b in rectangles[index + 1:]:
                         assert (a['x'] + a['width'] <= b['x'] or b['x'] + b['width'] <= a['x'] or
                                 a['y'] + a['height'] <= b['y'] or b['y'] + b['height'] <= a['y']), (language, width)
+                strip_top = page.locator('.tool-strip').evaluate('(element) => element.getBoundingClientRect().top + scrollY')
+                page.locator('[data-node=pc]').click()
+                expect(page.locator('#node-flow')).to_contain_text('Gateway')
+                after_top = page.locator('.tool-strip').evaluate('(element) => element.getBoundingClientRect().top + scrollY')
+                assert abs(strip_top - after_top) < 1, (language, width, 'selection moves layout')
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (language, width, 'flow')
+                page.locator('[data-node=pc]').click()
+                expect(page.locator('#node-flow')).to_be_empty()
             assert page.locator('.topology').get_attribute('role') == 'group'
+            flows = set()
             for node in ['pc', 'vps', 'docker', 'sandbox', 'agent', 'gateway']:
                 button = page.locator(f'[data-node={node}]')
                 button.focus()
                 page.keyboard.press('Enter')
                 assert button.get_attribute('aria-pressed') == 'true'
                 assert page.locator('.map-node[aria-pressed=true]').count() == 1
-                routes = page.locator('.active-route').get_attribute('d')
-                assert page.locator('[data-route=agent]').get_attribute('d') in routes
-                if node != 'gateway' and node != 'agent':
-                    assert page.locator(f'[data-route={node}]').get_attribute('d') in routes
-                if node == 'gateway':
-                    for route in page.locator('[data-route]').all():
-                        assert route.get_attribute('d') in routes
+                expect(page.locator('#node-flow')).to_be_visible()
+                flow = page.locator('#node-flow').inner_text()
+                assert len(flow) > 20 and 'Gateway' in flow
+                flows.add(flow)
+                assert button.get_attribute('aria-controls') == 'node-flow'
+                routes = page.locator('.active-route.is-active').evaluate_all('(routes) => routes.map(route => route.dataset.highlightRoute)')
+                expected_routes = ['agent', 'pc', 'docker', 'vps', 'sandbox'] if node == 'gateway' else ['agent'] if node == 'agent' else ['agent', node]
+                assert set(routes) == set(expected_routes), (node, routes)
+                for route in page.locator('.active-route.is-active').all():
+                    assert 'stroke-dashoffset' in route.evaluate('(element) => getComputedStyle(element).transitionProperty')
+                    assert route.evaluate('(element) => getComputedStyle(element).transitionDuration') != '0s'
                 page.keyboard.press('Space')
                 assert button.get_attribute('aria-pressed') == 'false'
-                assert page.locator('.active-route').get_attribute('d') == ''
+                assert page.locator('.active-route.is-active').count() == 0
+                expect(page.locator('#node-flow')).to_be_empty()
+            assert len(flows) == 6
             button.blur()
+            page.locator('[data-node=pc]').click()
+            original_flow = page.locator('#node-flow').inner_text()
+            page.locator('#language').click()
+            assert page.locator('#node-flow').inner_text() != original_flow
+            assert page.locator('[data-node=pc]').get_attribute('aria-pressed') == 'true'
+            page.locator('#language').click()
+            expect(page.locator('#node-flow')).to_have_text(original_flow)
+            page.locator('[data-node=pc]').click()
             assert 'macOS' in page.locator('.topology').get_attribute('aria-label')
             if language == 'zh':
                 page.locator('.topology').screenshot(path=str(out / 'topology-desktop.png'))
                 page.locator('[data-node=sandbox]').click()
                 page.locator('[data-node=sandbox]').blur()
-                page.locator('.topology').screenshot(path=str(out / 'topology-selected.png'))
+                settle_topology(page)
+                page.locator('.topology-block').screenshot(path=str(out / 'topology-selected.png'))
                 page.locator('[data-node=sandbox]').click()
                 page.locator('[data-node=sandbox]').blur()
         page.set_viewport_size({'width': 1440, 'height': 1050})
@@ -105,6 +140,11 @@ def main():
         page.set_viewport_size({'width': 390, 'height': 844})
         page.locator('#language').click()
         page.locator('.topology').screenshot(path=str(out / 'topology-mobile.png'))
+        page.locator('[data-node=docker]').click()
+        page.locator('[data-node=docker]').blur()
+        settle_topology(page)
+        page.locator('.topology-block').screenshot(path=str(out / 'topology-mobile-selected.png'))
+        page.locator('[data-node=docker]').click()
         page.evaluate('scrollTo(0, 0)')
         page.screenshot(path=str(out / 'mobile-full.png'), full_page=True)
         page.screenshot(path=str(out / 'mobile-hero.png'))
@@ -116,6 +156,10 @@ def main():
         page.keyboard.press('Escape')
         assert not page.locator('#navigation').is_visible()
         page.emulate_media(reduced_motion='reduce')
+        page.locator('[data-node=pc]').click()
+        assert page.locator('.active-route.is-active').first.evaluate('(element) => getComputedStyle(element).transitionDuration') == '0s'
+        assert page.locator('#node-flow').evaluate('(element) => element.getAnimations().length') == 0
+        page.locator('[data-node=pc]').click()
         assert page.locator('.packet').first.evaluate('(element) => getComputedStyle(element).display') == 'none'
         blocked = context.new_page()
         blocked.add_init_script('''
@@ -140,7 +184,8 @@ def main():
         report = {
             'languages': ['zh', 'en'], 'widths': [320, 375, 390, 768, 1024, 1440],
             'checks': ['no overflow', 'local images', 'six topology nodes stay inside diagram without overlap',
-                       'localized topology labels and keyboard route selection', 'keyboard tabs',
+                       'localized topology labels and keyboard route selection',
+                       'six selected call flows, deselection and live language changes', 'smooth highlights without layout shifts', 'keyboard tabs',
                        'clipboard', 'language persistence', 'FAQ', 'mobile navigation', 'reduced motion',
                        'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests'],
             'pageErrors': errors

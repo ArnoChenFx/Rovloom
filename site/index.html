@@ -81,7 +81,16 @@
               <path class="wire" data-route="docker" d="M280 234V258H14V410H25"></path>
               <path class="wire" data-route="vps" d="M280 234V258H546V322H535"></path>
               <path class="wire" data-route="sandbox" d="M280 234V258H546V410H535"></path>
-              <path class="active-route" d=""></path>
+              <path class="active-route" data-highlight-route="agent" pathLength="1" d="M280 116V170"></path>
+              <path class="active-route" data-highlight-route="pc" pathLength="1" d="M280 234V258H14V322H25"></path>
+              <path class="active-route" data-highlight-route="docker" pathLength="1" d="M280 234V258H14V410H25"></path>
+              <path class="active-route" data-highlight-route="vps" pathLength="1" d="M280 234V258H546V322H535"></path>
+              <path
+                class="active-route"
+                data-highlight-route="sandbox"
+                pathLength="1"
+                d="M280 234V258H546V410H535"
+              ></path>
               <circle class="packet" r="3" fill="currentColor">
                 <animateMotion dur="5s" repeatCount="indefinite" path="M280 116V170"></animateMotion>
               </circle>
@@ -92,16 +101,34 @@
                 <animateMotion dur="7s" repeatCount="indefinite" path="M535 322H546V258H280V234"></animateMotion>
               </circle>
             </svg>
-            <button class="map-node agent-node" type="button" data-node="agent" aria-pressed="false">
+            <button
+              class="map-node agent-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="agent"
+              aria-pressed="false"
+            >
               <span class="node-icon"
                 ><svg aria-hidden="true"><use href="#spark-icon"></use></svg></span
               ><span class="node-copy"><strong data-i18n="map.agent">{{map.agent}}</strong></span>
             </button>
-            <button class="map-node gateway-node" type="button" data-node="gateway" aria-pressed="false">
+            <button
+              class="map-node gateway-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="gateway"
+              aria-pressed="false"
+            >
               <span class="gateway-mark"><img src="./assets/mark.png" alt="" width="34" height="34" /></span
               ><span class="node-copy"><strong>Rovloom Gateway</strong></span>
             </button>
-            <button class="map-node environment-node pc-node" type="button" data-node="pc" aria-pressed="false">
+            <button
+              class="map-node environment-node pc-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="pc"
+              aria-pressed="false"
+            >
               <span class="node-icon"
                 ><svg aria-hidden="true"><use href="#workspace-icon"></use></svg
               ></span>
@@ -110,13 +137,25 @@
                 ><small data-i18n="map.pcPlatforms">{{map.pcPlatforms}}</small></span
               >
             </button>
-            <button class="map-node environment-node vps-node" type="button" data-node="vps" aria-pressed="false">
+            <button
+              class="map-node environment-node vps-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="vps"
+              aria-pressed="false"
+            >
               <span class="node-icon"
                 ><svg aria-hidden="true"><use href="#server-icon"></use></svg
               ></span>
               <span class="node-copy"><strong data-i18n="map.vps">{{map.vps}}</strong></span>
             </button>
-            <button class="map-node environment-node docker-node" type="button" data-node="docker" aria-pressed="false">
+            <button
+              class="map-node environment-node docker-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="docker"
+              aria-pressed="false"
+            >
               <span class="node-icon"
                 ><svg aria-hidden="true"><use href="#container-icon"></use></svg
               ></span>
@@ -125,6 +164,7 @@
             <button
               class="map-node environment-node sandbox-node"
               type="button"
+              aria-controls="node-flow"
               data-node="sandbox"
               aria-pressed="false"
             >
@@ -134,6 +174,7 @@
               <span class="node-copy"><strong data-i18n="map.sandbox">{{map.sandbox}}</strong></span>
             </button>
           </div>
+          <p id="node-flow" class="node-flow" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
       </section>
       <div class="tool-strip wrap">
