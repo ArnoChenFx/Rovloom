@@ -50,15 +50,16 @@ Setting an address does not pair the device or install a native provider.
 | `data` | Object, required | Contains only `directory`. |
 | `data.directory` | Normalized absolute path string, ≤4096 characters, required | `<home>/.local/share/rovloom/<role>`; separate private data for each role. |
 | Gateway `mcp` | Object, required | Contains `hostname`, `port`; Streamable HTTP `/mcp`. |
-| `mcp.hostname` | String, required | `127.0.0.1`; also accepts `::1`. Loopback only. |
+| `mcp.hostname` | String, required | `127.0.0.1`; also accepts `::1`, `0.0.0.0`, `::`. Wildcard binds are for isolated environments such as containers; Host/Origin validation still uses the matching loopback address, and any other Host needs `public_url`. |
 | `mcp.port` | Integer 1–65535, required | `9444`. |
 | `mcp.public_url` | String, optional | Trusted external address behind a reverse proxy / TLS terminator, exactly `https://host[:port]/mcp` (no credentials, query or other path). When set, the Gateway also accepts requests whose `Host` is that host (and its CORS origin); every other `Host` is still rejected, and forwarded headers are never trusted. The listener itself stays on loopback; the Bearer is still required. |
 | Gateway `devices` | Object, required | Contains `hostname`, `port`; WS `/connector`. |
 | `devices.hostname` | String, required | `127.0.0.1`; also `::1`, `0.0.0.0`, `::`. Defaults do not accept remote devices. |
 | `devices.port` | Integer 1–65535, required | `9443`. |
-| Gateway `management` | Object, required | Contains `enabled`, `port`; local HTTP management page. |
+| Gateway `management` | Object, required | Contains `enabled`, `port` and optional `hostname`; local HTTP management page. |
 | `management.enabled` | Boolean, required | `true`; `false` disables this listener. Enabling it grants no administrator identity. |
-| `management.port` | Integer 1–65535, required even when disabled | `9445`; listener hostname is fixed to `127.0.0.1`. |
+| `management.port` | Integer 1–65535, required even when disabled | `9445`. |
+| `management.hostname` | String, optional | `127.0.0.1`; also accepts `0.0.0.0` for isolated environments such as containers. Session and Host validation still use the `127.0.0.1` origin. |
 | Connector `gateway` | Object, required | Contains only `url`. |
 | `gateway.url` | String, required | `""` while setup is pending; otherwise WS/WSS origin, ≤2048 characters, e.g. `ws://192.0.2.10:9443` or `wss://gateway.example`. No credentials/query/fragment/path except optional trailing `/`. Product selects `/connector`. |
 | Connector `allow_terminal_execution` | Boolean, optional | `false`, also when omitted. Only literal `true` enables direct terminal input and custom launch/restore commands through the existing local guard. Edit this single user file and restart Connector; it does not change installation settings or caller/local grants. |

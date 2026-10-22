@@ -47,15 +47,16 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `data` | object，必填 | 仅含 `directory`。 |
 | `data.directory` | 规范绝对路径 string，≤4096 字符，必填 | `<home>/.local/share/rovloom/<role>`；各角色独立私有数据。 |
 | Gateway `mcp` | object，必填 | 含 `hostname`、`port`；Streamable HTTP `/mcp`。 |
-| `mcp.hostname` | string，必填 | `127.0.0.1`，也接受 `::1`；仅回环。 |
+| `mcp.hostname` | string，必填 | `127.0.0.1`，也接受 `::1`、`0.0.0.0`、`::`。通配绑定用于容器等隔离环境；Host/Origin 校验仍按对应回环地址，其它 Host 需配 `public_url`。 |
 | `mcp.port` | integer 1–65535，必填 | `9444`。 |
 | `mcp.public_url` | 字符串，可选 | 反向代理 / TLS 终止后的受信对外地址，必须恰为 `https://host[:port]/mcp`（无凭据、查询或其它路径）。配置后 Gateway 额外接受 `Host` 为该主机的请求（及其 CORS 来源），其余 `Host` 仍被拒绝，也从不信任转发头；监听仍只在回环，仍需 Bearer。 |
 | Gateway `devices` | object，必填 | 含 `hostname`、`port`；WS `/connector`。 |
 | `devices.hostname` | string，必填 | `127.0.0.1`，也接受 `::1`、`0.0.0.0`、`::`；默认不接受远程设备。 |
 | `devices.port` | integer 1–65535，必填 | `9443`。 |
-| Gateway `management` | object，必填 | 含 `enabled`、`port`；本地 HTTP 管理页。 |
+| Gateway `management` | object，必填 | 含 `enabled`、`port` 与可选 `hostname`；本地 HTTP 管理页。 |
 | `management.enabled` | boolean，必填 | `true`；`false` 关闭该监听。启用不授予管理员身份。 |
-| `management.port` | integer 1–65535，关闭时也必填 | `9445`；监听地址固定 `127.0.0.1`。 |
+| `management.port` | integer 1–65535，关闭时也必填 | `9445`。 |
+| `management.hostname` | string，可选 | `127.0.0.1`，也接受 `0.0.0.0`（容器等隔离环境）。会话与 Host 校验仍按 `127.0.0.1` 来源。 |
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
 | Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |

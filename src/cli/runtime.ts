@@ -31,6 +31,8 @@ import type { CliRuntime, CliServiceHost } from './run.js'
 
 export type RuntimeCliManagement = Pick<ManagementWriteOptions, 'pairingPolicy' | 'providerEnable'> & {
   port: number
+  // 绑定地址缺省回环；通配只用于容器等隔离环境，通知的仍是规范回环地址。
+  hostname?: '127.0.0.1' | '0.0.0.0'
   // 只通知实际回环地址，不建立管理员身份、CSRF证明或执行许可。
   listening?(url: string): void
 } & (
@@ -137,6 +139,7 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
           })
           management = startManagementListener({
             port: options.port,
+            hostname: options.hostname,
             maxRequestBodySize: 16_384,
             handler: /* 同一listener挂现行读写handler，不复制管理协议或创建默认session。 */ (origin) => {
               const authentication = options.session
