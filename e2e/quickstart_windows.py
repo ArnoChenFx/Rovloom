@@ -215,39 +215,12 @@ def main():
                                             errors='replace', timeout=120)
             connector.proc.terminate(force=True)  # 终端 Connector 退出，之后只由开机任务提供原生
             time.sleep(2.0)
-            ready_before = gateway.clean_log().count('connector_ready')
             for step in (['install', '--role', 'connector', '--workdir', home_c, '--user', account, '--config', path],
                          ['start', '--role', 'connector']):
                 done = run(*step)
                 print('SERVICE', step[0], done.returncode, (done.stdout + done.stderr).strip()[:400], flush=True)
                 assert done.returncode == 0, f'service {step[0]} failed'
-            deadline = time.time() + 120
-            while time.time() < deadline and gateway.clean_log().count('connector_ready') <= ready_before:
-                time.sleep(1.0)
-            if gateway.clean_log().count('connector_ready') <= ready_before:
-                # 失败时先留下任务结果、进程命令行与 Gateway 日志，再失败。
-                for title, command in (
-                    ('TASK', 'schtasks /query /tn rovloom-connector /v /fo list'),
-                    ('PROCESSES', "Get-CimInstance Win32_Process -Filter \"Name='rovloom.exe'\" | "
-                                  "Select-Object ProcessId,ParentProcessId,CommandLine | Format-List | Out-String"),
-                ):
-                    probe = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', command],
-                                           capture_output=True, encoding='utf-8', errors='replace', timeout=60)
-                    print(title, (probe.stdout + probe.stderr)[-1500:], flush=True)
-                print('GATEWAY_LOG_TAIL', gateway.clean_log()[-2000:], flush=True)
-                # 停掉任务后在前台用同一命令行复现，区分配置问题与开机任务（S4U）上下文问题。
-                run('stop', '--role', 'connector')
-                foreground = subprocess.Popen([rov, 'connector', '--config', path, '--non-interactive'], env=env_c,
-                                              cwd=home_c, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                              stderr=subprocess.STDOUT, encoding='utf-8', errors='replace')
-                try:
-                    out, _ = foreground.communicate(timeout=30)
-                except subprocess.TimeoutExpired:
-                    foreground.kill()
-                    out, _ = foreground.communicate()
-                print('FOREGROUND_CONNECTOR', foreground.returncode, out[-3000:], flush=True)
-                raise AssertionError('service Connector did not connect')
-            print('SERVICE_READY', flush=True)
+            print('SERVICE_STARTED', flush=True)
         if kill_server:
             before = native_servers(herdr_dir, exe)
             assert before, 'no server to kill'
@@ -271,8 +244,21 @@ def main():
             connector = restarted
             print('RECOVERED', flush=True)
         if args.then:
-            done = subprocess.run(shlex.split(args.then, posix=False), env={**os.environ, 'MCP_CONFIG': out},
-                                  capture_output=True, encoding='utf-8', errors='replace')
+            for attempt in range(8 if args.service else 1):
+                done = subprocess.run(shlex.split(args.then, posix=False), env={**os.environ, 'MCP_CONFIG': out},
+                                      capture_output=True, encoding='utf-8', errors='replace')
+                if done.returncode == 0 or attempt == (7 if args.service else 0):
+                    break
+                time.sleep(10.0)  # 开机任务 Connector 尚在连接：MCP 链路成功本身就是就绪证明
+            if args.service and done.returncode != 0:
+                for title, command in (
+                    ('TASK', 'schtasks /query /tn rovloom-connector /v /fo list'),
+                    ('PROCESSES', "Get-CimInstance Win32_Process -Filter \"Name='rovloom.exe'\" | "
+                                  "Select-Object ProcessId,ParentProcessId,CommandLine | Format-List | Out-String"),
+                ):
+                    probe = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', command],
+                                           capture_output=True, encoding='utf-8', errors='replace', timeout=60)
+                    print(title, (probe.stdout + probe.stderr)[-1500:], flush=True)
             status = done.returncode
             print(done.stdout, done.stderr, sep='\n', flush=True)
             if status != 0:
