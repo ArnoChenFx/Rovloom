@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { toolchain } from '../bun/toolchain.mjs'
 import { buildWebui } from '../bun/webui.mjs'
 import { loadManagementAssets } from '../../src/admin/assets.ts'
-import { iconSource, writeWindowsIcon } from './icon.mjs'
+import { iconSizes, iconSource, writeWindowsIcon } from './icon.mjs'
 import { product } from './product.mjs'
 
 export const root = resolve(import.meta.dir, '../..')
@@ -154,7 +154,7 @@ export async function buildStandalone({
     sha256: sha256(readFileSync(binary)),
     icon: {
       source: iconSource,
-      size: 192,
+      sizes: iconSizes,
       sha256: sha256(readFileSync(iconSource)),
       configured: target.startsWith('bun-windows-') && process.platform === 'win32',
       resourceAcceptance: 'pending'
