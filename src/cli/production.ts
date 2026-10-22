@@ -154,16 +154,10 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
       let authority: ManagementSessionAuthority
       try {
         if (config.management_enabled && !sources.management) {
-          try {
-            readRuntimeJson(runtimeReference(config.state_dir, 'management'))
-            protectedManagement = openProtectedManagementSource(config, 'management')
-            if (protectedManagement.management.port !== config.management_port) {
-              throw new CliError('invalid_config')
-            }
-          } catch (error) {
-            if (!(error instanceof CliError) || error.code !== 'backend_unavailable') {
-              throw error
-            }
+          // 没有管理员文件时也启用受保护模式（零个管理员，登录前一律 401），rovloom admin create 之后无需重启。
+          protectedManagement = openProtectedManagementSource(config, 'management', { allowMissing: true })
+          if (protectedManagement.management.port !== config.management_port) {
+            throw new CliError('invalid_config')
           }
         }
         authority = createManagementSessionAuthority(caller.identities)
@@ -243,6 +237,9 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
             gateway.transport.disconnect(machine)
           }
         })
+        protectedManagement?.bindResources(
+          /* 管理员授权按 Store 当前设备/provider 生成。 */ () => state!.store.resources()
+        )
         const pairing = onboarding?.attach(state)
         const anonymousManagement: ProductionManagementHost | undefined =
           config.management_enabled && !protectedManagement && !sources.management

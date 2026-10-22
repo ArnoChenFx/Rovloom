@@ -100,13 +100,29 @@ Connector 仍要求 Linux。参见[平台可用性与状态检查](#平台可用
 首次 Luvus 设置要求 `data.directory` 路径加 `/n` 不超过52个 UTF-8 字节，
 如有需要，请在配对前选择更短的目录。
 
-没有 caller 状态的 Gateway 以**待配对**状态运行，MCP 返回 401，管理页不创建管理员
-会话。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
+没有 caller 状态的 Gateway 以**待配对**状态运行，MCP 返回 401，管理页在创建管理员之前
+每个请求都返回 401、无法登录（见下）。既有 MCP 接入仍使用为精确 `http://<MCP-host>:<port>/mcp` 资源签发的 Bearer；
 首次原生批准为精确审核 Target 创建一个本机 caller，Bearer 仅显示到已核验本地终端，
 原值由 Rovloom 私密保留；复制到 MCP 客户端秘密存储。
 默认有效期30天，可用 `rovloom token` 管理（见下）。设备凭据、
-MCP Bearer 与独立管理证明互不替代。既有管理认证仍使用独立 principal/proof，
-MCP Bearer 不能登录管理员；首次引导不创建管理 cookie 或默认管理员。
+MCP Bearer 与独立管理证明互不替代。管理页使用独立的管理员密码，MCP Bearer 不能登录管理员；
+首次引导不创建默认管理员，需要用 `rovloom admin create` 创建。
+
+### 管理页管理员
+
+```text
+rovloom admin create [--principal admin] [--ttl-days 30]
+rovloom admin list
+rovloom admin revoke [--principal admin]
+```
+
+管理页（默认 `http://127.0.0.1:9445/`）用 HTTP Basic 登录：用户名是管理员 ID（默认 `admin`），密码是
+`create` 写到 stdout 的那一串，**只显示一次**（其余信息写 stderr）。Gateway 只在 `managed/management.json`
+保存它的 SHA-256 摘要。创建、重新签发和撤销都**无需重启**：对已有 ID 重新 `create`（忘记密码时的做法）会替换密码，
+并使用旧密码已登录的浏览器会话立即失效；`revoke` 同样立即生效。管理员能查看并管理 Gateway 已知的全部设备和
+provider，包括之后才配对的。管理员不能调用 MCP：MCP 调用方注册表里对应的条目策略为空、令牌无人知晓，
+并且不出现在 `rovloom token list` 里。请在首次配对完成后再运行 `rovloom admin create`（它依赖配对创建的调用方注册表）。
+Docker 里用 `docker compose exec gateway rovloom admin create`。
 
 ### Bearer 令牌管理
 

@@ -7,6 +7,12 @@ import { providerScopeAllowed, validatePolicies } from '../wire/index.js'
 import type { AttemptBinding, ProviderBinding, ProviderPolicy, V2Target } from '../wire/types.js'
 import { isToolName, parseToolArguments } from './schema.js'
 import { publicCallView } from './call-view.js'
+import {
+  createManagementTransportProjection,
+  sampleManagementTransport,
+  type ManagementTransportProjection
+} from './transport-observations.js'
+import type { GatewayTransportObservationSource } from '../transport/observation.js'
 import { authorizedLuvusCatalog, type GatewayCatalog } from './native-catalog.js'
 import { authorizedProviderCatalog } from './provider-catalog.js'
 import {
@@ -34,6 +40,7 @@ import type {
   ManagementReply,
   ManagementGrant,
   ManagementPermission,
+  ManagementStatus,
   PermissionDecision,
   PermissionSnapshot,
   ProviderSnapshot
@@ -48,6 +55,8 @@ export type StoreGatewayOptions = {
   catalog?: GatewayCatalog
   /** 仅观察当前连接报告的本地开关；缺失为未知，不授予调用或读取权。 */
   terminalExecutionState?(binding: ProviderBinding): boolean | undefined
+  /** 实际 Gateway 传输的只读观测来源；缺失时连接、认证和 provider 就绪保持未核实。 */
+  transportObservations?: GatewayTransportObservationSource
   // 仅由实际组合器报告已装配的管理写能力；只读提示不得调用确认、签发或provider启用证明。
   managementCapabilities?(target: { machine_id: string; provider_id?: string }): readonly ManagementPermission[]
 }
@@ -524,12 +533,21 @@ export class StoreGatewayService implements GatewayService {
   }
 
   // 构建真实持久设备状态与明确未核实的现场状态，避免从数据库状态推断心跳、认证或设备 revision。
-  private deviceSnapshot(machine: string, now: number): DeviceSnapshot {
+  private observe(now: number, health: { mode: string; generation: string }) {
+    return createManagementTransportProjection(sampleManagementTransport(this.options.transportObservations), {
+      mode: health.mode as ManagementStatus['mode'],
+      server_time: now,
+      recovery_generation: health.generation,
+      stale_after_ms: 15000
+    })
+  }
+
+  private deviceSnapshot(machine: string, now: number, observed: ManagementTransportProjection): DeviceSnapshot {
     const row = this.options.store.machine(machine)
     if (!persistedStates.has(row.status)) {
       throw new FacadeServiceError('unavailable')
     }
-    return {
+    return observed.device({
       machine_id: row.machine_id,
       name: row.name,
       labels: null,
@@ -546,7 +564,7 @@ export class StoreGatewayService implements GatewayService {
               value: { state: row.status, last_failure: null }
             }
           : { verification: 'unverified', reason_code: 'backend_unavailable' }
-    }
+    })
   }
 
   // 管理面只输出词法安全的非秘密配置引用，绝不展开路径、环境或未核实的 native 信息。
@@ -620,6 +638,8 @@ export class StoreGatewayService implements GatewayService {
       const { principal, admin } = this.administrator(context)
       const now = this.options.store.clock()
       const health = this.options.store.health()
+      // 每次管理读取取一次传输观测，同一回复里的设备、provider 与状态汇总来自同一取样。
+      const observed = this.observe(now, health)
       if (name === 'status') {
         adminArguments(value, [])
         if (!this.allowed(admin, 'gateway_read')) {
@@ -636,8 +656,9 @@ export class StoreGatewayService implements GatewayService {
           history: null,
           components: {
             store: health.mode === 'active' ? 'available' : 'degraded',
-            transport: 'unavailable',
-            native: 'unavailable'
+            transport: observed.transport,
+            // 传输层的派发就绪不是原生运行观测：没有原生观测来源时如实报告 unverified。
+            native: 'unverified'
           }
         } as ManagementReply[K]
       }
@@ -679,7 +700,7 @@ export class StoreGatewayService implements GatewayService {
         ].sort()
         result = this.page(
           ids
-            .map(/* 从实际Store读取授权设备，不在页面层构造状态。 */ (id) => this.deviceSnapshot(id, now))
+            .map(/* 从实际Store读取授权设备，不在页面层构造状态。 */ (id) => this.deviceSnapshot(id, now, observed))
             .filter(
               /* 先完成授权和真实状态校验，再按持久状态筛选，不推测现场连接状态。 */ (device) =>
                 !args.states || (args.states as string[]).includes(device.persisted_state)
@@ -692,7 +713,7 @@ export class StoreGatewayService implements GatewayService {
         if (!this.allowed(admin, 'devices_read', machine)) {
           throw new FacadeServiceError('not_found')
         }
-        result = this.deviceSnapshot(machine!, now)
+        result = this.deviceSnapshot(machine!, now, observed)
       } else if (name === 'providers_list') {
         if (!this.allowed(admin, 'devices_read', machine)) {
           throw new FacadeServiceError('not_found')

@@ -1,6 +1,7 @@
 // 独立管理来源使用真实私有文件/摘要/authority；principal和既有批准均为明确合成fixture。
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { createHash } from 'node:crypto'
 import { chmodSync, statSync, unlinkSync } from 'node:fs'
 import { createManagementSessionAuthority } from '../../src/runtime/management-session.js'
 import { openCallerSource } from '../../src/cli/caller-source.js'
@@ -54,7 +55,7 @@ test(
 )
 
 test(
-  '管理来源字段与凭据摘要独立，普通权限不撤销cookie，内容变更或删除仍永久拒绝',
+  '管理来源字段与凭据摘要独立，普通权限不撤销cookie，自己的记录变更或删除仍永久拒绝',
   /** 使用正式caller和authority读取同一文件后端；不注入管理员成功回调。 */ async () => {
     if (process.platform !== 'linux') {
       return
@@ -74,7 +75,10 @@ test(
         assert(await authority.sessions.resolveCookie(cookie, new AbortController().signal))
         assert.equal(statSync(f.sourcePath).mode & 0o777, 0o644)
         if (mutation === 'changed') {
-          f.save(f.sourcePath, { ...f.source, pairing_policy_refs: ['changed'] })
+          f.save(f.sourcePath, {
+            ...f.source,
+            sessions: [{ ...f.source.sessions[0]!, credential_sha256: '1'.repeat(64) }]
+          })
         }
         if (mutation === 'missing') {
           unlinkSync(f.sourcePath)
@@ -83,7 +87,14 @@ test(
         f.save(f.sourcePath, f.source)
         chmodSync(f.sourcePath, 0o600)
         assert.equal(await authority.sessions.resolveCookie(cookie, new AbortController().signal), null)
-        assert.equal(await source.management.resolveLease(f.request(), new AbortController().signal), null)
+        const relogin = await source.management.resolveLease(f.request(), new AbortController().signal)
+        if (mutation === 'missing') {
+          // 文件被删除是永久关闭：恢复文件也不能让本轮来源复活。
+          assert.equal(relogin, null)
+        } else {
+          // 记录改动后旧 Cookie 已失效；还原为合法记录后，用原证明重新登录是一次新的认证。
+          assert(relogin)
+        }
       } finally {
         source.close()
         authority.close()
@@ -102,6 +113,140 @@ test(
       )
     } finally {
       f.close()
+    }
+  }
+)
+
+test(
+  'scope=all_devices 的管理员授权按 Store 当前设备与 provider 生成，新设备无需改文件即获授权',
+  /** 静态授权为空；资源枚举绑定后每个设备与 provider 都得到完整的管理动作，未绑定时没有任何设备授权。 */ () => {
+    return (async () => {
+      if (process.platform !== 'linux') {
+        return
+      }
+      const f = await managementSourceFixture()
+      try {
+        f.save(f.sourcePath, {
+          ...f.source,
+          sessions: [{ ...f.source.sessions[0]!, scope: 'all_devices', administrator: { ...f.admin, grants: [] } }]
+        })
+        const source = openProtectedManagementSource(f.config, 'management', { assets: f.assets })
+        try {
+          const caller = f.lease.caller
+          const ref = f.lease.management_session_ref
+          const bare = source.administrator(caller, ref)!
+          assert.deepEqual(bare.grants, [])
+          let machines = [{ machine_id: 'm_one', provider_ids: ['p_a'] }]
+          source.bindResources(() => machines)
+          const first = source.administrator(caller, ref)!.grants
+          assert(first.some((grant) => grant.action === 'gateway_read'))
+          for (const action of ['devices_read', 'devices_rename', 'devices_disconnect', 'devices_revoke']) {
+            assert(
+              first.some((grant) => grant.action === action && 'machine_id' in grant && grant.machine_id === 'm_one')
+            )
+          }
+          assert(
+            first.some(
+              (grant) => grant.action === 'providers_manage' && 'provider_id' in grant && grant.provider_id === 'p_a'
+            )
+          )
+          machines = [...machines, { machine_id: 'm_two', provider_ids: [] }]
+          const second = source.administrator(caller, ref)!.grants
+          assert(
+            second.some(
+              (grant) => grant.action === 'devices_read' && 'machine_id' in grant && grant.machine_id === 'm_two'
+            )
+          )
+          assert.throws(/** 资源来源只绑定一次。 */ () => source.bindResources(() => []), { code: 'invalid_config' })
+        } finally {
+          source.close()
+        }
+      } finally {
+        f.close()
+      }
+    })()
+  }
+)
+
+test(
+  '管理员记录热读：新增管理员立即可登录且不影响已登录者，移除记录立即撤销其 Cookie',
+  /** rovloom admin 对文件的合法修改无需重启；撤销只作用于被移除/改动的那条记录。 */ async () => {
+    if (process.platform !== 'linux') {
+      return
+    }
+    const f = await managementSourceFixture()
+    const source = openProtectedManagementSource(f.config, 'management', { assets: f.assets })
+    const caller = openCallerSource(f.callerPath, f.callers.resource, source.administrator)
+    const authority = createManagementSessionAuthority(caller.identities)
+    source.bindAuthority(authority)
+    try {
+      const signal = new AbortController().signal
+      const lease = await source.management.resolveLease(f.request(), signal)
+      assert(lease)
+      const cookie = authority.bootstrap(lease).cookie
+      assert(await authority.sessions.resolveCookie(cookie, signal))
+      const secret = 'SECOND_ADMIN_PROOF_'.padEnd(64, 's')
+      const second = {
+        ...f.source.sessions[0]!,
+        credential_sha256: createHash('sha256').update(secret).digest('hex'),
+        lease: { ...f.lease, caller: { principal_id: 'second_admin' }, management_session_ref: 'second_session' },
+        administrator: { ...f.admin, principal_id: 'second_admin', session_ref: 'second_session' }
+      }
+      f.save(f.sourcePath, { ...f.source, sessions: [...f.source.sessions, second] })
+      const login = f.request('Basic ' + Buffer.from('second_admin:' + secret).toString('base64'))
+      assert(await source.management.resolveLease(login, signal))
+      assert(await authority.sessions.resolveCookie(cookie, signal), '新增另一位管理员不影响已登录者')
+      f.save(f.sourcePath, { ...f.source, sessions: [second] })
+      assert.equal(await authority.sessions.resolveCookie(cookie, signal), null, '移除自己的记录立即撤销 Cookie')
+      assert.equal(await source.management.resolveLease(f.request(), signal), null)
+      assert(await source.management.resolveLease(login, signal), '其余管理员不受影响')
+      f.save(f.sourcePath, { ...f.source, sessions: [] })
+      assert.equal(await source.management.resolveLease(login, signal), null, '清空后没有任何管理员可登录')
+    } finally {
+      source.close()
+      authority.close()
+      caller.close()
+      f.close()
+    }
+  }
+)
+
+test(
+  'allowMissing：启动时没有来源文件按零管理员运行，创建后热读生效，出现过又被删除则永久关闭',
+  /** 新用户先启动 Gateway 再 rovloom admin create：无需重启；删除文件仍是永久撤销。 */ async () => {
+    if (process.platform !== 'linux') {
+      return
+    }
+    const f = await managementSourceFixture()
+    unlinkSync(f.sourcePath)
+    const source = openProtectedManagementSource(f.config, 'management', { assets: f.assets, allowMissing: true })
+    try {
+      const signal = new AbortController().signal
+      assert.equal(await source.management.resolveLease(f.request(), signal), null, '零管理员时任何口令都不能登录')
+      assert.equal(source.administrator(f.lease.caller, f.lease.management_session_ref), null)
+      f.save(f.sourcePath, f.source)
+      assert(await source.management.resolveLease(f.request(), signal), '文件出现后无需重启即可登录')
+      unlinkSync(f.sourcePath)
+      assert.equal(await source.management.resolveLease(f.request(), signal), null)
+      f.save(f.sourcePath, f.source)
+      assert.equal(
+        await source.management.resolveLease(f.request(), signal),
+        null,
+        '出现过又删除：永久关闭，恢复文件无效'
+      )
+    } finally {
+      source.close()
+      f.close()
+    }
+    // 默认（不允许缺失）时文件不存在仍是明确的配置错误。
+    const g = await managementSourceFixture()
+    try {
+      unlinkSync(g.sourcePath)
+      assert.throws(() => openProtectedManagementSource(g.config, 'management', { assets: g.assets }), {
+        code: 'backend_unavailable'
+      })
+    } finally {
+      g.close()
     }
   }
 )

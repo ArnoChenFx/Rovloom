@@ -15,6 +15,7 @@ import {
   summarize
 } from './token-registry.js'
 import type { CallerRegistry } from './token-registry.js'
+import { isAdminPlaceholder } from './admin-registry.js'
 
 export const TOKEN_HELP = `用法：
   rovloom token list [--config /absolute/path/gateway.json]
@@ -141,7 +142,11 @@ export async function handleTokenCommand(
     let next: CallerRegistry | undefined
     let issued: string | undefined
     if (flags.sub === 'list') {
-      for (const row of summarize(registry, at)) {
+      // 管理页管理员在注册表里的占位主体没有任何 MCP 权限，由 rovloom admin 管理，不在这里列出。
+      const placeholders = new Set(
+        registry.callers.filter((entry) => isAdminPlaceholder(entry)).map((entry) => entry.principal.id)
+      )
+      for (const row of summarize(registry, at).filter((entry) => !placeholders.has(entry.principal))) {
         io.stdout.write(
           [row.principal, row.status, new Date(row.expires_at).toISOString(), row.rotating ? 'rotating' : '-'].join(
             '\t'

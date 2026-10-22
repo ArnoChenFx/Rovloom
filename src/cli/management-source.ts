@@ -14,6 +14,8 @@ type Session = Readonly<{
   credential_sha256: string
   lease: ManagementSessionLease
   administrator: Administrator
+  // all_devices：管理员对 Store 里当前存在的每个设备与 provider 拥有完整管理权限，授权按现状生成而不逐个枚举。
+  scope?: 'all_devices'
 }>
 type Source = Readonly<{
   schema_version: 1
@@ -66,7 +68,6 @@ function parse(input: unknown, config: GatewayConfig): Source {
     (value.port as number) > 65_535 ||
     value.port === config.mcp_port ||
     !Array.isArray(value.sessions) ||
-    value.sessions.length < 1 ||
     value.sessions.length > 16 ||
     !Array.isArray(value.pairing_policy_refs) ||
     value.pairing_policy_refs.length > 32 ||
@@ -87,7 +88,10 @@ function parse(input: unknown, config: GatewayConfig): Source {
   const names = new Set<string>()
   for (const input of value.sessions) {
     const session = object(input)
-    fields(session, ['credential_sha256', 'lease', 'administrator'])
+    fields(session, ['credential_sha256', 'lease', 'administrator'], ['scope'])
+    if (session.scope !== undefined && session.scope !== 'all_devices') {
+      throw new CliError('invalid_config')
+    }
     const lease = object(session.lease)
     fields(lease, ['caller', 'management_session_ref', 'issued_at', 'expires_at'])
     const caller = object(lease.caller)
@@ -157,21 +161,36 @@ function proof(request: Request): { principal_id: string; sha256: Buffer } | nul
 export function openProtectedManagementSource(
   config: GatewayConfig,
   ref: string,
-  options: Readonly<{ now?: () => number; assets?: ManagementAssets }> = {}
+  options: Readonly<{ now?: () => number; assets?: ManagementAssets; allowMissing?: boolean }> = {}
 ) {
   const path = runtimeReference(config.state_dir, ref)
-  let source: Source
-  try {
-    source = parse(readRuntimeJson(path), config)
-  } catch (error) {
-    if (error instanceof CliError) {
-      throw error
+  // 允许启动时文件尚不存在：按“零个管理员”运行，rovloom admin create 写出文件后热读生效；文件出现过又被删除则永久关闭。
+  let seen = !options.allowMissing
+  const load = (): Source => {
+    try {
+      const value = readRuntimeJson(path)
+      seen = true
+      return parse(value, config)
+    } catch (error) {
+      if (options.allowMissing && !seen && error instanceof CliError && error.code === 'backend_unavailable') {
+        return {
+          schema_version: 1,
+          kind: 'management-session-source',
+          port: config.management_port,
+          sessions: [],
+          pairing_policy_refs: []
+        }
+      }
+      if (error instanceof CliError) {
+        throw error
+      }
+      throw new CliError('invalid_config')
     }
-    throw new CliError('invalid_config')
   }
-  const initial = boundedJson(source, 16_384)
+  let source: Source = load()
+  const port = source.port
   const now = options.now ?? Date.now
-  const origin = `http://127.0.0.1:${source.port}`
+  const origin = `http://127.0.0.1:${port}`
   let observed = 0
   let closed = false
   let authority: ManagementSessionAuthority | undefined
@@ -184,17 +203,50 @@ export function openProtectedManagementSource(
     observed = at
     return at
   }
-  const current = /** 每次认证、管理员读取及批准都重读同一受保护配置代次。 */ () => {
-    try {
-      time()
-      if (boundedJson(readRuntimeJson(path), 16_384) !== initial) {
+  // 记录发放租期时该管理员记录的指纹：之后记录被删除或任何字段变化，对应 Cookie 立即失效；其它记录或无关字段变化不影响它。
+  const issued = new Map<string, string>()
+  const fingerprint = (entry: Session) => boundedJson(entry, 16_384)
+  const key = (principal: string, ref: string) => boundedJson([principal, ref])
+  let resources: (() => readonly { machine_id: string; provider_ids: readonly string[] }[]) | undefined
+  const current =
+    /** 每次认证、管理员读取及批准都重读并重新校验受保护配置，rovloom admin 的修改无需重启即生效。 */ () => {
+      try {
+        time()
+        const latest = load()
+        if (latest.port !== port) {
+          throw new CliError('backend_unavailable', 3)
+        }
+        source = latest
+        return time()
+      } catch {
+        closed = true
         throw new CliError('backend_unavailable', 3)
       }
-      return time()
-    } catch {
-      closed = true
-      throw new CliError('backend_unavailable', 3)
     }
+  /** scope=all_devices 的管理员按 Store 当前的设备与 provider 生成授权；资源来源缺失时只保留静态授权。 */
+  const withScope = (entry: Session): Administrator => {
+    const admin = structuredClone(entry.administrator)
+    if (entry.scope !== 'all_devices' || !resources) {
+      return admin
+    }
+    const grants: ManagementGrant[] = [{ action: 'gateway_read' }, ...admin.grants]
+    for (const resource of resources()) {
+      for (const action of [
+        'devices_read',
+        'devices_rename',
+        'devices_disconnect',
+        'devices_revoke',
+        'permissions_read'
+      ] as const) {
+        grants.push({ action, machine_id: resource.machine_id })
+      }
+      for (const provider_id of resource.provider_ids) {
+        for (const action of ['providers_read', 'providers_manage'] as const) {
+          grants.push({ action, machine_id: resource.machine_id, provider_id })
+        }
+      }
+    }
+    return { ...admin, grants }
   }
   const session = /** 精确现有caller/session和固定期限，不按最近登录者选择管理员。 */ (
     caller: CallerIdentity,
@@ -215,13 +267,17 @@ export function openProtectedManagementSource(
   ): Administrator | null => {
     try {
       const found = session(caller, sessionRef)
-      return found && current() < found.lease.expires_at ? structuredClone(found.administrator) : null
+      const stamp = issued.get(key(caller.principal_id, sessionRef))
+      if (found && stamp !== undefined && fingerprint(found) !== stamp) {
+        return null
+      }
+      return found && current() < found.lease.expires_at ? withScope(found) : null
     } catch {
       return null
     }
   }
   const management: ProductionManagementHost = {
-    port: source.port,
+    port,
     bootstrap_challenge: 'basic',
     http: { assets: options.assets ?? loadProductManagementAssets() },
     resolveLease: /** 只认证实际同源根页面的独立证明；MCP Bearer、URL、普通header不建立租期。 */ async (
@@ -260,7 +316,11 @@ export function openProtectedManagementSource(
               at >= entry.lease.issued_at &&
               at < entry.lease.expires_at
           )
-          return found && !signal.aborted && current() < found.lease.expires_at ? structuredClone(found.lease) : null
+          if (!found || signal.aborted || current() >= found.lease.expires_at) {
+            return null
+          }
+          issued.set(key(found.lease.caller.principal_id, found.lease.management_session_ref), fingerprint(found))
+          return structuredClone(found.lease)
         } finally {
           supplied.sha256.fill(0)
         }
@@ -285,6 +345,14 @@ export function openProtectedManagementSource(
   return Object.freeze({
     administrator,
     management,
+    bindResources: /** Gateway 状态打开后绑定一次只读的设备/provider 枚举，用于 scope=all_devices 的动态授权。 */ (
+      value: NonNullable<typeof resources>
+    ) => {
+      if (closed || resources || typeof value !== 'function') {
+        throw new CliError('invalid_config')
+      }
+      resources = value
+    },
     bindAuthority: /** 唯一组合器只绑定一次原authority，不接受另一个会话库或重绑定。 */ (
       value: ManagementSessionAuthority
     ) => {

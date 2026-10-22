@@ -3,6 +3,16 @@
 本文定义内置管理页面、交互与管理 API；系统身份、授权、provider 生命周期、历史范围及恢复/预算规则以 [DESIGN](DESIGN.md)为唯一来源。实现差距与前置依赖见[issue 跟踪](https://github.com/ArnoChenFx/Rovloom/issues)，文档职责见[导航](README.md)。以下是目标契约，不表示 HTTP 服务与页面已交付。当前共享服务类型见 [management.ts](../src/mcp/management.ts)，
 实际 Store 只读接线与尚未开放的写端口见 [MCP/管理宿主契约](protocol/MCP-HTTP.md#实际-store-服务与独立管理接口)。
 
+## 产品中的实际接线
+
+- **登录**：管理页（默认 `http://127.0.0.1:9445/`）用 HTTP Basic，管理员由 `rovloom admin create` 创建（见[配置说明](CONFIGURATION-zh.md#管理页管理员)）。
+  Gateway 只保存口令的 SHA-256 摘要；来源文件每次认证重读，创建、重新签发、撤销无需重启；没有任何管理员时每个请求都是 401。
+  管理员对 Gateway 当前已知的全部设备和 provider 拥有管理权限（授权按 Store 现状生成，之后配对的设备自动纳入），不能调用 MCP。
+  一个管理员记录被删除或改动，对应浏览器会话在下一次请求即失效；文件曾存在后被删除则本轮永久拒绝。
+- **设备状态**：连接、认证和最近心跳来自 Gateway 实际传输的只读观测（`gateway_transport`），每层按自己的观测时间过期；没有观测的设备保持 unverified，
+  不由持久的 online 状态推断。传输层的派发就绪不是原生运行观测，因此 `Native` 与 provider 的运行状态如实显示 unverified。
+- **管理操作**：重命名、断开、撤销设备和禁用 provider 沿用两步确认与回执；在真实首次引导的 Gateway 上用真实 Chromium 验证过改名。
+
 ## 可本地验证的展示模块
 
 [展示入口](../src/webui/index.ts)提供无第三方 UI 依赖的列表/详情、分层状态和只读快照生命周期；
