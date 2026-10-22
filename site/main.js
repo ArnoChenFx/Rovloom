@@ -3,7 +3,7 @@ import { copy, commands, documents } from './content.js'
 
 let language = 'zh'
 let tab = 'cli'
-let node = 'gateway'
+let selectedNode = null
 let copyTimer
 const languageButton = document.querySelector('#language')
 const menuButton = document.querySelector('.menu-toggle')
@@ -11,6 +11,30 @@ const navigation = document.querySelector('#navigation')
 const code = document.querySelector('#command')
 const copyButton = document.querySelector('#copy-command')
 const copyStatus = document.querySelector('#copy-status')
+const nodeFlow = document.querySelector('#node-flow')
+
+function updateNodeFlow() {
+  const text = selectedNode ? copy[language][`map.${selectedNode}Flow`] : ''
+  if (nodeFlow.textContent === text) {
+    return
+  }
+  for (const animation of nodeFlow.getAnimations()) {
+    animation.cancel()
+  }
+  nodeFlow.textContent = text
+  if (text && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    nodeFlow.animate(
+      [
+        { opacity: 0, transform: 'translateY(3px)' },
+        { opacity: 1, transform: 'translateY(0)' }
+      ],
+      {
+        duration: 220,
+        easing: 'ease-out'
+      }
+    )
+  }
+}
 
 function updateCommands() {
   code.textContent = commands[tab][language]
@@ -40,8 +64,8 @@ function setLanguage(next) {
   document.title =
     language === 'zh' ? 'Rovloom — 一个 MCP 入口，连接你的每台电脑。' : 'Rovloom — Your machines. One connection.'
   document.querySelector('meta[name="description"]').content = copy[language]['meta.description']
-  document.querySelector('#node-detail').textContent = copy[language][`map.${node}Detail`]
   updateCommands()
+  updateNodeFlow()
   try {
     localStorage.setItem('rovloom-site-language', language)
   } catch {
@@ -72,15 +96,26 @@ document.addEventListener('keydown', (event) => {
 })
 languageButton.addEventListener('click', () => setLanguage(language === 'zh' ? 'en' : 'zh'))
 
-for (const button of document.querySelectorAll('[data-node]')) {
+// Keep the selected route and its call flow in sync across language changes.
+const topologyNodes = [...document.querySelectorAll('[data-node]')]
+const topologyRoutes = [...document.querySelectorAll('[data-highlight-route]')]
+for (const button of topologyNodes) {
   button.addEventListener('click', () => {
-    node = button.dataset.node
-    for (const item of document.querySelectorAll('[data-node]')) {
-      const selected = item === button
-      item.setAttribute('aria-pressed', String(selected))
-      item.classList.toggle('selected', selected)
+    const selected = button.getAttribute('aria-pressed') !== 'true'
+    for (const item of topologyNodes) {
+      const active = selected && item === button
+      item.setAttribute('aria-pressed', String(active))
+      item.classList.toggle('selected', active)
     }
-    document.querySelector('#node-detail').textContent = copy[language][`map.${node}Detail`]
+    const node = button.dataset.node
+    selectedNode = selected ? node : null
+    for (const route of topologyRoutes) {
+      const active =
+        selected &&
+        (node === 'gateway' || route.dataset.highlightRoute === 'agent' || route.dataset.highlightRoute === node)
+      route.classList.toggle('is-active', active)
+    }
+    updateNodeFlow()
   })
 }
 

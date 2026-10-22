@@ -16,16 +16,20 @@ export const copy = {
     'hero.start': '开始使用',
     'hero.how': '了解工作原理',
     'hero.meta': '自部署 · 保留本地工作流',
-    'map.label': 'YOUR MACHINES. ONE CONNECTION.',
     'map.agent': '你的 AI 客户端',
-    'map.gateway': '一个入口，清晰的目标',
-    'map.linux': 'Linux 工作站',
-    'map.windows': 'Windows 电脑',
-    'map.note': '连接拓扑示意 · 点击节点了解职责',
-    'map.gatewayDetail': 'Gateway 统一提供 MCP 接口、设备认证和调用路由。Runtime 不必迁移到这里。',
-    'map.agentDetail': '支持 Streamable HTTP 的 MCP 客户端，通过同一入口发现设备、选择实例并发起调用。',
-    'map.linuxDetail': 'Connector 主动出站连接 Gateway，附着本机 Herdr 会话，工作区与 Agent 登录仍在本机。',
-    'map.windowsDetail': 'Windows x64 Connector 连接本机 Luvus，通过命名管道核对对端，再桥接原生能力。',
+    'map.aria':
+      'AI 客户端通过 Gateway 连接个人电脑、VPS、Docker 容器与 Agent Sandbox 的部署场景示意（个人电脑包括 Linux、Windows 和 macOS）',
+    'map.pc': '个人电脑',
+    'map.pcPlatforms': 'Linux · Windows · macOS',
+    'map.vps': 'VPS',
+    'map.docker': 'Docker 容器',
+    'map.sandbox': 'Agent Sandbox',
+    'map.agentFlow': 'AI 客户端通过 MCP 连接 Gateway，选择工作环境并发起调用。',
+    'map.gatewayFlow': 'Gateway 校验请求，将调用路由到目标 Connector，再把执行结果返回客户端。',
+    'map.pcFlow': '请求经 Gateway 到达个人电脑的 Connector，调用本机 Luvus / Herdr 并返回结果。',
+    'map.vpsFlow': '请求经 Gateway 到达 VPS 的 Connector，在远程工作区执行并返回结果。',
+    'map.dockerFlow': '请求经 Gateway 和 Connector 到达容器工作区，执行结果沿原路径返回。',
+    'map.sandboxFlow': '请求经 Gateway 和 Connector 到达 Agent Sandbox，在沙箱工作区执行并返回结果。',
     'strip.label': '连接已有工具，不改变你的习惯',
     'strip.end': '为你自己的设备而造',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
@@ -60,7 +64,7 @@ export const copy = {
     'start.download': '下载最新版本',
     'start.docs': '打开快速开始',
     'start.platforms': 'Gateway：Linux / macOS / Windows',
-    'start.connector': 'Connector：Linux x64 / Windows x64',
+    'start.connector': 'Connector：Linux / Windows / macOS',
     'start.step1': '下载对应平台程序',
     'start.step2': '在终端完成配对',
     'start.step3': '连接 MCP 客户端',
@@ -85,7 +89,7 @@ export const copy = {
       '不需要。你自行部署 Gateway，Connector 在原设备访问本机会话。默认附着模式复用实际工作区与已有 Agent 登录；隔离 managed 模式需单独准备登录。',
     'faq.q3': '哪些平台可以使用？',
     'faq.a3':
-      'Gateway 提供 Linux、macOS、Windows 的 x64 / ARM64 二进制。原生 Connector 引导支持 Linux x64 和 Windows x64。Docker Gateway 支持原生 Linux AMD64 / ARM64；具体限制以快速开始为准。',
+      'Gateway 提供 Linux、macOS、Windows 的 x64 / ARM64 二进制。Connector 支持 Linux、Windows 和 macOS。Docker Gateway 支持原生 Linux AMD64 / ARM64。架构与安装要求见快速开始。',
     'faq.q4': '可以直接暴露到公网吗？',
     'faq.a4':
       '默认监听本机回环地址。跨设备部署应按配置文档设置可达的设备监听、HTTPS / WSS 反向代理与受信 MCP public_url，并保管好设备凭据和调用方 Bearer。',
@@ -98,7 +102,7 @@ export const copy = {
     'footer.issues': 'Issues',
     'footer.license': 'MIT 开源许可',
     'meta.description':
-      'Rovloom 为 Luvus 与 Herdr 提供跨设备 MCP 入口。自部署 Gateway，连接 Linux 和 Windows 上的本地工作区、会话与 Agent。'
+      'Rovloom 为 Luvus 与 Herdr 提供跨设备 MCP 入口。自部署 Gateway，连接多台机器上的本地工作区、会话与 Agent。'
   },
   en: {
     skip: 'Skip to content',
@@ -116,20 +120,24 @@ export const copy = {
     'hero.start': 'Get started',
     'hero.how': 'See how it works',
     'hero.meta': 'Self-hosted · Your local workflow',
-    'map.label': 'YOUR MACHINES. ONE CONNECTION.',
     'map.agent': 'Your AI client',
-    'map.gateway': 'One entry. Explicit targets.',
-    'map.linux': 'Linux workstation',
-    'map.windows': 'Windows desktop',
-    'map.note': 'Architecture illustration · Select a node to explore',
-    'map.gatewayDetail':
-      'Gateway brings together MCP access, device authentication and call routing. Your runtimes do not have to move here.',
-    'map.agentDetail':
-      'An MCP client supporting Streamable HTTP discovers machines, selects a runtime and makes calls through one entry point.',
-    'map.linuxDetail':
-      'Connector connects outbound to Gateway and attaches to a local Herdr session. Workspaces and Agent logins stay on the machine.',
-    'map.windowsDetail':
-      'Windows x64 Connector reaches local Luvus, verifies the named-pipe peer and bridges its native capabilities.',
+    'map.aria':
+      'Deployment illustration: an AI client connects through Gateway to personal computers (Linux, Windows, macOS), VPS, Docker containers and Agent Sandbox',
+    'map.pc': 'Personal computer',
+    'map.pcPlatforms': 'Linux · Windows · macOS',
+    'map.vps': 'VPS',
+    'map.docker': 'Docker container',
+    'map.sandbox': 'Agent Sandbox',
+    'map.agentFlow': 'The AI client connects to Gateway over MCP, selects a workspace and sends a call.',
+    'map.gatewayFlow': 'Gateway checks the request, routes it to the target Connector and returns the result.',
+    'map.pcFlow':
+      'Gateway routes the call to your computer’s Connector, which invokes local Luvus / Herdr and returns the result.',
+    'map.vpsFlow':
+      'Gateway routes the call to the VPS Connector, which runs it in the remote workspace and returns the result.',
+    'map.dockerFlow':
+      'The call reaches the container workspace through Gateway and Connector. Results return along the same path.',
+    'map.sandboxFlow':
+      'The call reaches Agent Sandbox through Gateway and Connector, runs in its workspace and returns the result.',
     'strip.label': 'Connect your tools. Keep your habits.',
     'strip.end': 'BUILT FOR YOUR OWN MACHINES',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
@@ -173,7 +181,7 @@ export const copy = {
     'start.download': 'Download latest release',
     'start.docs': 'Read the Quick Start',
     'start.platforms': 'Gateway: Linux / macOS / Windows',
-    'start.connector': 'Connector: Linux x64 / Windows x64',
+    'start.connector': 'Connector: Linux / Windows / macOS',
     'start.step1': 'Download your binary',
     'start.step2': 'Pair in a terminal',
     'start.step3': 'Connect your MCP client',
@@ -201,7 +209,7 @@ export const copy = {
       'No. You host Gateway, while Connector accesses sessions on their original machines. Default attachment reuses real workspaces and existing Agent logins; isolated managed instances need their own login setup.',
     'faq.q3': 'Which platforms are supported?',
     'faq.a3':
-      'Gateway has Linux, macOS and Windows binaries for x64 / ARM64. Native Connector setup supports Linux x64 and Windows x64. Docker Gateway targets native Linux AMD64 / ARM64. See the Quick Start for exact limits.',
+      'Gateway has Linux, macOS and Windows binaries for x64 / ARM64. Connector supports Linux, Windows and macOS. Docker Gateway targets native Linux AMD64 / ARM64. See the Quick Start for architecture and setup requirements.',
     'faq.q4': 'Can I expose it directly to the Internet?',
     'faq.a4':
       'Listeners bind to loopback by default. For cross-device access, follow the configuration guide for reachable device listeners, HTTPS / WSS reverse proxies and the trusted MCP public_url. Protect device credentials and caller Bearers.',
@@ -214,7 +222,7 @@ export const copy = {
     'footer.issues': 'Issues',
     'footer.license': 'MIT licensed',
     'meta.description':
-      'Rovloom brings cross-device MCP access to Luvus and Herdr. Self-host a Gateway and connect local workspaces, sessions and Agents on Linux and Windows.'
+      'Rovloom brings cross-device MCP access to Luvus and Herdr. Self-host a Gateway and connect local workspaces, sessions and Agents across your own machines.'
   }
 }
 

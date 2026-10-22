@@ -74,57 +74,107 @@
           <p class="hero-meta" data-i18n="hero.meta">{{hero.meta}}</p>
         </div>
         <div class="topology-block">
-          <div class="topology" role="group" aria-label="MCP client, Gateway and two Connector devices">
-            <p class="map-label" data-i18n="map.label">{{map.label}}</p>
-            <svg class="connections" viewBox="0 0 560 446" preserveAspectRatio="none" aria-hidden="true">
-              <path class="wire" d="M280 141V194"></path>
-              <path class="wire" d="M280 265V281Q280 296 265 296H145Q133 296 133 308V321"></path>
-              <path class="wire" d="M280 265V281Q280 296 295 296H415Q427 296 427 308V321"></path>
-              <circle class="packet packet-one" r="3" fill="currentColor">
-                <animateMotion dur="5s" repeatCount="indefinite" path="M280 141V194"></animateMotion>
+          <div class="topology" role="group" data-i18n-aria="map.aria" aria-label="{{map.aria}}">
+            <svg class="connections" viewBox="0 0 560 480" preserveAspectRatio="none" aria-hidden="true">
+              <path class="wire" data-route="agent" d="M280 116V170"></path>
+              <path class="wire" data-route="pc" d="M280 234V258H14V322H25"></path>
+              <path class="wire" data-route="docker" d="M280 234V258H14V410H25"></path>
+              <path class="wire" data-route="vps" d="M280 234V258H546V322H535"></path>
+              <path class="wire" data-route="sandbox" d="M280 234V258H546V410H535"></path>
+              <path class="active-route" data-highlight-route="agent" pathLength="1" d="M280 116V170"></path>
+              <path class="active-route" data-highlight-route="pc" pathLength="1" d="M280 234V258H14V322H25"></path>
+              <path class="active-route" data-highlight-route="docker" pathLength="1" d="M280 234V258H14V410H25"></path>
+              <path class="active-route" data-highlight-route="vps" pathLength="1" d="M280 234V258H546V322H535"></path>
+              <path
+                class="active-route"
+                data-highlight-route="sandbox"
+                pathLength="1"
+                d="M280 234V258H546V410H535"
+              ></path>
+              <circle class="packet" r="3" fill="currentColor">
+                <animateMotion dur="5s" repeatCount="indefinite" path="M280 116V170"></animateMotion>
               </circle>
               <circle class="packet" r="3" fill="currentColor">
-                <animateMotion
-                  dur="7s"
-                  repeatCount="indefinite"
-                  path="M133 321V308Q133 296 145 296H265Q280 296 280 281V265"
-                ></animateMotion>
+                <animateMotion dur="9s" repeatCount="indefinite" path="M25 410H14V258H280V234"></animateMotion>
+              </circle>
+              <circle class="packet" r="3" fill="currentColor">
+                <animateMotion dur="7s" repeatCount="indefinite" path="M535 322H546V258H280V234"></animateMotion>
               </circle>
             </svg>
-            <button class="map-node agent-node" type="button" data-node="agent" aria-pressed="false">
+            <button
+              class="map-node agent-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="agent"
+              aria-pressed="false"
+            >
               <span class="node-icon"
                 ><svg aria-hidden="true"><use href="#spark-icon"></use></svg></span
-              ><span class="node-copy"
-                ><strong data-i18n="map.agent">{{map.agent}}</strong><small>MCP CLIENT</small></span
-              ><svg class="node-corner arrow-icon" aria-hidden="true"><use href="#arrow-up-right"></use></svg>
+              ><span class="node-copy"><strong data-i18n="map.agent">{{map.agent}}</strong></span>
             </button>
-            <span class="wire-label mcp-label">STREAMABLE HTTP</span>
-            <button class="map-node gateway-node selected" type="button" data-node="gateway" aria-pressed="true">
+            <button
+              class="map-node gateway-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="gateway"
+              aria-pressed="false"
+            >
               <span class="gateway-mark"><img src="./assets/mark.png" alt="" width="34" height="34" /></span
-              ><span class="node-copy"
-                ><strong>Rovloom Gateway</strong><small data-i18n="map.gateway">{{map.gateway}}</small></span
-              ><svg class="node-corner arrow-icon" aria-hidden="true"><use href="#arrow-up-right"></use></svg>
+              ><span class="node-copy"><strong>Rovloom Gateway</strong></span>
             </button>
-            <span class="wire-label wss-label">OUTBOUND WSS</span>
-            <button class="map-node linux-node" type="button" data-node="linux" aria-pressed="false">
+            <button
+              class="map-node environment-node pc-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="pc"
+              aria-pressed="false"
+            >
               <span class="node-icon"
-                ><svg aria-hidden="true"><use href="#server-icon"></use></svg></span
-              ><span class="node-copy"
-                ><strong data-i18n="map.linux">{{map.linux}}</strong><small>CONNECTOR → HERDR</small></span
+                ><svg aria-hidden="true"><use href="#workspace-icon"></use></svg
+              ></span>
+              <span class="node-copy"
+                ><strong data-i18n="map.pc">{{map.pc}}</strong
+                ><small data-i18n="map.pcPlatforms">{{map.pcPlatforms}}</small></span
               >
             </button>
-            <button class="map-node windows-node" type="button" data-node="windows" aria-pressed="false">
+            <button
+              class="map-node environment-node vps-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="vps"
+              aria-pressed="false"
+            >
               <span class="node-icon"
-                ><svg aria-hidden="true"><use href="#window-icon"></use></svg></span
-              ><span class="node-copy"
-                ><strong data-i18n="map.windows">{{map.windows}}</strong><small>CONNECTOR → LUVUS</small></span
-              >
+                ><svg aria-hidden="true"><use href="#server-icon"></use></svg
+              ></span>
+              <span class="node-copy"><strong data-i18n="map.vps">{{map.vps}}</strong></span>
             </button>
-            <p class="map-caption" data-i18n="map.note">{{map.note}}</p>
+            <button
+              class="map-node environment-node docker-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="docker"
+              aria-pressed="false"
+            >
+              <span class="node-icon"
+                ><svg aria-hidden="true"><use href="#container-icon"></use></svg
+              ></span>
+              <span class="node-copy"><strong data-i18n="map.docker">{{map.docker}}</strong></span>
+            </button>
+            <button
+              class="map-node environment-node sandbox-node"
+              type="button"
+              aria-controls="node-flow"
+              data-node="sandbox"
+              aria-pressed="false"
+            >
+              <span class="node-icon"
+                ><svg aria-hidden="true"><use href="#sandbox-icon"></use></svg
+              ></span>
+              <span class="node-copy"><strong data-i18n="map.sandbox">{{map.sandbox}}</strong></span>
+            </button>
           </div>
-          <p id="node-detail" class="node-detail" aria-live="polite" data-i18n="map.gatewayDetail">
-            {{map.gatewayDetail}}
-          </p>
+          <p id="node-flow" class="node-flow" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
       </section>
       <div class="tool-strip wrap">
@@ -381,9 +431,12 @@
           <rect x="5" y="3" width="14" height="18" rx="2"></rect>
           <path d="M5 9h14M5 15h14M8 6h1M8 12h1M8 18h1"></path>
         </symbol>
-        <symbol id="window-icon" viewBox="0 0 24 24">
-          <rect x="4" y="4" width="16" height="16" rx="1"></rect>
-          <path d="M12 4v16M4 12h16"></path>
+        <symbol id="container-icon" viewBox="0 0 24 24">
+          <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3ZM4 7.5l8 4.5 8-4.5M12 12v9M8 5.3l8 4.5"></path>
+        </symbol>
+        <symbol id="sandbox-icon" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+          <path d="m9 8-4 4 4 4m6-8 4 4-4 4m-2-9-2 10"></path>
         </symbol>
         <symbol id="workspace-icon" viewBox="0 0 24 24">
           <rect x="3" y="4" width="18" height="15" rx="2"></rect>
