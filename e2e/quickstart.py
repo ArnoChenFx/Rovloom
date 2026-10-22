@@ -98,12 +98,18 @@ def main():
     ap.add_argument('--kill-luvus', action='store_true',
                     help='就绪后 kill -9 Luvus server：Connector 应自行重建并恢复调用')
     ap.add_argument('--crash', action='store_true', help='就绪后 kill -9 Connector 再重启，验证无需人工清理即可恢复')
+    ap.add_argument('--unknown-outcome', action='store_true',
+                    help='（Luvus）暂停原生后提交写调用并杀掉 Connector：调用必须收敛为 outcome_unknown，且不被重发')
+    ap.add_argument('--revoke', action='store_true',
+                    help='（Luvus）停止 Gateway 后经正式 Store 撤销设备再重启：调用被拒绝，Connector 不会就绪')
     ap.add_argument('--repair', action='store_true',
                     help='就绪后重新配对同一设备（rovloom gateway --repair-device + connector --repair）：旧凭据被替换，MCP 授权不变')
     ap.add_argument('--then', help='就绪后执行的命令，环境变量 MCP_CONFIG 指向连接信息')
     args = ap.parse_args()
     if bool(args.herdr) == bool(args.luvus):
         ap.error('exactly one of --herdr / --luvus is required')
+    if (args.unknown_outcome or args.revoke) and not args.luvus:
+        ap.error('--unknown-outcome / --revoke are Luvus scenarios')
     work = os.path.abspath(args.work or tempfile.mkdtemp(prefix='.rq-', dir=os.path.expanduser('~')))
     os.makedirs(work, mode=0o700, exist_ok=True)
     home_g, home_c, tools, herdr_dir = (os.path.join(work, n) for n in ('g', 'c', 'bin', 'hb'))
@@ -202,6 +208,42 @@ def main():
             restarted = Term('connector-restarted', [rov, 'connector'], env_c, home_c); terms.append(restarted)
             restarted.expect('provider_ready=true', timeout=60)
             print('RECOVERED', flush=True)
+        def faults(*step):
+            command = ['bun', '--no-env-file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'luvus-faults.mjs'), *step]
+            done = subprocess.run(command, env={**os.environ, 'MCP_CONFIG': out, 'LUVUS_WRITE': '{}'},
+                                  capture_output=True, text=True, timeout=300)
+            print(f'[faults {step[0]}]', (done.stdout + done.stderr).strip()[-600:], flush=True)
+            assert done.returncode == 0, f'faults {step[0]} failed'
+        if args.unknown_outcome:
+            marker = os.path.join(work, 'unknown.json')
+            servers = [str(pid) for pid, _ in luvus_servers(herdr_dir)]
+            assert servers, 'no Luvus server to pause'
+            faults('submit-write', marker, *servers)
+            connector.child.kill(); connector.child.wait(10)  # SIGKILL：写请求已发出但未应答
+            for pid in servers:
+                os.kill(int(pid), signal.SIGCONT)  # 旧原生恢复：它可能执行那一次旧请求，但 Gateway 不得再发第二次
+            restarted = Term('connector-restarted', [rov, 'connector'], env_c, home_c); terms.append(restarted)
+            restarted.expect('provider_ready=true', timeout=90)
+            faults('check-unknown', marker)
+            print('UNKNOWN_OUTCOME_OK', flush=True)
+        if args.revoke:
+            machine = info['targets'][0]['machine_id']
+            connector.stop(); gateway.stop()
+            faults('revoke', os.path.join(home_g, '.local', 'share', 'rovloom', 'gateway'), machine)
+            gateway = Term('gateway-restarted', [rov, 'gateway'], env_g, home_g); terms.append(gateway)
+            connector = Term('connector-revoked', [rov, 'connector'], env_c, home_c); terms.append(connector)
+            deadline = time.time() + 60
+            while True:
+                try:
+                    faults('check-revoked')
+                    break
+                except AssertionError:
+                    assert time.time() < deadline, 'Gateway never reported the device as revoked'
+                    time.sleep(2)
+            connector.pump(15.0)
+            assert 'provider_ready=true' not in ANSI.sub(b'', connector.log).decode('utf8', 'replace'), \
+                'revoked device must not become ready'
+            print('REVOKE_OK', flush=True)
         if args.repair:
             def credential_files():
                 return [os.path.join(root, f) for root, _, files in os.walk(home_c) for f in files if f == 'device.json']
