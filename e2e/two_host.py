@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """两台“机器”的 Quick Start 验收：Gateway 与 Connector 各在独立容器里，文件系统互不可见，只通过 Docker 网络上的真实 TCP 通信。
 
-- Gateway 容器：没有 Herdr，设备监听 0.0.0.0，MCP 经 mcp.public_url 发布到宿主回环端口；
+- Gateway 容器：没有 Herdr，设备监听 0.0.0.0，MCP 只在其回环上（客户端容器共享该网络命名空间）；
 - Connector 容器：带官方 Herdr，用容器 DNS 名 ws://rv-gw:9443 连接；
 - 配对仍在两个容器的真实 TTY（docker run -it，外面套 pty）里按 Quick Start 完成；
 - 之后用官方 MCP SDK 客户端从宿主走完整 Herdr 链路，并制造网络断开（docker network disconnect）与恢复。
@@ -44,14 +44,14 @@ def main():
     gateway_cfg = os.path.join(home_g, '.config', 'rovloom'); os.makedirs(gateway_cfg, mode=0o700, exist_ok=True)
     data_g = os.path.join(home_g, '.local', 'share', 'rovloom', 'gateway'); os.makedirs(data_g, mode=0o700, exist_ok=True)
     cfg = {'schema_version': 1, 'role': 'gateway', 'data': {'directory': '/home/rv/.local/share/rovloom/gateway'},
-           'mcp': {'hostname': '0.0.0.0', 'port': 9444, 'public_url': 'http://127.0.0.1:9444/mcp'},
+           'mcp': {'hostname': '127.0.0.1', 'port': 9444},
            'devices': {'hostname': '0.0.0.0', 'port': 9443}, 'management': {'enabled': True, 'port': 9445}}
     path_g = os.path.join(gateway_cfg, 'gateway.json')
     open(path_g, 'w').write(json.dumps(cfg, indent=2) + '\n'); os.chmod(path_g, 0o600)
     terms = []
     try:
         docker('network', 'create', net)
-        gateway_cmd = ['docker', 'run', '-it', '--rm', '--name', gw_name, '--network', net, '-p', '127.0.0.1:9444:9444',
+        gateway_cmd = ['docker', 'run', '-it', '--rm', '--name', gw_name, '--network', net,
                        *common, '-e', 'PATH=/usr/local/bin:/usr/bin:/bin', '-v', f'{home_g}:/home/rv', args.image, 'rovloom', 'gateway']
         connector_cmd = ['docker', 'run', '-it', '--rm', '--name', cn_name, '--network', net,
                          *common, '-e', 'PATH=/opt/herdr:/usr/local/bin:/usr/bin:/bin', '-v', f'{home_c}:/home/rv',
@@ -96,17 +96,24 @@ def main():
         out = os.path.join(work, 'mcp.json')
         open(out, 'w').write(json.dumps(info)); os.chmod(out, 0o600)
         print('READY', json.dumps({'mcp_url': info['url'], 'targets': info['targets']}), flush=True)
-        assert info['url'] == 'http://127.0.0.1:9444/mcp', info['url']
         # 隔离证据：Connector 容器的文件系统里没有 Gateway 的数据库，Gateway 容器里没有 Connector 的凭据。
         assert 'gateway.db' not in docker('exec', cn_name, 'sh', '-c', 'find /home/rv -name gateway.db').stdout
         assert docker('exec', gw_name, 'sh', '-c', 'find /home/rv -name device.json | head -1').stdout.strip() == ''
 
-        def mcp(step_args):
-            done = subprocess.run(step_args, env={**os.environ, 'MCP_CONFIG': out}, capture_output=True, text=True, timeout=400)
-            print('[mcp]', ' '.join(step_args[-2:]), (done.stdout + done.stderr).strip()[-500:], flush=True)
+        bun = os.path.realpath(shutil.which('bun'))
+        repo = os.path.dirname(HERE)
+
+        def mcp(script, *step):
+            # MCP 监听只在 Gateway 的回环上（设计如此，远程客户端经反向代理）。客户端容器与 Gateway 共享其网络命名空间，
+            # 等价于 Gateway 那台机器上的本机客户端；它看不到 Connector 的任何东西。
+            command = ['docker', 'run', '--rm', '--network', f'container:{gw_name}', '--user', uid_gid, '-e', 'HOME=/tmp',
+                       '-v', f'{bun}:/usr/local/bin/bun:ro', '-v', f'{repo}:/repo:ro', '-v', f'{out}:/mcp.json:ro',
+                       '-e', 'MCP_CONFIG=/mcp.json', '-w', '/repo', args.image, 'bun', '--no-env-file', f'e2e/{script}', *step]
+            done = subprocess.run(command, capture_output=True, text=True, timeout=400)
+            print('[mcp]', script, *step, (done.stdout + done.stderr).strip()[-500:], flush=True)
             assert done.returncode == 0, 'mcp step failed'
-        mcp(['bun', '--no-env-file', os.path.join(HERE, 'herdr-session.mjs')])
-        check = lambda step: mcp(['bun', '--no-env-file', os.path.join(HERE, 'two-host-check.mjs'), step])
+        mcp('herdr-session.mjs')
+        check = lambda step: mcp('two-host-check.mjs', step)
         # 网络断开：把 Connector 容器从网络上摘掉，Gateway 判离线，新调用立即不可用而不是悬挂；接回后自动恢复。
         docker('network', 'disconnect', net, cn_name)
         check('offline'); check('unavailable')
