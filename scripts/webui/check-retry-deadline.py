@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """真实生产页面跨确认截止仍保留原操作；仅使用显式临时 Store/handler，不接用户设备。"""
+import os
 import argparse
 import json
 from pathlib import Path
@@ -50,7 +51,7 @@ def main():
         errors.append(str(error))
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         for language, theme, width in [('en', 'light', 1280), ('zh-CN', 'dark', 320)]:
             for reconcile in [False, True]:
                 context = browser.new_context(locale=language, color_scheme=theme, viewport={'width': width, 'height': 900})

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """通过生产browser.js和临时Store/HTTP会话fixture验收provider禁用页面；不控制用户设备。"""
+import os
 import argparse
 import json
 from pathlib import Path
@@ -50,7 +51,7 @@ def main():
         """只收集浏览器运行时错误，不记录认证材料。"""
         errors.append(str(error))
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
+        browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'), headless=True)
         for language in ['en', 'zh-CN']:
             for theme in ['light', 'dark']:
                 for width in [1280, 320]:
