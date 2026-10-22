@@ -158,7 +158,7 @@ def main():
         if kind == 'herdr':
             cfg['native'] = {'provider': 'herdr'}
         if args.service:
-            cfg['data'] = {'directory': os.path.join(work, 'd')}
+            # 状态目录保持配对时的默认位置（配对后改 data.directory 会让服务找不到已保管凭据）；只显式写入 Herdr 目录。
             cfg.setdefault('native', {})['runtime_bin_dirs'] = [herdr_dir]
         open(path, 'w', encoding='utf-8').write(json.dumps(cfg, indent=2) + '\n')
 
@@ -245,7 +245,7 @@ def main():
                 except subprocess.TimeoutExpired:
                     foreground.kill()
                     out, _ = foreground.communicate()
-                print('FOREGROUND_CONNECTOR', out[-3000:], flush=True)
+                print('FOREGROUND_CONNECTOR', foreground.returncode, out[-3000:], flush=True)
                 raise AssertionError('service Connector did not connect')
             print('SERVICE_READY', flush=True)
         if kill_server:
