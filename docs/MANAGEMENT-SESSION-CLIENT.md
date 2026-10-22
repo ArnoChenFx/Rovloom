@@ -1,5 +1,7 @@
 # 管理会话适配与浏览器确认逻辑
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+
 本切片接在 [管理写服务](MANAGEMENT-WRITES.md) 的既有事务和 HTTP handler 上，语义沿用
 [DESIGN](DESIGN.md) 与 [GATEWAY-WEBUI](GATEWAY-WEBUI.md)。提供设备三动作、provider禁用、pending注册/配对/取消及原申请进度的
 可复用逻辑。生产 CLI 可接收既有受保护宿主的管理页面交付接口；默认入口不配置管理员或签发秘密。

@@ -10,10 +10,11 @@ Connect your AI Agent / AI Bot to local Luvus and Herdr runtimes across devices 
 Rovloom is designed around one Gateway and one outbound Connector per device,
 so runtimes stay on their own machines with a common entry point for AI Agent / AI Bot.
 
-**Availability:** Technical preview with a Linux/macOS/Windows Gateway and Linux x64
-Connector setup. Official binaries, installers and Linux Gateway Docker images
-are available; see the [Quick Start](docs/QUICK-START.md) and
-[Docker deployment](docs/DOCKER.md). First-pairing approval requires Linux;
+**Availability:** Technical preview with a Linux/macOS/Windows Gateway and a Linux x64 /
+Windows x64 Connector (it attaches to the Herdr / Luvus you already run). Official binaries,
+installers and Linux Gateway Docker images are available; see the [Quick Start](docs/QUICK-START.md)
+and [Docker deployment](docs/DOCKER.md). First pairing needs a real local terminal and currently
+pairs one Connector per Gateway ([#192](https://github.com/ArnoChenFx/Rovloom/issues/192));
 guided Agent/model login is not available yet.
 
 ## Core capabilities
@@ -73,6 +74,21 @@ flowchart TB
   CB -.->|"initiates outbound WSS"| GW
 ```
 
+## Typical use: two machines, one Agent
+
+Your workstation runs Herdr (or Luvus) with the workspaces and Agent logins you actually use.
+A small always-on host runs the Gateway. Your AI client talks to the Gateway over MCP and acts on the
+workstation's real sessions — the Connector on the workstation only dials out, so the workstation needs no
+inbound port, and nothing but the Gateway's one MCP endpoint is exposed.
+
+1. On the Gateway host: `rovloom gateway` (set `devices.hostname` so the workstation can reach it; put
+   HTTPS/WSS in front for anything beyond a trusted network).
+2. On the workstation: `rovloom connector`, enter the Gateway address and the one-time code.
+3. Add the Gateway's MCP URL and Bearer to your AI client, and ask it to list the machine's workspaces.
+
+Calls whose outcome is uncertain after a disconnect are reported as unknown and never resent automatically.
+The [operations guide](docs/OPERATIONS.md) covers tokens, the management page, re-pairing and troubleshooting.
+
 ## Quick start
 
 Follow the [Quick Start](docs/QUICK-START.md) for installation prerequisites,
@@ -90,6 +106,8 @@ rovloom --help
 ## Documentation
 
 - [Architecture and deployment](docs/DESIGN.md)
+- [Operations guide](docs/OPERATIONS.md) (中文)
+- [Protocol overview](docs/PROTOCOL.md) (中文)
 - [Runtime interfaces](docs/adr/0004-multi-runtime-provider.md)
 - [Roadmap (issues)](https://github.com/ArnoChenFx/Rovloom/issues)
 - [Management UI design](docs/GATEWAY-WEBUI.md)

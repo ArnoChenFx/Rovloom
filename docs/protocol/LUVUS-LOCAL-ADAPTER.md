@@ -1,5 +1,7 @@
 # Luvus 本地普通 RPC adapter
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](../DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](../README.md)，总览见 [协议总览](../PROTOCOL.md)）。
+
 本地 adapter 是尚未接入服务入口的模块，遵循现行
 [DESIGN](../DESIGN.md)、
 [Native contract](NATIVE-CONTRACT.md) 和 Wire v2。

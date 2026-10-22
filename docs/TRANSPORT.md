@@ -1,5 +1,7 @@
 # Gateway / Connector 通道接线
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+
 本模块是 Bun 的受信进程内 transport 接口，不是服务 CLI、身份服务或生产部署入口。
 语义以 [DESIGN](DESIGN.md) 为准，帧只使用现有 [Wire v2](protocol/WIRE-PROTOCOL.md)，
 账本接线复用 [Store/Router](STORAGE.md)。源码入口为 [transport](../src/transport/index.ts)。

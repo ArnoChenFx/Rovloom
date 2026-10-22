@@ -1,5 +1,7 @@
 # Gateway 文件与平台验收
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](README.md)，总览见 [协议总览](PROTOCOL.md)）。
+
 Gateway 的角色配置、managed JSON 和 SQLite 账本使用普通跨平台文件 API。
 访问遵循操作系统现有权限，程序不要求额外的 UID、mode 或 ACL 条件，不修改已有
 用户文件和目录的权限。正常文件及目录链接按平台规则解析。新建文件默认使用

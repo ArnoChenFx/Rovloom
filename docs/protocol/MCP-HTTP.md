@@ -1,5 +1,7 @@
 # MCP Streamable HTTP 与持久 CLI 宿主契约
 
+> 本文描述所属细节的现行实现；系统语义以 [DESIGN](../DESIGN.md) 为准，冲突时以 DESIGN 为准（导航见 [文档索引](../README.md)，总览见 [协议总览](../PROTOCOL.md)）。
+
 本文维护 `src/mcp`、`src/cli` 的接线边界；系统语义以 [DESIGN](../DESIGN.md#7-mcp-工具面)为准。
 模块属于内部技术预览。`StoreGatewayService` 与 `createStoreCliRuntime` 已接实际 Store/Router；
 独立 CLI 的 Gateway 打开真实 Store 和设备 transport；未配对时拒绝 MCP 身份。
