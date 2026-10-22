@@ -12,8 +12,8 @@ Rovloom 采用一个 Gateway、每设备一个主动出站 Connector 的架构�
 
 **当前可用范围：** Linux/macOS/Windows Gateway 与 Linux x64 / Windows x64 Connector（附着你已在运行的 Herdr / Luvus）的技术预览。
 已提供官方二进制、安装脚本和 Linux Gateway Docker 镜像，参见[快速开始](docs/QUICK-START-zh.md)
-与 [Docker 部署](docs/DOCKER-zh.md)。首次配对需要真实本地终端，目前一个 Gateway 引导式配对一台 Connector
-（[#192](https://github.com/ArnoChenFx/Rovloom/issues/192)）；Agent/模型登录引导尚不可用。
+与 [Docker 部署](docs/DOCKER-zh.md)。配对需要真实本地终端，更多设备用 `rovloom gateway --add-device` 逐台加入；
+Agent/模型登录引导尚不可用。
 
 ## 核心能力
 

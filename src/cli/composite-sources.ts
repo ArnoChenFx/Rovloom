@@ -101,11 +101,12 @@ export async function prepareMixedGateway(
       owner.resources.push(resource)
       prepared.push(resource)
     }
+    // 原生（Luvus）注册表最多一份；只有 Herdr 的 Gateway 可以没有它，此时每台设备各是一个中性会话组。
     const native = prepared.find(
       /** 选择原Luvus资源，不能把中性会话伪装成原生资源。 */ (resource) => resource.kind !== 'provider'
     )
     const hosts = prepared.filter(/** 保留中性provider的真实会话工厂。 */ (resource) => resource.kind === 'provider')
-    if (!native || native.kind === 'mixed' || hosts.length !== prepared.length - 1) {
+    if (native?.kind === 'mixed' || hosts.length !== prepared.length - (native ? 1 : 0) || prepared.length === 0) {
       throw new CliError('backend_unavailable', 3)
     }
     const hosted: GatewayHostedProviders[] = hosts.map(
@@ -142,7 +143,7 @@ export async function prepareMixedGateway(
     let runtime: RuntimeCliGateway | undefined
     return {
       kind: 'mixed',
-      providers: native.providers,
+      providers: native?.providers ?? [],
       hosted,
       management: management[0]?.management,
       catalog: {

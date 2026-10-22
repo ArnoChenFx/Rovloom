@@ -49,6 +49,8 @@ Herdr 自建端点目录按宿主 umask 为 0755 被 0700 门禁拒绝；Herdr �
 `--repair` 在就绪后重新配对同一设备（`rovloom gateway --repair-device` + `rovloom connector --repair`，均在 pty 里）：断言本机凭据文件被替换、
 `connector_ready` 再次出现，并用**未改变的 MCP Bearer** 跑 `--then` 链路（授权与原生设置不变）。
 
+`--second-device`（Herdr）在就绪后用 `rovloom gateway --add-device` 再配对第二台 Connector（独立 HOME），然后用 `two-devices-check.mjs`、原 Bearer 对两台设备各完成一次真实调用。
+
 ## 两台“机器”（独立容器、真实 TCP）
 
 `e2e/two_host.py`（CI：`.github/workflows/two-host.yml`）把 Gateway 和 Connector 放进两个 Docker 容器：各自独立的文件系统（互相看不到对方的数据目录、凭据和程序），

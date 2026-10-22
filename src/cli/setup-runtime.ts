@@ -22,7 +22,7 @@ export class CliSetup {
     const terminal = SetupTerminal.open(path, config, io)
     if (!terminal) {
       // 重新配对必须有已核验的本地终端；没有时明确拒绝，而不是悄悄按普通启动继续。
-      if (options?.repair) {
+      if (options?.repair || options?.addDevice) {
         throw new CliError('configuration_required')
       }
       return config
@@ -35,6 +35,14 @@ export class CliSetup {
         return config
       }
       return await setupConnector(config, terminal)
+    }
+    if (options?.addDevice) {
+      // 在已完成的引导之上加入下一台设备；没有任何引导记录时请直接运行 rovloom gateway 完成首次配对。
+      if (readSetupJson(runtimeReference(config.state_dir, 'setup-active')) === undefined) {
+        throw new CliError('configuration_required')
+      }
+      this.#gateway = new GatewaySetup(config, terminal, { addDevice: true })
+      return config
     }
     if (options?.repair) {
       // 只能重新配对引导式配对过的设备：必须已有 Gateway 的引导记录。
