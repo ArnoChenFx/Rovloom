@@ -117,7 +117,8 @@ Luvus setup, `data.directory` plus `/n` must fit within 52 UTF-8 bytes; select a
 shorter directory before pairing if necessary.
 
 A Gateway with no caller state runs in a **pairing required** state. MCP returns
-401 and the management page does not create an administrator session. Existing
+401 and the management page shows only its empty shell (no device data) until an
+administrator exists (see below). Existing
 MCP access still comes from a caller's already issued Bearer for the exact
 `http://<MCP-host>:<port>/mcp` resource. First native approval creates one local
 caller for the exact reviewed Target; its Bearer is displayed only to the verified
@@ -125,9 +126,29 @@ local terminal and retained privately by Rovloom. Copy it into
 the MCP client's secret storage. It expires after 30 days by default and is managed with
 `rovloom token` (see below). Device
 credentials, MCP Bearers and independent management proofs are distinct. Existing
-management authentication still uses its independent principal/proof; an MCP
-Bearer cannot log in as administrator; first setup creates no management cookie
-or default administrator.
+management authentication uses its own administrator password; an MCP
+Bearer cannot log in as administrator, and first setup creates no default
+administrator: you create one with `rovloom admin create`.
+
+### Managing the management-page administrator
+
+```text
+rovloom admin create [--principal admin] [--ttl-days 30]
+rovloom admin list
+rovloom admin revoke [--principal admin]
+```
+
+The management page (default `http://127.0.0.1:9445/`) signs in with HTTP Basic: the user name is
+the administrator ID (default `admin`) and the password is what `create` writes to stdout, **once**
+(everything else goes to stderr). Gateway keeps only its SHA-256 digest in
+`managed/management.json`. Creating, re-issuing and revoking take effect **without a restart**:
+re-issuing an existing ID (the way to recover a lost password) replaces its password and
+invalidates browser sessions already signed in with the old one; revoking does the same. An
+administrator may see and manage every device and provider the Gateway knows, including ones paired
+later. It can not call MCP: the matching entry in the MCP caller registry has an empty policy and a
+token nobody knows (and is hidden from `rovloom token list`). Run `rovloom admin create` after the
+first pairing completes, because it needs the caller registry that pairing creates. In Docker use
+`docker compose exec gateway rovloom admin create`.
 
 ### Managing Bearer tokens
 

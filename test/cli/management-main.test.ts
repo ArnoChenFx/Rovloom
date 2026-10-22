@@ -181,7 +181,10 @@ test(
         (await read('devices_get', { machine_id: f.target.machine_id }, new AbortController().signal)).name,
         'after_fixture'
       )
-      f.save(f.sourcePath, { ...f.source, pairing_policy_refs: ['revoked_generation'] })
+      f.save(f.sourcePath, {
+        ...f.source,
+        sessions: [{ ...f.source.sessions[0]!, credential_sha256: '2'.repeat(64) }]
+      })
       await assert.rejects(
         read('devices_get', { machine_id: f.target.machine_id }, new AbortController().signal),
         /unauthenticated/

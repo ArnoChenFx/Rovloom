@@ -32,8 +32,10 @@ export const HELP = `Rovloom ${PRODUCT_VERSION} — 内部技术预览
   rovloom connector [--config /absolute/path/config.json] [--non-interactive]
   rovloom service --help
   rovloom token --help
+  rovloom admin --help
 
 token 子命令管理 MCP Bearer 令牌（创建/续期/轮换/吊销，热生效），详见 token --help。
+admin 子命令管理管理页（HTTP Basic）管理员的签发与撤销，热生效，详见 admin --help。
 省略 --config 时分别读取 ~/.config/rovloom/gateway.json 或 connector.json；Windows 同样使用用户 home。
 角色文件读取、首次生成及Gateway运行支持Linux/macOS/Windows；原生Connector和首次配对审批支持Linux x64与Windows x64。
 显式 --config 优先。角色首次缺失配置时生成单份默认配置，不覆盖已有文件；无法确定home返回config_home_unavailable。
@@ -217,6 +219,10 @@ export async function runCli(
         return code
       }
       throw new CliError('invalid_arguments')
+    }
+    if (args[0] === 'admin') {
+      const { handleAdminCommand } = await import('./admin-command.js')
+      return await handleAdminCommand(args, io, environment)
     }
     if (args[0] === 'token') {
       const { handleTokenCommand } = await import('./token-command.js')

@@ -67,7 +67,8 @@ Rootless Docker 和 Docker Desktop 尚未作为部署目标验收。
 
 管理页位于 `http://127.0.0.1:9445/`，MCP 位于 `http://127.0.0.1:9444/mcp`。
 全新 Gateway 尚未配对：`healthy` 只说明监听已响应，未认证的 MCP 请求返回 401。
-继续按下文在终端完成配对。Connector 仍运行在安装 Luvus/Herdr 的受支持 Linux x64 主机上。
+在创建管理员之前管理页只是空壳（见[配置说明](CONFIGURATION-zh.md#管理页管理员)）。
+继续按下文在终端完成配对。Connector 运行在安装 Luvus/Herdr 的受支持 Linux x64 或 Windows x64 主机上。
 配置、备份与升级见 [Docker 部署](DOCKER-zh.md)；`docker compose down` 保留卷，
 `down -v` 会删除配置和数据。
 
@@ -156,6 +157,16 @@ Connector 在另一台设备时，先设置 Gateway `devices.hostname`，让它�
 配对码不是 MCP Bearer。Bearer 默认有效期30天，用 `rovloom token renew/rotate` 续期或轮换（见配置说明）。
 远程客户端需要管理员安排代理或隧道，才能访问 Gateway 的回环 MCP 监听。
 Rovloom 不是 stdio MCP 服务器。
+
+要使用管理页，配对完成后在 Gateway 主机上创建管理员：
+
+```sh
+rovloom admin create
+```
+
+打开 `http://127.0.0.1:9445/`，用户名 `admin`，密码是该命令输出的那一串（只显示一次）。页面显示每台已配对设备的
+连接、认证和最近心跳，并可重命名、断开或撤销设备、禁用 provider。忘记密码就再运行一次；`rovloom admin revoke`
+删除管理员。无需重启。
 
 等待客户端加载完服务器工具。让它列出已连接机器的工作区和窗格，再列出可用 Agent。
 需要选择设备/runtime/会话时，使用 Gateway 显示的选择。

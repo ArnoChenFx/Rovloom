@@ -71,8 +71,10 @@ Rootless Docker and Docker Desktop are not validated deployment targets.
 
 The management page is at `http://127.0.0.1:9445/`, and MCP at
 `http://127.0.0.1:9444/mcp`. A fresh Gateway is unpaired: `healthy` confirms the
-listener responds, and MCP returns 401 without authentication. Continue with
-the terminal pairing below. Run the Connector on the supported Linux x64 host
+listener responds, and MCP returns 401 without authentication. The management
+page stays an empty shell until you create an administrator (see
+[Configuration](CONFIGURATION.md#managing-the-management-page-administrator)). Continue with
+the terminal pairing below. Run the Connector on the supported Linux x64 or Windows x64 host
 that owns Luvus/Herdr. See [Docker deployment](DOCKER.md) for configuration,
 backup and upgrades; `docker compose down` keeps volumes, while `down -v`
 deletes configuration and data.
@@ -179,6 +181,17 @@ provided by the Gateway administrator for this endpoint. The pairing code is
 not the MCP Bearer. The Bearer expires after 30 days by default; use `rovloom token renew/rotate`
 (see Configuration). Remote clients need access to the Gateway's loopback MCP listener
 through the administrator's proxy or tunnel. Rovloom is not a stdio MCP server.
+
+To use the management page, create an administrator on the Gateway host after pairing:
+
+```sh
+rovloom admin create
+```
+
+Open `http://127.0.0.1:9445/` and sign in with user `admin` and the password printed (once) by
+that command. The page shows each paired device's connection, authentication and last heartbeat,
+and lets you rename, disconnect or revoke a device and disable a provider. Run the command again
+to re-issue a lost password; `rovloom admin revoke` removes the administrator. No restart needed.
 
 Let the client finish loading the server's tools. Ask it to list the connected
 machine's workspaces and panes, then its available Agents. If asked which

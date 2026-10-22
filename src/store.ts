@@ -508,6 +508,22 @@ export class Store {
   provider(machine: string, provider: string): ProviderBinding | undefined {
     return this.storedProvider(machine, provider)
   }
+  /** 只读枚举当前全部设备及其 provider，供管理员授权按现状生成；不含凭据，不修改任何状态。 */
+  resources(): { machine_id: string; provider_ids: string[] }[] {
+    const providers = this.db
+      .prepare('SELECT machine_id,provider_id FROM providers ORDER BY machine_id,provider_id')
+      .all() as {
+      machine_id: string
+      provider_id: string
+    }[]
+    const machines = this.db.prepare('SELECT machine_id FROM machines ORDER BY machine_id').all() as {
+      machine_id: string
+    }[]
+    return machines.map((row) => ({
+      machine_id: row.machine_id,
+      provider_ids: providers.filter((entry) => entry.machine_id === row.machine_id).map((entry) => entry.provider_id)
+    }))
+  }
   /** 复用原 provider SQL 与启用投影，私有批观察不调用宿主公开覆写。 */
   private storedProvider(machine: string, provider: string): ProviderBinding | undefined {
     const row = this.db.prepare('SELECT * FROM providers WHERE machine_id=? AND provider_id=?').get(machine, provider)
