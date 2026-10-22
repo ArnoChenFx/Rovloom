@@ -1,6 +1,7 @@
 # 构建上下文只含源码构建与运行所需文件；测试、站点与本地产物不进入上下文。
 **
 !Dockerfile
+!LICENSE
 !package.json
 !bun.lock
 !bunfig.toml

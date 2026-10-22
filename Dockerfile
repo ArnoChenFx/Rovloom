@@ -9,11 +9,12 @@ RUN bun --no-env-file run build \
     && rm -rf node_modules \
     && bun --no-env-file install --production --frozen-lockfile --ignore-scripts
 
-# 运行层：与构建层同一 Bun 版本，只接收 dist、生产依赖与健康检查脚本。
+# 运行层：使用同一 Bun 版本，携带产物、生产依赖、许可证与健康检查脚本。
 FROM docker.io/oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288
 ARG VERSION
 ARG COMMIT
 LABEL org.opencontainers.image.title="Rovloom" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.source="https://github.com/ArnoChenFx/rovloom" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}"
@@ -24,7 +25,7 @@ RUN groupadd --gid 10001 rovloom \
     && install -d -m 0700 -o 10001 -g 10001 /home/rovloom \
        /home/rovloom/.config /home/rovloom/.config/rovloom \
        /home/rovloom/.local /home/rovloom/.local/share /home/rovloom/.local/share/rovloom
-COPY --from=build /app/package.json /app/bun.lock ./
+COPY --from=build /app/package.json /app/bun.lock /app/LICENSE ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --chmod=0755 scripts/container/healthcheck.mjs /usr/local/bin/rovloom-healthcheck.mjs
