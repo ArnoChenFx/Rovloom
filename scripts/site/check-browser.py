@@ -29,8 +29,6 @@ def main():
         page.on('request', lambda request: requests.append(request.url))
         page.goto(base, wait_until='networkidle')
         page.screenshot(path=str(out / 'desktop.png'))
-        page.locator('[data-node=linux]').click()
-        assert 'Herdr' in page.locator('#node-detail').inner_text()
         for language in ['zh', 'en']:
             if page.locator('html').get_attribute('lang') != ('zh-CN' if language == 'zh' else 'en'):
                 page.locator('#language').click()
@@ -39,6 +37,46 @@ def main():
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (language, width)
                 for element in page.locator('img').all():
                     assert element.evaluate('(image) => image.complete && image.naturalWidth > 0')
+                nodes = page.locator('.map-node')
+                assert nodes.count() == 6
+                for element in nodes.all():
+                    assert element.evaluate('(node) => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight'), (language, width)
+                bounds = page.locator('.topology').bounding_box()
+                rectangles = [element.bounding_box() for element in nodes.all()]
+                for rect in rectangles:
+                    assert rect['x'] >= bounds['x'] and rect['y'] >= bounds['y'], (language, width, rect)
+                    assert rect['x'] + rect['width'] <= bounds['x'] + bounds['width'], (language, width, rect)
+                    assert rect['y'] + rect['height'] <= bounds['y'] + bounds['height'], (language, width, rect)
+                for index, a in enumerate(rectangles):
+                    for b in rectangles[index + 1:]:
+                        assert (a['x'] + a['width'] <= b['x'] or b['x'] + b['width'] <= a['x'] or
+                                a['y'] + a['height'] <= b['y'] or b['y'] + b['height'] <= a['y']), (language, width)
+            assert page.locator('.topology').get_attribute('role') == 'group'
+            for node in ['pc', 'vps', 'docker', 'sandbox', 'agent', 'gateway']:
+                button = page.locator(f'[data-node={node}]')
+                button.focus()
+                page.keyboard.press('Enter')
+                assert button.get_attribute('aria-pressed') == 'true'
+                assert page.locator('.map-node[aria-pressed=true]').count() == 1
+                routes = page.locator('.active-route').get_attribute('d')
+                assert page.locator('[data-route=agent]').get_attribute('d') in routes
+                if node != 'gateway' and node != 'agent':
+                    assert page.locator(f'[data-route={node}]').get_attribute('d') in routes
+                if node == 'gateway':
+                    for route in page.locator('[data-route]').all():
+                        assert route.get_attribute('d') in routes
+                page.keyboard.press('Space')
+                assert button.get_attribute('aria-pressed') == 'false'
+                assert page.locator('.active-route').get_attribute('d') == ''
+            button.blur()
+            assert 'macOS' in page.locator('.topology').get_attribute('aria-label')
+            if language == 'zh':
+                page.locator('.topology').screenshot(path=str(out / 'topology-desktop.png'))
+                page.locator('[data-node=sandbox]').click()
+                page.locator('[data-node=sandbox]').blur()
+                page.locator('.topology').screenshot(path=str(out / 'topology-selected.png'))
+                page.locator('[data-node=sandbox]').click()
+                page.locator('[data-node=sandbox]').blur()
         page.set_viewport_size({'width': 1440, 'height': 1050})
         page.locator('#language').click()
         page.locator('#tab-docker').click()
@@ -66,6 +104,7 @@ def main():
         page.screenshot(path=str(out / 'english.png'))
         page.set_viewport_size({'width': 390, 'height': 844})
         page.locator('#language').click()
+        page.locator('.topology').screenshot(path=str(out / 'topology-mobile.png'))
         page.evaluate('scrollTo(0, 0)')
         page.screenshot(path=str(out / 'mobile-full.png'), full_page=True)
         page.screenshot(path=str(out / 'mobile-hero.png'))
@@ -100,7 +139,8 @@ def main():
         assert all(request.startswith(base) for request in requests), requests
         report = {
             'languages': ['zh', 'en'], 'widths': [320, 375, 390, 768, 1024, 1440],
-            'checks': ['no overflow', 'local images', 'architecture interaction', 'keyboard tabs',
+            'checks': ['no overflow', 'local images', 'six topology nodes stay inside diagram without overlap',
+                       'localized topology labels and keyboard route selection', 'keyboard tabs',
                        'clipboard', 'language persistence', 'FAQ', 'mobile navigation', 'reduced motion',
                        'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests'],
             'pageErrors': errors

@@ -3,7 +3,6 @@ import { copy, commands, documents } from './content.js'
 
 let language = 'zh'
 let tab = 'cli'
-let node = 'gateway'
 let copyTimer
 const languageButton = document.querySelector('#language')
 const menuButton = document.querySelector('.menu-toggle')
@@ -40,7 +39,6 @@ function setLanguage(next) {
   document.title =
     language === 'zh' ? 'Rovloom — 一个 MCP 入口，连接你的每台电脑。' : 'Rovloom — Your machines. One connection.'
   document.querySelector('meta[name="description"]').content = copy[language]['meta.description']
-  document.querySelector('#node-detail').textContent = copy[language][`map.${node}Detail`]
   updateCommands()
   try {
     localStorage.setItem('rovloom-site-language', language)
@@ -72,15 +70,24 @@ document.addEventListener('keydown', (event) => {
 })
 languageButton.addEventListener('click', () => setLanguage(language === 'zh' ? 'en' : 'zh'))
 
-for (const button of document.querySelectorAll('[data-node]')) {
+// Trace the selected environment through Gateway without adding explanatory copy.
+const topologyNodes = [...document.querySelectorAll('[data-node]')]
+const topologyRoutes = [...document.querySelectorAll('[data-route]')]
+for (const button of topologyNodes) {
   button.addEventListener('click', () => {
-    node = button.dataset.node
-    for (const item of document.querySelectorAll('[data-node]')) {
-      const selected = item === button
-      item.setAttribute('aria-pressed', String(selected))
-      item.classList.toggle('selected', selected)
+    const selected = button.getAttribute('aria-pressed') !== 'true'
+    for (const item of topologyNodes) {
+      const active = selected && item === button
+      item.setAttribute('aria-pressed', String(active))
+      item.classList.toggle('selected', active)
     }
-    document.querySelector('#node-detail').textContent = copy[language][`map.${node}Detail`]
+    const node = button.dataset.node
+    const routes = selected
+      ? topologyRoutes.filter(
+          (route) => node === 'gateway' || route.dataset.route === 'agent' || route.dataset.route === node
+        )
+      : []
+    document.querySelector('.active-route').setAttribute('d', routes.map((route) => route.getAttribute('d')).join(' '))
   })
 }
 
