@@ -6,7 +6,7 @@ Rovloom 的 Docker 方案运行 **Gateway**，包含管理页和 MCP 服务。Lu
 
 ## 支持平台
 
-官方镜像为 `ghcr.io/arnochenfx/rovloom`，公开，可匿名拉取。支持原生 Linux rootful Docker Engine 的 `linux/amd64` 与 `linux/arm64`。Compose 使用 host 网络以保留产品的回环监听。不支持 rootless Engine 和 Docker Desktop。
+官方镜像为 `ghcr.io/arnochenfx/rovloom`，公开，可匿名拉取。支持原生 Linux rootful Docker Engine 的 `linux/amd64` 与 `linux/arm64`。Compose 使用 bridge 网络并把 Gateway 的三个端口发布到宿主机。rootless Engine 与 Docker Desktop 不在 CI 验收范围内。
 
 ## 从零启动 Gateway
 
@@ -35,7 +35,7 @@ docker compose ps
 
 `healthy` 只说明 MCP 认证监听已响应，不表示设备已配对、管理员已存在或 Agent 已就绪。日志中的 `pairing_required` 表示等待配对。
 
-host 网络直接使用主机端口，请保持这些端口空闲，不要另加 `ports` 映射。默认不开放公网监听。远程 Connector 需要你自行在前面放置标准 TLS 反向代理（见[网络访问](CONFIGURATION-zh.md#网络访问)）。
+首次生成的配置在容器内把三个监听都绑在回环上，发布端口此时只在容器内可达。把 `gateway.json` 里的 `mcp.hostname`、`devices.hostname` 与 `management.hostname` 改为 `0.0.0.0` 并重启（方法见下文“配置、停止与升级”），三个端口才经 Compose 映射对外可达；映射绑宿主机全部网卡，按需用宿主机防火墙收口。远程 Connector 需要你自行在前面放置标准 TLS 反向代理（见[网络访问](CONFIGURATION-zh.md#网络访问)）。
 
 ## 首次配对
 
@@ -88,4 +88,4 @@ Connector 应运行在 Luvus/Herdr 所在的 Linux x64 主机上。它要核验�
 
 ## 镜像构建
 
-镜像由发行流程基于已发布的 Linux 二进制构建并推送到 GHCR。维护者见 [DISTRIBUTION](DISTRIBUTION.md)。
+镜像由容器工作流用官方 Bun 镜像（`oven/bun`，固定 digest）从源码构建，在产品发行成功后推送到 GHCR。维护者见 [DISTRIBUTION](DISTRIBUTION.md)。

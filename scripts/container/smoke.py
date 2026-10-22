@@ -8,6 +8,8 @@ import tempfile
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 import uuid
 
 
@@ -32,16 +34,31 @@ def healthy(name):
     raise RuntimeError('container_health_timeout')
 
 
+# 用镜像内 Bun 的 fetch 访问指定地址；非200或缺少必需文本即失败，正文只留在本测试进程内存。
+def fetch_in_container(name, url, needle=None):
+    code = ("await (async()=>{ const r=await fetch(process.env.FETCH_URL);"
+            "if (r.status!==200) process.exit(1);"
+            "const t=await r.text();"
+            "if (process.env.FETCH_NEEDLE && !t.includes(process.env.FETCH_NEEDLE)) process.exit(1);"
+            "console.log(t); })().catch(()=>process.exit(1))")
+    result = subprocess.run(['docker', 'exec', '-e', 'FETCH_URL=' + url,
+                             '-e', 'FETCH_NEEDLE=' + (needle or ''), name,
+                             'bun', '--no-env-file', '-e', code],
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode:
+        raise RuntimeError('container_fetch_failed')
+    return result.stdout
+
+
 # 仅访问本容器回环MCP和管理页；所有输出留在本测试进程内存。
 def check_gateway(name):
     assert command('exec', name, 'id', '-u') == '10001'
     assert command('exec', name, 'stat', '-c', '%a:%u', '/home/rovloom/.config/rovloom/gateway.json') == '600:10001'
-    html = command('exec', name, 'curl', '--noproxy', '*', '--fail', '--silent', 'http://127.0.0.1:9445/')
+    html = fetch_in_container(name, 'http://127.0.0.1:9445/')
     assert 'browser.js' in html and 'manage.css' in html
     assert 'rovloom-management-bootstrap' not in html
     for resource in ['browser.js', 'theme.js', 'manage.css', 'rovloom-mark-transparent.png', 'rovloom-logo.png']:
-        command('exec', name, 'curl', '--noproxy', '*', '--fail', '--silent', '--output', '/dev/null',
-                'http://127.0.0.1:9445/' + resource)
+        fetch_in_container(name, 'http://127.0.0.1:9445/' + resource)
     command('exec', name, 'test', '-s', '/home/rovloom/.local/share/rovloom/gateway/gateway.db')
     config = command('exec', name, 'cat', '/home/rovloom/.config/rovloom/gateway.json')
     parsed = json.loads(config)
@@ -54,8 +71,7 @@ def check_gateway(name):
 
 
 # 每个名称都由本进程随机生成；finally只删除自己创建的容器和卷。
-def smoke(image, sha256, version):
-    assert re.fullmatch(r'[0-9a-f]{64}', sha256)
+def smoke(image, version):
     suffix = uuid.uuid4().hex
     name = 'rovloom-container-smoke-' + suffix
     config_volume = name + '-config'
@@ -73,11 +89,11 @@ def smoke(image, sha256, version):
         created = True
         assert command('inspect', '--format', '{{.Config.User}}', name) == '10001:10001'
         assert command('inspect', '--format', '{{.Config.Tty}}:{{.Config.OpenStdin}}', name) == 'false:false'
-        # 仅以Docker exec读取准确字节摘要；版本使用同一个已编译产品的固定诊断通道。
+        # 版本使用与镜像入口同一 dist 产物的固定诊断通道。
         command('start', name)
         healthy(name)
-        assert command('exec', name, 'sha256sum', '/usr/local/bin/rovloom').split()[0] == sha256
-        result = subprocess.run(['docker', 'exec', name, '/usr/local/bin/rovloom', '--version'],
+        result = subprocess.run(['docker', 'exec', name, 'bun', '--no-env-file',
+                                 '/app/dist/src/cli/main.js', '--version'],
                                 capture_output=True, text=True, timeout=5)
         assert result.returncode == 0 and result.stdout == '' and result.stderr == 'Rovloom ' + version + '\n'
         before = check_gateway(name)
@@ -96,7 +112,7 @@ def smoke(image, sha256, version):
                                'Gateway is running; complete local pairing and native setup before using an Agent.\n'
                                'Gateway 已启动；使用 Agent 前仍需完成本地配对和原生初始化。\n')
         assert logs.returncode == 0 and logs.stdout == '' and logs.stderr == expected_diagnostic * 2
-        return {'scope': 'native-linux-container', 'user': 10001, 'binary': 'exact', 'gateway': 'unpaired',
+        return {'scope': 'native-linux-container', 'user': 10001, 'runtime': 'bun-dist', 'gateway': 'unpaired',
                 'mcpAuthentication': 'required', 'embeddedWebui': 'pass', 'persistentVolumes': 'pass',
                 'gracefulRestart': 'pass', 'nativeProviderExecution': 'not-exercised'}
     finally:
@@ -106,8 +122,19 @@ def smoke(image, sha256, version):
             command('volume', 'rm', volume)
 
 
+# 从宿主机读取发布端口的HTTP状态；连接失败返回None，不把未监听误报为某个状态码。
+def host_status(url):
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+    except Exception:
+        return None
+
+
 # 真实Compose路径仅在rootful原生Linux Engine验收；临时项目和卷不触及用户部署。
-def compose_smoke(image, sha256, compose_path):
+def compose_smoke(image, compose_path):
     security = json.loads(command('info', '--format', '{{json .SecurityOptions}}'))
     assert not any('rootless' in option for option in security)
     project = 'rovloom-compose-smoke-' + uuid.uuid4().hex
@@ -125,13 +152,24 @@ def compose_smoke(image, sha256, compose_path):
             compose('up', '--detach', timeout=45)
             container = compose('ps', '--all', '--quiet', 'gateway')
             assert re.fullmatch(r'[0-9a-f]{64}', container)
-            assert command('inspect', '--format', '{{.HostConfig.NetworkMode}}', container) == 'host'
+            network_mode = command('inspect', '--format', '{{.HostConfig.NetworkMode}}', container)
+            assert network_mode != 'host' and network_mode.endswith('_rovloom')
             healthy(container)
             check_gateway(container)
-            assert command('exec', container, 'sha256sum', '/usr/local/bin/rovloom').split()[0] == sha256
+            # 按文档的配置编辑流程在卷内把三个监听改为通配绑定；原文件权限与属主保持不变。
+            edit = ("const p='/home/rovloom/.config/rovloom/gateway.json';"
+                    "const d=JSON.parse(await Bun.file(p).text());"
+                    "d.mcp.hostname='0.0.0.0'; d.devices.hostname='0.0.0.0'; d.management.hostname='0.0.0.0';"
+                    "await Bun.write(p, JSON.stringify(d,null,2)+'\n')")
+            command('exec', container, 'bun', '--no-env-file', '-e', edit)
+            compose('restart', '--timeout', '10', 'gateway', timeout=30)
+            healthy(container)
+            # bridge验收的落点在宿主机侧：发布端口必须经端口映射真实可达。
+            assert host_status('http://127.0.0.1:9444/mcp') == 401
+            assert host_status('http://127.0.0.1:9445/') == 200
             compose('stop', '--timeout', '10', timeout=15)
             assert command('inspect', '--format', '{{.State.ExitCode}}:{{.State.OOMKilled}}', container) == '0:false'
-            return {'scope': 'native-rootful-linux-compose', 'gateway': 'unpaired', 'hostLoopback': 'pass',
+            return {'scope': 'native-rootful-linux-compose', 'gateway': 'unpaired', 'bridgePublished': 'pass',
                     'persistentVolumes': 'pass', 'gracefulShutdown': 'pass'}
         finally:
             compose('down', '--volumes', '--remove-orphans', timeout=30)
@@ -140,10 +178,9 @@ def compose_smoke(image, sha256, compose_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('image')
-    parser.add_argument('sha256')
     parser.add_argument('version')
     parser.add_argument('--compose')
     args = parser.parse_args()
-    print(json.dumps(smoke(args.image, args.sha256, args.version)))
+    print(json.dumps(smoke(args.image, args.version)))
     if args.compose:
-        print(json.dumps(compose_smoke(args.image, args.sha256, args.compose)))
+        print(json.dumps(compose_smoke(args.image, args.compose)))

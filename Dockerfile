@@ -1,28 +1,37 @@
-# 同一多架构基础清单固定到公开摘要；运行层只接收已校验的独立产品二进制。
-FROM docker.io/library/buildpack-deps:bookworm-curl@sha256:a74523d7cca2436f4e3b6f5e47049d1830efbf473c33ebdf5a666f6f77425ebf
+# 构建层：用 Bun 官方镜像按锁文件安装依赖，并把 TypeScript 源码编译为 dist JS。
+FROM docker.io/oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 AS build
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun --no-env-file install --frozen-lockfile --ignore-scripts
+COPY . .
+# 编译后重装为仅生产依赖，运行层不带 TypeScript 等开发依赖。
+RUN bun --no-env-file run build \
+    && rm -rf node_modules \
+    && bun --no-env-file install --production --frozen-lockfile --ignore-scripts
+
+# 运行层：与构建层同一 Bun 版本，只接收 dist、生产依赖与健康检查脚本。
+FROM docker.io/oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288
 ARG VERSION
 ARG COMMIT
-ARG BINARY_SHA256
 LABEL org.opencontainers.image.title="Rovloom" \
       org.opencontainers.image.source="https://github.com/ArnoChenFx/rovloom" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${COMMIT}" \
-      io.rovloom.binary.sha256="${BINARY_SHA256}"
-# 固定基础镜像已包含curl、CA和libstdc++，构建不在线安装系统包。
-RUN curl --version >/dev/null \
-    && groupadd --gid 10001 rovloom \
+      org.opencontainers.image.revision="${COMMIT}"
+WORKDIR /app
+# 创建运行用户及配置、数据目录；命名卷首次挂载时继承此属主与权限。
+RUN groupadd --gid 10001 rovloom \
     && useradd --uid 10001 --gid 10001 --home-dir /home/rovloom --no-create-home rovloom \
     && install -d -m 0700 -o 10001 -g 10001 /home/rovloom \
        /home/rovloom/.config /home/rovloom/.config/rovloom \
        /home/rovloom/.local /home/rovloom/.local/share /home/rovloom/.local/share/rovloom
-COPY --chmod=0755 dist/container/rovloom /usr/local/bin/rovloom
-COPY --chmod=0755 scripts/container/healthcheck.sh /usr/local/bin/rovloom-healthcheck
-RUN test -n "$BINARY_SHA256" \
-    && printf '%s  /usr/local/bin/rovloom\n' "$BINARY_SHA256" | sha256sum --check --status
+COPY --from=build /app/package.json /app/bun.lock ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY --chmod=0755 scripts/container/healthcheck.mjs /usr/local/bin/rovloom-healthcheck.mjs
 ENV HOME=/home/rovloom ROVLOOM_HEALTH_PORT=9444
 USER 10001:10001
-WORKDIR /home/rovloom
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=10s --timeout=4s --start-period=10s --retries=3 CMD ["/usr/local/bin/rovloom-healthcheck"]
-ENTRYPOINT ["/usr/local/bin/rovloom"]
+# 健康检查脚本用 Bun 的 fetch 请求本机 MCP 端点，不依赖 curl。
+HEALTHCHECK --interval=10s --timeout=4s --start-period=10s --retries=3 CMD ["bun", "/usr/local/bin/rovloom-healthcheck.mjs"]
+ENTRYPOINT ["bun", "--no-env-file", "/app/dist/src/cli/main.js"]
 CMD ["gateway"]

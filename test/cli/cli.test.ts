@@ -85,7 +85,7 @@ test(
     const connector = configTemplate('connector')
     const gateway = configDocument(configTemplate('gateway'))
     for (const invalid of [
-      { ...gateway, mcp: { hostname: '0.0.0.0', port: 9444 } },
+      { ...gateway, mcp: { hostname: 'localhost', port: 9444 } },
       { ...gateway, devices: { hostname: 'localhost', port: 9443 } },
       { ...gateway, devices: { hostname: '127.0.0.1', port: 9444 } },
       { ...gateway, management: { enabled: true, port: 9443 } },
@@ -98,6 +98,17 @@ test(
     }
     const disabled = { ...gateway, management: { enabled: false, port: 9555 } }
     assert.deepEqual(configDocument(parseConfig(disabled)), disabled)
+    // 通配绑定是显式可选的隔离环境配置，解析与序列化往返保持原值；管理面只多接受 0.0.0.0。
+    const wildcard = {
+      ...gateway,
+      mcp: { hostname: '0.0.0.0', port: 9444 },
+      management: { enabled: true, hostname: '0.0.0.0', port: 9445 }
+    }
+    assert.deepEqual(configDocument(parseConfig(wildcard)), wildcard)
+    assert.throws(
+      /* 管理面不接受 IPv6 或具名地址。 */ () =>
+        parseConfig({ ...gateway, management: { enabled: true, hostname: '::1', port: 9445 } })
+    )
     assert.throws(/* 旧扁平用户格式不再接受，也不提供隐式迁移。 */ () => parseConfig(configTemplate('gateway')))
     for (const gateway_url of [
       `wss://user:${marker}@localhost:9443`,

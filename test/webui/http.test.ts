@@ -85,9 +85,16 @@ test(
       /management_authentication_required/u
     )
     assert.throws(
-      /* 禁止通配符监听。 */ () => startManagementReadListener({ ...options(), port: 0, hostname: '0.0.0.0' } as never),
+      /* 非回环且非通配的地址仍禁止。 */ () =>
+        startManagementReadListener({ ...options(), port: 0, hostname: '192.0.2.1' } as never),
       /management_listener_invalid/u
     )
+    const wildcard = startManagementReadListener({ ...options(), port: 0, hostname: '0.0.0.0' })
+    try {
+      assert.match(wildcard.url, /^http:\/\/127\.0\.0\.1:\d+$/u)
+    } finally {
+      wildcard.stop()
+    }
     assert.throws(
       /* handler 也不允许公网来源。 */ () =>
         createManagementReadHandler({ ...options(), origin: 'http://example.com' }),

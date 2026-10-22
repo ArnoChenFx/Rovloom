@@ -6,7 +6,7 @@ The Docker setup runs the **Gateway**, including its management page and MCP ser
 
 ## Supported platforms
 
-The official image is `ghcr.io/arnochenfx/rovloom`. It is public and can be pulled anonymously. It supports native Linux rootful Docker Engine on `linux/amd64` and `linux/arm64`. The Compose file uses host networking to keep the product's loopback listeners. Rootless Engine and Docker Desktop are not supported.
+The official image is `ghcr.io/arnochenfx/rovloom`. It is public and can be pulled anonymously. It supports native Linux rootful Docker Engine on `linux/amd64` and `linux/arm64`. The Compose file uses a bridge network and publishes the Gateway's three ports on the host. Rootless Engine and Docker Desktop are not covered by CI acceptance.
 
 ## Start a Gateway
 
@@ -35,7 +35,7 @@ Default local endpoints:
 
 `healthy` means the MCP authentication listener responds. It does not mean a device is paired, an administrator exists or an Agent is ready. The `pairing_required` log line means setup is pending.
 
-Host networking uses the host's ports directly. Keep those ports free and do not add `ports` mappings. The defaults open no public listener. For remote Connectors, put a standard TLS reverse proxy in front yourself (see [Network access](CONFIGURATION.md#network-access)).
+The generated configuration binds every listener to loopback inside the container, so the published ports answer only inside the container until you opt in. Set `mcp.hostname`, `devices.hostname` and `management.hostname` to `0.0.0.0` in `gateway.json` (see *Configure, stop and upgrade* below) and restart: the three ports are then reachable through the Compose port mappings, which bind all host interfaces. Restrict them with the host firewall as needed, and for remote Connectors put a standard TLS reverse proxy in front (see [Network access](CONFIGURATION.md#network-access)).
 
 ## First pairing
 
@@ -88,4 +88,4 @@ Run the Connector on the Linux x64 host that runs Luvus/Herdr. It verifies the n
 
 ## Image build
 
-Images are built from the released Linux binaries and published to GHCR by the release workflow. Maintainers: see [DISTRIBUTION](DISTRIBUTION.md).
+Images are built from source with the official Bun image (`oven/bun`, pinned by digest) and published to GHCR by the container workflow after a successful product release. Maintainers: see [DISTRIBUTION](DISTRIBUTION.md).

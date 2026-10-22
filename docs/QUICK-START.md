@@ -47,7 +47,7 @@ curl --fail --location --output docker-compose.yaml \
 docker compose pull
 ```
 
-Ports 9443, 9444 and 9445 must be free (the Compose file uses host networking). See
+Ports 9443, 9444 and 9445 must be free (the Compose file publishes them from a bridge network), and the generated `gateway.json` must bind its listeners to `0.0.0.0` as described in the Docker guide. See
 [Docker deployment](DOCKER.md) for volumes, backup and upgrades.
 
 ## 2. Prepare the Connector machine

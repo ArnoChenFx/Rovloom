@@ -226,7 +226,13 @@ export class GatewaySetup {
       throw new CliError('configuration_required')
     }
     await publishSetupSchemas(reviewed, request.signal)
-    const hostname = this.config.mcp_hostname === '::1' ? '[::1]' : this.config.mcp_hostname
+    // 本机客户端凭据记录的资源地址用规范回环地址，不写通配绑定地址。
+    const hostname =
+      this.config.mcp_hostname === '0.0.0.0'
+        ? '127.0.0.1'
+        : this.config.mcp_hostname === '::' || this.config.mcp_hostname === '::1'
+          ? '[::1]'
+          : this.config.mcp_hostname
     const resource = new URL('http://' + hostname + ':' + this.config.mcp_port + '/mcp').href
     const clientPath = runtimeReference(this.config.state_dir, 'mcp-client')
     const original = readSetupJson(clientPath)
