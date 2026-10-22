@@ -15,7 +15,7 @@ function files() {
     'browser.js',
     'theme.js',
     'manage.css',
-    'rovloom-mark-orange.png',
+    'rovloom-mark-transparent.png',
     'rovloom-logo.png',
     'chunk-abc123.js',
     'browser.js.map',

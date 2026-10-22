@@ -41,7 +41,7 @@ export function mountWebUi(
   const brand = element('a', '', 'brand')
   brand.href = '#'
   const logo = element('img', '', 'brand-logo')
-  logo.src = './rovloom-mark-orange.png'
+  logo.src = './rovloom-mark-transparent.png'
   logo.alt = 'Rovloom'
   logo.width = 48
   logo.height = 48

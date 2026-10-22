@@ -114,7 +114,7 @@ assert.throws(
   /management_authentication_required/u
 )
 const managementAssets = admin.loadManagementAssets(new URL('../../dist/webui/', import.meta.url).pathname)
-assert(managementAssets.has('/rovloom-mark-orange.png'))
+assert(managementAssets.has('/rovloom-mark-transparent.png'))
 assert(managementAssets.has('/theme.js'))
 const managementShell = readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8')
 assert(managementShell.indexOf('src="./theme.js"') < managementShell.indexOf('href="./manage.css"'))
@@ -126,7 +126,7 @@ assert(!browserEntry.includes('node:'))
 assert(!browserEntry.includes('webUiFixture'))
 assert(readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes('Rovloom 管理'))
 assert(readFileSync(new URL('../../dist/webui/manage.css', import.meta.url), 'utf8').includes(':focus-visible'))
-for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
+for (const asset of ['rovloom-mark-transparent.png', 'rovloom-logo.png']) {
   assert.deepEqual(
     readFileSync(new URL(`../../dist/webui/${asset}`, import.meta.url)),
     readFileSync(new URL(`../../docs/assets/brand/${asset}`, import.meta.url))
@@ -134,7 +134,7 @@ for (const asset of ['rovloom-mark-orange.png', 'rovloom-logo.png']) {
 }
 assert(
   readFileSync(new URL('../../dist/webui/index.html', import.meta.url), 'utf8').includes(
-    'href="./rovloom-mark-orange.png"'
+    'href="./rovloom-mark-transparent.png"'
   )
 )
 assert.equal(typeof persistence.persistentBackend, 'function')
