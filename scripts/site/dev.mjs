@@ -1,5 +1,6 @@
 // Serve the built marketing site locally; no Gateway state or API is exposed.
 import { watch } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildSite } from './build.mjs'
@@ -14,8 +15,14 @@ let rebuild
 watch(resolve(root, 'site'), { recursive: true }, () => {
   clearTimeout(rebuild)
   rebuild = setTimeout(() => {
-    buildSite()
-    console.log('Site rebuilt; refresh the browser.')
+    const result = spawnSync(process.execPath, ['--no-env-file', resolve(root, 'scripts/site/build.mjs')], {
+      cwd: root,
+      stdio: 'inherit',
+      timeout: 30_000
+    })
+    if (result.status === 0) {
+      console.log('Site rebuilt; refresh the browser.')
+    }
   }, 100)
 })
 const server = Bun.serve({
