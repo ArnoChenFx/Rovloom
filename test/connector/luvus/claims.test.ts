@@ -349,6 +349,8 @@ test(
 
 test(
   'production claim quota is reusable beyond 1024 calls without reopening an expired attempt',
+  // 两轮 2048 次真实持久写入实测约 7.7 秒，超过 Bun 默认 5 秒预算；只放宽本用例的执行预算，产品期限不变。
+  { timeout: 30_000 },
   /** 两轮各 1024 个真实持久 claim；只在固定 deadline 后回收，重启仍保留删除时的时钟屏障。 */ () => {
     const f = setup()
     f.options.limits.entries = 1024
