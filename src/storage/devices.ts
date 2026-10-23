@@ -1,6 +1,6 @@
 // 设备注册、配对、凭据认证、撤销与同 ID 重配：每一步都是 Store writer 的单个事务，凭据摘要与设备状态同行同库。
 import type { DatabaseSync } from 'node:sqlite'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { canonical, digest, GatewayError } from '../contracts.js'
 import { boundedJson, id as validateId } from '../wire/index.js'
 import type { LedgerInvalidation, Machine, Row } from './model.js'
@@ -25,6 +25,17 @@ export interface DeviceHost {
   /** 提交后发布的设备级失效通知。 */
   invalidate(event: LedgerInvalidation): void
 }
+
+/** 在线配对认领的公开状态；秘密只以摘要留在账本行内，不进入本读模型。 */
+export type PairingClaim = Readonly<{
+  claim_id: string
+  pairing_id: string
+  machine_id: string
+  user_code: string
+  status: 'pending' | 'approved' | 'delivered' | 'failed' | 'cancelled'
+  expires: number
+  created: number
+}>
 
 export class DeviceLedger {
   constructor(private readonly host: DeviceHost) {}
@@ -138,124 +149,289 @@ export class DeviceLedger {
     pairing?: { pairing_id: string; policy_ref: string }
   ): string {
     return this.transaction(
-      /* 秘密签发、精确独立确认、申请issued标记与审计同事务提交，失败不交付secret。 */ (now) => {
-        if (this.machine(machine).status !== 'pending') {
-          throw new GatewayError('invalid_machine_state')
-        }
-        if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
-          throw new GatewayError('invalid_ttl')
-        }
-        let expires = now + ttlMs
-        if (pairing) {
-          const application = this.db
-            .prepare(
-              "SELECT expires,issued FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
-            )
-            .get(pairing.pairing_id, machine, pairing.policy_ref, now)
-          if (!application || application.issued !== 0) {
-            throw new GatewayError('invalid_pairing_issuance')
-          }
-          expires = Math.min(expires, Number(application.expires))
-          this.manage(
-            'pairing_enrollment_issue',
-            machine + '/' + pairing.pairing_id,
-            canonical({ recovery_generation: this.generation(), policy_ref: pairing.policy_ref, expires_at: expires }),
-            now
-          )
-          this.db.prepare('UPDATE admin_pairings SET issued=1 WHERE pairing_id=?').run(pairing.pairing_id)
-        } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(machine)) {
-          throw new GatewayError('protected_pairing_issuance_required')
-        }
-        if (
-          this.db.prepare('SELECT needs_confirmation FROM machines WHERE machine_id=?').get(machine)!
-            .needs_confirmation === 1
-        ) {
-          this.manage('device_reenroll', machine, this.generation(), now)
-          this.db
-            .prepare(
-              'UPDATE machines SET resource_revision=resource_revision+1,needs_confirmation=0 WHERE machine_id=?'
-            )
-            .run(machine)
-        }
-        this.db.prepare('UPDATE machines SET resource_revision=resource_revision+1 WHERE machine_id=?').run(machine)
-        const token = secret()
-        this.db
-          .prepare(
-            'INSERT INTO enrollments(token_hash,machine_id,expires,pairing_id,pairing_policy_ref,pairing_generation) VALUES(?,?,?,?,?,?)'
-          )
-          .run(
-            digest(token),
-            machine,
-            expires,
-            pairing?.pairing_id ?? null,
-            pairing?.policy_ref ?? null,
-            pairing ? this.generation() : null
-          )
-        this.audit('enrollment_issued', 'local', now, undefined, {
-          machine_id: machine,
-          pairing_id: pairing?.pairing_id ?? null
-        })
-        return token
-      }
+      /* 秘密签发、精确独立确认、申请issued标记与审计同事务提交，失败不交付secret。 */ (now) =>
+        this.issueEnrollmentTx(now, machine, ttlMs, pairing)
     )
+  }
+  // 签发事务体：与认领批准等组合流程共用同一 writer 事务，调用方负责开启事务。
+  private issueEnrollmentTx(
+    now: number,
+    machine: string,
+    ttlMs: number,
+    pairing?: { pairing_id: string; policy_ref: string }
+  ): string {
+    if (this.machine(machine).status !== 'pending') {
+      throw new GatewayError('invalid_machine_state')
+    }
+    if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
+      throw new GatewayError('invalid_ttl')
+    }
+    let expires = now + ttlMs
+    if (pairing) {
+      const application = this.db
+        .prepare(
+          "SELECT expires,issued FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
+        )
+        .get(pairing.pairing_id, machine, pairing.policy_ref, now)
+      if (!application || application.issued !== 0) {
+        throw new GatewayError('invalid_pairing_issuance')
+      }
+      expires = Math.min(expires, Number(application.expires))
+      this.manage(
+        'pairing_enrollment_issue',
+        machine + '/' + pairing.pairing_id,
+        canonical({ recovery_generation: this.generation(), policy_ref: pairing.policy_ref, expires_at: expires }),
+        now
+      )
+      this.db.prepare('UPDATE admin_pairings SET issued=1 WHERE pairing_id=?').run(pairing.pairing_id)
+    } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(machine)) {
+      throw new GatewayError('protected_pairing_issuance_required')
+    }
+    if (
+      this.db.prepare('SELECT needs_confirmation FROM machines WHERE machine_id=?').get(machine)!.needs_confirmation ===
+      1
+    ) {
+      this.manage('device_reenroll', machine, this.generation(), now)
+      this.db
+        .prepare('UPDATE machines SET resource_revision=resource_revision+1,needs_confirmation=0 WHERE machine_id=?')
+        .run(machine)
+    }
+    this.db.prepare('UPDATE machines SET resource_revision=resource_revision+1 WHERE machine_id=?').run(machine)
+    const token = secret()
+    this.db
+      .prepare(
+        'INSERT INTO enrollments(token_hash,machine_id,expires,pairing_id,pairing_policy_ref,pairing_generation) VALUES(?,?,?,?,?,?)'
+      )
+      .run(
+        digest(token),
+        machine,
+        expires,
+        pairing?.pairing_id ?? null,
+        pairing?.policy_ref ?? null,
+        pairing ? this.generation() : null
+      )
+    this.audit('enrollment_issued', 'local', now, undefined, {
+      machine_id: machine,
+      pairing_id: pairing?.pairing_id ?? null
+    })
+    return token
   }
   // 仅消费原申请有效期内且目标、策略、代次均匹配的材料，不能把旧申请兑换补到新申请。
   redeem(token: string): { machine_id: string; credential: string } {
     return this.transaction(
-      /* 精确核验先于凭据生成，消费/设备授权/原申请状态/审计同事务提交。 */ (now) => {
-        const row = this.db
-          .prepare(`SELECT e.machine_id,e.expires,e.pairing_id,e.pairing_policy_ref,e.pairing_generation
-          FROM enrollments e JOIN machines m USING(machine_id)
-          WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`)
-          .get(digest(token), now) as
-          | {
-              machine_id: string
-              expires: number
-              pairing_id: string | null
-              pairing_policy_ref: string | null
-              pairing_generation: string | null
-            }
-          | undefined
-        if (!row) {
-          throw new GatewayError('invalid_enrollment')
-        }
-        if (row.pairing_id) {
-          const application = this.db
-            .prepare(
-              "SELECT expires FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND issued=1 AND status='pending' AND expires>?"
-            )
-            .get(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
-          if (
-            !application ||
-            row.pairing_generation !== this.generation() ||
-            row.expires > Number(application.expires)
-          ) {
-            throw new GatewayError('invalid_enrollment')
-          }
-        } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(row.machine_id)) {
-          throw new GatewayError('invalid_enrollment')
-        }
-        const credential = secret()
-        this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id)
-        this.db
-          .prepare(
-            "UPDATE machines SET resource_revision=resource_revision+1,credential_hash=?,credential_revision=credential_revision+1,status='offline' WHERE machine_id=?"
-          )
-          .run(digest(credential), row.machine_id)
-        if (row.pairing_id) {
-          this.db
-            .prepare(
-              "UPDATE admin_pairings SET status='paired' WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
-            )
-            .run(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
-        }
-        this.audit('enrollment_consumed', 'local', now, undefined, {
-          machine_id: row.machine_id,
-          pairing_id: row.pairing_id
-        })
-        return { machine_id: row.machine_id, credential }
-      }
+      /* 精确核验先于凭据生成，消费/设备授权/原申请状态/审计同事务提交。 */ (now) => this.redeemTx(now, token)
     )
+  }
+  // 兑换事务体：与认领批准共用同一 writer 事务，签发与消费原子完成，调用方负责开启事务。
+  private redeemTx(now: number, token: string): { machine_id: string; credential: string } {
+    const row = this.db
+      .prepare(`SELECT e.machine_id,e.expires,e.pairing_id,e.pairing_policy_ref,e.pairing_generation
+      FROM enrollments e JOIN machines m USING(machine_id)
+      WHERE token_hash=? AND expires>? AND consumed=0 AND m.status='pending'`)
+      .get(digest(token), now) as
+      | {
+          machine_id: string
+          expires: number
+          pairing_id: string | null
+          pairing_policy_ref: string | null
+          pairing_generation: string | null
+        }
+      | undefined
+    if (!row) {
+      throw new GatewayError('invalid_enrollment')
+    }
+    if (row.pairing_id) {
+      const application = this.db
+        .prepare(
+          "SELECT expires FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND issued=1 AND status='pending' AND expires>?"
+        )
+        .get(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
+      if (!application || row.pairing_generation !== this.generation() || row.expires > Number(application.expires)) {
+        throw new GatewayError('invalid_enrollment')
+      }
+    } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(row.machine_id)) {
+      throw new GatewayError('invalid_enrollment')
+    }
+    const credential = secret()
+    this.db.prepare('UPDATE enrollments SET consumed=1 WHERE machine_id=?').run(row.machine_id)
+    this.db
+      .prepare(
+        "UPDATE machines SET resource_revision=resource_revision+1,credential_hash=?,credential_revision=credential_revision+1,status='offline' WHERE machine_id=?"
+      )
+      .run(digest(credential), row.machine_id)
+    if (row.pairing_id) {
+      this.db
+        .prepare(
+          "UPDATE admin_pairings SET status='paired' WHERE pairing_id=? AND machine_id=? AND policy_ref=? AND status='pending' AND expires>?"
+        )
+        .run(row.pairing_id, row.machine_id, row.pairing_policy_ref, now)
+    }
+    this.audit('enrollment_consumed', 'local', now, undefined, {
+      machine_id: row.machine_id,
+      pairing_id: row.pairing_id
+    })
+    return { machine_id: row.machine_id, credential }
+  }
+
+  // 在线配对认领的公开读模型：不含认领秘密摘要，核对码只用于双边人工比对、不作凭据。
+  pairingClaim(claimId: string): PairingClaim {
+    const row = this.db
+      .prepare(
+        'SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created FROM pairing_claims WHERE claim_id=?'
+      )
+      .get(claimId)
+    if (!row) {
+      throw new GatewayError('pairing_claim_not_found')
+    }
+    return row as PairingClaim
+  }
+  // 按申请读取当前活动认领（pending/approved），供管理面展示与批准定位；没有时返回 undefined。
+  activePairingClaim(pairingId: string): PairingClaim | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created FROM pairing_claims WHERE pairing_id=? AND status IN ('pending','approved') ORDER BY created DESC LIMIT 1"
+      )
+      .get(pairingId)
+    return row as PairingClaim | undefined
+  }
+  // 设备端发起认领：申请必须仍 pending 且未签发；同一申请同时只允许一个活动认领，秘密只存摘要。
+  startPairingClaim(
+    machine: string,
+    pairingId: string,
+    secretHash: string,
+    userCode: string,
+    ttlMs = 600_000
+  ): PairingClaim {
+    validateId(pairingId)
+    if (!/^[0-9a-f]{64}$/.test(secretHash)) {
+      throw new GatewayError('invalid_pairing_claim')
+    }
+    if (!/^[A-Z0-9]{4,16}$/.test(userCode)) {
+      throw new GatewayError('invalid_pairing_claim')
+    }
+    return this.transaction((now) => {
+      if (this.machine(machine).status !== 'pending') {
+        throw new GatewayError('invalid_machine_state')
+      }
+      if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 600_000) {
+        throw new GatewayError('invalid_ttl')
+      }
+      const application = this.db
+        .prepare(
+          "SELECT expires,issued FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND status='pending' AND expires>?"
+        )
+        .get(pairingId, machine, now)
+      if (!application) {
+        throw new GatewayError('pairing_not_found')
+      }
+      if (application.issued !== 0) {
+        throw new GatewayError('invalid_pairing_issuance')
+      }
+      if (this.activePairingClaim(pairingId)) {
+        throw new GatewayError('pairing_claim_conflict')
+      }
+      const claim: PairingClaim = {
+        claim_id: id('claim'),
+        pairing_id: pairingId,
+        machine_id: machine,
+        user_code: userCode,
+        status: 'pending',
+        expires: Math.min(now + ttlMs, Number(application.expires)),
+        created: now
+      }
+      this.db
+        .prepare(
+          'INSERT INTO pairing_claims(claim_id,pairing_id,machine_id,secret_hash,user_code,status,expires,created) VALUES(?,?,?,?,?,?,?,?)'
+        )
+        .run(
+          claim.claim_id,
+          claim.pairing_id,
+          claim.machine_id,
+          secretHash,
+          claim.user_code,
+          claim.status,
+          claim.expires,
+          claim.created
+        )
+      this.audit('pairing_claim_started', 'local', now, undefined, {
+        machine_id: machine,
+        pairing_id: pairingId,
+        claim_id: claim.claim_id
+      })
+      return claim
+    })
+  }
+  // 核对设备端出示的认领秘密原文：摘要定长比对，不匹配与不存在使用同一错误，避免枚举认领状态。
+  verifyPairingClaimSecret(claimId: string, secretPlaintext: string): PairingClaim {
+    const row = this.db.prepare('SELECT secret_hash FROM pairing_claims WHERE claim_id=?').get(claimId)
+    if (!row || !timingSafeEqual(Buffer.from(String(row.secret_hash)), Buffer.from(digest(secretPlaintext)))) {
+      throw new GatewayError('invalid_pairing_claim')
+    }
+    return this.pairingClaim(claimId)
+  }
+  // 管理员核对双边核对码后批准认领：同一事务内完成签发与兑换，凭据只回调用方的受保护 custody，不落库不入回执。
+  approvePairingClaim(claimId: string, userCode: string): { machine_id: string; credential: string } {
+    return this.transaction((now) => {
+      const claim = this.pairingClaim(claimId)
+      if (claim.status !== 'pending' || claim.expires <= now) {
+        throw new GatewayError('invalid_pairing_claim')
+      }
+      if (claim.user_code !== userCode) {
+        throw new GatewayError('pairing_claim_code_mismatch')
+      }
+      const application = this.db
+        .prepare(
+          "SELECT policy_ref FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND status='pending' AND expires>?"
+        )
+        .get(claim.pairing_id, claim.machine_id, now)
+      if (!application) {
+        throw new GatewayError('pairing_not_found')
+      }
+      const token = this.issueEnrollmentTx(now, claim.machine_id, 600_000, {
+        pairing_id: claim.pairing_id,
+        policy_ref: String(application.policy_ref)
+      })
+      const result = this.redeemTx(now, token)
+      this.db.prepare("UPDATE pairing_claims SET status='approved' WHERE claim_id=?").run(claimId)
+      this.audit('pairing_claim_approved', 'local', now, undefined, {
+        machine_id: claim.machine_id,
+        pairing_id: claim.pairing_id,
+        claim_id: claimId
+      })
+      return result
+    })
+  }
+  // 凭据经 custody 确认送达后完成认领；重复完成与未知认领都拒绝，避免把未交付误报为已交付。
+  completePairingClaim(claimId: string): void {
+    this.transaction((now) => {
+      const claim = this.pairingClaim(claimId)
+      if (claim.status !== 'approved') {
+        throw new GatewayError('invalid_pairing_claim')
+      }
+      this.db.prepare("UPDATE pairing_claims SET status='delivered' WHERE claim_id=?").run(claimId)
+      this.audit('pairing_claim_delivered', 'local', now, undefined, {
+        machine_id: claim.machine_id,
+        pairing_id: claim.pairing_id,
+        claim_id: claimId
+      })
+    })
+  }
+  // 交付失败、超时或网关重启时收敛认领；已终结的认领重复失败处理幂等无操作，凭据拒绝由调用方另行执行。
+  failPairingClaim(claimId: string): void {
+    this.transaction((now) => {
+      const row = this.db
+        .prepare('SELECT status,machine_id,pairing_id FROM pairing_claims WHERE claim_id=?')
+        .get(claimId)
+      if (!row || row.status === 'delivered' || row.status === 'failed' || row.status === 'cancelled') {
+        return
+      }
+      this.db.prepare("UPDATE pairing_claims SET status='failed' WHERE claim_id=?").run(claimId)
+      this.audit('pairing_claim_failed', 'local', now, undefined, {
+        machine_id: String(row.machine_id),
+        pairing_id: String(row.pairing_id),
+        claim_id: claimId
+      })
+    })
   }
   // 核验设备凭据并生成新连接 epoch，旧连接不继承新会话身份。
   connect(machine: string, credential: string): string {

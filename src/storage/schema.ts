@@ -1,5 +1,5 @@
 // 声明 v5 持久化表、管理事务及过期索引；不提供对未发布旧版本的自动迁移。
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 // 未发布的旧库不在这里猜测来源或迁移；版本检查必须先于本 schema 的执行。
 export const SCHEMA = `
 CREATE TABLE metadata (
@@ -57,4 +57,8 @@ CREATE TABLE admin_operations (history_epoch TEXT NOT NULL REFERENCES admin_hist
   operation_digest TEXT NOT NULL, receipt TEXT NOT NULL, PRIMARY KEY(history_epoch,request_id));
 CREATE TABLE admin_pairings (pairing_id TEXT PRIMARY KEY, machine_id TEXT NOT NULL REFERENCES machines,
   policy_ref TEXT NOT NULL, status TEXT NOT NULL, expires INTEGER NOT NULL, issued INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE pairing_claims (claim_id TEXT PRIMARY KEY, pairing_id TEXT NOT NULL REFERENCES admin_pairings ON DELETE CASCADE,
+  machine_id TEXT NOT NULL REFERENCES machines, secret_hash TEXT NOT NULL, user_code TEXT NOT NULL,
+  status TEXT NOT NULL, expires INTEGER NOT NULL, created INTEGER NOT NULL);
+CREATE UNIQUE INDEX pairing_claims_active ON pairing_claims(pairing_id) WHERE status IN ('pending','approved');
 `

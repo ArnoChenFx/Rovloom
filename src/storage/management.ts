@@ -452,6 +452,12 @@ export class ManagementLedger {
             throw new GatewayError('pairing_conflict')
           }
           this.db.prepare('DELETE FROM enrollments WHERE machine_id=?').run(target.machine_id)
+          // 取消申请时同事务收敛其活动认领，避免已取消申请仍被批准或交付。
+          this.db
+            .prepare(
+              "UPDATE pairing_claims SET status='cancelled' WHERE pairing_id=? AND status IN ('pending','approved')"
+            )
+            .run(intent.target.pairing_id)
           this.db
             .prepare('UPDATE machines SET resource_revision=resource_revision+1 WHERE machine_id=?')
             .run(target.machine_id)
