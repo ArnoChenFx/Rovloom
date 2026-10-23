@@ -718,8 +718,13 @@ export function createConnector(options: ConnectorOptions) {
           }
         } catch (error) {
           // 只保存原本固定的Wire错误码；远端正文、凭据、路径和异常文本均不进入观测。
-          failure =
-            error instanceof GatewayError && /^[a-z_]{1,80}$/.test(error.code) ? error.code : 'connection_failed'
+          if (error instanceof ConnectorCapacityError) {
+            failure = error.code
+            capacity = error.capacity
+          } else {
+            failure =
+              error instanceof GatewayError && /^[a-z_]{1,80}$/.test(error.code) ? error.code : 'connection_failed'
+          }
           close()
         }
       }

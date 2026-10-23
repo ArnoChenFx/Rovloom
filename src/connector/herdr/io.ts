@@ -5,6 +5,7 @@ import type { Socket } from 'node:net'
 import { HerdrLocalError, herdrEnvironment, inspectHerdrPath, verifyHerdrInstallation } from './local.js'
 import type { HerdrEndpoint, HerdrLocalConfig } from './local.js'
 import { HERDR_READONLY_REVIEW } from './review.js'
+import { ConnectorCapacityError } from '../capacity.js'
 
 const stoppedCommandCancellations = new WeakSet<HerdrLocalError>()
 
@@ -288,7 +289,7 @@ export function exchangeHerdr(
       let done = false
       let writing = false
       /** 解绑本次读取监听，不关闭其它实例或补造响应。 */
-      function finish(failure?: HerdrLocalError) {
+      function finish(failure?: HerdrLocalError | ConnectorCapacityError) {
         if (done) {
           return
         }
@@ -384,7 +385,7 @@ export function exchangeHerdr(
         socket.write(request)
       } catch (cause) {
         finish(
-          cause instanceof HerdrLocalError
+          cause instanceof HerdrLocalError || (!writing && cause instanceof ConnectorCapacityError)
             ? cause
             : new HerdrLocalError(writing ? 'herdr_socket_io' : 'herdr_prepare_rejected')
         )

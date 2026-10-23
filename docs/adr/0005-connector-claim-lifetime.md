@@ -16,7 +16,7 @@ Gateway 为新调用生成 call / attempt ID，首次登记后固定完整绑定
 2. 本机时间大于等于 deadline：准入、transport、持久 claim 和最后写入门禁拒绝该意图，不再依赖墓碑存在。
 3. 时钟回退：清理、插入和持久时钟高水位推进共用一个 SQLite 事务。回收一条 deadline ≤ t 的记录后，库中时钟至少为 t；重启后的 claim 不能接受小于 t 的时钟。事务中断则三项一同回滚。内存锚点也检查进程内时钟高水位。
 
-因此回收后的原请求不能再次写入 native。回收只处理防重索引，不取消已派发的原生工作，也不把 unknown 改成未派发。Gateway 的 30 天 key 去重窗口及结果 TTL 均不变。
+因此回收后的原请求不能再次写入 native。回收只处理防重索引，不取消已派发的原生工作，也不把 unknown 改成未派发。Gateway 的 30 天 key 去重窗口及结果 TTL 均不变。Luvus RPC adapter 的 128 条和 Herdr execution hook 的 4096 条 epoch 内防重索引也遵循同一原 deadline，不能在更内层留下终身累计上限；保护期内额度不变。
 
 此证明依赖受信 Gateway 不复用已生成的 call / attempt ID、不改写原 deadline。复用相同 ID 并伪造一个新 deadline 是不同绑定；未到期时仍按冲突拒绝，回收后不承诺永久识别恶意 Gateway 伪造的另一意图。原方案也只保留 30 天。宿主时钟与整个状态一起回滚、丢失账本或恢复旧磁盘快照不在保证内；正常启动缺库仍拒绝重建。
 
@@ -28,4 +28,4 @@ Gateway 为新调用生成 call / attempt ID，首次登记后固定完整绑定
 
 ## 验证
 
-使用实际 SQLite 在生产默认配额下连续完成两轮各 1024 个 claim，并跨关闭重开验证；覆盖旧 expires、deadline 边界、活记录满额、绑定变化、持久时钟回退和文件预算。内存表覆盖累计超过 4096 条及未过期记录保护。现有 native adapter / transport 回归继续验证最后写入门禁和 unknown 不重放。
+使用实际 SQLite 在生产默认配额下连续完成两轮各 1024 个 claim，并跨关闭重开验证；覆盖旧 expires、deadline 边界、活记录满额、绑定变化、持久时钟回退和文件预算。内存表覆盖累计超过 4096 条及未过期记录保护。实际 Luvus adapter 入口覆盖累计 258 次及保护期 128 条满额，Herdr runtime 入口在合法 Wire 校验后的受控取消下覆盖 4097 次（模拟安装、没有 native RPC），并验证保护期 4096 条满额不被驱逐。容量错误在同步准入和 Herdr 写前准备层保留本地诊断；一旦进入 socket write 不再保留可误读为未发送的容量类型。现有 native adapter / transport 回归继续验证最后写入门禁和 unknown 不重放。

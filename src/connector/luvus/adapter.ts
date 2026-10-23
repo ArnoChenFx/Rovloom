@@ -105,7 +105,7 @@ export class LuvusRpcAdapter {
   readonly #limits
   readonly #host: LuvusRpcHost
   readonly #wire
-  readonly #seen = new Set<string>()
+  readonly #seen = new Map<string, number>()
   readonly #active = new Map<string, { binding: AttemptBinding; abort: AbortController }>()
   #closed = false
   #lastNow = -1
@@ -327,7 +327,8 @@ export class LuvusRpcAdapter {
         ...request.payload.attempt
       }
       this.#match(binding)
-      const remaining = binding.registration.deadline - this.#now()
+      const observed = this.#now()
+      const remaining = binding.registration.deadline - observed
       if (remaining <= 0) {
         throw new LuvusAdapterError('native_timeout')
       }
@@ -339,6 +340,12 @@ export class LuvusRpcAdapter {
         throw new LuvusAdapterError('native_host_binding_required')
       }
       key = boundedJson([binding.machine_id, binding.target.provider_id, binding.call_id, binding.attempt_id])
+      // 原意图到期后由完整 Wire 与最后写入门禁拒绝；回收索引不终止仍在收敛的 IO。
+      for (const [previous, expires] of this.#seen) {
+        if (expires <= observed) {
+          this.#seen.delete(previous)
+        }
+      }
       if (this.#seen.has(key)) {
         throw new LuvusAdapterError('attempt_already_observed')
       }
@@ -348,7 +355,7 @@ export class LuvusRpcAdapter {
       if (this.#wire.observeMessage(request, 'gateway_to_connector') !== 'new') {
         throw new LuvusAdapterError('duplicate_message')
       }
-      this.#seen.add(key)
+      this.#seen.set(key, binding.registration.deadline)
       const abort = new AbortController()
       activeAbort = abort
       linked = /* 把调用方取消传播到本次派发的本地等待范围。 */ () => abort.abort('cancelled')
@@ -505,7 +512,7 @@ export class LuvusRpcAdapter {
       }
     }
   }
-  /** 仅释放无人执行的本机 Wire 原文；重复请求/取消不能释放仍在途的所属许可，seen 防重放记录始终保留。 */
+  /** 仅释放无人执行的本机 Wire 原文；重复请求/取消不能释放仍在途的所属许可，seen 防重放记录保留至原 deadline。 */
   #releaseIdle(binding: AttemptBinding): void {
     const key = boundedJson([binding.machine_id, binding.target.provider_id, binding.call_id, binding.attempt_id])
     if (this.#active.has(key)) {
