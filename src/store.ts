@@ -32,7 +32,7 @@ import { auditRecord } from './storage/audit.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { CachedDatabase } from './storage/database.js'
 import { createPrivate, databasePath, privateFile, privatePath } from './storage/files.js'
-import { assertSnapshotDirectoryBoundary } from './storage/snapshot-directory.js'
+import { assertSnapshotDirectoryBoundary, snapshotCleanup } from './storage/snapshot-directory.js'
 import { lockContent, recoverStaleLock } from './storage/lock-recovery.js'
 import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
@@ -1450,6 +1450,7 @@ export class Store {
     }
     // 写入前同样复核目录边界，软链接替换不能把新快照落到固定目录之外。
     assertSnapshotDirectoryBoundary(this.options.backupDirectory)
+    const cleanup = snapshotCleanup(this.options.backupDirectory)
     let exported = false
     let locked = false
     try {
@@ -1476,13 +1477,13 @@ export class Store {
         false
       )
     } catch (error) {
-      if (exported && existsSync(destination)) {
-        unlinkSync(destination)
+      if (exported) {
+        cleanup(destination)
       }
       throw error
     } finally {
       if (locked) {
-        unlinkSync(destination + '.lock')
+        cleanup(destination + '.lock')
       }
     }
   }
