@@ -5,7 +5,7 @@ import { GatewayError } from '../../contracts.js'
 import { privateFile, readPrivateBytes } from '../../storage/files.js'
 import {
   ConnectorAttemptBook,
-  CONNECTOR_ATTEMPT_RETENTION_MS,
+  CONNECTOR_MAX_DEADLINE_MS,
   connectorAdmissionAdapter,
   createConnectorAdmissionBackend
 } from '../../runtime/connector-attempts.js'
@@ -651,7 +651,7 @@ export async function createHerdrConnectorResources(
     return releasing
   }
   try {
-    const book = new ConnectorAttemptBook({ retention_ms: CONNECTOR_ATTEMPT_RETENTION_MS, now: input.now })
+    const book = new ConnectorAttemptBook({ maximum_deadline_ms: CONNECTOR_MAX_DEADLINE_MS, now: input.now })
     claims = new LuvusDispatchClaims({ ...connector.claims, now: input.now })
     const sendClaims = claims
     return Object.freeze({

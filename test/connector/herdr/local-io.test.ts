@@ -34,6 +34,7 @@ import type { HerdrLocalConfig, HerdrEndpoint } from '../../../src/connector/her
 import { exchangeHerdr, herdrDeadline, runHerdrCommand, withHerdrSocket } from '../../../src/connector/herdr/io.js'
 import { HERDR_READONLY_REVIEW } from '../../../src/connector/herdr/review.js'
 import { privateHerdrTestRoot } from './private-root.js'
+import { ConnectorCapacityError } from '../../../src/connector/capacity.js'
 
 const request = Buffer.from('{"id":"synthetic","method":"ping","params":{}}\n')
 const reply = Buffer.from('{"id":"synthetic","result":{"type":"pong"}}\n')
@@ -798,5 +799,41 @@ test(
       process.umask(previous)
       rmSync(root, { recursive: true, force: true })
     }
+  }
+)
+
+test(
+  'exchange preserves local claim capacity only before the socket write boundary',
+  /** 准备期错误保留诊断；实际 write 抛出的同类型错误不能伪装成尚未发送。 */ async () => {
+    const capacity = new ConnectorCapacityError('claim_entries', 1000)
+    const before = syntheticSocket()
+    await assert.rejects(
+      exchangeHerdr(
+        before.raw,
+        new AbortController().signal,
+        /** 合成满额，不准备原生字节。 */ () => {
+          throw capacity
+        }
+      ),
+      /** 只有同一个内部类型化错误可保留容量详情，不能从消息自报重建。 */ (error: unknown) => error === capacity
+    )
+    assert.equal(before.socket.writes.length, 0)
+    const after = syntheticSocket()
+    after.socket.write = /** write 可能已把字节交给系统，再抛同码错误仍按 IO 失败。 */ (bytes) => {
+      after.socket.writes.push(Buffer.from(bytes))
+      throw capacity
+    }
+    await assert.rejects(
+      exchangeHerdr(
+        after.raw,
+        new AbortController().signal,
+        /** 提供合法固定帧进入真实 write 边界。 */ () => ({
+          bytes: request,
+          beforeWrite: /** 本例只观察 IO 层，不建立原生执行许可。 */ () => {}
+        })
+      ),
+      code('herdr_socket_io')
+    )
+    assert.equal(after.socket.writes.length, 1)
   }
 )

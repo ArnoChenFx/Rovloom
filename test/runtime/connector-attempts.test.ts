@@ -13,7 +13,7 @@ import { fixture } from '../connector/luvus/helpers.js'
 async function admitted() {
   const f = await fixture()
   const book = new ConnectorAttemptBook({
-    retention_ms: 60_000,
+    maximum_deadline_ms: 60_000,
     now: /** 提供 fixture 独立时间，供固定期限测试控制。 */ () => f.state.now
   })
   const options = {
@@ -55,7 +55,7 @@ test(
       assert.deepEqual(a.backend.attempt('call1', 'attempt1')?.native_request, a.f.row.native_request)
       a.adapter.release(a.f.binding)
       assert.equal(a.backend.attempt('call1', 'attempt1'), undefined)
-      assert.equal(a.book.dedupExpires(a.f.binding), 60_100)
+      assert.equal(a.book.dedupExpires(a.f.binding), a.f.binding.registration.deadline)
     } finally {
       await a.close()
     }
@@ -80,7 +80,7 @@ test(
       a.f.state.trusted = true
       a.f.state.now = 200
       a.adapter.decode(a.f.input(), 'gateway_to_connector')
-      assert.equal(a.book.dedupExpires(a.f.binding), 60_200)
+      assert.equal(a.book.dedupExpires(a.f.binding), a.f.binding.registration.deadline)
     } finally {
       await a.close()
     }
@@ -132,10 +132,10 @@ test(
       a.adapter.decode(a.f.input(), 'gateway_to_connector')
       a.f.state.now = 1000
       a.adapter.decode(a.f.input(), 'gateway_to_connector')
-      assert.equal(a.book.dedupExpires(a.f.binding), 60_100)
+      assert.equal(a.book.dedupExpires(a.f.binding), a.f.binding.registration.deadline)
       a.adapter.close()
       assert.equal(a.backend.attempt('call1', 'attempt1'), undefined)
-      assert.equal(a.book.dedupExpires(a.f.binding), 60_100)
+      assert.equal(a.book.dedupExpires(a.f.binding), a.f.binding.registration.deadline)
       const connection = { ...a.options.connection, connection_epoch: 'e2' }
       const nextBackend = createConnectorAdmissionBackend({ ...a.options, connection })
       const next = connectorAdmissionAdapter(nextBackend, createLuvusWireAdapter(nextBackend))
@@ -161,8 +161,8 @@ test(
 )
 
 test(
-  'local retention keeps its first cutoff when verification advances the trusted clock',
-  /** 本机相对保留模式只在首次预查定期限，正常校验耗时不能刷新截止或误报来源漂移。 */ async () => {
+  'execution deadline stays fixed when verification advances the trusted clock',
+  /** 正常校验耗时不能刷新原意图的执行期限。 */ async () => {
     const a = await admitted()
     try {
       a.book.admit(
@@ -171,7 +171,7 @@ test(
           a.f.state.now++
         }
       )
-      assert.equal(a.book.dedupExpires(a.f.binding), 60_100)
+      assert.equal(a.book.dedupExpires(a.f.binding), a.f.binding.registration.deadline)
     } finally {
       await a.close()
     }
@@ -179,17 +179,17 @@ test(
 )
 
 test(
-  'Connector admission rejects insufficient retention, duplicate keys and unprotected principal ambiguity',
+  'Connector admission rejects excessive deadline windows, duplicate keys and unprotected principal ambiguity',
   /** 错误配置和预算不能退化成宽松默认授权或覆盖固定记录。 */ async () => {
     const a = await admitted()
     try {
-      const short = new ConnectorAttemptBook({ retention_ms: 1, now: a.options.source.now })
+      const short = new ConnectorAttemptBook({ maximum_deadline_ms: 1, now: a.options.source.now })
       const backend = createConnectorAdmissionBackend({ ...a.options, book: short })
       const wire = connectorAdmissionAdapter(backend, createLuvusWireAdapter(backend))
       try {
         assert.throws(
-          /** 去重期限不能短于执行 deadline。 */ () => wire.decode(a.f.input(), 'gateway_to_connector'),
-          new RegExp('connector_retention_insufficient')
+          /** 执行 deadline 不能超过受保护的本机窗口。 */ () => wire.decode(a.f.input(), 'gateway_to_connector'),
+          new RegExp('connector_deadline_limit')
         )
       } finally {
         wire.close()
@@ -210,6 +210,49 @@ test(
           }),
         new RegExp('connector_principal_ambiguous')
       )
+    } finally {
+      await a.close()
+    }
+  }
+)
+
+test(
+  'attempt book releases expired metadata while preserving active bindings and deadline rejection',
+  /** 超过旧 4096 累计量，回收不依赖断连或释放正文；仍在期限内的原意图不得被挤出。 */ async () => {
+    const a = await admitted()
+    try {
+      const book = new ConnectorAttemptBook({
+        maximum_deadline_ms: 60_000,
+        now: /** 独立受控时钟。 */ () => a.f.state.now
+      })
+      for (let index = 0; index < 4200; index++) {
+        const next = structuredClone(a.f.row)
+        next.binding.call_id = 'call' + index
+        next.binding.registration.deadline = a.f.state.now + 1
+        book.admit(next, /** 合成已成功校验的请求，不创建原生许可。 */ () => {})
+        a.f.state.now++
+      }
+      a.f.state.now = a.f.binding.registration.deadline
+      assert.throws(
+        /** 已到期的原意图不得重新准入。 */ () =>
+          book.admit(a.f.row, /** 不应进入校验。 */ () => assert.fail('expired intent admitted')),
+        new RegExp('deadline_exceeded')
+      )
+      const limited = new ConnectorAttemptBook({
+        maximum_deadline_ms: 60_000,
+        limits: { entries: 1, bytes: 4_194_304 },
+        now: /** 独立受控时钟。 */ () => a.f.state.now
+      })
+      const active = structuredClone(a.f.row)
+      active.binding.registration.deadline = a.f.state.now + 1000
+      limited.admit(active, /** 合成已成功校验的请求。 */ () => {})
+      const other = structuredClone(active)
+      other.binding.call_id = 'other'
+      assert.throws(
+        /** 未到期记录占满预算时不能挤出它。 */ () => limited.admit(other, /** 不应执行。 */ () => {}),
+        new RegExp('connector_attempt_capacity')
+      )
+      assert.equal(limited.dedupExpires(active.binding), active.binding.registration.deadline)
     } finally {
       await a.close()
     }

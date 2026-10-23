@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { LuvusDispatchClaims } from '../../../src/connector/luvus/claims.js'
+import { ConnectorCapacityError } from '../../../src/connector/capacity.js'
 import { LuvusAdapterError } from '../../../src/connector/luvus/types.js'
 import type { AttemptBinding } from '../../../src/wire/types.js'
 
@@ -79,7 +80,7 @@ test(
       try {
         const row = reader.prepare('SELECT binding,expires FROM luvus_dispatch_claims').get()!
         assert.deepEqual(JSON.parse(String(row.binding)), binding())
-        assert.equal(row.expires, 1000)
+        assert.equal(row.expires, binding().registration.deadline)
       } finally {
         reader.close()
       }
@@ -158,9 +159,15 @@ test(
         failure('claim_deadline_invalid')
       )
       claims.claim(binding(), 1000)
+      const early = binding('call2')
+      early.registration.deadline = 400
       assert.throws(
-        /* 行数配额满时第二个 attempt 不可放行。 */ () => claims.claim(binding('call2'), 1000),
-        failure('claim_capacity')
+        /* 被拒候选不会持久化，不能把它较早的 deadline 当作可回收时间。 */ () => claims.claim(early, 1000),
+        (error: unknown) => {
+          assert(error instanceof ConnectorCapacityError)
+          assert.deepEqual(error.capacity, { resource: 'claim_entries', reclaim_at: 500 })
+          return true
+        }
       )
       claims.close()
       claims = f.open()
@@ -333,6 +340,98 @@ test(
         writer.close()
       }
       assert.throws(f.open, failure('claim_ledger_invalid'))
+    } finally {
+      claims.close()
+      f.close()
+    }
+  }
+)
+
+test(
+  'production claim quota is reusable beyond 1024 calls without reopening an expired attempt',
+  /** 两轮各 1024 个真实持久 claim；只在固定 deadline 后回收，重启仍保留删除时的时钟屏障。 */ () => {
+    const f = setup()
+    f.options.limits.entries = 1024
+    f.options.limits.bytes = 4_194_304
+    let claims = f.create()
+    try {
+      for (let wave = 0; wave < 2; wave++) {
+        f.clock.now = 100 + wave * 500
+        for (let index = 0; index < 1024; index++) {
+          const next = binding('wave' + wave + 'call' + index)
+          next.registration.deadline = 500 + wave * 500
+          claims.claim(next, f.clock.now + 30 * 86_400_000)
+        }
+        const extra = binding('extra')
+        extra.registration.deadline = 500 + wave * 500
+        assert.throws(
+          /* 尚未到期的真实满额不能提前回收或放行。 */ () => claims.claim(extra, 3_000_000_000),
+          (error: unknown) => {
+            assert(error instanceof ConnectorCapacityError)
+            assert.deepEqual(error.capacity, { resource: 'claim_entries', reclaim_at: 500 + wave * 500 })
+            return true
+          }
+        )
+        claims.close()
+        claims = f.open()
+      }
+      f.clock.now = 600
+      assert.throws(
+        /* 回收后重开也拒绝原完整意图。 */ () => claims.claim(binding('wave0call0'), 3_000_000_000),
+        failure('claim_deadline_invalid')
+      )
+      f.clock.now = 499
+      const fresh = binding('fresh')
+      fresh.registration.deadline = 900
+      assert.throws(
+        /* 即使新请求未到期，跨重启回拨到回收前仍被持久时钟拒绝。 */ () => claims.claim(fresh, 1000),
+        failure('claim_deadline_invalid')
+      )
+      const reader = new DatabaseSync(f.path, { readOnly: true })
+      try {
+        assert.equal(reader.prepare('SELECT count(*) AS n FROM luvus_dispatch_claims').get()!.n, 1024)
+        assert.equal(reader.prepare('SELECT min(expires) AS n FROM luvus_dispatch_claims').get()!.n, 1000)
+        assert.equal(reader.prepare('SELECT clock FROM luvus_claim_meta').get()!.clock, 600)
+      } finally {
+        reader.close()
+      }
+      assert(lstatSync(f.path).size < f.options.limits.bytes)
+    } finally {
+      claims.close()
+      f.close()
+    }
+  }
+)
+
+test(
+  'legacy long-lived claims are reclaimed only after their original deadline',
+  /** 用原 schema 写入旧版 30 天 expires，不改版本、不删除未到期记录即可继续使用原库。 */ () => {
+    const f = setup()
+    f.options.limits.entries = 1
+    let claims = f.create()
+    claims.claim(binding(), 1000)
+    claims.close()
+    const writer = new DatabaseSync(f.path)
+    try {
+      writer.prepare('UPDATE luvus_dispatch_claims SET expires=?').run(30 * 86_400_000)
+    } finally {
+      writer.close()
+    }
+    claims = f.open()
+    try {
+      f.clock.now = 499
+      const next = binding('call2')
+      next.registration.deadline = 900
+      assert.throws(/* 剩余一毫秒仍须保留旧墓碑。 */ () => claims.claim(next, 1000), failure('claim_capacity'))
+      f.clock.now = 500
+      claims.claim(next, 1000)
+      claims.close()
+      claims = f.open()
+      f.clock.now = 499
+      assert.throws(
+        /* 删除与时钟必须一同持久化，原期限内的回放不能因重启恢复。 */ () => claims.claim(binding(), 1000),
+        failure('claim_deadline_invalid')
+      )
     } finally {
       claims.close()
       f.close()

@@ -1,3 +1,4 @@
+import { ConnectorCapacityError } from '../capacity.js'
 /** 将 Herdr 已评审 RPC 挂到既有 ConnectorWireSession，复用 Store/Wire 和持久唯一发送账本。 */
 import { LuvusDispatchClaims } from '../luvus/claims.js'
 import { LuvusAdapterError } from '../luvus/types.js'
@@ -38,7 +39,7 @@ export function createHerdrRuntime(
   const adapter = createHerdrWireAdapter(localBackend, core)
   // 执行 hook 自有消息窗口；共享 core permit，避免 transport 已观察的消息变成二次原生执行。
   const execution = createHerdrWireAdapter(localBackend, core)
-  const seen = new Set<string>()
+  const seen = new Map<string, number>()
   const active = new Set<AbortController>()
   let closed = false
   let highWater = -1
@@ -97,6 +98,17 @@ export function createHerdrRuntime(
       if (!installation.source(binding)) {
         throw new HerdrLocalError('herdr_local_binding_mismatch')
       }
+      const observed = now()
+      const remaining = binding.registration.deadline - observed
+      if (remaining <= 0) {
+        throw new HerdrLocalError('herdr_timeout')
+      }
+      // 已过期原意图仍由 Wire 和最后写入门禁拒绝，不让 epoch 内索引成为累计上限。
+      for (const [previous, expires] of seen) {
+        if (expires <= observed) {
+          seen.delete(previous)
+        }
+      }
       const key = boundedJson(binding)
       if (seen.has(key)) {
         throw new HerdrLocalError('attempt_already_observed')
@@ -107,11 +119,7 @@ export function createHerdrRuntime(
       if (execution.observeMessage(frame, 'gateway_to_connector') !== 'new') {
         throw new HerdrLocalError('duplicate_message')
       }
-      const remaining = binding.registration.deadline - now()
-      if (remaining <= 0) {
-        throw new HerdrLocalError('herdr_timeout')
-      }
-      seen.add(key)
+      seen.set(key, binding.registration.deadline)
       scope = herdrDeadline(controller.signal, remaining)
       const ioSignal = scope.signal
       const context = core.resolve(frame.payload.attempt)
@@ -168,6 +176,9 @@ export function createHerdrRuntime(
       const response = core.decodeResponse(raw, context)
       return Object.freeze({ binding, native_response: response })
     } catch (error) {
+      if (!dispatched && error instanceof ConnectorCapacityError) {
+        throw error
+      }
       const code =
         error instanceof HerdrLocalError || error instanceof WireError || error instanceof LuvusAdapterError
           ? error.code
