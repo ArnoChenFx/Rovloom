@@ -88,10 +88,10 @@ main:focus { outline: none; }
 .operation-form input, .pairing-form input { width: 100%; min-width: 0; font-weight: 400; }
 .operation-dialog .facts { grid-template-columns: 1fr; margin-bottom: 24px; }
 .operation-dialog dd { white-space: pre-wrap; }
-.operation-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-.operation-confirm { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-.operation-confirm:hover:enabled { background: var(--accent-hover); border-color: var(--accent-hover); }
-.operation-status { margin-block: 16px; }
+.operation-controls, .pairing-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.operation-confirm, .pairing-confirm { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.operation-confirm:hover:enabled, .pairing-confirm:hover:enabled { background: var(--accent-hover); border-color: var(--accent-hover); }
+.operation-status, .pairing-status { margin-block: 16px; }
 .operation-dialog[aria-busy='true'] .operation-status { color: var(--muted); }
 .operation-dialog [hidden], .operation-region > [hidden] { display: none; }
 .commandbar { min-height: 64px; justify-content: space-between; gap: 16px; }

@@ -67,15 +67,15 @@ export function createPairingActions(options: {
   policyInput.maxLength = 128
   policyInput.autocomplete = 'off'
   policyLabel.append(policyCaption, policyInput)
-  const create = node('button', 'operation-confirm')
+  const create = node('button', 'pairing-confirm')
   create.type = 'submit'
   form.append(nameLabel, policyLabel, create)
   const reviewBox = node('div', 'pairing-review')
   reviewBox.hidden = true
-  const reviewText = node('p', 'operation-status')
-  const reviewFacts = node('dl', 'facts operation-facts')
-  const controls = node('div', 'operation-controls')
-  const confirm = node('button', 'operation-confirm')
+  const reviewText = node('p', 'pairing-status')
+  const reviewFacts = node('dl', 'facts pairing-facts')
+  const controls = node('div', 'pairing-controls')
+  const confirm = node('button', 'pairing-confirm')
   const check = node('button')
   const cancel = node('button')
   for (const button of [confirm, check, cancel]) {
@@ -83,7 +83,7 @@ export function createPairingActions(options: {
   }
   controls.append(confirm, check, cancel)
   reviewBox.append(reviewText, reviewFacts, controls)
-  const message = node('p', 'operation-status')
+  const message = node('p', 'pairing-status')
   message.setAttribute('role', 'status')
   message.setAttribute('aria-live', 'polite')
   const list = node('ul', 'pairing-entries')
@@ -244,7 +244,7 @@ export function createPairingActions(options: {
       codeLabel.textContent = t('pairing.userCode')
       const code = node('div', 'pairing-code')
       code.textContent = entry.claim.user_code
-      const approve = node('button', 'operation-confirm')
+      const approve = node('button', 'pairing-confirm')
       approve.type = 'button'
       approve.textContent = t('pairing.approve')
       const claim = entry.claim
