@@ -32,6 +32,7 @@ import { auditRecord } from './storage/audit.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { CachedDatabase } from './storage/database.js'
 import { createPrivate, databasePath, privateFile, privatePath } from './storage/files.js'
+import { assertSnapshotDirectoryBoundary } from './storage/snapshot-directory.js'
 import { lockContent, recoverStaleLock } from './storage/lock-recovery.js'
 import { reviewedHerdrRequest } from './connector/herdr/methods.js'
 
@@ -1205,6 +1206,10 @@ export class Store {
         this.administration.expire(now)
         this.db.prepare('DELETE FROM audit WHERE expires<=?').run(now)
         this.db.prepare('DELETE FROM enrollments WHERE expires<=?').run(now)
+        // 删除前复核固定目录仍是普通目录：运行中被换成软链接时整轮过期失败关闭，不能跟随链接删到目录外。
+        if (this.options.backupDirectory) {
+          assertSnapshotDirectoryBoundary(this.options.backupDirectory)
+        }
         for (const row of this.db.prepare('SELECT path FROM backups WHERE expires<=?').all(now)) {
           const path = String(row.path)
           if (dirname(path) !== this.options.backupDirectory) {
@@ -1393,6 +1398,8 @@ export class Store {
     ) {
       throw new GatewayError('separate_backup_directory_required')
     }
+    // 写入前同样复核目录边界，软链接替换不能把新快照落到固定目录之外。
+    assertSnapshotDirectoryBoundary(this.options.backupDirectory)
     let exported = false
     let locked = false
     try {

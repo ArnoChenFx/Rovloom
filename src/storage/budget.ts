@@ -5,6 +5,7 @@ import { dirname } from 'node:path'
 import { GatewayError } from '../contracts.js'
 import type { Retention } from './config.js'
 import { managedBytes } from './files.js'
+import { assertSnapshotDirectoryBoundary } from './snapshot-directory.js'
 
 // 检查当前占用与待收尾预约；准入时额外保留应急空间，任一项超限即拒绝。
 export function assertBudget(
@@ -28,6 +29,10 @@ export function assertBudget(
   }
   const pages =
     Number(db.prepare('PRAGMA page_count').get()!.page_count) * Number(db.prepare('PRAGMA page_size').get()!.page_size)
+  // 扫描前复核目录边界：被换成软链接时按无效目录拒绝，不能把目录外占用计入或掩盖真实占用。
+  if (backupDirectory) {
+    assertSnapshotDirectoryBoundary(backupDirectory)
+  }
   const backupBytes = backupDirectory && existsSync(backupDirectory) ? managedBytes(backupDirectory) : 0
   if (backupBytes + extraBackupBytes > limits.backup_bytes) {
     throw new GatewayError('backup_quota')
