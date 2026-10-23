@@ -72,6 +72,14 @@ main:focus { outline: none; }
 .preference-panel button[aria-pressed='true']::after { visibility: visible; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .operation-region { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+.pairing-section { max-width: 1280px; margin: 0 auto 24px; padding: 16px 32px 24px; }
+.pairing-section > h2 { margin-block: 8px; }
+.pairing-form { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin-block: 16px; }
+.pairing-form label { flex: 1 1 220px; }
+.pairing-entries { display: grid; gap: 16px; margin: 16px 0 0; padding: 0; list-style: none; }
+.pairing-entry { padding: 16px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.pairing-entry-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+.pairing-code { margin-block: 8px 16px; font-family: ui-monospace, monospace; font-size: 34px; font-weight: 700; letter-spacing: 6px; }
 .operation-resume { margin-bottom: 24px; }
 .operation-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; overflow: auto; color: var(--text); background: var(--surface); border: 1px solid var(--control-border); border-radius: 6px; }
 .operation-dialog::backdrop { background: rgb(15 18 24 / 50%); }

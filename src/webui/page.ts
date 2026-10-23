@@ -7,6 +7,7 @@ import { createLocalizer } from './i18n.js'
 import { createUiPreferences, type UiPreferences } from './preferences.js'
 import { createPreferenceControl } from './preference-control.js'
 import { createDeviceActions } from './device-actions.js'
+import { createPairingActions } from './pairing-actions.js'
 import type { ManagementWriteTransport } from './write-contract.js'
 
 /** 接入共享管理读取后的页面投影函数；不是授权接口，不能代替每次后端鉴权。 */
@@ -117,6 +118,24 @@ export function mountWebUi(
   if (actions) {
     footer.before(actions.region)
   }
+  const pairing = management
+    ? createPairingActions({
+        transport: management,
+        /** 配对轮询发现会话/权限失效时与设备操作走同一清空路径。 */
+        authorizationLost(problem) {
+          if (disposed) {
+            return
+          }
+          reader.dispose()
+          actions?.clear()
+          pairing?.clear()
+          paint({ snapshot: null, pending: false, stale: true, ageMs: 0, problem }, route)
+        }
+      })
+    : undefined
+  if (pairing) {
+    footer.before(pairing.region)
+  }
 
   /** 稳定工具栏与当前快照重新本地化；不替换 reader、路由、等待信号或时间锚点。 */
   function paint(state: ReaderState<PageView>, current: PageRoute): void {
@@ -136,7 +155,9 @@ export function mountWebUi(
     sectionLink.setAttribute('aria-current', current.machineId === null ? 'page' : 'location')
     if (['unauthenticated', 'forbidden', 'not_found'].includes(state.problem ?? '')) {
       actions?.clear()
+      pairing?.clear()
     }
+    pairing?.update(i18n, !!state.snapshot && !state.stale && state.snapshot.value.status.mode === 'active')
     actions?.update(
       i18n,
       !!state.snapshot && !state.stale && state.snapshot.value.status.mode === 'active',
@@ -254,6 +275,7 @@ export function mountWebUi(
   /** 哈希导航、后退与分页都先清理旧路由资源，再获取新目标。 */
   function navigate(): void {
     actions?.suspend()
+    pairing?.suspend()
     language.close()
     theme.close()
     if (location.hash === '#management-content') {
@@ -270,6 +292,7 @@ export function mountWebUi(
   function visibility(): void {
     if (document.visibilityState === 'hidden') {
       actions?.suspend()
+      pairing?.suspend()
     }
     reader.visible(document.visibilityState !== 'hidden')
   }
@@ -287,6 +310,7 @@ export function mountWebUi(
   /** 页面离开时销毁在途请求及定时器，后退不会重复任何写入。 */
   function hide(): void {
     actions?.suspend()
+    pairing?.suspend()
     language.close()
     theme.close()
     reader.dispose()
@@ -301,6 +325,7 @@ export function mountWebUi(
     disposed = true
     reader.dispose()
     actions?.dispose()
+    pairing?.dispose()
     content.removeEventListener('click', deviceAction)
     skip.removeEventListener('click', skipContent)
     refresh.removeEventListener('click', refreshPage)
