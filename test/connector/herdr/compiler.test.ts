@@ -1,4 +1,5 @@
 /** 验证 Herdr 完整原生 schema、异步生成来源品牌、有界任务及严格私有协议。 */
+import { phaseTiming } from '../../support/phase-timing.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
@@ -82,7 +83,7 @@ async function specimen(): Promise<HerdrCompilerArtifact> {
     worker.terminate()
   }
 }
-const artifact = await specimen()
+const artifact = await phaseTiming('herdr.worker.specimen', specimen)
 
 /** 只允许对受控测试代码重新计算摘要，测试 API 不向生产入口传递代码。 */
 function hash(code: string): string {
@@ -115,7 +116,7 @@ test(
       }) as never
     }
     try {
-      const schemas = await compileHerdrSchemas(raw)
+      const schemas = await phaseTiming('herdr.worker.compile', () => compileHerdrSchemas(raw))
       assert.equal(calls, 0)
       assert(isCompiledHerdrSchemas(schemas))
       assert(Object.isFrozen(schemas))

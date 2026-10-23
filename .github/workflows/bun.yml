@@ -27,7 +27,23 @@ jobs:
       - run: bun --no-env-file run lint
       - run: bun --no-env-file run format:check
       - run: bun --no-env-file run typecheck
-      - run: bun --no-env-file run test
+      - name: Test and capture phase observations
+        shell: bash
+        run: |
+          set -o pipefail
+          bun --no-env-file run test 2>&1 | tee "$RUNNER_TEMP/test-phases.log"
+      - name: Report phase observations
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: bun --no-env-file scripts/ci/test-observations.mjs "$RUNNER_TEMP/test-phases.log" "$RUNNER_TEMP/test-phases.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload phase observations
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-test-phases
+          path: ${{ runner.temp }}/test-phases.json
       - run: bun --no-env-file run build
       - run: bun --no-env-file run smoke
       - name: Pack the npm tarball and run it from a clean bun add

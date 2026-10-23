@@ -1,0 +1,103 @@
+{
+  "runtime": "v26.3.0",
+  "bun": "1.4.4",
+  "platform": "linux",
+  "arch": "x64",
+  "history_preparation": "batched replay of production Store rows; no native/network",
+  "durability": "file SQLite synchronous FULL",
+  "results": [
+    {
+      "history": 0,
+      "devices": 32,
+      "providers": 64,
+      "audit_rows": 0,
+      "database_bytes": 266240,
+      "budget": {
+        "samples": 60,
+        "p50_ms": 0.028375000000096406,
+        "p95_ms": 0.17525800000021263
+      },
+      "registration": {
+        "samples": 60,
+        "p50_ms": 1.0806400000001304,
+        "p95_ms": 2.0403579999999693
+      },
+      "expiry": {
+        "samples": 30,
+        "p50_ms": 0.049993000000085885,
+        "p95_ms": 0.6388990000000376
+      },
+      "expiry_burst_ms": 29.28497500000003
+    },
+    {
+      "history": 1000,
+      "devices": 32,
+      "providers": 64,
+      "audit_rows": 1840,
+      "database_bytes": 3338240,
+      "budget": {
+        "samples": 60,
+        "p50_ms": 0.02359200000000783,
+        "p95_ms": 0.08995100000015555
+      },
+      "registration": {
+        "samples": 60,
+        "p50_ms": 0.6707320000000436,
+        "p95_ms": 1.3462380000000849
+      },
+      "expiry": {
+        "samples": 30,
+        "p50_ms": 0.10852299999987736,
+        "p95_ms": 0.8848590000000058
+      },
+      "expiry_burst_ms": 79.23665499999993
+    },
+    {
+      "history": 10000,
+      "devices": 32,
+      "providers": 64,
+      "audit_rows": 18400,
+      "database_bytes": 31645696,
+      "budget": {
+        "samples": 60,
+        "p50_ms": 0.024206000000049244,
+        "p95_ms": 0.09514599999965867
+      },
+      "registration": {
+        "samples": 60,
+        "p50_ms": 0.6480050000000119,
+        "p95_ms": 1.340273000000252
+      },
+      "expiry": {
+        "samples": 30,
+        "p50_ms": 0.042739999999866995,
+        "p95_ms": 0.3141200000000026
+      },
+      "expiry_burst_ms": 654.3480029999996
+    },
+    {
+      "history": 50000,
+      "devices": 32,
+      "providers": 64,
+      "audit_rows": 92000,
+      "database_bytes": 158302208,
+      "budget": {
+        "samples": 60,
+        "p50_ms": 0.025872000000163098,
+        "p95_ms": 0.1318860000010318
+      },
+      "registration": {
+        "samples": 60,
+        "p50_ms": 0.6534949999986566,
+        "p95_ms": 1.9162469999992027
+      },
+      "expiry": {
+        "samples": 30,
+        "p50_ms": 0.04907400000047346,
+        "p95_ms": 0.25271499999871594
+      },
+      "expiry_burst_ms": 3493.516513999999
+    }
+  ],
+  "source": "Issue #249 implementation (Gateway schema v9)"
+}

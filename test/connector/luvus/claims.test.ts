@@ -1,4 +1,6 @@
 /** 用真实 SQLite 和私有文件覆盖持久发送账本；不连接 native，也不提供生产认证。 */
+import { createHash } from 'node:crypto'
+import { boundedJson } from '../../../src/wire/index.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, lstatSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -78,8 +80,13 @@ test(
       }
       const reader = new DatabaseSync(f.path, { readOnly: true })
       try {
-        const row = reader.prepare('SELECT binding,expires FROM luvus_dispatch_claims').get()!
-        assert.deepEqual(JSON.parse(String(row.binding)), binding())
+        const row = reader.prepare('SELECT binding_digest,expires FROM luvus_dispatch_claims').get()!
+        assert.deepEqual(
+          Buffer.from(row.binding_digest as Uint8Array),
+          createHash('sha256').update(boundedJson(binding())).digest()
+        )
+        assert.equal(reader.prepare('SELECT version FROM luvus_claim_meta').get()!.version, 2)
+        assert.equal(reader.prepare('SELECT length(binding_digest) AS n FROM luvus_dispatch_claims').get()!.n, 32)
         assert.equal(row.expires, binding().registration.deadline)
       } finally {
         reader.close()
@@ -199,9 +206,9 @@ test(
     const claims = f.create()
     let accepted = 0
     try {
-      for (let index = 0; index < 1000; index++) {
+      for (let index = 0; index < 4096; index++) {
         try {
-          claims.claim(binding('call' + index), 1000)
+          claims.claim(binding('call' + index.toString().padStart(124, '0')), 1000)
           accepted++
         } catch (error) {
           assert(error instanceof LuvusAdapterError)
@@ -209,7 +216,7 @@ test(
           break
         }
       }
-      assert(accepted > 1 && accepted < 1000)
+      assert(accepted > 1 && accepted < 4096)
       assert(lstatSync(f.path).size <= f.options.limits.bytes)
       const reader = new DatabaseSync(f.path, { readOnly: true })
       try {
@@ -250,7 +257,7 @@ test(
         ) {
           assert(index < f.options.limits.entries)
           const next = binding('call' + index)
-          insert.run(next.call_id, next.attempt_id, JSON.stringify(next), 1000)
+          insert.run(next.call_id, next.attempt_id, createHash('sha256').update(boundedJson(next)).digest(), 1000)
         }
         writer.exec('COMMIT')
       } finally {
@@ -405,36 +412,32 @@ test(
 )
 
 test(
-  'legacy long-lived claims are reclaimed only after their original deadline',
-  /** 用原 schema 写入旧版 30 天 expires，不改版本、不删除未到期记录即可继续使用原库。 */ () => {
+  'schema v1 is rejected without converting or deleting its live tombstones',
+  /** 不提供升级路径；版本变更不能静默忘掉任何旧库中的未到期意图。 */ () => {
     const f = setup()
-    f.options.limits.entries = 1
-    let claims = f.create()
-    claims.claim(binding(), 1000)
+    const claims = f.create()
     claims.close()
     const writer = new DatabaseSync(f.path)
     try {
-      writer.prepare('UPDATE luvus_dispatch_claims SET expires=?').run(30 * 86_400_000)
+      writer.exec(
+        'DROP TABLE luvus_dispatch_claims; CREATE TABLE luvus_dispatch_claims(call_id TEXT NOT NULL, attempt_id TEXT NOT NULL, binding TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(call_id,attempt_id)); UPDATE luvus_claim_meta SET version=1'
+      )
+      writer
+        .prepare('INSERT INTO luvus_dispatch_claims VALUES(?,?,?,?)')
+        .run('call1', 'attempt1', boundedJson(binding()), 30 * 86_400_000)
     } finally {
       writer.close()
     }
-    claims = f.open()
     try {
-      f.clock.now = 499
-      const next = binding('call2')
-      next.registration.deadline = 900
-      assert.throws(/* 剩余一毫秒仍须保留旧墓碑。 */ () => claims.claim(next, 1000), failure('claim_capacity'))
-      f.clock.now = 500
-      claims.claim(next, 1000)
-      claims.close()
-      claims = f.open()
-      f.clock.now = 499
-      assert.throws(
-        /* 删除与时钟必须一同持久化，原期限内的回放不能因重启恢复。 */ () => claims.claim(binding(), 1000),
-        failure('claim_deadline_invalid')
-      )
+      assert.throws(f.open, failure('claim_ledger_invalid'))
+      const reader = new DatabaseSync(f.path, { readOnly: true })
+      try {
+        assert.equal(reader.prepare('SELECT binding FROM luvus_dispatch_claims').get()!.binding, boundedJson(binding()))
+        assert.equal(reader.prepare('SELECT version FROM luvus_claim_meta').get()!.version, 1)
+      } finally {
+        reader.close()
+      }
     } finally {
-      claims.close()
       f.close()
     }
   }

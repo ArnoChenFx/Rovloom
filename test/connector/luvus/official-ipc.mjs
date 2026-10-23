@@ -475,9 +475,12 @@ export async function officialIpc(binaryPath) {
           throw error
         }
         const persisted = claimReader
-          .prepare('SELECT binding FROM luvus_dispatch_claims WHERE call_id=? AND attempt_id=?')
+          .prepare('SELECT binding_digest FROM luvus_dispatch_claims WHERE call_id=? AND attempt_id=?')
           .get(binding.call_id, binding.attempt_id)
-        assert.equal(persisted.binding, boundedJson(binding))
+        assert.deepEqual(
+          Buffer.from(persisted.binding_digest),
+          createHash('sha256').update(boundedJson(binding)).digest()
+        )
         claimsCommitted++
       }
     }

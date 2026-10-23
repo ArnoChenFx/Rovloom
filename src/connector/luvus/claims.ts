@@ -1,5 +1,6 @@
 /** 持久保存 Connector 唯一发送墓碑；只做去重和固定期限治理，不替代 Store、Wire 或宿主认证。 */
 import { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import { lstatSync, unlinkSync } from 'node:fs'
 import { dirname, sep } from 'node:path'
 import { createPrivate, privateFile, privatePath, syncParentDirectory } from '../../storage/files.js'
@@ -20,8 +21,7 @@ function lockContent(): string {
 
 const metadataSql =
   'CREATE TABLE luvus_claim_meta(version INTEGER NOT NULL, ledger_id TEXT NOT NULL, clock INTEGER NOT NULL)'
-const claimsSql =
-  'CREATE TABLE luvus_dispatch_claims(call_id TEXT NOT NULL, attempt_id TEXT NOT NULL, binding TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(call_id,attempt_id))'
+const claimsSql = `CREATE TABLE luvus_dispatch_claims(call_id TEXT NOT NULL, attempt_id TEXT NOT NULL, binding_digest BLOB NOT NULL CHECK(typeof(binding_digest)='blob' AND length(binding_digest)=32), expires INTEGER NOT NULL, PRIMARY KEY(call_id,attempt_id))`
 
 /** 用 lstat 检查目录项，断链也视为存在，不能让 SQLite 跟随 sidecar 符号链接。 */
 function present(path: string): boolean {
@@ -153,7 +153,7 @@ export class LuvusDispatchClaims {
       }
       if (options.mode === 'create') {
         this.#db.exec('BEGIN IMMEDIATE; ' + metadataSql + '; ' + claimsSql)
-        this.#db.prepare('INSERT INTO luvus_claim_meta VALUES(1,?,0)').run(this.ledgerId)
+        this.#db.prepare('INSERT INTO luvus_claim_meta VALUES(2,?,0)').run(this.ledgerId)
         this.#db.exec('COMMIT')
         syncParentDirectory(options.path)
       }
@@ -192,7 +192,7 @@ export class LuvusDispatchClaims {
     if (rows.length !== 1 || !Number.isSafeInteger(rows[0]!.clock) || Number(rows[0]!.clock) < 0) {
       throw new LuvusAdapterError('claim_ledger_invalid')
     }
-    if (rows[0]!.version !== 1 || rows[0]!.ledger_id !== this.ledgerId) {
+    if (rows[0]!.version !== 2 || rows[0]!.ledger_id !== this.ledgerId) {
       throw new LuvusAdapterError('claim_ledger_mismatch')
     }
     return rows[0]!
@@ -223,9 +223,7 @@ export class LuvusDispatchClaims {
     }
     if (count > this.#options.limits.entries) {
       const first = this.#db!
-        .prepare(
-          "SELECT min(json_extract(binding,'$.registration.deadline')) AS deadline FROM luvus_dispatch_claims WHERE call_id<>? OR attempt_id<>?"
-        )
+        .prepare('SELECT min(expires) AS deadline FROM luvus_dispatch_claims WHERE call_id<>? OR attempt_id<>?')
         .get(candidate?.call_id ?? '', candidate?.attempt_id ?? '')!.deadline
       throw new ConnectorCapacityError('claim_entries', Number.isSafeInteger(first) ? Number(first) : null)
     }
@@ -290,17 +288,13 @@ export class LuvusDispatchClaims {
       ) {
         throw new LuvusAdapterError('dispatch_already_claimed')
       }
-      // 旧版本 expires 为 30 天；只回收完整登记中 deadline 已过的旧墓碑，不改 schema。
+      // schema v2 的 expires 固定为原 deadline；摘要不能恢复绑定或 native 许可。
       // 清理、插入及持久时钟推进共用事务；重启或时钟回退不能复活已回收的意图。
-      this.#db!
-        .prepare(
-          "DELETE FROM luvus_dispatch_claims WHERE expires<=? OR json_extract(binding,'$.registration.deadline')<=?"
-        )
-        .run(now, now)
-      const body = boundedJson(snapshot, 16_384)
+      this.#db!.prepare('DELETE FROM luvus_dispatch_claims WHERE expires<=?').run(now)
+      const digest = createHash('sha256').update(boundedJson(snapshot, 16_384)).digest()
       this.#db!
         .prepare('INSERT INTO luvus_dispatch_claims VALUES(?,?,?,?)')
-        .run(snapshot.call_id, snapshot.attempt_id, body, snapshot.registration.deadline)
+        .run(snapshot.call_id, snapshot.attempt_id, digest, snapshot.registration.deadline)
       this.#db!.prepare('UPDATE luvus_claim_meta SET clock=?').run(now)
       this.#budget(snapshot)
       this.#db!.exec('COMMIT')
@@ -308,9 +302,13 @@ export class LuvusDispatchClaims {
       const reader = new DatabaseSync(this.#options.path, { readOnly: true })
       try {
         const row = reader
-          .prepare('SELECT binding,expires FROM luvus_dispatch_claims WHERE call_id=? AND attempt_id=?')
+          .prepare('SELECT binding_digest,expires FROM luvus_dispatch_claims WHERE call_id=? AND attempt_id=?')
           .get(snapshot.call_id, snapshot.attempt_id)
-        if (row?.binding !== body || row.expires !== snapshot.registration.deadline) {
+        if (
+          !(row?.binding_digest instanceof Uint8Array) ||
+          !Buffer.from(row.binding_digest).equals(digest) ||
+          row.expires !== snapshot.registration.deadline
+        ) {
           throw new LuvusAdapterError('claim_commit_unverified')
         }
       } finally {

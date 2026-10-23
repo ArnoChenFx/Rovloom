@@ -1,4 +1,5 @@
 /** 验证固定 Herdr Worker 随 Bun 模块及 standalone 嵌入，产物不依赖源码 Worker 路径。 */
+import { phaseTiming } from '../../support/phase-timing.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -14,7 +15,7 @@ const raw = readFileSync(new URL('../../fixtures/herdr/0.9.5/schema.json', impor
 for (const standalone of [false, true]) {
   test(
     `固定 Herdr Worker 内嵌 ${standalone ? 'standalone' : 'Bun 模块'}`,
-    /** 在隔离目录执行真实产物，不从源码 Worker 补包。 */ () => {
+    /** 在隔离目录执行真实产物，不从源码 Worker 补包。 */ async () => {
       const directory = mkdtempSync(join(tmpdir(), 'rovloom-herdr-compiler-'))
       try {
         const entry = join(directory, 'entry.ts')
@@ -38,12 +39,13 @@ for (const standalone of [false, true]) {
         }));
       `
         )
-        const build = spawnSync(
-          process.execPath,
-          [
-            '--no-env-file',
-            '-e',
-            `
+        const build = await phaseTiming('herdr.package.build.' + (standalone ? 'standalone' : 'module'), () =>
+          spawnSync(
+            process.execPath,
+            [
+              '--no-env-file',
+              '-e',
+              `
         import {compilerWorkerPlugin} from ${JSON.stringify(plugin)};
         const result = await Bun.build({
           entrypoints:[${JSON.stringify(entry)}], target:'bun', format:'esm', packages:'bundle', minify:true,
@@ -52,17 +54,20 @@ for (const standalone of [false, true]) {
         });
         if (!result.success) throw new AggregateError(result.logs, 'Herdr compiler packaging failed');
       `
-          ],
-          { cwd: directory, encoding: 'utf8', timeout: 30_000 }
+            ],
+            { cwd: directory, encoding: 'utf8', timeout: 30_000 }
+          )
         )
         assert.ifError(build.error)
         assert.equal(build.status, 0, build.stderr)
         rmSync(entry)
-        const run = spawnSync(standalone ? output : process.execPath, standalone ? [] : ['--no-env-file', output], {
-          cwd: directory,
-          encoding: 'utf8',
-          timeout: 10_000
-        })
+        const run = await phaseTiming('herdr.package.run.' + (standalone ? 'standalone' : 'module'), () =>
+          spawnSync(standalone ? output : process.execPath, standalone ? [] : ['--no-env-file', output], {
+            cwd: directory,
+            encoding: 'utf8',
+            timeout: 10_000
+          })
+        )
         assert.ifError(run.error)
         assert.equal(run.status, 0, run.stderr)
         assert.deepEqual(JSON.parse(run.stdout), { brand: true, request: true, response: true })

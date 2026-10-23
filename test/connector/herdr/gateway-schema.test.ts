@@ -1,5 +1,6 @@
 // Gateway从普通文件加载实际schema字节并保留编译快照；只用公开离线fixture，不建立身份或原生会话。
 import assert from 'node:assert/strict'
+import { phaseTiming } from '../../support/phase-timing.js'
 import {
   chmodSync,
   linkSync,
@@ -60,7 +61,9 @@ test(
         paths.push(link)
       }
       for (const schema_path of paths) {
-        const resources = await createHerdrGatewayResources({ config: { ...f.config, schema_path } })
+        const resources = await phaseTiming('herdr.gateway.compile', () =>
+          createHerdrGatewayResources({ config: { ...f.config, schema_path } })
+        )
         try {
           assert.equal(resources.describe().source_basis, 'configured_connector_contract')
           assert.equal(resources.providers[0]!.ready!(), true)

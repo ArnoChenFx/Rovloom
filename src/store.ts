@@ -27,7 +27,7 @@ import type { TrustedAttempt } from './integration/luvus-wire.js'
 import { DEFAULT_RETENTION, retention } from './storage/config.js'
 import type { Retention } from './storage/config.js'
 import { exportSnapshot } from './storage/backup.js'
-import { assertBudget } from './storage/budget.js'
+import { assertBudget, assertUsage } from './storage/budget.js'
 import { auditRecord } from './storage/audit.js'
 import { SCHEMA, SCHEMA_VERSION } from './storage/schema.js'
 import { CachedDatabase } from './storage/database.js'
@@ -182,6 +182,7 @@ export class Store {
       if (this.db.prepare('PRAGMA quick_check').get()!.quick_check !== 'ok') {
         throw new GatewayError('database_integrity_failed')
       }
+      assertUsage(this.db)
       this.observed = this.meta().clock
       this.degraded = this.meta().mode === 'storage_degraded' || (path !== ':memory:' && existsSync(path + '.degraded'))
       this.db.exec('BEGIN IMMEDIATE')
@@ -1307,15 +1308,16 @@ export class Store {
         this.invalidateWhere('dedup_expires<=?', [now], 'fence')
         this.db
           .prepare(
-            "DELETE FROM results WHERE expires<=? OR call_id IN (SELECT call_id FROM calls WHERE content_expires<=? OR content_status!='available')"
+            "DELETE FROM results WHERE expires<=? OR EXISTS (SELECT 1 FROM calls WHERE calls.call_id=results.call_id AND (content_expires<=? OR content_status!='available'))"
           )
           .run(now, now)
+        // 通知已在上方排队；先删完全到期历史，避免对即将删除的每行重复清正文和维护索引。
+        this.db.prepare('DELETE FROM calls WHERE metadata_expires<=? AND dedup_expires<=?').run(now, now)
         this.db
           .prepare(
-            "UPDATE calls SET response=NULL,request_json=NULL,content_status=CASE WHEN content_status='available' THEN 'expired' ELSE content_status END WHERE content_expires<=?"
+            "UPDATE calls SET response=NULL,request_json=NULL,content_status=CASE WHEN content_status='available' THEN 'expired' ELSE content_status END WHERE content_expires<=? AND (content_status='available' OR request_json IS NOT NULL OR response IS NOT NULL)"
           )
           .run(now)
-        this.db.prepare('DELETE FROM calls WHERE metadata_expires<=? AND dedup_expires<=?').run(now, now)
         this.administration.expire(now)
         this.db.prepare('DELETE FROM audit WHERE expires<=?').run(now)
         this.db.prepare('DELETE FROM enrollments WHERE expires<=?').run(now)

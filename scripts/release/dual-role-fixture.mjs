@@ -1,5 +1,6 @@
 /** 真实双角色发布验收的短期合成状态；不替代原生 installation、peer、process 或 root 门禁。 */
 import assert from 'node:assert/strict'
+import { readNetwork } from '../ci/read-network.mjs'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import {
@@ -28,16 +29,7 @@ export const herdrSmokePin = Object.freeze({
 export async function downloadHerdrSmokeBinary(path) {
   assert.equal(process.platform, 'linux', 'dual_role_native_platform_unsupported')
   assert.equal(process.arch, 'x64', 'dual_role_native_arch_unsupported')
-  const response = await fetch(herdrSmokePin.url, { signal: AbortSignal.timeout(90_000) })
-  assert.equal(response.status, 200, 'dual_role_native_download_failed')
-  const parts = []
-  let length = 0
-  for await (const bytes of response.body) {
-    length += bytes.length
-    assert(length <= 67_108_864, 'dual_role_native_download_too_large')
-    parts.push(bytes)
-  }
-  const binary = Buffer.concat(parts)
+  const binary = await readNetwork(herdrSmokePin.url, { maxBytes: 67_108_864, timeoutMs: 90_000 })
   assert.equal(createHash('sha256').update(binary).digest('hex'), herdrSmokePin.binary_sha256)
   writeFileSync(path, binary, { mode: 0o700, flag: 'wx' })
 }

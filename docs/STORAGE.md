@@ -12,7 +12,9 @@ Gateway 的全部状态保存在单个 SQLite 库 `<data.directory>/gateway.db` 
 
 ## 数据库与文件
 
-- 数据库 schema 版本为 6。遇到其他版本拒绝启动（`unsupported_database_version`），不做迁移。
+- 数据库 schema 版本为 9。遇到其他版本拒绝启动（`unsupported_database_version`），不做迁移。
+- 内容、结果和收尾预约用量由同事务 SQLite 触发器维护；启动与离线检查重算核对。热路径不扫描历史，物理文件与备份仍逐次计入预算，见 [ADR 0007](adr/0007-transactional-storage-usage.md)。
+- Connector 的共享发送账本为独立 schema v2，仅保留 call/attempt ID、32 字节绑定摘要和原执行 deadline；版本不匹配拒绝打开，不自动转换，见 [ADR 0008](adr/0008-compact-connector-claims.md)。
 - SQLite 使用 DELETE journal 与 FULL synchronous，打开时做完整性检查。它依赖操作系统和文件系统的持久性。
 - 访问权限由操作系统决定，程序不检查 UID、现有 mode 或 Windows ACL，也不修改已有文件和目录的权限。新建目录和文件分别请求 `0700` 和 `0600`。
 - 路径必须是规范绝对路径。数据库文件的符号链接会解析到目标；数据库硬链接被拒绝，因为无法确定唯一的写锁路径。

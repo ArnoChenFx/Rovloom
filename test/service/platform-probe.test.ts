@@ -1,4 +1,5 @@
 // 使用实际宿主的原生解析器只读核对声明；不注册任务、不加载系统单元、不提权或改变权限。
+import { phaseTiming } from '../support/phase-timing.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
@@ -335,11 +336,13 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
               authorization,
               `if ($p.op -eq 'authorize') { ${formatAssertions} emit @{ok=$true}; [Console]::Error.WriteLine('rovloom_probe_work_ms_' + $rovloomProbeWork.ElapsedMilliseconds); exit 0 }`
             )
-            return bridgeProbe({
-              ...plan,
-              args: [...plan.args.slice(0, -1), Buffer.from(combined, 'utf16le').toString('base64')],
-              input: JSON.stringify({ ...JSON.parse(plan.input!), XmlPath: xmlFile, PhasePath: phaseFile })
-            })
+            return phaseTiming('windows.scheduler.parse', () =>
+              bridgeProbe({
+                ...plan,
+                args: [...plan.args.slice(0, -1), Buffer.from(combined, 'utf16le').toString('base64')],
+                input: JSON.stringify({ ...JSON.parse(plan.input!), XmlPath: xmlFile, PhasePath: phaseFile })
+              })
+            )
           },
           'authorize',
           'gateway'
@@ -375,11 +378,13 @@ try { $null=declaration $copy; exit 1 } catch { if ($_.Exception.Message -cne 's
       } else {
         const file = join(directory, platform === 'linux' ? 'rovloom-connector.service' : 'io.rovloom.connector.plist')
         writeFileSync(file, renderDefinition(spec))
-        const result = await nativeProbe({
-          executable: platform === 'linux' ? '/usr/bin/systemd-analyze' : '/usr/bin/plutil',
-          args: platform === 'linux' ? ['verify', '--man=no', file] : ['-lint', file],
-          timeout: 10000
-        })
+        const result = await phaseTiming('service.definition.parse', () =>
+          nativeProbe({
+            executable: platform === 'linux' ? '/usr/bin/systemd-analyze' : '/usr/bin/plutil',
+            args: platform === 'linux' ? ['verify', '--man=no', file] : ['-lint', file],
+            timeout: 10000
+          })
+        )
         assert.equal(result.code, 0, result.stderr)
       }
     } finally {
