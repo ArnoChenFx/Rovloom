@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -754,6 +755,46 @@ test(
           s.expire()
           assert(!existsSync(first))
           s.backup(join(backups, 'second'))
+        } finally {
+          s.close()
+        }
+      }
+    )
+)
+test(
+  'snapshot directory replaced by a symlink at runtime fails expiry closed and deletes nothing outside',
+  /* 运行中把固定快照目录换成指向外部目录的软链接：过期清理与再次备份都必须先复核边界并拒绝，外部同名文件与原快照都保留。 */ () =>
+    disk(
+      /* 登记一份快照后替换目录并推进时钟，检查 expire 抛 invalid_backup_directory 且两侧文件都在。 */ (root, path) => {
+        let now = 100
+        const backups = join(root, 'backups')
+        const moved = join(root, 'backups-moved')
+        const outside = join(root, 'outside')
+        mkdirSync(backups, { mode: 0o700 })
+        mkdirSync(outside, { mode: 0o700 })
+        writeFileSync(join(outside, 'first'), 'outside-content')
+        const s = new Store(path, /* 返回用例控制的时间，供验证替换发生后的固定到期边界。 */ () => now, {
+          management,
+          backupDirectory: backups,
+          retention: { backup_max_count: 2, backup_ttl: 10 }
+        })
+        try {
+          connected(s)
+          s.backup(join(backups, 'first'))
+          renameSync(backups, moved)
+          symlinkSync(outside, backups, process.platform === 'win32' ? 'junction' : 'dir')
+          now = 110
+          assert.throws(
+            /* 目录边界已被替换，过期清理不能跟随链接删除外部文件。 */ () => s.expire(),
+            /invalid_backup_directory/
+          )
+          assert(existsSync(join(outside, 'first')))
+          assert(existsSync(join(moved, 'first')))
+          assert.throws(
+            /* 写入新快照前同样复核边界，不能把快照落到固定目录之外。 */ () => s.backup(join(backups, 'second')),
+            /invalid_backup_directory/
+          )
+          assert(!existsSync(join(outside, 'second')))
         } finally {
           s.close()
         }
