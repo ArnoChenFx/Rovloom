@@ -183,3 +183,50 @@ test(
     }
   }
 )
+
+test('browser client accepts approved waiting, failed delivery and acknowledged pairing as distinct progress', async () => {
+  const fx = pairingFlowFixture()
+  try {
+    for (const delivered of [false, true]) {
+      const intent = {
+        action: 'pairing_create' as const,
+        target: { name: delivered ? 'client_delivered' : 'client_failed', labels: [], policy_ref: 'policy_a' }
+      }
+      const c = await confirmed(fx.service, intent, 0)
+      const pairing = await fx.service.execute('pairings_create', { ...c.write, ...intent.target }, context())
+      fx.f.grant(
+        { action: 'devices_read', machine_id: pairing.machine_id },
+        { action: 'devices_revoke', machine_id: pairing.machine_id }
+      )
+      const claim = fx.store.startPairingClaim(pairing.machine_id, pairing.pairing_id, 'a'.repeat(64), 'CHECK234')
+      const approve = createPairingManagementFlow({ transport: fx.client })
+      try {
+        await approve.prepare({
+          action: 'pairing_claim_approve',
+          machine_id: pairing.machine_id,
+          pairing_id: pairing.pairing_id,
+          claim_id: claim.claim_id,
+          user_code: claim.user_code
+        })
+        assert.equal((await approve.confirm()).phase, 'committed')
+        const args = { machine_id: pairing.machine_id, pairing_id: pairing.pairing_id }
+        const signal = new AbortController().signal
+        const waiting = await fx.client.execute('pairings_get', args, signal)
+        assert.equal(waiting.status, 'pending')
+        assert.equal(waiting.claim?.status, 'approved')
+        if (delivered) {
+          fx.store.completePairingClaim(claim.claim_id)
+        } else {
+          fx.store.failPairingClaim(claim.claim_id)
+        }
+        const final = await fx.client.execute('pairings_get', args, signal)
+        assert.equal(final.status, delivered ? 'paired' : 'failed')
+        assert.equal(final.claim?.status, delivered ? 'delivered' : 'failed')
+      } finally {
+        approve.dispose()
+      }
+    }
+  } finally {
+    fx.close()
+  }
+})

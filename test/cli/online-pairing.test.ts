@@ -195,3 +195,56 @@ test(
     }
   }
 )
+
+test('claim approval rejects a mismatching application before credential issuance', async () => {
+  const o = owned()
+  try {
+    const a = await application(o, 'online_wrong_application')
+    const claim = o.store.startPairingClaim(a.machine_id, a.pairing_id, digest(CLAIM_SECRET), 'CHECK234')
+    await assert.rejects(
+      approve(o, { machine_id: a.machine_id, pairing_id: 'pairing_nonexistent' }, claim.claim_id, claim.user_code),
+      /pairing_claim_conflict/
+    )
+    assert.equal(o.store.pairingClaim(claim.claim_id).status, 'pending')
+    assert.equal(o.store.pairingApplication(a.pairing_id)?.issued, 0)
+    assert.equal(o.store.credentialDigest(a.machine_id), null)
+    const response = await o.online.handle(
+      post('/pairing/claim/status', { claim_id: claim.claim_id, secret: CLAIM_SECRET })
+    )
+    assert.deepEqual(await response!.json(), { status: 'pending' })
+  } finally {
+    o.close()
+  }
+})
+
+test('management pairing progress follows credential delivery and preserves failed delivery', async () => {
+  const o = owned()
+  try {
+    for (const delivered of [false, true]) {
+      const a = await application(o, delivered ? 'online_delivered_status' : 'online_failed_status')
+      const claim = o.store.startPairingClaim(a.machine_id, a.pairing_id, digest(CLAIM_SECRET), 'CHECK234')
+      await approve(o, a, claim.claim_id, claim.user_code)
+      const args = { machine_id: a.machine_id, pairing_id: a.pairing_id }
+      const approved = await o.service.execute('pairings_get', args, context())
+      assert.equal(approved.status, 'pending')
+      assert.equal(approved.claim?.status, 'approved')
+      if (delivered) {
+        const response = await o.online.handle(
+          post('/pairing/claim/ack', { claim_id: claim.claim_id, secret: CLAIM_SECRET })
+        )
+        assert.equal(response!.status, 200)
+      } else {
+        const restarted = new OnlinePairingHttp(o.store, () => 1000)
+        restarted.reconcile()
+        restarted.close()
+        assert.equal(o.store.machine(a.machine_id).status, 'pending')
+        assert.equal(o.store.credentialDigest(a.machine_id), null)
+      }
+      const final = await o.service.execute('pairings_get', args, context())
+      assert.equal(final.status, delivered ? 'paired' : 'failed')
+      assert.equal(final.claim?.status, delivered ? 'delivered' : 'failed')
+    }
+  } finally {
+    o.close()
+  }
+})

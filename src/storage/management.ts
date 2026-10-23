@@ -465,6 +465,13 @@ export class ManagementLedger {
             .run(target.machine_id)
         } else if (intent.action === 'pairing_claim_approve') {
           // 批准在同一事务内完成签发与兑换；凭据只暂存进在线 custody，回执与审计不含任何秘密。
+          if (
+            !this.db
+              .prepare('SELECT 1 FROM pairing_claims WHERE claim_id=? AND pairing_id=? AND machine_id=?')
+              .get(intent.target.claim_id, intent.target.pairing_id, target.machine_id)
+          ) {
+            throw new GatewayError('pairing_claim_conflict')
+          }
           const approved = this.host.approveClaim(intent.target.claim_id, intent.target.user_code, now)
           if (approved.machine_id !== target.machine_id) {
             throw new GatewayError('pairing_claim_conflict')
@@ -590,21 +597,30 @@ export class ManagementLedger {
     if (!row) {
       throw new GatewayError('pairing_not_found')
     }
+    const claim = this.db
+      .prepare(
+        'SELECT claim_id,user_code,status,expires FROM pairing_claims WHERE pairing_id=? ORDER BY created DESC,rowid DESC LIMIT 1'
+      )
+      .get(pairing) as
+      | {
+          claim_id: string
+          user_code: string
+          status: 'pending' | 'approved' | 'delivered' | 'failed' | 'cancelled'
+          expires: number
+        }
+      | undefined
     const status =
-      row.status === 'cancelled'
+      row.status === 'cancelled' || row.machine_status === 'revoked'
         ? 'cancelled'
-        : row.machine_status === 'revoked'
-          ? 'cancelled'
+        : row.status === 'failed' || claim?.status === 'failed'
+          ? 'failed'
           : row.status === 'paired'
-            ? 'paired'
+            ? claim?.status === 'approved'
+              ? 'pending'
+              : 'paired'
             : now >= Number(row.expires)
               ? 'expired'
               : 'pending'
-    const claim = this.db
-      .prepare(
-        "SELECT claim_id,user_code,status,expires FROM pairing_claims WHERE pairing_id=? AND status IN ('pending','approved') ORDER BY created DESC LIMIT 1"
-      )
-      .get(pairing) as { claim_id: string; user_code: string; status: string; expires: number } | undefined
     return {
       machine_id: machine,
       pairing_id: pairing,
@@ -618,7 +634,7 @@ export class ManagementLedger {
             claim: {
               claim_id: claim.claim_id,
               user_code: claim.user_code,
-              status: claim.status as 'pending' | 'approved',
+              status: claim.status,
               expires_at: Number(claim.expires)
             }
           }

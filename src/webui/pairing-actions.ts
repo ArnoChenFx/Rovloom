@@ -217,13 +217,15 @@ export function createPairingActions(options: {
     status.textContent =
       entry.status === 'paired'
         ? t('pairing.paired')
-        : entry.status === 'expired' || entry.status === 'cancelled'
-          ? t('pairing.expired')
-          : entry.claim?.status === 'approved'
-            ? t('pairing.approved')
-            : entry.claim
-              ? t('pairing.claimArrived')
-              : t('pairing.waitingClaim')
+        : entry.status === 'failed'
+          ? t('pairing.failed')
+          : entry.status === 'expired' || entry.status === 'cancelled'
+            ? t('pairing.expired')
+            : entry.claim?.status === 'approved'
+              ? t('pairing.approved')
+              : entry.claim
+                ? t('pairing.claimArrived')
+                : t('pairing.waitingClaim')
     head.append(title, status)
     entry.item.append(head)
     const facts = node('dl', 'facts')

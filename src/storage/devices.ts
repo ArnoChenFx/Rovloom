@@ -455,6 +455,9 @@ export class DeviceLedger {
         return
       }
       this.db.prepare("UPDATE pairing_claims SET status='failed' WHERE claim_id=?").run(claimId)
+      this.db
+        .prepare("UPDATE admin_pairings SET status='failed' WHERE pairing_id=? AND status IN ('pending','paired')")
+        .run(String(row.pairing_id))
       this.audit('pairing_claim_failed', 'local', now, undefined, {
         machine_id: String(row.machine_id),
         pairing_id: String(row.pairing_id),
