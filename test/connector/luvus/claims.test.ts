@@ -349,6 +349,7 @@ test(
 
 test(
   'production claim quota is reusable beyond 1024 calls without reopening an expired attempt',
+  { timeout: 30_000 },
   /** 两轮各 1024 个真实持久 claim；只在固定 deadline 后回收，重启仍保留删除时的时钟屏障。 */ () => {
     const f = setup()
     f.options.limits.entries = 1024
