@@ -57,9 +57,10 @@ mkdir rovloom && cd rovloom
 curl --fail --location --output docker-compose.yaml \
   https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/docker-compose.yaml
 docker compose pull
+docker compose run --rm gateway config init gateway --container
 ```
 
-Ports 9443, 9444 and 9445 must be free (the Compose file publishes them from a bridge network), and the generated `gateway.json` must bind its listeners to `0.0.0.0` as described in the Docker guide. See
+Ports 9443, 9444 and 9445 must be free (the Compose file publishes them from a bridge network), and `config init gateway --container` prepares the container listeners on first setup. See
 [Docker deployment](DOCKER.md) for volumes, backup and upgrades.
 
 ## 2. Prepare the Connector machine
@@ -73,12 +74,13 @@ workspaces and Agent logins. It starts one in your own config directory only if 
 Programs are found through `PATH` (plus `/usr/bin:/bin`); for other locations see
 [installation directories](CONFIGURATION.md#program-and-agent-installation-directories).
 
-Luvus is the default. To use Herdr (or `mixed` for both), run `rovloom connector` once and press
-Ctrl-C at the address prompt (this creates `~/.config/rovloom/connector.json`), then add:
+Luvus is the default. Before first pairing, choose Herdr explicitly (use `mixed` for both):
 
-```json
-"native": { "provider": "herdr" }
+```sh
+rovloom config init connector --provider herdr
 ```
+
+This creates configuration without starting the Connector or asking for an address. Existing configuration is preserved; if it selects another provider, the command returns `config_exists` so you can review it before changing it.
 
 ## 3. Pair
 

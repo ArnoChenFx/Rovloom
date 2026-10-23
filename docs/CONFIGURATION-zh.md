@@ -7,6 +7,19 @@
 下列字段除特别说明均为必填。默认值是新生成文件中的值，不是已有文件遗漏字段时的
 隐式补值。全部示例均不含凭据。
 
+
+## 显式初始化
+
+```sh
+rovloom config init connector --provider herdr
+rovloom config init gateway --container
+```
+
+`--provider` 只适用于 Connector，可选 `luvus`、`herdr`、`mixed`。`--container` 只适用于 Gateway，显式将 MCP、设备和管理监听设为 `0.0.0.0`；维护的 Compose 文件仍把 MCP / 管理端口只发布到宿主回环。不带该参数时，Gateway 保持普通回环默认值。`--config` 只选择配置文件，默认状态路径仍属于当前用户 home。
+
+初始化不启动服务、不创建设备身份、不批准 native 访问，沿用角色首次启动的独占文件发布机制。已有文件不覆盖；显式 provider / 监听请求与已有内容冲突时返回 `config_exists`。已有部署应先核对配置和配对状态，编辑后用 `config check` 校验再重启。
+
+
 ## 完整最小配置
 
 Gateway，通常为 `~/.config/rovloom/gateway.json`：

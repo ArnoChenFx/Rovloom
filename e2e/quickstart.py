@@ -49,8 +49,8 @@ class Term:
                 self.buf = b''
                 return clean
             if self.child.poll() is not None:
-                raise RuntimeError(f'{self.name} exited {self.child.returncode} before {marker!r}: {clean[-600:]}')
-        raise RuntimeError(f'{self.name} timeout waiting {marker!r}; tail: {self.text()[-600:]}')
+                raise RuntimeError(f'{self.name} exited {self.child.returncode} before {marker!r}: {redact(clean)[-600:]}')
+        raise RuntimeError(f'{self.name} timeout waiting {marker!r}; tail: {redact(self.text())[-600:]}')
 
     def send(self, text):
         os.write(self.master, text.encode())
@@ -157,20 +157,22 @@ def main():
     env_c = {**base, 'HOME': home_c, 'PATH': f'{herdr_dir}:/usr/bin:/bin'}
     terms = []
     try:
-        # 首次启动让 Connector 自动创建用户文件；再按文档在原生批准前选择 Herdr。
-        first = Term('connector0', [rov, 'connector'], env_c, home_c); first.expect('Gateway address'); first.stop()
+        # 按 Quick Start 显式生成 provider 配置，不先启动再 Ctrl-C 或手改 provider。
+        initialized = subprocess.run([rov, 'config', 'init', 'connector', '--provider',
+                                      'herdr' if args.herdr else 'luvus'],
+                                     env=env_c, cwd=home_c, capture_output=True, text=True, timeout=10)
+        assert initialized.returncode == 0 and initialized.stderr == 'config_ready\n', 'connector_init_failed'
         path = os.path.join(home_c, '.config', 'rovloom', 'connector.json')
         cfg = json.load(open(path))
-        if args.herdr:
-            cfg['native'] = {'provider': 'herdr'}
-            if args.service:
-                # LaunchDaemon 的 PATH 只有系统目录：显式列出 herdr 所在目录。
-                cfg['native']['runtime_bin_dirs'] = [herdr_dir]
-        elif args.luvus_mode == 'managed':
-            # 隔离 Luvus 的状态路径上限 52 字节（Unix socket 限制），默认数据目录太长，按文档改用短路径。
-            cfg['native'] = {'luvus': {'mode': 'managed'}}
+        if args.herdr and args.service:
+            # LaunchDaemon 的 PATH 只有系统目录：显式列出 herdr 所在目录。
+            cfg['native']['runtime_bin_dirs'] = [herdr_dir]
+            open(path, 'w').write(json.dumps(cfg, indent=2) + '\n'); os.chmod(path, 0o600)
+        elif args.luvus and args.luvus_mode == 'managed':
+            # 隔离 Luvus 的 Unix socket 路径需要短目录，属于此特定场景的显式配置。
+            cfg['native'] = {'provider': 'luvus', 'luvus': {'mode': 'managed'}}
             cfg['data'] = {'directory': os.path.join(work, 'd')}
-        open(path, 'w').write(json.dumps(cfg, indent=2) + '\n'); os.chmod(path, 0o600)
+            open(path, 'w').write(json.dumps(cfg, indent=2) + '\n'); os.chmod(path, 0o600)
 
         if args.pre_existing:
             # 与用户的 TUI 自动拉起的 server 同形态：`luvus --session default server`，脱离终端持续运行。
@@ -308,10 +310,9 @@ def main():
         if args.second_device:
             home_c2 = os.path.join(work, 'c2'); os.makedirs(home_c2, mode=0o700, exist_ok=True)
             env_c2 = {**base, 'HOME': home_c2, 'PATH': f'{herdr_dir}:/usr/bin:/bin'}
-            probe = Term('connector2-0', [rov, 'connector'], env_c2, home_c2); probe.expect('Gateway address'); probe.stop()
-            path2 = os.path.join(home_c2, '.config', 'rovloom', 'connector.json')
-            cfg2 = json.load(open(path2)); cfg2['native'] = {'provider': 'herdr'}
-            open(path2, 'w').write(json.dumps(cfg2, indent=2) + '\n'); os.chmod(path2, 0o600)
+            initialized = subprocess.run([rov, 'config', 'init', 'connector', '--provider', 'herdr'],
+                                         env=env_c2, cwd=home_c2, capture_output=True, text=True, timeout=10)
+            assert initialized.returncode == 0 and initialized.stderr == 'config_ready\n', 'connector2_init_failed'
             gateway.stop()  # 第一台 Connector 继续运行，会自行重连新的 Gateway 进程
             gateway = Term('gateway-add', [rov, 'gateway', '--add-device'], env_g, home_g); terms.append(gateway)
             gateway.expect('Pair one Connector'); gateway.send('y\n')
@@ -363,8 +364,8 @@ def main():
                 time.sleep(10.0)  # 服务 Connector 尚在连接：MCP 链路成功本身就是就绪证明
             if status != 0:
                 connector.pump(1.0); gateway.pump(0.3)
-                print('--- gateway tail ---\n' + ANSI.sub(b'', gateway.log).decode('utf8', 'replace')[-1800:], flush=True)
-                print('--- connector tail ---\n' + ANSI.sub(b'', connector.log).decode('utf8', 'replace')[-2500:], flush=True)
+                print('--- gateway tail ---\n' + redact(ANSI.sub(b'', gateway.log).decode('utf8', 'replace')), flush=True)
+                print('--- connector tail ---\n' + redact(ANSI.sub(b'', connector.log).decode('utf8', 'replace')), flush=True)
         sys.exit(status)
     finally:
         for term in reversed(terms):
