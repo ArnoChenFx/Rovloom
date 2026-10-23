@@ -93,4 +93,4 @@ Connector 应运行在 Luvus/Herdr 所在的主机上（Linux x64、macOS 或 Wi
 
 ## 镜像构建
 
-镜像由容器工作流用官方 Bun 镜像（`oven/bun:1`，跟随 Bun 1.x 更新，本次构建只解析一次并供构建层与运行层复用）从源码构建，在产品发行成功后推送到 GHCR。维护者见 [DISTRIBUTION](DISTRIBUTION.md)。
+镜像由容器工作流用官方 Bun 镜像（`oven/bun:1-slim`，跟随 Bun 1.x 更新，本次构建只解析一次并供构建层与运行层复用）从源码构建，在产品发行成功后推送到 GHCR。维护者见 [DISTRIBUTION](DISTRIBUTION.md)。

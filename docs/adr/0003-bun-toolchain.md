@@ -13,7 +13,7 @@
 - `package.json` 的 `engines.bun` 只声明最低版本。依赖与 devDependencies 使用 `^` 范围，不固定补丁版本，也不使用 `packageManager` 精确 pin。
 - CI 只使用最新稳定版 Bun 运行 lint、format、typecheck、test、build、smoke（见 [CI 配置](../../.github/workflows/bun.yml)），不再维护最低版本矩阵。`engines.bun` 继续表达运行时最低兼容要求。
 - 单文件发行构建使用构建时的最新 Bun。实际版本写入 release manifest 的 `bun` 字段，仅作记录，不参与校验。
-- Docker 使用官方 `oven/bun:1` 标签跟随 Bun 1.x 稳定更新，构建层与运行层共享本次解析的同一基础层。
+- Docker 使用官方 `oven/bun:1-slim` 标签跟随 Bun 1.x 稳定更新，构建层与运行层共享本次解析的同一基础层。
 - 依赖升级通过常规升级 PR 完成，由 CI 把关。
 
 构建按源码入口列表输出模块，依赖外置。禁用自动 `.env` 加载与 install lifecycle scripts（见 `bunfig.toml`）。
