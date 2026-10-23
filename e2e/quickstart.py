@@ -364,8 +364,8 @@ def main():
                 time.sleep(10.0)  # 服务 Connector 尚在连接：MCP 链路成功本身就是就绪证明
             if status != 0:
                 connector.pump(1.0); gateway.pump(0.3)
-                print('--- gateway tail ---\n' + ANSI.sub(b'', gateway.log).decode('utf8', 'replace')[-1800:], flush=True)
-                print('--- connector tail ---\n' + ANSI.sub(b'', connector.log).decode('utf8', 'replace')[-2500:], flush=True)
+                print('--- gateway tail ---\n' + redact(ANSI.sub(b'', gateway.log).decode('utf8', 'replace')), flush=True)
+                print('--- connector tail ---\n' + redact(ANSI.sub(b'', connector.log).decode('utf8', 'replace')), flush=True)
         sys.exit(status)
     finally:
         for term in reversed(terms):
