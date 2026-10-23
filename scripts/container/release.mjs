@@ -8,6 +8,7 @@ import {
   assetName,
   parseReleaseJson,
   parseReleaseVersion,
+  validateReleaseManifest,
   versionFromTag
 } from '../../src/release/contract.ts'
 import { githubClient, verifyRemoteTag } from '../release/github.mjs'
@@ -16,9 +17,16 @@ export const image = 'ghcr.io/arnochenfx/rovloom'
 const prefix = `/repos/${RELEASE_REPOSITORY}`
 
 /** 事件与实时Run API双重核验；一个同名PR工作流不能取得发布资格。 */
-export async function releaseContext(event, api) {
+export async function releaseContext(event, api, request = fetch) {
   assert.equal(event.repository?.full_name, RELEASE_REPOSITORY)
-  const trigger = event.workflow_run
+  let trigger = event.workflow_run
+  if (!trigger) {
+    const id = event.inputs?.release_run_id
+    assert(typeof id === 'string' && /^[1-9]\d{0,15}$/u.test(id), 'Expected an official release run ID')
+    assert(Number.isSafeInteger(Number(id)), 'Invalid release run ID')
+    trigger = await api(`${prefix}/actions/runs/${id}`)
+    assert.equal(trigger.id, Number(id))
+  }
   assert.equal(trigger?.head_repository?.full_name, RELEASE_REPOSITORY)
   assert.equal(trigger?.name, 'Tagged product release')
   assert.equal(trigger?.event, 'push')
@@ -42,21 +50,78 @@ export async function releaseContext(event, api) {
   assert.equal(release.prerelease, parseReleaseVersion(context.version).prerelease.length > 0)
   assert.equal(typeof release.body, 'string')
   assert(release.body.includes(`<!-- rovloom-release:1 ${context.tag} ${context.commit} -->`))
-  assert(Array.isArray(release.assets) && release.assets.length === 8, 'Expected complete six-binary release')
+  assert(Array.isArray(release.assets), 'Expected complete six-binary release')
   const names = new Set(release.assets.map(/** 重复或额外资产不能混入镜像来源。 */ (asset) => asset.name))
   const expected = [RELEASE_MANIFEST, 'SHA256SUMS']
+  const npm = `rovloom-${context.version}.tgz`
+  if (names.has(npm)) {
+    expected.push(npm)
+  }
   for (const os of ['linux', 'darwin', 'windows']) {
     for (const arch of ['x64', 'arm64']) {
       expected.push(assetName(context.version, { os, arch, libc: os === 'linux' ? 'glibc' : null }))
     }
   }
-  assert.equal(names.size, 8)
+  assert.equal(release.assets.length, expected.length, 'Unexpected release assets')
+  assert.equal(names.size, expected.length, 'Duplicate or missing release assets')
   assert(expected.every(/** 资产名必须精确属于该tag的合同。 */ (name) => names.has(name)))
   for (const asset of release.assets) {
     assert.equal(asset.state, 'uploaded')
     assert.equal(asset.browser_download_url, downloadUrl(context.tag, asset.name))
+    assert(Number.isSafeInteger(asset.size) && asset.size > 0, 'Invalid release asset size')
+    assert(/^sha256:[a-f0-9]{64}$/u.test(asset.digest), 'Missing release asset digest')
+  }
+  const metadata = new Map()
+  for (const name of [RELEASE_MANIFEST, 'SHA256SUMS']) {
+    const bytes = await downloadMetadata(context.tag, name, request)
+    const asset = release.assets.find((value) => value.name === name)
+    assert.equal(bytes.length, asset.size, 'Release metadata size differs')
+    assert.equal(
+      `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      asset.digest,
+      'Release metadata digest differs'
+    )
+    metadata.set(name, bytes)
+  }
+  const manifest = validateReleaseManifest(parseReleaseJson(metadata.get(RELEASE_MANIFEST), 1_048_576), context.tag)
+  assert.equal(manifest.commit, context.commit, 'Release manifest commit differs')
+  assert.equal(manifest.assets.length, 6, 'Expected complete six-binary manifest')
+  const sums = new Map()
+  for (const line of metadata.get('SHA256SUMS').toString('utf8').trimEnd().split('\n')) {
+    const match = /^([a-f0-9]{64})  ([^\r\n]+)$/u.exec(line)
+    assert(
+      match && names.has(match[2]) && match[2] !== 'SHA256SUMS' && !sums.has(match[2]),
+      'Invalid release checksums'
+    )
+    sums.set(match[2], match[1])
+  }
+  assert.equal(sums.size, expected.length - 1, 'Incomplete release checksums')
+  for (const asset of release.assets) {
+    if (asset.name !== 'SHA256SUMS') {
+      assert.equal(asset.digest, `sha256:${sums.get(asset.name)}`, 'Release checksum differs')
+    }
+  }
+  for (const asset of manifest.assets) {
+    const actual = release.assets.find((value) => value.name === asset.name)
+    assert(actual && asset.name === assetName(context.version, asset), 'Unknown manifest asset')
+    assert.equal(actual.size, asset.size, 'Manifest asset size differs')
+    assert.equal(actual.digest, `sha256:${asset.sha256}`, 'Manifest asset digest differs')
   }
   return context
+}
+
+/** 只下载固定版本下的两份公开元数据；不发送凭据，流式限制读取量，不下载二进制或 npm 包。 */
+async function downloadMetadata(tag, name, request) {
+  const response = await request(downloadUrl(tag, name), { signal: AbortSignal.timeout(15_000) })
+  assert(response.ok, 'Release metadata download failed')
+  const chunks = []
+  let size = 0
+  for await (const chunk of response.body) {
+    size += chunk.byteLength
+    assert(size <= 1_048_576, 'Release metadata exceeded byte limit')
+    chunks.push(Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
 }
 
 /** 官方不可替换版本路径下的资产地址；不接受latest下载或环境提供的镜像站。 */
