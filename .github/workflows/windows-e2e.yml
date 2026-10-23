@@ -3,16 +3,29 @@ name: Windows e2e
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - src/**
-      - e2e/**
-      - test/platform/**
-      - test/connector/herdr/**
-      - .github/workflows/windows-e2e.yml
+concurrency:
+  group: windows-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - id: plan
+        run: bun --no-env-file scripts/ci/e2e-plan.mjs windows
   attach:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    timeout-minutes: 10
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -29,6 +42,7 @@ jobs:
           Remove-Item "$dir\herdr.zip"
           "HERDR_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Frozen install
+        timeout-minutes: 5
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Win32 platform primitives (path trust, pipe server pid, process facts)
         run: bun --no-env-file test ./test/platform/windows.test.ts
@@ -38,6 +52,9 @@ jobs:
           ROVLOOM_HERDR_WINDOWS: ${{ env.HERDR_DIR }}\herdr.exe
         run: bun --no-env-file test ./test/connector/herdr/attach-windows.test.ts
   quickstart:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    timeout-minutes: 25
     name: quickstart (${{ matrix.scenario }})
     runs-on: windows-2025
     strategy:
@@ -58,6 +75,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
       - name: Frozen install
+        timeout-minutes: 5
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Download official Herdr (Windows x86_64)
         shell: pwsh
@@ -76,6 +94,9 @@ jobs:
           python -m pip install pywinpty
           python e2e\quickstart_windows.py --binary dist\release\bun-windows-x64\candidate\rovloom.exe --herdr-dir $env:HERDR_DIR ${{ matrix.flags }} --then "bun --no-env-file e2e\herdr-session.mjs"
   luvus:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    timeout-minutes: 25
     name: luvus (${{ matrix.scenario }})
     runs-on: windows-2025
     strategy:
@@ -96,6 +117,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
       - name: Frozen install
+        timeout-minutes: 5
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Download official Luvus (Windows x86_64)
         shell: pwsh
@@ -115,3 +137,25 @@ jobs:
         run: |
           python -m pip install pywinpty
           python e2e\quickstart_windows.py --binary dist\release\bun-windows-x64\candidate\rovloom.exe --luvus-dir $env:LUVUS_DIR ${{ matrix.flags }} --then "bun --no-env-file e2e\luvus-session.mjs"
+  result:
+    name: windows acceptance
+    if: always()
+    needs: [changes, attach, quickstart, luvus]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require selected acceptance to succeed
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          if results['changes']['result'] != 'success':
+              raise SystemExit('e2e plan failed')
+          selected = results['changes']['outputs'].get('run') == 'true'
+          expected = 'success' if selected else 'skipped'
+          if any(value['result'] != expected for key, value in results.items() if key != 'changes'):
+              raise SystemExit('selected e2e acceptance did not succeed')
+          print('e2e acceptance passed' if selected else 'no relevant changes')
+          PY

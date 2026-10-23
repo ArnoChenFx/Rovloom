@@ -1,6 +1,12 @@
 # PR只在原生Linux runner构建和测试；正式镜像仅由已成功公开的tag发行对应提交的源码构建。
 name: GHCR product images
 on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: 'Successful Tagged product release run ID to publish or resume'
+        required: true
+        type: string
   pull_request:
   push:
     branches: [main]
@@ -11,11 +17,13 @@ permissions: {}
 jobs:
   release:
     if: >-
-      github.event_name == 'workflow_run' &&
       github.repository == 'ArnoChenFx/rovloom' &&
-      github.event.workflow_run.head_repository.full_name == 'ArnoChenFx/rovloom' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success'
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.head_repository.full_name == 'ArnoChenFx/rovloom' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -23,6 +31,7 @@ jobs:
     outputs:
       version: ${{ steps.verify.outputs.version }}
       commit: ${{ steps.verify.outputs.commit }}
+      policy_commit: ${{ steps.policy.outputs.commit }}
     steps:
       # 首次验证只执行默认分支维护脚本，不执行workflow_run提供的任意checkout。
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -30,6 +39,8 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
+      - id: policy
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - id: verify
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -37,7 +48,8 @@ jobs:
   native:
     if: >-
       always() &&
-      (github.event_name != 'workflow_run' || needs.release.result == 'success')
+      ((github.event_name != 'workflow_run' && github.event_name != 'workflow_dispatch') ||
+       needs.release.result == 'success')
     needs: release
     permissions:
       contents: read
@@ -80,7 +92,7 @@ jobs:
           python3 scripts/container/smoke.py "rovloom-container:$EXPECTED_ARCH" "$version" --compose docker-compose.yaml
           docker image save --output "$RUNNER_TEMP/container-$EXPECTED_ARCH.tar" "rovloom-container:$EXPECTED_ARCH"
       - name: Upload only tested image bytes for the trusted publisher
-        if: github.event_name == 'workflow_run'
+        if: needs.release.result == 'success'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: container-${{ matrix.arch }}
@@ -89,7 +101,7 @@ jobs:
           compression-level: 0
           retention-days: 1
   publish:
-    if: github.event_name == 'workflow_run'
+    if: needs.release.result == 'success'
     needs: [release, native]
     runs-on: ubuntu-24.04
     concurrency:
@@ -106,7 +118,8 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ needs.release.outputs.commit }}
+          # All publishing checks use the same trusted maintenance revision as the initial verification.
+          ref: ${{ needs.release.outputs.policy_commit }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

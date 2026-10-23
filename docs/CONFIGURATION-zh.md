@@ -358,3 +358,17 @@ macOS 和 Windows 上 Connector 附着你已在运行的 Herdr / Luvus，仅在�
 | `3` | 后端或运行时不可用、服务平台不支持，或因崩溃残留而拒绝启动。 |
 
 求助时保留错误码，不要贴出真实配置、Bearer、管理员密码或一次性码。
+
+
+### 结果清理权限
+
+Caller 注册表可设置 `principal.permissions: { "discard_response": true }`，缺省为 false。本机操作员无需重启 Gateway 即可修改：
+
+```sh
+rovloom token permissions --principal owner --discard-response true
+rovloom token permissions --principal owner --discard-response false
+```
+
+使用 `rovloom token list` 中的实际主体 ID。此权限只允许删除当前主体自己的结果，并仍核对原方法当前双端读取策略；不会改变方法 grants、token 或到期时间。`token create --like` 同时复制方法策略和该权限。
+
+读取并保存所需结果后，以 `call_id` 调用 `runtime_response_discard`，删除原文和句柄并释放读取容量。读到 EOF 不会删除结果，结果仍按首次固定 TTL 保留。Gateway 默认最多保留 128 条读取上下文；连续调用的客户端应显式释放不再需要的结果，其他保留结果仍可读取。删除不可撤销。

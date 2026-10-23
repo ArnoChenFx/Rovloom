@@ -2,12 +2,17 @@
 name: Gateway platforms
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: gateway-platforms-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 permissions:
   contents: read
 jobs:
   gateway:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +36,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
       - name: Frozen install
+        timeout-minutes: 5
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Verify ordinary files, schema provenance, atomic config, locks and unknown recovery
         run: bun --no-env-file test ./test/storage/file-platforms.test.ts ./test/storage/database-aliases.test.ts ./test/connector/herdr/gateway-schema.test.ts ./test/cli/config-init.test.ts
