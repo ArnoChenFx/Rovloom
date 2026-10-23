@@ -1,5 +1,5 @@
 # 本次构建只解析一次官方 Bun 1.x；构建层与运行层复用该基础层。
-FROM docker.io/oven/bun:1 AS bun-base
+FROM docker.io/oven/bun:1-slim AS bun-base
 
 # 构建层：按锁文件安装依赖，并把 TypeScript 源码编译为 dist JS。
 FROM bun-base AS build
