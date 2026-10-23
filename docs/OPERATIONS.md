@@ -79,6 +79,6 @@ rovloom storage resume --role gateway --json
 
 ### Connector 容量
 
-Connector 发送墓碑保留至首次登记的执行 deadline（最长 10 分钟），到期后随下一次 claim 在事务内回收；旧版的 30 天墓碑也按其原 deadline 回收，不需要删库。Gateway 的 30 天调用 key 去重窗口不变。
+Connector 发送墓碑保留至首次登记的执行 deadline（最长 10 分钟），到期后随下一次 claim 在事务内回收。当前发送账本 schema v2 仅保存 ID、32 字节绑定摘要和固定 deadline，旧 schema 拒绝打开，不自动清空或转换。Gateway 的 30 天调用 key 去重窗口不变。
 
 本地 `connector_transport` 观测中 `reason=claim_capacity` / `connector_attempt_capacity` 的 `capacity` 区分 `claim_entries`、`claim_bytes`、`attempt_entries`、`attempt_bytes`。`reclaim_at` 是已知最早回收时间（Unix 毫秒），不是重试授权。字节满额报告 `null`，需检查磁盘和配置预算。不要删除账本、回调系统时间、重发旧 attempt 或自动换 key 重做写入；已接收后断连的调用可能保持 `outcome_unknown`，应先核对原生结果。

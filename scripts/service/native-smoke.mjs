@@ -90,6 +90,16 @@ function service(action, install = false) {
     'gateway',
     ...(install ? ['--config', config, '--workdir', root, '--user', user.username] : [])
   ])
+  process.stderr.write(
+    JSON.stringify({
+      scope: 'rovloom-test-phase',
+      phase: 'service.' + action,
+      platform: process.platform,
+      arch: process.arch,
+      elapsedMs: Math.round(performance.now() - began),
+      outcome: result.status === 0 ? 'passed' : 'failed'
+    }) + '\n'
+  )
   assert.equal(
     result.status,
     0,
@@ -136,6 +146,30 @@ async function reachable(url) {
     return
   }
   throw new Error('native_gateway_http_timeout')
+}
+
+// macOS 失败后只读固定 label；不重发 bootout/kickstart，不输出 launchd 环境或完整进程声明。
+function launchdDiagnostic() {
+  if (process.platform !== 'darwin') {
+    return
+  }
+  const result = command('/bin/launchctl', ['print', 'system/io.rovloom.gateway'])
+  const fields = result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) =>
+      /^(?:state|pid|runs|last exit code|last terminating signal|minimum runtime) = [\w .-]+$/u.test(line)
+    )
+  process.stderr.write(
+    JSON.stringify({
+      scope: 'disposable-launchd-failure',
+      phase,
+      exitCode: result.status,
+      signal: result.signal,
+      stderr: result.stderr.slice(0, 4096),
+      fields
+    }) + '\n'
+  )
 }
 
 // 失败时只读本轮精确清单的临时任务；保留原生序列化差异，不读取配置正文或接管未知任务。
@@ -395,6 +429,11 @@ try {
   cleaned = true
 } catch (error) {
   failure = error
+  try {
+    launchdDiagnostic()
+  } catch {
+    process.stderr.write('disposable_launchd_diagnostic_failed\n')
+  }
   if (native) {
     try {
       const observed = await native.inspect('gateway')

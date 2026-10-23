@@ -45,7 +45,10 @@ jobs:
         timeout-minutes: 5
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Check service lifecycle models and native definition parsing without installing services
-        run: bun --no-env-file test ./test/service/macos-host.test.ts ./test/service/platform-probe.test.ts ./test/service/runner-lifecycle.test.ts ./test/service/manager.test.ts ./test/service/command.test.ts ./test/service/windows-control.test.ts ./test/cli/service-host.test.ts ./test/cli/service-runtime.test.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          bun --no-env-file test ./test/service/macos-host.test.ts ./test/service/platform-probe.test.ts ./test/service/runner-lifecycle.test.ts ./test/service/manager.test.ts ./test/service/command.test.ts ./test/service/windows-control.test.ts ./test/cli/service-host.test.ts ./test/cli/service-runtime.test.ts 2>&1 | tee "$RUNNER_TEMP/test-phases.log"
       - name: Exercise user installers with isolated downloads and native replacement
         run: bun --no-env-file test ./test/release/install.test.mjs
       - name: Exercise Windows product Gateway and omitted-Worker rejection before candidate build
@@ -87,7 +90,7 @@ jobs:
           extension=''
           if [[ "$RUNNER_OS" == Windows ]]; then extension='.exe'; fi
           export ROVLOOM_SERVICE_EXECUTABLE="dist/release/$TARGET/candidate/rovloom$extension"
-          bun --no-env-file scripts/service/native-smoke.mjs
+          bun --no-env-file scripts/service/native-smoke.mjs 2>&1 | tee -a "$RUNNER_TEMP/test-phases.log"
       - name: Accept real standalone Gateway and explicit unsupported native roles
         if: matrix.target != 'bun-linux-x64'
         shell: bash
@@ -165,3 +168,15 @@ jobs:
           version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
           bun --no-env-file scripts/release/npm-package.mjs "$RUNNER_TEMP/npm-package"
           bun --no-env-file scripts/release/npm-smoke.mjs "$RUNNER_TEMP/npm-package/rovloom-$version.tgz" "$version"
+      - name: Report native phase observations
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: bun --no-env-file scripts/ci/test-observations.mjs "$RUNNER_TEMP/test-phases.log" "$RUNNER_TEMP/test-phases.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload native phase observations
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: parser-phases-${{ matrix.target }}
+          path: ${{ runner.temp }}/test-phases.json

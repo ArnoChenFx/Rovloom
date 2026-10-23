@@ -4,6 +4,7 @@ import { existsSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { GatewayError } from '../contracts.js'
 import type { Retention } from './config.js'
+import { SCHEMA } from './schema.js'
 import { managedBytes } from './files.js'
 import { assertSnapshotDirectoryBoundary } from './snapshot-directory.js'
 
@@ -16,15 +17,17 @@ export function assertBudget(
   admission: boolean,
   extraBackupBytes = 0
 ): void {
-  // 执行返回单行 n 字段的聚合查询，并将 SQLite 结果转换为数值。
-  const sum = (sql: string) => Number(db.prepare(sql).get()!.n)
-  const content = sum(
-    'SELECT COALESCE(SUM(COALESCE(length(CAST(request_json AS BLOB)),0)+COALESCE(length(CAST(response AS BLOB)),0)),0) n FROM calls'
-  )
-  if (content > limits.content_bytes) {
+  // SQLite 触发器与内容/预约/结果变化同事务提交或回滚；热路径不再扫描历史。
+  const usage = db
+    .prepare('SELECT content_bytes,result_bytes,reserved_bytes FROM storage_usage WHERE singleton=1')
+    .get()
+  if (!usage) {
+    throw new GatewayError('database_integrity_failed')
+  }
+  if (Number(usage.content_bytes) > limits.content_bytes) {
     throw new GatewayError('content_quota')
   }
-  if (sum('SELECT COALESCE(SUM(bytes),0) n FROM results') > limits.content_bytes) {
+  if (Number(usage.result_bytes) > limits.content_bytes) {
     throw new GatewayError('result_quota')
   }
   const pages =
@@ -39,11 +42,38 @@ export function assertBudget(
   }
   const bytes =
     (path === ':memory:' ? pages : managedBytes(dirname(path)) + Math.max(0, pages - statSync(path).size)) + backupBytes
-  const reserved = sum('SELECT COALESCE(SUM(reserved),0) n FROM calls')
+  const reserved = Number(usage.reserved_bytes)
   if (
     reserved > limits.storage_reserve_bytes ||
     bytes + reserved + extraBackupBytes > limits.storage_total_bytes - (admission ? limits.storage_reserve_bytes : 0)
   ) {
     throw new GatewayError('storage_exhausted')
+  }
+}
+
+/** 只在启动与离线检查重算用量，防止损坏的计数进入准入；不会修正或写库。 */
+export function assertUsage(db: DatabaseSync): void {
+  // 零用量也不能掩盖丢失/被修改的触发器，否则首次写入就可能绕过计数。
+  const triggers = new Set(
+    db
+      .prepare("SELECT sql FROM sqlite_schema WHERE type='trigger'")
+      .all()
+      .map((row) => String(row.sql))
+  )
+  const expected = SCHEMA.match(/CREATE TRIGGER (?:calls|results)_usage_[a-z]+ [\s\S]*?END;/gu) ?? []
+  if (expected.length !== 6 || expected.some((sql) => !triggers.has(sql.slice(0, -1)))) {
+    throw new GatewayError('database_integrity_failed')
+  }
+  const actual = db
+    .prepare(`SELECT
+    (SELECT COALESCE(SUM(COALESCE(length(CAST(request_json AS BLOB)),0)+COALESCE(length(CAST(response AS BLOB)),0)),0) FROM calls) content_bytes,
+    (SELECT COALESCE(SUM(bytes),0) FROM results) result_bytes,
+    (SELECT COALESCE(SUM(reserved),0) FROM calls) reserved_bytes`)
+    .get()!
+  const stored = db
+    .prepare('SELECT content_bytes,result_bytes,reserved_bytes FROM storage_usage WHERE singleton=1')
+    .get()
+  if (!stored || Object.keys(actual).some((key) => actual[key] !== stored[key])) {
+    throw new GatewayError('database_integrity_failed')
   }
 }

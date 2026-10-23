@@ -1,5 +1,5 @@
-// 声明 v5 持久化表、管理事务及过期索引；不提供对未发布旧版本的自动迁移。
-export const SCHEMA_VERSION = 8
+// 声明当前 持久化表、管理事务及过期索引；不提供对未发布旧版本的自动迁移。
+export const SCHEMA_VERSION = 9
 // 未发布的旧库不在这里猜测来源或迁移；版本检查必须先于本 schema 的执行。
 export const SCHEMA = `
 CREATE TABLE metadata (
@@ -36,10 +36,39 @@ CREATE TABLE calls (
   UNIQUE(principal,key_digest)
 );
 CREATE INDEX calls_expiry ON calls(metadata_expires);
+CREATE INDEX calls_deadline ON calls(deadline) WHERE state IN ('created','dispatching','connector_accepted');
+CREATE INDEX calls_content_expiry ON calls(content_expires) WHERE content_status='available' OR request_json IS NOT NULL OR response IS NOT NULL;
+CREATE INDEX calls_dedup_expiry ON calls(dedup_expires);
 CREATE TABLE results (
   result_id TEXT PRIMARY KEY, call_id TEXT NOT NULL UNIQUE REFERENCES calls ON DELETE CASCADE,
   bytes INTEGER NOT NULL, hash TEXT NOT NULL, expires INTEGER NOT NULL
 );
+CREATE INDEX results_expiry ON results(expires);
+CREATE TABLE storage_usage (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  content_bytes INTEGER NOT NULL CHECK(content_bytes>=0),
+  result_bytes INTEGER NOT NULL CHECK(result_bytes>=0),
+  reserved_bytes INTEGER NOT NULL CHECK(reserved_bytes>=0)
+);
+INSERT INTO storage_usage VALUES(1,0,0,0);
+CREATE TRIGGER calls_usage_insert AFTER INSERT ON calls WHEN NEW.request_json IS NOT NULL OR NEW.response IS NOT NULL OR NEW.reserved<>0 BEGIN
+  UPDATE storage_usage SET content_bytes=content_bytes+COALESCE(length(CAST(NEW.request_json AS BLOB)),0)+COALESCE(length(CAST(NEW.response AS BLOB)),0), reserved_bytes=reserved_bytes+NEW.reserved WHERE singleton=1;
+END;
+CREATE TRIGGER calls_usage_delete AFTER DELETE ON calls WHEN OLD.request_json IS NOT NULL OR OLD.response IS NOT NULL OR OLD.reserved<>0 BEGIN
+  UPDATE storage_usage SET content_bytes=content_bytes-COALESCE(length(CAST(OLD.request_json AS BLOB)),0)-COALESCE(length(CAST(OLD.response AS BLOB)),0), reserved_bytes=reserved_bytes-OLD.reserved WHERE singleton=1;
+END;
+CREATE TRIGGER calls_usage_update AFTER UPDATE OF request_json,response,reserved ON calls WHEN NEW.request_json IS NOT OLD.request_json OR NEW.response IS NOT OLD.response OR NEW.reserved<>OLD.reserved BEGIN
+  UPDATE storage_usage SET content_bytes=content_bytes+COALESCE(length(CAST(NEW.request_json AS BLOB)),0)+COALESCE(length(CAST(NEW.response AS BLOB)),0)-COALESCE(length(CAST(OLD.request_json AS BLOB)),0)-COALESCE(length(CAST(OLD.response AS BLOB)),0), reserved_bytes=reserved_bytes+NEW.reserved-OLD.reserved WHERE singleton=1;
+END;
+CREATE TRIGGER results_usage_insert AFTER INSERT ON results BEGIN
+  UPDATE storage_usage SET result_bytes=result_bytes+NEW.bytes WHERE singleton=1;
+END;
+CREATE TRIGGER results_usage_delete AFTER DELETE ON results BEGIN
+  UPDATE storage_usage SET result_bytes=result_bytes-OLD.bytes WHERE singleton=1;
+END;
+CREATE TRIGGER results_usage_update AFTER UPDATE OF bytes ON results WHEN NEW.bytes<>OLD.bytes BEGIN
+  UPDATE storage_usage SET result_bytes=result_bytes+NEW.bytes-OLD.bytes WHERE singleton=1;
+END;
 CREATE TABLE audit (
   event_id TEXT PRIMARY KEY, action TEXT NOT NULL, actor TEXT NOT NULL,
   call_id TEXT, at INTEGER NOT NULL, expires INTEGER NOT NULL, details TEXT NOT NULL

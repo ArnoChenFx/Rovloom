@@ -131,3 +131,13 @@ SQLite 使用 Bun 的 `node:sqlite`，要求全新库，不迁移旧库。测试
 原生 e2e 工作流始终报告一个 planning job 和一份验收汇总。验收 job 还会追加一份由 `scripts/ci/job-timing.mjs` 生成的逐 job 计时报告（等待＝run 创建到 job 开始、运行时长、最慢步骤），使超时与偶发失败的决策基于记录的分段数据而不是印象；该报告仅供观察，永不改变验收结论。产品源码、依赖与构建变更会选中原生验收；仅文档的变更跳过昂贵的 runner job。Planning 使用完整的 base/head Git 差异（包括删除），历史无法检查时也运行验收。被选中的 job 只要失败、取消或跳过，汇总即失败。`two-host acceptance`、`macos acceptance` 与 `windows acceptance` 可用作稳定的必需检查；仓库现有的分支保护不因此变更。
 
 Job 预算：Bun/Gateway 20 分钟、standalone 30 分钟、平台原语 10 分钟、原生 e2e 25 分钟；planning、冻结安装与产物上传各有独立的 5 分钟界限。排队时间不计入 job 超时。用 Actions 的 run 创建/开始时间戳与步骤的开始/结束时间戳来区分排队、依赖下载、编译、原生操作与上传。改动操作期限前先保留失败步骤的证据。只有静态下载有有限重试；原生写入与服务操作不做通用重试。已知的 Intel macOS 启动竞态继续由 #217 追踪。
+
+## 网络重试与偶发观测
+
+CI 的固定 HTTPS 只读下载和 GitHub 元数据读取使用 `scripts/ci/read-network.mjs`：总预算内最多三次尝试、250/500 ms 退避，仅连接故障、408/429/500/502/503/504 和下载中断可重试。超大内容、证书错误、永久 HTTP 拒绝、无效重定向不重试；跨来源去除凭据。摘要校验、文件发布、native 安装/写入、服务控制、配对兑换和业务调用均不包重试，`outcome_unknown` 仍不自动重发。Release 校验的 curl 下载也仅设置两次有限网络重试。
+
+Herdr Worker 样本/编译/打包、Gateway schema 编译、Windows 原生解析器及损坏 cancel 负例的 ready/dispatch/closed 阶段输出固定 JSON 阶段耗时。Linux 全量测试及六平台服务 job 将样本写入 job summary 和 `*-test-phases` / `parser-phases-*` 产物；tee 保留测试退出码，报告和上传失败不改变测试结论。原 Windows 桥的 spawn / first statement / script / exit / close 分段观测继续保留。没有全局延长测试 timeout。#249 复测中，main `12242af` 的 258 次 Luvus RPC 容量回归单独运行 29,969 ms，距 30 秒上限仅约 31 ms；因此仅该长循环 fixture 改为 60 秒，并分开记录 expired/active 两轮耗时。每次 native deadline、断言和调用次数不变。
+
+macOS 系统服务失败时额外查询一次固定 label 的 `launchctl print`，只输出退出码、stderr 和公开状态字段，过滤环境与完整声明；不会再次执行 stop。Gateway smoke 失败记录自有 child 生命周期、输出字节/摘要和白名单产品错误行，未知输出不公开。#217 仍需实际 Intel macOS 失败样本才能定位；本地 Linux 通过不能证明该偶发已修复。
+
+聚合存储量测命令：`bun --no-env-file scripts/storage/aggregate-benchmark.ts /tmp/aggregate.json`。方法和限制见[报告](performance/249-aggregate-storage.md)。

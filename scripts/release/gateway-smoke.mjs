@@ -1,5 +1,6 @@
 /** 复制真实单文件产物到隔离目录，验收Gateway/HTTP/MCP/管理面和两个schema工厂；不宣称Connector或跨机通过。 */
 import assert from 'node:assert/strict'
+import { CLI_ERROR_CODES } from '../../src/cli/config.ts'
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
@@ -171,6 +172,15 @@ async function withGateway(binary, f, cwd, env, inspect, prefix = []) {
   let stderr = ''
   let failure
   let closed = false
+  const lifecycle = {}
+  child.once('spawn', () => {
+    lifecycle.spawnMs = Math.round(performance.now() - started)
+  })
+  child.once('exit', (code, signal) => {
+    lifecycle.exitMs = Math.round(performance.now() - started)
+    lifecycle.exitCode = code
+    lifecycle.signal = signal
+  })
   const completion = new Promise(
     /** close包含stdio关闭，不以exit/kill返回值代替。 */ (complete) => {
       child.once(
@@ -227,6 +237,24 @@ async function withGateway(binary, f, cwd, env, inspect, prefix = []) {
     assert.equal(result.code, 0, 'product_gateway_exit')
     assert.equal(stdout, '', 'product_gateway_stdout')
     assert.equal(stderr, '', 'product_gateway_stderr')
+  } catch (error) {
+    // 只记录自有 child 的阶段与固定产品错误行；不把未知正文（可能含秘密）写入公开日志。
+    const allowed = new Set([...CLI_ERROR_CODES, 'runtime_failed', 'pairing_required'])
+    process.stderr.write(
+      JSON.stringify({
+        scope: 'disposable-gateway-failure',
+        platform: process.platform,
+        arch: process.arch,
+        elapsedMs: Math.round(performance.now() - started),
+        childAlive: !closed,
+        lifecycle,
+        stdoutBytes: Buffer.byteLength(stdout),
+        stderrBytes: Buffer.byteLength(stderr),
+        errors: stderr.split(/\r?\n/u).filter((line) => allowed.has(line)),
+        outputSha256: createHash('sha256').update(stdout).update(stderr).digest('hex')
+      }) + '\n'
+    )
+    throw error
   } finally {
     if (!closed) {
       child.kill('SIGKILL')

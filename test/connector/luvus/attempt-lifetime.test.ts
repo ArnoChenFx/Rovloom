@@ -1,14 +1,16 @@
 /** 用真实 RPC adapter、完整 Wire 校验和自有 IPC 验证原 deadline 后的索引回收，不调用外部 native。 */
 import assert from 'node:assert/strict'
+import { phaseTiming } from '../../support/phase-timing.js'
 import { test } from 'node:test'
 import { LuvusRpcAdapter } from '../../../src/connector/luvus/adapter.js'
 import { fixture } from './helpers.js'
 
 test(
   'one RPC adapter continues beyond 128 cumulative intents and still protects its original active quota',
-  { timeout: 30_000 },
+  // 基线单独运行 29,969 ms；258 次明确的新意图共用外层预算，不改变每次 native deadline。
+  { timeout: 60_000 },
   /** 正文/claim 都使用本测试的合成来源；不能以新 adapter 或新 epoch 掩盖索引累计。 */ async () => {
-    const f = await fixture()
+    const f = await phaseTiming('luvus.rpc.fixture', () => fixture())
     const claims = new Set<string>()
     const adapter = new LuvusRpcAdapter(f.config, {
       ...f.host,
@@ -37,21 +39,25 @@ test(
     try {
       let original = ''
       let originalBinding = structuredClone(f.binding)
-      for (let index = 0; index < 129; index++) {
-        const raw = intent(index, f.state.now + 10_000)
-        if (index === 0) {
-          original = raw
-          originalBinding = structuredClone(f.binding)
+      await phaseTiming('luvus.rpc.lifetime.expired', async () => {
+        for (let index = 0; index < 129; index++) {
+          const raw = intent(index, f.state.now + 10_000)
+          if (index === 0) {
+            original = raw
+            originalBinding = structuredClone(f.binding)
+          }
+          await adapter.dispatch(raw)
+          f.state.now += 10_000
         }
-        await adapter.dispatch(raw)
-        f.state.now += 10_000
-      }
+      })
       assert.equal(claims.size, 129)
       assert.equal(f.state.responses, 129)
       const activeDeadline = f.state.now + 10_000
-      for (let index = 129; index < 257; index++) {
-        await adapter.dispatch(intent(index, activeDeadline))
-      }
+      await phaseTiming('luvus.rpc.lifetime.active', async () => {
+        for (let index = 129; index < 257; index++) {
+          await adapter.dispatch(intent(index, activeDeadline))
+        }
+      })
       const duplicate = f.input()
       await assert.rejects(adapter.dispatch(duplicate), /attempt_already_observed/)
       await assert.rejects(adapter.dispatch(intent(257, activeDeadline)), /local_attempt_limit/)

@@ -1,4 +1,5 @@
 // 通过真实 loopback、Store 和 Wire 验证逐调用取消；只中止观察，不把它当作原生回滚。
+import { phaseTiming } from '../support/phase-timing.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -289,21 +290,12 @@ for (const field of ['epoch', 'call', 'attempt', 'native_id'] as const) {
       const a = f.pair('mock_invalid_cancel')
       const client = b.connect(a)
       try {
-        await until(
-          /** 等待真实 ready，不能以预认证帧证明 binding 拒绝。 */
-          () => client.status().phase === 'ready'
-        )
+        await phaseTiming(`transport.cancel.${field}.ready`, () => until(() => client.status().phase === 'ready'))
         const call = f.call(a.target)
         f.gateway.dispatch(call.call_id)
-        await until(
-          /** 启动一份可观察中止原因的工作。 */
-          () => work.has(call.call_id)
-        )
+        await phaseTiming(`transport.cancel.${field}.dispatch`, () => until(() => work.has(call.call_id)))
         f.gateway.cancel(call.call_id)
-        await until(
-          /** 非法协议导致所属连接关闭，关闭可中止观察，但不能成为选择性取消成功。 */
-          () => work.get(call.call_id)!.signal.aborted
-        )
+        await phaseTiming(`transport.cancel.${field}.closed`, () => until(() => work.get(call.call_id)!.signal.aborted))
         assert.notEqual(work.get(call.call_id)!.signal.reason, 'caller_cancelled')
         assert.equal(work.size, 1)
         assert.equal(f.router.get(f.principal, call.call_id).state, 'outcome_unknown')

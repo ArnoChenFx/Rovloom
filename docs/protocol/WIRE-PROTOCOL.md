@@ -187,6 +187,8 @@ codec 成功只证明消息边界。受保护配置先固定 schema 原字节及
 
 ## Connector 本机去重
 
+Connector 持久发送墓碑的当前格式见 [ADR 0008](../adr/0008-compact-connector-claims.md)：32 字节摘要不改变 Wire 完整绑定、唯一派发或 deadline 校验。
+
 Gateway 在 Store 的派发事务提交（持久 `dispatching`）之后才发送 `request`。同一个 call 只有一次派发机会，断线后的变更调用保持 `outcome_unknown`，不自动重发。
 
 Connector 不依赖 Gateway 额外交付的 TTL 或上下文。受保护配置限制执行窗口最多 10 分钟，防重记录固定保留至原意图的执行 deadline（证明与信任边界见 [ADR 0005](../adr/0005-connector-claim-lifetime.md)）：

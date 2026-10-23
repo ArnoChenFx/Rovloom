@@ -4,7 +4,7 @@ import { existsSync, lstatSync, statfsSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { GatewayError } from '../contracts.js'
 import { GATEWAY_LOCK_FORMAT } from '../store.js'
-import { assertBudget } from './budget.js'
+import { assertBudget, assertUsage } from './budget.js'
 import { DEFAULT_RETENTION } from './config.js'
 import { createPrivate, databasePath, managedBytes, syncParentDirectory } from './files.js'
 import { lockContent } from './lock-recovery.js'
@@ -50,6 +50,7 @@ export function inspectStorage(input: string) {
     if (db.prepare('PRAGMA quick_check(1)').get()!.quick_check !== 'ok') {
       throw new GatewayError('database_integrity_failed')
     }
+    assertUsage(db)
     const mode = versions[0]!.mode
     if (mode !== 'active' && mode !== 'storage_degraded') {
       throw new GatewayError('database_mode_invalid')
