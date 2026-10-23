@@ -34,7 +34,7 @@ jobs:
       policy_commit: ${{ steps.policy.outputs.commit }}
     steps:
       # 首次验证只执行默认分支维护脚本，不执行workflow_run提供的任意checkout。
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -66,7 +66,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release.outputs.commit || github.sha }}
           persist-credentials: false
@@ -93,7 +93,7 @@ jobs:
           docker image save --output "$RUNNER_TEMP/container-$EXPECTED_ARCH.tar" "rovloom-container:$EXPECTED_ARCH"
       - name: Upload only tested image bytes for the trusted publisher
         if: needs.release.result == 'success'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@v7
         with:
           name: container-${{ matrix.arch }}
           path: ${{ runner.temp }}/container-${{ matrix.arch }}.tar
@@ -116,13 +116,13 @@ jobs:
       VERSION: ${{ needs.release.outputs.version }}
       COMMIT: ${{ needs.release.outputs.commit }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v7
         with:
           # All publishing checks use the same trusted maintenance revision as the initial verification.
           ref: ${{ needs.release.outputs.policy_commit }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@v8
         with:
           pattern: container-*
           path: ${{ runner.temp }}/container-images

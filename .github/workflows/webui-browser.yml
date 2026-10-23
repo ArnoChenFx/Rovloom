@@ -16,7 +16,7 @@ jobs:
   browser:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
@@ -30,7 +30,7 @@ jobs:
           python3 -m playwright install --with-deps chromium
       - name: Browser checks
         run: scripts/webui/check-all.sh "$RUNNER_TEMP/webui-checks"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: webui-checks

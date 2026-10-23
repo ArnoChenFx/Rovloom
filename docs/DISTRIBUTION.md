@@ -137,7 +137,7 @@ Windows 本机编译传入 `windows.icon`，保持控制台子系统以支持 CL
 [容器 workflow](../.github/workflows/container.yml) 构建 Linux Gateway 镜像，部署方式见 [Docker deployment](DOCKER.md) 与 [Docker 部署](DOCKER-zh.md)。
 
 - PR 与 main 只构建并在原生 `amd64`、`arm64` runner 上启动测试，不登录也不推送 registry。
-- 正式发布只在官方 `Tagged product release` 成功后触发：先核验 tag、commit、公开 Release、六平台清单与 `SHA256SUMS`，再从该发行提交的源码用官方 Bun 镜像构建镜像（构建层与运行层同一 Bun 版本，按 digest 固定）。
+- 正式发布只在官方 `Tagged product release` 成功后触发：先核验 tag、commit、公开 Release、六平台清单与 `SHA256SUMS`，再从该发行提交的源码用官方 Bun 镜像构建镜像（使用 `oven/bun:1` 跟随 Bun 1.x 更新，本次构建只解析一次并供构建层与运行层复用）。
 - 两个架构测试都通过后，发布 job 以临时 `GITHUB_TOKEN` 和最小 `packages: write` 推送 GHCR，并创建带实际版本的多架构 manifest。`latest` 只指向当前官方最新稳定版的同批镜像。
 - 已有版本只有在两个完整镜像摘要与本次已测试产物完全一致时才复用，用于补齐失败的 latest 步骤；字节不同或 registry 查询不确定时拒绝覆盖。
 - 发行资产允许六平台二进制、清单、校验和，以及可选的同版本 npm tarball；验证公开清单、校验和与 GitHub 资产摘要，不接受其它额外资产。验证和发布固定使用默认分支同一提交的维护脚本，镜像仍从 Release 对应提交构建。
