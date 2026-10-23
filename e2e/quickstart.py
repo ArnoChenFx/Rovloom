@@ -49,8 +49,8 @@ class Term:
                 self.buf = b''
                 return clean
             if self.child.poll() is not None:
-                raise RuntimeError(f'{self.name} exited {self.child.returncode} before {marker!r}: {clean[-600:]}')
-        raise RuntimeError(f'{self.name} timeout waiting {marker!r}; tail: {self.text()[-600:]}')
+                raise RuntimeError(f'{self.name} exited {self.child.returncode} before {marker!r}: {redact(clean)[-600:]}')
+        raise RuntimeError(f'{self.name} timeout waiting {marker!r}; tail: {redact(self.text())[-600:]}')
 
     def send(self, text):
         os.write(self.master, text.encode())
