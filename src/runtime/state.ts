@@ -5,6 +5,7 @@ import type { StoreOptions } from '../store.js'
 import { createDeviceLifecycle, ChannelRegistry } from '../transport/index.js'
 import type { DeliveryLedger } from '../transport/index.js'
 import { privatePath } from '../storage/files.js'
+import { configuredSnapshotDirectory } from '../storage/snapshot-directory.js'
 
 export type GatewayStateOptions = Readonly<{
   state_directory: string
@@ -19,7 +20,11 @@ export function openGatewayState(options: GatewayStateOptions) {
   const path = join(options.state_directory, 'gateway.db')
   privatePath(path)
   const channels = new ChannelRegistry()
-  const store = new Store(path, options.now ?? Date.now, options.store)
+  const backupDirectory = configuredSnapshotDirectory(path)
+  const store = new Store(path, options.now ?? Date.now, {
+    backupDirectory,
+    ...options.store
+  })
   try {
     const lifecycle = createDeviceLifecycle(store)
     const credentials: DeliveryLedger = {

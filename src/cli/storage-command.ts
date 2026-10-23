@@ -6,6 +6,7 @@ import { existsSync, realpathSync, lstatSync } from 'node:fs'
 import { GatewayError } from '../contracts.js'
 import { Store } from '../store.js'
 import { databasePath, privatePath } from '../storage/files.js'
+import { configuredSnapshotDirectory } from '../storage/snapshot-directory.js'
 import { inspectStorage } from '../storage/inspect.js'
 import { CLI_ERROR_CODES, CliError, readConfig } from './config.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
@@ -15,11 +16,11 @@ import { runtimeReference } from './runtime-files.js'
 export const STORAGE_HELP = `用法：
   rovloom doctor --role gateway|connector [--config /absolute/config.json] [--json]
   rovloom storage check --role gateway [--config /absolute/config.json] [--json]
-  rovloom storage backup --role gateway --output /separate/directory/snapshot.db [--config /absolute/config.json] [--json]
+  rovloom storage backup --role gateway --output /path/to/gateway.backups/snapshot.db [--config /absolute/config.json] [--json]
   rovloom storage resume --role gateway [--config /absolute/config.json] [--json]
 
 Gateway 命令须先停止服务；沿用同一写锁，拒绝活动或无法判定的持有者。
-check 只读；backup 导出脱敏快照（不含原文及有效凭据），完整状态需另行离线备份。
+check 只读；backup 仅使用真实状态目录同级的 <state>.backups 普通目录，导出脱敏快照（不含原文及有效凭据），完整状态需另行离线备份。
 resume 是本机操作员显式批准的解除降级，完整性、时钟或预算不正常时仍拒绝。
 Connector doctor 只检查配置及 managed 状态，不启动 native，也不声明 native 就绪。
 `
@@ -85,7 +86,9 @@ const STORAGE_ERRORS = new Set([
   'backup_exists',
   'separate_backup_directory_required',
   'invalid_storage_path',
-  'database_hardlink_unsupported'
+  'database_hardlink_unsupported',
+  'invalid_backup_directory',
+  'managed_backup_directory_required'
 ])
 
 /** 统一 CLI 输出；安全码白名单之外的异常不反射路径、SQL、配置或私有文本。 */
@@ -134,6 +137,7 @@ export async function handleStorageCommand(
         healthy = storage.healthy
         data = { role: 'gateway', config: 'valid', ...storage }
       } else {
+        const backupDirectory = configuredSnapshotDirectory(path)
         if (flags.output) {
           privatePath(flags.output)
           const directory = realpathSync(dirname(flags.output))
@@ -144,6 +148,9 @@ export async function handleStorageCommand(
             sourceDirectory.startsWith(directory + sep)
           ) {
             throw new GatewayError('separate_backup_directory_required')
+          }
+          if (directory !== backupDirectory) {
+            throw new GatewayError('managed_backup_directory_required')
           }
           flags.output = join(directory, basename(flags.output))
           try {
@@ -158,7 +165,7 @@ export async function handleStorageCommand(
         // 创建 Store 本身会收敛旧 epoch / 在途状态，故仅显式的离线写操作进入这里。
         let confirmation: { action: string; target: string; fence: string } | undefined
         const store = new Store(path, Date.now, {
-          ...(flags.output ? { backupDirectory: dirname(flags.output) } : {}),
+          backupDirectory,
           management(request) {
             // 一次本地命令仅批准它所选操作和当前恢复代次，不能被复用为其它管理权限。
             if (
@@ -180,6 +187,8 @@ export async function handleStorageCommand(
             fence: store.generation()
           }
           if (flags.action === 'backup') {
+            // 同步离线命令不会等待维护 timer；先回收已到期快照和业务状态，再检查两份配额。
+            store.expire()
             store.backup(flags.output!)
             data = {
               role: 'gateway',

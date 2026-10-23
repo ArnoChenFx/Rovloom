@@ -9,6 +9,7 @@ import { DEFAULT_RETENTION } from './config.js'
 import { createPrivate, databasePath, managedBytes, syncParentDirectory } from './files.js'
 import { lockContent } from './lock-recovery.js'
 import { SCHEMA_VERSION } from './schema.js'
+import { configuredSnapshotDirectory } from './snapshot-directory.js'
 
 /** 报告固定模式、schema、用量和检查结论，不读取原文、凭据或对外返回恢复 generation。 */
 export function inspectStorage(input: string) {
@@ -55,11 +56,11 @@ export function inspectStorage(input: string) {
     }
     let quota: string | undefined
     try {
-      assertBudget(db, path, DEFAULT_RETENTION, undefined, true)
+      assertBudget(db, path, DEFAULT_RETENTION, configuredSnapshotDirectory(path), true)
     } catch (error) {
       if (
         error instanceof GatewayError &&
-        ['content_quota', 'result_quota', 'storage_exhausted'].includes(error.code)
+        ['content_quota', 'result_quota', 'backup_quota', 'storage_exhausted'].includes(error.code)
       ) {
         quota = error.code
       } else {

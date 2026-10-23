@@ -47,13 +47,13 @@ Docker 部署的备份就是备份卷：`docker compose down` 保留卷，`down 
 rovloom doctor --role gateway --json
 rovloom doctor --role connector --json
 rovloom storage check --role gateway --json
-rovloom storage backup --role gateway --output /separate/backup/snapshot.db --json
+rovloom storage backup --role gateway --output /path/to/gateway.backups/snapshot.db --json
 rovloom storage resume --role gateway --json
 ```
 
 自定义配置追加 `--config /absolute/path/gateway.json`。Gateway 检查和写操作都须先停止该 Gateway；命令与进程共用同一写锁，不创建缺失数据库，不启动 listener 或 native。`doctor` / `storage check` 打开只读事务，报告 schema、完整性、模式、配额、目录用量和可用磁盘字节，不写业务状态。Connector doctor 仅核对配置、managed provider 数量及凭据文件是否存在，不验证凭据内容或声明 native 就绪。
 
-`storage backup` **复用 Store 的脱敏快照**，不含调用原文、结果、有效设备凭据或 MCP token，恢复仍需重新配对。先创建与状态目录分离的备份目录；不允许覆盖已有文件、写到状态目录或经目录别名绕过分离规则。默认最多两份、保留七天，由原账本维护清理；若要长期留档，在完成后另存一份不受账本自动清理的私有副本。完整状态回滚备份须在服务停止后另行复制整个数据目录与角色配置；脱敏快照不能替代它。
+`storage backup` **复用 Store 的脱敏快照**，不含调用原文、结果、有效设备凭据或 MCP token，恢复仍需重新配对。快照目录固定为实际 Gateway 状态目录加 `.backups` 的同级普通目录，例如数据目录 `/data/gateway` 对应 `/data/gateway.backups`；首次备份前显式创建该目录并保持其挂载，目录本身不能是软链接。不允许覆盖已有文件、写到任意其它目录或经目录别名绕过分离规则。默认最多两份、保留七天，由正常 Gateway 和离线命令共用的原账本维护清理；备份命令会先收敛已到期的登记，避免过期记录占住两份配额；若要长期留档，在完成后另存一份不受账本自动清理的私有副本。完整状态回滚备份须在服务停止后另行复制整个数据目录与角色配置；脱敏快照不能替代它。
 
 磁盘满或写入失败后：停止服务 → 保留完整状态 → 释放磁盘空间 → `storage check` → 显式运行 `storage resume` → 再检查模式并启动。resume 经原 Store 的完整性、当前单调时钟、准入预留、预算、一次性管理确认及审计事务；任何检查失败都不宣称恢复成功。命令本身是本机操作员对这一动作和当前恢复代次的批准，不创建远程管理权限。写操作打开 Store 会收敛旧连接和在途状态，未确定调用仍为 unknown，不重派。
 

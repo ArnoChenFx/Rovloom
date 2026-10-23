@@ -171,7 +171,11 @@ export class Store {
         'PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;'
       )
       if (this.options.backupDirectory) {
-        privatePath(join(this.options.backupDirectory, 'boundary'))
+        // 托管目录被离线清理后仍保留原边界，允许维护删除已不存在快照的登记，不创建目录。
+        privatePath(this.options.backupDirectory)
+        if (existsSync(this.options.backupDirectory)) {
+          privatePath(join(this.options.backupDirectory, 'boundary'))
+        }
       }
       if (this.db.prepare('PRAGMA quick_check').get()!.quick_check !== 'ok') {
         throw new GatewayError('database_integrity_failed')

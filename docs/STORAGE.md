@@ -7,7 +7,7 @@ Gateway 的全部状态保存在单个 SQLite 库 `<data.directory>/gateway.db` 
 
 `rovloom storage check --role gateway --json` 在同一写锁下打开只读事务，不构造 Store、不改变连接或调用状态。`doctor --role gateway|connector --json` 同时检查所选角色配置，不生成缺失状态或查询另一角色的凭据。
 
-`storage backup --role gateway --output /separate/backup/snapshot.db` 和 `storage resume --role gateway` 只在 Gateway 停止后运行，复用原 Store writer、管理 fence、一次性确认、预算与审计。备份是上述脱敏快照（默认两份 / 七天），不是完整状态备份；resume 不能绕过损坏、时钟或配额。操作步骤与中断处理见[运维指南](OPERATIONS.md#离线检查快照与解除降级)。
+`storage backup --role gateway --output /path/to/gateway.backups/snapshot.db` 和 `storage resume --role gateway` 只在 Gateway 停止后运行，复用原 Store writer、管理 fence、一次性确认、预算与审计。快照只写入实际状态目录的同级 `<state>.backups` 普通目录，正常 Gateway 使用相同边界做七天清理与预算；备份是上述脱敏快照（默认两份 / 七天），不是完整状态备份；resume 不能绕过损坏、时钟或配额。操作步骤与中断处理见[运维指南](OPERATIONS.md#离线检查快照与解除降级)。
 
 
 ## 数据库与文件

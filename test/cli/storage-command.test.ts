@@ -21,12 +21,14 @@ import { Store } from '../../src/store.js'
 import { configDocument, configTemplate, type GatewayConfig } from '../../src/cli/config.js'
 import { runCli } from '../../src/cli/run.js'
 import { connected, management, options } from '../storage/helpers.js'
+import { openGatewayState } from '../../src/runtime/state.js'
+import { snapshotDirectory } from '../../src/storage/snapshot-directory.js'
 
 /** 构造分开的状态与备份目录，每个命令都经唯一产品 runCli 分派。 */
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-storage-cli-'))
   const state = join(root, 'state')
-  const backup = join(root, 'backups')
+  const backup = state + '.backups'
   mkdirSync(state, { mode: 0o700 })
   mkdirSync(backup, { mode: 0o700 })
   const config = join(root, 'gateway.json')
@@ -262,6 +264,143 @@ test('Connector doctor reports incomplete configuration without opening native o
     })
     assert.equal(existsSync(join(f.state, 'managed')), false)
     assert.equal(existsSync(f.path), false)
+  } finally {
+    f.close()
+  }
+})
+
+test('CLI snapshots expire through the normal production Gateway writer after seven days without blocking business cleanup', async () => {
+  const f = fixture()
+  const unrelated = join(f.root, 'unrelated.db')
+  try {
+    const source = new Store(f.path, Date.now, { management })
+    const device = connected(source)
+    const call = source.createCall('alice', device.target, { method: 'ping', params: {} }, options())
+    source.close()
+    const output = join(f.backup, 'snapshot.db')
+    assert.equal((await f.run('storage', 'backup', '--output', output)).code, 0)
+    writeFileSync(unrelated, 'outside_the_managed_boundary', { mode: 0o600 })
+    let expiry: number
+    const before = new DatabaseSync(f.path, { readOnly: true })
+    try {
+      const row = before.prepare('SELECT created,expires FROM backups').get()!
+      expiry = Number(row.expires)
+      assert.equal(expiry - Number(row.created), 7 * 86_400_000)
+    } finally {
+      before.close()
+    }
+    // 与正式生产装配相同的 openGatewayState；仅时钟推进，不通过 CLI 注入清理目录。
+    const running = openGatewayState({ state_directory: f.state, now: () => expiry + 1, changed() {} })
+    try {
+      running.store.expire()
+      assert.equal(existsSync(output), false)
+      assert.equal(readFileSync(unrelated, 'utf8'), 'outside_the_managed_boundary')
+    } finally {
+      running.close()
+    }
+    const after = new DatabaseSync(f.path, { readOnly: true })
+    try {
+      assert.equal(after.prepare('SELECT count(*) n FROM backups').get()!.n, 0)
+      assert.equal(
+        after.prepare('SELECT request_json FROM calls WHERE call_id=?').get(call.call_id)!.request_json,
+        null
+      )
+    } finally {
+      after.close()
+    }
+  } finally {
+    f.close()
+  }
+})
+
+test('backup rejects arbitrary directories and fixed-directory symlinks before publishing a snapshot', async () => {
+  const f = fixture()
+  try {
+    new Store(f.path).close()
+    const other = join(f.root, 'unmanaged')
+    mkdirSync(other, { mode: 0o700 })
+    assert.equal(
+      (await f.run('storage', 'backup', '--output', join(other, 'snapshot.db'))).data.code,
+      'managed_backup_directory_required'
+    )
+    assert.equal(existsSync(join(other, 'snapshot.db')), false)
+    rmSync(f.backup, { recursive: true })
+    symlinkSync(other, f.backup, process.platform === 'win32' ? 'junction' : 'dir')
+    assert.equal(
+      (await f.run('storage', 'backup', '--output', join(f.backup, 'snapshot.db'))).data.code,
+      'invalid_backup_directory'
+    )
+    assert.equal(existsSync(join(other, 'snapshot.db')), false)
+    assert.equal(snapshotDirectory(f.path), f.backup)
+  } finally {
+    f.close()
+  }
+})
+
+test('backup reclaims expired snapshot registrations before enforcing the two-snapshot limit', async () => {
+  const f = fixture()
+  try {
+    new Store(f.path).close()
+    for (const name of ['first', 'second']) {
+      assert.equal((await f.run('storage', 'backup', '--output', join(f.backup, name + '.db'))).code, 0)
+    }
+    const old = new DatabaseSync(f.path)
+    try {
+      old.prepare('UPDATE backups SET expires=?').run(Date.now() - 1)
+    } finally {
+      old.close()
+    }
+    assert.equal((await f.run('storage', 'backup', '--output', join(f.backup, 'third.db'))).code, 0)
+    assert.equal(existsSync(join(f.backup, 'first.db')), false)
+    assert.equal(existsSync(join(f.backup, 'second.db')), false)
+  } finally {
+    f.close()
+  }
+})
+
+test('read-only storage check includes the fixed snapshot directory in the original backup quota', async () => {
+  const f = fixture()
+  try {
+    new Store(f.path).close()
+    const filler = join(f.backup, 'synthetic-backup-quota-fill')
+    const fd = openSync(filler, 'wx', 0o600)
+    try {
+      ftruncateSync(fd, 129 * 1_048_576)
+    } finally {
+      closeSync(fd)
+    }
+    const before = readFileSync(f.path)
+    const check = await f.run('storage', 'check')
+    assert.equal(check.code, 3)
+    assert.equal(check.data.quota, 'backup_quota')
+    assert.deepEqual(readFileSync(f.path), before)
+  } finally {
+    f.close()
+  }
+})
+
+test('removing the fixed snapshot directory does not poison normal Gateway expiry or recreate the directory', async () => {
+  const f = fixture()
+  try {
+    new Store(f.path).close()
+    assert.equal((await f.run('storage', 'backup', '--output', join(f.backup, 'snapshot.db'))).code, 0)
+    const before = new DatabaseSync(f.path, { readOnly: true })
+    const expiry = Number(before.prepare('SELECT expires FROM backups').get()!.expires)
+    before.close()
+    rmSync(f.backup, { recursive: true })
+    const running = openGatewayState({ state_directory: f.state, now: () => expiry + 1, changed() {} })
+    try {
+      running.store.expire()
+      assert.equal(existsSync(f.backup), false)
+    } finally {
+      running.close()
+    }
+    const after = new DatabaseSync(f.path, { readOnly: true })
+    try {
+      assert.equal(after.prepare('SELECT count(*) n FROM backups').get()!.n, 0)
+    } finally {
+      after.close()
+    }
   } finally {
     f.close()
   }

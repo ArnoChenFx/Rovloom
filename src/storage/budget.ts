@@ -1,6 +1,6 @@
 // 汇总内容、结果句柄、备份和磁盘占用；未完成调用只按固定的收尾预约计入，不再逐表统计 JSON 字节。
 import type { DatabaseSync } from 'node:sqlite'
-import { statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { GatewayError } from '../contracts.js'
 import type { Retention } from './config.js'
@@ -28,7 +28,7 @@ export function assertBudget(
   }
   const pages =
     Number(db.prepare('PRAGMA page_count').get()!.page_count) * Number(db.prepare('PRAGMA page_size').get()!.page_size)
-  const backupBytes = backupDirectory ? managedBytes(backupDirectory) : 0
+  const backupBytes = backupDirectory && existsSync(backupDirectory) ? managedBytes(backupDirectory) : 0
   if (backupBytes + extraBackupBytes > limits.backup_bytes) {
     throw new GatewayError('backup_quota')
   }
