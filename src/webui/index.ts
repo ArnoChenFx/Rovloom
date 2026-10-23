@@ -14,3 +14,4 @@ export {
   type DeviceManagementIntent
 } from './write-contract.js'
 export { createDeviceManagementFlow, type DeviceManagementState, type ManagementOperationKey } from './write-flow.js'
+export { createPairingManagementFlow, type PairingManagementState } from './pairing-flow.js'

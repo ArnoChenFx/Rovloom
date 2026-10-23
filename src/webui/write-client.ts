@@ -27,7 +27,10 @@ const operations = new Set<ManagementClientOperation>([
   'devices_rename',
   'devices_disconnect',
   'devices_revoke',
-  'providers_disable'
+  'providers_disable',
+  'pairings_create',
+  'pairings_claim_approve',
+  'pairings_get'
 ])
 
 /** 无需交付的正文及时丢弃，取消失败不输出响应或底层异常。 */

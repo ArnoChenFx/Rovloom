@@ -1,5 +1,11 @@
 // 浏览器管理操作的严格边界；共享参数/DTO沿用management.ts，不携带身份或秘密。
-import type { ConfirmationView, ManagementArguments, ManagementReply, OperationReceipt } from '../mcp/management.js'
+import type {
+  ConfirmationView,
+  ManagementArguments,
+  ManagementIntent,
+  ManagementReply,
+  OperationReceipt
+} from '../mcp/management.js'
 
 export type DeviceManagementIntent =
   | { action: 'device_rename'; machine_id: string; name: string }
@@ -11,19 +17,31 @@ export type DeviceManagementIntent =
       kind: 'luvus' | 'herdr'
       expected_binding_revision: number
     }
-type DeviceSummary = Exclude<
-  ConfirmationView['summary'],
-  { action: 'provider_enable' | 'pairing_create' | 'pairing_cancel' }
->
+/** 浏览器可达的确认摘要 = 设备摘要 + 配对创建/认领批准；provider_enable 与 pairing_cancel 仍不进浏览器。 */
+type BrowserSummary = Exclude<ConfirmationView['summary'], { action: 'provider_enable' | 'pairing_cancel' }>
 export type BrowserReceipt = OperationReceipt
 export type DeviceWriteOperation = 'devices_rename' | 'devices_disconnect' | 'devices_revoke' | 'providers_disable'
 export type ManagementClientOperation =
   | 'history_open'
   | 'write_state_get'
+  | 'pairings_get'
   | 'operations_get'
   | 'confirmations_create'
   | 'confirmations_confirm'
   | DeviceWriteOperation
+  | PairingWriteOperation
+export type PairingWriteOperation = 'pairings_create' | 'pairings_claim_approve'
+/** 浏览器配对意图保持扁平形状，流程层再组装为共享 ManagementIntent。 */
+export type PairingManagementIntent =
+  | { action: 'pairing_create'; name: string; policy_ref: string; labels: readonly string[] }
+  | { action: 'pairing_create'; machine_id: string; policy_ref: string }
+  | {
+      action: 'pairing_claim_approve'
+      machine_id: string
+      pairing_id: string
+      claim_id: string
+      user_code: string
+    }
 export type ManagementClientProblem =
   | 'invalid_request'
   | 'invalid_response'
@@ -57,7 +75,14 @@ export const MANAGEMENT_WRITE_REPLY_BYTES = 32_768
 const id = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/
 const digest = /^[a-f0-9]{64}$/
 const reasons = ['administrator_request', 'maintenance', 'device_lost']
-const actions = ['device_rename', 'device_disconnect', 'device_revoke', 'provider_disable']
+const actions = [
+  'device_rename',
+  'device_disconnect',
+  'device_revoke',
+  'provider_disable',
+  'pairing_create',
+  'pairing_claim_approve'
+]
 const fields = ['request_id', 'history_epoch', 'confirmation_id', 'recovery_generation', 'expected_revision', 'reason']
 
 /** 只抛固定边界错误，绝不附上收到的正文。 */
@@ -180,9 +205,103 @@ export function checkDeviceIntent(value: unknown): DeviceManagementIntent {
   )
   return JSON.parse(JSON.stringify(value)) as DeviceManagementIntent
 }
+/** 验证浏览器配对意图；认领秘密、管理员身份与批准标记永远不属于意图。 */
+export function checkPairingIntent(value: unknown): PairingManagementIntent {
+  record(
+    value,
+    ['action'],
+    ['machine_id', 'name', 'policy_ref', 'labels', 'pairing_id', 'claim_id', 'user_code'],
+    'invalid_request'
+  )
+  const action = (value as { action: unknown }).action
+  if (action === 'pairing_create') {
+    const hasName = Object.hasOwn(value as object, 'name')
+    const keys = hasName ? ['action', 'name', 'policy_ref', 'labels'] : ['action', 'machine_id', 'policy_ref']
+    record(value, keys, [], 'invalid_request')
+    const intent = value as unknown as PairingManagementIntent
+    const operation: ManagementIntent =
+      intent.action === 'pairing_create' && 'name' in intent
+        ? {
+            action: 'pairing_create',
+            target: { name: intent.name, policy_ref: intent.policy_ref, labels: intent.labels }
+          }
+        : {
+            action: 'pairing_create',
+            target: {
+              machine_id: (intent as { machine_id: string }).machine_id,
+              policy_ref: (intent as { policy_ref: string }).policy_ref
+            }
+          }
+    summary(
+      { ...operation, recovery_generation: 'validation', expected_revision: 0, reason: 'administrator_request' },
+      'invalid_request'
+    )
+    return JSON.parse(JSON.stringify(value)) as PairingManagementIntent
+  }
+  if (action === 'pairing_claim_approve') {
+    record(value, ['action', 'machine_id', 'pairing_id', 'claim_id', 'user_code'], [], 'invalid_request')
+    const intent = value as unknown as PairingManagementIntent
+    if (intent.action !== 'pairing_claim_approve') {
+      invalid('invalid_request')
+    }
+    summary(
+      {
+        action: 'pairing_claim_approve',
+        target: {
+          machine_id: intent.machine_id,
+          pairing_id: intent.pairing_id,
+          claim_id: intent.claim_id,
+          user_code: intent.user_code
+        },
+        recovery_generation: 'validation',
+        expected_revision: 0,
+        reason: 'administrator_request'
+      },
+      'invalid_request'
+    )
+    return JSON.parse(JSON.stringify(value)) as PairingManagementIntent
+  }
+  invalid('invalid_request')
+}
+/** 配对摘要只接受申请与认领批准两种目标形状；政策引用与标签都不是秘密，但必须与 Store 规范一致。 */
+function pairingSummary(
+  v: Record<string, unknown> & { target: unknown },
+  problem: 'invalid_request' | 'invalid_response'
+) {
+  const target = v.target
+  if (v.action === 'pairing_create') {
+    if (target && typeof target === 'object' && 'name' in target) {
+      record(target, ['name', 'policy_ref', 'labels'], [], problem)
+      const t = target as { name: unknown; policy_ref: unknown; labels: unknown }
+      name(t.name, problem)
+      identifier(t.policy_ref, problem)
+      if (!Array.isArray(t.labels) || t.labels.length > 16 || new Set(t.labels).size !== t.labels.length) {
+        invalid(problem)
+      }
+      for (const label of t.labels) {
+        identifier(label, problem)
+      }
+    } else {
+      record(target, ['machine_id', 'policy_ref'], [], problem)
+      const t = target as { machine_id: unknown; policy_ref: unknown }
+      identifier(t.machine_id, problem)
+      identifier(t.policy_ref, problem)
+    }
+  } else {
+    record(target, ['machine_id', 'pairing_id', 'claim_id', 'user_code'], [], problem)
+    const t = target as { machine_id: unknown; pairing_id: unknown; claim_id: unknown; user_code: unknown }
+    identifier(t.machine_id, problem)
+    identifier(t.pairing_id, problem)
+    identifier(t.claim_id, problem)
+    if (typeof t.user_code !== 'string' || !/^[A-Z0-9]{4,16}$/.test(t.user_code)) {
+      invalid(problem)
+    }
+  }
+  return v
+}
 /** 当前确认摘要使用原共享类型，明确绑定目标、动作、恢复代次与适用epoch。 */
 function summary(value: unknown, problem: 'invalid_request' | 'invalid_response') {
-  const v = value as DeviceSummary
+  const v = value as BrowserSummary
   record(
     v,
     ['action', 'target', 'recovery_generation', 'expected_revision', 'reason'],
@@ -204,6 +323,9 @@ function summary(value: unknown, problem: 'invalid_request' | 'invalid_response'
     invalid(problem)
   }
   choice(v.reason, reasons, problem)
+  if (v.action === 'pairing_create' || v.action === 'pairing_claim_approve') {
+    return pairingSummary(v as unknown as Record<string, unknown> & { target: unknown }, problem)
+  }
   const target = v.target
   record(target, ['machine_id', ...(v.action === 'provider_disable' ? ['provider_id', 'kind'] : [])], [], problem)
   identifier(v.target.machine_id, problem)
@@ -225,7 +347,9 @@ export function managementSummaryKey(value: ConfirmationView['summary']): string
   const validated = summary(value, 'invalid_response')
   return JSON.stringify([
     validated.action,
-    Object.entries(validated.target).sort(/** 固定目标字段次序，不依赖JSON键顺序。 */ ([a], [b]) => a.localeCompare(b)),
+    Object.entries(validated.target as Record<string, unknown>).sort(
+      /** 固定目标字段次序，不依赖JSON键顺序。 */ ([a], [b]) => a.localeCompare(b)
+    ),
     validated.recovery_generation,
     validated.expected_revision,
     validated.reason,
@@ -243,13 +367,16 @@ export function managementWriteBody<K extends ManagementClientOperation>(
     ![
       'history_open',
       'write_state_get',
+      'pairings_get',
       'operations_get',
       'confirmations_create',
       'confirmations_confirm',
       'devices_rename',
       'devices_disconnect',
       'devices_revoke',
-      'providers_disable'
+      'providers_disable',
+      'pairings_create',
+      'pairings_claim_approve'
     ].includes(operation)
   ) {
     invalid('invalid_request')
@@ -268,6 +395,10 @@ export function managementWriteBody<K extends ManagementClientOperation>(
     for (const item of Object.values(args)) {
       identifier(item, 'invalid_request')
     }
+  } else if (operation === 'pairings_get') {
+    record(args, ['machine_id', 'pairing_id'], [], 'invalid_request')
+    identifier(args.machine_id, 'invalid_request')
+    identifier(args.pairing_id, 'invalid_request')
   } else if (operation === 'confirmations_create') {
     record(
       args,
@@ -290,7 +421,12 @@ export function managementWriteBody<K extends ManagementClientOperation>(
         'provider_id',
         'kind',
         'expected_binding_revision',
-        'expected_connection_epoch'
+        'expected_connection_epoch',
+        'policy_ref',
+        'labels',
+        'pairing_id',
+        'claim_id',
+        'user_code'
       ],
       'invalid_request'
     )
@@ -315,16 +451,22 @@ export function managementWriteBody<K extends ManagementClientOperation>(
             ? 'device_disconnect'
             : operation === 'devices_revoke'
               ? 'device_revoke'
-              : 'provider_disable'
+              : operation === 'pairings_create'
+                ? 'pairing_create'
+                : operation === 'pairings_claim_approve'
+                  ? 'pairing_claim_approve'
+                  : 'provider_disable'
       const { name: renamed, expected_connection_epoch, expected_binding_revision, ...resource } = target
       const intent =
-        action === 'device_rename'
-          ? { action, target: resource, name: renamed }
-          : action === 'device_disconnect'
-            ? { action, target: resource, expected_connection_epoch }
-            : action === 'provider_disable'
-              ? { action, target: resource, expected_binding_revision }
-              : { action, target: resource }
+        action === 'pairing_create' || action === 'pairing_claim_approve'
+          ? { action, target }
+          : action === 'device_rename'
+            ? { action, target: resource, name: renamed }
+            : action === 'device_disconnect'
+              ? { action, target: resource, expected_connection_epoch }
+              : action === 'provider_disable'
+                ? { action, target: resource, expected_binding_revision }
+                : { action, target: resource }
       summary(
         {
           ...intent,
@@ -388,7 +530,20 @@ export function managementConfirmationKey(value: ConfirmationView): string {
 }
 /** 只投影已接线管理动作的回执，精确区分持久提交、未知和备份历史。 */
 function receipt(value: unknown): BrowserReceipt {
-  const v = value as BrowserReceipt
+  const v = value as BrowserReceipt & {
+    machine_id?: unknown
+    pairing_id?: unknown
+    claim_id?: unknown
+    status?: unknown
+    expires_at?: unknown
+    requires_local_issuance?: unknown
+  }
+  const pairingExtras =
+    v.action === 'pairing_create'
+      ? ['machine_id', 'pairing_id', 'status', 'expires_at', 'requires_local_issuance']
+      : v.action === 'pairing_claim_approve'
+        ? ['machine_id', 'pairing_id', 'claim_id', 'status']
+        : []
   record(
     v,
     [
@@ -406,9 +561,31 @@ function receipt(value: unknown): BrowserReceipt {
       'evidence',
       'effects'
     ],
-    [],
+    pairingExtras,
     'invalid_response'
   )
+  if (pairingExtras.length) {
+    for (const field of pairingExtras) {
+      if (!Object.hasOwn(v, field)) {
+        invalid('invalid_response')
+      }
+    }
+    identifier(v.machine_id, 'invalid_response')
+    identifier(v.pairing_id, 'invalid_response')
+    if (v.machine_id !== (v.target as { machine_id: string }).machine_id) {
+      invalid('invalid_response')
+    }
+    if (v.action === 'pairing_create') {
+      choice(v.status, ['pending'])
+      time(v.expires_at as number)
+      if (typeof v.requires_local_issuance !== 'boolean') {
+        invalid('invalid_response')
+      }
+    } else {
+      identifier(v.claim_id, 'invalid_response')
+      choice(v.status, ['approved'])
+    }
+  }
   for (const field of ['request_id', 'history_epoch', 'recovery_generation'] as const) {
     identifier(v[field], 'invalid_response')
   }
@@ -498,6 +675,32 @@ export function checkManagementWriteReply<K extends ManagementClientOperation>(
     } else if (v.confirmation_id !== input.confirmation_id || v.operation_digest !== input.operation_digest) {
       invalid('invalid_response')
     }
+  } else if (operation === 'pairings_get') {
+    const v = value as ManagementReply['pairings_get']
+    record(
+      v,
+      ['machine_id', 'pairing_id', 'status', 'expires_at', 'issuance', 'requires_local_issuance'],
+      ['claim'],
+      'invalid_response'
+    )
+    if (v.machine_id !== input.machine_id || v.pairing_id !== input.pairing_id) {
+      invalid('invalid_response')
+    }
+    choice(v.status, ['pending', 'paired', 'cancelled', 'expired'])
+    choice(v.issuance, ['issued', 'unissued'])
+    if (v.requires_local_issuance !== false) {
+      invalid('invalid_response')
+    }
+    time(v.expires_at)
+    if (v.claim !== undefined) {
+      record(v.claim, ['claim_id', 'user_code', 'status', 'expires_at'], [], 'invalid_response')
+      identifier(v.claim.claim_id, 'invalid_response')
+      if (!/^[A-Z0-9]{4,16}$/.test(v.claim.user_code)) {
+        invalid('invalid_response')
+      }
+      choice(v.claim.status, ['pending', 'approved'])
+      time(v.claim.expires_at)
+    }
   } else {
     const v = receipt(value)
     if (
@@ -515,11 +718,18 @@ export function checkManagementWriteReply<K extends ManagementClientOperation>(
             ? 'device_disconnect'
             : operation === 'devices_revoke'
               ? 'device_revoke'
-              : 'provider_disable'
+              : operation === 'pairings_create'
+                ? 'pairing_create'
+                : operation === 'pairings_claim_approve'
+                  ? 'pairing_claim_approve'
+                  : 'provider_disable'
       if (
         v.action !== expected ||
         ('machine_id' in input && (v.target as { machine_id: string }).machine_id !== input.machine_id) ||
-        (v.target as { provider_id?: string }).provider_id !== input.provider_id
+        (v.target as { provider_id?: string }).provider_id !== input.provider_id ||
+        (operation === 'pairings_claim_approve' &&
+          ((v as { pairing_id?: string }).pairing_id !== input.pairing_id ||
+            (v as { claim_id?: string }).claim_id !== input.claim_id))
       ) {
         invalid('invalid_response')
       }

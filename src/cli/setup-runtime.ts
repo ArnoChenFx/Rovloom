@@ -5,6 +5,7 @@ import { SetupTerminal } from './setup-terminal.js'
 import { GatewaySetup } from './setup-gateway.js'
 import { setupConnector } from './setup-connector.js'
 import { repairConnector } from './setup-repair.js'
+import { claimConnector } from './online-claim.js'
 import { CliError } from './config.js'
 import { LuvusAdapterError } from '../connector/luvus/types.js'
 import { HerdrLocalError } from '../connector/herdr/local.js'
@@ -22,7 +23,7 @@ export class CliSetup {
     const terminal = SetupTerminal.open(path, config, io)
     if (!terminal) {
       // 重新配对必须有已核验的本地终端；没有时明确拒绝，而不是悄悄按普通启动继续。
-      if (options?.repair || options?.addDevice) {
+      if (options?.repair || options?.addDevice || options?.claim) {
         throw new CliError('configuration_required')
       }
       return config
@@ -33,6 +34,11 @@ export class CliSetup {
         await repairConnector(config, terminal)
         terminal.finishQuestions()
         return config
+      }
+      if (options?.claim) {
+        const claimed = await claimConnector(config, terminal)
+        terminal.finishQuestions()
+        return claimed
       }
       return await setupConnector(config, terminal)
     }
