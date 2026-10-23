@@ -38,7 +38,7 @@ jobs:
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           # Successful releases build maintained site code, rather than the release tag.
           ref: ${{ github.event_name == 'workflow_run' && github.event.repository.default_branch || '' }}
@@ -54,7 +54,7 @@ jobs:
         run: |
           bun --no-env-file test ./test/site
           bun --no-env-file run site:build
-      - uses: actions/upload-pages-artifact@v5.0.0
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist/site
   deploy:
@@ -71,9 +71,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/configure-pages@v6.0.0
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
       - name: Deploy the tested static artifact
         id: deployment
-        uses: actions/deploy-pages@v5.0.1
+        uses: actions/deploy-pages@v5

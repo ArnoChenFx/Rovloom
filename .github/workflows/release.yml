@@ -16,7 +16,7 @@ jobs:
       matrix: ${{ steps.tag.outputs.matrix }}
       artifactSet: ${{ steps.tag.outputs.artifactSet }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -37,7 +37,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -56,7 +56,7 @@ jobs:
       matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -67,7 +67,7 @@ jobs:
         env:
           RELEASE_TARGET: ${{ matrix.target }}
         run: bun --no-env-file scripts/release/package.mjs "$RUNNER_TEMP/release-stage"
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ needs.validate.outputs.artifactSet }}-${{ matrix.target }}
           path: ${{ runner.temp }}/release-stage/
@@ -81,7 +81,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -92,7 +92,7 @@ jobs:
           bun --no-env-file scripts/release/npm-package.mjs "$RUNNER_TEMP/release-npm"
           version="${GITHUB_REF_NAME#v}"
           bun --no-env-file scripts/release/npm-smoke.mjs "$RUNNER_TEMP/release-npm/rovloom-$version.tgz" "$version"
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ needs.validate.outputs.artifactSet }}-npm
           path: ${{ runner.temp }}/release-npm/
@@ -105,17 +105,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
-      - uses: actions/download-artifact@v8.0.2
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-${{ needs.validate.outputs.artifactSet }}-bun-*
           path: ${{ runner.temp }}/release-stage
           merge-multiple: true
-      - uses: actions/download-artifact@v8.0.2
+      - uses: actions/download-artifact@v8
         with:
           name: release-${{ needs.validate.outputs.artifactSet }}-npm
           path: ${{ runner.temp }}/release-npm

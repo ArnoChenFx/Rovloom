@@ -120,7 +120,7 @@ SQLite 使用 Bun 的 `node:sqlite`，要求全新库，不迁移旧库。测试
 
 ### CI scheduling
 
-All workflow Bun setup uses the latest stable release, and external GitHub Actions use stable version tags. Bun verification, Gateway platforms and standalone candidates run once per PR update and on pushes to `main`; ordinary superseded runs are cancelled. The reusable Bun workflow remains available to Release, whose tag verification is not cancelled by this policy. Workflow dispatch remains available.
+All workflow Bun setup uses the latest stable release, and external GitHub Actions use stable major version tags. Bun verification, Gateway platforms and standalone candidates run once per PR update and on pushes to `main`; ordinary superseded runs are cancelled. The reusable Bun workflow remains available to Release, whose tag verification is not cancelled by this policy. Workflow dispatch remains available.
 
 Native e2e workflows always report a planning job and an acceptance summary. Product source, dependencies and build changes select native acceptance; prose-only changes skip the expensive runner jobs. Planning uses the full base/head Git diff, including deletions, and runs acceptance if history cannot be inspected. A selected failed, cancelled or skipped job fails the summary. `two-host acceptance`, `macos acceptance` and `windows acceptance` can be used as stable required checks; existing repository branch protection is not changed by this PR.
 
