@@ -56,7 +56,7 @@ docker compose run --rm --service-ports gateway
 
 到达 `connector_ready` 后，先停止 Connector，再按 Ctrl-C 停止前台 Gateway。执行 `docker compose up -d`，然后重新启动主机 Connector。配置和配对保留在卷中。
 
-加入更多设备或重新配对某台设备时，先停止后台 Gateway，运行 `docker compose run --rm --service-ports gateway gateway --add-device`（或 `gateway --repair-device`），再按快速开始在 Connector 主机上继续。
+加入更多设备或重新配对某台设备时，先停止后台 Gateway，运行 `docker compose run --rm --service-ports gateway gateway --add-device`（或 `gateway --repair-device`），再按快速开始在 Connector 主机上继续。新增设备也可以不停止 Gateway：管理员在管理页新建配对申请，新设备运行 `rovloom connector --claim` 在线认领加入，见[配对](CONFIGURATION-zh.md#配对)。
 
 ## 配置、停止与升级
 

@@ -56,7 +56,7 @@ Keep this terminal open for pairing and native installation approval. On the Con
 
 When setup reaches `connector_ready`, stop the Connector, then stop the foreground Gateway with Ctrl-C. Run `docker compose up -d` and restart the host Connector. Configuration and pairing stay in the volumes.
 
-To add another device or re-pair a device, stop the background Gateway and run `docker compose run --rm --service-ports gateway gateway --add-device` (or `gateway --repair-device`). Then continue on the Connector host as in the Quick Start.
+To add another device or re-pair a device, stop the background Gateway and run `docker compose run --rm --service-ports gateway gateway --add-device` (or `gateway --repair-device`). Then continue on the Connector host as in the Quick Start. To add a device without stopping the Gateway, use online claim instead: create a pairing application on the management page and run `rovloom connector --claim` on the new device; see [Pairing](CONFIGURATION.md#pairing).
 
 ## Configure, stop and upgrade
 
