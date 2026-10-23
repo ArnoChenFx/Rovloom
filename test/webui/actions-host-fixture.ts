@@ -56,6 +56,7 @@ export function createActionsHostFixture(origin: string) {
   f.grant({ action: 'gateway_read' })
   let time = 1000
   let offset = 0
+  const pairingClaims = new Map<string, string>()
   let mode = 'normal'
   const calls: string[] = []
   const requests: (ManagementArguments['operations_get'] & { operation: string })[] = []
@@ -213,6 +214,13 @@ export function createActionsHostFixture(origin: string) {
         )
       }
       const response = await handler.fetch(request)
+      if (response.status === 200 && operation === 'pairings_create') {
+        const receipt = (await response.clone().json()) as { machine_id: string }
+        f.grant(
+          { action: 'devices_read', machine_id: receipt.machine_id },
+          { action: 'devices_revoke', machine_id: receipt.machine_id }
+        )
+      }
       if (response.status === 200 && operation === 'confirmations_create') {
         confirmationExpiresAt = ((await response.clone().json()) as { expires_at: number }).expires_at
       }
@@ -270,6 +278,23 @@ export function createActionsHostFixture(origin: string) {
         const value = (await request.json()) as { mode?: string; advance?: number; pairing_id?: string }
         if (value.mode) {
           mode = value.mode
+          if (mode === 'deliver_claim') {
+            const application = f.store.pairingApplication(value.pairing_id!)!
+            const claim = f.store.startPairingClaim(
+              application.machine_id,
+              value.pairing_id!,
+              'a'.repeat(64),
+              'CHECK234'
+            )
+            f.store.approvePairingClaim(claim.claim_id, claim.user_code, 'fixture_admin')
+            f.store.completePairingClaim(claim.claim_id)
+            pairingClaims.set(value.pairing_id!, claim.claim_id)
+            mode = 'normal'
+          }
+          if (mode === 'activate_claim') {
+            f.store.activatePairingClaim(pairingClaims.get(value.pairing_id!)!, 'a'.repeat(64))
+            mode = 'normal'
+          }
           if (mode === 'complete_pairing') {
             // 仅兑换自建临时pending设备的合成证明，原值不离开fixture。
             f.store.redeem(f.store.issuePairingEnrollment(pending.machine_id, value.pairing_id!, 'fixture_policy'))

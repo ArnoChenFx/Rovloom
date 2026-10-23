@@ -276,10 +276,14 @@ export function createPairingActions(options: {
     list.append(entry.item)
     renderEntry(entry)
   }
+  /** 在线认领交付凭据后还须跟踪原生激活；离线申请没有认领，仍按 paired 收尾。 */
+  function unfinished(entry: Entry): boolean {
+    return entry.status === 'pending' || (entry.status === 'paired' && entry.claim?.status === 'delivered')
+  }
   /** 只读轮询所有未完成申请；会话失效时上交页面统一处理，其它错误保持等待。 */
   async function poll(): Promise<void> {
     for (const entry of entries.values()) {
-      if (disposed || entry.status !== 'pending') {
+      if (disposed || !unfinished(entry)) {
         continue
       }
       try {
@@ -301,13 +305,13 @@ export function createPairingActions(options: {
         }
       }
     }
-    if (![...entries.values()].some((entry) => entry.status === 'pending')) {
+    if (![...entries.values()].some(unfinished)) {
       stopPolling()
     }
   }
   /** 仅在存在未完成申请且页面可见时轮询。 */
   function ensurePolling(): void {
-    if (disposed || timer || ![...entries.values()].some((entry) => entry.status === 'pending')) {
+    if (disposed || timer || ![...entries.values()].some(unfinished)) {
       return
     }
     timer = setInterval(() => {
