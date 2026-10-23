@@ -165,7 +165,7 @@ runtime_call
 
 ## 9. 工程约定
 
-- 语言 TypeScript，开发和发行使用 **Bun**。`package.json` 只声明最低版本（`engines.bun`）与依赖范围，提交 `bun.lock`。CI 同时跑最低版本与最新版本。选择依据见 [ADR 0003](adr/0003-bun-toolchain.md)。
+- 语言 TypeScript，开发和发行使用 **Bun**。`package.json` 只声明最低版本（`engines.bun`）与依赖范围，提交 `bun.lock`。CI 只跑最新稳定版 Bun。选择依据见 [ADR 0003](adr/0003-bun-toolchain.md)。
 - 质量门禁：`lint`、`format:check`、`typecheck`、`test`、`build`、`smoke`。需要真实机器或第三方 runtime 的验证放在端到端验收（[e2e](../e2e/README.md)），不进单元测试门禁。
 - 注释写给读者：模块职责、公共接口、不明显的约束和安全决策需要注释，不要求每个函数都有。
 

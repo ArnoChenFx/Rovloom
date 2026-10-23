@@ -1,5 +1,8 @@
-# 构建层：用 Bun 官方镜像按锁文件安装依赖，并把 TypeScript 源码编译为 dist JS。
-FROM docker.io/oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 AS build
+# 本次构建只解析一次官方 Bun 1.x；构建层与运行层复用该基础层。
+FROM docker.io/oven/bun:1 AS bun-base
+
+# 构建层：按锁文件安装依赖，并把 TypeScript 源码编译为 dist JS。
+FROM bun-base AS build
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun --no-env-file install --frozen-lockfile --ignore-scripts
@@ -10,7 +13,7 @@ RUN bun --no-env-file run build \
     && bun --no-env-file install --production --frozen-lockfile --ignore-scripts
 
 # 运行层：使用同一 Bun 版本，携带产物、生产依赖、许可证与健康检查脚本。
-FROM docker.io/oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288
+FROM bun-base
 ARG VERSION
 ARG COMMIT
 LABEL org.opencontainers.image.title="Rovloom" \
