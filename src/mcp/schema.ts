@@ -85,7 +85,8 @@ const descriptions: Record<ToolName, string> = {
   runtime_call_get: '按当前归属、双端策略和内容门禁读取调用；短等到期不改变执行期限。',
   runtime_call_cancel: '请求停止等待或桥接；仅报告服务可确认程度，不承诺原生回滚。',
   runtime_result_read: '按当前读取授权和期限读取有界结果页；cursor 由服务绑定 caller 和原结果。',
-  runtime_response_discard: '独立清理动作；必须同时验证归属、原方法当前策略及专门 discard_response 权限。'
+  runtime_response_discard:
+    '处理完结果后显式删除原文与句柄并释放读取容量；必须验证归属、当前原方法策略及独立 discard_response 权限。读取到 EOF 不会自动删除结果。'
 }
 
 const readOnly = new Set<ToolName>([

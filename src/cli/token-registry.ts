@@ -1,5 +1,6 @@
 // MCP Bearer 令牌注册表：只保存摘要、主体策略与固定到期，供 CLI 修改与 Gateway 每次认证热读。
 import { createHash, randomBytes } from 'node:crypto'
+import type { Principal } from '../router.js'
 import type { ProviderPolicy } from '../wire/types.js'
 import { fields, id, object, validatePolicies } from '../wire/index.js'
 import { CliError } from './config.js'
@@ -10,7 +11,7 @@ export const DEFAULT_TTL_DAYS = 30
 const DAY = 86_400_000
 
 export type CallerEntry = {
-  principal: { id: string; policy: ProviderPolicy }
+  principal: Principal
   token_sha256: string
   issued_at: number
   expires_at: number
@@ -64,7 +65,14 @@ export function parseRegistry(value: unknown, resource?: string): CallerRegistry
       const caller = object(input)
       fields(caller, ['principal', 'token_sha256', 'issued_at', 'expires_at'], ['previous'])
       const principal = object(caller.principal)
-      fields(principal, ['id', 'policy'])
+      fields(principal, ['id', 'policy'], ['permissions'])
+      if (principal.permissions !== undefined) {
+        const permissions = object(principal.permissions)
+        fields(permissions, ['discard_response'])
+        if (typeof permissions.discard_response !== 'boolean') {
+          invalid()
+        }
+      }
       id(principal.id)
       if (
         !PRINCIPAL.test(principal.id as string) ||
@@ -137,12 +145,29 @@ export function createCaller(
   const token = newToken()
   const expires_at = now + ttl(days)
   const entry: CallerEntry = {
-    principal: { id: principal, policy: structuredClone(template.principal.policy) },
+    principal: { ...structuredClone(template.principal), id: principal },
     token_sha256: digestToken(token),
     issued_at: now,
     expires_at
   }
   return { registry: { ...registry, callers: [...registry.callers, entry] }, token, expires_at }
+}
+
+/** 本机操作员显式授予/撤回结果删除权限；不改变调用方法策略、令牌或到期时间。 */
+export function setDiscardPermission(registry: CallerRegistry, principal: string, allowed: boolean): CallerRegistry {
+  const index = find(registry, principal)
+  if (typeof allowed !== 'boolean') {
+    throw new CliError('invalid_arguments')
+  }
+  return {
+    ...registry,
+    callers: registry.callers.map(
+      /* 只修改选定主体，旧注册表缺省仍为无权。 */ (entry, at) =>
+        at === index
+          ? { ...entry, principal: { ...entry.principal, permissions: { discard_response: allowed } } }
+          : entry
+    )
+  }
 }
 
 /** 续期：延长到期时间，令牌不变；到期后仍可续期（只要主体仍在注册表中）。 */

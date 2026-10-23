@@ -4,15 +4,29 @@ name: Two-host e2e
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - e2e/two_host.py
-      - e2e/two-host-check.mjs
-      - e2e/quickstart.py
-      - .github/workflows/two-host.yml
+concurrency:
+  group: two-host-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - id: plan
+        run: bun --no-env-file scripts/ci/e2e-plan.mjs two-host
   two-host:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    timeout-minutes: 25
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -20,13 +34,36 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
       - name: Frozen install
+        timeout-minutes: 5
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Download official Herdr 0.9.5
         run: |
-          curl --fail --location -o "$RUNNER_TEMP/herdr" https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-x86_64
+          curl --fail --location --connect-timeout 15 --max-time 180 --retry 2 -o "$RUNNER_TEMP/herdr" https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-x86_64
           echo "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d  $RUNNER_TEMP/herdr" | sha256sum --check
           chmod +x "$RUNNER_TEMP/herdr"
       - name: Build actual standalone product
         run: bun --no-env-file run release:build
       - name: Two containers, real TCP, real TTY pairing
         run: python3 e2e/two_host.py --binary dist/release/bun-linux-x64/candidate/rovloom --herdr "$RUNNER_TEMP/herdr"
+  result:
+    name: two-host acceptance
+    if: always()
+    needs: [changes, two-host]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require selected acceptance to succeed
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          if results['changes']['result'] != 'success':
+              raise SystemExit('e2e plan failed')
+          selected = results['changes']['outputs'].get('run') == 'true'
+          expected = 'success' if selected else 'skipped'
+          if any(value['result'] != expected for key, value in results.items() if key != 'changes'):
+              raise SystemExit('selected e2e acceptance did not succeed')
+          print('e2e acceptance passed' if selected else 'no relevant changes')
+          PY
