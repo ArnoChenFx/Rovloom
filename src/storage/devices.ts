@@ -32,9 +32,13 @@ export type PairingClaim = Readonly<{
   pairing_id: string
   machine_id: string
   user_code: string
-  status: 'pending' | 'approved' | 'delivered' | 'failed' | 'cancelled'
+  status: 'pending' | 'approved' | 'delivered' | 'activated' | 'failed' | 'cancelled'
   expires: number
   created: number
+  // 批准该认领的管理员主体：在线原生激活以它为授权主体，批准前为空。
+  approved_by: string | null
+  // 在线原生激活完成时记录的清单指纹；未激活为空，只用于重入核对，不作凭据。
+  native_fingerprint: string | null
 }>
 
 export class DeviceLedger {
@@ -277,7 +281,7 @@ export class DeviceLedger {
   pairingClaim(claimId: string): PairingClaim {
     const row = this.db
       .prepare(
-        'SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created FROM pairing_claims WHERE claim_id=?'
+        'SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created,approved_by,native_fingerprint FROM pairing_claims WHERE claim_id=?'
       )
       .get(claimId)
     if (!row) {
@@ -300,7 +304,7 @@ export class DeviceLedger {
   approvedPairingClaims(): PairingClaim[] {
     return this.db
       .prepare(
-        "SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created FROM pairing_claims WHERE status='approved'"
+        "SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created,approved_by,native_fingerprint FROM pairing_claims WHERE status='approved'"
       )
       .all() as PairingClaim[]
   }
@@ -316,7 +320,7 @@ export class DeviceLedger {
   activePairingClaim(pairingId: string): PairingClaim | undefined {
     const row = this.db
       .prepare(
-        "SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created FROM pairing_claims WHERE pairing_id=? AND status IN ('pending','approved') ORDER BY created DESC LIMIT 1"
+        "SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created,approved_by,native_fingerprint FROM pairing_claims WHERE pairing_id=? AND status IN ('pending','approved') ORDER BY created DESC LIMIT 1"
       )
       .get(pairingId)
     return row as PairingClaim | undefined
@@ -364,7 +368,9 @@ export class DeviceLedger {
         user_code: userCode,
         status: 'pending',
         expires: Math.min(now + ttlMs, Number(application.expires)),
-        created: now
+        created: now,
+        approved_by: null,
+        native_fingerprint: null
       }
       this.db
         .prepare(
@@ -397,11 +403,16 @@ export class DeviceLedger {
     return this.pairingClaim(claimId)
   }
   // 管理员核对双边核对码后批准认领：同一事务内完成签发与兑换，凭据只回调用方的受保护 custody，不落库不入回执。
-  approvePairingClaim(claimId: string, userCode: string): { machine_id: string; credential: string } {
-    return this.transaction((now) => this.approvePairingClaimTx(now, claimId, userCode))
+  approvePairingClaim(claimId: string, userCode: string, actor: string): { machine_id: string; credential: string } {
+    return this.transaction((now) => this.approvePairingClaimTx(now, claimId, userCode, actor))
   }
   // 批准事务体：管理账本在同一 writer 事务内组合调用，调用方必须先完成管理员授权与确认。
-  approvePairingClaimTx(now: number, claimId: string, userCode: string): { machine_id: string; credential: string } {
+  approvePairingClaimTx(
+    now: number,
+    claimId: string,
+    userCode: string,
+    actor: string
+  ): { machine_id: string; credential: string } {
     const claim = this.pairingClaim(claimId)
     if (claim.status !== 'pending' || claim.expires <= now) {
       throw new GatewayError('invalid_pairing_claim')
@@ -422,11 +433,12 @@ export class DeviceLedger {
       policy_ref: String(application.policy_ref)
     })
     const result = this.redeemTx(now, token)
-    this.db.prepare("UPDATE pairing_claims SET status='approved' WHERE claim_id=?").run(claimId)
+    this.db.prepare("UPDATE pairing_claims SET status='approved', approved_by=? WHERE claim_id=?").run(actor, claimId)
     this.audit('pairing_claim_approved', 'local', now, undefined, {
       machine_id: claim.machine_id,
       pairing_id: claim.pairing_id,
-      claim_id: claimId
+      claim_id: claimId,
+      approved_by: actor
     })
     return result
   }
@@ -445,13 +457,46 @@ export class DeviceLedger {
       })
     })
   }
+  // 在线原生激活完成落账：只有已交付认领可激活，指纹只用于重入核对；已激活且指纹一致时幂等，不同指纹拒绝。
+  activatePairingClaim(claimId: string, fingerprint: string): PairingClaim {
+    return this.transaction((now) => {
+      const claim = this.pairingClaim(claimId)
+      if (claim.status === 'activated') {
+        if (claim.native_fingerprint !== fingerprint) {
+          throw new GatewayError('pairing_claim_conflict')
+        }
+        return claim
+      }
+      if (claim.status !== 'delivered' || !claim.approved_by) {
+        throw new GatewayError('invalid_pairing_claim')
+      }
+      this.db
+        .prepare("UPDATE pairing_claims SET status='activated', native_fingerprint=? WHERE claim_id=?")
+        .run(fingerprint, claimId)
+      this.audit('pairing_claim_activated', 'local', now, undefined, {
+        machine_id: claim.machine_id,
+        pairing_id: claim.pairing_id,
+        claim_id: claimId,
+        approved_by: claim.approved_by,
+        native_fingerprint: fingerprint
+      })
+      return this.pairingClaim(claimId)
+    })
+  }
+
   // 交付失败、超时或网关重启时收敛认领；已终结的认领重复失败处理幂等无操作，凭据拒绝由调用方另行执行。
   failPairingClaim(claimId: string): void {
     this.transaction((now) => {
       const row = this.db
         .prepare('SELECT status,machine_id,pairing_id FROM pairing_claims WHERE claim_id=?')
         .get(claimId)
-      if (!row || row.status === 'delivered' || row.status === 'failed' || row.status === 'cancelled') {
+      if (
+        !row ||
+        row.status === 'delivered' ||
+        row.status === 'activated' ||
+        row.status === 'failed' ||
+        row.status === 'cancelled'
+      ) {
         return
       }
       this.db.prepare("UPDATE pairing_claims SET status='failed' WHERE claim_id=?").run(claimId)

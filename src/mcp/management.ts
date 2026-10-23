@@ -244,8 +244,10 @@ export type ManagementReply = {
     claim?: {
       claim_id: string
       user_code: string
-      status: 'pending' | 'approved' | 'delivered' | 'failed' | 'cancelled'
+      status: 'pending' | 'approved' | 'delivered' | 'activated' | 'failed' | 'cancelled'
       expires_at: number
+      // 在线原生激活已完成时出现；值只表示网关侧已按批准策略落盘并定义 provider。
+      activation?: 'configured'
     }
   }
   devices_rename: OperationReceipt

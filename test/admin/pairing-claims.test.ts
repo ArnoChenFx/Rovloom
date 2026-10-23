@@ -84,16 +84,17 @@ test(
       assert.equal(o.store.verifyPairingClaimSecret(claim.claim_id, CLAIM_SECRET).claim_id, claim.claim_id)
       fails(
         /* 核对码错误时不能批准，也不消费申请的一次签发机会。 */ () =>
-          o.store.approvePairingClaim(claim.claim_id, 'WRONG123'),
+          o.store.approvePairingClaim(claim.claim_id, 'WRONG123', 'admin_a'),
         'pairing_claim_code_mismatch'
       )
-      const result = o.store.approvePairingClaim(claim.claim_id, USER_CODE)
+      const result = o.store.approvePairingClaim(claim.claim_id, USER_CODE, 'admin_a')
       assert.equal(result.machine_id, a.machine_id)
       assert.equal(typeof result.credential, 'string')
       assert.equal(o.store.machine(a.machine_id).status, 'offline')
       assert.equal(o.store.pairingClaim(claim.claim_id).status, 'approved')
       fails(
-        /* 已批准的认领不能再次批准重复签发。 */ () => o.store.approvePairingClaim(claim.claim_id, USER_CODE),
+        /* 已批准的认领不能再次批准重复签发。 */ () =>
+          o.store.approvePairingClaim(claim.claim_id, USER_CODE, 'admin_a'),
         'invalid_pairing_claim'
       )
       o.store.completePairingClaim(claim.claim_id)
@@ -144,7 +145,8 @@ test(
       assert.equal(claim.expires, 61_000)
       o.advance(61_000)
       fails(
-        /* 认领已过期，批准必须拒绝且不签发。 */ () => o.store.approvePairingClaim(claim.claim_id, USER_CODE),
+        /* 认领已过期，批准必须拒绝且不签发。 */ () =>
+          o.store.approvePairingClaim(claim.claim_id, USER_CODE, 'admin_a'),
         'invalid_pairing_claim'
       )
       o.store.expire()
@@ -255,13 +257,13 @@ test(
       await o.service.execute('pairings_cancel', { ...c.write, ...cancel.target }, context())
       assert.equal(o.store.pairingClaim(claim.claim_id).status, 'cancelled')
       fails(
-        /* 已取消的认领不能再批准。 */ () => o.store.approvePairingClaim(claim.claim_id, USER_CODE),
+        /* 已取消的认领不能再批准。 */ () => o.store.approvePairingClaim(claim.claim_id, USER_CODE, 'admin_a'),
         'invalid_pairing_claim'
       )
 
       const b = await application(o, 'claim_fail')
       const claimB = o.store.startPairingClaim(b.machine_id, b.pairing_id, digest(CLAIM_SECRET), USER_CODE)
-      o.store.approvePairingClaim(claimB.claim_id, USER_CODE)
+      o.store.approvePairingClaim(claimB.claim_id, USER_CODE, 'admin_a')
       o.store.failPairingClaim(claimB.claim_id)
       assert.equal(o.store.pairingClaim(claimB.claim_id).status, 'failed')
       o.store.failPairingClaim(/* 重复收敛不抛错，保持运行时重试安全。 */ claimB.claim_id)
@@ -269,6 +271,43 @@ test(
         /* 已失败的认领不能再被标记为已交付。 */ () => o.store.completePairingClaim(claimB.claim_id),
         'invalid_pairing_claim'
       )
+    } finally {
+      o.close()
+    }
+  }
+)
+
+test(
+  'approval records the approving principal; activation requires delivered and one fingerprint',
+  /* 批准人是后续在线激活的授权主体，必须落账；激活只在交付后发生，指纹一致可重入、不同则冲突，终态不再被失败收敛改写。 */ async () => {
+    const o = owned()
+    try {
+      const a = await application(o, 'claim_activation')
+      const claim = o.store.startPairingClaim(a.machine_id, a.pairing_id, digest(CLAIM_SECRET), USER_CODE)
+      assert.equal(claim.approved_by, null)
+      assert.equal(claim.native_fingerprint, null)
+      fails(
+        /* 未交付的认领不能激活。 */ () => o.store.activatePairingClaim(claim.claim_id, 'a'.repeat(64)),
+        'invalid_pairing_claim'
+      )
+      o.store.approvePairingClaim(claim.claim_id, USER_CODE, 'admin_a')
+      assert.equal(o.store.pairingClaim(claim.claim_id).approved_by, 'admin_a')
+      fails(
+        /* 已批准未交付同样不能激活。 */ () => o.store.activatePairingClaim(claim.claim_id, 'a'.repeat(64)),
+        'invalid_pairing_claim'
+      )
+      o.store.completePairingClaim(claim.claim_id)
+      const activated = o.store.activatePairingClaim(claim.claim_id, 'a'.repeat(64))
+      assert.equal(activated.status, 'activated')
+      assert.equal(activated.native_fingerprint, 'a'.repeat(64))
+      const again = o.store.activatePairingClaim(claim.claim_id, 'a'.repeat(64))
+      assert.equal(again.status, 'activated')
+      fails(
+        /* 同一认领不能以另一份清单重复激活。 */ () => o.store.activatePairingClaim(claim.claim_id, 'b'.repeat(64)),
+        'pairing_claim_conflict'
+      )
+      o.store.failPairingClaim(claim.claim_id)
+      assert.equal(o.store.pairingClaim(claim.claim_id).status, 'activated')
     } finally {
       o.close()
     }

@@ -230,7 +230,8 @@ export class Store {
           provider: (machine, provider, revision, enabled, now) =>
             this.applyProvider(machine, provider, revision, enabled, now),
           // 认领批准复用设备账本的签发与兑换事务体，保持管理确认与凭据产生在同一事务。
-          approveClaim: (claimId, userCode, now) => this.devices.approvePairingClaimTx(now, claimId, userCode),
+          approveClaim: (claimId, userCode, now, actor) =>
+            this.devices.approvePairingClaimTx(now, claimId, userCode, actor),
           // 凭据只暂存到装配注入的在线 custody；未注入时批准即失败，不能把凭据写入回执或审计。
           claimCustody: (event) => {
             if (!this.options.pairingClaimCustody) {
@@ -512,8 +513,11 @@ export class Store {
   verifyPairingClaimSecret(claimId: string, secretPlaintext: string): PairingClaim {
     return this.devices.verifyPairingClaimSecret(claimId, secretPlaintext)
   }
-  approvePairingClaim(claimId: string, userCode: string): { machine_id: string; credential: string } {
-    return this.devices.approvePairingClaim(claimId, userCode)
+  approvePairingClaim(claimId: string, userCode: string, actor: string): { machine_id: string; credential: string } {
+    return this.devices.approvePairingClaim(claimId, userCode, actor)
+  }
+  activatePairingClaim(claimId: string, fingerprint: string): PairingClaim {
+    return this.devices.activatePairingClaim(claimId, fingerprint)
   }
   pairingApplication(
     pairingId: string

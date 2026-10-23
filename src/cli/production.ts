@@ -173,6 +173,11 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
       let provider: ProductionGatewayResources | undefined
       let state: ReturnType<typeof openGatewayState> | undefined
       let onlinePairing: OnlinePairingHttp | undefined
+      // 在线原生激活完成落盘后唤醒本轮重开；每个 Gateway 化身各自一份，未激活时永不兑现。
+      let resolveActivation: (() => void) | undefined
+      const activationReload = new Promise<void>((resolve) => {
+        resolveActivation = resolve
+      })
       let closing: Promise<void> | undefined
       const release = /* 关闭所有交付者并最终回收同一双库；不因某个provider释放失败遗留writer。 */ () => {
         closing ??= Promise.resolve().then(
@@ -256,7 +261,11 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
           /* 管理员授权按 Store 当前设备/provider 生成。 */ () => state!.store.resources()
         )
         const pairing = onboarding?.attach(state)
-        const online = new OnlinePairingHttp(state.store)
+        const online = new OnlinePairingHttp(state.store, Date.now, {
+          state,
+          config,
+          reload: /* 激活已落盘：重开后以真实工厂路径加载新 provider 与 caller 来源。 */ () => resolveActivation?.()
+        })
         onlinePairing = online
         online.reconcile()
         const anonymousManagement: ProductionManagementHost | undefined =
@@ -320,7 +329,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
                   await onboarding.listening(gateway!, url)
                 }
               }
-            : {}),
+            : { reconfigure: activationReload }),
           authentication: caller.authentication,
           catalog: provider?.catalog,
           management,

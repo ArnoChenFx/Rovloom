@@ -26,7 +26,12 @@ export type ManagementPrimitives = {
   disconnect(machine: string, epoch: string, now: number): void
   revoke(machine: string, now: number): void
   provider(machine: string, provider: string, revision: number, enabled: boolean, now: number): ProviderBinding
-  approveClaim(claimId: string, userCode: string, now: number): { machine_id: string; credential: string }
+  approveClaim(
+    claimId: string,
+    userCode: string,
+    now: number,
+    actor: string
+  ): { machine_id: string; credential: string }
   claimCustody(event: { machine_id: string; claim_id: string; credential: string }): void
   audit(action: string, actor: string, now: number, details: Record<string, unknown>, event: string): void
 }
@@ -472,7 +477,7 @@ export class ManagementLedger {
           ) {
             throw new GatewayError('pairing_claim_conflict')
           }
-          const approved = this.host.approveClaim(intent.target.claim_id, intent.target.user_code, now)
+          const approved = this.host.approveClaim(intent.target.claim_id, intent.target.user_code, now, actor.actor)
           if (approved.machine_id !== target.machine_id) {
             throw new GatewayError('pairing_claim_conflict')
           }
@@ -605,7 +610,7 @@ export class ManagementLedger {
       | {
           claim_id: string
           user_code: string
-          status: 'pending' | 'approved' | 'delivered' | 'failed' | 'cancelled'
+          status: 'pending' | 'approved' | 'delivered' | 'activated' | 'failed' | 'cancelled'
           expires: number
         }
       | undefined
@@ -635,7 +640,8 @@ export class ManagementLedger {
               claim_id: claim.claim_id,
               user_code: claim.user_code,
               status: claim.status,
-              expires_at: Number(claim.expires)
+              expires_at: Number(claim.expires),
+              ...(claim.status === 'activated' ? { activation: 'configured' as const } : {})
             }
           }
         : {})

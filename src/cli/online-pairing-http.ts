@@ -4,7 +4,13 @@ import { randomBytes } from 'node:crypto'
 import { digest, GatewayError } from '../contracts.js'
 import { fields, id, object } from '../wire/index.js'
 import type { Store } from '../store.js'
-import { requestJson, setupReply } from './pairing-http.js'
+import { device, requestJson, setupReply } from './pairing-http.js'
+import {
+  activateOnlineNative,
+  onlineActivationStatus,
+  withOnlineDeviceAuth,
+  type OnlineActivationHost
+} from './online-activation.js'
 
 // 核对码使用去混淆字符集，只供双边人工比对，不是凭据。
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -27,7 +33,9 @@ export class OnlinePairingHttp {
   /** 时钟只影响本进程的到期展示与交付计时，持久到期始终由 Store 账本判定。 */
   constructor(
     private readonly store: Store,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    // 在线原生激活宿主：未注入时不暴露 status/native 端点（保持纯认领面的既有行为）。
+    private readonly activation?: OnlineActivationHost
   ) {}
 
   // 管理批准提交前暂存凭据；交付窗口与认领自身的到期一致，窗口内未确认即收敛失败。
@@ -67,10 +75,12 @@ export class OnlinePairingHttp {
     this.holds.clear()
   }
 
-  // 只处理认领路径，其余路径返回 undefined 交回 setup handler 或 listener 的既有拒绝。
+  // 只处理认领路径与（注入激活宿主时的）在线原生激活路径，其余路径返回 undefined 交回 setup handler 或 listener 的既有拒绝。
   handle(request: Request): Promise<Response> | undefined {
     const url = new URL(request.url)
-    if (!['/pairing/claim', '/pairing/claim/status', '/pairing/claim/ack'].includes(url.pathname)) {
+    const claimPaths = ['/pairing/claim', '/pairing/claim/status', '/pairing/claim/ack']
+    const activationPaths = this.activation ? ['/pairing/status', '/pairing/native'] : []
+    if (![...claimPaths, ...activationPaths].includes(url.pathname)) {
       return undefined
     }
     if (
@@ -89,6 +99,9 @@ export class OnlinePairingHttp {
   }
 
   private async dispatch(path: string, request: Request): Promise<Response> {
+    if (path === '/pairing/status' || path === '/pairing/native') {
+      return this.dispatchActivation(path, request)
+    }
     try {
       const input = await requestJson(request, 4096, this.closing.signal)
       if (path === '/pairing/claim') {
@@ -130,6 +143,33 @@ export class OnlinePairingHttp {
     } catch (error) {
       const code = error instanceof GatewayError ? error.code : 'online_pairing_request_invalid'
       return setupReply({ error: code }, code === 'pairing_claim_conflict' ? 409 : 400)
+    }
+  }
+
+  // 在线原生激活面：设备以真实凭据短认证后查询授权或提交实测清单；认领未交付前一律拒绝，
+  // 失败统一收敛为同一错误，不泄露是哪一项核验未过（与本机 setup 面的口径一致）。
+  private async dispatchActivation(path: string, request: Request): Promise<Response> {
+    try {
+      const input = await requestJson(request, path === '/pairing/native' ? 1_048_576 : 16_384, this.closing.signal)
+      id(input.attempt_id)
+      const credential = device(input.authentication)
+      const claim = this.store.pairingClaim(input.attempt_id as string)
+      if (
+        claim.machine_id !== credential.machine_id ||
+        (claim.status !== 'delivered' && claim.status !== 'activated')
+      ) {
+        throw new GatewayError('invalid_pairing_claim')
+      }
+      return await withOnlineDeviceAuth(this.activation!, credential, async () => {
+        if (path === '/pairing/status') {
+          fields(input, ['attempt_id', 'authentication'], ['providers', 'sessions'])
+          return setupReply(onlineActivationStatus(this.activation!, claim, input.providers, input.sessions))
+        }
+        fields(input, ['attempt_id', 'authentication', 'installation'])
+        return setupReply(await activateOnlineNative(this.activation!, claim, input.installation, request.signal))
+      })
+    } catch {
+      return setupReply({ error: 'online_activation_not_completed' }, 409)
     }
   }
 
