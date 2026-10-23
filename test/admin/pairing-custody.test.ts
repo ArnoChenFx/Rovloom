@@ -113,7 +113,7 @@ test(
       )
       assert.equal(stateA.status, 'expired')
       assert.equal(stateB.status, 'pending')
-      assert.equal(stateB.issuance, 'unverified')
+      assert.equal(stateB.issuance, 'unissued')
       assert.throws(
         /** 旧策略引用不能为新申请签发材料。 */ () =>
           o.store.issuePairingEnrollment(b.machine_id, b.pairing_id, 'policy_a'),

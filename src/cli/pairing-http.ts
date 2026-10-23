@@ -39,7 +39,11 @@ export function setupReply(value: unknown, status = 200): Response {
 }
 
 // 按实际流累计有界字节，不因缺Content-Length或分块传输而无限读取。
-async function requestJson(request: Request, maximum: number, stopped: AbortSignal): Promise<Record<string, unknown>> {
+export async function requestJson(
+  request: Request,
+  maximum: number,
+  stopped: AbortSignal
+): Promise<Record<string, unknown>> {
   const signal = AbortSignal.any([request.signal, stopped, AbortSignal.timeout(5000)])
   const reader = request.body?.getReader()
   if (!reader) {
