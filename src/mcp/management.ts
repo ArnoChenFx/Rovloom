@@ -131,6 +131,7 @@ export type ManagementAction =
   | 'device_rename'
   | 'pairing_create'
   | 'pairing_cancel'
+  | 'pairing_claim_approve'
   | 'device_disconnect'
   | 'device_revoke'
   | 'provider_disable'
@@ -140,6 +141,10 @@ export type ManagementIntent =
   | { action: 'pairing_create'; target: { name: string; policy_ref: string; labels: readonly string[] } }
   | { action: 'pairing_create'; target: { machine_id: string; policy_ref: string } }
   | { action: 'pairing_cancel'; target: { machine_id: string; pairing_id: string } }
+  | {
+      action: 'pairing_claim_approve'
+      target: { machine_id: string; pairing_id: string; claim_id: string; user_code: string }
+    }
   | { action: 'device_disconnect'; target: { machine_id: string }; expected_connection_epoch: string }
   | { action: 'device_revoke'; target: { machine_id: string } }
   | {
@@ -204,6 +209,12 @@ export type ManagementArguments = {
       | { machine_id: string; policy_ref: string; name?: never; labels?: never }
     )
   pairings_cancel: ManagementWrite & { machine_id: string; pairing_id: string }
+  pairings_claim_approve: ManagementWrite & {
+    machine_id: string
+    pairing_id: string
+    claim_id: string
+    user_code: string
+  }
   devices_disconnect: ManagementWrite & { machine_id: string; expected_connection_epoch: string }
   devices_revoke: ManagementWrite & { machine_id: string }
   providers_disable: ManagementWrite & {
@@ -228,8 +239,9 @@ export type ManagementReply = {
     pairing_id: string
     status: 'pending' | 'paired' | 'cancelled' | 'expired'
     expires_at: number
-    issuance: 'unverified'
-    requires_local_issuance: true
+    issuance: 'issued' | 'unissued'
+    requires_local_issuance: false
+    claim?: { claim_id: string; user_code: string; status: 'pending' | 'approved'; expires_at: number }
   }
   devices_rename: OperationReceipt
   status: ManagementStatus
@@ -246,9 +258,15 @@ export type ManagementReply = {
     pairing_id: string
     status: 'pending'
     expires_at: number
-    requires_local_issuance: true
+    requires_local_issuance: false
   }
   pairings_cancel: OperationReceipt
+  pairings_claim_approve: OperationReceipt & {
+    machine_id: string
+    pairing_id: string
+    claim_id: string
+    status: 'approved'
+  }
   devices_disconnect: OperationReceipt
   devices_revoke: OperationReceipt
   providers_disable: OperationReceipt

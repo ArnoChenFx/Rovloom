@@ -15,11 +15,22 @@ const CLAIM_SECRET = 'test-claim-secret-0123456789abcdef'
 const USER_CODE = 'K7M4Q9XD'
 
 /** 当前时钟、SQLite 与管理服务均属本 fixture，不构造生产身份来源。 */
-function owned() {
+function owned(custody?: { machine_id: string; claim_id: string; credential: string }[]) {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-pairing-claims-'))
   const path = join(root, 'gateway.sqlite')
   let now = 1000
-  const store = new Store(path, /** 受控短期材料只使用 fixture 时钟。 */ () => now, { management })
+  const store = new Store(path, /** 受控短期材料只使用 fixture 时钟。 */ () => now, {
+    management,
+    ...(custody
+      ? {
+          /** 批准凭据只暂存进本 fixture 的内存 custody，断言其不进入回执。 */ pairingClaimCustody: (event: {
+            machine_id: string
+            claim_id: string
+            credential: string
+          }) => custody.push(event)
+        }
+      : {})
+  })
   const f = setup(store)
   const service = new StoreManagementWriteService({
     store,
@@ -140,6 +151,89 @@ test(
       fails(/* 过期未批准认领已被维护清理。 */ () => o.store.pairingClaim(claim.claim_id), 'pairing_claim_not_found')
     } finally {
       o.close()
+    }
+  }
+)
+
+test(
+  'admin service approval delivers the credential only to custody and pairings_get reports the claim',
+  /* 经真实确认流程批准：回执不含凭据、custody 恰收到一次、进度如实显示已签发与认领状态。 */ async () => {
+    const custody: { machine_id: string; claim_id: string; credential: string }[] = []
+    const o = owned(custody)
+    try {
+      const a = await application(o, 'claim_service')
+      const claim = o.store.startPairingClaim(a.machine_id, a.pairing_id, digest(CLAIM_SECRET), USER_CODE)
+      const revision = (await o.service.execute('write_state_get', { machine_id: a.machine_id }, context()))
+        .resource_revision
+      const approve: ManagementIntent = {
+        action: 'pairing_claim_approve',
+        target: { machine_id: a.machine_id, pairing_id: a.pairing_id, claim_id: claim.claim_id, user_code: USER_CODE }
+      }
+      const c = await confirmed(o.service, approve, revision)
+      const receipt = await o.service.execute('pairings_claim_approve', { ...c.write, ...approve.target }, context())
+      assert.equal(receipt.status, 'approved')
+      assert.equal(receipt.claim_id, claim.claim_id)
+      assert.equal(custody.length, 1)
+      assert.equal(custody[0]!.claim_id, claim.claim_id)
+      assert.equal(custody[0]!.machine_id, a.machine_id)
+      assert.ok(!JSON.stringify(receipt).includes(custody[0]!.credential))
+      const progress = await o.service.execute(
+        'pairings_get',
+        { machine_id: a.machine_id, pairing_id: a.pairing_id },
+        context()
+      )
+      assert.equal(progress.issuance, 'issued')
+      assert.equal(progress.requires_local_issuance, false)
+      assert.equal(progress.claim?.claim_id, claim.claim_id)
+      assert.equal(progress.claim?.status, 'approved')
+      assert.equal(progress.claim?.user_code, USER_CODE)
+    } finally {
+      o.close()
+    }
+  }
+)
+
+test(
+  'admin approval with a wrong code or without custody fails closed and changes nothing',
+  /* 核对码错误以公开错误码拒绝；未注入在线 custody 时批准整事务回滚，认领与申请保持原状。 */ async () => {
+    const custody: { machine_id: string; claim_id: string; credential: string }[] = []
+    const o = owned(custody)
+    const bare = owned()
+    try {
+      const a = await application(o, 'claim_wrong_code')
+      const claim = o.store.startPairingClaim(a.machine_id, a.pairing_id, digest(CLAIM_SECRET), USER_CODE)
+      const revision = (await o.service.execute('write_state_get', { machine_id: a.machine_id }, context()))
+        .resource_revision
+      const wrong: ManagementIntent = {
+        action: 'pairing_claim_approve',
+        target: { machine_id: a.machine_id, pairing_id: a.pairing_id, claim_id: claim.claim_id, user_code: 'WRONG123' }
+      }
+      const cw = await confirmed(o.service, wrong, revision)
+      await assert.rejects(
+        o.service.execute('pairings_claim_approve', { ...cw.write, ...wrong.target }, context()),
+        /pairing_claim_code_mismatch/
+      )
+      assert.equal(custody.length, 0)
+      assert.equal(o.store.pairingClaim(claim.claim_id).status, 'pending')
+
+      const b = await application(bare, 'claim_no_custody')
+      const claimB = bare.store.startPairingClaim(b.machine_id, b.pairing_id, digest(CLAIM_SECRET), USER_CODE)
+      const revisionB = (await bare.service.execute('write_state_get', { machine_id: b.machine_id }, context()))
+        .resource_revision
+      const approveB: ManagementIntent = {
+        action: 'pairing_claim_approve',
+        target: { machine_id: b.machine_id, pairing_id: b.pairing_id, claim_id: claimB.claim_id, user_code: USER_CODE }
+      }
+      const cb = await confirmed(bare.service, approveB, revisionB)
+      await assert.rejects(
+        bare.service.execute('pairings_claim_approve', { ...cb.write, ...approveB.target }, context()),
+        /backend_unavailable/
+      )
+      assert.equal(bare.store.pairingClaim(claimB.claim_id).status, 'pending')
+      assert.equal(bare.store.machine(b.machine_id).status, 'pending')
+    } finally {
+      o.close()
+      bare.close()
     }
   }
 )

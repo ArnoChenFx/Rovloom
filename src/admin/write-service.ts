@@ -41,6 +41,7 @@ const writes = new Set([
   'confirmations_confirm',
   'pairings_create',
   'pairings_cancel',
+  'pairings_claim_approve',
   'devices_rename',
   'devices_disconnect',
   'devices_revoke',
@@ -102,6 +103,11 @@ const publicCodes = new Set([
   'operation_unconfirmed',
   'pairing_conflict',
   'pairing_not_found',
+  'invalid_pairing_claim',
+  'invalid_pairing_issuance',
+  'pairing_claim_not_found',
+  'pairing_claim_code_mismatch',
+  'pairing_claim_conflict',
   'machine_not_found',
   'invalid_machine_state',
   'invalid_name',
@@ -197,6 +203,14 @@ function intent(value: unknown): ManagementIntent {
     object(input.target, ['machine_id', 'pairing_id'])
     identifier(input.target.machine_id)
     identifier(input.target.pairing_id)
+  } else if (action === 'pairing_claim_approve') {
+    object(input.target, ['machine_id', 'pairing_id', 'claim_id', 'user_code'])
+    identifier(input.target.machine_id)
+    identifier(input.target.pairing_id)
+    identifier(input.target.claim_id)
+    if (!/^[A-Z0-9]{4,16}$/.test(input.target.user_code)) {
+      throw new ManagementServiceError('invalid_arguments')
+    }
   } else if (action === 'device_disconnect' || action === 'device_revoke' || action === 'device_rename') {
     object(input.target, ['machine_id'])
     identifier(input.target.machine_id)
@@ -296,6 +310,9 @@ export class StoreManagementWriteService implements GatewayManagementService {
         }
         break
       case 'pairing_cancel':
+        permitted = allowed(admin, 'devices_register') && allowed(admin, 'devices_revoke', target.machine_id)
+        break
+      case 'pairing_claim_approve':
         permitted = allowed(admin, 'devices_register') && allowed(admin, 'devices_revoke', target.machine_id)
         break
       case 'device_rename':
@@ -469,13 +486,15 @@ export class StoreManagementWriteService implements GatewayManagementService {
             ? []
             : name === 'pairings_cancel'
               ? ['machine_id', 'pairing_id']
-              : name === 'devices_rename'
-                ? ['machine_id', 'name']
-                : name === 'devices_disconnect'
-                  ? ['machine_id', 'expected_connection_epoch']
-                  : name === 'devices_revoke'
-                    ? ['machine_id']
-                    : ['machine_id', 'provider_id', 'kind', 'expected_binding_revision']
+              : name === 'pairings_claim_approve'
+                ? ['machine_id', 'pairing_id', 'claim_id', 'user_code']
+                : name === 'devices_rename'
+                  ? ['machine_id', 'name']
+                  : name === 'devices_disconnect'
+                    ? ['machine_id', 'expected_connection_epoch']
+                    : name === 'devices_revoke'
+                      ? ['machine_id']
+                      : ['machine_id', 'provider_id', 'kind', 'expected_binding_revision']
         const value = object(
           args,
           [...writeFields, ...fields],
@@ -504,15 +523,17 @@ export class StoreManagementWriteService implements GatewayManagementService {
             ? 'pairing_create'
             : name === 'pairings_cancel'
               ? 'pairing_cancel'
-              : name === 'devices_rename'
-                ? 'device_rename'
-                : name === 'devices_disconnect'
-                  ? 'device_disconnect'
-                  : name === 'devices_revoke'
-                    ? 'device_revoke'
-                    : name === 'providers_disable'
-                      ? 'provider_disable'
-                      : 'provider_enable'
+              : name === 'pairings_claim_approve'
+                ? 'pairing_claim_approve'
+                : name === 'devices_rename'
+                  ? 'device_rename'
+                  : name === 'devices_disconnect'
+                    ? 'device_disconnect'
+                    : name === 'devices_revoke'
+                      ? 'device_revoke'
+                      : name === 'providers_disable'
+                        ? 'provider_disable'
+                        : 'provider_enable'
         const { name: renamed, expected_connection_epoch, expected_binding_revision, ...resource } = target
         const operation = intent(
           action === 'pairing_create'
@@ -561,6 +582,8 @@ export class StoreManagementWriteService implements GatewayManagementService {
           'confirmation_expired',
           'invalid_machine_state',
           'pairing_conflict',
+          'invalid_pairing_claim',
+          'pairing_claim_code_mismatch',
           'constraint_conflict'
         ].includes(code) &&
         this.options.store.health().mode === 'active'

@@ -18,6 +18,7 @@ const routes = new Map<string, ManagementOperation>([
   ['/admin/v1/actions/confirmations_confirm', 'confirmations_confirm'],
   ['/admin/v1/actions/pairings_create', 'pairings_create'],
   ['/admin/v1/actions/pairings_cancel', 'pairings_cancel'],
+  ['/admin/v1/actions/pairings_claim_approve', 'pairings_claim_approve'],
   ['/admin/v1/actions/devices_rename', 'devices_rename'],
   ['/admin/v1/actions/devices_disconnect', 'devices_disconnect'],
   ['/admin/v1/actions/devices_revoke', 'devices_revoke'],

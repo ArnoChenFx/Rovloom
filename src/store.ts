@@ -229,6 +229,15 @@ export class Store {
           // 实例 fence 与原调用失效使用既有 provider 原语。
           provider: (machine, provider, revision, enabled, now) =>
             this.applyProvider(machine, provider, revision, enabled, now),
+          // 认领批准复用设备账本的签发与兑换事务体，保持管理确认与凭据产生在同一事务。
+          approveClaim: (claimId, userCode, now) => this.devices.approvePairingClaimTx(now, claimId, userCode),
+          // 凭据只暂存到装配注入的在线 custody；未注入时批准即失败，不能把凭据写入回执或审计。
+          claimCustody: (event) => {
+            if (!this.options.pairingClaimCustody) {
+              throw new GatewayError('backend_unavailable')
+            }
+            this.options.pairingClaimCustody(event)
+          },
           // 管理回执关联的审计事件在同一事务落盘。
           audit: (action, actor, now, details, event) => this.audit(action, actor, now, undefined, details, event)
         },
@@ -505,6 +514,17 @@ export class Store {
   }
   approvePairingClaim(claimId: string, userCode: string): { machine_id: string; credential: string } {
     return this.devices.approvePairingClaim(claimId, userCode)
+  }
+  pairingApplication(
+    pairingId: string
+  ): { machine_id: string; policy_ref: string; status: string; expires: number; issued: number } | undefined {
+    return this.devices.pairingApplication(pairingId)
+  }
+  approvedPairingClaims(): PairingClaim[] {
+    return this.devices.approvedPairingClaims()
+  }
+  credentialDigest(machine: string): string | null {
+    return this.devices.credentialDigest(machine)
   }
   completePairingClaim(claimId: string): void {
     this.devices.completePairingClaim(claimId)
