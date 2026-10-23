@@ -2,6 +2,12 @@
 
 面向贡献者。Rovloom 用 **Bun** 执行与构建。`package.json` 的 `engines.bun` 声明最低版本，依赖用 `^` 范围，`bun.lock` 保证可复现。CI 同时跑最低版本与最新版本（[Bun verification](../.github/workflows/bun.yml)），选择依据见 [ADR 0003](adr/0003-bun-toolchain.md)。提交前的约定见 [CONTRIBUTING](../CONTRIBUTING.md)。
 
+## Native startup acceptance budgets
+
+The product Gateway smoke waits for both HTTP listeners within one shared 10-second monotonic cold-start deadline. It does not count fixed retry attempts: fast connection refusal must not exhaust a nominal readiness budget early. The existing 15-second child lifetime remains the outer bound. A failure reports elapsed milliseconds and whether the owned child is still alive, without dumping its private configuration or output.
+
+The Windows official Herdr attach test has a 30-second test budget for cold startup, Win32 identity proof and cleanup, instead of Bun's default five seconds. Its server discovery uses a separate monotonic ten-second startup window and reports cold-start / verified-attach timings. These are fixture acceptance bounds; they do not extend native request deadlines or add write retries. Known startup failures are tracked in #217 and #218.
+
 ## 日常命令
 
 在仓库根目录执行：
@@ -116,3 +122,12 @@ fixture 字节不规范化，捕获中的 session 与路径标记保留原文。
 测试基线是 Linux 原生环境。Bun 的 `process.version` 只是 Node 兼容值，MCP SDK 的协议 revision 由依赖锁定。跨平台、真实双机、NAT/TLS 的验收见 [e2e/README](../e2e/README.md) 与 [Windows e2e](../.github/workflows/windows-e2e.yml)。
 
 SQLite 使用 Bun 的 `node:sqlite`，要求全新库，不迁移旧库。测试使用临时 SQLite 文件。原生接口见[原生契约](protocol/NATIVE-CONTRACT.md)，外层协议见 [Wire v2](protocol/WIRE-PROTOCOL.md)，存储见 [STORAGE](STORAGE.md)，通道见 [TRANSPORT](TRANSPORT.md)，整体设计见 [DESIGN](DESIGN.md)。
+
+
+### CI scheduling
+
+Bun verification, Gateway platforms and standalone candidates run once per PR update and on pushes to `main`; ordinary superseded runs are cancelled. The reusable Bun workflow remains available to Release, whose tag verification is not cancelled by this policy. Workflow dispatch remains available.
+
+Native e2e workflows always report a planning job and an acceptance summary. Product source, dependencies and build changes select native acceptance; prose-only changes skip the expensive runner jobs. Planning uses the full base/head Git diff, including deletions, and runs acceptance if history cannot be inspected. A selected failed, cancelled or skipped job fails the summary. `two-host acceptance`, `macos acceptance` and `windows acceptance` can be used as stable required checks; existing repository branch protection is not changed by this PR.
+
+Job budgets are 20 minutes for Bun/Gateway, 30 for standalone, 10 for platform primitives and 25 for native e2e; planning, frozen installs and artifact uploads have separate 5-minute bounds. Queue time is outside a job timeout. Use Actions run creation/start timestamps and step start/end timestamps to distinguish queueing, dependency downloads, compilation, native operations and upload. Preserve the failing step's evidence before changing operation deadlines. Only static downloads have bounded retry; native writes and service operations are not retried generically. Known Intel macOS startup races remain tracked in #217.
