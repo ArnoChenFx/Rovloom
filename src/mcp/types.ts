@@ -60,6 +60,8 @@ export type ReplyData = {
     result_id: string
     chunk: string
     encoding: 'utf8' | 'base64'
+    // 本页字节本身是合法 UTF-8 时额外给出的文本形式，与 chunk 的 base64 解码逐字节一致；页边界切开多字节字符时不提供，整页回复超 MCP 字节预算时由门面省略，调用方用 chunk 还原。
+    text?: string
     next_cursor?: string
     eof: boolean
     total_bytes: number

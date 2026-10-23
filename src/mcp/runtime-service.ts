@@ -191,10 +191,18 @@ export class RuntimeGatewayService implements GatewayService {
       expires = Math.min(page.expires, expires)
       next = `result_v1.${page.next_cursor}.${expires}.${this.cursorTag(caller, args.result_id, bytes, page.next_cursor, expires)}`
     }
+    // 文本形式只是已授权页的附加表示：门禁、预算与 base64 原样不变；本页字节不是合法 UTF-8 时不提供，避免调用方误拼。
+    let text: string | undefined
+    try {
+      text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.from(page.data, 'base64'))
+    } catch {
+      text = undefined
+    }
     return {
       result_id: page.result_id,
       chunk: page.data,
       encoding: page.encoding,
+      ...(text === undefined ? {} : { text }),
       ...(next ? { next_cursor: next } : {}),
       eof: page.eof,
       total_bytes: page.bytes,

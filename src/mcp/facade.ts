@@ -85,13 +85,21 @@ function publicReply(name: ToolName, data: Record<string, unknown>): Record<stri
 }
 
 // 计入文本副本和转义后的完整结果预算；超限只交付元数据，不重发或造句柄。
-function boundedResult(data: Record<string, unknown>, isError: boolean): CallToolResult {
+function boundedResult(name: ToolName, data: Record<string, unknown>, isError: boolean): CallToolResult {
   const encoded = canonical(data)
   const snapshot = JSON.parse(encoded) as Record<string, unknown>
   const reply = result({ data: snapshot }, isError)
   // 包括兼容 text 副本；预留 JSON-RPC envelope 和最大 128 字节的请求 ID。
   if (Buffer.byteLength(JSON.stringify(reply)) <= MAX_MCP_BYTES - 1024) {
     return reply
+  }
+  // 结果页的 text 只是 base64 正文的附加表示：先撤掉它再评估，正文页不能因附加表示被整页拒绝。
+  if (name === 'runtime_result_read' && typeof snapshot.text === 'string') {
+    delete snapshot.text
+    const reduced = result({ data: snapshot }, isError)
+    if (Buffer.byteLength(JSON.stringify(reduced)) <= MAX_MCP_BYTES - 1024) {
+      return reduced
+    }
   }
   const callId = snapshot.call_id
   return result(
@@ -206,7 +214,7 @@ export function createMcpFacade(options: FacadeOptions): Server {
         })
         const reply = await options.service.execute(name, args, context)
         const data = publicReply(name, reply.data as Record<string, unknown>)
-        return boundedResult(data, reply.is_error === true)
+        return boundedResult(name, data, reply.is_error === true)
       } catch (error) {
         if (error instanceof FacadeServiceError && SERVICE_ERROR_CODES.includes(error.code)) {
           return failed(error.code, error instanceof NativeRequestNotDispatchedError ? error.outcome : undefined)
