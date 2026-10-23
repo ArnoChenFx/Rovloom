@@ -686,7 +686,7 @@ export function checkManagementWriteReply<K extends ManagementClientOperation>(
     if (v.machine_id !== input.machine_id || v.pairing_id !== input.pairing_id) {
       invalid('invalid_response')
     }
-    choice(v.status, ['pending', 'paired', 'cancelled', 'expired'])
+    choice(v.status, ['pending', 'paired', 'cancelled', 'expired', 'failed'])
     choice(v.issuance, ['issued', 'unissued'])
     if (v.requires_local_issuance !== false) {
       invalid('invalid_response')
@@ -698,7 +698,7 @@ export function checkManagementWriteReply<K extends ManagementClientOperation>(
       if (!/^[A-Z0-9]{4,16}$/.test(v.claim.user_code)) {
         invalid('invalid_response')
       }
-      choice(v.claim.status, ['pending', 'approved'])
+      choice(v.claim.status, ['pending', 'approved', 'delivered', 'failed', 'cancelled'])
       time(v.claim.expires_at)
     }
   } else {

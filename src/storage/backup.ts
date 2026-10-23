@@ -1,6 +1,8 @@
 // 导出不含调用原文和有效凭据的 v5 快照；恢复它等同于重新配对，并限制备份大小、同步落盘及清理失败产物。
 import { DatabaseSync } from 'node:sqlite'
-import { closeSync, fsyncSync, openSync, unlinkSync, existsSync } from 'node:fs'
+import { closeSync, fsyncSync, openSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { snapshotCleanup } from './snapshot-directory.js'
 import { randomUUID } from 'node:crypto'
 import { GatewayError } from '../contracts.js'
 import type { Retention } from './config.js'
@@ -11,6 +13,7 @@ const id = (prefix: string) => `${prefix}_${randomUUID()}`
 
 // 创建独占私有快照：设备回到 pending 且凭据清空、provider 禁用并升版、历史冻结；超配额或写入失败时删除本次产物。
 export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now: number, limits: Retention): void {
+  const cleanup = snapshotCleanup(dirname(destination))
   let created = false
   try {
     createPrivate(destination)
@@ -76,8 +79,8 @@ export function exportSnapshot(sourceDb: DatabaseSync, destination: string, now:
       closeSync(fd)
     }
   } catch (error) {
-    if (created && existsSync(destination)) {
-      unlinkSync(destination)
+    if (created) {
+      cleanup(destination)
     }
     throw error
   }

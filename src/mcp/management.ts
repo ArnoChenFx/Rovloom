@@ -237,11 +237,16 @@ export type ManagementReply = {
   pairings_get: {
     machine_id: string
     pairing_id: string
-    status: 'pending' | 'paired' | 'cancelled' | 'expired'
+    status: 'pending' | 'paired' | 'cancelled' | 'expired' | 'failed'
     expires_at: number
     issuance: 'issued' | 'unissued'
     requires_local_issuance: false
-    claim?: { claim_id: string; user_code: string; status: 'pending' | 'approved'; expires_at: number }
+    claim?: {
+      claim_id: string
+      user_code: string
+      status: 'pending' | 'approved' | 'delivered' | 'failed' | 'cancelled'
+      expires_at: number
+    }
   }
   devices_rename: OperationReceipt
   status: ManagementStatus

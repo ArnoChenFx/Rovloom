@@ -1,7 +1,8 @@
 // Connector 在线认领端到端：真实 Store/管理确认链/认领 HTTP 面与回环 HTTP，只替代操作员问答。
 import assert from 'node:assert/strict'
+import { digest } from '../../src/contracts.js'
 import { test } from 'node:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -10,21 +11,23 @@ import { Store } from '../../src/store.js'
 import { StoreManagementWriteService } from '../../src/admin/write-service.js'
 import { OnlinePairingHttp } from '../../src/cli/online-pairing-http.js'
 import { claimConnector } from '../../src/cli/online-claim.js'
-import { configTemplate, type ConnectorConfig } from '../../src/cli/config.js'
+import { CliError, configTemplate, type ConnectorConfig } from '../../src/cli/config.js'
 import { privateDirectory } from '../../src/cli/first-config.js'
-import { readSetupJson } from '../../src/cli/setup-files.js'
+import { readSetupJson, writeSetupJson } from '../../src/cli/setup-files.js'
 import { runtimeReference } from '../../src/cli/runtime-files.js'
 import type { SetupTerminal } from '../../src/cli/setup-terminal.js'
-import { loadCredential } from '../../src/transport/credentials.js'
+import { loadCredential, saveCredential } from '../../src/transport/credentials.js'
 import type { ManagementIntent } from '../../src/mcp/management.js'
 import { management } from '../storage/helpers.js'
 import { confirmed, context, setup } from '../admin/write-helpers.js'
 
 /** Gateway 侧 fixture：Store、管理服务与在线 custody 同一实例装配，与生产形状一致。 */
 function gateway() {
+  const faults = { ack: 'none' as 'none' | 'refuse' | 'lost', status: false }
+  const requests: string[] = []
   const root = mkdtempSync(join(tmpdir(), 'rovloom-online-claim-'))
   const path = join(root, 'gateway.sqlite')
-  const now = 1000
+  let now = Date.now()
   const custody: { http?: OnlinePairingHttp } = {}
   const store = new Store(path, /** 受控短期材料只使用 fixture 时钟。 */ () => now, {
     management,
@@ -44,6 +47,16 @@ function gateway() {
     /** 只批准本测试的固定非秘密策略引用。 */ pairingPolicy: (ref) => ref === 'policy_a'
   })
   const server = createServer((incoming, outgoing) => {
+    requests.push(incoming.url!)
+    if (
+      (incoming.url === '/pairing/claim/ack' && faults.ack === 'refuse') ||
+      (incoming.url === '/pairing/claim/status' && faults.status)
+    ) {
+      incoming.resume()
+      outgoing.writeHead(503)
+      outgoing.end()
+      return
+    }
     const chunks: Buffer[] = []
     incoming.on('data', (chunk: Buffer) => chunks.push(chunk))
     incoming.on('end', () => {
@@ -53,6 +66,12 @@ function gateway() {
         body: Buffer.concat(chunks)
       })
       void (online.handle(request) ?? Promise.resolve(new Response('', { status: 404 }))).then(async (response) => {
+        if (incoming.url === '/pairing/claim/ack' && faults.ack === 'lost' && response.status === 200) {
+          faults.status = true
+          outgoing.writeHead(503)
+          outgoing.end()
+          return
+        }
         outgoing.writeHead(response.status, Object.fromEntries(response.headers))
         outgoing.end(Buffer.from(await response.arrayBuffer()))
       })
@@ -60,6 +79,11 @@ function gateway() {
   })
   return {
     root,
+    faults,
+    requests,
+    advance(delta: number) {
+      now += delta
+    },
     store,
     service,
     f,
@@ -178,3 +202,230 @@ test(
     }
   }
 )
+
+/** 客户端只替代终端问答，凭据与恢复记录均使用真正的文件交付实现。 */
+function client(port: number, pairing: string) {
+  const root = mkdtempSync(join(tmpdir(), 'rovloom-claim-resume-'))
+  const answers = { pairing, restart: false, asked: 0 }
+  const config = {
+    ...configTemplate('connector'),
+    state_dir: root,
+    gateway_url: 'ws://127.0.0.1:' + port
+  } as ConnectorConfig
+  const terminal = {
+    configPath: join(root, 'config.json'),
+    io: { signal: new AbortController().signal },
+    actor: 'fixture_operator',
+    uid: process.getuid?.() ?? 0,
+    assertOwner() {},
+    async ask() {
+      answers.asked++
+      return answers.pairing
+    },
+    async confirm(prompt: string) {
+      return prompt.includes('new claim') ? answers.restart : true
+    },
+    show() {},
+    finishQuestions() {}
+  } as unknown as SetupTerminal
+  return {
+    root,
+    answers,
+    config,
+    terminal,
+    close() {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+}
+
+/** 等待真正的客户端请求产生认领，避免用定时器猜测准备顺序。 */
+async function waitClaim(g: ReturnType<typeof gateway>, pairing: string) {
+  for (let i = 0; i < 100; i++) {
+    const claim = g.store.activePairingClaim(pairing)
+    if (claim) {
+      return claim
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error('claim not started')
+}
+
+for (const failure of ['refuse', 'lost', 'before_phase_save'] as const) {
+  test(`saved claim credential resumes without replacement after ${failure}`, async () => {
+    const g = gateway()
+    const a = await application(g, 'resume_' + failure)
+    const c = client(await g.serve(), a.pairing_id)
+    try {
+      g.faults.ack = failure === 'lost' ? 'lost' : 'refuse'
+      const first = assert.rejects(
+        claimConnector(c.config, c.terminal),
+        (error) => error instanceof CliError && error.code === 'configuration_required'
+      )
+      const claim = await waitClaim(g, a.pairing_id)
+      await approve(g, a, claim.claim_id, claim.user_code)
+      await first
+      const path = runtimeReference(c.root, 'device')
+      const before = readFileSync(path)
+      const recordPath = runtimeReference(c.root, 'pairing-claim')
+      const saved = readSetupJson(recordPath) as Record<string, unknown>
+      assert.equal(saved.phase, 'credential_saved')
+      if (failure === 'before_phase_save') {
+        writeSetupJson(recordPath, { ...saved, phase: 'waiting' }, true)
+      }
+      g.faults.ack = 'none'
+      g.faults.status = false
+      await claimConnector(c.config, c.terminal)
+      assert.deepEqual(readFileSync(path), before)
+      assert.equal(g.store.pairingClaim(claim.claim_id).status, 'delivered')
+      assert.equal((readSetupJson(recordPath) as Record<string, unknown>).phase, 'paired')
+      assert.equal(g.requests.filter((path) => path === '/pairing/claim').length, 1)
+      assert.equal(c.answers.asked, 1)
+    } finally {
+      c.close()
+      await g.close()
+    }
+  })
+}
+
+// 两次完整轮询至少占 4 秒，另给真实持久写入留预算。
+test('cancelled claim requires explicit restart and then accepts a new application', { timeout: 15_000 }, async () => {
+  const g = gateway()
+  const a = await application(g, 'restart_old')
+  const c = client(await g.serve(), a.pairing_id)
+  try {
+    const first = assert.rejects(
+      claimConnector(c.config, c.terminal),
+      (error) => error instanceof CliError && error.code === 'configuration_required'
+    )
+    await waitClaim(g, a.pairing_id)
+    const revision = (await g.service.execute('write_state_get', { machine_id: a.machine_id }, context()))
+      .resource_revision
+    const operation: ManagementIntent = {
+      action: 'pairing_cancel',
+      target: { machine_id: a.machine_id, pairing_id: a.pairing_id }
+    }
+    const confirmation = await confirmed(g.service, operation, revision)
+    await g.service.execute('pairings_cancel', { ...confirmation.write, ...operation.target }, context())
+    await first
+    assert.equal(c.answers.asked, 1)
+    assert(existsSync(runtimeReference(c.root, 'pairing-claim')))
+    const next = await application(g, 'restart_new')
+    c.answers.pairing = next.pairing_id
+    c.answers.restart = true
+    const second = claimConnector(c.config, c.terminal)
+    const rejected = second.catch(() => {})
+    const claim = await waitClaim(g, next.pairing_id)
+    await approve(g, next, claim.claim_id, claim.user_code)
+    await second
+    await rejected
+    assert.equal(loadCredential(runtimeReference(c.root, 'device')).machine_id, next.machine_id)
+    assert.equal(c.answers.asked, 2)
+  } finally {
+    c.close()
+    await g.close()
+  }
+})
+
+for (const mismatch of ['machine', 'generation', 'secret', 'missing'] as const) {
+  test(`claim recovery rejects a ${mismatch} credential without confirming or replacing it`, async () => {
+    const g = gateway()
+    const a = await application(g, 'mismatch_' + mismatch)
+    const c = client(await g.serve(), a.pairing_id)
+    try {
+      const secret = 'synthetic-claim-secret-1234567890'
+      const claim = g.store.startPairingClaim(a.machine_id, a.pairing_id, digest(secret), 'CHECK234')
+      await approve(g, a, claim.claim_id, claim.user_code)
+      const response = await g.online.handle(
+        new Request('http://gateway/pairing/claim/status', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ claim_id: claim.claim_id, secret })
+        })
+      )
+      const issued = (await response!.json()) as { machine_id: string; recovery_generation: string; credential: string }
+      privateDirectory(join(c.root, 'managed'))
+      writeSetupJson(runtimeReference(c.root, 'pairing-claim'), {
+        schema_version: 1,
+        claim_id: claim.claim_id,
+        machine_id: claim.machine_id,
+        pairing_id: a.pairing_id,
+        gateway_url: c.config.gateway_url,
+        secret,
+        phase: 'credential_saved',
+        credential_hash: digest(issued.credential),
+        recovery_generation: issued.recovery_generation
+      })
+      const path = runtimeReference(c.root, 'device')
+      if (mismatch !== 'missing') {
+        saveCredential(path, {
+          machine_id: mismatch === 'machine' ? 'another_machine' : issued.machine_id,
+          recovery_generation: mismatch === 'generation' ? 'another_generation' : issued.recovery_generation,
+          credential: mismatch === 'secret' ? 'x'.repeat(43) : issued.credential
+        })
+      }
+      const before = existsSync(path) ? readFileSync(path) : undefined
+      const requests = g.requests.length
+      await assert.rejects(
+        claimConnector(c.config, c.terminal),
+        (error) => error instanceof CliError && error.code === 'configuration_required'
+      )
+      assert.equal(g.requests.length, requests)
+      assert.equal(g.store.pairingClaim(claim.claim_id).status, 'approved')
+      if (before) {
+        assert.deepEqual(readFileSync(path), before)
+      } else {
+        assert(!existsSync(path))
+      }
+    } finally {
+      c.close()
+      await g.close()
+    }
+  })
+}
+
+test('expired and swept claim can restart explicitly without polling a deleted claim', async () => {
+  const g = gateway()
+  const a = await application(g, 'expired_old')
+  const c = client(await g.serve(), a.pairing_id)
+  try {
+    const secret = 'synthetic-expired-secret-1234567890'
+    const claim = g.store.startPairingClaim(a.machine_id, a.pairing_id, digest(secret), 'CHECK234', 1)
+    privateDirectory(join(c.root, 'managed'))
+    const path = runtimeReference(c.root, 'pairing-claim')
+    writeSetupJson(path, {
+      schema_version: 1,
+      claim_id: claim.claim_id,
+      machine_id: claim.machine_id,
+      pairing_id: a.pairing_id,
+      gateway_url: c.config.gateway_url,
+      secret,
+      expires_at: claim.expires,
+      phase: 'waiting'
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    g.advance(100)
+    g.store.expire()
+    assert.throws(() => g.store.pairingClaim(claim.claim_id), /pairing_claim_not_found/)
+    const before = readFileSync(path)
+    await assert.rejects(
+      claimConnector(c.config, c.terminal),
+      (error) => error instanceof CliError && error.code === 'configuration_required'
+    )
+    assert.deepEqual(readFileSync(path), before)
+    assert.equal(g.requests.length, 0)
+    const next = await application(g, 'expired_new')
+    c.answers.pairing = next.pairing_id
+    c.answers.restart = true
+    const running = claimConnector(c.config, c.terminal)
+    const observed = running.catch(() => {})
+    const nextClaim = await waitClaim(g, next.pairing_id)
+    await approve(g, next, nextClaim.claim_id, nextClaim.user_code)
+    await running
+    await observed
+    assert.equal(loadCredential(runtimeReference(c.root, 'device')).machine_id, next.machine_id)
+  } finally {
+    c.close()
+    await g.close()
+  }
+})

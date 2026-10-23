@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { digest } from '../contracts.js'
-import { createFileCredentialSink } from '../transport/credentials.js'
+import { createFileCredentialSink, loadCredential } from '../transport/credentials.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import { boundedJson, fields, id, object, uint } from '../wire/index.js'
 import { CliError, configDocument, parseConfig, readConfig, type ConnectorConfig } from './config.js'
@@ -23,23 +23,38 @@ type ClaimRecord = {
   pairing_id: string
   gateway_url: string
   secret?: string
+  expires_at?: number
+  credential_hash?: string
+  recovery_generation?: string
   phase: 'waiting' | 'credential_saved' | 'paired'
 }
 
 // 严格核对恢复记录；地址改变或未知字段时拒绝续用，避免把认领秘密发给另一个 Gateway。
 function record(value: unknown, config: ConnectorConfig): ClaimRecord {
   const row = object(value)
-  fields(row, ['schema_version', 'claim_id', 'machine_id', 'pairing_id', 'gateway_url', 'phase'], ['secret'])
+  fields(
+    row,
+    ['schema_version', 'claim_id', 'machine_id', 'pairing_id', 'gateway_url', 'phase'],
+    ['secret', 'expires_at', 'credential_hash', 'recovery_generation']
+  )
   id(row.claim_id)
   id(row.machine_id)
   id(row.pairing_id)
   if (
+    (row.expires_at !== undefined && (!Number.isSafeInteger(row.expires_at) || Number(row.expires_at) < 0)) ||
+    ((row.credential_hash !== undefined || row.recovery_generation !== undefined) &&
+      (typeof row.credential_hash !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(row.credential_hash) ||
+        typeof row.recovery_generation !== 'string')) ||
     row.schema_version !== 1 ||
     row.gateway_url !== config.gateway_url ||
     !['waiting', 'credential_saved', 'paired'].includes(String(row.phase)) ||
     (row.phase !== 'paired' && (typeof row.secret !== 'string' || !/^[A-Za-z0-9_-]{16,256}$/.test(row.secret)))
   ) {
     throw new CliError('configuration_required')
+  }
+  if (row.recovery_generation !== undefined) {
+    id(row.recovery_generation)
   }
   return row as ClaimRecord
 }
@@ -51,7 +66,7 @@ const POLL_INTERVAL_MS = 2000
 /** 在线认领入口：只处理凭据配对；已完成配对或已配置 provider 的 Connector 明确拒绝，避免覆盖既有身份。 */
 export async function claimConnector(config: ConnectorConfig, terminal: SetupTerminal): Promise<ConnectorConfig> {
   const credentialPath = runtimeReference(config.state_dir, 'device')
-  if (readRuntimeConfig(config).providers.length > 0 || existsSync(credentialPath)) {
+  if (readRuntimeConfig(config).providers.length > 0) {
     throw new CliError('configuration_required')
   }
   if (!config.gateway_url) {
@@ -67,68 +82,38 @@ export async function claimConnector(config: ConnectorConfig, terminal: SetupTer
   privateDirectory(join(config.state_dir, 'managed'))
   const path = runtimeReference(config.state_dir, 'pairing-claim')
   const previous = readSetupJson(path)
-  let current: ClaimRecord
-  if (previous === undefined) {
-    const pairing_id = await terminal.ask('Pairing application ID / 配对申请 ID: ')
-    id(pairing_id)
-    if (
-      !(await terminal.confirm(
-        'Trust this Gateway address for online device enrollment? / 信任此 Gateway 地址并在线认领设备配对？'
-      ))
-    ) {
+  let current = previous === undefined ? undefined : record(previous, config)
+  if (existsSync(credentialPath)) {
+    if (!current || !matchesSavedCredential(current, credentialPath)) {
       throw new CliError('configuration_required')
     }
-    // 认领秘密由本机生成：原文只用于状态查询与确认领取，Gateway 只保存其摘要。
-    const secret = randomBytes(32).toString('base64url')
-    const created = await post(
-      config,
-      '/pairing/claim',
-      { pairing_id, secret_hash: digest(secret) },
-      terminal.io.signal
-    )
-    fields(created, ['claim_id', 'machine_id', 'user_code', 'expires_at'])
-    id(created.claim_id)
-    id(created.machine_id)
-    if (
-      typeof created.user_code !== 'string' ||
-      !/^[A-Z0-9]{8}$/.test(created.user_code) ||
-      !Number.isSafeInteger(created.expires_at)
-    ) {
-      throw new CliError('configuration_required')
-    }
-    current = {
-      schema_version: 1,
-      claim_id: created.claim_id,
-      machine_id: created.machine_id,
-      pairing_id,
-      gateway_url: config.gateway_url,
-      secret,
-      phase: 'waiting'
-    }
-    writeSetupJson(path, current)
-    terminal.show(
-      'Claim code / 核对码: ' +
-        created.user_code +
-        '\nApprove this exact code for machine ' +
-        current.machine_id +
-        ' in the management page. / 请在管理页为该设备核对并批准此码。\n'
-    )
-  } else {
-    current = record(previous, config)
     if (current.phase === 'paired') {
       terminal.show('pairing_completed / 设备身份已持久配对。\n')
       return config
     }
-    terminal.show('Resuming the existing claim. / 继续原认领。\n')
-  }
-  if (current.phase === 'credential_saved') {
-    // 凭据已落盘但确认可能丢失：只补发同一认领的确认，不重新领取或生成第二份凭据。
+    // 写入凭据后的任何中断都只补原认领的确认，不重新交付或覆盖身份。
+    if (current.phase !== 'credential_saved') {
+      current = { ...current, phase: 'credential_saved' }
+      writeSetupJson(path, current, true)
+    }
     await acknowledge(config, terminal, current)
     return config
   }
-  const deadline = Date.now() + POLL_BUDGET_MS
+  if (current && current.phase !== 'waiting') {
+    throw new CliError('configuration_required')
+  }
+  current ??= await startClaim(config, terminal, path, false)
+  let deadline = Date.now() + POLL_BUDGET_MS
   for (;;) {
-    if (terminal.io.signal.aborted || Date.now() > deadline) {
+    if (terminal.io.signal.aborted) {
+      throw new CliError('configuration_required')
+    }
+    if (current.expires_at !== undefined && Date.now() >= current.expires_at) {
+      current = await restartClaim(config, terminal, path, credentialPath)
+      deadline = Date.now() + POLL_BUDGET_MS
+      continue
+    }
+    if (Date.now() > deadline) {
       terminal.show(
         'Approval wait ended; rerun the same command to resume this claim. / 等待批准已结束；重新运行同一命令可继续原认领。\n'
       )
@@ -143,67 +128,137 @@ export async function claimConnector(config: ConnectorConfig, terminal: SetupTer
         terminal.io.signal
       )
     } catch {
-      // 轮询期网络抖动不终止认领；真正的终结由 Gateway 返回的终态或本地预算决定。
+      // 网络抖动保留原认领；已知原始到期时间不因重启或重试刷新。
       status = undefined
     }
-    if (status) {
-      if (status.status === 'approved') {
-        fields(status, ['status', 'credential', 'machine_id', 'recovery_generation', 'revision'])
-        id(status.recovery_generation)
-        uint(status.revision, true)
-        if (
-          status.machine_id !== current.machine_id ||
-          typeof status.credential !== 'string' ||
-          !/^[A-Za-z0-9_-]{32,256}$/.test(status.credential)
-        ) {
-          throw new CliError('configuration_required')
-        }
-        const credential: DeviceCredential = {
-          machine_id: current.machine_id,
-          recovery_generation: status.recovery_generation,
-          credential: status.credential
-        }
-        const sink = createFileCredentialSink(credentialPath, credential)
-        try {
-          await sink.deliver(credential, terminal.io.signal, {
-            delivery_id: current.claim_id,
-            revision: status.revision
-          })
-        } finally {
-          sink.close()
-        }
-        current = { ...current, phase: 'credential_saved' }
-        writeSetupJson(path, current, true)
-        await acknowledge(config, terminal, current)
-        return config
-      }
-      if (status.status === 'delivered') {
-        // 确认已在 Gateway 落账但本地阶段未推进时按已交付收敛，不重复领取。
-        current = {
-          schema_version: 1,
-          claim_id: current.claim_id,
-          machine_id: current.machine_id,
-          pairing_id: current.pairing_id,
-          gateway_url: current.gateway_url,
-          phase: 'paired'
-        }
-        writeSetupJson(path, current, true)
-        terminal.show('pairing_completed / 设备身份已持久配对；接下来发现所选原生安装。\n')
-        return config
-      }
-      if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
-        terminal.show(
-          'Claim ' +
-            status.status +
-            '. / 认领已' +
-            (status.status === 'expired' ? '过期' : '终止') +
-            '，请让管理员重新创建申请后重试。\n'
-        )
+    if (status?.status === 'approved') {
+      fields(status, ['status', 'credential', 'machine_id', 'recovery_generation', 'revision'])
+      id(status.recovery_generation)
+      uint(status.revision, true)
+      if (
+        status.machine_id !== current.machine_id ||
+        typeof status.credential !== 'string' ||
+        !/^[A-Za-z0-9_-]{32,256}$/.test(status.credential)
+      ) {
         throw new CliError('configuration_required')
       }
+      const credential: DeviceCredential = {
+        machine_id: current.machine_id,
+        recovery_generation: status.recovery_generation,
+        credential: status.credential
+      }
+      // 在交付前持久记录预期身份；随后即使只写成凭据，也能证明该文件属于原认领。
+      current = {
+        ...current,
+        credential_hash: digest(credential.credential),
+        recovery_generation: credential.recovery_generation
+      }
+      writeSetupJson(path, current, true)
+      const sink = createFileCredentialSink(credentialPath, credential)
+      try {
+        await sink.deliver(credential, terminal.io.signal, { delivery_id: current.claim_id, revision: status.revision })
+      } finally {
+        sink.close()
+      }
+      current = { ...current, phase: 'credential_saved' }
+      writeSetupJson(path, current, true)
+      await acknowledge(config, terminal, current)
+      return config
+    }
+    if (status?.status === 'delivered') {
+      // Gateway 的成功不能替代本机凭据存在且精确匹配的证据。
+      if (!existsSync(credentialPath) || !matchesSavedCredential(current, credentialPath)) {
+        throw new CliError('configuration_required')
+      }
+      await acknowledge(config, terminal, current)
+      return config
+    }
+    if (status?.status === 'failed' || status?.status === 'cancelled' || status?.status === 'expired') {
+      current = await restartClaim(config, terminal, path, credentialPath)
+      deadline = Date.now() + POLL_BUDGET_MS
+      continue
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
+}
+
+/** 恢复只接受同一机器、恢复代次和凭据摘要，不能借认领覆盖或确认其他身份。 */
+function matchesSavedCredential(current: ClaimRecord, path: string): boolean {
+  const credential = loadCredential(path)
+  return (
+    credential.machine_id === current.machine_id &&
+    credential.recovery_generation === current.recovery_generation &&
+    digest(credential.credential) === current.credential_hash
+  )
+}
+
+/** 原认领已终结或达到原始期限后，由操作者明确开始新意图；拒绝时原记录不变。 */
+async function restartClaim(
+  config: ConnectorConfig,
+  terminal: SetupTerminal,
+  path: string,
+  credentialPath: string
+): Promise<ClaimRecord> {
+  if (
+    terminal.io.signal.aborted ||
+    existsSync(credentialPath) ||
+    !(await terminal.confirm(
+      'Start a new claim with a new pairing application? / 原认领已终止或过期，是否使用新的配对申请重新认领？'
+    ))
+  ) {
+    throw new CliError('configuration_required')
+  }
+  return startClaim(config, terminal, path, true)
+}
+
+/** 只在首次运行或用户明确重新申请后创建一份新认领，认领秘密不进入终端输出。 */
+async function startClaim(
+  config: ConnectorConfig,
+  terminal: SetupTerminal,
+  path: string,
+  replace: boolean
+): Promise<ClaimRecord> {
+  const pairing_id = await terminal.ask('Pairing application ID / 配对申请 ID: ')
+  id(pairing_id)
+  if (
+    !(await terminal.confirm(
+      'Trust this Gateway address for online device enrollment? / 信任此 Gateway 地址并在线认领设备配对？'
+    ))
+  ) {
+    throw new CliError('configuration_required')
+  }
+  // 认领秘密由本机生成：原文只用于状态查询与确认领取，Gateway 只保存其摘要。
+  const secret = randomBytes(32).toString('base64url')
+  const created = await post(config, '/pairing/claim', { pairing_id, secret_hash: digest(secret) }, terminal.io.signal)
+  fields(created, ['claim_id', 'machine_id', 'user_code', 'expires_at'])
+  id(created.claim_id)
+  id(created.machine_id)
+  if (
+    typeof created.user_code !== 'string' ||
+    !/^[A-Z0-9]{8}$/.test(created.user_code) ||
+    !Number.isSafeInteger(created.expires_at)
+  ) {
+    throw new CliError('configuration_required')
+  }
+  const current: ClaimRecord = {
+    schema_version: 1,
+    claim_id: created.claim_id,
+    machine_id: created.machine_id,
+    pairing_id,
+    gateway_url: config.gateway_url,
+    secret,
+    expires_at: Number(created.expires_at),
+    phase: 'waiting'
+  }
+  writeSetupJson(path, current, replace)
+  terminal.show(
+    'Claim code / 核对码: ' +
+      created.user_code +
+      '\nApprove this exact code for machine ' +
+      current.machine_id +
+      ' in the management page. / 请在管理页为该设备核对并批准此码。\n'
+  )
+  return current
 }
 
 // 确认领取并删除本地认领秘密；确认响应丢失时以状态查询的 delivered 为准收敛。
@@ -230,17 +285,7 @@ async function acknowledge(config: ConnectorConfig, terminal: SetupTerminal, cur
       throw new CliError('configuration_required')
     }
   }
-  writeSetupJson(
-    runtimeReference(config.state_dir, 'pairing-claim'),
-    {
-      schema_version: 1,
-      claim_id: current.claim_id,
-      machine_id: current.machine_id,
-      pairing_id: current.pairing_id,
-      gateway_url: current.gateway_url,
-      phase: 'paired'
-    },
-    true
-  )
+  const { secret: _secret, ...paired } = current
+  writeSetupJson(runtimeReference(config.state_dir, 'pairing-claim'), { ...paired, phase: 'paired' }, true)
   terminal.show('pairing_completed / 设备身份已持久配对；接下来发现所选原生安装。\n')
 }
