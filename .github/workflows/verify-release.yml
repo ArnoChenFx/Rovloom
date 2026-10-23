@@ -61,6 +61,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
       - name: Verify the tarball checksum, install it from the release URL, run it
         shell: bash
         env:
@@ -97,7 +99,7 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15, windows-2025, windows-11-arm]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: install.sh

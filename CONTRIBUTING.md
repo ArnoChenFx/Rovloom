@@ -1,6 +1,6 @@
 # Contributing
 
-Use Bun. The minimum version is in `package.json` under `engines.bun`; CI runs the minimum and the latest.
+Use Bun. CI uses the latest stable release. `package.json` keeps the minimum supported runtime in `engines.bun`.
 Dependencies use `^` ranges; commit `bun.lock` with dependency changes. Run project JavaScript and TypeScript through Bun.
 
 Run the same gates as [CI](.github/workflows/bun.yml) from the repository root:

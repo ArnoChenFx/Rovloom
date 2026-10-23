@@ -93,4 +93,4 @@ Run the Connector on the host that runs Luvus/Herdr (Linux x64, macOS or Windows
 
 ## Image build
 
-Images are built from source with the official Bun image (`oven/bun`, pinned by digest) and published to GHCR by the container workflow after a successful product release. Maintainers: see [DISTRIBUTION](DISTRIBUTION.md).
+Images are built from source with the official Bun image (`oven/bun:1-slim`, following Bun 1.x updates and resolved once for both build and runtime stages) and published to GHCR by the container workflow after a successful product release. Maintainers: see [DISTRIBUTION](DISTRIBUTION.md).
