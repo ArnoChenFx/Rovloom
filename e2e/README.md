@@ -37,11 +37,11 @@ Herdr 二进制必须是固定的 0.9.5（SHA-256 `14d9e8bc…929d`，夹具会�
 
 ```sh
 python3 e2e/quickstart.py --binary dist/release/bun-linux-x64/candidate/rovloom --herdr /tmp/herdr \
-  --then "bun e2e/agent-session.mjs <opencode可执行文件>"
+  --then "bun --no-env-file e2e/herdr-session.mjs"
 ```
 
-`--then` 会拿到 `MCP_CONFIG`（URL、Bearer、target）。`agent-session.mjs` 让 opencode + DeepSeek 经 MCP 完成
-list → discover → ping → 读结果，再由独立 MCP 客户端取真实版本核对 Agent 的回答。
+`--then` 会拿到 `MCP_CONFIG`（URL、Bearer、target）。`herdr-session.mjs` 使用官方 MCP SDK 验证只读调用及
+workspace 创建后的计数，不调用模型。可选的 Agent 两轮对话方法见下节，须另外核实授权与累计剩余预算。
 
 `--repair` 在就绪后重新配对同一设备（`rovloom gateway --repair-device` + `rovloom connector --repair`，均在 pty 里）：断言本机凭据文件被替换、
 `connector_ready` 再次出现，并用**未改变的 MCP Bearer** 跑 `--then` 链路（授权与原生设置不变）。
@@ -86,6 +86,10 @@ Luvus 故障场景（`--pre-existing`，经 `e2e/luvus-faults.mjs` 分步驱动�
 
 ## 真实 LLM Agent（可选）
 
+以下脚本会发出模型请求。只有在明确授权所选 provider/model、核实本次执行所需的累计剩余预算后才可运行；
+预算不按轮次重置。两个用户回合各自可能包含多次模型请求，并非只收费两次。未核实预算时只运行合成回归。
+不得为了跑通而换模型、provider 或收费 fallback；超时、错误及不确定结果不自动重跑。
+
 ```sh
 npm i opencode-ai   # 放在仓库之外的临时目录
 DEEPSEEK_API_KEY=… bun e2e/agent.mjs dist/release/bun-linux-x64/candidate/rovloom /tmp/herdr <opencode可执行文件>
@@ -93,6 +97,43 @@ DEEPSEEK_API_KEY=… bun e2e/agent.mjs dist/release/bun-linux-x64/candidate/rovl
 
 provider 与模型在 opencode 配置中显式声明并关闭模型目录拉取（`models.opencode.ai` 在受限网络下不可达）。
 密钥只经环境变量传入，Agent 只继承代理/证书变量。通过条件由 Rovloom 侧独立读回，不采信 Agent 自述。
+
+### 同一 session 两轮上下文方法
+
+`agent-session.mjs` 只连接已经部署的 Herdr 目标（`MCP_CONFIG` 必须仅有一个明确 target，binding revision 1），不部署或改动
+Gateway/Connector。模型参数没有默认值；必须传入已授权且经供应商核实可用的精确 `ds/model`，不会自动选择其它模型。
+MCP 配置与密钥由操作员在受保护环境准备，不要贴入命令记录、PR、配置样例或输出。
+
+```sh
+# 仅测试验收器与续接参数；不需要 MCP_CONFIG、Agent 程序或模型密钥，不调用模型。
+bun --no-env-file test ./test/mcp/agent-conversation.test.mjs
+
+# 可选收费执行；只有预算与精确模型授权都已核实后，才替换下列参数并显式允许。
+bun --no-env-file e2e/agent-session.mjs --allow-model-requests <opencode绝对路径> <已授权的ds/model>
+```
+
+验收流程与通过条件：
+
+1. 第一轮提供随机合成上下文值，要求 list → discover → describe → 一次 ping → get → 全部分页结果。
+2. 从 OpenCode `run --format json` 事件取得精确 `sessionID`，第二轮只用 `--session <该ID>` 续接；
+   第二轮提示词不含该值，要求回忆它并执行一次新的 ping。两轮使用同一 HOME、模型与配置，不用最近会话或 fork。
+3. 两轮均须有完成的 MCP 工具事件，目标、binding、契约、call_id、result_id、分页游标与 SHA-256 相互关联；
+   独立 MCP 客户端只查询 Agent 的原 call_id 并读回同一结果，不另发 ping 代替 Agent 的执行证据。
+   独立读回最多 128 页，元数据查询和所有分页共用 30 秒总期限；非 EOF 空页立即拒绝，游标变化不续期。
+4. 第二轮 session ID 必须相同，消息、调用与结果必须是新的；最终 assistant 文本须报告真实版本与第一轮的值。
+   只有 `RESULT` 字符串、stderr、工具输出内的答案、旧事件重放、错误或不完整分页都不能通过。
+
+Agent 仅获上述七个 MCP 工具的许可，其它工具默认拒绝；本地临时配置权限为 0600，结束后清理隔离目录。
+stdout 只输出计数和布尔结果，失败只输出阶段及“结果未确认”，不输出提示词、随机值、ID、工具原文或 stderr。
+OpenCode JSON 事件字段参考 [v1.19.3 CLI](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/cli/cmd/run.ts)
+及 [MCP 工具结果处理](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/tools.ts)；
+事件格式改变会拒绝验收，需要重新核实客户端兼容性。
+
+合成测试只证明验收器拒绝假通过，以及驱动传递了精确 session 参数；不能证明真实模型回复或 OpenCode 的持久会话已经成功。
+即便此可选脚本通过，也只覆盖外部 MCP Agent 的两轮上下文与 Herdr ping；不等同原生窗口内 Agent 的
+发现/选择/状态/`agent.prompt`/回复流程、WebUI 管理、真实双机网络或已发布二进制验证。相关缺口继续由
+[#153](https://github.com/ArnoChenFx/Rovloom/issues/153) 与 [#154](https://github.com/ArnoChenFx/Rovloom/issues/154) 跟踪。
+
 
 ## Windows
 
