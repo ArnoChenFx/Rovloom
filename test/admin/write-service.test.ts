@@ -42,7 +42,7 @@ test(
     try {
       const created = await register(f, 'owned_registration')
       assert.equal(f.store.machine(created.receipt.machine_id).status, 'pending')
-      assert.equal(created.receipt.requires_local_issuance, true)
+      assert.equal(created.receipt.requires_local_issuance, false)
       assert.equal(created.receipt.effects.native_work, 'may_continue')
       // 原会话获得新增目标 grant 后政策变化不续发或复制已提交申请。
       const again = await f.service.execute(
@@ -57,7 +57,7 @@ test(
         context()
       )
       assert.equal(progress.status, 'pending')
-      assert.equal(progress.issuance, 'unverified')
+      assert.equal(progress.issuance, 'unissued')
       store.close()
       store = new Store(path)
       f = setup(store)

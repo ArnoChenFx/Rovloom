@@ -26,6 +26,8 @@ export type ManagementPrimitives = {
   disconnect(machine: string, epoch: string, now: number): void
   revoke(machine: string, now: number): void
   provider(machine: string, provider: string, revision: number, enabled: boolean, now: number): ProviderBinding
+  approveClaim(claimId: string, userCode: string, now: number): { machine_id: string; credential: string }
+  claimCustody(event: { machine_id: string; claim_id: string; credential: string }): void
   audit(action: string, actor: string, now: number, details: Record<string, unknown>, event: string): void
 }
 type ConfirmationRow = {
@@ -461,6 +463,17 @@ export class ManagementLedger {
           this.db
             .prepare('UPDATE machines SET resource_revision=resource_revision+1 WHERE machine_id=?')
             .run(target.machine_id)
+        } else if (intent.action === 'pairing_claim_approve') {
+          // 批准在同一事务内完成签发与兑换；凭据只暂存进在线 custody，回执与审计不含任何秘密。
+          const approved = this.host.approveClaim(intent.target.claim_id, intent.target.user_code, now)
+          if (approved.machine_id !== target.machine_id) {
+            throw new GatewayError('pairing_claim_conflict')
+          }
+          this.host.claimCustody({
+            machine_id: approved.machine_id,
+            claim_id: intent.target.claim_id,
+            credential: approved.credential
+          })
         } else {
           binding = this.host.provider(
             target.machine_id,
@@ -512,7 +525,15 @@ export class ManagementLedger {
             pairing_id: pairing.pairing_id,
             status: 'pending',
             expires_at: pairing.expires,
-            requires_local_issuance: true
+            requires_local_issuance: false
+          })
+        }
+        if (intent.action === 'pairing_claim_approve') {
+          Object.assign(receipt, {
+            machine_id: target.machine_id,
+            pairing_id: intent.target.pairing_id,
+            claim_id: intent.target.claim_id,
+            status: 'approved'
           })
         }
         this.host.audit(
@@ -579,13 +600,29 @@ export class ManagementLedger {
             : now >= Number(row.expires)
               ? 'expired'
               : 'pending'
+    const claim = this.db
+      .prepare(
+        "SELECT claim_id,user_code,status,expires FROM pairing_claims WHERE pairing_id=? AND status IN ('pending','approved') ORDER BY created DESC LIMIT 1"
+      )
+      .get(pairing) as { claim_id: string; user_code: string; status: string; expires: number } | undefined
     return {
       machine_id: machine,
       pairing_id: pairing,
       status,
       expires_at: Number(row.expires),
-      issuance: 'unverified',
-      requires_local_issuance: true
+      // 签发状态如实取自申请行的 issued 标记；在线认领接线后不再冒充未核实。
+      issuance: row.issued === 1 ? 'issued' : 'unissued',
+      requires_local_issuance: false,
+      ...(claim
+        ? {
+            claim: {
+              claim_id: claim.claim_id,
+              user_code: claim.user_code,
+              status: claim.status as 'pending' | 'approved',
+              expires_at: Number(claim.expires)
+            }
+          }
+        : {})
     }
   }
 

@@ -285,6 +285,33 @@ export class DeviceLedger {
     }
     return row as PairingClaim
   }
+  // 按申请 ID 读取管理申请行，供在线认领面定位目标设备；不存在时返回 undefined。
+  pairingApplication(
+    pairingId: string
+  ): { machine_id: string; policy_ref: string; status: string; expires: number; issued: number } | undefined {
+    const row = this.db
+      .prepare('SELECT machine_id,policy_ref,status,expires,issued FROM admin_pairings WHERE pairing_id=?')
+      .get(pairingId)
+    return row as
+      | { machine_id: string; policy_ref: string; status: string; expires: number; issued: number }
+      | undefined
+  }
+  // 列出全部已批准待交付认领，供网关启动时收敛内存 custody 已丢失的孤儿批准。
+  approvedPairingClaims(): PairingClaim[] {
+    return this.db
+      .prepare(
+        "SELECT claim_id,pairing_id,machine_id,user_code,status,expires,created FROM pairing_claims WHERE status='approved'"
+      )
+      .all() as PairingClaim[]
+  }
+  // 读取设备当前凭据摘要，供交付失败收敛时精确拒绝未送达凭据；从未签发时为 null。
+  credentialDigest(machine: string): string | null {
+    const row = this.db.prepare('SELECT credential_hash FROM machines WHERE machine_id=?').get(machine)
+    if (!row) {
+      throw new GatewayError('machine_not_found')
+    }
+    return typeof row.credential_hash === 'string' ? row.credential_hash : null
+  }
   // 按申请读取当前活动认领（pending/approved），供管理面展示与批准定位；没有时返回 undefined。
   activePairingClaim(pairingId: string): PairingClaim | undefined {
     const row = this.db
@@ -371,35 +398,37 @@ export class DeviceLedger {
   }
   // 管理员核对双边核对码后批准认领：同一事务内完成签发与兑换，凭据只回调用方的受保护 custody，不落库不入回执。
   approvePairingClaim(claimId: string, userCode: string): { machine_id: string; credential: string } {
-    return this.transaction((now) => {
-      const claim = this.pairingClaim(claimId)
-      if (claim.status !== 'pending' || claim.expires <= now) {
-        throw new GatewayError('invalid_pairing_claim')
-      }
-      if (claim.user_code !== userCode) {
-        throw new GatewayError('pairing_claim_code_mismatch')
-      }
-      const application = this.db
-        .prepare(
-          "SELECT policy_ref FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND status='pending' AND expires>?"
-        )
-        .get(claim.pairing_id, claim.machine_id, now)
-      if (!application) {
-        throw new GatewayError('pairing_not_found')
-      }
-      const token = this.issueEnrollmentTx(now, claim.machine_id, 600_000, {
-        pairing_id: claim.pairing_id,
-        policy_ref: String(application.policy_ref)
-      })
-      const result = this.redeemTx(now, token)
-      this.db.prepare("UPDATE pairing_claims SET status='approved' WHERE claim_id=?").run(claimId)
-      this.audit('pairing_claim_approved', 'local', now, undefined, {
-        machine_id: claim.machine_id,
-        pairing_id: claim.pairing_id,
-        claim_id: claimId
-      })
-      return result
+    return this.transaction((now) => this.approvePairingClaimTx(now, claimId, userCode))
+  }
+  // 批准事务体：管理账本在同一 writer 事务内组合调用，调用方必须先完成管理员授权与确认。
+  approvePairingClaimTx(now: number, claimId: string, userCode: string): { machine_id: string; credential: string } {
+    const claim = this.pairingClaim(claimId)
+    if (claim.status !== 'pending' || claim.expires <= now) {
+      throw new GatewayError('invalid_pairing_claim')
+    }
+    if (claim.user_code !== userCode) {
+      throw new GatewayError('pairing_claim_code_mismatch')
+    }
+    const application = this.db
+      .prepare(
+        "SELECT policy_ref FROM admin_pairings WHERE pairing_id=? AND machine_id=? AND status='pending' AND expires>?"
+      )
+      .get(claim.pairing_id, claim.machine_id, now)
+    if (!application) {
+      throw new GatewayError('pairing_not_found')
+    }
+    const token = this.issueEnrollmentTx(now, claim.machine_id, 600_000, {
+      pairing_id: claim.pairing_id,
+      policy_ref: String(application.policy_ref)
     })
+    const result = this.redeemTx(now, token)
+    this.db.prepare("UPDATE pairing_claims SET status='approved' WHERE claim_id=?").run(claimId)
+    this.audit('pairing_claim_approved', 'local', now, undefined, {
+      machine_id: claim.machine_id,
+      pairing_id: claim.pairing_id,
+      claim_id: claimId
+    })
+    return result
   }
   // 凭据经 custody 确认送达后完成认领；重复完成与未知认领都拒绝，避免把未交付误报为已交付。
   completePairingClaim(claimId: string): void {

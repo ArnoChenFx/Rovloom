@@ -18,6 +18,8 @@ export type StoreOptions = {
   maintenanceIntervalMs?: number
   // 只由受保护宿主注入，须核实独立权限、真实确认及准确 fence；普通工具参数不能传入。
   management?: (request: ManagementRequest) => { actor: string; confirmation_id: string }
+  // 只由产品装配注入：认领批准产生的凭据在提交前暂存进在线 custody，交付前必须复验账本状态；普通工具参数不能传入。
+  pairingClaimCustody?: (event: { machine_id: string; claim_id: string; credential: string }) => void
   // 仅供隔离故障测试在固定写入阶段中断事务；生产宿主不从外部参数注入。
   fault?: (point: 'before_commit' | 'after_anchor' | 'evidence_commit') => void
 }

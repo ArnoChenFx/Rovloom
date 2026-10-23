@@ -17,6 +17,7 @@ import { readSetupJson } from './setup-files.js'
 import { openCallerSource } from './caller-source.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { createRuntimeCliRuntime } from './runtime.js'
+import { OnlinePairingHttp } from './online-pairing-http.js'
 import type { CliSetup } from './setup-runtime.js'
 import { boundedJson, object, fields } from '../wire/index.js'
 import { readRuntimeConfig } from './runtime-config.js'
@@ -171,6 +172,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
       }
       let provider: ProductionGatewayResources | undefined
       let state: ReturnType<typeof openGatewayState> | undefined
+      let onlinePairing: OnlinePairingHttp | undefined
       let closing: Promise<void> | undefined
       const release = /* 关闭所有交付者并最终回收同一双库；不因某个provider释放失败遗留writer。 */ () => {
         closing ??= Promise.resolve().then(
@@ -187,6 +189,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
               authority.close()
               protectedManagement?.close()
               caller.close()
+              onlinePairing?.close()
               state?.close()
             }
           }
@@ -224,14 +227,24 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
         let gateway: RuntimeCliGateway | undefined
         state = openGatewayState({
           state_directory: config.state_dir,
-          ...(onboarding
-            ? {
-                store: {
-                  management: /* 正式Store消费该次provider/action/fence一次性确认。 */ (request) =>
-                    onboarding.approval.authorizeManagement(request)
-                }
+          store: {
+            // 认领批准的凭据只暂存进同一在线 custody 实例；实例在状态打开后立即绑定，批准动作在此之前无从触发。
+            pairingClaimCustody: (event) => {
+              if (!onlinePairing) {
+                throw new Error('online_pairing_unavailable')
               }
-            : {}),
+              onlinePairing.hold(event)
+            },
+            ...(onboarding
+              ? {
+                  management: /* 正式Store消费该次provider/action/fence一次性确认。 */ (
+                    request: Parameters<
+                      NonNullable<NonNullable<Parameters<typeof openGatewayState>[0]['store']>['management']>
+                    >[0]
+                  ) => onboarding.approval.authorizeManagement(request)
+                }
+              : {})
+          },
           changed: /* 只在身份提交后断开同一runtime的设备通道，正常启动不调用它。 */ (machine) => {
             if (!gateway) {
               throw new CliError('backend_unavailable', 3)
@@ -243,6 +256,9 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
           /* 管理员授权按 Store 当前设备/provider 生成。 */ () => state!.store.resources()
         )
         const pairing = onboarding?.attach(state)
+        const online = new OnlinePairingHttp(state.store)
+        onlinePairing = online
+        online.reconcile()
         const anonymousManagement: ProductionManagementHost | undefined =
           config.management_enabled && !protectedManagement && !sources.management
             ? {
@@ -288,12 +304,10 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
             hostname: settings.device_listener.hostname,
             port: settings.device_listener.port,
             offer: offer(),
-            ...(pairing
-              ? {
-                  setupRequest: /* 固定同一设备listener的专用配对handler，不替换WebSocket认证。 */ (request: Request) =>
-                    pairing.handle(request)
-                }
-              : {})
+            setupRequest:
+              /* 固定同一设备listener的专用配对handler，不替换WebSocket认证；setup 路径优先，在线认领路径在运行中网关常开。 */ (
+                request: Request
+              ) => pairing?.handle(request) ?? online.handle(request)
           },
           release
         }
