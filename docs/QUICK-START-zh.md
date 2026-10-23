@@ -60,6 +60,8 @@ docker compose run --rm gateway config init gateway --container
 
 9443、9444、9445 端口需要空闲（Compose 从 bridge 网络发布这三个端口），`config init gateway --container` 会在首次配置时准备容器监听。卷、备份和升级见 [Docker 部署](DOCKER-zh.md)。
 
+> 版本说明：`config init` 系列命令（本节的 `config init gateway --container` 与下一节的 `config init connector --provider`）需要 v0.2.0 之后发布的版本；当前 latest 正式版 v0.2.0 不包含它们（运行会返回 `invalid_arguments`）。使用 v0.2.0 时：Docker 方式跳过 init 命令，按 [Docker 部署](DOCKER-zh.md) 的配置编辑步骤导出生成的 `gateway.json`、把三个监听改为 `0.0.0.0` 再导入；选择 Herdr 时先运行一次 `rovloom connector` 并在地址提示处按 Ctrl-C 生成 `connector.json`，再向其中加入 `"native": { "provider": "herdr" }`（两者都用则填 `mixed`）。
+
 ## 2. 准备 Connector 所在机器
 
 安装 [Herdr](https://github.com/herdrdev/herdr/releases/latest) 和/或

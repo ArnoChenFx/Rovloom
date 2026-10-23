@@ -63,6 +63,8 @@ docker compose run --rm gateway config init gateway --container
 Ports 9443, 9444 and 9445 must be free (the Compose file publishes them from a bridge network), and `config init gateway --container` prepares the container listeners on first setup. See
 [Docker deployment](DOCKER.md) for volumes, backup and upgrades.
 
+> Version note: the `config init` commands (this section's `config init gateway --container` and the next section's `config init connector --provider`) require a release published after v0.2.0; the current latest release, v0.2.0, does not include them (they return `invalid_arguments`). On v0.2.0: for Docker, skip the init command and follow the configuration editing procedure in [Docker deployment](DOCKER.md) to export the generated `gateway.json`, set the three listeners to `0.0.0.0`, and import it back; to choose Herdr, run `rovloom connector` once, press Ctrl-C at the address prompt to create `connector.json`, and add `"native": { "provider": "herdr" }` to it (use `mixed` for both).
+
 ## 2. Prepare the Connector machine
 
 Install [Herdr](https://github.com/herdrdev/herdr/releases/latest) and/or

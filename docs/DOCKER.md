@@ -26,6 +26,8 @@ docker compose ps
 
 The image defaults to `ghcr.io/arnochenfx/rovloom:latest`. To pin a version, set `ROVLOOM_VERSION=<version>` in the Compose directory's `.env` before pulling. Two named volumes keep configuration and data, and `docker compose down` does not delete them. The explicit init command creates `/home/rovloom/.config/rovloom/gateway.json` without starting Gateway. The data directory is `/home/rovloom/.local/share/rovloom/gateway`.
 
+> Version note: `config init gateway --container` requires a release published after v0.2.0; the v0.2.0 image does not include the command (it returns `invalid_arguments`). On v0.2.0, skip the init command, let the first start generate the configuration, then use the configuration editing procedure below to set the three listeners to `0.0.0.0` and restart.
+
 Default local endpoints:
 
 | Purpose | Address | First startup |

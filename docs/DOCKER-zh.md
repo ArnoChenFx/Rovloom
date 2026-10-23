@@ -26,6 +26,8 @@ docker compose ps
 
 默认镜像为 `ghcr.io/arnochenfx/rovloom:latest`。要固定版本，拉取前在 Compose 目录的 `.env` 写入 `ROVLOOM_VERSION=<版本>`。两个命名卷分别保存配置与数据，`docker compose down` 不会删除它们。显式 init 命令生成 `/home/rovloom/.config/rovloom/gateway.json`，不会启动 Gateway，数据目录为 `/home/rovloom/.local/share/rovloom/gateway`。
 
+> 版本说明：`config init gateway --container` 需要 v0.2.0 之后发布的版本；v0.2.0 镜像不包含该命令（运行会返回 `invalid_arguments`）。使用 v0.2.0 时跳过 init 命令，首次启动生成配置后，按下文的配置编辑步骤把三个监听改为 `0.0.0.0` 再重启。
+
 默认本机入口：
 
 | 用途 | 地址 | 首次启动状态 |
