@@ -1,5 +1,7 @@
 /** 生产 Herdr 资源工厂的组件回归；真实 Store/编译器/通道由合成身份驱动，不计 native 安装证据。 */
 import assert from 'node:assert/strict'
+import { phaseTiming } from '../../support/phase-timing.js'
+import { HERDR_COMPILE_TIMEOUT } from '../../../src/connector/herdr/compiler-protocol.js'
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -207,6 +209,8 @@ test(
 
 test(
   'production Gateway resources use the real Store and Wire while keeping remote provenance distinct',
+  // 编译自身最多10秒，外层不能在5秒先结束并把仍在途的共享 Worker 留给下一例。
+  { timeout: HERDR_COMPILE_TIMEOUT + 5000 },
   /** 合成身份只用于当前认证通道；真正的 Store/compiled schema/普通 RPC 提交仍走生产资源工厂。 */ async () => {
     const root = privateHerdrTestRoot('.herdr-provider-gateway-')
     mkdirSync(join(root, 'store'), { mode: 0o700 })
@@ -218,10 +222,19 @@ test(
     input.target.machine_id = device.machine_id
     writeFileSync(input.schema_path, raw, { mode: 0o600 })
     let catalogTime = 100
-    const resources = await createHerdrGatewayResources({
-      config: input,
-      now: /** 目录视图时钟不影响 Store 原截止。 */ () => catalogTime
-    })
+    let resources: Awaited<ReturnType<typeof createHerdrGatewayResources>>
+    try {
+      resources = await phaseTiming('herdr.gateway.production.compile', () =>
+        createHerdrGatewayResources({
+          config: input,
+          now: /** 目录视图时钟不影响 Store 原截止。 */ () => catalogTime
+        })
+      )
+    } catch (error) {
+      store.close()
+      rmSync(root, { recursive: true, force: true })
+      throw error
+    }
     const expected = resources.providers[0]!.binding
     store.defineProvider(expected)
     const policy: ProviderPolicies = {
