@@ -35,7 +35,7 @@ export const HELP = `Rovloom ${PRODUCT_VERSION}
   rovloom config check [--role gateway|connector] [--config /absolute/path/config.json]
   rovloom config check-runtime [--role gateway|connector] [--config /absolute/path/config.json]
   rovloom gateway [--add-device | --repair-device] [--config /absolute/path/config.json] [--non-interactive]
-  rovloom connector [--repair] [--config /absolute/path/config.json] [--non-interactive]
+  rovloom connector [--repair | --claim] [--config /absolute/path/config.json] [--non-interactive]
   rovloom service --help
   rovloom token --help
   rovloom doctor --help
@@ -45,7 +45,8 @@ export const HELP = `Rovloom ${PRODUCT_VERSION}
 gateway / connector 启动对应角色。首次运行时在真实本地终端完成一次性配对与原生安装批准；
 --add-device 在已完成的引导之上再配对一台 Connector（沿用同一 MCP 凭据，授权随之扩大到新设备）；
 --repair-device / --repair 重新配对已配对的同一设备（凭据丢失或泄漏），保留原生设置与 MCP 授权。
-这三个选项需要真实本地终端，不可与 --non-interactive 合用。--non-interactive 关闭本地交互引导（服务以此运行）。
+--claim 让未配对的 Connector 向运行中的 Gateway 在线认领管理员创建的配对申请（管理页核对码批准，Gateway 不停机）。
+这四个选项需要真实本地终端，不可与 --non-interactive 合用。--non-interactive 关闭本地交互引导（服务以此运行）。
 token 管理 MCP Bearer 令牌，admin 管理管理页管理员，service 管理开机服务；详见各自的 --help。
 config check 只读检查配置文件；check-runtime 另核对程序管理的状态，不读取凭据。
 
@@ -93,7 +94,7 @@ export type CliRuntime = {
 }
 // 已配对设备的重新配对：Gateway 用 --repair-device 签发新码，Connector 用 --repair 兑换。
 // 加入下一台设备：Gateway 用 --add-device 在已完成的引导之上再签发一次配对。
-export type CliPrepareOptions = { repair?: true; addDevice?: true }
+export type CliPrepareOptions = { repair?: true; addDevice?: true; claim?: true }
 export type CliIo = { stdin: Readable; stdout: Writable; stderr: Writable; signal: AbortSignal }
 type Command =
   | { action: 'help' | 'version' }
@@ -106,6 +107,7 @@ type Command =
       serviceId?: string
       repair?: true
       addDevice?: true
+      claim?: true
     }
 
 // 解析固定命令形状，未知参数只返回稳定错误，不回显 argv。
@@ -167,11 +169,14 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
   const flag = withoutNonInteractive[1]
   const repair = withoutNonInteractive[0] === 'gateway' ? flag === '--repair-device' : flag === '--repair'
   const addDevice = withoutNonInteractive[0] === 'gateway' && flag === '--add-device'
-  if ((repair || addDevice) && nonInteractive) {
+  const claim = withoutNonInteractive[0] === 'connector' && flag === '--claim'
+  if ((repair || addDevice || claim) && nonInteractive) {
     throw new CliError('invalid_arguments')
   }
   const roleArgs =
-    repair || addDevice ? [withoutNonInteractive[0]!, ...withoutNonInteractive.slice(2)] : withoutNonInteractive
+    repair || addDevice || claim
+      ? [withoutNonInteractive[0]!, ...withoutNonInteractive.slice(2)]
+      : withoutNonInteractive
   if (
     (roleArgs[0] === 'gateway' || roleArgs[0] === 'connector') &&
     (roleArgs.length === 1 || (roleArgs.length === 3 && roleArgs[1] === '--config'))
@@ -182,7 +187,8 @@ export function parseCommand(args: readonly string[], environment?: ConfigPathEn
       ...(nonInteractive ? { nonInteractive: true } : {}),
       ...(serviceId ? { serviceId } : {}),
       ...(repair ? { repair: true as const } : {}),
-      ...(addDevice ? { addDevice: true as const } : {})
+      ...(addDevice ? { addDevice: true as const } : {}),
+      ...(claim ? { claim: true as const } : {})
     }
   }
   throw new CliError('invalid_arguments')
@@ -315,7 +321,8 @@ export async function runCli(
       config =
         (await runtime.prepare?.(config, command.path, io, {
           ...(command.repair ? { repair: true as const } : {}),
-          ...(command.addDevice ? { addDevice: true as const } : {})
+          ...(command.addDevice ? { addDevice: true as const } : {}),
+          ...(command.claim ? { claim: true as const } : {})
         })) ?? config
     }
     if (config.role !== command.action) {

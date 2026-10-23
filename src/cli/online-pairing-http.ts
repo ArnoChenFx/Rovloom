@@ -109,7 +109,13 @@ export class OnlinePairingHttp {
           const hold = this.holds.get(claim_id)
           // 已批准但内存 custody 不存在（例如网关重启）即交付失败，不返回任何凭据。
           return hold
-            ? setupReply({ status: 'approved', credential: hold.credential })
+            ? setupReply({
+                status: 'approved',
+                credential: hold.credential,
+                machine_id: claim.machine_id,
+                recovery_generation: this.store.generation(),
+                revision: this.store.credentialRevision(claim.machine_id)
+              })
             : setupReply({ status: 'failed' })
         }
         return setupReply({ status: claim.status })
@@ -143,6 +149,7 @@ export class OnlinePairingHttp {
     const created = this.store.startPairingClaim(application.machine_id, pairing_id, value.secret_hash, userCode())
     return setupReply({
       claim_id: created.claim_id,
+      machine_id: created.machine_id,
       user_code: created.user_code,
       expires_at: created.expires
     })
