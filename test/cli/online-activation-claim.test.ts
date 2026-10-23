@@ -21,7 +21,6 @@ import { loadCredential } from '../../src/transport/credentials.js'
 import { boundedJson, hash } from '../../src/wire/index.js'
 import type { ManagementIntent } from '../../src/mcp/management.js'
 import type { SetupTerminal } from '../../src/cli/setup-terminal.js'
-import { management } from '../storage/helpers.js'
 import { confirmed, context, setup } from '../admin/write-helpers.js'
 
 /** Gateway 侧 fixture：与生产同一装配（双库、管理服务、在线 custody 与激活宿主）。 */
@@ -34,7 +33,6 @@ function activationGateway() {
   const state = openGatewayState({
     state_directory: directory,
     store: {
-      management,
       pairingClaimCustody: (event) => {
         if (!custody.http) {
           throw new Error('online_pairing_unavailable')

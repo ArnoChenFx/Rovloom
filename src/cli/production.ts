@@ -324,7 +324,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
           setupRequired: caller.setupRequired,
           ...(onboarding
             ? {
-                reconfigure: onboarding.reconfigure,
+                reconfigure: Promise.race([onboarding.reconfigure, activationReload]),
                 listening: /* 真实MCP地址和已建立Gateway同时存在后才开始本地问答。 */ async (url: string) => {
                   await onboarding.listening(gateway!, url)
                 }

@@ -329,7 +329,7 @@ async function activate(
   }
   const status = await post(
     config,
-    '/pairing/status',
+    '/pairing/claim/activation/status',
     {
       attempt_id: current.claim_id,
       authentication: credential,
@@ -386,7 +386,7 @@ async function activate(
   try {
     const applied = await post(
       config,
-      '/pairing/native',
+      '/pairing/claim/activation/native',
       { attempt_id: current.claim_id, authentication: credential, installation },
       terminal.io.signal,
       300_000

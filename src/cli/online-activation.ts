@@ -33,12 +33,12 @@ type ClientRecord = Readonly<{
   expires_at: number
 }>
 
-// 激活的身份事实：第一台设备建立 MCP 客户端记录与谱系；后续设备沿用同一谱系，且批准人必须与
-// 建立该记录的主体一致——否则新设备的授权无法并入既有 caller（与本机仪式的同一主体约束等价）。
+// 激活的身份事实：第一台设备建立独立 MCP 客户端记录与谱系；后续设备沿用同一谱系。
+// 管理批准主体独立记账；授权始终并入该记录绑定的 MCP caller，不把管理账号变成 MCP 身份。
 function activationFacts(
   host: OnlineActivationHost,
   claim: PairingClaim
-): { lineage?: string; additional: boolean; resource: string; client?: ClientRecord } {
+): { lineage?: string; additional: boolean; resource: string; principal: string; client?: ClientRecord } {
   if (!claim.approved_by) {
     throw new CliError('configuration_required')
   }
@@ -46,7 +46,7 @@ function activationFacts(
   const resource = new URL('http://' + hostname + ':' + host.config.mcp_port + '/mcp').href
   const raw = readSetupJson(runtimeReference(host.config.state_dir, 'mcp-client'))
   if (raw === undefined) {
-    return { additional: false, resource }
+    return { additional: false, resource, principal: 'caller_' + claim.claim_id }
   }
   const client = object(raw)
   fields(client, [
@@ -73,13 +73,11 @@ function activationFacts(
   ) {
     throw new CliError('configuration_required')
   }
-  if (client.principal_id !== claim.approved_by) {
-    // 只有建立 caller 来源的主体能继续为新设备扩展授权；其他管理员批准的认领不能激活。
-    throw new CliError('configuration_required')
-  }
+  const additional = client.attempt_id !== claim.claim_id
   return {
-    lineage: client.attempt_id as string,
-    additional: true,
+    ...(additional ? { lineage: client.attempt_id as string } : {}),
+    additional,
+    principal: client.principal_id as string,
     resource,
     client: {
       attempt_id: client.attempt_id as string,
@@ -91,10 +89,10 @@ function activationFacts(
   }
 }
 
-function planFacts(claim: PairingClaim, lineage?: string) {
+function planFacts(claim: PairingClaim, principal: string, lineage?: string) {
   return {
     attempt_id: claim.claim_id,
-    actor: claim.approved_by!,
+    actor: principal,
     ...(lineage ? { lineage } : {})
   }
 }
@@ -109,7 +107,12 @@ export function onlineActivationStatus(
   const kinds = setupProviderKinds(providers ?? ['luvus'])
   const checkedSessions = setupSessions(sessions)
   const facts = activationFacts(host, claim)
-  const authorization = selectedSetupPolicies(planFacts(claim, facts.lineage), claim.machine_id, kinds, checkedSessions)
+  const authorization = selectedSetupPolicies(
+    planFacts(claim, facts.principal, facts.lineage),
+    claim.machine_id,
+    kinds,
+    checkedSessions
+  )
   return {
     attempt_id: claim.claim_id,
     machine_id: claim.machine_id,
@@ -126,16 +129,18 @@ export async function activateOnlineNative(
   host: OnlineActivationHost,
   claim: PairingClaim,
   installation: unknown,
-  signal: AbortSignal
+  signal: AbortSignal,
+  assertActive: () => void
 ): Promise<{ state: 'configured'; fingerprint: string }> {
   const facts = activationFacts(host, claim)
   const { reviewed, authorization, fingerprint } = await reviewSetupManifest(
     installation,
-    planFacts(claim, facts.lineage),
+    planFacts(claim, facts.principal, facts.lineage),
     claim.machine_id,
     host.config.state_dir,
     signal
   )
+  assertActive()
   if (claim.status === 'activated') {
     if (claim.native_fingerprint !== fingerprint) {
       throw new CliError('configuration_required')
@@ -161,6 +166,7 @@ export async function activateOnlineNative(
     throw new CliError('configuration_required')
   }
   await publishSetupSchemas(reviewed, signal)
+  assertActive()
   const clientPath = runtimeReference(host.config.state_dir, 'mcp-client')
   let client = facts.client
   if (!client) {
@@ -200,15 +206,11 @@ export async function activateOnlineNative(
     mergeSetupCallers(callersPath, facts.resource, authorization)
     mergeSetupProviders(providersPath, reviewedEntries)
   }
-  for (const entry of reviewed) {
-    const binding = host.state.store.provider(entry.target.machine_id, entry.target.provider_id)
-    if (!binding) {
-      host.state.store.defineProvider(entry.binding)
-    } else if (boundedJson(binding) !== boundedJson(entry.binding)) {
-      throw new CliError('configuration_required')
-    }
-  }
-  host.state.store.activatePairingClaim(claim.claim_id, fingerprint)
+  host.state.store.activatePairingProviders(
+    claim.claim_id,
+    fingerprint,
+    reviewed.map((entry) => entry.binding)
+  )
   // 与本机仪式相同：下一事件轮才重开，先让本次响应完成写出。
   setImmediate(() => host.reload())
   return { state: 'configured', fingerprint }
@@ -218,13 +220,13 @@ export async function activateOnlineNative(
 export async function withOnlineDeviceAuth<T>(
   host: OnlineActivationHost,
   credential: DeviceCredential,
-  run: () => Promise<T>
+  run: (assertActive: () => void) => Promise<T>
 ): Promise<T> {
   const identityHost = host.state.lifecycle.identityHost
   const active = identityHost.authenticate(credential.machine_id, credential.recovery_generation, credential.credential)
   try {
     identityHost.assert(active.identity, active.lease)
-    const value = await run()
+    const value = await run(() => identityHost.assert(active.identity, active.lease))
     identityHost.assert(active.identity, active.lease)
     return value
   } finally {

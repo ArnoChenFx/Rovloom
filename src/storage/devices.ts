@@ -162,7 +162,8 @@ export class DeviceLedger {
     now: number,
     machine: string,
     ttlMs: number,
-    pairing?: { pairing_id: string; policy_ref: string }
+    pairing?: { pairing_id: string; policy_ref: string },
+    confirmedClaim = false
   ): string {
     if (this.machine(machine).status !== 'pending') {
       throw new GatewayError('invalid_machine_state')
@@ -181,12 +182,14 @@ export class DeviceLedger {
         throw new GatewayError('invalid_pairing_issuance')
       }
       expires = Math.min(expires, Number(application.expires))
-      this.manage(
-        'pairing_enrollment_issue',
-        machine + '/' + pairing.pairing_id,
-        canonical({ recovery_generation: this.generation(), policy_ref: pairing.policy_ref, expires_at: expires }),
-        now
-      )
+      if (!confirmedClaim) {
+        this.manage(
+          'pairing_enrollment_issue',
+          machine + '/' + pairing.pairing_id,
+          canonical({ recovery_generation: this.generation(), policy_ref: pairing.policy_ref, expires_at: expires }),
+          now
+        )
+      }
       this.db.prepare('UPDATE admin_pairings SET issued=1 WHERE pairing_id=?').run(pairing.pairing_id)
     } else if (this.db.prepare('SELECT 1 FROM admin_pairings WHERE machine_id=? LIMIT 1').get(machine)) {
       throw new GatewayError('protected_pairing_issuance_required')
@@ -195,7 +198,9 @@ export class DeviceLedger {
       this.db.prepare('SELECT needs_confirmation FROM machines WHERE machine_id=?').get(machine)!.needs_confirmation ===
       1
     ) {
-      this.manage('device_reenroll', machine, this.generation(), now)
+      if (!confirmedClaim) {
+        this.manage('device_reenroll', machine, this.generation(), now)
+      }
       this.db
         .prepare('UPDATE machines SET resource_revision=resource_revision+1,needs_confirmation=0 WHERE machine_id=?')
         .run(machine)
@@ -411,8 +416,10 @@ export class DeviceLedger {
     now: number,
     claimId: string,
     userCode: string,
-    actor: string
+    actor: string,
+    confirmedClaim = false
   ): { machine_id: string; credential: string } {
+    validateId(actor)
     const claim = this.pairingClaim(claimId)
     if (claim.status !== 'pending' || claim.expires <= now) {
       throw new GatewayError('invalid_pairing_claim')
@@ -428,10 +435,16 @@ export class DeviceLedger {
     if (!application) {
       throw new GatewayError('pairing_not_found')
     }
-    const token = this.issueEnrollmentTx(now, claim.machine_id, 600_000, {
-      pairing_id: claim.pairing_id,
-      policy_ref: String(application.policy_ref)
-    })
+    const token = this.issueEnrollmentTx(
+      now,
+      claim.machine_id,
+      600_000,
+      {
+        pairing_id: claim.pairing_id,
+        policy_ref: String(application.policy_ref)
+      },
+      confirmedClaim
+    )
     const result = this.redeemTx(now, token)
     this.db.prepare("UPDATE pairing_claims SET status='approved', approved_by=? WHERE claim_id=?").run(actor, claimId)
     this.audit('pairing_claim_approved', 'local', now, undefined, {
@@ -459,29 +472,31 @@ export class DeviceLedger {
   }
   // 在线原生激活完成落账：只有已交付认领可激活，指纹只用于重入核对；已激活且指纹一致时幂等，不同指纹拒绝。
   activatePairingClaim(claimId: string, fingerprint: string): PairingClaim {
-    return this.transaction((now) => {
-      const claim = this.pairingClaim(claimId)
-      if (claim.status === 'activated') {
-        if (claim.native_fingerprint !== fingerprint) {
-          throw new GatewayError('pairing_claim_conflict')
-        }
-        return claim
+    return this.transaction((now) => this.activatePairingClaimTx(now, claimId, fingerprint))
+  }
+  // Store 在定义所有实例的同一事务内调用，不允许半数 provider 已定义但认领未落账。
+  activatePairingClaimTx(now: number, claimId: string, fingerprint: string): PairingClaim {
+    const claim = this.pairingClaim(claimId)
+    if (claim.status === 'activated') {
+      if (claim.native_fingerprint !== fingerprint) {
+        throw new GatewayError('pairing_claim_conflict')
       }
-      if (claim.status !== 'delivered' || !claim.approved_by) {
-        throw new GatewayError('invalid_pairing_claim')
-      }
-      this.db
-        .prepare("UPDATE pairing_claims SET status='activated', native_fingerprint=? WHERE claim_id=?")
-        .run(fingerprint, claimId)
-      this.audit('pairing_claim_activated', 'local', now, undefined, {
-        machine_id: claim.machine_id,
-        pairing_id: claim.pairing_id,
-        claim_id: claimId,
-        approved_by: claim.approved_by,
-        native_fingerprint: fingerprint
-      })
-      return this.pairingClaim(claimId)
+      return claim
+    }
+    if (claim.status !== 'delivered' || !claim.approved_by) {
+      throw new GatewayError('invalid_pairing_claim')
+    }
+    this.db
+      .prepare("UPDATE pairing_claims SET status='activated', native_fingerprint=? WHERE claim_id=?")
+      .run(fingerprint, claimId)
+    this.audit('pairing_claim_activated', 'local', now, undefined, {
+      machine_id: claim.machine_id,
+      pairing_id: claim.pairing_id,
+      claim_id: claimId,
+      approved_by: claim.approved_by,
+      native_fingerprint: fingerprint
     })
+    return this.pairingClaim(claimId)
   }
 
   // 交付失败、超时或网关重启时收敛认领；已终结的认领重复失败处理幂等无操作，凭据拒绝由调用方另行执行。

@@ -231,7 +231,7 @@ export class Store {
             this.applyProvider(machine, provider, revision, enabled, now),
           // 认领批准复用设备账本的签发与兑换事务体，保持管理确认与凭据产生在同一事务。
           approveClaim: (claimId, userCode, now, actor) =>
-            this.devices.approvePairingClaimTx(now, claimId, userCode, actor),
+            this.devices.approvePairingClaimTx(now, claimId, userCode, actor, true),
           // 凭据只暂存到装配注入的在线 custody；未注入时批准即失败，不能把凭据写入回执或审计。
           claimCustody: (event) => {
             if (!this.options.pairingClaimCustody) {
@@ -518,6 +518,67 @@ export class Store {
   }
   activatePairingClaim(claimId: string, fingerprint: string): PairingClaim {
     return this.devices.activatePairingClaim(claimId, fingerprint)
+  }
+  // 受保护在线激活：以持久认领的管理员批准承接精确实例定义，所有绑定和激活终态同事务提交。
+  activatePairingProviders(claimId: string, fingerprint: string, bindings: readonly ProviderBinding[]): PairingClaim {
+    if (!/^[0-9a-f]{64}$/.test(fingerprint) || bindings.length < 1 || bindings.length > 2) {
+      throw new GatewayError('invalid_pairing_claim')
+    }
+    return this.transaction((now) => {
+      const claim = this.devices.pairingClaim(claimId)
+      const application = this.devices.pairingApplication(claim.pairing_id)
+      if (
+        !claim.approved_by ||
+        !['delivered', 'activated'].includes(claim.status) ||
+        application?.status !== 'paired' ||
+        this.machine(claim.machine_id).status === 'revoked'
+      ) {
+        throw new GatewayError('invalid_pairing_claim')
+      }
+      if (claim.status === 'activated' && claim.native_fingerprint !== fingerprint) {
+        throw new GatewayError('pairing_claim_conflict')
+      }
+      const seen = new Set<string>()
+      for (const binding of bindings) {
+        validateProvider(binding)
+        if (
+          binding.machine_id !== claim.machine_id ||
+          binding.provider_id !== binding.kind ||
+          !['luvus', 'herdr'].includes(binding.kind) ||
+          binding.config_ref !== binding.kind + '_' + claimId ||
+          binding.binding_revision !== 1 ||
+          !binding.enabled ||
+          seen.has(binding.provider_id)
+        ) {
+          throw new GatewayError('invalid_pairing_claim')
+        }
+        seen.add(binding.provider_id)
+        const existing = this.provider(binding.machine_id, binding.provider_id)
+        if (existing) {
+          if (canonical(existing) !== canonical(binding)) {
+            throw new GatewayError('provider_binding_mismatch')
+          }
+          continue
+        }
+        // 确认标识由已批准认领和精确 provider 派生，不能由设备选择，重复提交只核对已有绑定。
+        const confirmation = 'pairing_native_' + claimId + '_' + binding.provider_id
+        const target = binding.machine_id + '/' + binding.provider_id
+        this.db
+          .prepare('INSERT INTO management VALUES(?,?,?,?,?)')
+          .run(confirmation, claim.approved_by, 'providers_manage', target, 'new')
+        this.db
+          .prepare('INSERT INTO providers VALUES(?,?,?,?,?,?)')
+          .run(binding.machine_id, binding.provider_id, binding.kind, binding.config_ref, 1, 1)
+        this.audit('providers_manage', claim.approved_by, now, undefined, {
+          target,
+          fence: 'new',
+          confirmation_id: confirmation,
+          claim_id: claimId,
+          native_fingerprint: fingerprint
+        })
+      }
+      return this.devices.activatePairingClaimTx(now, claimId, fingerprint)
+    })
   }
   pairingApplication(
     pairingId: string

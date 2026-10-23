@@ -79,7 +79,9 @@ export class OnlinePairingHttp {
   handle(request: Request): Promise<Response> | undefined {
     const url = new URL(request.url)
     const claimPaths = ['/pairing/claim', '/pairing/claim/status', '/pairing/claim/ack']
-    const activationPaths = this.activation ? ['/pairing/status', '/pairing/native'] : []
+    const activationPaths = this.activation
+      ? ['/pairing/claim/activation/status', '/pairing/claim/activation/native']
+      : []
     if (![...claimPaths, ...activationPaths].includes(url.pathname)) {
       return undefined
     }
@@ -99,7 +101,7 @@ export class OnlinePairingHttp {
   }
 
   private async dispatch(path: string, request: Request): Promise<Response> {
-    if (path === '/pairing/status' || path === '/pairing/native') {
+    if (path === '/pairing/claim/activation/status' || path === '/pairing/claim/activation/native') {
       return this.dispatchActivation(path, request)
     }
     try {
@@ -150,7 +152,11 @@ export class OnlinePairingHttp {
   // 失败统一收敛为同一错误，不泄露是哪一项核验未过（与本机 setup 面的口径一致）。
   private async dispatchActivation(path: string, request: Request): Promise<Response> {
     try {
-      const input = await requestJson(request, path === '/pairing/native' ? 1_048_576 : 16_384, this.closing.signal)
+      const input = await requestJson(
+        request,
+        path === '/pairing/claim/activation/native' ? 1_048_576 : 16_384,
+        this.closing.signal
+      )
       id(input.attempt_id)
       const credential = device(input.authentication)
       const claim = this.store.pairingClaim(input.attempt_id as string)
@@ -160,13 +166,21 @@ export class OnlinePairingHttp {
       ) {
         throw new GatewayError('invalid_pairing_claim')
       }
-      return await withOnlineDeviceAuth(this.activation!, credential, async () => {
-        if (path === '/pairing/status') {
+      return await withOnlineDeviceAuth(this.activation!, credential, async (assertActive) => {
+        if (path === '/pairing/claim/activation/status') {
           fields(input, ['attempt_id', 'authentication'], ['providers', 'sessions'])
           return setupReply(onlineActivationStatus(this.activation!, claim, input.providers, input.sessions))
         }
         fields(input, ['attempt_id', 'authentication', 'installation'])
-        return setupReply(await activateOnlineNative(this.activation!, claim, input.installation, request.signal))
+        return setupReply(
+          await activateOnlineNative(
+            this.activation!,
+            claim,
+            input.installation,
+            AbortSignal.any([request.signal, this.closing.signal]),
+            assertActive
+          )
+        )
       })
     } catch {
       return setupReply({ error: 'online_activation_not_completed' }, 409)

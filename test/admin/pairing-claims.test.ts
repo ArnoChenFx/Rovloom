@@ -15,12 +15,12 @@ const CLAIM_SECRET = 'test-claim-secret-0123456789abcdef'
 const USER_CODE = 'K7M4Q9XD'
 
 /** 当前时钟、SQLite 与管理服务均属本 fixture，不构造生产身份来源。 */
-function owned(custody?: { machine_id: string; claim_id: string; credential: string }[]) {
+function owned(custody?: { machine_id: string; claim_id: string; credential: string }[], localManagement = true) {
   const root = mkdtempSync(join(tmpdir(), 'rovloom-pairing-claims-'))
   const path = join(root, 'gateway.sqlite')
   let now = 1000
   const store = new Store(path, /** 受控短期材料只使用 fixture 时钟。 */ () => now, {
-    management,
+    ...(localManagement ? { management } : {}),
     ...(custody
       ? {
           /** 批准凭据只暂存进本 fixture 的内存 custody，断言其不进入回执。 */ pairingClaimCustody: (event: {
@@ -313,3 +313,57 @@ test(
     }
   }
 )
+
+test('confirmed claim approval and atomic provider activation need no local setup permit', async () => {
+  const o = owned([], false)
+  try {
+    const a = await application(o, 'activation_authority')
+    const claim = o.store.startPairingClaim(a.machine_id, a.pairing_id, digest(CLAIM_SECRET), USER_CODE)
+    const binding = {
+      machine_id: a.machine_id,
+      provider_id: 'herdr',
+      kind: 'herdr' as const,
+      config_ref: 'herdr_' + claim.claim_id,
+      binding_revision: 1,
+      enabled: true
+    }
+    fails(() => o.store.activatePairingProviders(claim.claim_id, 'a'.repeat(64), [binding]), 'invalid_pairing_claim')
+    // 旧宿主接口没有独立批准仍拒绝，不能通过填一个 actor 来绕过管理面。
+    fails(
+      () => o.store.approvePairingClaim(claim.claim_id, USER_CODE, 'fixture_admin'),
+      'management_authorization_required'
+    )
+    const revision = (await o.service.execute('write_state_get', { machine_id: a.machine_id }, context()))
+      .resource_revision
+    const intent: ManagementIntent = {
+      action: 'pairing_claim_approve',
+      target: { machine_id: a.machine_id, pairing_id: a.pairing_id, claim_id: claim.claim_id, user_code: USER_CODE }
+    }
+    const c = await confirmed(o.service, intent, revision)
+    await o.service.execute('pairings_claim_approve', { ...c.write, ...intent.target }, context())
+    fails(() => o.store.activatePairingProviders(claim.claim_id, 'a'.repeat(64), [binding]), 'invalid_pairing_claim')
+    o.store.completePairingClaim(claim.claim_id)
+    const wrong = {
+      ...binding,
+      machine_id: 'another_machine',
+      kind: 'luvus' as const,
+      provider_id: 'luvus',
+      config_ref: 'luvus_' + claim.claim_id
+    }
+    fails(
+      () => o.store.activatePairingProviders(claim.claim_id, 'a'.repeat(64), [binding, wrong]),
+      'invalid_pairing_claim'
+    )
+    assert.equal(o.store.provider(a.machine_id, 'herdr'), undefined)
+    assert.equal(o.store.pairingClaim(claim.claim_id).status, 'delivered')
+    const luvus = { ...wrong, machine_id: a.machine_id }
+    o.store.activatePairingProviders(claim.claim_id, 'a'.repeat(64), [binding, luvus])
+    assert(o.store.provider(a.machine_id, 'herdr'))
+    assert(o.store.provider(a.machine_id, 'luvus'))
+    assert.equal(o.store.pairingClaim(claim.claim_id).status, 'activated')
+    o.store.activatePairingProviders(claim.claim_id, 'a'.repeat(64), [binding, luvus])
+    fails(() => o.store.activatePairingProviders(claim.claim_id, 'b'.repeat(64), [binding]), 'pairing_claim_conflict')
+  } finally {
+    o.close()
+  }
+})

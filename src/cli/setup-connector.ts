@@ -71,7 +71,10 @@ export async function post(config: ConnectorConfig, path: string, value: unknown
       method: 'POST',
       redirect: 'error',
       headers: { 'content-type': 'application/json' },
-      body: boundedJson(value, path === '/pairing/native' ? 1_048_576 : 16_384),
+      body: boundedJson(
+        value,
+        path === '/pairing/native' || path === '/pairing/claim/activation/native' ? 1_048_576 : 16_384
+      ),
       signal: AbortSignal.any([signal, AbortSignal.timeout(timeout)])
     })
   )
