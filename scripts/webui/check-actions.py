@@ -269,6 +269,25 @@ def main():
         assert page.evaluate('sessionStorage.length') == 0
         checks.append('session loss clears detail and confirmation input; no identity/operation persistence')
         context.close()
+        context = browser.new_context(locale='en', color_scheme='light')
+        page, _ = open_page(context, base)
+        page.on('pageerror', page_error)
+        page.locator('[name="pairing-name"]').fill('online_activation_progress')
+        page.locator('[name="pairing-policy"]').fill('fixture_policy')
+        page.locator('.pairing-form button[type="submit"]').click()
+        page.locator('.pairing-review .pairing-confirm').click()
+        entry = page.locator('.pairing-entry')
+        expect(entry).to_be_visible()
+        pairing_id = entry.locator('code').inner_text()
+        control(context, base, mode='deliver_claim', pairing_id=pairing_id)
+        expect(entry).to_contain_text('The device collected its credential', timeout=15000)
+        polls = metadata(context, base)['calls'].count('pairings_get')
+        control(context, base, mode='activate_claim', pairing_id=pairing_id)
+        expect(entry).to_contain_text('native activation complete', timeout=15000)
+        assert metadata(context, base)['calls'].count('pairings_get') > polls
+        checks.append('pairing: delivered continues polling until native activation is configured')
+        context.close()
+
         browser.close()
     assert not errors, errors
     report={'passed':len(checks),'checks':checks,'page_errors':errors,'real_temporary_store_and_handler':True,

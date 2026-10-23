@@ -7,11 +7,14 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Store } from '../../src/store.js'
+import { openGatewayState } from '../../src/runtime/state.js'
 import { StoreManagementWriteService } from '../../src/admin/write-service.js'
 import { OnlinePairingHttp } from '../../src/cli/online-pairing-http.js'
 import { claimConnector } from '../../src/cli/online-claim.js'
-import { CliError, configTemplate, type ConnectorConfig } from '../../src/cli/config.js'
+import { CliError, configTemplate, type ConnectorConfig, type GatewayConfig } from '../../src/cli/config.js'
+import { fixedHerdrSource } from '../../src/connector/herdr/review.js'
+import { setupReference, setupTarget } from '../../src/cli/setup-policy.js'
+import { boundedJson, hash } from '../../src/wire/index.js'
 import { privateDirectory } from '../../src/cli/first-config.js'
 import { readSetupJson, writeSetupJson } from '../../src/cli/setup-files.js'
 import { runtimeReference } from '../../src/cli/runtime-files.js'
@@ -26,19 +29,28 @@ function gateway() {
   const faults = { ack: 'none' as 'none' | 'refuse' | 'lost', status: false }
   const requests: string[] = []
   const root = mkdtempSync(join(tmpdir(), 'rovloom-online-claim-'))
-  const path = join(root, 'gateway.sqlite')
+  const directory = join(root, 'gateway')
+  privateDirectory(directory)
+  privateDirectory(join(directory, 'managed'))
   let now = Date.now()
   const custody: { http?: OnlinePairingHttp } = {}
-  const store = new Store(path, /** 受控短期材料只使用 fixture 时钟。 */ () => now, {
-    management,
-    pairingClaimCustody: (event) => {
-      if (!custody.http) {
-        throw new Error('online_pairing_unavailable')
+  const state = openGatewayState({
+    state_directory: directory,
+    now: () => now,
+    store: {
+      management,
+      pairingClaimCustody: (event) => {
+        if (!custody.http) {
+          throw new Error('online_pairing_unavailable')
+        }
+        custody.http.hold(event)
       }
-      custody.http.hold(event)
-    }
+    },
+    changed: () => {}
   })
-  const online = new OnlinePairingHttp(store, () => now)
+  const store = state.store
+  const gatewayConfig = { ...configTemplate('gateway'), state_dir: directory } as GatewayConfig
+  const online = new OnlinePairingHttp(store, () => now, { state, config: gatewayConfig, reload: () => {} })
   custody.http = online
   const f = setup(store)
   const service = new StoreManagementWriteService({
@@ -95,7 +107,7 @@ function gateway() {
     /** 回收服务器、custody 与数据库。 */ async close() {
       await new Promise<void>((resolve) => server.close(() => resolve()))
       online.close()
-      store.close()
+      state.close()
       rmSync(root, { recursive: true, force: true })
     }
   }
@@ -165,7 +177,8 @@ test(
       const config = {
         ...configTemplate('connector'),
         state_dir: client,
-        gateway_url: 'ws://127.0.0.1:' + port
+        gateway_url: 'ws://127.0.0.1:' + port,
+        native: { provider: 'herdr' }
       } as ConnectorConfig
       privateDirectory(client)
       privateDirectory(join(client, 'managed'))
@@ -181,6 +194,42 @@ test(
         }
       }
       assert(claim_id, 'claim should be started by the connector')
+      // 种入本次 attempt 的 Herdr 已测准备记录（合成清单与 setup-manifest 夹具同口径），使认领后可继续原生激活。
+      const raw = readFileSync(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url), 'utf8')
+      const reference = setupReference(claim_id, 'herdr')
+      const remote = {
+        kind: 'herdr',
+        schema_bundle: raw,
+        config: {
+          version: 1,
+          target: setupTarget(a.machine_id, 'herdr'),
+          binding_revision: 1,
+          config_ref: reference,
+          peer_policy_revision: 'setup_local_' + claim_id,
+          expected_source: {
+            ...fixedHerdrSource(),
+            binary_version: 'synthetic-future',
+            server_version: 'synthetic-future',
+            binary_sha256: 'f'.repeat(64),
+            schema_sha256: hash(raw)
+          }
+        }
+      }
+      writeSetupJson(
+        runtimeReference(client, 'herdr-setup'),
+        {
+          schema_version: 1,
+          attempt_id: claim_id,
+          machine_id: a.machine_id,
+          phase: 'prepared',
+          settings: { provider: 'herdr' },
+          reference,
+          local: { fixture: 'herdr-local-owner-config' },
+          remote
+        },
+        false,
+        1_048_576
+      )
       const progress = await g.service.execute(
         'pairings_get',
         { machine_id: a.machine_id, pairing_id: a.pairing_id },
@@ -191,9 +240,13 @@ test(
       await running
       const credential = loadCredential(runtimeReference(client, 'device'))
       assert.equal(credential.machine_id, a.machine_id)
-      assert.equal(g.store.pairingClaim(claim_id).status, 'delivered')
+      assert.equal(g.store.pairingClaim(claim_id).status, 'activated')
+      assert.equal(
+        g.store.pairingClaim(claim_id).native_fingerprint,
+        hash(boundedJson({ installations: [{ reference, value: remote }] }, 1_048_576))
+      )
       const saved = readSetupJson(runtimeReference(client, 'pairing-claim')) as Record<string, unknown>
-      assert.equal(saved.phase, 'paired')
+      assert.equal(saved.phase, 'configured')
       assert.equal('secret' in saved, false)
       assert(shown.some((text) => text.includes(progress.claim!.user_code)))
     } finally {
@@ -210,7 +263,8 @@ function client(port: number, pairing: string) {
   const config = {
     ...configTemplate('connector'),
     state_dir: root,
-    gateway_url: 'ws://127.0.0.1:' + port
+    gateway_url: 'ws://127.0.0.1:' + port,
+    native: { provider: 'herdr' }
   } as ConnectorConfig
   const terminal = {
     configPath: join(root, 'config.json'),
@@ -251,6 +305,44 @@ async function waitClaim(g: ReturnType<typeof gateway>, pairing: string) {
   throw new Error('claim not started')
 }
 
+/** 把本次 attempt 的 Herdr 已测准备记录种入客户端状态目录（合成清单与 setup-manifest 夹具同口径），使配对完成后可继续原生激活。 */
+function seedHerdr(root: string, claim_id: string, machine_id: string) {
+  const raw = readFileSync(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url), 'utf8')
+  const reference = setupReference(claim_id, 'herdr')
+  writeSetupJson(
+    runtimeReference(root, 'herdr-setup'),
+    {
+      schema_version: 1,
+      attempt_id: claim_id,
+      machine_id,
+      phase: 'prepared',
+      settings: { provider: 'herdr' },
+      reference,
+      local: { fixture: 'herdr-local-owner-config' },
+      remote: {
+        kind: 'herdr',
+        schema_bundle: raw,
+        config: {
+          version: 1,
+          target: setupTarget(machine_id, 'herdr'),
+          binding_revision: 1,
+          config_ref: reference,
+          peer_policy_revision: 'setup_local_' + claim_id,
+          expected_source: {
+            ...fixedHerdrSource(),
+            binary_version: 'synthetic-future',
+            server_version: 'synthetic-future',
+            binary_sha256: 'f'.repeat(64),
+            schema_sha256: hash(raw)
+          }
+        }
+      }
+    },
+    false,
+    1_048_576
+  )
+}
+
 for (const failure of ['refuse', 'lost', 'before_phase_save'] as const) {
   test(`saved claim credential resumes without replacement after ${failure}`, async () => {
     const g = gateway()
@@ -263,6 +355,7 @@ for (const failure of ['refuse', 'lost', 'before_phase_save'] as const) {
         (error) => error instanceof CliError && error.code === 'configuration_required'
       )
       const claim = await waitClaim(g, a.pairing_id)
+      seedHerdr(c.root, claim.claim_id, a.machine_id)
       await approve(g, a, claim.claim_id, claim.user_code)
       await first
       const path = runtimeReference(c.root, 'device')
@@ -277,8 +370,8 @@ for (const failure of ['refuse', 'lost', 'before_phase_save'] as const) {
       g.faults.status = false
       await claimConnector(c.config, c.terminal)
       assert.deepEqual(readFileSync(path), before)
-      assert.equal(g.store.pairingClaim(claim.claim_id).status, 'delivered')
-      assert.equal((readSetupJson(recordPath) as Record<string, unknown>).phase, 'paired')
+      assert.equal(g.store.pairingClaim(claim.claim_id).status, 'activated')
+      assert.equal((readSetupJson(recordPath) as Record<string, unknown>).phase, 'configured')
       assert.equal(g.requests.filter((path) => path === '/pairing/claim').length, 1)
       assert.equal(c.answers.asked, 1)
     } finally {
@@ -316,6 +409,7 @@ test('cancelled claim requires explicit restart and then accepts a new applicati
     const second = claimConnector(c.config, c.terminal)
     const rejected = second.catch(() => {})
     const claim = await waitClaim(g, next.pairing_id)
+    seedHerdr(c.root, claim.claim_id, next.machine_id)
     await approve(g, next, claim.claim_id, claim.user_code)
     await second
     await rejected
@@ -420,6 +514,7 @@ test('expired and swept claim can restart explicitly without polling a deleted c
     const running = claimConnector(c.config, c.terminal)
     const observed = running.catch(() => {})
     const nextClaim = await waitClaim(g, next.pairing_id)
+    seedHerdr(c.root, nextClaim.claim_id, next.machine_id)
     await approve(g, next, nextClaim.claim_id, nextClaim.user_code)
     await running
     await observed

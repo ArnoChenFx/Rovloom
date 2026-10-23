@@ -693,12 +693,15 @@ export function checkManagementWriteReply<K extends ManagementClientOperation>(
     }
     time(v.expires_at)
     if (v.claim !== undefined) {
-      record(v.claim, ['claim_id', 'user_code', 'status', 'expires_at'], [], 'invalid_response')
+      record(v.claim, ['claim_id', 'user_code', 'status', 'expires_at'], ['activation'], 'invalid_response')
       identifier(v.claim.claim_id, 'invalid_response')
       if (!/^[A-Z0-9]{4,16}$/.test(v.claim.user_code)) {
         invalid('invalid_response')
       }
-      choice(v.claim.status, ['pending', 'approved', 'delivered', 'failed', 'cancelled'])
+      choice(v.claim.status, ['pending', 'approved', 'delivered', 'activated', 'failed', 'cancelled'])
+      if (v.claim.activation !== undefined && (v.claim.activation !== 'configured' || v.claim.status !== 'activated')) {
+        invalid('invalid_response')
+      }
       time(v.claim.expires_at)
     }
   } else {

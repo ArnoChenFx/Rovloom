@@ -91,7 +91,7 @@ export async function requestJson(
 }
 
 // 设备认证完全复用现有三轴凭据与IdentityHost；MCP Bearer、cookie或自报authenticated不作为来源。
-function device(value: unknown): DeviceCredential {
+export function device(value: unknown): DeviceCredential {
   const input = object(value)
   fields(input, ['machine_id', 'recovery_generation', 'credential'])
   id(input.machine_id)

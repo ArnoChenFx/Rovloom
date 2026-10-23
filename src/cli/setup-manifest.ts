@@ -49,7 +49,8 @@ function label(value: string | null): string {
 // 兼容既有单Luvus封套；新清单只接纳一个Herdr或固定顺序的Luvus+Herdr，没有任意provider注册入口。
 export async function reviewSetupManifest(
   input: unknown,
-  plan: PairingPlan,
+  // 只消费计划的身份事实（attempt/批准主体/谱系/已批准选择）；在线激活以认领记录构造同一事实集。
+  plan: Pick<PairingPlan, 'attempt_id' | 'actor' | 'lineage' | 'providers'>,
   machine: string,
   directory: string,
   signal: AbortSignal

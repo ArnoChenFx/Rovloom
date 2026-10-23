@@ -19,7 +19,7 @@ import { canonicalLoopbackHost } from '../mcp/listen.js'
 type State = ReturnType<typeof openGatewayState>
 
 // 相同计划的重入只接纳完全相同的程序数据；未知条目、部分内容或外部改动不被覆盖。
-function publish(path: string, value: unknown, maximum = 16_384): void {
+export function publish(path: string, value: unknown, maximum = 16_384): void {
   const current = readSetupJson(path, maximum)
   if (current === undefined) {
     writeSetupJson(path, value, false, maximum)
@@ -301,8 +301,8 @@ export class GatewaySetup {
       })
       publish(providersPath, { schema_version: 1, role: 'gateway', providers: reviewedEntries }, 1_048_576)
     } else {
-      this.mergeCallers(callersPath, resource, authorization)
-      this.mergeProviders(providersPath, reviewedEntries)
+      mergeSetupCallers(callersPath, resource, authorization)
+      mergeSetupProviders(providersPath, reviewedEntries)
     }
     for (const entry of reviewed) {
       const binding = state.store.provider(entry.target.machine_id, entry.target.provider_id)
@@ -350,57 +350,6 @@ export class GatewaySetup {
     return { state: 'configured', fingerprint }
   }
 
-  // 加入新设备：本机策略与安装时建立的 MCP 主体策略并入新设备的授权；修订标签沿用首台设备，已批准的授权不改写。
-  // 之后用 rovloom token create --like 克隆出的其它主体是创建时的快照，需要重新克隆才包含新设备。
-  private mergeCallers(
-    path: string,
-    resource: string,
-    authorization: { principal_id: string; policies: { caller: ProviderPolicy; local: ProviderPolicy } }
-  ): void {
-    const stamp = setupFileStamp(path)
-    // parseRegistry 返回冻结对象；在深拷贝上并入授权。
-    const registry = structuredClone(parseRegistry(readRuntimeJson(path, REGISTRY_MAX_BYTES), resource)) as ReturnType<
-      typeof parseRegistry
-    >
-    if (registry.local_policy.revision !== authorization.policies.local.revision) {
-      throw new CliError('configuration_required')
-    }
-    registry.local_policy.grants = unionGrants(registry.local_policy.grants, authorization.policies.local.grants)
-    for (const entry of registry.callers) {
-      if (entry.principal.id === authorization.principal_id) {
-        if (entry.principal.policy.revision !== authorization.policies.caller.revision) {
-          throw new CliError('configuration_required')
-        }
-        entry.principal.policy.grants = unionGrants(entry.principal.policy.grants, authorization.policies.caller.grants)
-      }
-    }
-    parseRegistry(JSON.parse(boundedJson(registry, REGISTRY_MAX_BYTES)), resource)
-    writeSetupFile(path, boundedJson(registry, REGISTRY_MAX_BYTES), true, stamp)
-  }
-
-  // 加入新设备：已有设备的 provider 条目原样保留，只追加本次已核验的条目（同引用必须完全相同）。
-  private mergeProviders(path: string, entries: readonly { reference: string; value: unknown }[]): void {
-    const stamp = setupFileStamp(path)
-    const document = object(readRuntimeJson(path, 1_048_576))
-    fields(document, ['schema_version', 'role', 'providers'])
-    if (document.schema_version !== 1 || document.role !== 'gateway' || !Array.isArray(document.providers)) {
-      throw new CliError('configuration_required')
-    }
-    const merged = [...(document.providers as { reference: string; value: unknown }[])]
-    for (const entry of entries) {
-      const found = merged.find(/* 同一引用。 */ (value) => value.reference === entry.reference)
-      if (!found) {
-        merged.push(entry)
-      } else if (boundedJson(found.value, 1_048_576) !== boundedJson(entry.value, 1_048_576)) {
-        throw new CliError('configuration_required')
-      }
-    }
-    if (merged.length > 32) {
-      throw new CliError('configuration_required')
-    }
-    writeSetupFile(path, boundedJson({ ...document, providers: merged }, 1_048_576), true, stamp)
-  }
-
   // 关闭原HTTP交付并等待其不确定凭据拒绝完成，然后撤下唯一state引用。
   async detach(state: State): Promise<void> {
     if (this.#timer) {
@@ -412,4 +361,56 @@ export class GatewaySetup {
     await http?.close()
     this.approval.detach(state)
   }
+}
+
+// 加入新设备：本机策略与安装时建立的 MCP 主体策略并入新设备的授权；修订标签沿用首台设备，已批准的授权不改写。
+// 之后用 rovloom token create --like 克隆出的其它主体是创建时的快照，需要重新克隆才包含新设备。
+// 本机 setup 仪式与在线激活共用此实现，避免两条路径的并入口径漂移。
+export function mergeSetupCallers(
+  path: string,
+  resource: string,
+  authorization: { principal_id: string; policies: { caller: ProviderPolicy; local: ProviderPolicy } }
+): void {
+  const stamp = setupFileStamp(path)
+  // parseRegistry 返回冻结对象；在深拷贝上并入授权。
+  const registry = structuredClone(parseRegistry(readRuntimeJson(path, REGISTRY_MAX_BYTES), resource)) as ReturnType<
+    typeof parseRegistry
+  >
+  if (registry.local_policy.revision !== authorization.policies.local.revision) {
+    throw new CliError('configuration_required')
+  }
+  registry.local_policy.grants = unionGrants(registry.local_policy.grants, authorization.policies.local.grants)
+  for (const entry of registry.callers) {
+    if (entry.principal.id === authorization.principal_id) {
+      if (entry.principal.policy.revision !== authorization.policies.caller.revision) {
+        throw new CliError('configuration_required')
+      }
+      entry.principal.policy.grants = unionGrants(entry.principal.policy.grants, authorization.policies.caller.grants)
+    }
+  }
+  parseRegistry(JSON.parse(boundedJson(registry, REGISTRY_MAX_BYTES)), resource)
+  writeSetupFile(path, boundedJson(registry, REGISTRY_MAX_BYTES), true, stamp)
+}
+
+// 加入新设备：已有设备的 provider 条目原样保留，只追加本次已核验的条目（同引用必须完全相同）。
+export function mergeSetupProviders(path: string, entries: readonly { reference: string; value: unknown }[]): void {
+  const stamp = setupFileStamp(path)
+  const document = object(readRuntimeJson(path, 1_048_576))
+  fields(document, ['schema_version', 'role', 'providers'])
+  if (document.schema_version !== 1 || document.role !== 'gateway' || !Array.isArray(document.providers)) {
+    throw new CliError('configuration_required')
+  }
+  const merged = [...(document.providers as { reference: string; value: unknown }[])]
+  for (const entry of entries) {
+    const found = merged.find(/* 同一引用。 */ (value) => value.reference === entry.reference)
+    if (!found) {
+      merged.push(entry)
+    } else if (boundedJson(found.value, 1_048_576) !== boundedJson(entry.value, 1_048_576)) {
+      throw new CliError('configuration_required')
+    }
+  }
+  if (merged.length > 32) {
+    throw new CliError('configuration_required')
+  }
+  writeSetupFile(path, boundedJson({ ...document, providers: merged }, 1_048_576), true, stamp)
 }
