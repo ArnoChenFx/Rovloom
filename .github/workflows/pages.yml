@@ -38,14 +38,12 @@ jobs:
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v7.0.1
         with:
           # Successful releases build maintained site code, rather than the release tag.
           ref: ${{ github.event_name == 'workflow_run' && github.event.repository.default_branch || '' }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
-        with:
-          version: '1.4.3'
       - name: Read the latest public release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,7 +54,7 @@ jobs:
         run: |
           bun --no-env-file test ./test/site
           bun --no-env-file run site:build
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+      - uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: dist/site
   deploy:
@@ -73,9 +71,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/configure-pages@v6.0.0
         with:
           enablement: true
       - name: Deploy the tested static artifact
         id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+        uses: actions/deploy-pages@v5.0.1

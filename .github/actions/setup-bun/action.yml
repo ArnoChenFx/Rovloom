@@ -1,13 +1,8 @@
 name: Setup Bun
-description: Install Bun for the job. Defaults to the latest stable release; pass a version to test the minimum.
-inputs:
-  version:
-    required: false
-    default: latest
-    description: Bun version or "latest"
+description: Install the latest stable Bun release for the job.
 runs:
   using: composite
   steps:
-    - uses: oven-sh/setup-bun@v2
+    - uses: oven-sh/setup-bun@v2.2.0
       with:
-        bun-version: ${{ inputs.version }}
+        bun-version: latest
