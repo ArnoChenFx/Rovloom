@@ -1,10 +1,19 @@
 # 在 Linux 上用最低与最新 Bun 运行类型检查、lint、格式、测试与构建。
 name: Bun verification
-on: [push, pull_request, workflow_dispatch, workflow_call]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+concurrency:
+  group: bun-verification-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 permissions:
   contents: read
 jobs:
   linux:
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -18,7 +27,8 @@ jobs:
       - uses: ./.github/actions/setup-bun
         with:
           version: ${{ matrix.bun }}
-      - run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - timeout-minutes: 5
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - run: bun --no-env-file run lint
       - run: bun --no-env-file run format:check
       - run: bun --no-env-file run typecheck

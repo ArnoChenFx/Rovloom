@@ -2,12 +2,17 @@
 name: Standalone candidates
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: standalone-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 permissions:
   contents: read
 jobs:
   plan:
+    timeout-minutes: 5
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -25,6 +30,7 @@ jobs:
               output.write("matrix=" + json.dumps(matrix) + "\n")
           PY
   native:
+    timeout-minutes: 30
     needs: plan
     strategy:
       fail-fast: false
@@ -36,6 +42,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
       - name: Frozen install
+        timeout-minutes: 5
         run: bun --no-env-file install --frozen-lockfile --ignore-scripts
       - name: Check service lifecycle models and native definition parsing without installing services
         run: bun --no-env-file test ./test/service/macos-host.test.ts ./test/service/platform-probe.test.ts ./test/service/runner-lifecycle.test.ts ./test/service/manager.test.ts ./test/service/command.test.ts ./test/service/windows-control.test.ts ./test/cli/service-host.test.ts ./test/cli/service-runtime.test.ts
@@ -103,6 +110,7 @@ jobs:
           version="$(bun --no-env-file -p 'JSON.parse(await Bun.file("package.json").text()).version')"
           bun --no-env-file scripts/release/product-smoke.mjs "$PWD/dist/release/$TARGET/candidate/rovloom" "$version"
       - name: Upload packaging probe evidence
+        timeout-minutes: 5
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: packaging-probe-${{ matrix.target }}
@@ -129,6 +137,7 @@ jobs:
           fi
       - name: Upload real schema factory probe when accepted
         if: steps.native.outputs.present == 'true'
+        timeout-minutes: 5
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: native-contract-probe-${{ matrix.target }}
@@ -139,6 +148,7 @@ jobs:
             dist/release/${{ matrix.target }}/probe/manifest.json
       - name: Upload CLI preview candidate
         if: steps.product.outputs.present == 'true'
+        timeout-minutes: 5
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cli-preview-candidate-${{ matrix.target }}
