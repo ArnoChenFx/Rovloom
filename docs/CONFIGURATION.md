@@ -200,10 +200,13 @@ Gateway keeps running, with no Gateway terminal present:
 
 Only digests of claim secrets are stored; the secrets never leave the device.
 Applications and claims expire, and a terminal or expired record can only be
-restarted explicitly by an administrator. Online claim completes device
-credential pairing only: online activation of provider bindings and MCP
-authorization is still in development (see #249), so a newly claimed device
-cannot receive calls yet.
+restarted explicitly by an administrator. After credential delivery, the
+Connector continues into online native activation automatically: it
+cross-checks the authorization derived from the policy reference with the
+Gateway, then submits the measured native installation; the Gateway publishes
+the provider bindings and caller configuration and hot-reloads, and the
+management page follows the claim until it shows as configured. No downtime,
+no Gateway terminal session and no manual configuration edits.
 
 `config check-runtime` checks the existing provider registry only. It does not
 check caller credentials, TLS trust, native binaries or a model connection.
