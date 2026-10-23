@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { ConnectorCapacityError } from '../../../src/connector/capacity.js'
 import { LuvusAdapterError, LuvusRpcAdapter, createLuvusCatalog } from '../../../src/connector/luvus/index.js'
 import { parseRpcFrame, requestFrame } from '../../../src/connector/luvus/adapter.js'
 import { inspectEndpoint, recheckEndpoint } from '../../../src/connector/luvus/local.js'
@@ -198,6 +199,29 @@ test(
     assert.equal(f.received(), '')
   }
 )
+
+for (const transport of ['ipc', 'cli'] as const) {
+  test(
+    'claim capacity diagnosis survives ' + transport + ' IO wrapping with resource and reclaim time',
+    /* claim 门禁在写入前以容量不足拒绝时，IPC 与固定 CLI 两条 IO 路径都必须原样带回容量类别与最早回收时间，且不发送任何帧。 */ async (
+      t
+    ) => {
+      const f = await fixture(transport)
+      t.after(/* 清理本用例拥有的 adapter、连接和私有目录。 */ () => f.close())
+      f.host.claimDispatch = /* 在派发登记处直接以容量不足拒绝，模拟账本满额。 */ async () => {
+        throw new ConnectorCapacityError('claim_entries', 1_234_567)
+      }
+      await assert.rejects(f.adapter.dispatch(f.input()), (error: unknown) => {
+        assert(error instanceof ConnectorCapacityError)
+        assert.equal(error.code, 'claim_capacity')
+        assert.equal(error.outcome, 'not_dispatched')
+        assert.deepEqual(error.capacity, { resource: 'claim_entries', reclaim_at: 1_234_567 })
+        return true
+      })
+      assert.equal(f.received(), '')
+    }
+  )
+}
 
 test(
   'binary/source and complete provider target cannot be cross-bound',

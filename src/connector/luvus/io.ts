@@ -4,6 +4,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createConnection } from 'node:net'
 import type { Socket } from 'node:net'
 import { WireError } from '../../wire/index.js'
+import { ConnectorCapacityError } from '../capacity.js'
 import { childEnvironment, fixedArguments, verifyInstallation, withPrivateUmask } from './local.js'
 import { LuvusAdapterError } from './types.js'
 import type { LocalFailureOutcome, LuvusLocalConfig, LuvusLocalLimits } from './types.js'
@@ -129,7 +130,8 @@ export async function runFixedProcess(
         clearTimeout(cleanupTimer)
         signal.removeEventListener('abort', cancel)
         if (failure) {
-          reject(new LuvusAdapterError(failure.code, outcome()))
+          // 容量错误携带本地诊断类别与回收时间，写入前失败时原样传播，不能只剩错误码。
+          reject(failure instanceof ConnectorCapacityError ? failure : new LuvusAdapterError(failure.code, outcome()))
         } else if (code === null) {
           reject(new LuvusAdapterError('native_process_signal', outcome()))
         } else {
@@ -137,11 +139,11 @@ export async function runFixedProcess(
         }
       }
       /** 记录首次传输失败并终止本次拥有的桥接子进程；不尝试原生回滚。 */
-      function stop(code: string) {
+      function stop(code: string | ConnectorCapacityError) {
         if (finished || failure) {
           return
         }
-        failure = new LuvusAdapterError(code, outcome())
+        failure = code instanceof ConnectorCapacityError ? code : new LuvusAdapterError(code, outcome())
         // 终结本条传输的 prepare；外层 scope 结束前也不能再等待 auth 后新增 claim。
         io.close()
         // 只处理本次拥有的桥接子进程；不会发送 terminal.close 或其它原生撤销动作。
@@ -224,9 +226,12 @@ export async function runFixedProcess(
                 }
               } catch (error) {
                 stop(
-                  error instanceof LuvusAdapterError || error instanceof WireError
-                    ? error.code
-                    : 'native_host_unavailable'
+                  // 容量拒绝发生在写入前（claim 门禁），原样保留以便上层读取容量类别；其余错误仍只取安全码。
+                  error instanceof ConnectorCapacityError && !inputSent
+                    ? error
+                    : error instanceof LuvusAdapterError || error instanceof WireError
+                      ? error.code
+                      : 'native_host_unavailable'
                 )
               }
             })()
@@ -262,7 +267,7 @@ export function runSocket(
       const chunks: Buffer[] = []
       const socket = createConnection({ path: address })
       /** 取消未完成准备并销毁本次 socket；写入后的错误一律保留结果未知。 */
-      function finish(error?: string) {
+      function finish(error?: string | ConnectorCapacityError) {
         if (finished) {
           return
         }
@@ -271,7 +276,12 @@ export function runSocket(
         signal.removeEventListener('abort', cancel)
         socket.destroy()
         if (error) {
-          reject(new LuvusAdapterError(error, written ? 'outcome_unknown' : 'not_dispatched'))
+          // 容量错误只在写入前由 claim 门禁产生，原样传播其类别与回收时间；字符串错误仍按是否写入定结果语义。
+          reject(
+            error instanceof ConnectorCapacityError
+              ? error
+              : new LuvusAdapterError(error, written ? 'outcome_unknown' : 'not_dispatched')
+          )
         } else {
           resolve(Buffer.concat(chunks, size))
         }
@@ -312,9 +322,12 @@ export function runSocket(
                 }
               } catch (error) {
                 finish(
-                  error instanceof LuvusAdapterError || error instanceof WireError
-                    ? error.code
-                    : 'native_host_unavailable'
+                  // 与子进程路径同一口径：未写入时容量错误原样传播，已写入则不改变 outcome_unknown 语义。
+                  error instanceof ConnectorCapacityError && !written
+                    ? error
+                    : error instanceof LuvusAdapterError || error instanceof WireError
+                      ? error.code
+                      : 'native_host_unavailable'
                 )
               }
             })()
