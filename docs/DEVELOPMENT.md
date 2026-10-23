@@ -2,6 +2,12 @@
 
 面向贡献者。Rovloom 用 **Bun** 执行与构建。`package.json` 的 `engines.bun` 声明最低版本，依赖用 `^` 范围，`bun.lock` 保证可复现。CI 同时跑最低版本与最新版本（[Bun verification](../.github/workflows/bun.yml)），选择依据见 [ADR 0003](adr/0003-bun-toolchain.md)。提交前的约定见 [CONTRIBUTING](../CONTRIBUTING.md)。
 
+## Native startup acceptance budgets
+
+The product Gateway smoke waits for both HTTP listeners within one shared 10-second monotonic cold-start deadline. It does not count fixed retry attempts: fast connection refusal must not exhaust a nominal readiness budget early. The existing 15-second child lifetime remains the outer bound. A failure reports elapsed milliseconds and whether the owned child is still alive, without dumping its private configuration or output.
+
+The Windows official Herdr attach test has a 30-second test budget for cold startup, Win32 identity proof and cleanup, instead of Bun's default five seconds. Its server discovery uses a separate monotonic ten-second startup window and reports cold-start / verified-attach timings. These are fixture acceptance bounds; they do not extend native request deadlines or add write retries. Known startup failures are tracked in #217 and #218.
+
 ## 日常命令
 
 在仓库根目录执行：

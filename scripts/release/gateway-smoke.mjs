@@ -4,7 +4,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
-import { setTimeout as pause } from 'node:timers/promises'
+import { waitHttpReady } from './readiness.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -150,6 +150,7 @@ async function withGateway(binary, f, cwd, env, inspect, prefix = []) {
           .update(JSON.stringify([binary, f.configPath, cwd]))
           .digest('hex')
       : undefined
+  const started = performance.now()
   const child = spawn(
     binary,
     [
@@ -212,7 +213,7 @@ async function withGateway(binary, f, cwd, env, inspect, prefix = []) {
     15_000
   )
   try {
-    await inspect(/** 启动等待只观察自己的child，不按PID或程序名寻找进程。 */ () => !closed)
+    await inspect(/** 启动等待只观察自己的child，不按PID或程序名寻找进程。 */ () => !closed, started)
     if (failure) {
       throw failure
     }
@@ -291,30 +292,21 @@ export async function smokeGatewayProduct(
       f,
       cwd,
       env,
-      /** 只访问本次回环端口及合成测试身份。 */ async (alive) => {
-        let page
-        for (let attempt = 0; attempt < 200 && alive(); attempt++) {
-          try {
-            page = await fetch(f.origin, { signal: AbortSignal.timeout(1000) })
-            break
-          } catch {
-            await pause(25)
-          }
-        }
-        assert(page, 'product_gateway_not_listening')
+      /** 只访问本次回环端口及合成测试身份。 */ async (alive, started) => {
+        // 两个 listener 共用 10 秒冷启动预算；快速拒绝连接不再提前耗尽 200 次轮询。
+        const deadline = started + 10_000
+        const page = await waitHttpReady(f.origin, alive, deadline)
+        assert(
+          page,
+          `product_gateway_not_listening elapsed_ms=${Math.round(performance.now() - started)} child_alive=${alive()}`
+        )
         assert.equal(page.status, 401)
         assert.equal(page.headers.get('set-cookie'), null)
-        // 管理页与 MCP 监听器相继就绪；同样有界等待 MCP 端口，不依赖二者同时可连。
-        let unauthenticated
-        for (let attempt = 0; attempt < 200 && alive(); attempt++) {
-          try {
-            unauthenticated = await fetch(f.callers.resource, { signal: AbortSignal.timeout(1000) })
-            break
-          } catch {
-            await pause(25)
-          }
-        }
-        assert(unauthenticated, 'product_mcp_not_listening')
+        const unauthenticated = await waitHttpReady(f.callers.resource, alive, deadline)
+        assert(
+          unauthenticated,
+          `product_mcp_not_listening elapsed_ms=${Math.round(performance.now() - started)} child_alive=${alive()}`
+        )
         assert.equal(unauthenticated.status, 401)
         const auth = 'Basic ' + Buffer.from(f.lease.caller.principal_id + ':' + managementProof).toString('base64')
         const accepted = await fetch(f.origin, { headers: { authorization: auth } })
