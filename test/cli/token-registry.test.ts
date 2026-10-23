@@ -16,6 +16,7 @@ import {
   renewCaller,
   revokeCaller,
   rotateCaller,
+  setDiscardPermission,
   summarize
 } from '../../src/cli/token-registry.js'
 import type { CallerRegistry } from '../../src/cli/token-registry.js'
@@ -55,6 +56,38 @@ test('create clones policy from an existing principal and never repeats a princi
   assert.throws(() => createCaller(base, 'worker', 'owner', 2_000, 0), /Rovloom command failed/)
   assert.throws(() => createCaller(base, 'worker', 'owner', 2_000, 366), /Rovloom command failed/)
   parseRegistry(JSON.parse(JSON.stringify(made.registry)))
+})
+
+test('discard permission is explicit, strictly parsed and preserved by token operations', () => {
+  const base = registry()
+  assert.equal(parseRegistry(base).callers[0]!.principal.permissions, undefined)
+  const allowed = setDiscardPermission(base, 'owner', true)
+  parseRegistry(allowed)
+  assert.equal(base.callers[0]!.principal.permissions, undefined)
+  const cloned = createCaller(allowed, 'worker', 'owner', 2000).registry
+  assert.deepEqual(cloned.callers[1]!.principal.permissions, { discard_response: true })
+  cloned.callers[1]!.principal.permissions!.discard_response = false
+  assert.equal(allowed.callers[0]!.principal.permissions!.discard_response, true)
+  assert.deepEqual(renewCaller(allowed, 'owner', 2000).registry.callers[0]!.principal.permissions, {
+    discard_response: true
+  })
+  assert.deepEqual(rotateCaller(allowed, 'owner', 2000).registry.callers[0]!.principal.permissions, {
+    discard_response: true
+  })
+  assert.deepEqual(setDiscardPermission(allowed, 'owner', false).callers[0]!.principal.permissions, {
+    discard_response: false
+  })
+  for (const permissions of [
+    null,
+    {},
+    { discard_response: 'true' },
+    { discard_response: 1 },
+    { discard_response: true, admin: true }
+  ]) {
+    const changed = structuredClone(base)
+    Object.assign(changed.callers[0]!.principal, { permissions })
+    assert.throws(() => parseRegistry(changed))
+  }
 })
 
 test('renew extends expiry without changing the token digest, even after expiry', () => {
@@ -140,6 +173,12 @@ test('caller source re-reads the registry: revoke, renew, rotate and recovery ap
     }
     write(lapsed)
     assert.equal(authenticate(source, token), null)
+
+    // 已建立身份的独立权限也热生效，不改变令牌或有效期。
+    write(setDiscardPermission(hard.registry, 'owner', true))
+    assert.deepEqual(source.identities.principal({ principal_id: 'owner' })?.permissions, { discard_response: true })
+    write(setDiscardPermission(hard.registry, 'owner', false))
+    assert.deepEqual(source.identities.principal({ principal_id: 'owner' })?.permissions, { discard_response: false })
 
     // 吊销：令牌与已建立会话的主体查询同时失效；恢复文件后无需重启即恢复。
     write(revokeCaller(hard.registry, 'owner'))
@@ -238,6 +277,17 @@ test('token CLI manages the registry file and the local client credential end to
     assert.equal(JSON.parse(readFileSync(client, 'utf8')).token, rotated)
     assert(JSON.parse(readFileSync(client, 'utf8')).expires_at > Date.now() + 80 * DAY)
 
+    const beforePermissions = stored().callers[0]!
+    result = await run('permissions', '--principal', 'owner', '--discard-response', 'true')
+    assert.equal(result.code, 0)
+    assert.equal(result.out, '')
+    assert.deepEqual(stored().callers[0]!.principal.permissions, { discard_response: true })
+    assert.equal(stored().callers[0]!.token_sha256, beforePermissions.token_sha256)
+    assert.equal(stored().callers[0]!.expires_at, beforePermissions.expires_at)
+    result = await run('permissions', '--principal', 'owner', '--discard-response', 'false')
+    assert.equal(result.code, 0)
+    assert.deepEqual(stored().callers[0]!.principal.permissions, { discard_response: false })
+
     result = await run('revoke', '--principal', 'worker')
     assert.equal(result.code, 0)
     assert.deepEqual(
@@ -252,6 +302,11 @@ test('token CLI manages the registry file and the local client credential end to
       ['revoke'],
       ['list', '--principal', 'owner'],
       ['rotate', '--principal', 'owner', '--ttl-days', '0'],
+      ['permissions', '--principal', 'owner'],
+      ['permissions', '--principal', 'owner', '--discard-response', 'yes'],
+      ['permissions', '--principal', 'ghost', '--discard-response', 'true'],
+      ['permissions', '--principal', 'owner', '--discard-response', 'true', '--ttl-days', '30'],
+      ['renew', '--principal', 'owner', '--discard-response', 'true'],
       ['nonsense']
     ]) {
       result = await run(...bad)
