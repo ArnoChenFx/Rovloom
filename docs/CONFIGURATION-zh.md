@@ -155,6 +155,22 @@ Connector 需要可达的 Gateway 地址和已完成的配对。在真实本地�
 - `rovloom gateway --repair-device` 与 `rovloom connector --repair`：设备凭据丢失或泄漏时
   重新配对同一设备。旧凭据立即失效，原生设置与 MCP 授权保持不变。
 
+**在线新增设备（认领）。** Gateway 运行期间也能新增设备，不必停机，也不需要
+Gateway 终端在场：
+
+1. 管理员在管理页新建配对申请（设备名与选定的政策引用），得到申请编号，把编号
+   交给新设备的操作者。
+2. 新设备在本地终端运行 `rovloom connector --claim`，确认信任该 Gateway 地址、
+   输入申请编号，命令提交认领并显示核对码。
+3. 管理员核对管理页上的核对码与设备屏幕一致后批准。Gateway 在批准的同一事务中
+   签发凭据并经认领通道交付，设备确认后配对完成。
+
+认领秘密只保存摘要，原文不离开设备本机；申请与认领都有时限，进入终态或过期的
+记录只能由管理员显式重启。凭据交付后，Connector 自动续跑原生激活：先向 Gateway
+核对按政策引用派生的授权摘要，再提交实测的原生安装；Gateway 发布 provider 绑定
+与 caller 配置并热重载，管理页把认领跟踪到已完成原生激活。全程不停机、无需在
+Gateway 终端操作或手工改配置。
+
 `config check-runtime` 只检查已有 provider registry，不检查 caller 凭据、TLS 信任、
 原生 binary 或模型连接。
 
@@ -288,6 +304,7 @@ Agent/模型访问配置位于 runtime 的私有 HOME/XDG。managed 模式下其
 | `rovloom gateway --add-device [--config ABS]` | 在已完成的引导之上再配对一台 Connector。先停止 Gateway。 |
 | `rovloom gateway --repair-device [--config ABS]` | 重新配对凭据丢失或泄漏的设备。 |
 | `rovloom connector --repair [--config ABS]` | `--repair-device` 的 Connector 端。 |
+| `rovloom connector --claim [--config ABS]` | 在线认领：凭管理页的申请编号向运行中的 Gateway 申请配对，管理员核对码批准后在线取回凭据。 |
 
 显式 `--config` 优先，无效时不会回退。所选文件必须匹配角色。缺失文件会在所选位置生成，已有文件不会被覆盖。
 Ctrl-C 停止前台角色，顶层没有 `start`、`stop` 或 `restart`。端口是 JSON 字段，不是命令行选项。

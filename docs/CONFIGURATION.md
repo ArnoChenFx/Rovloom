@@ -184,6 +184,30 @@ model reply.
   the same device after its credential is lost or leaked. The old credential
   stops working; native settings and MCP grants stay.
 
+**Adding a device online (claim).** A device can also be added while the
+Gateway keeps running, with no Gateway terminal present:
+
+1. An administrator creates a pairing application on the management page (a
+   device name and a selected policy reference) and hands the application
+   number to the new device's operator.
+2. On the new device, `rovloom connector --claim` confirms trust in the
+   Gateway address, takes the application number, submits the claim and
+   displays a check code.
+3. The administrator approves once the check code on the page matches the
+   device screen. The Gateway issues the credential in the same transaction
+   as the approval and delivers it over the claim channel; the device
+   confirms delivery and pairing is complete.
+
+Only digests of claim secrets are stored; the secrets never leave the device.
+Applications and claims expire, and a terminal or expired record can only be
+restarted explicitly by an administrator. After credential delivery, the
+Connector continues into online native activation automatically: it
+cross-checks the authorization derived from the policy reference with the
+Gateway, then submits the measured native installation; the Gateway publishes
+the provider bindings and caller configuration and hot-reloads, and the
+management page follows the claim until it shows as configured. No downtime,
+no Gateway terminal session and no manual configuration edits.
+
 `config check-runtime` checks the existing provider registry only. It does not
 check caller credentials, TLS trust, native binaries or a model connection.
 
@@ -351,6 +375,7 @@ does not skip the other, and any failure returns nonzero.
 | `rovloom gateway --add-device [--config ABS]` | Pairs an additional Connector on a finished setup. Stop the Gateway first. |
 | `rovloom gateway --repair-device [--config ABS]` | Re-pairs a device whose credential is lost or leaked. |
 | `rovloom connector --repair [--config ABS]` | The Connector side of `--repair-device`. |
+| `rovloom connector --claim [--config ABS]` | Online claim: pairs with a running Gateway using an application number from the management page; the credential is delivered online after the administrator approves the check code. |
 
 An explicit `--config` takes priority and never falls back to the default. The
 file must match the role. A missing file is created at the selected path; an

@@ -105,6 +105,11 @@ For a Connector on another machine, set the Gateway's `devices.hostname` so it l
 loopback, and put HTTPS/WSS in front of anything outside a trusted network; see
 [network access](CONFIGURATION.md#network-access).
 
+Adding another device later does not require stopping the Gateway: an
+administrator can create a pairing application on the management page and the
+new device joins online with `rovloom connector --claim`; see
+[Pairing](CONFIGURATION.md#pairing).
+
 After pairing, stop the Gateway and Connector with Ctrl-C. Docker users then run
 `docker compose up -d` and restart `rovloom connector`; the pairing is kept in the volumes.
 From then on, start them with the same commands.

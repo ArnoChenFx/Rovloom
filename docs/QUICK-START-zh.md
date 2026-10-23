@@ -100,6 +100,9 @@ Connector 在另一台机器时，需设置 Gateway 的 `devices.hostname` 使�
 配对完成后，用 Ctrl-C 停止 Gateway 和 Connector。Docker 用户随后运行 `docker compose up -d`
 并重新启动 `rovloom connector`；配对已保存在卷中。之后用同样的命令启动即可。
 
+之后再新增设备不必停 Gateway：管理员在管理页新建配对申请，新设备运行
+`rovloom connector --claim` 在线认领加入，见[配对](CONFIGURATION-zh.md#配对)。
+
 ## 4. 连接 MCP 客户端
 
 在 AI 客户端添加一个 **Streamable HTTP** 服务：
