@@ -446,6 +446,98 @@ test(
 )
 
 test(
+  '本页是合法UTF-8时额外给出逐字节一致的text，二进制页不给',
+  /** 文本形式只是附加表示：encoding 与 chunk 保持 base64 原样，重读结果必须逐字段一致。 */ async () => {
+    const content = Buffer.from('{"value":"中文🙂"}', 'utf8')
+    const textFixture = bufferedResultFixture(content)
+    try {
+      const page = (
+        await textFixture.service.execute('runtime_result_read', { result_id: 'result_fixture' }, textFixture.context)
+      ).data
+      assert.equal(page.encoding, 'base64')
+      assert.equal(page.chunk, content.toString('base64'))
+      assert.equal(page.text, content.toString('utf8'))
+      assert.deepEqual(Buffer.from(page.text!, 'utf8'), content)
+      assert.deepEqual(
+        (await textFixture.service.execute('runtime_result_read', { result_id: 'result_fixture' }, textFixture.context))
+          .data,
+        page
+      )
+    } finally {
+      textFixture.close()
+    }
+    const binaryFixture = bufferedResultFixture(Buffer.from([0xff, 0xfe, 0x00, 0x80, 0x61]))
+    try {
+      const page = (
+        await binaryFixture.service.execute(
+          'runtime_result_read',
+          { result_id: 'result_fixture' },
+          binaryFixture.context
+        )
+      ).data
+      assert.equal(page.text, undefined)
+      assert.equal(page.chunk, Buffer.from([0xff, 0xfe, 0x00, 0x80, 0x61]).toString('base64'))
+    } finally {
+      binaryFixture.close()
+    }
+  }
+)
+
+test(
+  '页边界切开多字节字符时该页不给text，对齐后的页恢复提供',
+  /** 固定3字节页宽遍历8字节内容：只有完整落在页内的末页 ASCII 片段可给出文本。 */ async () => {
+    const f = bufferedResultFixture(Buffer.from('ab🙂cd', 'utf8'))
+    try {
+      const first = (
+        await f.service.execute('runtime_result_read', { result_id: 'result_fixture', max_bytes: 3 }, f.context)
+      ).data
+      assert.equal(first.text, undefined)
+      assert(first.next_cursor)
+      const second = (
+        await f.service.execute(
+          'runtime_result_read',
+          { result_id: 'result_fixture', max_bytes: 3, cursor: first.next_cursor },
+          f.context
+        )
+      ).data
+      assert.equal(second.text, undefined)
+      assert(second.next_cursor)
+      const third = (
+        await f.service.execute(
+          'runtime_result_read',
+          { result_id: 'result_fixture', max_bytes: 3, cursor: second.next_cursor },
+          f.context
+        )
+      ).data
+      assert.equal(third.eof, true)
+      assert.equal(third.text, 'cd')
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
+  '真实Store的小型UTF-8结果单页同时返回base64与text',
+  /** 经真实结果层读取合成响应，text 必须等于原文，摘要与总字节仍以原文为准。 */ async () => {
+    const response = responseOfSize(200)
+    const expected = Buffer.from(canonical(response))
+    const f = projectionFixture({ response })
+    try {
+      const page = (await f.service.execute('runtime_result_read', { result_id: 'result_fixture' }, f.context)).data
+      assert.equal(page.eof, true)
+      assert.equal(page.encoding, 'base64')
+      assert.equal(page.chunk, expected.toString('base64'))
+      assert.equal(page.text, expected.toString('utf8'))
+      assert.equal(page.total_bytes, expected.length)
+      assert.equal(page.sha256, digest(expected.toString()))
+    } finally {
+      f.close()
+    }
+  }
+)
+
+test(
   '有效cursor的重读仍复验当前双方ACL和内容discard，不能缓存授权或页面',
   /** 两侧策略分别撤销，恢复策略也不能恢复已丢弃正文。 */ async () => {
     const f = projectionFixture({ response: responseOfSize(20_000) })

@@ -21,7 +21,7 @@ AI 客户端 ──MCP Streamable HTTP──▶ Gateway ──Wire v2 (WS/WSS)�
 | `runtime_describe` | 精确方法的原生参数、分类和限制 |
 | `runtime_call` | 提交一次原生调用：显式 Target、revision、`contract_ref`、绝对 `deadline`、可选 `client_request_key`、`wait_ms` 短等 |
 | `runtime_call_get` / `runtime_call_cancel` | 查询、取消 |
-| `runtime_result_read` | 按句柄分页读结果，`max_bytes` 不超过 16 KiB，带摘要 |
+| `runtime_result_read` | 按句柄分页读结果，`max_bytes` 不超过 16 KiB，带摘要；本页字节是合法 UTF-8 时额外给出 `text`，与 base64 的 `chunk` 逐字节一致，页边界切开多字节字符时不提供 |
 | `runtime_response_discard` | 丢弃已保存的响应正文 |
 
 - 调用终态：`responded`、`not_dispatched`（确定未写出）、`outcome_unknown`（可能已执行，不会自动重发）。同一 `client_request_key` 加同一请求返回原调用，不同请求报 `conflict`。
