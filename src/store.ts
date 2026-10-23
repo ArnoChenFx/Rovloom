@@ -61,6 +61,7 @@ import type {
 import { publicCall } from './storage/model.js'
 import { ManagementLedger } from './storage/management.js'
 import { DeviceLedger } from './storage/devices.js'
+import type { PairingClaim } from './storage/devices.js'
 // 为本地账本实体生成带类别前缀的随机标识，避免顺序 ID 产生关联。
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
 
@@ -483,6 +484,33 @@ export class Store {
   }
   redeem(token: string): { machine_id: string; credential: string } {
     return this.devices.redeem(token)
+  }
+  startPairingClaim(
+    machine: string,
+    pairingId: string,
+    secretHash: string,
+    userCode: string,
+    ttlMs = 600_000
+  ): PairingClaim {
+    return this.devices.startPairingClaim(machine, pairingId, secretHash, userCode, ttlMs)
+  }
+  pairingClaim(claimId: string): PairingClaim {
+    return this.devices.pairingClaim(claimId)
+  }
+  activePairingClaim(pairingId: string): PairingClaim | undefined {
+    return this.devices.activePairingClaim(pairingId)
+  }
+  verifyPairingClaimSecret(claimId: string, secretPlaintext: string): PairingClaim {
+    return this.devices.verifyPairingClaimSecret(claimId, secretPlaintext)
+  }
+  approvePairingClaim(claimId: string, userCode: string): { machine_id: string; credential: string } {
+    return this.devices.approvePairingClaim(claimId, userCode)
+  }
+  completePairingClaim(claimId: string): void {
+    this.devices.completePairingClaim(claimId)
+  }
+  failPairingClaim(claimId: string): void {
+    this.devices.failPairingClaim(claimId)
   }
   connect(machine: string, credential: string): string {
     return this.devices.connect(machine, credential)
@@ -1206,6 +1234,8 @@ export class Store {
         this.administration.expire(now)
         this.db.prepare('DELETE FROM audit WHERE expires<=?').run(now)
         this.db.prepare('DELETE FROM enrollments WHERE expires<=?').run(now)
+        // 过期的未批准认领直接清理；已批准认领的交付收敛由运行时 custody 负责，不能在维护里静默吞掉。
+        this.db.prepare("DELETE FROM pairing_claims WHERE expires<=? AND status='pending'").run(now)
         // 删除前复核固定目录仍是普通目录：运行中被换成软链接时整轮过期失败关闭，不能跟随链接删到目录外。
         if (this.options.backupDirectory) {
           assertSnapshotDirectoryBoundary(this.options.backupDirectory)

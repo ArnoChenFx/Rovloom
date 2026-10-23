@@ -23,6 +23,7 @@ import { runCli } from '../../src/cli/run.js'
 import { connected, management, options } from '../storage/helpers.js'
 import { openGatewayState } from '../../src/runtime/state.js'
 import { snapshotDirectory } from '../../src/storage/snapshot-directory.js'
+import { SCHEMA_VERSION } from '../../src/storage/schema.js'
 
 /** 构造分开的状态与备份目录，每个命令都经唯一产品 runCli 分派。 */
 function fixture() {
@@ -90,7 +91,7 @@ test('storage check and doctor preserve database bytes and reject missing state,
     const before = readFileSync(f.path)
     const check = await f.run('storage', 'check')
     assert.equal(check.code, 0)
-    assert.equal(check.data.schema, 6)
+    assert.equal(check.data.schema, SCHEMA_VERSION)
     assert.equal(check.data.integrity, 'ok')
     assert.equal(check.data.read_only, true)
     assert.deepEqual(readFileSync(f.path), before)
