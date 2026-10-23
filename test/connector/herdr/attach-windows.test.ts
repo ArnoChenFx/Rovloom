@@ -45,6 +45,7 @@ function fixture() {
   const children: ChildProcess[] = []
   /** 像用户那样运行 `herdr server`（默认会话）。 */
   async function serve(): Promise<ChildProcess> {
+    const started = performance.now()
     const child = spawn(binary, ['server'], {
       cwd: config.cwd,
       env: herdrEnvironment(config),
@@ -52,14 +53,24 @@ function fixture() {
       windowsHide: true
     })
     children.push(child)
-    const deadline = performance.now() + 10_000
+    const deadline = started + 10_000
     while (performance.now() < deadline && child.exitCode === null && child.signalCode === null) {
-      if (await herdrServerPresent(config).catch(() => false)) {
+      const present = await herdrServerPresent(config).catch(() => false)
+      // The probe may finish after the startup deadline or after the owned server exits.
+      if (performance.now() >= deadline || child.exitCode !== null || child.signalCode !== null) {
+        break
+      }
+      if (present) {
         return child
       }
       await pause(100)
     }
-    throw new Error('herdr server did not start')
+    throw new Error(
+      'herdr_server_not_ready elapsed_ms=' +
+        Math.round(performance.now() - started) +
+        ' child_alive=' +
+        String(child.exitCode === null && child.signalCode === null)
+    )
   }
   async function stop(child: ChildProcess): Promise<void> {
     if (child.exitCode === null && child.signalCode === null) {
