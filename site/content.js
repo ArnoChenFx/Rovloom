@@ -1,6 +1,12 @@
 // Project copy is kept together so both languages describe the same capabilities.
 export const copy = {
   zh: {
+    'scene.label': '一个日常场景 / 示意',
+    'scene.client': '随身笔记本',
+    'scene.clientRole': 'AI 客户端发起请求',
+    'scene.host': '家里的工作站',
+    'scene.hostRole': '本地 Agent 执行任务',
+    'scene.caption': '换一台电脑，也能继续使用工作站上的会话。工作区与 Agent 登录留在原处。',
     'hero.proof1': 'Apache-2.0 开源',
     'hero.proof2': '自部署',
     'hero.proof3': '工作区留在本机',
@@ -119,6 +125,13 @@ export const copy = {
       'Rovloom 为 Luvus 与 Herdr 提供跨设备 MCP 入口。自部署 Gateway，连接多台机器上的本地工作区、会话与 Agent。'
   },
   en: {
+    'scene.label': 'AN EVERYDAY SETUP / ILLUSTRATION',
+    'scene.client': 'Your laptop',
+    'scene.clientRole': 'AI client sends a request',
+    'scene.host': 'Your workstation',
+    'scene.hostRole': 'Local Agent does the work',
+    'scene.caption':
+      'Switch computers. Keep working with the sessions on your workstation. Workspaces and Agent logins stay there.',
     'hero.proof1': 'Apache-2.0 open source',
     'hero.proof2': 'Self-hosted',
     'hero.proof3': 'Workspaces stay local',
