@@ -53,6 +53,9 @@ workstation's real sessions.
 curl --fail --silent --show-error --location https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/scripts/install.sh | sh
 ```
 
+Already have Bun (1.4.3 or newer)? `bun add -g rovloom` installs the npm package instead — no
+bundled runtime to download — and `bunx rovloom` runs it without installing.
+
 Windows PowerShell and the Docker Gateway are covered in the [Quick Start](docs/QUICK-START.md).
 
 | | Linux | macOS | Windows |

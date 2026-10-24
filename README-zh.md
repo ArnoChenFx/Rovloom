@@ -48,6 +48,8 @@ AI 客户端通过 MCP 访问 Gateway，并操作工作站上的真实会话。
 curl --fail --silent --show-error --location https://raw.githubusercontent.com/ArnoChenFx/rovloom/main/scripts/install.sh | sh
 ```
 
+已装 Bun（1.4.3 及以上）也可以用 npm 包：`bun add -g rovloom` 全局安装，`bunx rovloom` 免安装运行，无需下载内置运行时的单文件。
+
 Windows PowerShell 与 Docker Gateway 见[快速开始](docs/QUICK-START-zh.md)。
 
 | | Linux | macOS | Windows |

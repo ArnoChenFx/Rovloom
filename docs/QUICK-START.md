@@ -37,17 +37,24 @@ rovloom --version
 Binaries are also on the [releases page](https://github.com/ArnoChenFx/rovloom/releases/latest);
 installer options are in [Distribution](DISTRIBUTION.md).
 
-**Already have Bun (1.4.3 or newer)?** Each release also carries the npm package as a release asset
-(it is not published to the npm registry). Install it globally, or run it once without installing:
+**Already have Bun (1.4.3 or newer)?** Rovloom is on the npm registry; install it globally, or run it
+once without installing:
+
+```sh
+bun add -g rovloom
+rovloom --version
+bunx rovloom --version
+```
+
+Prefer pinned releases? Every release also carries the same package tarball as a release asset:
 
 ```sh
 bun add -g https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz
-rovloom --version
 bunx --package https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz rovloom --version
 ```
 
-Upgrade by running `bun add -g` again with the new release's URL. The package only runs on Bun,
-and `rovloom service install` still requires the standalone binary above.
+Upgrade with `bun update -g rovloom` (or repeat `bun add -g` with the new release's URL). The package
+only runs on Bun, and `rovloom service install` still requires the standalone binary above.
 
 **Gateway in Docker (Linux x64/arm64, Docker Compose v2)** — optional, instead of installing the
 binary on the Gateway host:

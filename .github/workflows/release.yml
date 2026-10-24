@@ -75,7 +75,7 @@ jobs:
           retention-days: 7
           compression-level: 0
   npm:
-    # 与二进制同一 tag 的 npm 包 tarball：Release 资产，不发布到 npm 注册表。
+    # 与二进制同一 tag 的 npm 包 tarball：先作 Release 资产，公开后由 publish job 发布到 npm 注册表。
     needs: [validate, preflight]
     runs-on: ubuntu-24.04
     permissions:
@@ -104,12 +104,18 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      # GitHub Release 公开后把同一 tag 的 tarball 发布到 npm：npm ≥ 11.5.1 用 OIDC trusted publishing
+      # 换取短期凭据并自动生成 provenance；工作流不持有任何长期 npm 秘密。npm 侧需预先把本工作流
+      # 配置为 trusted publisher（首次发布前的准备见 docs/DISTRIBUTION.md）。
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-bun
+      - name: Upgrade npm for OIDC trusted publishing (runner images ship older npm)
+        run: npm install -g npm@latest
       - uses: actions/download-artifact@v8
         with:
           pattern: release-${{ needs.validate.outputs.artifactSet }}-bun-*

@@ -38,9 +38,9 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 3. `preflight`：在 Linux x64 上构建真实产品并跑完整产品 smoke。
 4. `build`：六项矩阵分别在原生 runner 上重新编译，运行产品 smoke，上传收据与 binary。
 5. `npm`：在 Linux 上构建 npm 包 tarball，并从干净目录 `bun add` 后验收（见下文“npm 包 tarball”）。
-6. `publish`：核对恰好六项产物和一个 tarball 后创建草稿 Release、上传资产，校验通过才公开。
+6. `publish`：核对恰好六项产物和一个 tarball 后创建草稿 Release、上传资产，校验通过才公开；公开后把同一 tarball 发布到 npm 注册表（见下文“npm 注册表发布”）。
 
-任何步骤失败都不公开 Release。只有 `publish` 具有 `contents: write`，其他 job 只有 `contents: read`，checkout 不保留凭据。流程不需要 PAT、长期秘密、签名服务或 OIDC 权限。
+任何步骤失败都不公开 Release。只有 `publish` 具有 `contents: write` 与 `id-token: write`，其他 job 只有 `contents: read`，checkout 不保留凭据。流程不需要 PAT、长期秘密或签名服务；`id-token: write` 仅用于向 npm 换取短期的 OIDC 发布凭据。
 
 产品清单 [product.mjs](../scripts/release/product.mjs) 把 `releaseSmoke` 指向 `scripts/release/product-smoke.mjs`。该脚本收到绝对 binary 路径与不含 `v` 的精确版本，成功退出才产生发行收据。help/版本检查、设施探针或模块测试都不能替代它。
 
@@ -86,15 +86,30 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 
 ### npm 包 tarball
 
-已安装 Bun 的用户可以不下载内置运行时的单文件，直接 `bun add -g <Release 上的 rovloom-<version>.tgz>` 或 `bunx --package <URL> rovloom`。它**只是 Release 资产，不发布到 npm 注册表**（注册表发布另见 issue #202）。
+已安装 Bun 的用户可以不下载内置运行时的单文件，直接 `bun add -g rovloom` 或 `bunx rovloom`（npm 注册表，见下节），或从 Release 资产 `bun add -g <URL>` / `bunx --package <URL> rovloom`。
 
-- [npm-package.mjs](../scripts/release/npm-package.mjs) 先执行 `scripts/bun/build.mjs`，再把 `dist/src`（去掉 sourcemap）、`LICENSE`、`README.md` 和精简的 `package.json`（只有运行所需字段；`bin` 指向 `dist/src/cli/main.js`，仍标 `private`）暂存后用 `bun pm pack` 生成 tarball，随后核对条目白名单。管理页静态资源与两个 schema 编译 Worker 已经内嵌在构建产物里；运行时依赖 `@modelcontextprotocol/sdk` 与 `ajv` 由安装时的 Bun 拉取。
+- [npm-package.mjs](../scripts/release/npm-package.mjs) 先执行 `scripts/bun/build.mjs`，再把 `dist/src`（去掉 sourcemap）、`LICENSE`、`README.md` 和精简的 `package.json`（只有运行所需字段；`bin` 指向 `dist/src/cli/main.js`）暂存后用 `bun pm pack` 生成 tarball，随后核对条目白名单。管理页静态资源与两个 schema 编译 Worker 已经内嵌在构建产物里；运行时依赖 `@modelcontextprotocol/sdk` 与 `ajv` 由安装时的 Bun 拉取。
 - 同一份源码重复打包得到逐字节相同的 tarball，所以重跑草稿的字节核对对它同样有效。
 - tarball 与二进制使用同一个 tag、版本和提交：tag 构建写出绑定三者与字节的收据，发布器据此核对。
 - 它的摘要只进入 `SHA256SUMS`，**不进 `release-manifest.json`**：已发布的客户端对 manifest 字段做封闭校验，新增字段会让它们无法读取新清单。
 - [npm-smoke.mjs](../scripts/release/npm-smoke.mjs) 在干净目录 `bun add` 该 tarball，验收 `bin` 链接、`--version`/`--help`/模板/`config check`、`bunx --package`、非 Bun 运行时（`node main.js`）的明确拒绝，并以 bun 直接运行已安装入口，复用 Gateway smoke 的认证 MCP、管理页内嵌资源、schema Worker 与正常关闭检查。它在 [Bun verification](../.github/workflows/bun.yml)、六平台 [Standalone CI](../.github/workflows/standalone.yml) 和 tag 发行的 `npm` job 中运行；需要访问 npm 注册表拉取两个运行时依赖。
 - 入口 `src/cli/runtime-guard.ts` 在非 Bun 运行时或低于 `engines.bun` 下限的 Bun 上直接给出明确提示。
 - 已知限制：`rovloom service install` 只接受单文件二进制；tarball 安装的程序暂不能注册开机服务。
+
+### npm 注册表发布
+
+GitHub Release 公开后，[publish](../scripts/release/publish.mjs) 立即用 [npm](https://registry.npmjs.org) 的 trusted publishing（OIDC）把同一 tarball 发布到 npm 注册表：`bun add -g rovloom`、`bunx rovloom` 由此可用，且与同 tag 的二进制同版本、同字节。发布由 [registry.mjs](../scripts/release/registry.mjs) 执行：
+
+- 仅在 GitHub Release 已公开且全部资产字节核对通过后运行；先查注册表 manifest，本版本未发布过才上传。已存在时只在 tarball sha512 integrity 与注册表一致时只读成功，不同字节绝不覆盖——所以发布失败后的重跑不会把版本发重或发错。
+- 鉴权完全走 npm CLI 的 OIDC trusted publishing（需要 npm ≥ 11.5.1，工作流显式检查）：GitHub Actions 的 `id-token: write` 换取短期凭据，并自动生成 provenance，把包与官方仓库的构建来源公开绑定；工作流不持有任何长期 npm 秘密。
+- 发布用 `npm publish <tarball> --provenance --access public` 上传 Release 资产原字节，不在发布时重打包。
+
+**首次发布前的一次性准备（维护者操作，见 issue #202）**：npm 注册表要求包已存在才能配置 trusted publisher，全新包无法用 OIDC 首发（npm/cli#8544）。任选其一：
+
+1. 手工发布一次：在维护机上 `bun --no-env-file scripts/release/npm-package.mjs /tmp/npm`，用维护者账号 `npm publish /tmp/npm/rovloom-<version>.tgz`（tarball 与 tag 一致），发布后在 npmjs.com 的包设置里添加 trusted publisher（GitHub Actions，`ArnoChenFx/rovloom`，`release.yml`，不含环境名），之后的 tag 都自动走 OIDC；
+2. 或用一枚短期（如一天）的 granular automation token，在对应 tag 的 publish job 上手工重跑一次 `npm publish` 步骤完成首发，随后吊销 token 并配置 trusted publisher。
+
+两段式首发只影响第一个稳定版；同 tag 重跑（Release 已公开、注册表已发布）全程只读。
 
 ### 失败、重跑与不可覆盖
 
@@ -104,7 +119,7 @@ smoke 不调用模型、不使用真实外部凭据、不安装系统服务（�
 
 ### 发行后核验
 
-[Verify published release](../.github/workflows/verify-release.yml) 手动触发：从真实公开 Release 下载六平台二进制，按 `SHA256SUMS` 校验并运行 `--version`；同时在六个平台校验 tarball 摘要并按文档用法 `bun add` / `bunx` 运行，并运行官方安装器，确认 latest 稳定路径可用。它不构建，也不写仓库。
+[Verify published release](../.github/workflows/verify-release.yml) 手动触发：从真实公开 Release 下载六平台二进制，按 `SHA256SUMS` 校验并运行 `--version`；同时在六个平台校验 tarball 摘要并按文档用法 `bun add` / `bunx` 运行，并运行官方安装器，确认 latest 稳定路径可用。稳定版发行后还应核对 npm 注册表：`npm view rovloom version dist.integrity` 应与同 tag 的版本和 tarball integrity 一致。该工作流不构建，也不写仓库。
 
 ## Worker 与内置资源接口
 
