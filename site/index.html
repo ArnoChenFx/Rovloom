@@ -8,7 +8,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; font-src 'self'; base-uri 'self'; form-action 'none'"
     />
-    <meta name="theme-color" content="#faf9f5" />
+    <meta name="theme-color" content="#f7f7f2" />
     <meta name="rovloom-version" content="{{version}}" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Rovloom — Your machines. One connection." />
@@ -71,33 +71,39 @@
               ><svg class="arrow-icon" aria-hidden="true"><use href="#arrow-down"></use></svg
             ></a>
           </div>
+          <ul class="hero-proof" aria-label="Rovloom">
+            <li data-i18n="hero.proof1">{{hero.proof1}}</li>
+            <li data-i18n="hero.proof2">{{hero.proof2}}</li>
+            <li data-i18n="hero.proof3">{{hero.proof3}}</li>
+          </ul>
         </div>
         <div class="topology-block">
+          <div class="map-heading"><span class="map-heading-mark" aria-hidden="true">R /</span><span data-i18n="map.heading">{{map.heading}}</span><span class="map-protocol">MCP → WSS</span></div>
           <div class="topology" role="group" data-i18n-aria="map.aria" aria-label="{{map.aria}}">
             <svg class="connections" viewBox="0 0 560 480" preserveAspectRatio="none" aria-hidden="true">
-              <path class="wire" data-route="agent" d="M280 116V170"></path>
-              <path class="wire" data-route="pc" d="M280 234V258H14V322H25"></path>
-              <path class="wire" data-route="docker" d="M280 234V258H14V410H25"></path>
-              <path class="wire" data-route="vps" d="M280 234V258H546V322H535"></path>
-              <path class="wire" data-route="sandbox" d="M280 234V258H546V410H535"></path>
-              <path class="active-route" data-highlight-route="agent" pathLength="1" d="M280 116V170"></path>
-              <path class="active-route" data-highlight-route="pc" pathLength="1" d="M280 234V258H14V322H25"></path>
-              <path class="active-route" data-highlight-route="docker" pathLength="1" d="M280 234V258H14V410H25"></path>
-              <path class="active-route" data-highlight-route="vps" pathLength="1" d="M280 234V258H546V322H535"></path>
+              <path class="wire" data-route="agent" d="M280 92V140"></path>
+              <path class="wire" data-route="pc" d="M280 204V234Q280 244 270 244H160Q150 244 150 254V274"></path>
+              <path class="wire" data-route="docker" d="M280 204V360Q280 370 270 370H160Q150 370 150 380V386"></path>
+              <path class="wire" data-route="vps" d="M280 204V234Q280 244 290 244H400Q410 244 410 254V274"></path>
+              <path class="wire" data-route="sandbox" d="M280 204V360Q280 370 290 370H400Q410 370 410 380V386"></path>
+              <path class="active-route" data-highlight-route="agent" pathLength="1" d="M280 92V140"></path>
+              <path class="active-route" data-highlight-route="pc" pathLength="1" d="M280 204V234Q280 244 270 244H160Q150 244 150 254V274"></path>
+              <path class="active-route" data-highlight-route="docker" pathLength="1" d="M280 204V360Q280 370 270 370H160Q150 370 150 380V386"></path>
+              <path class="active-route" data-highlight-route="vps" pathLength="1" d="M280 204V234Q280 244 290 244H400Q410 244 410 254V274"></path>
               <path
                 class="active-route"
                 data-highlight-route="sandbox"
                 pathLength="1"
-                d="M280 234V258H546V410H535"
+                d="M280 204V360Q280 370 290 370H400Q410 370 410 380V386"
               ></path>
               <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="5s" repeatCount="indefinite" path="M280 116V170"></animateMotion>
+                <animateMotion dur="5s" repeatCount="indefinite" path="M280 92V140"></animateMotion>
               </circle>
               <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="9s" repeatCount="indefinite" path="M25 410H14V258H280V234"></animateMotion>
+                <animateMotion dur="9s" repeatCount="indefinite" path="M150 386V380Q150 370 160 370H270Q280 370 280 360V204"></animateMotion>
               </circle>
               <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="7s" repeatCount="indefinite" path="M535 322H546V258H280V234"></animateMotion>
+                <animateMotion dur="7s" repeatCount="indefinite" path="M410 274V254Q410 244 400 244H290Q280 244 280 234V204"></animateMotion>
               </circle>
             </svg>
             <button
@@ -173,6 +179,7 @@
               <span class="node-copy"><strong data-i18n="map.sandbox">{{map.sandbox}}</strong></span>
             </button>
           </div>
+          <p class="map-caption" data-i18n="map.caption">{{map.caption}}</p>
           <p id="node-flow" class="node-flow" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
       </section>
@@ -181,6 +188,18 @@
         ><a href="https://github.com/RizRiyz/luvus">Luvus</a><a href="https://github.com/herdrdev/herdr">Herdr</a
         ><a href="https://www.docker.com/">Docker</a><span class="strip-end" data-i18n="strip.end">{{strip.end}}</span>
       </div>
+      <section class="manage-section wrap section" aria-labelledby="manage-title">
+        <div class="manage-heading">
+          <div><p class="eyebrow" data-i18n="manage.label">{{manage.label}}</p><h2 id="manage-title" data-i18n="manage.title">{{manage.title}}</h2></div>
+          <p class="section-description" data-i18n="manage.body">{{manage.body}}</p>
+        </div>
+        <div class="manage-track">
+          <article><span class="manage-index">01 / PAIR</span><h3 data-i18n="manage.oneTitle">{{manage.oneTitle}}</h3><p data-i18n="manage.oneBody">{{manage.oneBody}}</p></article>
+          <article><span class="manage-index">02 / ACTIVATE</span><h3 data-i18n="manage.twoTitle">{{manage.twoTitle}}</h3><p data-i18n="manage.twoBody">{{manage.twoBody}}</p></article>
+          <article><span class="manage-index">03 / MANAGE</span><h3 data-i18n="manage.threeTitle">{{manage.threeTitle}}</h3><p data-i18n="manage.threeBody">{{manage.threeBody}}</p></article>
+        </div>
+        <a class="text-link" data-doc="management" href="https://github.com/ArnoChenFx/rovloom/blob/main/docs/GATEWAY-WEBUI.md"><span data-i18n="manage.docs">{{manage.docs}}</span><svg class="arrow-icon" aria-hidden="true"><use href="#arrow-up-right"></use></svg></a>
+      </section>
       <section id="why" class="why-section section wrap" aria-labelledby="why-title">
         <div class="section-intro">
           <p class="eyebrow" data-i18n="why.label">{{why.label}}</p>
@@ -188,7 +207,23 @@
             <span data-i18n="why.title1">{{why.title1}}</span><br /><span data-i18n="why.title2">{{why.title2}}</span>
           </h2>
           <p class="section-description" data-i18n="why.body">{{why.body}}</p>
-          <div class="woven-motif" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          <figure class="workspace-scene">
+            <figcaption class="scene-label" data-i18n="scene.label">{{scene.label}}</figcaption>
+            <div class="scene-flow">
+              <div class="scene-device">
+                <span class="scene-device-icon"><svg aria-hidden="true"><use href="#workspace-icon"></use></svg></span>
+                <strong data-i18n="scene.client">{{scene.client}}</strong>
+                <span data-i18n="scene.clientRole">{{scene.clientRole}}</span>
+              </div>
+              <div class="scene-bridge"><span>Gateway</span><svg aria-hidden="true" viewBox="0 0 64 16"><path d="M2 8h58m-6-5 6 5-6 5"></path></svg></div>
+              <div class="scene-device">
+                <span class="scene-device-icon"><svg aria-hidden="true"><use href="#server-icon"></use></svg></span>
+                <strong data-i18n="scene.host">{{scene.host}}</strong>
+                <span data-i18n="scene.hostRole">{{scene.hostRole}}</span>
+              </div>
+            </div>
+            <p data-i18n="scene.caption">{{scene.caption}}</p>
+          </figure>
         </div>
         <div class="features">
           <article class="feature">
