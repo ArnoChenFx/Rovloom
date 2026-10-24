@@ -7,3 +7,5 @@ This orphan evidence branch is only an image host for the requested PR comment, 
 Captured locally with Chromium from http://127.0.0.1:4173/rovloom/. Both languages and all six tested widths passed route-endpoint alignment and no-unrelated-card-crossing checks.
 
 Revision 3: `features-zh-1440.png` and `features-zh-390.png` show removal of the floating decorative weave, implementation commit `9e27869`. Feature layout checked in both languages at 390, 768 and 1440px. Other screenshots retain their earlier revision provenance.
+
+Revision 4: `scene-*.png` show the feature introduction redesigned with a meaningful laptop-to-workstation scenario, implementation commit `9786dd5e03953bc2cb5bac44d8ee284fd4b0d99a`. Desktop aligns the scenario panel with the feature cards; tablet uses a side-by-side introduction and scenario, mobile stacks them. Checked both languages at 320, 375, 390, 768, 1024 and 1440px without overflow. Earlier screenshots retain their original revision provenance.
