@@ -52,7 +52,7 @@ docker compose run --rm --service-ports gateway
 
 必须带 `--service-ports`：`docker compose run` 默认不发布 Compose 里的端口，不带的话 Connector 连不上 Gateway。全新卷先执行上面的 init 命令。
 
-保持这个终端开启，用于配对和原生安装批准。在 Connector 主机（Linux x64、macOS 或 Windows x64）的另一个本地终端运行 `rovloom connector`，按[配对](QUICK-START-zh.md#3-配对)继续。不要让第二个 Gateway 使用同一份数据。
+保持这个终端开启，用于配对和原生安装批准。在 Connector 主机（Linux x64、macOS 或 Windows x64）的另一个本地终端运行 `rovloom connector`，按[启动与配对](QUICK-START-zh.md#3-启动与配对)继续。不要让第二个 Gateway 使用同一份数据。
 
 到达 `connector_ready` 后，先停止 Connector，再按 Ctrl-C 停止前台 Gateway。执行 `docker compose up -d`，然后重新启动主机 Connector。配置和配对保留在卷中。
 

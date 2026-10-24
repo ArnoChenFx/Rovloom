@@ -52,7 +52,7 @@ docker compose run --rm --service-ports gateway
 
 `--service-ports` is required: `docker compose run` does not publish the Compose ports by default, so without it the Connector cannot reach the Gateway. Run the init command above before starting a fresh volume.
 
-Keep this terminal open for pairing and native installation approval. On the Connector host (Linux x64, macOS or Windows x64), run `rovloom connector` in another local terminal and follow [Pair](QUICK-START.md#3-pair). Never run a second Gateway on the same data.
+Keep this terminal open for pairing and native installation approval. On the Connector host (Linux x64, macOS or Windows x64), run `rovloom connector` in another local terminal and follow [Start and pair](QUICK-START.md#3-start-and-pair). Never run a second Gateway on the same data.
 
 When setup reaches `connector_ready`, stop the Connector, then stop the foreground Gateway with Ctrl-C. Run `docker compose up -d` and restart the host Connector. Configuration and pairing stay in the volumes.
 
