@@ -1,6 +1,6 @@
 // 唯一main的真实管理入口/HTTP/Store验收；配置、身份、证书和业务种子均为短期合成fixture。
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { before, test } from 'node:test'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -13,6 +13,9 @@ import { createManagementHttpRead } from '../../src/webui/http-client.js'
 import { createManagementWriteClient } from '../../src/webui/write-client.js'
 import { createDeviceManagementFlow } from '../../src/webui/write-flow.js'
 import { managementSourceFixture, managementProof, mcpProof } from './management-source-fixture.js'
+import { buildManagementAssets } from './management-assets-fixture.js'
+
+before(buildManagementAssets)
 
 test(
   '唯一main从独立私有来源交付真实WebUI，Cookie/CSRF确认后写入Store并即时响应来源撤销',
@@ -35,12 +38,6 @@ test(
     let output = ''
     let diagnostic = ''
     try {
-      const build = spawnSync(
-        process.execPath,
-        ['--no-env-file', '-e', "import { buildWebui } from './scripts/bun/webui.mjs'; await buildWebui('dist/webui')"],
-        { stdio: 'ignore' }
-      )
-      assert.equal(build.status, 0)
       const certificate = spawnSync(
         '/usr/bin/openssl',
         [

@@ -1,6 +1,6 @@
 // 从空状态走正式 production 装配、Basic/Cookie/CSRF 与在线激活；只使用本例临时设备及合成安装清单。
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { before, test } from 'node:test'
 import { once } from 'node:events'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
@@ -18,6 +18,9 @@ import { createProductionCliRuntime } from '../../src/cli/production.js'
 import { readRuntimeJson, runtimeReference } from '../../src/cli/runtime-files.js'
 import { parseRegistry, REGISTRY_MAX_BYTES } from '../../src/cli/token-registry.js'
 import { setupReference, setupTarget } from '../../src/cli/setup-policy.js'
+import { buildManagementAssets } from './management-assets-fixture.js'
+
+before(buildManagementAssets)
 
 /** 内核分配本例端口，不探测用户服务。 */
 async function availablePort(): Promise<number> {

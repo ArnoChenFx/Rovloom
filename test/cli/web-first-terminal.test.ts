@@ -1,6 +1,6 @@
 // 真实TTY Gateway拒绝终端配对后保持运行：管理页路径完成首台配对（管理员可配对前创建，设备在线认领）。
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { before, test } from 'node:test'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:net'
 import { configDocument, configTemplate } from '../../src/cli/config.js'
 import { privateDirectory } from '../../src/cli/first-config.js'
+import { buildManagementAssets } from './management-assets-fixture.js'
+
+before(buildManagementAssets)
 
 // 内核分配临时回环端口；不访问外部网络。
 async function port(): Promise<number> {
