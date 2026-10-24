@@ -10,15 +10,11 @@ Mermaid or JavaScript to display them.
 
 The 2880 × 3280 PNGs preserve the exact typography on any viewer. Each links to a
 1440 × 1640 self-contained SVG for zooming; SVGs have a title and text description,
-and embed the original brand artwork without external resource requests. The header
-uses the complete [Rovloom wordmark](../brand/rovloom-logo.png), including its connected R;
-Gateway and Connector use the standalone mark. The pale
+and embed the original brand mark without external resource requests. The pale
 canvas deliberately stays consistent in light and dark README themes.
 
 双语 README 直接显示高清 PNG，点击可查看 SVG 矢量图；无需 Mermaid 插件或客户端脚本。
 PNG 保留完整中文字体，SVG 提供标题和文字描述，品牌图标内嵌，所有图片均使用浅色画布。
-左上角直接使用 `docs/assets/brand/rovloom-logo.png` 完整原图，不再用独立 R 与文字拼接；
-Gateway 和 Connector 继续使用单独的品牌标识。
 
 ## Source and regeneration / 源文件与生成
 
