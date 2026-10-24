@@ -104,8 +104,9 @@ def draw(language):
     add(f'<rect width="{WIDTH}" height="{HEIGHT}" rx="24" fill="#fafaf6"/>')
     add('<g font-family="Noto Sans CJK SC, Noto Sans, Arial, sans-serif">')
     logo = base64.b64encode((ROOT / 'docs/assets/brand/rovloom-mark-transparent.png').read_bytes()).decode()
-    add(f'<image x="64" y="48" width="46" height="46" href="data:image/png;base64,{logo}"/>')
-    text(124, 83, 'Rovloom', 32, weight=700)
+    wordmark = base64.b64encode((ROOT / 'docs/assets/brand/rovloom-logo.png').read_bytes()).decode()
+    # Preserve the original 3:1 artwork and its transparent padding; the visible R aligns with the title.
+    add(f'<image x="40" y="28" width="252" height="84" href="data:image/png;base64,{wordmark}"/>')
     text(1376, 78, 'SYSTEM ARCHITECTURE', 15, MUTED, 500, 'end', 2)
     text(64, 145, c['title'], 40, weight=700)
     text(64, 185, c['subtitle'], 21, MUTED)
