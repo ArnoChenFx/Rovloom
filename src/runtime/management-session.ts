@@ -1,4 +1,4 @@
-// 将既有管理员会话显式映射到短期管理 cookie；只保存秘密摘要，不建立账户、身份库或 HTTP 认证协议。
+// 将既有管理员会话显式映射到管理 cookie，会话截止跟随管理员记录的租期；只保存秘密摘要，不建立账户、身份库或 HTTP 认证协议。
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomBytes } from 'node:crypto'
 import { GatewayError } from '../contracts.js'
@@ -286,7 +286,7 @@ export function createManagementSessionAuthority(
         const previousExpiry = existing?.expiry_only
         let lease = existing
         if (lease && options.reauthenticate === true) {
-          // 只有重新验证的独立上游证明可轮换本地到期窗口；显式撤销/政策失效的墓碑不可恢复。
+          // 只有重新验证的独立上游证明可恢复本地到期；显式撤销/政策失效的墓碑不可恢复。
           if (
             (lease.revoked && !lease.expiry_only) ||
             at < lease.session.expires_at ||
@@ -295,10 +295,8 @@ export function createManagementSessionAuthority(
           ) {
             throw new GatewayError('unauthenticated')
           }
-          const session = Object.freeze({
-            ...lease.upstream,
-            expires_at: Math.min(lease.upstream.expires_at, at + 300_000)
-          })
+          // 会话截止直接采用管理员记录的租期，不再叠加独立的短窗口。
+          const session = lease.upstream
           try {
             base(session, lease.policy)
           } catch {
@@ -316,11 +314,12 @@ export function createManagementSessionAuthority(
             throw new GatewayError('unauthenticated')
           }
         } else {
+          // 首次绑定的会话租期与上游管理员记录一致；撤销、重签与指纹变化仍即时生效。
           const session = Object.freeze({
             caller,
             management_session_ref: sessionRef,
             issued_at: input.issued_at,
-            expires_at: Math.min(input.expires_at, at + 300_000)
+            expires_at: input.expires_at
           })
           const current = base(session)
           if (leases.has(name) || leases.size >= capacity) {
