@@ -134,7 +134,7 @@ Docker Gateway 已按第 1 节初始化后，改用：
 
 ```sh
 docker compose up -d
-docker compose exec gateway rovloom admin create
+docker compose run --rm gateway admin create
 ```
 
 如果已经通过 `rovloom gateway` 启动，也可以在配对提示回答 `n`，Gateway 会保持运行；

@@ -41,7 +41,44 @@ Default local endpoints:
 - `9443` (Connector device channel) on all host interfaces, so Connectors on other machines can reach it. Put a TLS reverse proxy in front of anything outside a trusted network, and restrict it with the host firewall.
 - `9444` (MCP) and `9445` (management page) **only on the host's loopback** (`127.0.0.1`). Remote MCP clients go through a reverse proxy on the host that forwards to `127.0.0.1:9444`, with `mcp.public_url` set (see [Network access](CONFIGURATION.md#network-access)). Do not widen these mappings: the listeners speak plain HTTP, and the Host/Origin check only stops browser DNS rebinding — a network client that sends a loopback `Host` header still gets as far as the Bearer or administrator password.
 
-## First pairing
+## Management login and online pairing
+
+The Gateway does not create an administrator automatically on its first background startup. After initializing the configuration above and waiting for the background Gateway to start successfully, run this in the same Compose directory:
+
+```sh
+docker compose run --rm gateway admin create
+```
+
+The default username is `admin`. The password is the random string printed to stdout, **once only**; save it.
+This command runs the CLI through the image entrypoint using the same configuration and data volumes. It starts
+no second Gateway and needs no `--service-ports`. The official image does not install a `rovloom` command on PATH;
+use the command above for administration.
+
+Open `http://127.0.0.1:9445/` in a browser on the Docker host and sign in with `admin` and the generated password.
+For a browser on another machine, run an SSH tunnel on that machine, then open the same address:
+
+```sh
+ssh -N -L 9445:127.0.0.1:9445 USER@DOCKER_HOST
+```
+
+Replace `USER@DOCKER_HOST` with an SSH account and address for the Docker host. The default Compose file publishes the management port only on the host's loopback.
+
+Check existing administrators with:
+
+```sh
+docker compose run --rm gateway admin list
+```
+
+Skip creation if you already have a working password. If it is lost, rerun `admin create` to issue a new one;
+the previous password and existing browser sessions for that administrator stop working immediately, without
+restarting the Gateway. The administrator password is for the management page and cannot be used as an MCP Bearer.
+
+After signing in, create a pairing application with the default policy `rovloom_setup_v1`, then run
+`rovloom connector --claim` on the Connector host. Review and approve the claim code and local native installation
+access. See [Quick Start: Start and pair](QUICK-START.md#3-start-and-pair) for the full flow and MCP Bearer issuance.
+The Gateway stays in the background throughout this flow.
+
+## First pairing from a terminal
 
 The background service has no interactive terminal. In a real terminal in the Compose directory, stop it and run a foreground Gateway on the same volumes:
 
@@ -86,7 +123,7 @@ docker compose start      # Reuse configuration and data
 docker compose down       # Remove containers and networks; keep volumes
 ```
 
-`docker compose down -v` deletes the volumes, including configuration and data. To upgrade, stop normally, back up the volumes, then run `docker compose pull && docker compose up -d`. `latest` always points to the newest stable release. `rovloom --version` inside the container reports the actual version.
+`docker compose down -v` deletes the volumes, including configuration and data. To upgrade, stop normally, back up the volumes, then run `docker compose pull && docker compose up -d`. `latest` always points to the newest stable release. `docker compose run --rm gateway --version` reports the actual image version.
 
 ## Where to run the Connector
 

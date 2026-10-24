@@ -41,7 +41,41 @@ docker compose ps
 - `9443`（Connector 设备通道）发布到宿主机所有网卡，其它机器上的 Connector 才能连接。跨出可信网络时请前置 TLS 反向代理，并用宿主机防火墙收口。
 - `9444`（MCP）与 `9445`（管理页）**只发布到宿主机回环**（`127.0.0.1`）。远程 MCP 客户端通过宿主机上转发到 `127.0.0.1:9444` 的反向代理访问，并设置 `mcp.public_url`（见[网络访问](CONFIGURATION-zh.md#网络访问)）。不要放宽这两个映射：监听是明文 HTTP，Host/Origin 校验只防浏览器 DNS 重绑定——网络上的客户端手工带回环 `Host` 头仍能走到 Bearer 或管理员密码这一步。
 
-## 首次配对
+## 管理页登录与在线配对
+
+Gateway 首次以后台方式启动时不会自动创建管理员。完成上面的配置初始化，并等待后台 Gateway 正常启动后，在同一个 Compose 目录运行：
+
+```sh
+docker compose run --rm gateway admin create
+```
+
+默认用户名是 `admin`，密码是命令在标准输出中打印的随机字符串，**只显示一次**，请妥善保存。
+该命令通过镜像入口运行 CLI，使用同一组配置和数据卷；它不会启动第二个 Gateway，也不需要
+`--service-ports`。官方镜像没有在 PATH 中安装 `rovloom` 命令，请按上述方式运行管理命令。
+
+在 Docker 宿主机浏览器打开 `http://127.0.0.1:9445/`，用 `admin` 和刚生成的密码登录。
+如果浏览器在另一台机器上，可在浏览器所在机器运行 SSH 隧道，再打开这个地址：
+
+```sh
+ssh -N -L 9445:127.0.0.1:9445 USER@DOCKER_HOST
+```
+
+将 `USER@DOCKER_HOST` 替换为可登录 Docker 宿主机的 SSH 用户和地址。默认 Compose 只向宿主机回环发布管理页端口。
+
+检查已有管理员：
+
+```sh
+docker compose run --rm gateway admin list
+```
+
+已有可用密码时无需再次创建。密码丢失后重新运行 `admin create` 即可签发新密码；同名管理员的旧密码与
+已有浏览器会话立即失效，Gateway 无需重启。管理员密码只用于管理页，不能当作 MCP Bearer。
+
+登录后可新建配对申请，默认策略为 `rovloom_setup_v1`，再在 Connector 主机运行
+`rovloom connector --claim`，核对并批准认领码及本机原生安装访问。完整步骤和 MCP Bearer 的签发见
+[快速开始：启动与配对](QUICK-START-zh.md#3-启动与配对)。此方式下 Gateway 保持后台运行。
+
+## 通过终端首次配对
 
 后台服务没有交互终端。在 Compose 目录的真实终端中先停止后台服务，再用同一组卷启动前台 Gateway：
 
@@ -86,7 +120,7 @@ docker compose start      # 复用原配置和数据
 docker compose down       # 删除容器和网络，保留命名卷
 ```
 
-`docker compose down -v` 会删除卷，包括配置和数据。升级时先正常停止并备份卷，再执行 `docker compose pull && docker compose up -d`。`latest` 始终指向最新稳定版；容器内 `rovloom --version` 报告实际版本。
+`docker compose down -v` 会删除卷，包括配置和数据。升级时先正常停止并备份卷，再执行 `docker compose pull && docker compose up -d`。`latest` 始终指向最新稳定版；`docker compose run --rm gateway --version` 报告实际镜像版本。
 
 ## Connector 运行位置
 
