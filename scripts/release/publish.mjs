@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { assemble, checksumsName, manifestName, releaseContext, repository } from './metadata.mjs'
+import { publishNpm } from './registry.mjs'
 import { findRelease, githubClient, verifyRemoteTag } from './github.mjs'
 
 /** 只生成公开版本和提交说明，固定标记用于阻止借用不属于此契约的已有 Release。 */
@@ -96,9 +97,18 @@ export async function publish(context, bundle, api) {
   return { status: 'published', tag: context.tag, commit: context.commit }
 }
 
+/** GitHub Release 公开且字节齐全后，把同一 tag 的 tarball 发布到 npm 注册表；失败时 Release 已公开，重跑走只读路径后重试。 */
+export async function publishReleaseAndNpm(context, bundle, api, env = process.env, run = undefined) {
+  const release = await publish(context, bundle, api)
+  if (!bundle.npm) {
+    return release
+  }
+  return { ...release, npm: await publishNpm(bundle.npm.path, env, run) }
+}
+
 if (import.meta.main) {
   assert.equal(process.argv.length, 4, 'Usage: bun scripts/release/publish.mjs /staged-platforms /staged-npm')
   const context = releaseContext()
   const bundle = assemble(context, resolve(process.argv[2]), resolve(process.argv[3]))
-  console.log(JSON.stringify(await publish(context, bundle, githubClient(process.env.GITHUB_TOKEN))))
+  console.log(JSON.stringify(await publishReleaseAndNpm(context, bundle, githubClient(process.env.GITHUB_TOKEN))))
 }

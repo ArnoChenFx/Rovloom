@@ -36,16 +36,22 @@ rovloom --version
 也可以从 [Release 页面](https://github.com/ArnoChenFx/rovloom/releases/latest)下载二进制；
 安装器选项见[分发说明](DISTRIBUTION.md)。
 
-**已经装了 Bun（1.4.3 及以上）？** 每个发行同时附带 npm 包 tarball（只是 Release 资产，不在 npm 注册表）。
-可以全局安装，也可以不安装直接运行一次：
+**已经装了 Bun（1.4.3 及以上）？** Rovloom 发布在 npm 注册表上，可以全局安装，也可以不安装直接运行一次：
+
+```sh
+bun add -g rovloom
+rovloom --version
+bunx rovloom --version
+```
+
+需要锁定版本时，每个发行也附带同样的 npm 包 tarball 作为 Release 资产：
 
 ```sh
 bun add -g https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz
-rovloom --version
 bunx --package https://github.com/ArnoChenFx/rovloom/releases/download/v<version>/rovloom-<version>.tgz rovloom --version
 ```
 
-升级时用新发行的地址再执行一次 `bun add -g`。这个包只能在 Bun 上运行，
+升级用 `bun update -g rovloom`（或用新发行的地址再执行一次 `bun add -g`）。这个包只能在 Bun 上运行，
 `rovloom service install` 仍然需要上面的单文件二进制。
 
 **Docker 运行 Gateway（Linux x64/arm64，Docker Compose v2）**——可选，无需在 Gateway 主机安装二进制：

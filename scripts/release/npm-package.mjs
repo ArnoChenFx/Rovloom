@@ -1,31 +1,17 @@
-/** 构建只含运行所需文件的 npm 包 tarball（GitHub Release 资产，不发布到 npm 注册表）；内容与版本在打包后核对。 */
+/** 构建只含运行所需文件的 npm 包 tarball（GitHub Release 资产，同一 tarball 也用于 npm 注册表发布）；内容与版本在打包后核对。 */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { encode, fileMetadata, npmAssetName, releaseContext, root, validateProductVersion } from './metadata.mjs'
+import { registryNpmPackageJson } from './registry.mjs'
 
-/** 从仓库 package.json 取出运行所需字段；脚本、devDependencies 和仓库内部字段不进入发布包。 */
+const releasePackageJson = registryNpmPackageJson
+
+/** 兼容旧名：Release tarball 与注册表发布共用同一份派生清单（见 registry.mjs）。 */
 export function npmPackageJson(source) {
-  assert.equal(source.name, 'rovloom')
-  assert.deepEqual(source.bin, { rovloom: 'dist/src/cli/main.js' })
-  assert(source.dependencies && Object.keys(source.dependencies).length > 0, 'Runtime dependencies are required')
-  return {
-    name: source.name,
-    version: source.version,
-    description: source.description,
-    license: source.license,
-    // 仍是私有包：这是 Release 资产，不是 npm 注册表发布（见 #202）。
-    private: true,
-    type: source.type,
-    engines: source.engines,
-    bin: source.bin,
-    files: ['dist/src', 'LICENSE', 'README.md'],
-    dependencies: source.dependencies,
-    repository: { type: 'git', url: 'git+https://github.com/ArnoChenFx/rovloom.git' },
-    homepage: 'https://github.com/ArnoChenFx/rovloom#readme'
-  }
+  return releasePackageJson(source)
 }
 
 /** tarball 条目白名单：只允许 package.json、LICENSE、README 与 dist/src 下的非 sourcemap JS。 */
@@ -68,7 +54,7 @@ export async function packNpm(destination) {
     for (const file of ['LICENSE', 'README.md']) {
       cpSync(resolve(root, file), join(stage, file))
     }
-    writeFileSync(join(stage, 'package.json'), JSON.stringify(npmPackageJson(source), null, 2) + '\n')
+    writeFileSync(join(stage, 'package.json'), JSON.stringify(releasePackageJson(source), null, 2) + '\n')
     mkdirSync(destination, { recursive: true })
     const pack = spawnSync(process.execPath, ['--no-env-file', 'pm', 'pack', '--destination', destination], {
       cwd: stage,
