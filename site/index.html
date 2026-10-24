@@ -179,6 +179,11 @@
               <span class="node-copy"><strong data-i18n="map.sandbox">{{map.sandbox}}</strong></span>
             </button>
           </div>
+          <div class="map-local-stack">
+            <p class="map-stack-label" data-i18n="map.localLabel">{{map.localLabel}}</p>
+            <p class="map-stack-route"><span>Connector</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12m-4-4 4 4-4 4"></path></svg><span>Luvus / Herdr</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12m-4-4 4 4-4 4"></path></svg><strong>Agents</strong></p>
+            <ul class="agent-names" aria-label="Agents"><li>Claude Code</li><li>Codex</li><li>Pi</li><li>OpenCode</li><li>Fx</li></ul>
+          </div>
           <p class="map-caption" data-i18n="map.caption">{{map.caption}}</p>
           <p id="node-flow" class="node-flow" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
@@ -274,10 +279,17 @@
               ></a>
             </div>
           </div>
-          <div class="flow-track" aria-label="MCP Client to Gateway to Connector to local runtime">
-            <span>MCP CLIENT</span><i aria-hidden="true">→</i
-            ><span class="flow-gateway"><img src="./assets/mark.png" width="24" height="24" alt="" />GATEWAY</span
-            ><i aria-hidden="true">←</i><span>CONNECTOR</span><i aria-hidden="true">→</i><span>LUVUS / HERDR</span>
+          <div class="flow-track" role="group" data-i18n-aria="how.flowAria" aria-label="{{how.flowAria}}">
+            <div class="flow-stage"><small data-i18n="how.clientLabel">{{how.clientLabel}}</small><strong>MCP CLIENT</strong></div>
+            <svg class="flow-arrow" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg>
+            <div class="flow-stage flow-gateway"><small data-i18n="how.gatewayLabel">{{how.gatewayLabel}}</small><strong><img src="./assets/mark.png" width="24" height="24" alt="" />GATEWAY</strong></div>
+            <svg class="flow-arrow flow-transport" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg>
+            <div class="flow-local">
+              <p class="flow-local-label" data-i18n="how.localLabel">{{how.localLabel}}</p>
+              <div class="flow-local-stages"><strong>CONNECTOR</strong><svg class="flow-arrow" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg><strong>LUVUS / HERDR</strong><svg class="flow-arrow" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg><strong>AGENTS</strong></div>
+              <ul class="agent-names" aria-label="Agents"><li>Claude Code</li><li>Codex</li><li>Pi</li><li>OpenCode</li><li>Fx</li></ul>
+              <p class="flow-agent-note" data-i18n="how.agentNote">{{how.agentNote}}</p>
+            </div>
           </div>
           <div class="steps">
             <article>

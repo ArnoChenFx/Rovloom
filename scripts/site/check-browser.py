@@ -48,6 +48,12 @@ def main():
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (language, width)
                 for element in page.locator('img').all():
                     assert element.evaluate('(image) => image.complete && image.naturalWidth > 0')
+                # The local hierarchy and Agent labels must fit at the narrowest widths.
+                for selector in ['.map-local-stack', '.flow-local']:
+                    region = page.locator(selector)
+                    assert region.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, selector)
+                    for label in region.locator('.agent-names li').all():
+                        assert label.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, label.inner_text())
                 nodes = page.locator('.map-node')
                 assert nodes.count() == 6
                 for element in nodes.all():
@@ -71,6 +77,7 @@ def main():
                 page.locator('[data-node=pc]').click()
                 expect(page.locator('#node-flow')).to_be_empty()
             assert page.locator('.topology').get_attribute('role') == 'group'
+            page.locator('.flow-track').screenshot(path=str(out / f'agent-flow-{language}.png'))
             flows = set()
             for node in ['pc', 'vps', 'docker', 'sandbox', 'agent', 'gateway']:
                 button = page.locator(f'[data-node={node}]')
@@ -179,6 +186,7 @@ def main():
         fallback.goto(base, wait_until='networkidle')
         assert '一个 MCP 入口' in fallback.locator('h1').inner_text()
         assert 'rovloom gateway' in fallback.locator('#command').inner_text()
+        assert 'Claude Code' in fallback.locator('.flow-local').inner_text()
         assert not errors, errors
         assert all(request.startswith(base) for request in requests), requests
         report = {
@@ -187,7 +195,7 @@ def main():
                        'localized topology labels and keyboard route selection',
                        'six selected call flows, deselection and live language changes', 'smooth highlights without layout shifts', 'keyboard tabs',
                        'clipboard', 'language persistence', 'FAQ', 'mobile navigation', 'reduced motion',
-                       'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests'],
+                       'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests', 'local runtime and Agent hierarchy fits all widths'],
             'pageErrors': errors
         }
         (out / 'browser-verification.json').write_text(json.dumps(report, indent=2) + '\n')

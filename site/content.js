@@ -1,6 +1,13 @@
 // Project copy is kept together so both languages describe the same capabilities.
 export const copy = {
   zh: {
+    'how.flowAria':
+      'AI 客户端经 Gateway 调用设备内 Connector、Luvus 或 Herdr，再访问会话中的 Claude Code、Codex、Pi、OpenCode、Fx 等 Agent；请求与结果双向传递。',
+    'how.agentNote': 'Agent 示例，需本机安装；能力由对应 Runtime 提供。',
+    'how.localLabel': '每台设备内部 · 独立会话与登录',
+    'how.gatewayLabel': '认证与路由',
+    'how.clientLabel': '发起调用',
+    'map.localLabel': '每个工作现场的内部层级 · 示例',
     'scene.label': '一个日常场景 / 示意',
     'scene.client': '随身笔记本',
     'scene.clientRole': 'AI 客户端发起请求',
@@ -38,18 +45,18 @@ export const copy = {
     'hero.how': '看看如何工作',
     'map.agent': '你的 AI 客户端',
     'map.aria':
-      'AI 客户端通过 Gateway 连接个人电脑、VPS、Docker 容器与 Agent Sandbox 的部署场景示意（个人电脑包括 Linux、Windows 和 macOS）',
+      'AI 客户端通过 Gateway 连接个人电脑（Linux、Windows、macOS）、VPS、Docker 容器与 Agent Sandbox；每个环境内部经 Connector 和 Luvus / Herdr 访问本地会话中的 Agent。',
     'map.pc': '个人电脑',
     'map.pcPlatforms': 'Linux · Windows · macOS',
     'map.vps': 'VPS',
     'map.docker': 'Docker 容器',
     'map.sandbox': 'Agent Sandbox',
-    'map.agentFlow': 'AI 客户端通过 MCP 连接 Gateway，选择工作环境并发起调用。',
-    'map.gatewayFlow': 'Gateway 校验请求，将调用路由到目标 Connector，再把执行结果返回客户端。',
-    'map.pcFlow': '请求经 Gateway 到达个人电脑的 Connector，调用本机 Luvus / Herdr 并返回结果。',
-    'map.vpsFlow': '请求经 Gateway 到达 VPS 的 Connector，在远程工作区执行并返回结果。',
-    'map.dockerFlow': '请求经 Gateway 和 Connector 到达容器工作区，执行结果沿原路径返回。',
-    'map.sandboxFlow': '请求经 Gateway 和 Connector 到达 Agent Sandbox，在沙箱工作区执行并返回结果。',
+    'map.agentFlow': 'AI 客户端通过 MCP 连接 Gateway，选择设备和会话，调用本地 Agent。',
+    'map.gatewayFlow': 'Gateway 核验权限并路由到目标 Connector，再经 Luvus / Herdr 访问会话中的 Agent。',
+    'map.pcFlow': 'Gateway → 个人电脑的 Connector → Luvus / Herdr → 本地会话中的 Agent，结果沿原路返回。',
+    'map.vpsFlow': 'Gateway → VPS 的 Connector → Luvus / Herdr → 远程会话中的 Agent，结果沿原路返回。',
+    'map.dockerFlow': 'Gateway → 容器内的 Connector → Luvus / Herdr → 容器会话中的 Agent，结果沿原路返回。',
+    'map.sandboxFlow': 'Gateway → 沙箱内的 Connector → Luvus / Herdr → 沙箱会话中的 Agent，结果沿原路返回。',
     'strip.label': '连接已有工具，不改变你的习惯',
     'strip.end': '为你自己的设备而造',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
@@ -73,9 +80,9 @@ export const copy = {
     'how.twoTitle': '发现',
     'how.twoBody': '从同一个 MCP 入口发现可见设备与 Provider，读取实际安装版本的接口能力。',
     'how.threeTitle': '调用',
-    'how.threeBody': '指定设备和实例操作工作区、窗格或 Agent，再通过调用 ID 获取结果。',
+    'how.threeBody': '指定设备、Provider 和会话，通过 Luvus / Herdr 操作工作区或会话中的 Agent，再按调用 ID 获取结果。',
     'how.docs': '阅读系统设计',
-    'how.note': 'Runtime 留在各自机器上。Rovloom 连接它们，不复制它们。',
+    'how.note': 'Connector 主动建立 WSS 连接；调用经 Runtime 到达会话中的 Agent，工作区和登录留在原设备。',
     'start.label': '03 / FROM DOWNLOAD TO FIRST CONNECTION',
     'start.title1': '接入下一台机器，',
     'start.title2': '从这里开始',
@@ -125,6 +132,13 @@ export const copy = {
       'Rovloom 为 Luvus 与 Herdr 提供跨设备 MCP 入口。自部署 Gateway，连接多台机器上的本地工作区、会话与 Agent。'
   },
   en: {
+    'how.flowAria':
+      'An AI client calls Gateway, then the device Connector and Luvus or Herdr to access session Agents such as Claude Code, Codex, Pi, OpenCode and Fx. Requests and results travel both ways.',
+    'how.agentNote': 'Agent examples; install locally. Capabilities depend on the runtime.',
+    'how.localLabel': 'INSIDE EACH DEVICE · LOCAL SESSIONS & LOGINS',
+    'how.gatewayLabel': 'Authorize & route',
+    'how.clientLabel': 'Send a call',
+    'map.localLabel': 'INSIDE EACH WORKSPACE · ILLUSTRATION',
     'scene.label': 'AN EVERYDAY SETUP / ILLUSTRATION',
     'scene.client': 'Your laptop',
     'scene.clientRole': 'AI client sends a request',
@@ -167,22 +181,24 @@ export const copy = {
     'hero.how': 'See how it works',
     'map.agent': 'Your AI client',
     'map.aria':
-      'Deployment illustration: an AI client connects through Gateway to personal computers (Linux, Windows, macOS), VPS, Docker containers and Agent Sandbox',
+      'An AI client connects through Gateway to personal computers (Linux, Windows, macOS), VPS, Docker containers and Agent Sandbox. Each workspace uses its own Connector and Luvus / Herdr to access local session Agents.',
     'map.pc': 'Personal computer',
     'map.pcPlatforms': 'Linux · Windows · macOS',
     'map.vps': 'VPS',
     'map.docker': 'Docker container',
     'map.sandbox': 'Agent Sandbox',
-    'map.agentFlow': 'The AI client connects to Gateway over MCP, selects a workspace and sends a call.',
-    'map.gatewayFlow': 'Gateway checks the request, routes it to the target Connector and returns the result.',
+    'map.agentFlow':
+      'The AI client connects to Gateway over MCP, selects a device and session, then calls a local Agent.',
+    'map.gatewayFlow':
+      'Gateway checks permissions, routes to the target Connector, and accesses session Agents through Luvus / Herdr.',
     'map.pcFlow':
-      'Gateway routes the call to your computer’s Connector, which invokes local Luvus / Herdr and returns the result.',
+      'Gateway → your computer’s Connector → Luvus / Herdr → local session Agent. Results return along the same path.',
     'map.vpsFlow':
-      'Gateway routes the call to the VPS Connector, which runs it in the remote workspace and returns the result.',
+      'Gateway → VPS Connector → Luvus / Herdr → remote session Agent. Results return along the same path.',
     'map.dockerFlow':
-      'The call reaches the container workspace through Gateway and Connector. Results return along the same path.',
+      'Gateway → container Connector → Luvus / Herdr → container session Agent. Results return along the same path.',
     'map.sandboxFlow':
-      'The call reaches Agent Sandbox through Gateway and Connector, runs in its workspace and returns the result.',
+      'Gateway → sandbox Connector → Luvus / Herdr → sandbox session Agent. Results return along the same path.',
     'strip.label': 'Connect your tools. Keep your habits.',
     'strip.end': 'BUILT FOR YOUR OWN MACHINES',
     'why.label': '01 / BUILT AROUND YOUR WORKSPACE',
@@ -215,9 +231,10 @@ export const copy = {
       'Discover visible machines and Providers through one MCP entry point, using the capabilities of the actual installed runtime.',
     'how.threeTitle': 'Call',
     'how.threeBody':
-      'Target a machine and runtime to work with workspaces, panes or Agents. Retrieve the result using its call ID.',
+      'Target a device, Provider and session. Use Luvus / Herdr to work with workspaces or session Agents, then retrieve results by call ID.',
     'how.docs': 'Read the architecture',
-    'how.note': 'Runtimes stay on their machines. Rovloom connects them, without copying them.',
+    'how.note':
+      'Connector initiates WSS. Calls reach session Agents through their runtime; workspaces and logins stay on the device.',
     'start.label': '03 / FROM DOWNLOAD TO FIRST CONNECTION',
     'start.title1': 'Your next machine',
     'start.title2': 'starts here',
