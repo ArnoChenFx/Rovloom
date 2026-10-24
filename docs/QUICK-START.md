@@ -144,7 +144,7 @@ For a Docker Gateway initialized in section 1, use instead:
 
 ```sh
 docker compose up -d
-docker compose exec gateway rovloom admin create
+docker compose run --rm gateway admin create
 ```
 
 If you already started `rovloom gateway`, answer `n` to its pairing prompt. It keeps running;

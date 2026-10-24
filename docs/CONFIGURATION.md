@@ -154,7 +154,7 @@ administrator can see and manage every device and provider the Gateway knows, in
 later, but cannot call MCP. `rovloom admin create` also works on a Gateway that has
 not completed first pairing: it initializes the caller registry the login flow needs,
 so the management page is available before the first device exists. In Docker use
-`docker compose exec gateway rovloom admin create`.
+`docker compose run --rm gateway admin create`.
 
 ### Managing Bearer tokens
 
