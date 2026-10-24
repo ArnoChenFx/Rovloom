@@ -151,7 +151,8 @@ def main():
     shutil.copy(args.binary, rov); os.chmod(rov, 0o755)
     source, name = (args.herdr, 'herdr') if args.herdr else (args.luvus, 'luvus')
     shutil.copy(source, os.path.join(herdr_dir, name)); os.chmod(os.path.join(herdr_dir, name), 0o700)
-    base = {'LANG': 'C.UTF-8', 'TERM': 'xterm'}
+    # ROVLOOM_LANG 固定英文输出，宿主 locale 不影响这些脚本的提示标记。
+    base = {'LANG': 'C.UTF-8', 'TERM': 'xterm', 'ROVLOOM_LANG': 'en'}
     env_g = {**base, 'HOME': home_g, 'PATH': '/usr/bin:/bin'}
     # Connector 的 PATH 里有 herdr 所在目录：不写 runtime_bin_dirs，验证默认从 PATH 发现程序。
     env_c = {**base, 'HOME': home_c, 'PATH': f'{herdr_dir}:/usr/bin:/bin'}
@@ -191,7 +192,7 @@ def main():
         code = CODE.search(gateway.expect('Gateway address and code')).group(0)
         connector = Term('connector', [rov, 'connector'], env_c, home_c); terms.append(connector)
         connector.expect('Gateway address'); connector.send('ws://127.0.0.1:9443\n')
-        connector.expect('配对码'); connector.send(code + '\n')
+        connector.expect('One-time pairing code'); connector.send(code + '\n')
         deadline, ready = time.time() + 180, False
         while time.time() < deadline and not ready:
             connector.pump(1.0); gateway.pump(0.3)
@@ -292,7 +293,7 @@ def main():
             gateway.expect('Re-pair the existing Connector device'); gateway.send('y\n')
             code = CODE.search(gateway.expect('rovloom connector --repair')).group(0)
             connector = Term('connector-repair', [rov, 'connector', '--repair'], env_c, home_c); terms.append(connector)
-            connector.expect('的一次性码'); connector.send(code + '\n')
+            connector.expect('One-time re-pairing code'); connector.send(code + '\n')
             connector.expect('[y/N]'); connector.send('y\n')
             connector.expect('device_repaired')
             deadline, ready = time.time() + 120, False
@@ -319,7 +320,7 @@ def main():
             code = CODE.search(gateway.expect('Gateway address and code')).group(0)
             connector2 = Term('connector2', [rov, 'connector'], env_c2, home_c2); terms.append(connector2)
             connector2.expect('Gateway address'); connector2.send('ws://127.0.0.1:9443\n')
-            connector2.expect('配对码'); connector2.send(code + '\n')
+            connector2.expect('One-time pairing code'); connector2.send(code + '\n')
             deadline, ready = time.time() + 180, False
             while time.time() < deadline and not ready:
                 connector2.pump(1.0); gateway.pump(0.3)

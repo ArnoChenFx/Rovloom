@@ -1,6 +1,7 @@
 // 提供供现有 CLI 调用的最小 service parser 接缝，不建立第二可执行入口。
 import { isRole, servicePlatform, validateSpec } from './spec.js'
 import { ServiceManager } from './manager.js'
+import { cliMessages, type CliLanguage } from '../cli/messages.js'
 import {
   ServiceError,
   type ServiceAction,
@@ -10,15 +11,6 @@ import {
 } from './types.js'
 
 const actions = new Set(['install', 'uninstall', 'start', 'restart', 'stop'])
-export const SERVICE_HELP = `service install --role gateway|connector [--executable ABS] [--config ABS] --workdir ABS --user ACCOUNT
-service uninstall|start|restart|stop --role gateway|connector
-install registers boot startup without starting; uninstall only revokes future boot startup and preserves running instances and their control records.
-Omitted --executable uses the current standalone binary; a different binary is rejected.
-Omitted --config uses the same current-user role file as foreground startup. Installation fixes its absolute path; background startup does not select another home.
-Linux uses systemd system units; macOS uses system LaunchDaemons; Windows uses boot-triggered tasks, not SCM services or login tasks.
-Gateway services support Linux systemd, macOS system LaunchDaemons and Windows boot-triggered tasks; the local native Connector service supports Linux x64, Windows x64 and macOS (x64 / arm64).
-Windows uses the explicitly selected existing user with S4U, without storing a password or requiring login. It does not provide an interactive desktop or Windows network credentials/EFS access. Running services receive a local shutdown request; queued/start-racing tasks return service_busy without forced termination; uninstall never stops it.
-`
 
 export type ServiceConfigPathResolver = (role: ServiceRole, account: string) => string
 
@@ -83,6 +75,8 @@ export type ServiceCommandHost = {
   executable?: string
   // 复用唯一 CLI 的已验证 home/角色默认路径 helper，不接收配置中的身份断言。
   resolveDefaultConfig?: ServiceConfigPathResolver
+  // 显示语言由唯一 CLI 入口解析后传入；省略时帮助文本按英文输出。
+  language?: CliLanguage
   // 诊断使用 stderr，仅输出固定错误码或非秘密监管状态；不把 stdout 当作 MCP transport。
   diagnostic(text: string): void
 }
@@ -97,7 +91,7 @@ export async function handleServiceCommand(
   }
   try {
     if (args.length === 2 && args[1] === '--help') {
-      host.diagnostic(SERVICE_HELP)
+      host.diagnostic(cliMessages(host.language)['help.service'])
       return 0
     }
     const request = parseServiceCommand(

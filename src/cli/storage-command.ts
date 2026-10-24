@@ -9,21 +9,10 @@ import { databasePath, privatePath } from '../storage/files.js'
 import { configuredSnapshotDirectory } from '../storage/snapshot-directory.js'
 import { inspectStorage } from '../storage/inspect.js'
 import { CLI_ERROR_CODES, CliError, readConfig } from './config.js'
+import { cliMessages, type CliLanguage } from './messages.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import { runtimeReference } from './runtime-files.js'
-
-export const STORAGE_HELP = `用法：
-  rovloom doctor --role gateway|connector [--config /absolute/config.json] [--json]
-  rovloom storage check --role gateway [--config /absolute/config.json] [--json]
-  rovloom storage backup --role gateway --output /path/to/gateway.backups/snapshot.db [--config /absolute/config.json] [--json]
-  rovloom storage resume --role gateway [--config /absolute/config.json] [--json]
-
-Gateway 命令须先停止服务；沿用同一写锁，拒绝活动或无法判定的持有者。
-check 只读；backup 仅使用真实状态目录同级的 <state>.backups 普通目录，导出脱敏快照（不含原文及有效凭据），完整状态需另行离线备份。
-resume 是本机操作员显式批准的解除降级，完整性、时钟或预算不正常时仍拒绝。
-Connector doctor 只检查配置及 managed 状态，不启动 native，也不声明 native 就绪。
-`
 
 type Flags = {
   action: 'doctor' | 'check' | 'backup' | 'resume'
@@ -94,13 +83,13 @@ const STORAGE_ERRORS = new Set([
 /** 统一 CLI 输出；安全码白名单之外的异常不反射路径、SQL、配置或私有文本。 */
 export async function handleStorageCommand(
   args: readonly string[],
-  io: { stdout: Writable; stderr: Writable },
+  io: { stdout: Writable; stderr: Writable; language?: CliLanguage },
   environment?: ConfigPathEnvironment
 ): Promise<number> {
   let json = args.includes('--json')
   try {
     if (args.length === 2 && args[1] === '--help') {
-      io.stderr.write(STORAGE_HELP)
+      io.stderr.write(cliMessages(io.language)['help.storage'])
       return 0
     }
     const flags = parse(args)

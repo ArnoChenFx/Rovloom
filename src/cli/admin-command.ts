@@ -5,6 +5,7 @@ import { dirname } from 'node:path'
 import { boundedJson, fields, object } from '../wire/index.js'
 import { canonicalLoopbackHost } from '../mcp/listen.js'
 import { CLI_ERROR_CODES, CliError, readConfig, type GatewayConfig } from './config.js'
+import { cliMessages, formatMessage, type CliLanguage } from './messages.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import { runtimeReference } from './runtime-files.js'
 import { readSetupJson, setupFileStamp, writeSetupFile } from './setup-files.js'
@@ -17,19 +18,6 @@ import {
   DEFAULT_ADMIN_TTL_DAYS
 } from './admin-registry.js'
 import { REGISTRY_MAX_BYTES, parseRegistry } from './token-registry.js'
-
-export const ADMIN_HELP = `用法：
-  rovloom admin list [--config /absolute/path/gateway.json]
-  rovloom admin create [--principal ID] [--ttl-days N] [--config /absolute/path/gateway.json]
-  rovloom admin revoke [--principal ID] [--config /absolute/path/gateway.json]
-
-管理页（默认 http://127.0.0.1:9445/）用 HTTP Basic 登录：用户名是管理员 ID（默认 admin），密码是 create 输出的口令。
-口令原值只在 create 时写到 stdout 一次（Gateway 只保存 SHA-256 摘要）；其余信息写到 stderr。丢失口令就再 create 一次：
-同名管理员被重新签发，旧口令与已登录的浏览器会话立即失效。revoke 删除管理员，同样立即生效。修改无需重启 Gateway。
-管理员不能调用 MCP，也与 MCP 令牌、设备凭据互不通用；有效期默认 ${DEFAULT_ADMIN_TTL_DAYS} 天（1-365）。
-可在首次配对前创建：全新 Gateway 会自行初始化空的 MCP 调用方注册表，随后即可在管理页
-在线配对首台 Connector（新建申请，设备运行 rovloom connector --claim）。
-`
 
 type Flags = { sub: string; config?: string; principal?: string; days?: number }
 
@@ -155,13 +143,13 @@ export function managementSourceExists(config: GatewayConfig): boolean {
 /** 处理 admin 子命令并返回退出码；诊断只含固定错误码。 */
 export async function handleAdminCommand(
   args: readonly string[],
-  io: { stdout: Writable; stderr: Writable },
+  io: { stdout: Writable; stderr: Writable; language?: CliLanguage },
   environment?: ConfigPathEnvironment,
   now: () => number = Date.now
 ): Promise<number> {
   try {
     if (args.length === 2 && args[1] === '--help') {
-      io.stderr.write(ADMIN_HELP)
+      io.stderr.write(formatMessage(cliMessages(io.language)['help.admin'], { ttlDays: DEFAULT_ADMIN_TTL_DAYS }))
       return 0
     }
     const flags = parse(args)
@@ -176,15 +164,14 @@ export async function handleAdminCommand(
     if (flags.sub === 'create') {
       const issued = writeAdminFiles(config, principal, at, flags.days)
       io.stderr.write(
-        'created administrator ' +
-          principal +
-          ' expires ' +
-          new Date(issued.expires_at).toISOString() +
-          '\nlogin at http://127.0.0.1:' +
-          config.management_port +
-          '/ with user "' +
-          principal +
-          '" and the password below (shown once)\n'
+        formatMessage(cliMessages(io.language)['admin.create.created'], {
+          principal,
+          expires: new Date(issued.expires_at).toISOString()
+        }) +
+          formatMessage(cliMessages(io.language)['admin.create.login'], {
+            url: 'http://127.0.0.1:' + config.management_port + '/',
+            user: principal
+          })
       )
       io.stdout.write(issued.secret + '\n')
       return 0
@@ -205,7 +192,7 @@ export async function handleAdminCommand(
     const revoked = revokeAdmin(callers, file, principal)
     writeSetupFile(managementPath, boundedJson(revoked.management, 65_536), true, stamp)
     writeSetupFile(callersPath, boundedJson(revoked.callers, REGISTRY_MAX_BYTES), true, registryStamp)
-    io.stderr.write('revoked administrator ' + principal + '\n')
+    io.stderr.write(formatMessage(cliMessages(io.language)['admin.revoked'], { principal }))
     return 0
   } catch (error) {
     if (error instanceof CliError && CLI_ERROR_CODES.includes(error.code)) {

@@ -43,6 +43,13 @@ AI 客户端通过 MCP 访问 Gateway，并操作工作站上的真实会话。
 2. 工作站：`rovloom connector`，输入 Gateway 地址和一次性码。
 3. 把 Gateway 的 MCP 地址和 Bearer 加到 AI 客户端，让它列出工作站的工作区。
 
+## CLI 语言
+
+CLI 输出（帮助、配对提示、状态说明）默认英文。设置 `ROVLOOM_LANG=zh-CN` 切换为简体中文；
+未设置时一律保持英文，不随系统 locale（`LC_ALL`/`LANG`）变化。错误码与
+状态码（`config_valid`、`pairing_required` 等）是固定标识符，不随语言变化。管理页语言由浏览器
+选择，与此设置无关。
+
 ## 安装
 
 ```sh

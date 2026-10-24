@@ -1,6 +1,8 @@
 // 导出可供受信宿主组合的 CLI 解析、配置和角色接口；导入本模块不启动服务。
-export { runCli, parseCommand, HELP } from './run.js'
+export { runCli, parseCommand, cliHelp } from './run.js'
 export type { CliRuntime, GatewayRuntime, RunningConnector, CliIo, CliServiceHost } from './run.js'
+export { cliMessages, formatMessage, resolveCliLanguage } from './messages.js'
+export type { CliLanguage, MessageKey } from './messages.js'
 export { parseConfig, readConfig, configTemplate, configDocument, CliError } from './config.js'
 export type { GatewayConfig, ConnectorConfig, RoleConfig } from './config.js'
 export { readRuntimeConfig } from './runtime-config.js'

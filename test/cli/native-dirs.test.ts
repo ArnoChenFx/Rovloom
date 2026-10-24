@@ -85,7 +85,11 @@ test('Agent 目录 = 显式数组 + 启动 PATH 的安全条目；没有额外�
 
 test('Herdr 私有 socket 路径检查按更长的 herdr-client.sock 计算（Herdr 绑定不了会直接退出）', () => {
   const shown: string[] = []
-  const terminal = { show: (text: string) => shown.push(text) } as unknown as SetupTerminal
+  // 只行使 show；io 提供语言/信号字段的形状，语言缺省按英文。
+  const terminal = {
+    io: { signal: new AbortController().signal },
+    show: (text: string) => shown.push(text)
+  } as unknown as SetupTerminal
   // herdr.sock 恰好 107 字节但 herdr-client.sock 超限：旧检查会放行，随后 Herdr 启动即退出。
   const suffix = '/hr/c/herdr/herdr.sock'
   const dataDirectory = '/' + 'a'.repeat(107 - suffix.length - 1)

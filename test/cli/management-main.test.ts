@@ -205,7 +205,8 @@ test(
         verify.close()
       }
       assert.equal(output, '')
-      assert.equal(diagnostic, '')
+      // 启动只新增宿主上报的管理页地址行；除此之外不得有任何诊断。
+      assert.match(diagnostic, /^dashboard_listening http:\/\/127\.0\.0\.1:\d+\/\n$/)
     } finally {
       flow?.dispose()
       writer?.close()

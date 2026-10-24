@@ -31,6 +31,7 @@ function fixture() {
   const terminal = {
     actor: 'fixture_operator',
     uid: process.getuid!(),
+    io: { signal: new AbortController().signal },
     // 本测试只模拟终端撤权；生产SetupTerminal另外要求内核TTY和真实UID/角色文件。
     assertOwner() {
       control.checks++

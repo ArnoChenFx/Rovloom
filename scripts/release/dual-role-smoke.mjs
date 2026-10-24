@@ -104,10 +104,16 @@ export function startDualRoleSmokeProcess(
           if (failure) {
             throw failure
           }
+          const stderrText = Buffer.concat(chunks.stderr).toString('utf8')
           assert.equal(result.signal, null, `dual_role_${name}_signal`)
-          assert.equal(result.code, 0, `dual_role_${name}_exit:${Buffer.concat(chunks.stderr).toString('utf8')}`)
+          assert.equal(result.code, 0, `dual_role_${name}_exit:${stderrText}`)
           assert.equal(Buffer.concat(chunks.stdout).length, 0, `dual_role_${name}_stdout`)
-          assert.equal(Buffer.concat(chunks.stderr).length, 0, `dual_role_${name}_stderr`)
+          // Gateway 启动公布管理页地址，是 stderr 唯一允许的状态行；Connector 保持静默。
+          if (name === 'gateway') {
+            assert.match(stderrText, /^dashboard_listening http:\/\/127\.0\.0\.1:\d+\/\n$/u, `dual_role_${name}_stderr`)
+          } else {
+            assert.equal(stderrText.length, 0, `dual_role_${name}_stderr`)
+          }
         }
       )
       return stopping

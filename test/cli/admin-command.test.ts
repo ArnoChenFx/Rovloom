@@ -172,6 +172,35 @@ test('admin CLI creates, lists and revokes through the real files; the secret go
     assert.notEqual(result.code, 0)
     assert.match(result.err, /invalid_arguments/)
 
+    // 中文模式的 create/revoke 结果行与登录提示全部来自词典，不再残留英文文案。
+    const zhRun = async (...args: string[]) => {
+      const err = sink()
+      const code = await handleAdminCommand(['admin', ...args, '--config', configPath], {
+        stdout: sink().stream,
+        stderr: err.stream,
+        language: 'zh-CN'
+      })
+      return { code, err: err.text() }
+    }
+    let zh = await zhRun('create', '--principal', 'ops', '--ttl-days', '7')
+    assert.equal(zh.code, 0)
+    assert.match(zh.err, /^已创建管理员 ops，到期时间 \S+\n在 http:\/\/127\.0\.0\.1:9445\/ 用用户名 "ops"/)
+    assert.doesNotMatch(zh.err, /created administrator|login at/)
+    zh = await zhRun('revoke', '--principal', 'ops')
+    assert.equal(zh.code, 0)
+    assert.equal(zh.err, '已撤销管理员 ops\n')
+    const zhTokenErr = sink()
+    assert.equal(
+      await handleTokenCommand(['token', 'create', '--principal', 'demo', '--like', 'owner', '--config', configPath], {
+        stdout: sink().stream,
+        stderr: zhTokenErr.stream,
+        language: 'zh-CN'
+      }),
+      0
+    )
+    assert.match(zhTokenErr.text(), /^已创建 demo，到期时间 \S+\n/)
+    assert.doesNotMatch(zhTokenErr.text(), /created/)
+
     result = await run('revoke')
     assert.equal(result.code, 0)
     result = await run('list')

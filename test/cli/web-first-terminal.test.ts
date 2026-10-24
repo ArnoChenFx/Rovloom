@@ -45,7 +45,7 @@ def read_until(pattern,deadline=20):
    if len(data)>131072:raise RuntimeError('fixture_output_limit')
  raise RuntimeError('fixture_prompt_timeout:'+pattern.decode('utf8','replace'))
 try:
- child=subprocess.Popen([sys.argv[1],'--no-env-file',sys.argv[2],'gateway','--config',sys.argv[3]],stdin=slave,stderr=slave,stdout=subprocess.PIPE,start_new_session=True,preexec_fn=own_terminal)
+ child=subprocess.Popen([sys.argv[1],'--no-env-file',sys.argv[2],'gateway','--config',sys.argv[3]],stdin=slave,stderr=slave,stdout=subprocess.PIPE,start_new_session=True,preexec_fn=own_terminal,env={**os.environ,'ROVLOOM_LANG':'en'})
  os.close(slave);slave=None
  read_until(rb'Pair one Connector.*\[y/N\] ')
  os.write(master,b'n\n')
@@ -55,7 +55,7 @@ try:
  time.sleep(1.0)
  if child.poll() is not None:raise RuntimeError('fixture_gateway_exited_after_decline')
  # 预配对创建管理员：口令只在stdout一次，stderr只含固定诊断。
- created=subprocess.run([sys.argv[1],'--no-env-file',sys.argv[2],'admin','create','--config',sys.argv[3]],capture_output=True,timeout=20)
+ created=subprocess.run([sys.argv[1],'--no-env-file',sys.argv[2],'admin','create','--config',sys.argv[3]],capture_output=True,timeout=20,env={**os.environ,'ROVLOOM_LANG':'en'})
  if created.returncode!=0:raise RuntimeError('fixture_admin_create_failed:'+created.stderr.decode('utf8','replace')[:80])
  secret=created.stdout.decode().strip()
  if not re.fullmatch(r'[A-Za-z0-9_-]{43}',secret):raise RuntimeError('fixture_admin_secret_shape')

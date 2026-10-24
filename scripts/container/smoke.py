@@ -106,11 +106,11 @@ def smoke(image, version):
         assert command('exec', name, 'cat', '/home/rovloom/.local/share/rovloom/.container-smoke-marker') == 'fixture'
         command('stop', '--time', '10', name, timeout=15)
         assert command('inspect', '--format', '{{.State.ExitCode}}:{{.State.OOMKilled}}', name) == '0:false'
-        # 日志不打印或保存，且只接受未配对的固定诊断，不接受配置/凭据泄漏。
+        # 日志不打印或保存，且只接受未配对的固定诊断（含管理页地址公布行），不接受配置/凭据泄漏。
         logs = subprocess.run(['docker', 'logs', name], capture_output=True, text=True, timeout=5)
-        expected_diagnostic = ('gateway_listening http://127.0.0.1:9444/mcp\npairing_required\n'
-                               'Gateway is running; complete local pairing and native setup before using an Agent.\n'
-                               'Gateway 已启动；使用 Agent 前仍需完成本地配对和原生初始化。\n')
+        expected_diagnostic = ('dashboard_listening http://127.0.0.1:9445/\n'
+                               'gateway_listening http://127.0.0.1:9444/mcp\npairing_required\n'
+                               'Gateway is running; complete local pairing and native setup before using an Agent.\n')
         assert logs.returncode == 0 and logs.stdout == '' and logs.stderr == expected_diagnostic * 2
         return {'scope': 'native-linux-container', 'user': 10001, 'runtime': 'bun-dist', 'gateway': 'unpaired',
                 'mcpAuthentication': 'required', 'embeddedWebui': 'pass', 'persistentVolumes': 'pass',

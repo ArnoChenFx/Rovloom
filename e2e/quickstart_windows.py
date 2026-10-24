@@ -95,6 +95,8 @@ def user_env(home, extra_path):
         'TEMP': os.path.join(home, 'AppData', 'Local', 'Temp'), 'TMP': os.path.join(home, 'AppData', 'Local', 'Temp'),
         'SystemRoot': system, 'windir': system, 'ComSpec': os.path.join(system, 'System32', 'cmd.exe'),
         'PATHEXT': '.COM;.EXE;.BAT;.CMD', 'LANG': 'C.UTF-8', 'TERM': 'xterm',
+        # 固定英文输出，宿主 locale 不影响脚本的提示标记。
+        'ROVLOOM_LANG': 'en',
         'PATH': ';'.join([*extra_path, os.path.join(system, 'System32'), system]),
     }
 
@@ -181,7 +183,7 @@ def main():
         code = CODE.search(gateway.expect('Gateway address and code')).group(0)
         connector = Term('connector', [rov, 'connector'], env_c, home_c); terms.append(connector)
         connector.expect('Gateway address'); connector.send('ws://127.0.0.1:9443\n')
-        connector.expect('配对码'); connector.send(code + '\n')
+        connector.expect('One-time pairing code'); connector.send(code + '\n')
         deadline, ready = time.time() + 240, False
         while time.time() < deadline and not ready:
             time.sleep(1.0)

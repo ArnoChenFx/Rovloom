@@ -236,7 +236,8 @@ async function withGateway(binary, f, cwd, env, inspect, prefix = []) {
     assert.equal(result.signal, null, 'product_gateway_signal')
     assert.equal(result.code, 0, 'product_gateway_exit')
     assert.equal(stdout, '', 'product_gateway_stdout')
-    assert.equal(stderr, '', 'product_gateway_stderr')
+    // 启动只公布宿主上报的管理页地址；除此之外不得有任何诊断。
+    assert.match(stderr, /^dashboard_listening http:\/\/127\.0\.0\.1:\d+\/\n$/u, 'product_gateway_stderr')
   } catch (error) {
     // 只记录自有 child 的阶段与固定产品错误行；不把未知正文（可能含秘密）写入公开日志。
     const allowed = new Set([...CLI_ERROR_CODES, 'runtime_failed', 'pairing_required'])

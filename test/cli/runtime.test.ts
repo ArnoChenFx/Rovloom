@@ -260,7 +260,8 @@ test(
           await closing
           // 实际角色closed而非stdin EOF结束唯一CLI，随后重复close仍只release一次。
           assert.equal(await role, 0)
-          assert.equal(diagnostics, '')
+          // 启动只新增宿主上报的管理页地址行；除此之外不得有任何诊断。
+          assert.match(diagnostics, /^dashboard_listening http:\/\/127\.0\.0\.1:\d+\/\n$/)
         }
         assert.equal(output, '')
         assert.equal(released, 1)

@@ -22,6 +22,7 @@ import { setupReference, setupTarget } from './setup-policy.js'
 import { runtimeReference } from './runtime-files.js'
 import type { SetupTerminal } from './setup-terminal.js'
 import { connectorNativePrompt } from './setup-prompts.js'
+import { cliMessages, formatMessage } from './messages.js'
 
 export type HerdrSetupRemote = Readonly<{
   kind: 'herdr'
@@ -136,18 +137,28 @@ export async function prepareSetupHerdr(
   if (!attach && process.platform === 'win32') {
     // 隔离实例依赖 POSIX 权限与进程模型；Windows 上目前只支持附着用户自己的会话。
     terminal.show(
-      'herdr_managed_unsupported_on_windows: set native.herdr.mode to "attach". / Windows 上暂不支持 managed，请把 native.herdr.mode 设为 "attach"。\n'
+      formatMessage(cliMessages(terminal.io.language)['setup.native.managedUnsupportedWindows'], {
+        provider: 'herdr',
+        configKey: 'herdr'
+      })
     )
     throw new CliError('configuration_required')
   }
   if (!attach && process.platform === 'darwin') {
     // 隔离实例依赖 Linux 的 pidfd 进程模型；macOS 上目前只支持附着用户自己的会话。
     terminal.show(
-      'herdr_managed_unsupported_on_macos: set native.herdr.mode to "attach". / macOS 上暂不支持 managed，请把 native.herdr.mode 设为 "attach"。\n'
+      formatMessage(cliMessages(terminal.io.language)['setup.native.managedUnsupportedMacos'], {
+        provider: 'herdr',
+        configKey: 'herdr'
+      })
     )
     throw new CliError('configuration_required')
   }
-  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Herdr', attach)))) {
+  if (
+    !(await terminal.confirm(
+      connectorNativePrompt(config.allow_terminal_execution, 'Herdr', attach, terminal.io.language)
+    ))
+  ) {
     throw new CliError('configuration_required')
   }
   assertSetupNativePath(config, terminal)

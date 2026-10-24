@@ -149,7 +149,7 @@ def launch(path):
  master,slave=pty.openpty()
  command=[sys.argv[7]] if len(sys.argv)>7 and sys.argv[7] else [sys.argv[1],'--no-env-file',sys.argv[2]]
  if mode=='cancel-schema-unconfirmed' and path[0]=='connector':command=[sys.argv[1],'--no-env-file','--preload',sys.argv[9],sys.argv[2]]
- child=subprocess.Popen(command+[path[0],'--config',path[1]],stdin=slave,stderr=slave,stdout=subprocess.PIPE,start_new_session=True,preexec_fn=own_terminal)
+ child=subprocess.Popen(command+[path[0],'--config',path[1]],stdin=slave,stderr=slave,stdout=subprocess.PIPE,start_new_session=True,preexec_fn=own_terminal,env={**os.environ,'ROVLOOM_LANG':'en'})
  os.close(slave); children.append(child); fds.append(master)
  return child,master,bytearray()
 def read_until(child,fd,data,pattern):
