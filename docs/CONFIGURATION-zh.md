@@ -132,7 +132,7 @@ rovloom admin revoke [--principal admin]
 并使旧密码已登录的浏览器会话立即失效；`revoke` 同样立即生效。管理员能查看并管理 Gateway 已知的全部设备和
 provider，包括之后才配对的，但不能调用 MCP。`rovloom admin create` 在尚未完成首次配对的
 Gateway 上也可运行：它会初始化登录流程所需的调用方注册表，因此管理页在第一台设备存在之前
-就可用。Docker 里用 `docker compose exec gateway rovloom admin create`。
+就可用。Docker 里用 `docker compose run --rm gateway admin create`。
 
 ### Bearer 令牌管理
 
