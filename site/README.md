@@ -15,8 +15,9 @@ bun test ./test/site   # Translation coverage, real doc links, build and subpath
 ```
 
 The development server also serves the site under `/rovloom/`, matching Pages.
-Relative assets work at both the domain root and the project path. The brand mark is
-copied byte-for-byte from `docs/assets/brand`.
+Relative assets work at both the domain root and the project path. The header and footer
+use `docs/assets/brand/rovloom-logo.png` as the full wordmark; the favicon and diagram
+nodes use the standalone mark. Both assets are copied byte-for-byte from the brand directory.
 
 ## Release metadata
 

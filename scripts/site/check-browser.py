@@ -54,6 +54,10 @@ def main():
                     assert region.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, selector)
                     for label in region.locator('.agent-names li').all():
                         assert label.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, label.inner_text())
+                for selector in ['.site-header .brand img', 'footer .brand img']:
+                    logo = page.locator(selector)
+                    assert logo.get_attribute('src') == './assets/logo.png'
+                    assert logo.evaluate('(image) => Math.abs(image.width / image.height - image.naturalWidth / image.naturalHeight) < 0.05'), (language, width, selector)
                 nodes = page.locator('.map-node')
                 assert nodes.count() == 6
                 for element in nodes.all():
