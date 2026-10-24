@@ -122,7 +122,7 @@ test(
       assert.equal((await f.handler.fetch(request(undefined, { authorization: 'Bearer fixture_mcp' }))).status, 401)
       const delivery = f.issue()
       assert.equal(delivery.management_session_ref, sessionRef)
-      assert.equal(delivery.expires_at, 301_000)
+      assert.equal(delivery.expires_at, 601_000)
       assert.match(delivery.cookie, /^[a-zA-Z0-9_-]{43}$/)
       assert.match(delivery.csrf, /^[a-zA-Z0-9_-]{43}$/)
       assert.notEqual(delivery.cookie, delivery.csrf)

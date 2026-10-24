@@ -103,11 +103,14 @@ test(
 )
 
 test(
-  'R2-4本地到期需重新证明，轮换受原上游截止约束，旧cookie与CSRF不复活',
-  /** 过期cookie本身不续期；上游到期或管理员撤权均拒绝。 */ async () => {
+  'R2-4会话截止跟随管理员租期，到期后旧cookie与CSRF均不复活',
+  /** 会话没有独立短窗口；租期内重复请求恢复同一交付，到期后带证明也拒绝。 */ async () => {
     const h = await fixture()
     try {
       const first = await delivery(await h.handler.fetch(h.f.request()))
+      assert.equal(first.expires, h.f.lease.expires_at)
+      const again = await delivery(await h.handler.fetch(h.f.request()))
+      assert.ok(again.cookie === first.cookie && again.csrf === first.csrf)
       h.f.clock.now = first.expires
       assert.equal(await h.authority.sessions.resolveCookie(first.cookie, new AbortController().signal), null)
       const noProof = await h.handler.fetch(
@@ -117,31 +120,17 @@ test(
       )
       assert.equal(noProof.status, 401)
       assert.equal(noProof.headers.get('set-cookie'), null)
-      const renewed = await Promise.all(
-        Array.from({ length: 3 }, /** 独立页面请求仍携带原来源证明。 */ () => h.handler.fetch(h.f.request()))
-      )
-      const next = await delivery(renewed[0]!)
-      for (const response of renewed.slice(1)) {
-        const concurrent = await delivery(response)
-        assert.ok(concurrent.cookie === next.cookie && concurrent.csrf === next.csrf)
-      }
-      assert.ok(next.cookie !== first.cookie && next.csrf !== first.csrf)
-      assert.equal(next.expires, h.f.lease.expires_at)
-      assert.equal(await h.authority.sessions.resolveCookie(first.cookie, new AbortController().signal), null)
-      const oldCsrf = new Request(h.f.origin + '/admin/v1/actions/history_open', {
+      assert.equal((await h.handler.fetch(h.f.request())).status, 401)
+      const expiredCsrf = new Request(h.f.origin + '/admin/v1/actions/history_open', {
         method: 'POST',
         headers: {
           host: new URL(h.f.origin).host,
           origin: h.f.origin,
-          cookie: 'rovloom_management=' + next.cookie,
+          cookie: 'rovloom_management=' + first.cookie,
           'x-rovloom-csrf': first.csrf
         }
       })
-      const identity = await h.adapter.authenticate(oldCsrf, new AbortController().signal)
-      assert(identity)
-      assert.equal(await h.adapter.verifyCsrf(oldCsrf, identity, new AbortController().signal), false)
-      h.f.clock.now = h.f.lease.expires_at
-      assert.equal((await h.handler.fetch(h.f.request())).status, 401)
+      assert.equal(await h.adapter.authenticate(expiredCsrf, new AbortController().signal), null)
     } finally {
       h.close()
     }

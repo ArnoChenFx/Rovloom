@@ -95,7 +95,7 @@ test(
       assert.match(cookieHeader, /; Path=\/admin\/v1; HttpOnly; SameSite=Strict; Expires=/)
       assert(!cookieHeader.includes('Domain='))
       assert.equal(response.headers.get('cache-control'), 'no-store')
-      assert(body.includes(`data-expires-at="${f.lease.issued_at + 300_000}"`))
+      assert(body.includes(`data-expires-at="${f.lease.expires_at}"`))
       for (const secret of [cookie, f.lease.caller.principal_id, f.lease.management_session_ref]) {
         assert(!body.includes(secret))
       }
