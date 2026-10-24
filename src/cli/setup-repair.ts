@@ -3,6 +3,7 @@ import { createFileCredentialSink, loadCredential } from '../transport/credentia
 import type { DeviceCredential } from '../transport/identity.js'
 import { fields, id, uint } from '../wire/index.js'
 import { CliError, type ConnectorConfig } from './config.js'
+import { cliMessages, formatMessage } from './messages.js'
 import { readRuntimeConfig } from './runtime-config.js'
 import { runtimeReference } from './runtime-files.js'
 import { post } from './setup-connector.js'
@@ -16,16 +17,9 @@ export async function repairConnector(config: ConnectorConfig, terminal: SetupTe
   }
   const old = loadCredential(credentialPath)
   terminal.show(
-    'This Connector is paired as ' +
-      old.machine_id +
-      '. Re-pairing replaces only its Gateway credential; native setup is kept. Stop any other running Connector for this device first. / 此 Connector 已配对为 ' +
-      old.machine_id +
-      '。重新配对只更换与 Gateway 的凭据，保留原生设置；请先停止该设备上其它正在运行的 Connector。\n'
+    formatMessage(cliMessages(terminal.io.language)['setup.repair.alreadyPaired'], { machine: old.machine_id })
   )
-  const value = await terminal.ask(
-    'One-time re-pairing code from rovloom gateway --repair-device / 来自 rovloom gateway --repair-device 的一次性码: ',
-    true
-  )
+  const value = await terminal.ask(cliMessages(terminal.io.language)['setup.repair.codePrompt'], true)
   const parts = value.split('.')
   if (parts.length !== 3) {
     throw new CliError('configuration_required')
@@ -37,11 +31,7 @@ export async function repairConnector(config: ConnectorConfig, terminal: SetupTe
   if (machine !== old.machine_id || !enrollment || !/^[A-Za-z0-9_-]{32,256}$/.test(enrollment)) {
     throw new CliError('configuration_required')
   }
-  if (
-    !(await terminal.confirm(
-      'Trust this Gateway address and replace this device credential with a new one? / 信任此 Gateway 地址并用新凭据替换本机设备凭据？'
-    ))
-  ) {
+  if (!(await terminal.confirm(cliMessages(terminal.io.language)['setup.repair.trustConfirm']))) {
     throw new CliError('configuration_required')
   }
   const delivery = await post(
@@ -105,12 +95,10 @@ export async function repairConnector(config: ConnectorConfig, terminal: SetupTe
     } catch {
       // 确认响应不确定时不重新兑换；若 Connector 之后无法认证，重新运行 --repair-device / --repair。
       terminal.assertOwner()
-      terminal.show(
-        'Gateway confirmation unavailable; if this Connector cannot authenticate, run the re-pairing again. / 未收到 Gateway 的确认；若 Connector 之后无法认证，请重新执行重新配对。\n'
-      )
+      terminal.show(cliMessages(terminal.io.language)['setup.repair.confirmationUnavailable'])
     }
   } finally {
     sink.close()
   }
-  terminal.show('device_repaired / 设备凭据已更换；正在启动 Connector。\n')
+  terminal.show(cliMessages(terminal.io.language)['setup.repair.deviceRepaired'])
 }

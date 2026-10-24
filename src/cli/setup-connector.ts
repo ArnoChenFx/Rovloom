@@ -13,6 +13,7 @@ import {
   type ConnectorConfig
 } from './config.js'
 import { privateDirectory } from './first-config.js'
+import { cliMessages } from './messages.js'
 import { SetupTerminal } from './setup-terminal.js'
 import { readSetupJson, setupFileStamp, writeSetupFile, writeSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
@@ -111,7 +112,7 @@ async function pair(
   let current: Attempt
   let credential: DeviceCredential
   if (previous === undefined) {
-    const value = await terminal.ask('One-time pairing code / 一次性配对码: ', true)
+    const value = await terminal.ask(cliMessages(terminal.io.language)['setup.connector.pairingCodePrompt'], true)
     const parts = value.split('.')
     if (parts.length !== 3) {
       throw new CliError('configuration_required')
@@ -122,11 +123,7 @@ async function pair(
     if (!enrollment || !/^[A-Za-z0-9_-]{32,256}$/.test(enrollment)) {
       throw new CliError('configuration_required')
     }
-    if (
-      !(await terminal.confirm(
-        'Trust this Gateway address for one-time device enrollment and reviewed native setup? / 信任此 Gateway 地址并兑换一次性设备配对？'
-      ))
-    ) {
+    if (!(await terminal.confirm(cliMessages(terminal.io.language)['setup.connector.trustGateway']))) {
       throw new CliError('configuration_required')
     }
     current = {
@@ -269,7 +266,7 @@ export async function setupConnector(config: ConnectorConfig, terminal: SetupTer
     if (boundedJson(configDocument(readConfig(terminal.configPath))) !== boundedJson(configDocument(config))) {
       throw new CliError('config_changed')
     }
-    const address = await terminal.ask('Gateway address (ws://host:port or wss://host) / Gateway 地址: ')
+    const address = await terminal.ask(cliMessages(terminal.io.language)['setup.gatewayAddressPrompt'])
     config = parseConfig({ ...configDocument(config), gateway: { url: address } }) as ConnectorConfig
     writeSetupFile(terminal.configPath, JSON.stringify(configDocument(config), null, 2) + '\n', true, previous)
   }
@@ -277,7 +274,7 @@ export async function setupConnector(config: ConnectorConfig, terminal: SetupTer
   privateDirectory(config.state_dir)
   privateDirectory(join(config.state_dir, 'managed'))
   const paired = await pair(config, terminal)
-  terminal.show('pairing_completed / 设备身份已持久配对；接下来发现所选原生安装。\n')
+  terminal.show(cliMessages(terminal.io.language)['setup.connector.pairingCompleted'])
   const prepared = []
   for (const kind of selectedNativeProviders(config)) {
     prepared.push(
@@ -313,9 +310,7 @@ export async function setupConnector(config: ConnectorConfig, terminal: SetupTer
     }
   } catch {
     // Gateway重开可能丢失响应；不重做初始化，下一次启动查询原attempt的持久阶段。
-    terminal.show(
-      'Native setup response unavailable; retain the original setup and rerun Connector to check it. / 原生设置响应不可用；保留原状态，重新运行 Connector 核对。\n'
-    )
+    terminal.show(cliMessages(terminal.io.language)['setup.connector.nativeSetupResponseUnavailable'])
     throw new CliError('configuration_required')
   }
   writeSetupJson(
@@ -334,9 +329,7 @@ export async function setupConnector(config: ConnectorConfig, terminal: SetupTer
     1_048_576
   )
   writeSetupJson(runtimeReference(config.state_dir, 'pairing'), { ...paired.current, phase: 'configured' }, true)
-  terminal.show(
-    'Native state prepared; starting the real Connector. Watch Gateway for connector_ready. / 原生状态已准备；启动正式 Connector，以 Gateway 的实际就绪提示为准。\n'
-  )
+  terminal.show(cliMessages(terminal.io.language)['setup.connector.nativeStatePrepared'])
   terminal.finishQuestions()
   return config
 }

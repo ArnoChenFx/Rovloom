@@ -3,6 +3,7 @@
 import './runtime-guard.js'
 import { parseCommand, runCli } from './run.js'
 import { createProductServiceHost } from './service-host.js'
+import { resolveCliLanguage } from './messages.js'
 import { openStopPipe, windowsStopPipe } from '../service/windows-control.js'
 import { realpathSync } from 'node:fs'
 import type { CliRuntime } from './run.js'
@@ -48,7 +49,9 @@ try {
       stdin: process.stdin,
       stdout: process.stdout,
       stderr: process.stderr,
-      signal: stop.signal
+      signal: stop.signal,
+      // 语言在入口按环境解析一次；后续所有输出只读此字段，不再各自读取进程环境。
+      language: resolveCliLanguage(process.env)
     },
     {
       // 只有显式服务动作才装配控制器；构造不授权、不读写注册或配置。

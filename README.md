@@ -48,6 +48,14 @@ workstation's real sessions.
 2. On the workstation: `rovloom connector`, then enter the Gateway address and the one-time code.
 3. Add the Gateway's MCP URL and Bearer to your AI client and ask it to list the workstation's workspaces.
 
+## CLI language
+
+CLI output (help, pairing prompts, status hints) is English by default. Set `ROVLOOM_LANG=zh-CN`
+to switch to Simplified Chinese; without it, a `zh`-prefixed `LC_ALL` or `LANG` (for example
+`zh_CN.UTF-8`) also selects Chinese. Error and status codes (`config_valid`, `pairing_required`,
+…) are stable identifiers and never change with the language. The management page picks its
+language in the browser, independently of this setting.
+
 ## Install
 
 ```sh

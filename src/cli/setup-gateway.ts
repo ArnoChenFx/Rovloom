@@ -5,6 +5,7 @@ import type { RuntimeCliGateway } from './runtime.js'
 import { boundedJson, fields, object } from '../wire/index.js'
 import { managementSourceExists, writeAdminFiles } from './admin-command.js'
 import { CliError, type GatewayConfig } from './config.js'
+import { cliMessages, formatMessage } from './messages.js'
 import { isAdminPlaceholder } from './admin-registry.js'
 import type { CallerRegistry } from './token-registry.js'
 import { SetupApproval } from './setup-approval.js'
@@ -135,19 +136,15 @@ export class GatewaySetup {
       this.#begun = true
       const active = this.approval.active()
       if (active?.repair && active.phase === 'configured') {
-        this.terminal.show(
-          'Resuming the device re-pairing; waiting for the Connector to reconnect. / 继续原重新配对，等待 Connector 重连。\n'
-        )
+        this.terminal.show(cliMessages(this.terminal.io.language)['setup.gateway.resumeRePairing'])
       } else {
         const issued = await this.approval.issueRepair()
         this.terminal.show(
-          'Gateway MCP: ' +
-            mcpUrl +
-            '\nConnector endpoint: ' +
-            gateway.transport.url.replace(/\/connector$/, '') +
-            '\nOne-time re-pairing code for the existing device (5 minutes; keep private) / 已有设备的一次性重新配对码（5分钟，请保密）:\n' +
-            issued.code +
-            '\nStop that Connector, then run rovloom connector --repair on its machine and enter the code. The old credential no longer works.\n在该设备上停止 Connector，运行 rovloom connector --repair 并输入此码；旧凭据已失效。\n'
+          formatMessage(cliMessages(this.terminal.io.language)['setup.gateway.repairCodeBlock'], {
+            mcpUrl,
+            endpoint: gateway.transport.url.replace(/\/connector$/, ''),
+            code: issued.code
+          })
         )
       }
     }
@@ -159,35 +156,30 @@ export class GatewaySetup {
     ) {
       this.#begun = true
       this.terminal.show(
-        'Gateway MCP: ' + mcpUrl + '\nConnector endpoint: ' + gateway.transport.url.replace(/\/connector$/, '') + '\n'
+        formatMessage(cliMessages(this.terminal.io.language)['setup.gateway.endpoints'], {
+          mcpUrl,
+          endpoint: gateway.transport.url.replace(/\/connector$/, '')
+        })
       )
       const issued = await this.approval.issue()
       if (issued.declined) {
         // 拒绝终端配对不退出：Gateway 保持运行，首台 Connector 改在管理页完成在线配对。
         const page = this.config.management_enabled ? 'http://127.0.0.1:' + this.config.management_port + '/' : ''
         this.terminal.show(
-          'Gateway stays unpaired and running; no enrollment or credential is issued. / Gateway 保持未配对并继续运行，不签发凭据。\n' +
+          cliMessages(this.terminal.io.language)['setup.gateway.unpairedRunning'] +
             (page
-              ? 'Finish first pairing from the management page: create the administrator with `rovloom admin create`, sign in at ' +
-                page +
-                ', create a pairing application, then run `rovloom connector --claim` on the device. / 在管理页完成首次配对：先用 `rovloom admin create` 创建管理员，登录 ' +
-                page +
-                ' 新建配对申请，再在设备上运行 `rovloom connector --claim`。\n'
-              : 'Management is disabled; enable it or rerun to pair from this terminal. / 管理页未启用；请启用后重试或在本终端完成配对。\n')
+              ? formatMessage(cliMessages(this.terminal.io.language)['setup.gateway.managementFirstPairing'], { page })
+              : cliMessages(this.terminal.io.language)['setup.gateway.managementDisabled'])
         )
         this.terminal.finishQuestions()
         return
       }
       if (issued.code) {
         this.terminal.show(
-          'One-time pairing code (5 minutes; keep private) / 一次性配对码（5分钟，请保密）:\n' +
-            issued.code +
-            '\nRun rovloom connector in another local terminal and enter the Gateway address and code.\n在 Connector 的本地终端输入 Gateway 地址与该码；随后回到此终端批准实测安装。\n'
+          formatMessage(cliMessages(this.terminal.io.language)['setup.gateway.pairingCodeBlock'], { code: issued.code })
         )
       } else {
-        this.terminal.show(
-          'Resuming the existing setup; no new enrollment or credential is issued. / 继续原设置，不重新签发。\n'
-        )
+        this.terminal.show(cliMessages(this.terminal.io.language)['setup.gateway.resumingExisting'])
       }
     }
     const plan = this.approval.active()
@@ -222,7 +214,7 @@ export class GatewaySetup {
               )
             ) {
               this.approval.finishReady(plan.attempt_id)
-              this.terminal.show('connector_ready / Connector 已通过真实认证且全部所选原生 provider 就绪。\n')
+              this.terminal.show(cliMessages(this.terminal.io.language)['setup.gateway.connectorReady'])
               clearInterval(this.#timer)
               this.#timer = undefined
             }
@@ -272,8 +264,8 @@ export class GatewaySetup {
       request.plan.attempt_id,
       kinds,
       fingerprint,
-      "Allow this paired device's measured native installations (" +
-        reviewed
+      formatMessage(cliMessages(this.terminal.io.language)['setup.prompt.gatewayNativeInstallations'], {
+        entries: reviewed
           .map(
             /* 显示实际来源、完整Target及安装摘要，所有者能核对每份独立权限范围。 */ (entry) =>
               entry.kind +
@@ -284,8 +276,8 @@ export class GatewaySetup {
               ', binary SHA-256 ' +
               entry.binary_sha256
           )
-          .join('; ') +
-        `) for reviewed workspace/Agent operations and one local MCP caller? Terminal execution is controlled by the Connector machine owner's local configuration. / 批准这些实测原生来源、各自窗口/Agent 操作及一个本机 MCP caller（终端执行由 Connector 本机所有者配置决定）？`,
+          .join('; ')
+      }),
       request.signal
     )
     this.terminal.assertOwner()
@@ -377,29 +369,27 @@ export class GatewaySetup {
       const page = 'http://127.0.0.1:' + this.config.management_port + '/'
       try {
         const admin = writeAdminFiles(this.config, 'admin', Date.now())
-        adminNote =
-          '\nManagement page / 管理页: ' +
-          page +
-          '\nManagement user / 管理员: admin' +
-          '\nManagement password (private) / 管理员密码: ' +
-          admin.secret +
-          '\n(Shown once; run rovloom admin create to re-issue. / 只显示一次；丢失后运行 rovloom admin create 重新签发。)'
+        adminNote = formatMessage(cliMessages(this.terminal.io.language)['setup.gateway.adminBlock'], {
+          page,
+          secret: admin.secret
+        })
       } catch {
-        adminNote =
-          '\nManagement administrator was not created; run rovloom admin create. / 未能创建管理页管理员，请稍后运行 rovloom admin create。'
+        adminNote = cliMessages(this.terminal.io.language)['setup.gateway.adminNotCreated']
       }
     }
     this.terminal.show(
-      'Native configuration saved; Gateway will reopen its real providers. / 原生配置已保存，Gateway 将重开实际 provider。\nMCP credential file / MCP 凭据文件: ' +
-        clientPath +
-        '\nMCP URL: ' +
-        (this.config.mcp_public_url ?? resource) +
-        '\nTargets: ' +
-        boundedJson(reviewed.map(/* 显示每个完整目标，不能合并成provider或session通配符。 */ (entry) => entry.target)) +
-        '\nBinding revision: 1' +
+      formatMessage(cliMessages(this.terminal.io.language)['setup.gateway.nativeSaved'], {
+        clientPath,
+        url: this.config.mcp_public_url ?? resource,
+        targets: boundedJson(
+          reviewed.map(/* 显示每个完整目标，不能合并成provider或session通配符。 */ (entry) => entry.target)
+        )
+      }) +
         (additional
-          ? '\nExisting MCP Bearer now also covers this device (not shown again; tokens made with rovloom token create --like need re-creating). / 现有 MCP Bearer 已覆盖此设备（不再显示；用 token create --like 克隆的令牌需要重新克隆）。'
-          : '\nBearer (private): ' + client.token) +
+          ? cliMessages(this.terminal.io.language)['setup.gateway.bearerAdditional']
+          : formatMessage(cliMessages(this.terminal.io.language)['setup.gateway.bearerSecret'], {
+              token: client.token
+            })) +
         adminNote +
         '\n'
     )

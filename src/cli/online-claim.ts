@@ -8,6 +8,7 @@ import { digest } from '../contracts.js'
 import { createFileCredentialSink, loadCredential } from '../transport/credentials.js'
 import type { DeviceCredential } from '../transport/identity.js'
 import { boundedJson, fields, hash, id, object, uint } from '../wire/index.js'
+import { cliMessages, formatMessage } from './messages.js'
 import {
   CliError,
   configDocument,
@@ -84,7 +85,7 @@ export async function claimConnector(config: ConnectorConfig, terminal: SetupTer
     if (boundedJson(configDocument(readConfig(terminal.configPath))) !== boundedJson(configDocument(config))) {
       throw new CliError('config_changed')
     }
-    const address = await terminal.ask('Gateway address (ws://host:port or wss://host) / Gateway 地址: ')
+    const address = await terminal.ask(cliMessages(terminal.io.language)['setup.gatewayAddressPrompt'])
     config = parseConfig({ ...configDocument(config), gateway: { url: address } }) as ConnectorConfig
     writeSetupFile(terminal.configPath, JSON.stringify(configDocument(config), null, 2) + '\n', true, previous)
   }
@@ -103,7 +104,7 @@ export async function claimConnector(config: ConnectorConfig, terminal: SetupTer
       throw new CliError('configuration_required')
     }
     if (current.phase === 'configured') {
-      terminal.show('pairing_completed / 设备身份已持久配对，原生激活已完成。\n')
+      terminal.show(cliMessages(terminal.io.language)['setup.claim.pairingCompletedActivated'])
       return config
     }
     if (current.phase === 'paired') {
@@ -133,9 +134,7 @@ export async function claimConnector(config: ConnectorConfig, terminal: SetupTer
       continue
     }
     if (Date.now() > deadline) {
-      terminal.show(
-        'Approval wait ended; rerun the same command to resume this claim. / 等待批准已结束；重新运行同一命令可继续原认领。\n'
-      )
+      terminal.show(cliMessages(terminal.io.language)['setup.claim.waitEnded'])
       throw new CliError('configuration_required')
     }
     let status: Record<string, unknown> | undefined
@@ -221,9 +220,7 @@ async function restartClaim(
   if (
     terminal.io.signal.aborted ||
     existsSync(credentialPath) ||
-    !(await terminal.confirm(
-      'Start a new claim with a new pairing application? / 原认领已终止或过期，是否使用新的配对申请重新认领？'
-    ))
+    !(await terminal.confirm(cliMessages(terminal.io.language)['setup.claim.restartConfirm']))
   ) {
     throw new CliError('configuration_required')
   }
@@ -237,13 +234,9 @@ async function startClaim(
   path: string,
   replace: boolean
 ): Promise<ClaimRecord> {
-  const pairing_id = await terminal.ask('Pairing application ID / 配对申请 ID: ')
+  const pairing_id = await terminal.ask(cliMessages(terminal.io.language)['setup.claim.pairingIdPrompt'])
   id(pairing_id)
-  if (
-    !(await terminal.confirm(
-      'Trust this Gateway address for online device enrollment? / 信任此 Gateway 地址并在线认领设备配对？'
-    ))
-  ) {
+  if (!(await terminal.confirm(cliMessages(terminal.io.language)['setup.claim.trustConfirm']))) {
     throw new CliError('configuration_required')
   }
   // 认领秘密由本机生成：原文只用于状态查询与确认领取，Gateway 只保存其摘要。
@@ -271,11 +264,10 @@ async function startClaim(
   }
   writeSetupJson(path, current, replace)
   terminal.show(
-    'Claim code / 核对码: ' +
-      created.user_code +
-      '\nApprove this exact code for machine ' +
-      current.machine_id +
-      ' in the management page. / 请在管理页为该设备核对并批准此码。\n'
+    formatMessage(cliMessages(terminal.io.language)['setup.claim.claimCodeBlock'], {
+      code: created.user_code,
+      machine: current.machine_id
+    })
   )
   return current
 }
@@ -311,7 +303,7 @@ async function acknowledge(
   const { secret: _secret, ...rest } = current
   const paired: ClaimRecord = { ...rest, phase: 'paired' }
   writeSetupJson(runtimeReference(config.state_dir, 'pairing-claim'), paired, true)
-  terminal.show('pairing_completed / 设备身份已持久配对；接下来发现所选原生安装。\n')
+  terminal.show(cliMessages(terminal.io.language)['setup.connector.pairingCompleted'])
   return paired
 }
 
@@ -397,9 +389,7 @@ async function activate(
     }
   } catch {
     // Gateway 激活后会重开，响应可能丢失；不重做认领，下一次运行按原认领查询持久阶段收敛。
-    terminal.show(
-      'Native activation response unavailable; rerun the same command to check the original claim. / 原生激活响应不可用；重新运行同一命令按原认领核对。\n'
-    )
+    terminal.show(cliMessages(terminal.io.language)['setup.claim.activationResponseUnavailable'])
     throw new CliError('configuration_required')
   }
   const providersPath = runtimeReference(config.state_dir, 'providers')
@@ -429,7 +419,7 @@ async function activate(
     throw new CliError('configuration_required')
   }
   writeSetupJson(runtimeReference(config.state_dir, 'pairing-claim'), { ...current, phase: 'configured' }, true)
-  terminal.show('Native state prepared; starting the real Connector. / 原生状态已准备；启动正式 Connector。\n')
+  terminal.show(cliMessages(terminal.io.language)['setup.claim.nativeStatePrepared'])
   terminal.finishQuestions()
   return config
 }

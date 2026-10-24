@@ -3,6 +3,7 @@ import { Ajv } from 'ajv'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { ToolArguments, ToolName } from './types.js'
 import { canonical } from '../contracts.js'
+import { cliMessages, type CliLanguage, type MessageKey } from '../cli/messages.js'
 
 export { MCP_REVISION, PRODUCT_VERSION } from './version.js'
 export const MAX_MCP_BYTES = 65_536
@@ -73,20 +74,9 @@ const schemas: Record<ToolName, Tool['inputSchema']> = {
   runtime_response_discard: object({ call_id: id }, ['call_id'])
 }
 
-const descriptions: Record<ToolName, string> = {
-  machines_list: '列出当前 caller 可见的设备；分页和计数须经过当前 ACL。',
-  machines_get: '按稳定 ID 或精确名称读取可见设备。',
-  providers_list: '列出指定设备下当前 caller 可见的已配置 provider；不返回本机配置。',
-  providers_get: '读取显式 provider 的 kind、revision 和 readiness。',
-  runtime_discover: '发现显式 Target/revision 的有效能力及来源；不授予执行权限。',
-  runtime_describe: '描述显式 Target/revision 下精确方法的原生参数、分类和限制。',
-  runtime_call:
-    '提交一次显式 Target/revision/契约的原生调用。deadline 是绝对毫秒期限，wait_ms 只控制短等；不重试或管理 provider。',
-  runtime_call_get: '按当前归属、双端策略和内容门禁读取调用；短等到期不改变执行期限。',
-  runtime_call_cancel: '请求停止等待或桥接；仅报告服务可确认程度，不承诺原生回滚。',
-  runtime_result_read: '按当前读取授权和期限读取有界结果页；cursor 由服务绑定 caller 和原结果。',
-  runtime_response_discard:
-    '处理完结果后显式删除原文与句柄并释放读取容量；必须验证归属、当前原方法策略及独立 discard_response 权限。读取到 EOF 不会自动删除结果。'
+// 工具描述按显示语言取自共享词典；键名与 ToolName 一一对应，缺省英文。
+export function toolDescription(name: ToolName, language: CliLanguage = 'en'): string {
+  return cliMessages(language)[('mcp.tool.' + name) as MessageKey]
 }
 
 const readOnly = new Set<ToolName>([
@@ -112,10 +102,10 @@ export function toolNames(): ToolName[] {
 }
 
 // 生成独立 schema 副本和工具元数据，外部修改不能污染运行时校验器。
-export function toolDefinition(name: ToolName): Tool {
+export function toolDefinition(name: ToolName, language: CliLanguage = 'en'): Tool {
   return {
     name,
-    description: descriptions[name],
+    description: toolDescription(name, language),
     inputSchema: structuredClone(schemas[name]),
     outputSchema: {
       type: 'object',

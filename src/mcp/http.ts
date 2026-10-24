@@ -6,6 +6,7 @@ import { parseNativeJson } from '../native-contract/json.js'
 import { createMcpFacade, type DiagnosticCode } from './facade.js'
 import { FacadeHttpTransport, type RequestReservation } from './http-transport.js'
 import { canonicalLoopbackHost } from './listen.js'
+import type { CliLanguage } from '../cli/messages.js'
 import type { CallerIdentity, GatewayService, ServiceContext } from './types.js'
 
 export const HTTP_BODY_BYTES = 1_048_576
@@ -22,6 +23,8 @@ export type HttpFacadeOptions = {
   publicUrl?: string
   // 显式局域网选择：仅在通配明文监听时接纳任意 Host 与同源自 Origin；回环/公开地址校验缺省不变。
   lan?: boolean
+  // 显示语言由唯一 CLI 入口解析后透传给工具目录与说明；省略时按英文输出。
+  language?: CliLanguage
   maxSessions?: number
   idleMs?: number
   requestTimeoutMs?: number
@@ -216,6 +219,7 @@ export function createHttpFacade(options: HttpFacadeOptions & { origin: string }
     const server = createMcpFacade({
       service: options.service,
       diagnostic: options.diagnostic,
+      ...(options.language ? { language: options.language } : {}),
       context: {
         resolve: /* 只取本HTTP请求认证后建立的作用域；不读取请求自报principal或本机UID。 */ (signal) => {
           const context = scope.getStore()

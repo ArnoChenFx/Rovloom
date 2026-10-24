@@ -38,7 +38,9 @@ def main():
     shutil.copy(args.binary, rov); os.chmod(rov, 0o755)
     shutil.copy(args.herdr, os.path.join(herdr_dir, 'herdr')); os.chmod(os.path.join(herdr_dir, 'herdr'), 0o755)
     uid_gid = f'{os.getuid()}:{os.getgid()}'
+    # 容器内固定英文输出，宿主 locale 不影响这些脚本的提示标记。
     common = ['--user', uid_gid, '-e', 'HOME=/home/rv', '-e', 'LANG=C.UTF-8', '-e', 'TERM=xterm',
+              '-e', 'ROVLOOM_LANG=en',
               '-v', '/etc/passwd:/etc/passwd:ro', '-v', f'{rov}:/usr/local/bin/rovloom:ro']
     # 两个容器的 HOME 是各自独立的宿主目录；Gateway 看不到 Connector 的目录，反之亦然。
     gateway_cfg = os.path.join(home_g, '.config', 'rovloom'); os.makedirs(gateway_cfg, mode=0o700, exist_ok=True)
@@ -72,7 +74,7 @@ def main():
         code = CODE.search(gateway.expect('Gateway address and code')).group(0)
         connector = Term('connector', connector_cmd, env, home_c); terms.append(connector)
         connector.expect('Gateway address'); connector.send(f'ws://{gw_name}:9443\n')
-        connector.expect('配对码'); connector.send(code + '\n')
+        connector.expect('One-time pairing code'); connector.send(code + '\n')
         deadline, ready = time.time() + 240, False
         while time.time() < deadline and not ready:
             connector.pump(1.0); gateway.pump(0.3)

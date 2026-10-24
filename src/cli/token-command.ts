@@ -2,6 +2,7 @@
 import type { Writable } from 'node:stream'
 import { boundedJson } from '../wire/index.js'
 import { CLI_ERROR_CODES, CliError, readConfig } from './config.js'
+import { cliMessages, type CliLanguage } from './messages.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { setupFileStamp, writeSetupFile } from './setup-files.js'
@@ -17,22 +18,6 @@ import {
 } from './token-registry.js'
 import type { CallerRegistry } from './token-registry.js'
 import { isAdminPlaceholder } from './admin-registry.js'
-
-export const TOKEN_HELP = `用法：
-  rovloom token list [--config /absolute/path/gateway.json]
-  rovloom token create --principal ID --like EXISTING_ID [--ttl-days N]
-  rovloom token renew --principal ID [--ttl-days N]
-  rovloom token rotate --principal ID [--ttl-days N] [--grace-minutes M]
-  rovloom token revoke --principal ID
-  rovloom token permissions --principal ID --discard-response true|false
-
-令牌注册表位于 Gateway 状态目录；Gateway 每次认证重读，修改立即生效、无需重启。
-create/rotate 把新令牌原值只写到 stdout 一次（注册表只保存 SHA-256 摘要）；其余信息写到 stderr。
-create 的新主体权限克隆自 --like 指定的现有主体，不扩大权限。renew 延长到期时间、令牌不变。
-rotate 签发新令牌；--grace-minutes 内旧令牌继续有效（默认 0，立即失效）。revoke 删除主体。
-permissions 显式管理结果删除权限，热生效；默认关闭。删除结果前应先读取并保存所需内容。
-ttl 默认 30 天（1-365）。
-`
 
 type Flags = {
   sub: string
@@ -136,13 +121,13 @@ function syncClientFile(
 /** 处理 token 子命令并返回退出码；诊断只含固定错误码。 */
 export async function handleTokenCommand(
   args: readonly string[],
-  io: { stdout: Writable; stderr: Writable },
+  io: { stdout: Writable; stderr: Writable; language?: CliLanguage },
   environment?: ConfigPathEnvironment,
   now: () => number = Date.now
 ): Promise<number> {
   try {
     if (args.length === 2 && args[1] === '--help') {
-      io.stderr.write(TOKEN_HELP)
+      io.stderr.write(cliMessages(io.language)['help.token'])
       return 0
     }
     const flags = parse(args)

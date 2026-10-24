@@ -45,7 +45,7 @@ def prompt(marker):
  raise RuntimeError('fixture_prompt_timeout')
 try:
  command=[sys.argv[7]] if sys.argv[7] else [sys.argv[1],'--no-env-file',sys.argv[2]]
- child=subprocess.Popen(command+[sys.argv[4],'--config',sys.argv[3]],stdin=slave,stderr=slave,stdout=subprocess.PIPE,start_new_session=True,preexec_fn=own_terminal)
+ child=subprocess.Popen(command+[sys.argv[4],'--config',sys.argv[3]],stdin=slave,stderr=slave,stdout=subprocess.PIPE,start_new_session=True,preexec_fn=own_terminal,env={**os.environ,'ROVLOOM_LANG':'en'})
  os.close(slave);slave=None
  stage=sys.argv[5];action=sys.argv[6]
  if stage=='gateway':prompt(b'Pair one Connector')

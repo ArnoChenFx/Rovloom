@@ -28,6 +28,7 @@ import { runtimeReference } from './runtime-files.js'
 import { setupReference, setupSessionsFor, setupTarget } from './setup-policy.js'
 import { SetupTerminal } from './setup-terminal.js'
 import { connectorNativePrompt } from './setup-prompts.js'
+import { cliMessages, formatMessage } from './messages.js'
 
 export type PreparedSetupNative = Readonly<{
   schema_version: 1
@@ -47,9 +48,7 @@ export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTe
     luvusMode(config) === 'managed' &&
     Buffer.byteLength(join(config.state_dir, 'n')) > 52
   ) {
-    terminal.show(
-      'native_state_path_too_long: choose a shorter data.directory before initialization (Luvus state path maximum 52 UTF-8 bytes). / 初始化前请缩短 data.directory（Luvus 状态路径最多52个UTF-8字节）。\n'
-    )
+    terminal.show(cliMessages(terminal.io.language)['setup.native.statePathTooLongLuvus'])
     throw new CliError('configuration_required')
   }
   // 只有隔离实例把 socket 放在 Connector 数据目录里；附着模式的端点在用户自己的配置目录，Windows 是命名管道。
@@ -59,9 +58,7 @@ export function assertSetupNativePath(config: ConnectorConfig, terminal: SetupTe
     process.platform !== 'win32' &&
     Buffer.byteLength(join(config.state_dir, 'hr/c/herdr/herdr-client.sock')) > 107
   ) {
-    terminal.show(
-      'native_state_path_too_long: choose a shorter data.directory for the private Herdr sockets (herdr.sock and herdr-client.sock). / 请缩短 data.directory 以容纳隔离 Herdr 的 socket（含 herdr-client.sock）。\n'
-    )
+    terminal.show(cliMessages(terminal.io.language)['setup.native.statePathTooLongHerdr'])
     throw new CliError('configuration_required')
   }
 }
@@ -135,18 +132,28 @@ export async function prepareSetupNative(
   if (!attach && process.platform === 'win32') {
     // 隔离实例依赖 POSIX 权限与 pidfd 进程模型；Windows 上目前只支持附着用户自己的会话。
     terminal.show(
-      'luvus_managed_unsupported_on_windows: set native.luvus.mode to "attach". / Windows 上暂不支持 managed，请把 native.luvus.mode 设为 "attach"。\n'
+      formatMessage(cliMessages(terminal.io.language)['setup.native.managedUnsupportedWindows'], {
+        provider: 'luvus',
+        configKey: 'luvus'
+      })
     )
     throw new CliError('configuration_required')
   }
   if (!attach && process.platform === 'darwin') {
     // 隔离实例依赖 Linux 的 pidfd 进程模型；macOS 上目前只支持附着用户自己的会话。
     terminal.show(
-      'luvus_managed_unsupported_on_macos: set native.luvus.mode to "attach". / macOS 上暂不支持 managed，请把 native.luvus.mode 设为 "attach"。\n'
+      formatMessage(cliMessages(terminal.io.language)['setup.native.managedUnsupportedMacos'], {
+        provider: 'luvus',
+        configKey: 'luvus'
+      })
     )
     throw new CliError('configuration_required')
   }
-  if (!(await terminal.confirm(connectorNativePrompt(config.allow_terminal_execution, 'Luvus', attach)))) {
+  if (
+    !(await terminal.confirm(
+      connectorNativePrompt(config.allow_terminal_execution, 'Luvus', attach, terminal.io.language)
+    ))
+  ) {
     throw new CliError('configuration_required')
   }
   const control = join(config.state_dir, 'control')

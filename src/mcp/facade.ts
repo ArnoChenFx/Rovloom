@@ -8,6 +8,7 @@ import {
   type CallToolResult
 } from '@modelcontextprotocol/sdk/types.js'
 import { canonical, digest } from '../contracts.js'
+import { cliMessages, type CliLanguage } from '../cli/messages.js'
 import {
   isToolName,
   MAX_MCP_BYTES,
@@ -30,6 +31,8 @@ export type DiagnosticCode = 'mcp_transport_error' | 'mcp_service_error' | 'mcp_
 export type FacadeOptions = {
   service: GatewayService
   context: McpContextProvider
+  // 显示语言由唯一 CLI 入口解析后传入；省略时工具目录与说明按英文输出。
+  language?: CliLanguage
   // 接收固定诊断码供宿主写入受控日志，不传递原始参数或异常。
   diagnostic?: (code: DiagnosticCode) => void
 }
@@ -136,11 +139,12 @@ function toolOffset(cursor: string | undefined): number {
 
 // 组装 SDK 工具门面；身份和业务门禁依赖受信服务，不创建执行后端。
 export function createMcpFacade(options: FacadeOptions): Server {
+  const language = options.language ?? 'en'
   const server = new Server(
     { name: 'rovloom', version: PRODUCT_VERSION },
     {
       capabilities: { tools: {} },
-      instructions: '工具存在不表示后端可用；执行、授权、确认、去重与结果保留由受信服务负责。'
+      instructions: cliMessages(language)['mcp.instructions']
     }
   )
   let initialized = false
@@ -173,7 +177,7 @@ export function createMcpFacade(options: FacadeOptions): Server {
       const names = toolNames()
       const next = offset + TOOLS_PAGE_SIZE
       return {
-        tools: names.slice(offset, next).map(toolDefinition),
+        tools: names.slice(offset, next).map((name) => toolDefinition(name, language)),
         ...(next < names.length ? { nextCursor: Buffer.from(`rovloom-tools-v1:${next}`).toString('base64url') } : {})
       }
     }

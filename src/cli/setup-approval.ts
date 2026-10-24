@@ -5,6 +5,7 @@ import type { ManagementRequest } from '../storage/model.js'
 import type { openGatewayState } from '../runtime/state.js'
 import { boundedJson, fields, id, object, sha } from '../wire/index.js'
 import { CliError, type NativeProviderKind } from './config.js'
+import { cliMessages, formatMessage } from './messages.js'
 import { setupProviderKinds } from './setup-policy.js'
 import { runtimeReference } from './runtime-files.js'
 import { readSetupJson, writeSetupJson } from './setup-files.js'
@@ -187,12 +188,12 @@ export class SetupApproval {
       ) {
         throw new CliError('configuration_required')
       }
-      if (!(await this.terminal.confirm('Resume the existing device setup? / 继续原设备设置？'))) {
+      if (!(await this.terminal.confirm(cliMessages(this.terminal.io.language)['setup.approval.resumeConfirm']))) {
         throw new CliError('configuration_required')
       }
       return { plan: previous }
     }
-    if (!(await this.terminal.confirm('Pair one Connector with this Gateway? / 允许配对一个 Connector？'))) {
+    if (!(await this.terminal.confirm(cliMessages(this.terminal.io.language)['setup.approval.pairConfirm']))) {
       return { declined: true }
     }
     const now = Date.now()
@@ -260,15 +261,10 @@ export class SetupApproval {
     }
     if (
       !(await this.terminal.confirm(
-        'Re-pair the existing Connector device ' +
-          device.name +
-          ' (' +
-          machine +
-          ')? The credential it holds stops working now and in-flight calls become unknown. / 重新配对已有设备 ' +
-          device.name +
-          '（' +
-          machine +
-          '）？该设备当前凭据立即失效，进行中的调用结果变为未知。'
+        formatMessage(cliMessages(this.terminal.io.language)['setup.approval.repairDeviceConfirm'], {
+          name: device.name,
+          machine
+        })
       ))
     ) {
       throw new CliError('configuration_required')

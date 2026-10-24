@@ -6,6 +6,7 @@ import type { ServiceCommandHost } from '../service/command.js'
 import { ServiceError } from '../service/types.js'
 import { PRODUCT_VERSION } from '../mcp/version.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
+import { cliMessages, formatMessage, type CliLanguage } from './messages.js'
 import { serviceDiagnostic } from './service-output.js'
 import { readOrCreateRoleConfig } from './first-config.js'
 import { readRuntimeConfig } from './runtime-config.js'
@@ -21,43 +22,10 @@ import {
   type GatewayConfig
 } from './config.js'
 
-const WILDCARD_LISTEN_WARNING =
-  'wildcard_listener\nMCP/management listen on all interfaces over plain HTTP; protect them with a firewall or a TLS reverse proxy.\nMCP/管理页监听所有网卡且为明文 HTTP；请用防火墙或 TLS 反向代理收口。\n'
-
-export const HELP = `Rovloom ${PRODUCT_VERSION}
-
-用法：
-  rovloom --help
-  rovloom --version
-  rovloom config template gateway|connector
-  rovloom config init connector [--provider luvus|herdr|mixed] [--config /absolute/path/config.json]
-  rovloom config init gateway [--container] [--config /absolute/path/config.json]
-  rovloom config check [--role gateway|connector] [--config /absolute/path/config.json]
-  rovloom config check-runtime [--role gateway|connector] [--config /absolute/path/config.json]
-  rovloom gateway [--add-device | --repair-device] [--config /absolute/path/config.json] [--non-interactive]
-  rovloom connector [--repair | --claim] [--config /absolute/path/config.json] [--non-interactive]
-  rovloom service --help
-  rovloom token --help
-  rovloom doctor --help
-  rovloom storage --help
-  rovloom admin --help
-
-gateway / connector 启动对应角色。首次运行时在真实本地终端完成一次性配对与原生安装批准；
-在终端拒绝配对提示时，Gateway 保持未配对运行，可先运行 rovloom admin create 再从管理页完成首台配对；
---add-device 在已完成的引导之上再配对一台 Connector（沿用同一 MCP 凭据，授权随之扩大到新设备）；
---repair-device / --repair 重新配对已配对的同一设备（凭据丢失或泄漏），保留原生设置与 MCP 授权。
---claim 让未配对的 Connector 向运行中的 Gateway 在线认领管理员创建的配对申请（管理页核对码批准，Gateway 不停机）。
-这四个选项需要真实本地终端，不可与 --non-interactive 合用。--non-interactive 关闭本地交互引导（服务以此运行）。
-token 管理 MCP Bearer 令牌，admin 管理管理页管理员，service 管理开机服务；详见各自的 --help。
-config check 只读检查配置文件；check-runtime 另核对程序管理的状态，不读取凭据。
-
-省略 --config 时读取 ~/.config/rovloom/gateway.json 或 connector.json（Windows 同样使用用户 home）。
-文件缺失时首次运行会生成默认配置，已有文件不会被覆盖或重置。
-Gateway 支持 Linux/macOS/Windows；Connector 支持 Linux x64、Windows x64 与 macOS（x64 / arm64，仅附着已运行的 Herdr / Luvus）。
-首次引导按 Connector 的 native.provider 选择 luvus（默认）、herdr 或 mixed。
-Agent 与模型登录需独立准备；原生 ready 不代表模型已回复。
-退出码：0 成功/正常关闭，2 参数或配置错误，3 后端不可用，1 运行或关闭失败。
-`
+// 主帮助按当前语言输出；文案与翻译统一在 messages 词典维护。
+export function cliHelp(language: CliLanguage = 'en'): string {
+  return formatMessage(cliMessages(language)['help.main'], { version: PRODUCT_VERSION })
+}
 
 export type RunningConnector = {
   closed: Promise<void>
@@ -71,6 +39,8 @@ export type GatewayRuntime = {
   closed?: Promise<void>
   setupRequired?: boolean
   reconfigure?: Promise<void>
+  // 宿主实际启动管理listener后上报的本机管理页地址；未启动管理页时不提供，CLI 不按配置自报。
+  managementUrl?: string
   // 宿主可观察实际MCP地址以发布本机就绪状态；此回调不提供认证或权限。
   listening?(url: string): void | Promise<void>
   // 在前端关闭后释放宿主拥有的资源，保留可能已送达工作的历史证据。
@@ -96,7 +66,14 @@ export type CliRuntime = {
 // 已配对设备的重新配对：Gateway 用 --repair-device 签发新码，Connector 用 --repair 兑换。
 // 加入下一台设备：Gateway 用 --add-device 在已完成的引导之上再签发一次配对。
 export type CliPrepareOptions = { repair?: true; addDevice?: true; claim?: true }
-export type CliIo = { stdin: Readable; stdout: Writable; stderr: Writable; signal: AbortSignal }
+export type CliIo = {
+  stdin: Readable
+  stdout: Writable
+  stderr: Writable
+  signal: AbortSignal
+  // 显示语言由入口按环境解析一次；省略视为英文，保证库调用与测试不依赖宿主 locale。
+  language?: CliLanguage
+}
 type Command =
   | { action: 'help' | 'version' }
   | { action: 'template'; role: 'gateway' | 'connector' }
@@ -223,9 +200,9 @@ export async function runCli(
 ): Promise<number> {
   try {
     if (args[0] === 'service') {
-      const { SERVICE_HELP, handleServiceCommand } = await import('../service/command.js')
+      const { handleServiceCommand } = await import('../service/command.js')
       if (args.length === 2 && args[1] === '--help') {
-        io.stderr.write(SERVICE_HELP)
+        io.stderr.write(cliMessages(io.language)['help.service'])
         return 0
       }
       if (!runtime.service) {
@@ -234,6 +211,7 @@ export async function runCli(
       const host = runtime.service
       const code = await handleServiceCommand(args, {
         ...host,
+        language: io.language ?? 'en',
         resolveDefaultConfig: host.resolveDefaultConfig
           ? /* 仅统一共享helper的明确身份缺失；其它宿主故障保留失败语义。 */ (role, account) => {
               try {
@@ -274,7 +252,7 @@ export async function runCli(
     }
     const command = parseCommand(args, environment)
     if (command.action === 'help') {
-      io.stderr.write(HELP)
+      io.stderr.write(cliHelp(io.language))
       return 0
     }
     if (command.action === 'version') {
@@ -344,6 +322,7 @@ export async function runCli(
     }
     let reload = false
     let warnedWildcard = false
+    let shownDashboard = false
     do {
       reload = false
       const gateway = await runtime.gateway(config)
@@ -354,7 +333,7 @@ export async function runCli(
           (config.management_enabled && isWildcardHostname(config.management_hostname)))
       ) {
         warnedWildcard = true
-        io.stderr.write(WILDCARD_LISTEN_WARNING)
+        io.stderr.write(cliMessages(io.language)['run.wildcardListenWarning'])
       }
       try {
         // 只有宿主建立后才加载HTTP SDK；stdin EOF和客户端断开均不结束Gateway。
@@ -366,15 +345,22 @@ export async function runCli(
           port: config.mcp_port,
           ...(config.mcp_public_url ? { publicUrl: config.mcp_public_url } : {}),
           ...(config.mcp_lan ? { lan: true } : {}),
+          ...(io.language ? { language: io.language } : {}),
           diagnostic: /* 只把受限诊断码写入stderr，不输出凭据、URL或协议正文。 */ (code) => io.stderr.write(code + '\n')
         })
         try {
           await gateway.listening?.(http.url)
+          // 管理页地址来自宿主实际启动的listener；重载沿用同一地址，只公布一次。
+          if (!shownDashboard && gateway.managementUrl) {
+            shownDashboard = true
+            io.stderr.write('dashboard_listening ' + new URL(gateway.managementUrl).href + '\n')
+          }
           if (gateway.setupRequired) {
             io.stderr.write(
               'gateway_listening ' +
                 http.url +
-                '\npairing_required\nGateway is running; complete local pairing and native setup before using an Agent.\nGateway 已启动；使用 Agent 前仍需完成本地配对和原生初始化。\n'
+                '\npairing_required\n' +
+                cliMessages(io.language)['run.pairingRequiredHint']
             )
           }
           await untilStopped(
@@ -412,9 +398,7 @@ export async function runCli(
       // 错误只由固定代码组成，绝不打印 argv、配置内容、异常 message 或 stack。
       io.stderr.write(error.code + '\n')
       if (error.code === 'configuration_required') {
-        io.stderr.write(
-          'Setup requires a local terminal, a reachable Gateway, completed pairing and a compatible installed Luvus. Preserve uncertain setup state for owner review.\n初始化需本地终端、可达 Gateway、完整配对及兼容 Luvus 安装；结果不确定时保留原状态并由所有者核查。\n'
-        )
+        io.stderr.write(cliMessages(io.language)['run.configurationRequiredHint'])
       }
       return error.exitCode
     }

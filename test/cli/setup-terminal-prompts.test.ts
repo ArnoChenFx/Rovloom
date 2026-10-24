@@ -5,6 +5,9 @@ import { configDocument, configTemplate, parseConfig } from '../../src/cli/confi
 import { connectorNativePrompt, gatewayNativePrompt } from '../../src/cli/setup-prompts.js'
 import { selectedSetupPolicies } from '../../src/cli/setup-policy.js'
 
+// 默认输出单语英文；zh-CN 输出单语中文，两种语言都不再拼接另一语言的文案。
+const cjk = /[\u{4e00}-\u{9fff}]/u
+
 for (const enabled of [undefined, false, true]) {
   test(
     `setup prompt reflects local terminal ${enabled} without Gateway claiming it is disabled`,
@@ -19,11 +22,13 @@ for (const enabled of [undefined, false, true]) {
       assert(connector.role === 'connector')
       for (const kind of ['Luvus', 'Herdr'] as const) {
         const local = connectorNativePrompt(connector.allow_terminal_execution, kind)
-        assert.match(
-          local,
-          enabled === true ? /terminal execution ENABLED.*已开启终端执行/ : /terminal execution disabled.*关闭终端执行/
-        )
+        assert.match(local, enabled === true ? /terminal execution ENABLED/ : /terminal execution disabled/)
+        assert.doesNotMatch(local, cjk)
         assert(local.includes(kind))
+        const translated = connectorNativePrompt(connector.allow_terminal_execution, kind, false, 'zh-CN')
+        assert.match(translated, enabled === true ? /已开启终端执行/ : /关闭终端执行/)
+        assert.doesNotMatch(translated, /terminal execution (ENABLED|disabled)/u)
+        assert(translated.includes(kind))
       }
       const policies = selectedSetupPolicies(
         { attempt_id: 'synthetic_attempt', actor: 'synthetic_actor' },
@@ -34,8 +39,12 @@ for (const enabled of [undefined, false, true]) {
       assert(policies.local.grants[0]!.methods.includes('pane.run'))
       const gateway = gatewayNativePrompt('synthetic-version', 'a'.repeat(64))
       assert.match(gateway, /Terminal execution is controlled by the Connector machine owner's local configuration/)
-      assert.match(gateway, /终端执行由 Connector 本机所有者配置决定/)
-      assert.doesNotMatch(gateway, /stays disabled|终端执行关闭|关闭终端执行/)
+      assert.doesNotMatch(gateway, cjk)
+      assert.doesNotMatch(gateway, /stays disabled/)
+      const gatewayZh = gatewayNativePrompt('synthetic-version', 'a'.repeat(64), 'zh-CN')
+      assert.match(gatewayZh, /终端执行由 Connector 本机所有者配置决定/)
+      assert.doesNotMatch(gatewayZh, /Terminal execution is controlled/u)
+      assert.doesNotMatch(gatewayZh, /终端执行关闭|关闭终端执行/)
     }
   )
 }

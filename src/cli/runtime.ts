@@ -183,6 +183,7 @@ export function createRuntimeCliRuntime(host: RuntimeCliHost): CliRuntime {
           setupRequired: resource.setupRequired,
           reconfigure: resource.reconfigure,
           listening: resource.listening?.bind(resource),
+          ...(management ? { managementUrl: management.url } : {}),
           closed: gateway.closed,
           close
         }
