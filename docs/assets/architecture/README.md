@@ -52,12 +52,14 @@ The generator makes no network requests and never starts Gateway or Connector.
 - Solid bidirectional arrows show application traffic: requests travel downward;
   results/events return. They do not describe who opens the socket.
 - Dashed orange arrows show Connector → Gateway outbound WSS initiation.
+- Gateway and Connector use the same original Rovloom orange R mark; both are Rovloom components.
 - The management UI, call ledger and result storage belong to Gateway.
 - Workspaces, sessions and Agent logins stay on the original devices.
 
 部署区域分为客户端、一个自部署 Gateway 和各台设备；设备内依次展示 Connector、Adapter、Runtime 与会话 Agent。
 每台设备一套身份、一个 Connector，
 Adapter 独立绑定各原生实例。实线双向表示业务通信，橙色虚线表示主动出站连接；
+Gateway 与 Connector 均使用 Rovloom 原始橙色 R 标识，体现两者同属 Rovloom。
 管理页、调用账本和结果存储属于 Gateway，工作区与 Agent 登录留在原设备。
 每个 Runtime 内进一步展示会话中的 Agent 层，以 Claude Code、Codex、Pi、OpenCode、Fx 等为例；
 这些是层级示意，实际能力取决于本机安装与对应 Runtime 的支持。

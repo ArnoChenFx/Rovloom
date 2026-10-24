@@ -63,6 +63,8 @@ def main():
                     logo = page.locator(selector)
                     assert logo.get_attribute('src') == './assets/logo.png'
                     assert logo.evaluate('(image) => Math.abs(image.width / image.height - image.naturalWidth / image.naturalHeight) < 0.05'), (language, width, selector)
+                for selector in ['.map-local-stack .map-connector img', '.flow-local .map-connector img']:
+                    expect(page.locator(selector)).to_have_attribute('src', './assets/mark.png')
                 nodes = page.locator('.map-node')
                 assert nodes.count() == 6
                 for element in nodes.all():
