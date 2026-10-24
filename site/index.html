@@ -80,109 +80,27 @@
         <div class="topology-block">
           <div class="map-heading"><span class="map-heading-mark" aria-hidden="true">R /</span><span data-i18n="map.heading">{{map.heading}}</span><span class="map-protocol">MCP → WSS</span></div>
           <div class="topology" role="group" data-i18n-aria="map.aria" aria-label="{{map.aria}}">
-            <svg class="connections" viewBox="0 0 560 480" preserveAspectRatio="none" aria-hidden="true">
-              <path class="wire" data-route="agent" d="M280 92V140"></path>
-              <path class="wire" data-route="pc" d="M280 204V234Q280 244 270 244H160Q150 244 150 254V274"></path>
-              <path class="wire" data-route="docker" d="M280 204V360Q280 370 270 370H160Q150 370 150 380V386"></path>
-              <path class="wire" data-route="vps" d="M280 204V234Q280 244 290 244H400Q410 244 410 254V274"></path>
-              <path class="wire" data-route="sandbox" d="M280 204V360Q280 370 290 370H400Q410 370 410 380V386"></path>
-              <path class="active-route" data-highlight-route="agent" pathLength="1" d="M280 92V140"></path>
-              <path class="active-route" data-highlight-route="pc" pathLength="1" d="M280 204V234Q280 244 270 244H160Q150 244 150 254V274"></path>
-              <path class="active-route" data-highlight-route="docker" pathLength="1" d="M280 204V360Q280 370 270 370H160Q150 370 150 380V386"></path>
-              <path class="active-route" data-highlight-route="vps" pathLength="1" d="M280 204V234Q280 244 290 244H400Q410 244 410 254V274"></path>
-              <path
-                class="active-route"
-                data-highlight-route="sandbox"
-                pathLength="1"
-                d="M280 204V360Q280 370 290 370H400Q410 370 410 380V386"
-              ></path>
-              <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="5s" repeatCount="indefinite" path="M280 92V140"></animateMotion>
-              </circle>
-              <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="9s" repeatCount="indefinite" path="M150 386V380Q150 370 160 370H270Q280 370 280 360V204"></animateMotion>
-              </circle>
-              <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="7s" repeatCount="indefinite" path="M410 274V254Q410 244 400 244H290Q280 244 280 234V204"></animateMotion>
-              </circle>
-            </svg>
-            <button
-              class="map-node agent-node"
-              type="button"
-              aria-controls="node-flow"
-              data-node="agent"
-              aria-pressed="false"
-            >
-              <span class="node-icon"
-                ><svg aria-hidden="true"><use href="#spark-icon"></use></svg></span
-              ><span class="node-copy"><strong data-i18n="map.agent">{{map.agent}}</strong></span>
-            </button>
-            <button
-              class="map-node gateway-node"
-              type="button"
-              aria-controls="node-flow"
-              data-node="gateway"
-              aria-pressed="false"
-            >
-              <span class="gateway-mark"><img src="./assets/mark.png" alt="" width="34" height="34" /></span
-              ><span class="node-copy"><strong>Rovloom Gateway</strong></span>
-            </button>
-            <button
-              class="map-node environment-node pc-node"
-              type="button"
-              aria-controls="node-flow"
-              data-node="pc"
-              aria-pressed="false"
-            >
-              <span class="node-icon"
-                ><svg aria-hidden="true"><use href="#workspace-icon"></use></svg
-              ></span>
-              <span class="node-copy"
-                ><strong data-i18n="map.pc">{{map.pc}}</strong
-                ><small data-i18n="map.pcPlatforms">{{map.pcPlatforms}}</small></span
-              >
-            </button>
-            <button
-              class="map-node environment-node vps-node"
-              type="button"
-              aria-controls="node-flow"
-              data-node="vps"
-              aria-pressed="false"
-            >
-              <span class="node-icon"
-                ><svg aria-hidden="true"><use href="#server-icon"></use></svg
-              ></span>
-              <span class="node-copy"><strong data-i18n="map.vps">{{map.vps}}</strong></span>
-            </button>
-            <button
-              class="map-node environment-node docker-node"
-              type="button"
-              aria-controls="node-flow"
-              data-node="docker"
-              aria-pressed="false"
-            >
-              <span class="node-icon"
-                ><svg aria-hidden="true"><use href="#container-icon"></use></svg
-              ></span>
-              <span class="node-copy"><strong data-i18n="map.docker">{{map.docker}}</strong></span>
-            </button>
-            <button
-              class="map-node environment-node sandbox-node"
-              type="button"
-              aria-controls="node-flow"
-              data-node="sandbox"
-              aria-pressed="false"
-            >
-              <span class="node-icon"
-                ><svg aria-hidden="true"><use href="#sandbox-icon"></use></svg
-              ></span>
-              <span class="node-copy"><strong data-i18n="map.sandbox">{{map.sandbox}}</strong></span>
-            </button>
-          </div>
-          <div class="map-local-stack">
-            <p class="map-stack-label" data-i18n="map.localLabel">{{map.localLabel}}</p>
-            <p class="map-stack-route"><span>Connector</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12m-4-4 4 4-4 4"></path></svg><span>Luvus / Herdr</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h12m-4-4 4 4-4 4"></path></svg><strong>Agents</strong></p>
-            <ul class="agent-names" aria-label="Agents"><li>Claude Code</li><li>Codex</li><li>Pi</li><li>OpenCode</li><li>Fx</li></ul>
+            <div class="map-entry">
+              <button class="map-node agent-node" type="button" data-node="agent" aria-pressed="false" aria-controls="node-flow"><span class="node-icon"><svg aria-hidden="true"><use href="#spark-icon"></use></svg></span><span class="node-copy"><strong data-i18n="map.agent">{{map.agent}}</strong><small>MCP CLIENT</small></span></button>
+              <svg class="map-uplink" viewBox="0 0 40 20" aria-hidden="true"><path class="wire" d="M2 10H38M7 5l-5 5 5 5m26-10 5 5-5 5"></path><path class="active-route" data-highlight-route="agent" pathLength="1" d="M2 10H38M7 5l-5 5 5 5m26-10 5 5-5 5"></path></svg>
+              <button class="map-node gateway-node" type="button" data-node="gateway" aria-label="Rovloom Gateway" aria-pressed="false" aria-controls="node-flow"><span class="gateway-mark"><img src="./assets/mark.png" alt="" width="30" height="30" /></span><span class="node-copy"><strong>Gateway</strong><small data-i18n="map.gatewayRole">{{map.gatewayRole}}</small></span></button>
+            </div>
+            <div class="map-downlink" aria-hidden="true"><svg viewBox="0 0 100 48" preserveAspectRatio="none"><path class="wire" d="M100 0V12Q100 24 88 24H12Q0 24 0 36V48"></path><path class="active-route" data-highlight-route="workspace" pathLength="1" d="M100 0V12Q100 24 88 24H12Q0 24 0 36V48"></path></svg><span>WSS</span></div>
+            <div class="map-workspace">
+              <div class="map-workspace-heading"><strong id="workspace-title" data-i18n="map.workspaceTitle">{{map.workspaceTitle}}</strong><span data-i18n="map.workspaceExample">{{map.workspaceExample}}</span></div>
+              <div class="map-env-selector" role="group" data-i18n-aria="map.environments" aria-label="{{map.environments}}">
+                <button class="map-node environment-node pc-node" type="button" data-node="pc" aria-pressed="false" aria-controls="node-flow"><span class="node-icon"><svg aria-hidden="true"><use href="#workspace-icon"></use></svg></span><span class="node-copy"><strong data-i18n="map.pc">{{map.pc}}</strong></span></button><button class="map-node environment-node vps-node" type="button" data-node="vps" aria-pressed="false" aria-controls="node-flow"><span class="node-icon"><svg aria-hidden="true"><use href="#server-icon"></use></svg></span><span class="node-copy"><strong data-i18n="map.vps">{{map.vps}}</strong></span></button><button class="map-node environment-node docker-node" type="button" data-node="docker" aria-pressed="false" aria-controls="node-flow"><span class="node-icon"><svg aria-hidden="true"><use href="#container-icon"></use></svg></span><span class="node-copy"><strong data-i18n="map.docker">{{map.docker}}</strong></span></button><button class="map-node environment-node sandbox-node" type="button" data-node="sandbox" aria-pressed="false" aria-controls="node-flow"><span class="node-icon"><svg aria-hidden="true"><use href="#sandbox-icon"></use></svg></span><span class="node-copy"><strong data-i18n="map.sandbox">{{map.sandbox}}</strong></span></button>
+              </div>
+              <div class="map-local-stack">
+                <div class="map-connector"><svg aria-hidden="true"><use href="#route-icon"></use></svg><strong>Connector</strong><span data-i18n="map.oneConnector">{{map.oneConnector}}</span></div>
+                <div class="map-native-link" aria-hidden="true"><svg viewBox="0 0 16 28"><path d="M8 2v24m-4-4 4 4 4-4"></path></svg></div>
+                <div class="map-runtime">
+                  <div class="map-runtime-heading"><span class="map-runtime-icon"><svg aria-hidden="true"><use href="#server-icon"></use></svg></span><strong>Luvus / Herdr</strong><span data-i18n="map.runtimeRole">{{map.runtimeRole}}</span></div>
+                  <div class="map-agent-layer"><p data-i18n="map.sessionAgents">{{map.sessionAgents}}</p><ul class="agent-names" aria-label="Agents"><li>Claude Code</li><li>Codex</li><li>Pi</li><li>OpenCode</li><li>Fx</li></ul></div>
+                </div>
+              </div>
+              <p class="map-local-note" data-i18n="map.localNote">{{map.localNote}}</p>
+            </div>
           </div>
           <p class="map-caption" data-i18n="map.caption">{{map.caption}}</p>
           <p id="node-flow" class="node-flow" role="status" aria-live="polite" aria-atomic="true"></p>

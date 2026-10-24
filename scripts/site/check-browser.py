@@ -75,6 +75,8 @@ def main():
                 strip_top = page.locator('.tool-strip').evaluate('(element) => element.getBoundingClientRect().top + scrollY')
                 page.locator('[data-node=pc]').click()
                 expect(page.locator('#node-flow')).to_contain_text('Gateway')
+                expect(page.locator('#workspace-title')).to_have_text('个人电脑' if language == 'zh' else 'Personal computer')
+                assert page.locator('.map-workspace').evaluate('(element) => element.contains(document.querySelector(".map-local-stack"))')
                 after_top = page.locator('.tool-strip').evaluate('(element) => element.getBoundingClientRect().top + scrollY')
                 assert abs(strip_top - after_top) < 1, (language, width, 'selection moves layout')
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (language, width, 'flow')
@@ -94,8 +96,10 @@ def main():
                 assert len(flow) > 20 and 'Gateway' in flow
                 flows.add(flow)
                 assert button.get_attribute('aria-controls') == 'node-flow'
+                if node in ['pc', 'vps', 'docker', 'sandbox']:
+                    assert page.locator('#workspace-title').inner_text() == button.locator('strong').inner_text()
                 routes = page.locator('.active-route.is-active').evaluate_all('(routes) => routes.map(route => route.dataset.highlightRoute)')
-                expected_routes = ['agent', 'pc', 'docker', 'vps', 'sandbox'] if node == 'gateway' else ['agent'] if node == 'agent' else ['agent', node]
+                expected_routes = ['agent'] if node == 'agent' else ['agent', 'workspace']
                 assert set(routes) == set(expected_routes), (node, routes)
                 for route in page.locator('.active-route.is-active').all():
                     assert 'stroke-dashoffset' in route.evaluate('(element) => getComputedStyle(element).transitionProperty')
@@ -171,7 +175,7 @@ def main():
         assert page.locator('.active-route.is-active').first.evaluate('(element) => getComputedStyle(element).transitionDuration') == '0s'
         assert page.locator('#node-flow').evaluate('(element) => element.getAnimations().length') == 0
         page.locator('[data-node=pc]').click()
-        assert page.locator('.packet').first.evaluate('(element) => getComputedStyle(element).display') == 'none'
+        assert page.locator('.topology').evaluate('(element) => element.getAnimations({subtree: true}).length') == 0
         blocked = context.new_page()
         blocked.add_init_script('''
             Object.defineProperty(window, 'localStorage', {get() {throw new Error('blocked')}});
