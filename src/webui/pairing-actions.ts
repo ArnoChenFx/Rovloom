@@ -1,7 +1,7 @@
 /** 管理页在线配对区：新建申请、跟踪认领、核对核对码后批准签发；全部写操作复用确认/回执 flow。 */
 import type { ManagementReply } from '../mcp/management.js'
 import { DEFAULT_PAIRING_POLICY_REF } from '../pairing-policy.js'
-import type { Localizer, MessageKey } from './i18n.js'
+import type { Localizer, MessageKey, UiLanguage } from './i18n.js'
 import { createPairingManagementFlow, type PairingManagementState } from './pairing-flow.js'
 import {
   checkManagementWriteReply,
@@ -24,6 +24,23 @@ const errors: Record<ManagementClientProblem, MessageKey> = {
   aborted: 'manage.cancelled'
 }
 
+/** 上次渲染签名；内容未变时不再重建子树，保持用户选区与已绑定的批准按钮。 */
+export function entryRenderSignature(
+  language: UiLanguage,
+  entry: Readonly<Pick<Entry, 'name' | 'machine_id' | 'pairing_id' | 'status' | 'claim'>>
+): string {
+  return [
+    language,
+    entry.name,
+    entry.machine_id,
+    entry.pairing_id,
+    entry.status,
+    entry.claim?.status ?? '',
+    entry.claim?.user_code ?? '',
+    entry.claim?.activation ?? ''
+  ].join('|')
+}
+
 type PairingStatus = ManagementReply['pairings_get']
 type Entry = {
   name: string
@@ -32,6 +49,7 @@ type Entry = {
   status: PairingStatus['status']
   claim?: NonNullable<PairingStatus['claim']>
   item: HTMLLIElement
+  rendered?: string
 }
 
 /** 创建固定控件；申请编号、核对码与服务回复只通过 textContent 进入页面。 */
@@ -210,6 +228,12 @@ export function createPairingActions(options: {
     if (!i18n) {
       return
     }
+    // 展示内容不变时跳过重建：整棵子树被 replaceChildren 会每秒杀死用户正在复制申请编号的选区。
+    const signature = entryRenderSignature(i18n.language, entry)
+    if (entry.rendered === signature) {
+      return
+    }
+    entry.rendered = signature
     const t = i18n.t.bind(i18n)
     entry.item.replaceChildren()
     const head = node('div', 'pairing-entry-head')
