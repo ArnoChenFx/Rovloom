@@ -2,6 +2,7 @@
 import type { ProviderPolicy } from '../wire/types.js'
 import { CliError } from './config.js'
 import { MAX_CALLERS, digestToken, newToken, type CallerRegistry } from './token-registry.js'
+import { DEFAULT_PAIRING_POLICY_REF } from '../pairing-policy.js'
 
 export const ADMIN_POLICY_REVISION = 'rovloom_admin_v1'
 export const MAX_ADMINS = 16
@@ -31,7 +32,13 @@ export type ManagementFile = {
 
 /** 尚无任何管理员的来源文件；端口必须与 Gateway 配置的管理端口一致。 */
 export function emptyManagement(port: number): ManagementFile {
-  return { schema_version: 1, kind: 'management-session-source', port, sessions: [], pairing_policy_refs: [] }
+  return {
+    schema_version: 1,
+    kind: 'management-session-source',
+    port,
+    sessions: [],
+    pairing_policy_refs: [DEFAULT_PAIRING_POLICY_REF]
+  }
 }
 
 /** 管理员主体在 MCP 注册表里的占位条目：策略为空且令牌无人知晓，因此不能经 MCP 调用任何东西。 */
@@ -97,7 +104,14 @@ export function issueAdmin(
         placeholder
       ]
     },
-    management: { ...management, sessions: [...others, session] },
+    management: {
+      ...management,
+      sessions: [...others, session],
+      // 显式签发管理员时为尚未选过策略的来源提供产品默认；保留已有自定义允许列表。
+      pairing_policy_refs: management.pairing_policy_refs.length
+        ? management.pairing_policy_refs
+        : [DEFAULT_PAIRING_POLICY_REF]
+    },
     secret,
     expires_at
   }

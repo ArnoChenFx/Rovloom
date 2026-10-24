@@ -8,10 +8,12 @@ import { PassThrough } from 'node:stream'
 import { configDocument, configTemplate } from '../../src/cli/config.js'
 import type { GatewayConfig } from '../../src/cli/config.js'
 import { handleAdminCommand, managementSourceExists, writeAdminFiles } from '../../src/cli/admin-command.js'
+import { isAdminPlaceholder } from '../../src/cli/admin-registry.js'
 import { handleTokenCommand } from '../../src/cli/token-command.js'
 import { ADMIN_POLICY_REVISION, emptyManagement, issueAdmin, revokeAdmin } from '../../src/cli/admin-registry.js'
 import { digestToken, parseRegistry } from '../../src/cli/token-registry.js'
 import type { CallerRegistry } from '../../src/cli/token-registry.js'
+import { DEFAULT_PAIRING_POLICY_REF } from '../../src/pairing-policy.js'
 
 const DAY = 86_400_000
 const policy = { revision: 'p1', grants: [] }
@@ -40,6 +42,7 @@ test('issue creates a hash-only admin session plus a permissionless MCP placehol
   assert.equal(session.credential_sha256, digestToken(first.secret))
   assert.equal(session.scope, 'all_devices')
   assert.deepEqual(session.administrator.grants, [])
+  assert.deepEqual(first.management.pairing_policy_refs, [DEFAULT_PAIRING_POLICY_REF])
   assert(!JSON.stringify({ callers: first.callers, management: first.management }).includes(first.secret))
   const placeholder = first.callers.callers.find((entry) => entry.principal.id === 'admin')!
   assert.equal(placeholder.principal.policy.revision, ADMIN_POLICY_REVISION)
@@ -57,6 +60,47 @@ test('issue creates a hash-only admin session plus a permissionless MCP placehol
     '重新签发换新会话引用，旧 Cookie 随之失效'
   )
   assert.equal(second.callers.callers.filter((entry) => entry.principal.id === 'admin').length, 1)
+})
+
+test('admin creation retains custom pairing policies and seeds an empty legacy allowlist', () => {
+  const management = emptyManagement(9445)
+  assert.deepEqual(
+    issueAdmin(callers(), { ...management, pairing_policy_refs: ['custom'] }, 'admin', 2_000).management
+      .pairing_policy_refs,
+    ['custom']
+  )
+  assert.deepEqual(
+    issueAdmin(callers(), { ...management, pairing_policy_refs: [] }, 'admin', 2_000).management.pairing_policy_refs,
+    [DEFAULT_PAIRING_POLICY_REF]
+  )
+})
+
+test('admin create and reissue accept valid caller registries larger than 16 KiB', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rovloom-admin-large-registry-'))
+  try {
+    mkdirSync(join(root, 'managed'), { mode: 0o700 })
+    const config = { ...configTemplate('gateway'), state_dir: root } as GatewayConfig
+    const registry = callers(Date.now())
+    registry.callers = Array.from({ length: 55 }, (_, i) => ({
+      ...registry.callers[0]!,
+      principal: { id: 'caller_' + i + '_' + 'a'.repeat(100), policy },
+      token_sha256: digestToken('fixture_' + i)
+    }))
+    const original = JSON.stringify(parseRegistry(registry))
+    assert(Buffer.byteLength(original) > 16_384)
+    const path = join(root, 'managed', 'mcp-callers.json')
+    writeFileSync(path, original, { mode: 0o600 })
+    const first = writeAdminFiles(config, 'admin', Date.now())
+    const second = writeAdminFiles(config, 'admin', Date.now())
+    assert.notEqual(second.secret, first.secret)
+    const after = parseRegistry(JSON.parse(readFileSync(path, 'utf8')))
+    assert.deepEqual(
+      after.callers.filter((entry) => entry.principal.id !== 'admin'),
+      registry.callers
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('issue refuses to attach admin rights to a real MCP principal, revoke never deletes one', () => {
@@ -160,3 +204,51 @@ test('first-setup helper writes both files once; only an absent source file trig
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test(
+  'admin create works before first pairing: an empty caller registry is initialized for the management page',
+  /** 全新 Gateway 先建管理员再在线配对；占位主体没有 MCP 权限，配对激活不会覆盖它。 */ async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rovloom-admin-bootstrap-'))
+    try {
+      const state = join(root, 'gateway')
+      mkdirSync(join(state, 'managed'), { recursive: true, mode: 0o700 })
+      const config = { ...configTemplate('gateway'), state_dir: state } as GatewayConfig
+      const configPath = join(root, 'gateway.json')
+      writeFileSync(configPath, JSON.stringify(configDocument(config)), { mode: 0o600 })
+      const callerPath = join(state, 'managed', 'mcp-callers.json')
+      const run = async (...args: string[]) => {
+        const out = sink()
+        const err = sink()
+        const code = await handleAdminCommand(['admin', ...args, '--config', configPath], {
+          stdout: out.stream,
+          stderr: err.stream
+        })
+        return { code, out: out.text(), err: err.text() }
+      }
+      // 注册表不存在时 create 初始化空来源并签发管理员。
+      const created = await run('create')
+      assert.equal(created.code, 0)
+      assert.match(created.out.trim(), /^[A-Za-z0-9_-]{43}$/)
+      const registry = parseRegistry(JSON.parse(readFileSync(callerPath, 'utf8')))
+      assert.equal(registry.resource, `http://127.0.0.1:${config.mcp_port}/mcp`)
+      assert.equal(registry.local_policy.grants.length, 0)
+      assert.equal(registry.callers.length, 1)
+      assert.equal(registry.callers[0]!.principal.id, 'admin')
+      assert.equal(isAdminPlaceholder(registry.callers[0]!), true)
+      // list 在同一初始化后的注册表上正常工作；revoke 清掉占位主体但不删除注册表文件。
+      const listed = await run('list')
+      assert.equal(listed.code, 0)
+      assert.match(listed.out, /^admin\tactive\t/)
+      const revoked = await run('revoke')
+      assert.equal(revoked.code, 0)
+      const after = parseRegistry(JSON.parse(readFileSync(callerPath, 'utf8')))
+      assert.equal(after.callers.length, 0)
+      // 再次 create 在既有注册表上重新签发。
+      const again = await run('create')
+      assert.equal(again.code, 0)
+      assert.match(again.out.trim(), /^[A-Za-z0-9_-]{43}$/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+)

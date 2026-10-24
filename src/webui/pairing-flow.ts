@@ -1,4 +1,5 @@
 // 一次明确配对管理意图的有限状态机；与设备流程同构，只准备/显式确认/提交/查原回执，不接DOM或自动重放。
+import { managementRequestId } from './request-id.js'
 import type {
   ConfirmationDraft,
   ConfirmationView,
@@ -86,9 +87,7 @@ export function createPairingManagementFlow(options: {
   let active: AbortController | undefined
   let generation = 0
   let disposed = false
-  const requestId =
-    options.requestId ??
-    /* 为这一次用户意图分配随机关联，不通过更换ID实现重试。 */ (() => 'request_' + globalThis.crypto.randomUUID())
+  const requestId = options.requestId ?? managementRequestId
 
   /** 所有回复即使来自注入transport也重新校验，避免测试stub或宿主绕过客户端边界。 */
   async function execute<K extends ManagementClientOperation>(

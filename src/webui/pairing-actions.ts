@@ -1,5 +1,6 @@
 /** 管理页在线配对区：新建申请、跟踪认领、核对核对码后批准签发；全部写操作复用确认/回执 flow。 */
 import type { ManagementReply } from '../mcp/management.js'
+import { DEFAULT_PAIRING_POLICY_REF } from '../pairing-policy.js'
 import type { Localizer, MessageKey } from './i18n.js'
 import { createPairingManagementFlow, type PairingManagementState } from './pairing-flow.js'
 import {
@@ -66,6 +67,7 @@ export function createPairingActions(options: {
   policyInput.required = true
   policyInput.maxLength = 128
   policyInput.autocomplete = 'off'
+  policyInput.value = DEFAULT_PAIRING_POLICY_REF
   policyLabel.append(policyCaption, policyInput)
   const create = node('button', 'pairing-confirm')
   create.type = 'submit'

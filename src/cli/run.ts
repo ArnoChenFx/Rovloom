@@ -43,6 +43,7 @@ export const HELP = `Rovloom ${PRODUCT_VERSION}
   rovloom admin --help
 
 gateway / connector 启动对应角色。首次运行时在真实本地终端完成一次性配对与原生安装批准；
+在终端拒绝配对提示时，Gateway 保持未配对运行，可先运行 rovloom admin create 再从管理页完成首台配对；
 --add-device 在已完成的引导之上再配对一台 Connector（沿用同一 MCP 凭据，授权随之扩大到新设备）；
 --repair-device / --repair 重新配对已配对的同一设备（凭据丢失或泄漏），保留原生设置与 MCP 授权。
 --claim 让未配对的 Connector 向运行中的 Gateway 在线认领管理员创建的配对申请（管理页核对码批准，Gateway 不停机）。
@@ -364,6 +365,7 @@ export async function runCli(
           hostname: config.mcp_hostname,
           port: config.mcp_port,
           ...(config.mcp_public_url ? { publicUrl: config.mcp_public_url } : {}),
+          ...(config.mcp_lan ? { lan: true } : {}),
           diagnostic: /* 只把受限诊断码写入stderr，不输出凭据、URL或协议正文。 */ (code) => io.stderr.write(code + '\n')
         })
         try {

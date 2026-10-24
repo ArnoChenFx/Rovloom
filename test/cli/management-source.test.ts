@@ -140,6 +140,7 @@ test(
           source.bindResources(() => machines)
           const first = source.administrator(caller, ref)!.grants
           assert(first.some((grant) => grant.action === 'gateway_read'))
+          assert(first.some((grant) => grant.action === 'devices_register'))
           for (const action of ['devices_read', 'devices_rename', 'devices_disconnect', 'devices_revoke']) {
             assert(
               first.some((grant) => grant.action === action && 'machine_id' in grant && grant.machine_id === 'm_one')
@@ -248,5 +249,73 @@ test(
     } finally {
       g.close()
     }
+  }
+)
+
+test(
+  '配对前创建管理员后页面无需重启即发出Basic挑战；未配对时零管理员仍交付空壳',
+  /** bootstrap_challenge 随来源文件热读，全新 Gateway 先 rovloom admin create 再打开页面即可登录。 */
+  async () => {
+    if (process.platform !== 'linux') {
+      return
+    }
+    const f = await managementSourceFixture()
+    unlinkSync(f.sourcePath)
+    const source = openProtectedManagementSource(f.config, 'management', { assets: f.assets, allowMissing: true })
+    try {
+      const signal = new AbortController().signal
+      assert.equal(source.management.bootstrap_challenge, undefined, '零管理员时不挑战，先交付空壳')
+      f.save(f.sourcePath, f.source)
+      assert.equal(source.management.bootstrap_challenge, 'basic', '文件出现后下一次页面交付即挑战')
+      assert(await source.management.resolveLease(f.request(), signal), '无需重启即可登录')
+      unlinkSync(f.sourcePath)
+      assert.equal(source.management.bootstrap_challenge, 'basic', '来源关闭后 fail closed 仍挑战')
+    } finally {
+      source.close()
+      f.close()
+    }
+  }
+)
+
+test(
+  '显式局域网管理页接受局域网 Host 的同源登录，跨站 Origin 与未选择时不变',
+  /** resolveLease 的 Origin/Host 核对按配置的 LAN 选择逐请求放宽，其余边界保持。 */ async () => {
+    if (process.platform !== 'linux') {
+      return
+    }
+    const f = await managementSourceFixture()
+    const lanConfig = { ...f.config, management_lan: true as const } as typeof f.config
+    for (const [config, lan] of [
+      [f.config, false],
+      [lanConfig, true]
+    ] as const) {
+      const source = openProtectedManagementSource(config, 'management', {
+        assets: f.assets
+      })
+      try {
+        const signal = new AbortController().signal
+        const lanHost = `192.0.2.10:${f.config.management_port}`
+        const lanRequest = new Request(`http://${lanHost}/`, {
+          headers: { host: lanHost, authorization: f.request().headers.get('authorization')! }
+        })
+        assert.deepEqual(
+          await source.management.resolveLease(lanRequest, signal),
+          lan ? f.lease : null,
+          lan ? 'LAN 选择下局域网 Host 登录成功' : '未选择时局域网 Host 仍拒绝'
+        )
+        assert.deepEqual(await source.management.resolveLease(f.request(), signal), f.lease, '回环登录不变')
+        const cross = new Request(`http://${lanHost}/`, {
+          headers: {
+            host: lanHost,
+            origin: 'http://evil.example',
+            authorization: f.request().headers.get('authorization')!
+          }
+        })
+        assert.equal(await source.management.resolveLease(cross, signal), null, '跨站 Origin 始终拒绝')
+      } finally {
+        source.close()
+      }
+    }
+    f.close()
   }
 )

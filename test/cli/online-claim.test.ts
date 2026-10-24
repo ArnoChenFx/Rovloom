@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openGatewayState } from '../../src/runtime/state.js'
 import { StoreManagementWriteService } from '../../src/admin/write-service.js'
+import { writeAdminFiles } from '../../src/cli/admin-command.js'
 import { OnlinePairingHttp } from '../../src/cli/online-pairing-http.js'
 import { claimConnector } from '../../src/cli/online-claim.js'
 import { CliError, configTemplate, type ConnectorConfig, type GatewayConfig } from '../../src/cli/config.js'
@@ -91,6 +92,7 @@ function gateway() {
   })
   return {
     root,
+    directory,
     faults,
     requests,
     advance(delta: number) {
@@ -524,3 +526,122 @@ test('expired and swept claim can restart explicitly without polling a deleted c
     await g.close()
   }
 })
+
+test(
+  'web-first pairing: an administrator created before pairing survives the online activation',
+  /* 全新 Gateway 先 rovloom admin create（初始化空注册表），首台设备经在线认领与激活落盘，占位主体保留且不变。 */ async () => {
+    const g = gateway()
+    const client = mkdtempSync(join(tmpdir(), 'rovloom-web-first-'))
+    try {
+      const port = await g.serve()
+      // 配对前签发管理员：初始化空调用方注册表并写入管理员记录。
+      writeAdminFiles({ ...configTemplate('gateway'), state_dir: g.directory } as GatewayConfig, 'admin', Date.now())
+      const before = readFileSync(runtimeReference(g.directory, 'mcp-callers'))
+      const a = await application(g, 'web_first_pairing')
+      const shown: string[] = []
+      const terminal = {
+        configPath: join(client, 'config.json'),
+        io: { signal: new AbortController().signal },
+        actor: 'fixture_operator',
+        uid: process.getuid!(),
+        assertOwner() {},
+        async ask(prompt: string) {
+          if (prompt.includes('Pairing application ID')) {
+            return a.pairing_id
+          }
+          throw new Error('unexpected question: ' + prompt)
+        },
+        async confirm() {
+          return true
+        },
+        show(text: string) {
+          shown.push(text)
+        },
+        finishQuestions() {}
+      }
+      const config = {
+        ...configTemplate('connector'),
+        state_dir: client,
+        gateway_url: 'ws://127.0.0.1:' + port,
+        native: { provider: 'herdr' }
+      } as ConnectorConfig
+      privateDirectory(client)
+      privateDirectory(join(client, 'managed'))
+      const running = claimConnector(config, terminal as unknown as SetupTerminal)
+      let claim_id = ''
+      for (let i = 0; i < 50 && !claim_id; i++) {
+        const active = g.store.activePairingClaim(a.pairing_id)
+        if (active) {
+          claim_id = active.claim_id
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+      }
+      assert(claim_id, 'claim should be started by the connector')
+      const raw = readFileSync(new URL('../fixtures/herdr/0.9.5/schema.json', import.meta.url), 'utf8')
+      const reference = setupReference(claim_id, 'herdr')
+      const remote = {
+        kind: 'herdr',
+        schema_bundle: raw,
+        config: {
+          version: 1,
+          target: setupTarget(a.machine_id, 'herdr'),
+          binding_revision: 1,
+          config_ref: reference,
+          peer_policy_revision: 'setup_local_' + claim_id,
+          expected_source: {
+            ...fixedHerdrSource(),
+            binary_version: 'synthetic-future',
+            server_version: 'synthetic-future',
+            binary_sha256: 'f'.repeat(64),
+            schema_sha256: hash(raw)
+          }
+        }
+      }
+      writeSetupJson(
+        runtimeReference(client, 'herdr-setup'),
+        {
+          schema_version: 1,
+          attempt_id: claim_id,
+          machine_id: a.machine_id,
+          phase: 'prepared',
+          settings: { provider: 'herdr' },
+          reference,
+          local: { fixture: 'herdr-local-owner-config' },
+          remote
+        },
+        false,
+        1_048_576
+      )
+      const progress = await g.service.execute(
+        'pairings_get',
+        { machine_id: a.machine_id, pairing_id: a.pairing_id },
+        context()
+      )
+      await approve(g, a, claim_id, progress.claim!.user_code)
+      await running
+      assert.equal(g.store.pairingClaim(claim_id).status, 'activated')
+      // 管理员占位主体保留，本机策略替换为该次引导的授权；管理员记录未被激活触碰。
+      const registry = readSetupJson(runtimeReference(g.directory, 'mcp-callers')) as {
+        resource: string
+        local_policy: { revision: string }
+        callers: { principal: { id: string } }[]
+      }
+      assert.equal(registry.local_policy.revision, 'setup_local_' + claim_id)
+      assert(registry.callers.some((entry) => entry.principal.id === 'admin'))
+      assert(registry.callers.some((entry) => entry.principal.id === 'caller_' + claim_id))
+      // 管理员记录原样保留：会话仍可登录，管理面继续可用。
+      const management = readSetupJson(runtimeReference(g.directory, 'management')) as {
+        sessions: { lease: { caller: { principal_id: string } } }[]
+      }
+      assert.deepEqual(
+        management.sessions.map((entry) => entry.lease.caller.principal_id),
+        ['admin']
+      )
+      assert.notEqual(readFileSync(runtimeReference(g.directory, 'mcp-callers')), before)
+    } finally {
+      await g.close()
+      rmSync(client, { recursive: true, force: true })
+    }
+  }
+)

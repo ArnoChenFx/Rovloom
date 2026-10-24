@@ -770,7 +770,7 @@ test(
       Date.now = realNow
       const running = await createProductionCliRuntime(createProductSources()).gateway!({ ...f.config, mcp_port: 80 })
       try {
-        assert.deepEqual(running.authentication.authenticate(request, new AbortController().signal), {
+        assert.deepEqual(await running.authentication.authenticate(request, new AbortController().signal), {
           principal_id: 'fixture_caller'
         })
       } finally {

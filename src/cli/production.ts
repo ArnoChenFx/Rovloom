@@ -15,13 +15,14 @@ import { loadCredential } from '../transport/index.js'
 import { CliError, selectedNativeProviders, type ConnectorConfig, type GatewayConfig } from './config.js'
 import { readSetupJson } from './setup-files.js'
 import { openCallerSource } from './caller-source.js'
+import { REGISTRY_MAX_BYTES } from './token-registry.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { createRuntimeCliRuntime } from './runtime.js'
 import { OnlinePairingHttp } from './online-pairing-http.js'
 import type { CliSetup } from './setup-runtime.js'
 import { boundedJson, object, fields } from '../wire/index.js'
 import { readRuntimeConfig } from './runtime-config.js'
-import { canonicalLoopbackHost } from '../mcp/listen.js'
+import { canonicalLoopbackHost, isWildcardHostname } from '../mcp/listen.js'
 import { loadProductManagementAssets } from './management-assets.js'
 import { openProtectedManagementSource } from './management-source.js'
 import {
@@ -109,11 +110,67 @@ function unpairedCaller() {
   }
 }
 
+// 身份状态缺失表示首次待配对；损坏或权限错误仍拒绝，不采用默认账号或测试凭据兑底。
+// 配对前的管理员签发会在运行中创建调用方注册表：未配对状态每次身份/认证读取都重新探测，文件出现即热切换。
+function bootstrappingCaller(config: GatewayConfig, administrator?: GatewayIdentitySource['administrator']) {
+  const path = runtimeReference(config.state_dir, 'mcp-callers')
+  const probe = (): boolean => {
+    try {
+      readRuntimeJson(path, REGISTRY_MAX_BYTES)
+      return true
+    } catch (error) {
+      if (error instanceof CliError && error.code === 'backend_unavailable') {
+        return false
+      }
+      throw error
+    }
+  }
+  let current: ReturnType<typeof managedCaller> = probe() ? managedCaller(config, administrator) : unpairedCaller()
+  const promote = (): void => {
+    if (!current.setupRequired || !probe()) {
+      return
+    }
+    const next = managedCaller(config, administrator)
+    const previous = current
+    current = next
+    previous.close()
+  }
+  return {
+    get setupRequired() {
+      promote()
+      return current.setupRequired
+    },
+    identities: {
+      principal: (who: Parameters<GatewayIdentitySource['principal']>[0]) => {
+        promote()
+        return current.identities.principal(who)
+      },
+      administrator: (who: Parameters<GatewayIdentitySource['administrator']>[0], ref: string) => {
+        promote()
+        return current.identities.administrator(who, ref)
+      }
+    } as GatewayIdentitySource,
+    authentication: {
+      authenticate: async (request: Request, signal: AbortSignal) => {
+        promote()
+        return current.authentication.authenticate(request, signal)
+      }
+    },
+    localPolicies: () => {
+      promote()
+      return current.localPolicies()
+    },
+    close() {
+      current.close()
+    }
+  }
+}
+
 // 身份状态缺失表示首次待配对；损坏或权限错误仍拒绝，不采用默认账号或测试凭据兜底。
 function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySource['administrator']) {
   const path = runtimeReference(config.state_dir, 'mcp-callers')
   try {
-    readRuntimeJson(path)
+    readRuntimeJson(path, REGISTRY_MAX_BYTES)
   } catch (error) {
     if (error instanceof CliError && error.code === 'backend_unavailable') {
       return unpairedCaller()
@@ -127,7 +184,8 @@ function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySou
       path,
       new URL(`http://${hostname}:${config.mcp_port}/mcp`).href,
       administrator,
-      config.mcp_public_url
+      config.mcp_public_url,
+      config.mcp_lan === true && isWildcardHostname(config.mcp_hostname)
     ),
     setupRequired: false
   }
@@ -148,7 +206,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
         throw new CliError('backend_unavailable', 3)
       }
       let protectedManagement: ReturnType<typeof openProtectedManagementSource> | undefined
-      const caller = managedCaller(
+      const caller = bootstrappingCaller(
         config,
         /* 逐次询问原独立管理来源，不从MCP提升权限。 */ (who, session) =>
           protectedManagement?.administrator(who, session) ?? sources.administrator?.(who, session) ?? null
@@ -285,6 +343,7 @@ export function createProductionCliRuntime(sources: ProductionCliSources = {}, s
           ? {
               port: managementHost.port,
               hostname: config.management_hostname,
+              lan: config.management_lan === true && config.management_hostname === '0.0.0.0',
               listening: managementHost.listening?.bind(managementHost),
               pairingPolicy: managementHost.pairingPolicy?.bind(managementHost),
               providerEnable: managementHost.providerEnable?.bind(managementHost),

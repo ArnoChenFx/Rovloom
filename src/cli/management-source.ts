@@ -9,6 +9,7 @@ import { CliError, type GatewayConfig } from './config.js'
 import { loadProductManagementAssets } from './management-assets.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import type { ProductionManagementHost } from './production.js'
+import { REGISTRY_MAX_BYTES } from './token-registry.js'
 
 type Session = Readonly<{
   credential_sha256: string
@@ -78,7 +79,9 @@ function parse(input: unknown, config: GatewayConfig): Source {
   for (const policy of value.pairing_policy_refs) {
     reference(policy)
   }
-  const callers = object(readRuntimeJson(runtimeReference(config.state_dir, config.authentication_ref)))
+  const callers = object(
+    readRuntimeJson(runtimeReference(config.state_dir, config.authentication_ref), REGISTRY_MAX_BYTES)
+  )
   if (!Array.isArray(callers.callers)) {
     throw new CliError('invalid_config')
   }
@@ -191,6 +194,7 @@ export function openProtectedManagementSource(
   const port = source.port
   const now = options.now ?? Date.now
   const origin = `http://127.0.0.1:${port}`
+  const lan = config.management_lan === true
   let observed = 0
   let closed = false
   let authority: ManagementSessionAuthority | undefined
@@ -229,7 +233,7 @@ export function openProtectedManagementSource(
     if (entry.scope !== 'all_devices' || !resources) {
       return admin
     }
-    const grants: ManagementGrant[] = [{ action: 'gateway_read' }, ...admin.grants]
+    const grants: ManagementGrant[] = [{ action: 'gateway_read' }, { action: 'devices_register' }, ...admin.grants]
     for (const resource of resources()) {
       for (const action of [
         'devices_read',
@@ -276,10 +280,40 @@ export function openProtectedManagementSource(
       return null
     }
   }
+  /** 本次页面请求的受信 origin：回环固定；显式 LAN 时按 Host 推导，推导失败一律拒绝。 */
+  const pageOrigin = (request: Request): string | null => {
+    const raw = request.headers.get('host')
+    if (!raw || raw.length > 2048) {
+      return null
+    }
+    const host = raw.toLowerCase()
+    if (host === new URL(origin).host.toLowerCase()) {
+      return origin
+    }
+    if (!lan) {
+      return null
+    }
+    try {
+      const url = new URL(request.url)
+      const candidate = 'http://' + host
+      return new URL(candidate).origin === candidate && url.host.toLowerCase() === host && url.protocol === 'http:'
+        ? candidate
+        : null
+    } catch {
+      return null
+    }
+  }
   const management: ProductionManagementHost = {
     port,
     // 已有管理员才要求登录；零管理员时仍交付匿名页面壳（与未配置管理员的 Gateway 一致），不让新用户先撞上登录框。
+    // 每次重读来源：rovloom admin create 无需重启即可让下一次页面交付发出 Basic 挑战。
     get bootstrap_challenge() {
+      try {
+        source = load()
+      } catch {
+        // 来源缺失/损坏时 fail closed：仍发出挑战，由 resolveLease 的同一失败路径拒绝。
+        return 'basic' as const
+      }
       return source.sessions.length > 0 ? ('basic' as const) : undefined
     },
     http: { assets: options.assets ?? loadProductManagementAssets() },
@@ -292,15 +326,17 @@ export function openProtectedManagementSource(
       }
       try {
         const url = new URL(request.url)
+        const trusted = pageOrigin(request)
         if (
-          url.origin !== origin ||
-          request.headers.get('host') !== url.host ||
+          trusted === null ||
+          url.origin !== trusted ||
+          request.headers.get('host')?.toLowerCase() !== new URL(trusted).host.toLowerCase() ||
           url.search ||
           url.username ||
           url.password ||
           request.method !== 'GET' ||
           !['/', '/index.html'].includes(url.pathname) ||
-          (request.headers.has('origin') && request.headers.get('origin') !== origin) ||
+          (request.headers.has('origin') && request.headers.get('origin') !== trusted) ||
           (request.headers.has('sec-fetch-site') &&
             !['none', 'same-origin'].includes(request.headers.get('sec-fetch-site')!))
         ) {

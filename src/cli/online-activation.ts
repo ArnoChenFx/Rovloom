@@ -11,7 +11,7 @@ import { canonicalLoopbackHost } from '../mcp/listen.js'
 import { CliError, type GatewayConfig } from './config.js'
 import { publishSetupSchemas, reviewSetupManifest } from './setup-manifest.js'
 import { selectedSetupPolicies, setupProviderKinds, setupSessions } from './setup-policy.js'
-import { mergeSetupCallers, mergeSetupProviders, publish } from './setup-gateway.js'
+import { mergeSetupCallers, mergeSetupProviders, publish, publishFirstCallers } from './setup-gateway.js'
 import { readSetupJson } from './setup-files.js'
 import { runtimeReference } from './runtime-files.js'
 import { readRuntimeConfig } from './runtime-config.js'
@@ -187,19 +187,11 @@ export async function activateOnlineNative(
   const providersPath = runtimeReference(host.config.state_dir, 'providers')
   const reviewedEntries = reviewed.map((entry) => ({ reference: entry.reference, value: entry.value }))
   if (!facts.additional) {
-    publish(callersPath, {
-      schema_version: 1,
-      kind: 'mcp-caller-source',
-      resource: facts.resource,
-      local_policy: authorization.policies.local,
-      callers: [
-        {
-          principal: { id: authorization.principal_id, policy: authorization.policies.caller },
-          token_sha256: createHash('sha256').update(client.token).digest('hex'),
-          issued_at: client.issued_at,
-          expires_at: client.expires_at
-        }
-      ]
+    publishFirstCallers(callersPath, facts.resource, authorization, {
+      principal: { id: authorization.principal_id, policy: authorization.policies.caller },
+      token_sha256: createHash('sha256').update(client.token).digest('hex'),
+      issued_at: client.issued_at,
+      expires_at: client.expires_at
     })
     publish(providersPath, { schema_version: 1, role: 'gateway', providers: reviewedEntries }, 1_048_576)
   } else {
