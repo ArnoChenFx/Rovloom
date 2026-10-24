@@ -1,11 +1,13 @@
 // rovloom admin：管理页管理员的签发、列表与撤销；口令原值只在 create 时写入 stdout 一次，Gateway 热读，无需重启。
 import type { Writable } from 'node:stream'
+import { mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { boundedJson, fields, object } from '../wire/index.js'
 import { canonicalLoopbackHost } from '../mcp/listen.js'
 import { CLI_ERROR_CODES, CliError, readConfig, type GatewayConfig } from './config.js'
 import { cliMessages, formatMessage, type CliLanguage } from './messages.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
-import { readRuntimeJson, runtimeReference } from './runtime-files.js'
+import { runtimeReference } from './runtime-files.js'
 import { readSetupJson, setupFileStamp, writeSetupFile } from './setup-files.js'
 import {
   emptyManagement,
@@ -111,6 +113,9 @@ export function writeAdminFiles(
 ): { secret: string; expires_at: number } {
   const callersPath = runtimeReference(config.state_dir, 'mcp-callers')
   const managementPath = runtimeReference(config.state_dir, 'management')
+  // 尚未首次启动的 Gateway 还没有 managed/ 状态目录：按运行时同样的私有目录权限先建立，
+  // 否则文档允许的「配对/启动前创建管理员」在全新安装上以 runtime_failed 失败且不落盘。
+  mkdirSync(dirname(managementPath), { recursive: true, mode: 0o700 })
   const stamp = callersStamp(callersPath)
   // 首次配对前也允许签发管理员：缺失的注册表按空来源初始化，随后管理页即可完成在线配对。
   const callers = parseRegistry(
@@ -171,8 +176,11 @@ export async function handleAdminCommand(
       io.stdout.write(issued.secret + '\n')
       return 0
     }
-    const callersStamp = setupFileStamp(callersPath)
-    const callers = parseRegistry(readRuntimeJson(callersPath, REGISTRY_MAX_BYTES))
+    const registryStamp = callersStamp(callersPath)
+    // 全新安装尚无注册表文件时按空来源列出（输出零行），与 create 的初始化语义一致。
+    const callers = parseRegistry(
+      readSetupJson(callersPath, REGISTRY_MAX_BYTES) ?? emptyCallerRegistry(callerResource(config))
+    )
     const { file, exists } = loadManagement(managementPath, config.management_port)
     if (flags.sub === 'list') {
       for (const row of summarizeAdmins(file, at)) {
@@ -183,7 +191,7 @@ export async function handleAdminCommand(
     const stamp = exists ? setupFileStamp(managementPath) : undefined
     const revoked = revokeAdmin(callers, file, principal)
     writeSetupFile(managementPath, boundedJson(revoked.management, 65_536), true, stamp)
-    writeSetupFile(callersPath, boundedJson(revoked.callers, REGISTRY_MAX_BYTES), true, callersStamp)
+    writeSetupFile(callersPath, boundedJson(revoked.callers, REGISTRY_MAX_BYTES), true, registryStamp)
     io.stderr.write(formatMessage(cliMessages(io.language)['admin.revoked'], { principal }))
     return 0
   } catch (error) {
