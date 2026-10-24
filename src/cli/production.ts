@@ -15,6 +15,7 @@ import { loadCredential } from '../transport/index.js'
 import { CliError, selectedNativeProviders, type ConnectorConfig, type GatewayConfig } from './config.js'
 import { readSetupJson } from './setup-files.js'
 import { openCallerSource } from './caller-source.js'
+import { REGISTRY_MAX_BYTES } from './token-registry.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { createRuntimeCliRuntime } from './runtime.js'
 import { OnlinePairingHttp } from './online-pairing-http.js'
@@ -115,7 +116,7 @@ function bootstrappingCaller(config: GatewayConfig, administrator?: GatewayIdent
   const path = runtimeReference(config.state_dir, 'mcp-callers')
   const probe = (): boolean => {
     try {
-      readRuntimeJson(path)
+      readRuntimeJson(path, REGISTRY_MAX_BYTES)
       return true
     } catch (error) {
       if (error instanceof CliError && error.code === 'backend_unavailable') {
@@ -169,7 +170,7 @@ function bootstrappingCaller(config: GatewayConfig, administrator?: GatewayIdent
 function managedCaller(config: GatewayConfig, administrator?: GatewayIdentitySource['administrator']) {
   const path = runtimeReference(config.state_dir, 'mcp-callers')
   try {
-    readRuntimeJson(path)
+    readRuntimeJson(path, REGISTRY_MAX_BYTES)
   } catch (error) {
     if (error instanceof CliError && error.code === 'backend_unavailable') {
       return unpairedCaller()

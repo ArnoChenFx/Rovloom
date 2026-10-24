@@ -200,7 +200,9 @@ management page too, without touching the Gateway terminal:
    one-time code as before; **declining it keeps the Gateway running unpaired**
    and prints the management-page path.
 2. Create the first administrator with `rovloom admin create` (it initializes
-   the caller registry) and sign in to the management page.
+   the caller registry) and sign in to the management page. The page preselects
+   the default pairing policy `rovloom_setup_v1`; existing custom policy lists
+   are preserved and unapproved references are still rejected.
 3. Create a pairing application and let the device join with
    `rovloom connector --claim`, exactly like adding a device online below. The
    administrator approves the check code, the credential is delivered, and the

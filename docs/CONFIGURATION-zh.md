@@ -167,6 +167,7 @@ Connector 需要可达的 Gateway 地址和已完成的配对。在真实本地�
 1. 启动 Gateway（`rovloom gateway`）。在终端批准提示仍按原样签发一次性码；**拒绝提示**则
    Gateway 保持未配对继续运行，并提示管理页路径。
 2. 用 `rovloom admin create` 创建第一位管理员（同时初始化调用方注册表）并登录管理页。
+   默认配对策略为页面预填的 `rovloom_setup_v1`；已有自定义策略列表会保留，未获允许的引用仍拒绝。
 3. 在管理页新建配对申请，设备按与下文在线新增设备相同的流程 `rovloom connector --claim`
    加入；管理员批准核对码后凭据交付，在线原生激活发布 provider 与 MCP caller 状态，
    Gateway 全程不停机。

@@ -125,7 +125,9 @@ export function writeAdminFiles(
   const managementPath = runtimeReference(config.state_dir, 'management')
   const stamp = callersStamp(callersPath)
   // 首次配对前也允许签发管理员：缺失的注册表按空来源初始化，随后管理页即可完成在线配对。
-  const callers = parseRegistry(readSetupJson(callersPath) ?? emptyCallerRegistry(callerResource(config)))
+  const callers = parseRegistry(
+    readSetupJson(callersPath, REGISTRY_MAX_BYTES) ?? emptyCallerRegistry(callerResource(config))
+  )
   const { file, exists } = loadManagement(managementPath, config.management_port)
   const managementStamp = exists ? setupFileStamp(managementPath) : undefined
   const issued = issueAdmin(callers, file, principal, at, days)

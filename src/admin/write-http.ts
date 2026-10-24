@@ -70,7 +70,6 @@ export function createManagementHandler(options: ManagementWriteHttpOptions) {
     throw new Error('management_csrf_required')
   }
   const reads = createManagementReadHandler(options)
-  const origin = new URL(options.origin)
   /** 回环始终按固定来源；显式 LAN 时按本次请求的 Host 推导同源来源，跨站 Origin 仍被拒绝。 */
   const expected = (request: Request): string | null => lanAwareOrigin(request, options.origin, options.lan === true)
   const pending = new Set<AbortController>()
@@ -172,7 +171,6 @@ export function createManagementHandler(options: ManagementWriteHttpOptions) {
         size > 16_384 ||
         count > 48 ||
         url.origin !== expected(request) ||
-        request.headers.get('host')?.toLowerCase() !== origin.host.toLowerCase() ||
         request.headers.get('origin') !== url.origin ||
         url.username ||
         url.password ||

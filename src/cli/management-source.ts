@@ -9,6 +9,7 @@ import { CliError, type GatewayConfig } from './config.js'
 import { loadProductManagementAssets } from './management-assets.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import type { ProductionManagementHost } from './production.js'
+import { REGISTRY_MAX_BYTES } from './token-registry.js'
 
 type Session = Readonly<{
   credential_sha256: string
@@ -78,7 +79,9 @@ function parse(input: unknown, config: GatewayConfig): Source {
   for (const policy of value.pairing_policy_refs) {
     reference(policy)
   }
-  const callers = object(readRuntimeJson(runtimeReference(config.state_dir, config.authentication_ref)))
+  const callers = object(
+    readRuntimeJson(runtimeReference(config.state_dir, config.authentication_ref), REGISTRY_MAX_BYTES)
+  )
   if (!Array.isArray(callers.callers)) {
     throw new CliError('invalid_config')
   }
@@ -230,7 +233,7 @@ export function openProtectedManagementSource(
     if (entry.scope !== 'all_devices' || !resources) {
       return admin
     }
-    const grants: ManagementGrant[] = [{ action: 'gateway_read' }, ...admin.grants]
+    const grants: ManagementGrant[] = [{ action: 'gateway_read' }, { action: 'devices_register' }, ...admin.grants]
     for (const resource of resources()) {
       for (const action of [
         'devices_read',

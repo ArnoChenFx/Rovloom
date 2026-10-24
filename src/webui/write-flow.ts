@@ -6,6 +6,7 @@ import type {
   ManagementIntent,
   ManagementWrite
 } from '../mcp/management.js'
+import { managementRequestId } from './request-id.js'
 import {
   checkDeviceIntent,
   checkManagementWriteReply,
@@ -61,9 +62,7 @@ export function createDeviceManagementFlow(options: { transport: ManagementWrite
   let active: AbortController | undefined
   let generation = 0
   let disposed = false
-  const requestId =
-    options.requestId ??
-    /* 为这一次用户意图分配随机关联，不通过更换ID实现重试。 */ (() => 'request_' + globalThis.crypto.randomUUID())
+  const requestId = options.requestId ?? managementRequestId
 
   /** 所有回复即使来自注入transport也重新校验，避免测试stub或宿主绕过客户端边界。 */
   async function execute<K extends ManagementClientOperation>(

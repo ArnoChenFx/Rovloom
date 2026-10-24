@@ -13,6 +13,7 @@ import { handleTokenCommand } from '../../src/cli/token-command.js'
 import { ADMIN_POLICY_REVISION, emptyManagement, issueAdmin, revokeAdmin } from '../../src/cli/admin-registry.js'
 import { digestToken, parseRegistry } from '../../src/cli/token-registry.js'
 import type { CallerRegistry } from '../../src/cli/token-registry.js'
+import { DEFAULT_PAIRING_POLICY_REF } from '../../src/pairing-policy.js'
 
 const DAY = 86_400_000
 const policy = { revision: 'p1', grants: [] }
@@ -41,6 +42,7 @@ test('issue creates a hash-only admin session plus a permissionless MCP placehol
   assert.equal(session.credential_sha256, digestToken(first.secret))
   assert.equal(session.scope, 'all_devices')
   assert.deepEqual(session.administrator.grants, [])
+  assert.deepEqual(first.management.pairing_policy_refs, [DEFAULT_PAIRING_POLICY_REF])
   assert(!JSON.stringify({ callers: first.callers, management: first.management }).includes(first.secret))
   const placeholder = first.callers.callers.find((entry) => entry.principal.id === 'admin')!
   assert.equal(placeholder.principal.policy.revision, ADMIN_POLICY_REVISION)
@@ -58,6 +60,47 @@ test('issue creates a hash-only admin session plus a permissionless MCP placehol
     '重新签发换新会话引用，旧 Cookie 随之失效'
   )
   assert.equal(second.callers.callers.filter((entry) => entry.principal.id === 'admin').length, 1)
+})
+
+test('admin creation retains custom pairing policies and seeds an empty legacy allowlist', () => {
+  const management = emptyManagement(9445)
+  assert.deepEqual(
+    issueAdmin(callers(), { ...management, pairing_policy_refs: ['custom'] }, 'admin', 2_000).management
+      .pairing_policy_refs,
+    ['custom']
+  )
+  assert.deepEqual(
+    issueAdmin(callers(), { ...management, pairing_policy_refs: [] }, 'admin', 2_000).management.pairing_policy_refs,
+    [DEFAULT_PAIRING_POLICY_REF]
+  )
+})
+
+test('admin create and reissue accept valid caller registries larger than 16 KiB', () => {
+  const root = mkdtempSync(join(tmpdir(), 'rovloom-admin-large-registry-'))
+  try {
+    mkdirSync(join(root, 'managed'), { mode: 0o700 })
+    const config = { ...configTemplate('gateway'), state_dir: root } as GatewayConfig
+    const registry = callers(Date.now())
+    registry.callers = Array.from({ length: 55 }, (_, i) => ({
+      ...registry.callers[0]!,
+      principal: { id: 'caller_' + i + '_' + 'a'.repeat(100), policy },
+      token_sha256: digestToken('fixture_' + i)
+    }))
+    const original = JSON.stringify(parseRegistry(registry))
+    assert(Buffer.byteLength(original) > 16_384)
+    const path = join(root, 'managed', 'mcp-callers.json')
+    writeFileSync(path, original, { mode: 0o600 })
+    const first = writeAdminFiles(config, 'admin', Date.now())
+    const second = writeAdminFiles(config, 'admin', Date.now())
+    assert.notEqual(second.secret, first.secret)
+    const after = parseRegistry(JSON.parse(readFileSync(path, 'utf8')))
+    assert.deepEqual(
+      after.callers.filter((entry) => entry.principal.id !== 'admin'),
+      registry.callers
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('issue refuses to attach admin rights to a real MCP principal, revoke never deletes one', () => {
