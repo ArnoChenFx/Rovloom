@@ -51,10 +51,10 @@ workstation's real sessions.
 ## CLI language
 
 CLI output (help, pairing prompts, status hints) is English by default. Set `ROVLOOM_LANG=zh-CN`
-to switch to Simplified Chinese; without it, a `zh`-prefixed `LC_ALL` or `LANG` (for example
-`zh_CN.UTF-8`) also selects Chinese. Error and status codes (`config_valid`, `pairing_required`,
-…) are stable identifiers and never change with the language. The management page picks its
-language in the browser, independently of this setting.
+to switch to Simplified Chinese; without it the CLI stays in English regardless of the system
+locale (`LC_ALL`/`LANG` have no effect). Error and status codes (`config_valid`,
+`pairing_required`, …) are stable identifiers and never change with the language. The management
+page picks its language in the browser, independently of this setting.
 
 ## Install
 

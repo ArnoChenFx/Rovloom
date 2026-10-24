@@ -2,7 +2,7 @@
 import type { Writable } from 'node:stream'
 import { boundedJson } from '../wire/index.js'
 import { CLI_ERROR_CODES, CliError, readConfig } from './config.js'
-import { cliMessages, type CliLanguage } from './messages.js'
+import { cliMessages, formatMessage, type CliLanguage } from './messages.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
 import { setupFileStamp, writeSetupFile } from './setup-files.js'
@@ -158,24 +158,44 @@ export async function handleTokenCommand(
     if (flags.sub === 'create') {
       const made = createCaller(registry, flags.principal!, flags.like!, at, flags.days)
       next = made.registry
-      io.stderr.write('created ' + flags.principal + ' expires ' + new Date(made.expires_at).toISOString() + '\n')
+      io.stderr.write(
+        formatMessage(cliMessages(io.language)['token.created'], {
+          principal: flags.principal!,
+          expires: new Date(made.expires_at).toISOString()
+        })
+      )
       io.stdout.write(made.token + '\n')
     } else if (flags.sub === 'renew') {
       const renewed = renewCaller(registry, flags.principal!, at, flags.days)
       next = renewed.registry
-      io.stderr.write('renewed ' + flags.principal + ' expires ' + new Date(renewed.expires_at).toISOString() + '\n')
+      io.stderr.write(
+        formatMessage(cliMessages(io.language)['token.renewed'], {
+          principal: flags.principal!,
+          expires: new Date(renewed.expires_at).toISOString()
+        })
+      )
     } else if (flags.sub === 'rotate') {
       const rotated = rotateCaller(registry, flags.principal!, at, { days: flags.days, graceMinutes: flags.grace })
       next = rotated.registry
-      io.stderr.write('rotated ' + flags.principal + ' expires ' + new Date(rotated.expires_at).toISOString() + '\n')
+      io.stderr.write(
+        formatMessage(cliMessages(io.language)['token.rotated'], {
+          principal: flags.principal!,
+          expires: new Date(rotated.expires_at).toISOString()
+        })
+      )
       issued = rotated.token
       io.stdout.write(rotated.token + '\n')
     } else if (flags.sub === 'permissions') {
       next = setDiscardPermission(registry, flags.principal!, flags.discard!)
-      io.stderr.write('permissions ' + flags.principal + ' discard_response=' + String(flags.discard) + '\n')
+      io.stderr.write(
+        formatMessage(cliMessages(io.language)['token.permissions'], {
+          principal: flags.principal!,
+          discard: String(flags.discard)
+        })
+      )
     } else {
       next = revokeCaller(registry, flags.principal!)
-      io.stderr.write('revoked ' + flags.principal + '\n')
+      io.stderr.write(formatMessage(cliMessages(io.language)['token.revoked'], { principal: flags.principal! }))
     }
     // 先落盘注册表（带字节代次，防并发编辑），再同步本机客户端凭据文件。
     writeSetupFile(path, boundedJson(next, REGISTRY_MAX_BYTES), true, stamp)

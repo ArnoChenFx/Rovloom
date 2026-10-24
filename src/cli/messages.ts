@@ -1,7 +1,7 @@
 // CLI 中英文词典与语言解析；只翻译固定文案，稳定错误/状态码、退出码与协议内容不随语言变化。
 export type CliLanguage = 'en' | 'zh-CN'
 
-// 显式 ROVLOOM_LANG 优先；未设置时按 LC_ALL/LANG 的 zh 前缀检测；其余一律默认英文。
+// 显式 ROVLOOM_LANG 是唯一语言开关（zh 前缀选中文）；未设置时固定英文，不随系统 locale 变化。
 // 语言只是显示偏好：无法识别的取值静默回退英文，不产生新的失败路径。
 function prefersChinese(tag: string): boolean {
   return tag.split('.')[0]!.toLowerCase().replace(/_/gu, '-').startsWith('zh')
@@ -12,8 +12,7 @@ export function resolveCliLanguage(env: Readonly<Record<string, string | undefin
   if (explicit) {
     return prefersChinese(explicit) ? 'zh-CN' : 'en'
   }
-  const locale = env.LC_ALL?.trim() || env.LANG?.trim() || ''
-  return locale !== '' && prefersChinese(locale) ? 'zh-CN' : 'en'
+  return 'en'
 }
 
 export const english = Object.freeze({
@@ -178,6 +177,13 @@ Windows uses the explicitly selected existing user with S4U, without storing a p
     'Native activation response unavailable; rerun the same command to check the original claim.\n',
   'setup.claim.nativeStatePrepared': 'Native state prepared; starting the real Connector.\n',
   'admin.create.login': 'login at {url} with user "{user}" and the password below (shown once)\n',
+  'admin.create.created': 'created administrator {principal} expires {expires}\n',
+  'admin.revoked': 'revoked administrator {principal}\n',
+  'token.created': 'created {principal} expires {expires}\n',
+  'token.renewed': 'renewed {principal} expires {expires}\n',
+  'token.rotated': 'rotated {principal} expires {expires}\n',
+  'token.permissions': 'permissions {principal} discard_response={discard}\n',
+  'token.revoked': 'revoked {principal}\n',
   'mcp.instructions':
     'Tool availability does not imply a ready backend; execution, authorization, confirmation, deduplication and result retention are owned by the trusted service.',
   'mcp.tool.machines_list':
@@ -356,6 +362,13 @@ Windows 使用显式选择的既有用户与 S4U，不保存密码、不要求�
   'setup.claim.activationResponseUnavailable': '原生激活响应不可用；重新运行同一命令按原认领核对。\n',
   'setup.claim.nativeStatePrepared': '原生状态已准备；启动正式 Connector。\n',
   'admin.create.login': '在 {url} 用用户名 "{user}" 和下方密码登录（密码只显示一次）\n',
+  'admin.create.created': '已创建管理员 {principal}，到期时间 {expires}\n',
+  'admin.revoked': '已撤销管理员 {principal}\n',
+  'token.created': '已创建 {principal}，到期时间 {expires}\n',
+  'token.renewed': '已续期 {principal}，到期时间 {expires}\n',
+  'token.rotated': '已轮换 {principal}，到期时间 {expires}\n',
+  'token.permissions': '已设置 {principal} 的权限 discard_response={discard}\n',
+  'token.revoked': '已撤销 {principal}\n',
   'mcp.instructions': '工具存在不表示后端可用；执行、授权、确认、去重与结果保留由受信服务负责。',
   'mcp.tool.machines_list': '列出当前 caller 可见的设备；分页和计数须经过当前 ACL。',
   'mcp.tool.machines_get': '按稳定 ID 或精确名称读取可见设备。',

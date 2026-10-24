@@ -22,7 +22,7 @@ test('english is the default dictionary and zh-CN switches it', () => {
   assert.equal(cliMessages('zh-CN'), chinese)
 })
 
-test('resolveCliLanguage prefers ROVLOOM_LANG then zh locales', () => {
+test('resolveCliLanguage follows only ROVLOOM_LANG and stays English otherwise', () => {
   assert.equal(resolveCliLanguage({}), 'en')
   assert.equal(resolveCliLanguage({ ROVLOOM_LANG: 'zh' }), 'zh-CN')
   assert.equal(resolveCliLanguage({ ROVLOOM_LANG: 'zh-CN' }), 'zh-CN')
@@ -34,12 +34,13 @@ test('resolveCliLanguage prefers ROVLOOM_LANG then zh locales', () => {
   assert.equal(resolveCliLanguage({ ROVLOOM_LANG: '  ' }), 'en')
   assert.equal(resolveCliLanguage({ ROVLOOM_LANG: 'en', LANG: 'zh_CN.UTF-8' }), 'en')
   assert.equal(resolveCliLanguage({ ROVLOOM_LANG: 'zh', LANG: 'en_US.UTF-8' }), 'zh-CN')
-  assert.equal(resolveCliLanguage({ LC_ALL: 'zh_CN.UTF-8' }), 'zh-CN')
+  // 系统 locale 不再影响语言：未显式设置 ROVLOOM_LANG 时一律英文。
+  assert.equal(resolveCliLanguage({ LC_ALL: 'zh_CN.UTF-8' }), 'en')
   assert.equal(resolveCliLanguage({ LC_ALL: 'C.UTF-8', LANG: 'zh_CN.UTF-8' }), 'en')
-  assert.equal(resolveCliLanguage({ LANG: 'zh_TW.UTF-8' }), 'zh-CN')
+  assert.equal(resolveCliLanguage({ LANG: 'zh_TW.UTF-8' }), 'en')
   assert.equal(resolveCliLanguage({ LANG: 'en_US.UTF-8' }), 'en')
   assert.equal(resolveCliLanguage({ LANG: 'C' }), 'en')
-  assert.equal(resolveCliLanguage({ LC_ALL: '', LANG: 'zh_CN.UTF-8' }), 'zh-CN')
+  assert.equal(resolveCliLanguage({ LC_ALL: '', LANG: 'zh_CN.UTF-8' }), 'en')
 })
 
 test('formatMessage replaces only known placeholders and keeps unknown ones visible', () => {

@@ -159,11 +159,10 @@ export async function handleAdminCommand(
     if (flags.sub === 'create') {
       const issued = writeAdminFiles(config, principal, at, flags.days)
       io.stderr.write(
-        'created administrator ' +
-          principal +
-          ' expires ' +
-          new Date(issued.expires_at).toISOString() +
-          '\n' +
+        formatMessage(cliMessages(io.language)['admin.create.created'], {
+          principal,
+          expires: new Date(issued.expires_at).toISOString()
+        }) +
           formatMessage(cliMessages(io.language)['admin.create.login'], {
             url: 'http://127.0.0.1:' + config.management_port + '/',
             user: principal
@@ -185,7 +184,7 @@ export async function handleAdminCommand(
     const revoked = revokeAdmin(callers, file, principal)
     writeSetupFile(managementPath, boundedJson(revoked.management, 65_536), true, stamp)
     writeSetupFile(callersPath, boundedJson(revoked.callers, REGISTRY_MAX_BYTES), true, callersStamp)
-    io.stderr.write('revoked administrator ' + principal + '\n')
+    io.stderr.write(formatMessage(cliMessages(io.language)['admin.revoked'], { principal }))
     return 0
   } catch (error) {
     if (error instanceof CliError && CLI_ERROR_CODES.includes(error.code)) {

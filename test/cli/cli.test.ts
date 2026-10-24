@@ -358,7 +358,7 @@ test(
             env: { PATH: process.env.PATH ?? '' }
           })
         assert.match(run(['--help']).stderr, /Rovloom/)
-        // 默认英文、ROVLOOM_LANG 与 zh locale 才切中文；同一 bundle 的语言选择互不影响。
+        // 默认英文，仅 ROVLOOM_LANG 切换中文；系统 locale 不影响语言，同一 bundle 的语言选择互不影响。
         const cjk = /[\u{4e00}-\u{9fff}]/u
         assert.doesNotMatch(run(['--help']).stderr, cjk)
         const zhHelp = spawnSync(process.execPath, ['--no-env-file', artifact, '--help'], {
@@ -376,7 +376,8 @@ test(
           env: { PATH: process.env.PATH ?? '', LANG: 'zh_CN.UTF-8' }
         })
         assert.equal(localeHelp.status, 0)
-        assert.match(localeHelp.stderr, /用法：/)
+        assert.match(localeHelp.stderr, /Usage:/)
+        assert.doesNotMatch(localeHelp.stderr, cjk)
         const serviceHelp = run(['service', '--help'])
         assert.equal(serviceHelp.status, 0)
         assert.equal(serviceHelp.stdout, '')
