@@ -168,13 +168,21 @@ rovloom token list
 rovloom token create --principal my_client --like EXISTING_CALLER_ID
 ```
 
-保存只打印一次的令牌原文，它就是第 4 节使用的 Bearer。Docker 用户在这两条命令前加
-`docker compose exec gateway`。管理员密码不能充当 MCP Bearer；网页用于配对和管理设备，
+保存只打印一次的令牌原文，它就是第 4 节使用的 Bearer。Docker 用户用镜像入口运行上述命令：
+
+```sh
+docker compose run --rm gateway token list
+docker compose run --rm gateway token create --principal my_client --like EXISTING_CALLER_ID
+```
+
+管理员密码不能充当 MCP Bearer；网页用于配对和管理设备，
 MCP 服务仍需在 AI 客户端中配置。
 
 ### 局域网访问
 
-默认三个监听都只允许回环访问。同机部署可跳过本节。
+普通 CLI 初始化默认三个监听都只允许回环访问。同机部署可跳过本节。
+Docker 使用 `config init gateway --container` 时，管理页已默认启用 `management.lan`；
+宿主机 IP 能否访问仍取决于 Compose 的端口映射。旧配置迁移及端口映射示例见 [Docker 部署](DOCKER-zh.md)。
 首次在 Gateway 机器上执行 `rovloom config init gateway` 后，编辑
 `~/.config/rovloom/gateway.json`，保留其余字段，按需修改以下监听分组；已有配置直接编辑：
 

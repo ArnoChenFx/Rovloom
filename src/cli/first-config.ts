@@ -39,7 +39,13 @@ function defaults(
     return { ...config, native: { ...config.native, provider: initialization.provider } }
   }
   if (config.role === 'gateway' && initialization.container) {
-    return { ...config, mcp_hostname: '0.0.0.0', device_hostname: '0.0.0.0', management_hostname: '0.0.0.0' }
+    return {
+      ...config,
+      mcp_hostname: '0.0.0.0',
+      device_hostname: '0.0.0.0',
+      management_hostname: '0.0.0.0',
+      management_lan: true
+    }
   }
   return config
 }

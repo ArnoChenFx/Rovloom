@@ -36,10 +36,20 @@ Default local endpoints:
 
 `healthy` means the MCP authentication listener responds. It does not mean a device is paired, an administrator exists or an Agent is ready. The `pairing_required` log line means setup is pending.
 
-`config init gateway --container` binds the three listeners to `0.0.0.0` inside the container. Existing configuration is preserved; if an older loopback configuration returns `config_exists`, use the configuration editing procedure below to review and update it. Compose publishes:
+`config init gateway --container` binds the three listeners to `0.0.0.0` inside the container and sets
+`management.lan: true`, accepting management Host values received through the host IP or an HTTP proxy.
+Authentication and same-origin checks still apply. Existing configuration is preserved; an older configuration
+with different listeners or management LAN settings returns `config_exists`. Use the editing procedure below to update it.
+Configure MCP LAN / `public_url` settings separately for the actual client address. Compose publishes:
 
 - `9443` (Connector device channel) on all host interfaces, so Connectors on other machines can reach it. Put a TLS reverse proxy in front of anything outside a trusted network, and restrict it with the host firewall.
-- `9444` (MCP) and `9445` (management page) **only on the host's loopback** (`127.0.0.1`). Remote MCP clients go through a reverse proxy on the host that forwards to `127.0.0.1:9444`, with `mcp.public_url` set (see [Network access](CONFIGURATION.md#network-access)). Do not widen these mappings: the listeners speak plain HTTP, and the Host/Origin check only stops browser DNS rebinding — a network client that sends a loopback `Host` header still gets as far as the Bearer or administrator password.
+- `9444` (MCP) and `9445` (management page) **only on the host's loopback** (`127.0.0.1`). Remote MCP clients go through a reverse proxy on the host that forwards to `127.0.0.1:9444`, with `mcp.public_url` set (see [Network access](CONFIGURATION.md#network-access)). Use the SSH tunnel below for remote management access.
+
+To open the management page directly through the host IP on a trusted LAN, change its Compose port mapping to,
+for example, `"192.168.11.200:9445:9445"` (replace the IP with the host's LAN address), then run `docker compose up -d`.
+Open `http://192.168.11.200:9445/`. Older configurations also need `management.lan: true` and a Gateway restart;
+updating the image does not change existing configuration. This endpoint uses plain HTTP; restrict it to trusted
+networks with the host firewall.
 
 ## Management login and online pairing
 

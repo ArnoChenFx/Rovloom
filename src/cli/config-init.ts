@@ -45,7 +45,8 @@ export function initializeRoleConfig(args: readonly string[], environment?: Conf
   if (
     config.role === 'gateway' &&
     container &&
-    [config.mcp_hostname, config.device_hostname, config.management_hostname].some((host) => host !== '0.0.0.0')
+    (config.management_lan !== true ||
+      [config.mcp_hostname, config.device_hostname, config.management_hostname].some((host) => host !== '0.0.0.0'))
   ) {
     throw new CliError('config_exists')
   }

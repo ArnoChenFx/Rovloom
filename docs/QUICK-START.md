@@ -181,13 +181,22 @@ Replace `EXISTING_CALLER_ID` below with that ID and issue a token dedicated to y
 rovloom token create --principal my_client --like EXISTING_CALLER_ID
 ```
 
-Save the token printed once; it is the Bearer used in section 4. Docker users prefix both commands
-with `docker compose exec gateway`. The administrator password cannot be used as an MCP Bearer.
+Save the token printed once; it is the Bearer used in section 4. Docker users run these commands through the image entrypoint:
+
+```sh
+docker compose run --rm gateway token list
+docker compose run --rm gateway token create --principal my_client --like EXISTING_CALLER_ID
+```
+
+The administrator password cannot be used as an MCP Bearer.
 The page handles device pairing and management; configure the MCP server in your AI client.
 
 ### LAN access
 
-All three listeners allow only loopback access by default. Skip this section for a same-machine setup.
+Normal CLI initialization allows only loopback access on all three listeners. Skip this section for a same-machine setup.
+Docker initialization with `config init gateway --container` enables `management.lan` by default;
+access through the host IP still depends on the Compose port mappings. See [Docker deployment](DOCKER.md)
+for older configuration migration and port mapping examples.
 On first setup, run `rovloom config init gateway` on the Gateway machine, then edit
 `~/.config/rovloom/gateway.json`. Preserve the other fields and update the listener groups you need;
 edit existing configuration directly:

@@ -73,7 +73,10 @@ test('container initialization selects container listeners explicitly while norm
   try {
     assert.equal((await f.run('config', 'init', 'gateway')).code, 0)
     const local = readConfig(f.path('gateway'))
-    assert.equal(local.role === 'gateway' && local.mcp_hostname, '127.0.0.1')
+    assert(local.role === 'gateway')
+    assert.equal(local.mcp_hostname, '127.0.0.1')
+    assert.equal(local.management_lan, undefined)
+    assert.equal(local.mcp_lan, undefined)
     const before = readFileSync(f.path('gateway'))
     assert.equal((await f.run('config', 'init', 'gateway', '--container')).stderr, 'config_exists\n')
     assert.deepEqual(readFileSync(f.path('gateway')), before)
@@ -88,9 +91,23 @@ test('container initialization selects container listeners explicitly while norm
       [container.mcp_hostname, container.device_hostname, container.management_hostname],
       ['0.0.0.0', '0.0.0.0', '0.0.0.0']
     )
+    assert.equal(container.management_lan, true)
+    assert.equal(container.mcp_lan, undefined)
+    const document = JSON.parse(readFileSync(explicit, 'utf8'))
+    assert.equal(document.management.lan, true)
     assert.equal(container.state_dir, local.state_dir)
     assert.equal(existsSync(container.state_dir), false)
     assert.equal((await f.run('config', 'init', 'gateway', '--container', '--config', explicit)).code, 0)
+    assert.deepEqual(JSON.parse(readFileSync(explicit, 'utf8')), document)
+    // 已有容器配置缺少管理页 LAN 时明确提示冲突，保留用户文件等待显式编辑。
+    delete document.management.lan
+    writeFileSync(explicit, JSON.stringify(document))
+    const previous = readFileSync(explicit)
+    assert.equal(
+      (await f.run('config', 'init', 'gateway', '--container', '--config', explicit)).stderr,
+      'config_exists\n'
+    )
+    assert.deepEqual(readFileSync(explicit), previous)
   } finally {
     f.close()
   }

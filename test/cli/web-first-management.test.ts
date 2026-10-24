@@ -12,7 +12,8 @@ import { DEFAULT_PAIRING_POLICY_REF } from '../../src/pairing-policy.js'
 import { hash } from '../../src/wire/index.js'
 import { createManagementWriteClient } from '../../src/webui/write-client.js'
 import { createPairingManagementFlow } from '../../src/webui/pairing-flow.js'
-import { configTemplate, type GatewayConfig } from '../../src/cli/config.js'
+import type { GatewayConfig } from '../../src/cli/config.js'
+import { initializeRoleConfig } from '../../src/cli/config-init.js'
 import { writeAdminFiles } from '../../src/cli/admin-command.js'
 import { createProductionCliRuntime } from '../../src/cli/production.js'
 import { readRuntimeJson, runtimeReference } from '../../src/cli/runtime-files.js'
@@ -45,15 +46,18 @@ for (const lan of [false, true]) {
         ports.add(await availablePort())
       }
       const [mcp, devices, management] = [...ports] as [number, number, number]
+      // 使用真实初始化结果验证容器默认值，不在夹具里补管理页 LAN 标志。
+      const initialized = initializeRoleConfig(['config', 'init', 'gateway', ...(lan ? ['--container'] : [])], {
+        home: root,
+        platform: process.platform
+      })
+      assert(initialized.role === 'gateway')
       const config: GatewayConfig = {
-        ...configTemplate('gateway'),
+        ...initialized,
         state_dir: root,
         mcp_port: mcp,
         device_port: devices,
-        management_port: management,
-        management_enabled: true,
-        management_hostname: lan ? '0.0.0.0' : '127.0.0.1',
-        ...(lan ? { management_lan: true } : {})
+        management_port: management
       }
       const host = (lan ? '192.0.2.10:' : '127.0.0.1:') + management
       const origin = 'http://' + host
