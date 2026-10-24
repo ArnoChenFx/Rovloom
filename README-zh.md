@@ -23,11 +23,12 @@ Rovloom 为 AI Agent 和 Bot 提供统一的 MCP 入口，让它们操作你所�
 ## 工作方式
 
 AI Agent 与 CLI 通过 MCP 访问 Gateway。每台设备运行一个 Connector 和本地 provider 适配层，
-可管理多个 runtime 实例。
+可管理多个 runtime 实例。Luvus / Herdr 的会话中运行 Claude Code、Codex、Pi、OpenCode、Fx 等
+本地 Agent；Agent 程序与登录状态都留在原设备。
 
 <p align="center">
   <a href="docs/assets/architecture/architecture.zh.svg">
-    <img src="docs/assets/architecture/architecture.zh.png" alt="Rovloom 架构：MCP 客户端接入 Gateway；每台设备一个主动出站的 Connector，通过 Provider Adapter 访问本地 Luvus 与 Herdr。" width="1200">
+    <img src="docs/assets/architecture/architecture.zh.png" alt="Rovloom 架构：MCP 客户端接入 Gateway；每台设备一个主动出站的 Connector，通过 Provider Adapter 访问本地 Luvus 与 Herdr，以及会话中的 Claude Code、Codex、Pi、OpenCode、Fx 等 Agent。" width="1200">
   </a>
 </p>
 

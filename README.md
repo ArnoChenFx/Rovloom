@@ -27,11 +27,12 @@ port is opened on the machines that run them.
 ## How it works
 
 AI Agents and CLIs talk to the Gateway over MCP. Each device runs one Connector with local provider
-adapters, which can manage several runtime instances.
+adapters, which can manage several runtime instances. Sessions in those runtimes run local Agents
+such as Claude Code, Codex, Pi, OpenCode and Fx; the Agent software and logins stay on that device.
 
 <p align="center">
   <a href="docs/assets/architecture/architecture.en.svg">
-    <img src="docs/assets/architecture/architecture.en.png" alt="Rovloom architecture: MCP clients access a Gateway; one outbound Connector per device routes calls through provider adapters to local Luvus and Herdr runtimes." width="1200">
+    <img src="docs/assets/architecture/architecture.en.png" alt="Rovloom architecture: MCP clients access a Gateway; one outbound Connector per device routes calls through provider adapters to local Luvus and Herdr runtimes and their session Agents, such as Claude Code, Codex, Pi, OpenCode and Fx." width="1200">
   </a>
 </p>
 

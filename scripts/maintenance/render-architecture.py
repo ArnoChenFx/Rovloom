@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / 'docs/assets/architecture'
+WIDTH, HEIGHT = 1440, 1640
+AGENT_EXAMPLES = ('Claude Code', 'Codex', 'Pi', 'OpenCode', 'Fx', '…')
 INK, MUTED, LINE, ORANGE, SAGE = '#26352c', '#63735e', '#d6dfcc', '#e6532c', '#7b9470'
 COPY = {
     'zh': {
@@ -28,10 +30,12 @@ COPY = {
         'native1': '本地 Luvus', 'native2': '本地 Herdr',
         'native1Sub': 'Host / session', 'native2Sub': 'session runtime',
         'local': '工作区、会话与 Agent 登录保留在本机',
+        'agents': '会话中的 Agent · 示例',
+        'agentNote': 'Agent 需在本机独立安装；具体能力取决于所用 Runtime 和 Agent。',
         'traffic': '请求 ↓ / 结果与事件 ↑',
         'legend1': '实线：双向业务通信', 'legend2': '虚线：Connector 主动发起 WSS',
         'note': '每台设备一个 Connector，多个 Provider。各 Runtime 保留自己的原生协议。',
-        'description': 'AI Agent、Bot 与 CLI 接入一个自部署 Gateway。每台设备只有一个 Connector，主动通过 WSS 连接 Gateway；业务请求向下路由，结果与事件返回。Provider Adapter 独立绑定本机 Luvus Host/session 和 Herdr session runtime。管理页、调用账本与结果存储属于 Gateway。',
+        'description': 'AI Agent、Bot 与 CLI 接入一个自部署 Gateway。每台设备只有一个 Connector，主动通过 WSS 连接 Gateway；业务请求向下路由，结果与事件返回。Provider Adapter 独立绑定本机 Luvus Host/session 和 Herdr session runtime，再通过各自会话运行 Claude Code、Codex、Pi、OpenCode、Fx 等本地 Agent。管理页、调用账本与结果存储属于 Gateway。',
     },
     'en': {
         'title': 'One entry. Every machine.',
@@ -48,10 +52,12 @@ COPY = {
         'native1': 'Local Luvus', 'native2': 'Local Herdr',
         'native1Sub': 'Host / session', 'native2Sub': 'session runtime',
         'local': 'Workspaces, sessions and Agent logins stay here',
+        'agents': 'Session Agents · examples',
+        'agentNote': 'Agents are installed locally; capabilities depend on the selected runtime and Agent.',
         'traffic': 'Requests ↓ / results & events ↑',
         'legend1': 'Solid: application traffic', 'legend2': 'Dashed: Connector initiates WSS',
         'note': 'One Connector per device. Multiple Providers. Each runtime keeps its native protocol.',
-        'description': 'AI Agents, Bots and CLI clients access one self-hosted Gateway. One Connector per device initiates outbound WSS. Requests route down; results and events return. Provider adapters bind separately to local Luvus Host/session and Herdr session runtimes. The management UI, call ledger and result storage belong to Gateway.',
+        'description': 'AI Agents, Bots and CLI clients access one self-hosted Gateway. One Connector per device initiates outbound WSS. Requests route down; results and events return. Provider adapters bind separately to local Luvus Host/session and Herdr session runtimes, whose sessions run local Agents such as Claude Code, Codex, Pi, OpenCode and Fx. The management UI, call ledger and result storage belong to Gateway.',
     },
 }
 
@@ -88,7 +94,7 @@ def draw(language):
         }
         add(f'<svg x="{x}" y="{y}" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{shapes[kind]}</svg>')
 
-    add(f'<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1340" viewBox="0 0 1440 1340" role="img" aria-labelledby="title description" xml:lang="{language}">')
+    add(f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="title description" xml:lang="{language}">')
     add(f'<title id="title">Rovloom — {escape(c["title"])}</title><desc id="description">{escape(c["description"])}</desc>')
     add('''<defs>
       <pattern id="dots" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.85" fill="#cbd6bf"/></pattern>
@@ -96,7 +102,7 @@ def draw(language):
       <marker id="sage-start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="m8 1-7 4 7 4" fill="none" stroke="#7b9470" stroke-width="1.5"/></marker>
       <marker id="orange-end" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="m2 1 7 4-7 4" fill="none" stroke="#e6532c" stroke-width="1.5"/></marker>
     </defs>''')
-    add('<rect width="1440" height="1340" rx="24" fill="#fafaf6"/>')
+    add(f'<rect width="{WIDTH}" height="{HEIGHT}" rx="24" fill="#fafaf6"/>')
     add('<g font-family="Noto Sans CJK SC, Noto Sans, Arial, sans-serif">')
     logo = base64.b64encode((ROOT / 'docs/assets/brand/rovloom-mark-transparent.png').read_bytes()).decode()
     add(f'<image x="64" y="48" width="46" height="46" href="data:image/png;base64,{logo}"/>')
@@ -133,8 +139,8 @@ def draw(language):
         text(x,603,c[body],15,MUTED)
     # Device backgrounds precede wiring so connections remain visible in the header gap.
     for x,label in [(64,'deviceA'),(744,'deviceB')]:
-        rect(x,790,632,442,'#f0f3e8',radius=18)
-        add(f'<rect x="{x}" y="790" width="632" height="442" rx="18" fill="url(#dots)" opacity="0.65"/>')
+        rect(x,790,632,722,'#f0f3e8',radius=18)
+        add(f'<rect x="{x}" y="790" width="632" height="722" rx="18" fill="url(#dots)" opacity="0.65"/>')
         icon(x+30,814,'device')
         text(x+72,838,c[label],24,weight=600)
         text(x+602,837,c['deviceSub'],15,MUTED,anchor='end')
@@ -163,17 +169,28 @@ def draw(language):
         for center in [x+169,x+463]:
             path(f'M{x+316} 1046V1054Q{x+316} 1064 {x+306 if center<x+316 else x+326} 1064H{center+10 if center<x+316 else center-10}Q{center} 1064 {center} 1074V1090',both=True)
         for offset,label,sub in [(0,'native1','native1Sub'),(294,'native2','native2Sub')]:
-            rect(inner+offset,1090,274,84,'#fffefa',radius=12)
+            rect(inner+offset,1090,274,364,'#fffefa',radius=12)
             icon(inner+offset+18,1117,'runtime',size=24)
             text(inner+offset+60,1124,c[label],21,weight=600)
             text(inner+offset+60,1151,c[sub],16,MUTED)
-        text(x+316,1209,c['local'],17,MUTED,anchor='middle')
+            # Agent examples stay INSIDE their runtime's device/session boundary.
+            center=inner+offset+137
+            path(f'M{center} 1174V1220',both=True)
+            rect(inner+offset+16,1220,242,212,'#f2f5ec',radius=10)
+            text(inner+offset+32,1253,c['agents'],16,MUTED,weight=500)
+            for index, agent in enumerate(AGENT_EXAMPLES):
+                chip_x=inner+offset+30+(index%2)*112
+                chip_y=1274+(index//2)*44
+                rect(chip_x,chip_y,102,32,'#fffefa',stroke='#dce3d2',radius=7)
+                text(chip_x+51,chip_y+22,agent,16,weight=500,anchor='middle')
+        text(x+316,1489,c['local'],17,MUTED,anchor='middle')
 
-    path('M64 1267H106',both=True)
-    text(120,1274,c['legend1'],17,MUTED)
-    path('M520 1267H568',color=ORANGE,dash=True)
-    text(582,1274,c['legend2'],17,MUTED)
-    text(64,1313,c['note'],17,MUTED)
+    path('M64 1547H106',both=True)
+    text(120,1554,c['legend1'],17,MUTED)
+    path('M520 1547H568',color=ORANGE,dash=True)
+    text(582,1554,c['legend2'],17,MUTED)
+    text(64,1593,c['note'],17,MUTED)
+    text(64,1622,c['agentNote'],16,MUTED)
     add('</g></svg>')
     return '\n'.join(parts)+'\n'
 
@@ -190,7 +207,7 @@ def main():
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(executable_path=args.chromium, headless=True, args=['--no-sandbox'])
-            page = browser.new_page(viewport={'width':1440,'height':1340}, device_scale_factor=2)
+            page = browser.new_page(viewport={'width':WIDTH,'height':HEIGHT}, device_scale_factor=2)
             for language in COPY:
                 page.set_content((OUT / f'architecture.{language}.svg').read_text(encoding='utf-8'))
                 page.evaluate('document.fonts.ready')
