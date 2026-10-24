@@ -1,0 +1,32 @@
+{
+  "languages": [
+    "zh",
+    "en"
+  ],
+  "widths": [
+    320,
+    375,
+    390,
+    768,
+    1024,
+    1440
+  ],
+  "checks": [
+    "no overflow",
+    "local images",
+    "six topology nodes stay inside diagram without overlap",
+    "localized topology labels and keyboard route selection",
+    "six selected call flows, deselection and live language changes",
+    "smooth highlights without layout shifts",
+    "keyboard tabs",
+    "clipboard",
+    "language persistence",
+    "FAQ",
+    "mobile navigation",
+    "reduced motion",
+    "blocked storage and clipboard",
+    "no-JS fallback",
+    "no remote runtime requests"
+  ],
+  "pageErrors": []
+}
