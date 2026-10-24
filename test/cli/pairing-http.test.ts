@@ -114,7 +114,7 @@ function code(value: string | undefined) {
 }
 
 test(
-  '非TTY或自报isTTY不能创建本地确认，拒绝问答不注册设备或生成计划',
+  '非TTY或自报isTTY不能创建本地确认，拒绝问答保持未配对运行且不注册设备或生成计划',
   /* 普通流和JSON不能取得终端权限；拒绝通过真实Store结果核对。 */ async () => {
     const input = Object.assign(new PassThrough(), { isTTY: true })
     const output = Object.assign(new PassThrough(), { isTTY: true })
@@ -126,7 +126,9 @@ test(
     const f = fixture()
     try {
       f.control.allow = false
-      await assert.rejects(f.approval.issue())
+      // 拒绝不再退出：保持未配对运行，首台设备改由管理页在线配对。
+      const declined = await f.approval.issue()
+      assert.deepEqual(declined, { declined: true })
       assert.equal(f.machines(), 0)
       assert.deepEqual(readdirSync(f.managed), [])
     } finally {

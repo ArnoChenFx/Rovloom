@@ -176,7 +176,8 @@ export class SetupApproval {
   }
 
   // 明确本地确认后才调用原PairingAdmin；register与enroll批准各消费一次并绑定同一machine。
-  async issue(): Promise<{ plan: PairingPlan; code?: string }> {
+  // 拒绝时不退出：返回 declined，由宿主保持 Gateway 运行并引导到管理页在线配对。
+  async issue(): Promise<{ plan?: PairingPlan; code?: string; declined?: true }> {
     const state = this.state()
     const previous = this.active()
     if (previous && previous.phase !== 'ready') {
@@ -192,7 +193,7 @@ export class SetupApproval {
       return { plan: previous }
     }
     if (!(await this.terminal.confirm('Pair one Connector with this Gateway? / 允许配对一个 Connector？'))) {
-      throw new CliError('configuration_required')
+      return { declined: true }
     }
     const now = Date.now()
     const attempt = randomUUID()

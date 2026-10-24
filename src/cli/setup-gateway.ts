@@ -5,6 +5,8 @@ import type { RuntimeCliGateway } from './runtime.js'
 import { boundedJson, fields, object } from '../wire/index.js'
 import { managementSourceExists, writeAdminFiles } from './admin-command.js'
 import { CliError, type GatewayConfig } from './config.js'
+import { isAdminPlaceholder } from './admin-registry.js'
+import type { CallerRegistry } from './token-registry.js'
 import { SetupApproval } from './setup-approval.js'
 import { GatewayPairingHttp, type SetupNativeRequest } from './pairing-http.js'
 import { SetupTerminal } from './setup-terminal.js'
@@ -40,6 +42,54 @@ export function unionGrants(existing: readonly ProviderGrant[], added: readonly 
     }
   }
   return merged
+}
+
+export type SetupCallerEntry = {
+  principal: { id: string; policy: ProviderPolicy }
+  token_sha256: string
+  issued_at: number
+  expires_at: number
+}
+
+// 首台设备的调用方发布：注册表缺失时全新发布；已有注册表时只保留管理员占位主体（首次配对前
+// rovloom admin create 建立）或与本次完全相同的原条目（中断后的重入），本机策略整体替换，
+// 绝不覆盖或扩大任何真实 MCP 主体。
+export function publishFirstCallers(
+  path: string,
+  resource: string,
+  authorization: { principal_id: string; policies: { caller: ProviderPolicy; local: ProviderPolicy } },
+  caller: SetupCallerEntry
+): void {
+  const previous = readSetupJson(path, REGISTRY_MAX_BYTES)
+  const created: CallerRegistry = {
+    schema_version: 1,
+    kind: 'mcp-caller-source',
+    resource,
+    local_policy: authorization.policies.local,
+    callers: [caller]
+  }
+  if (previous === undefined) {
+    parseRegistry(JSON.parse(boundedJson(created, REGISTRY_MAX_BYTES)))
+    writeSetupFile(path, boundedJson(created, REGISTRY_MAX_BYTES), false)
+    return
+  }
+  const registry = parseRegistry(previous, resource)
+  const kept = registry.callers.filter(
+    /* 管理员占位保留；非占位条目必须是同一请求的原样重入，其余状态一律拒绝。 */ (entry) =>
+      isAdminPlaceholder(entry) || boundedJson(entry, REGISTRY_MAX_BYTES) === boundedJson(caller, REGISTRY_MAX_BYTES)
+  )
+  if (kept.length !== registry.callers.length) {
+    throw new CliError('configuration_required')
+  }
+  // 原样重入的条目已存在时不重复追加；管理员占位保留在设备主体之前。
+  const callers = [...kept]
+  if (!callers.some((entry) => boundedJson(entry, REGISTRY_MAX_BYTES) === boundedJson(caller, REGISTRY_MAX_BYTES))) {
+    callers.push(caller)
+  }
+  const merged: CallerRegistry = { ...created, callers }
+  parseRegistry(JSON.parse(boundedJson(merged, REGISTRY_MAX_BYTES)), resource)
+  const stamp = setupFileStamp(path)
+  writeSetupFile(path, boundedJson(merged, REGISTRY_MAX_BYTES), true, stamp)
 }
 
 export class GatewaySetup {
@@ -112,6 +162,22 @@ export class GatewaySetup {
         'Gateway MCP: ' + mcpUrl + '\nConnector endpoint: ' + gateway.transport.url.replace(/\/connector$/, '') + '\n'
       )
       const issued = await this.approval.issue()
+      if (issued.declined) {
+        // 拒绝终端配对不退出：Gateway 保持运行，首台 Connector 改在管理页完成在线配对。
+        const page = this.config.management_enabled ? 'http://127.0.0.1:' + this.config.management_port + '/' : ''
+        this.terminal.show(
+          'Gateway stays unpaired and running; no enrollment or credential is issued. / Gateway 保持未配对并继续运行，不签发凭据。\n' +
+            (page
+              ? 'Finish first pairing from the management page: create the administrator with `rovloom admin create`, sign in at ' +
+                page +
+                ', create a pairing application, then run `rovloom connector --claim` on the device. / 在管理页完成首次配对：先用 `rovloom admin create` 创建管理员，登录 ' +
+                page +
+                ' 新建配对申请，再在设备上运行 `rovloom connector --claim`。\n'
+              : 'Management is disabled; enable it or rerun to pair from this terminal. / 管理页未启用；请启用后重试或在本终端完成配对。\n')
+        )
+        this.terminal.finishQuestions()
+        return
+      }
       if (issued.code) {
         this.terminal.show(
           'One-time pairing code (5 minutes; keep private) / 一次性配对码（5分钟，请保密）:\n' +
@@ -283,21 +349,13 @@ export class GatewaySetup {
       })
     )
     if (!additional) {
-      publish(callersPath, {
-        schema_version: 1,
-        kind: 'mcp-caller-source',
-        resource,
-        local_policy: authorization.policies.local,
-        callers: [
-          {
-            principal: { id: authorization.principal_id, policy: authorization.policies.caller },
-            token_sha256: createHash('sha256')
-              .update(client.token as string)
-              .digest('hex'),
-            issued_at: client.issued_at,
-            expires_at: client.expires_at
-          }
-        ]
+      publishFirstCallers(callersPath, resource, authorization, {
+        principal: { id: authorization.principal_id, policy: authorization.policies.caller },
+        token_sha256: createHash('sha256')
+          .update(client.token as string)
+          .digest('hex'),
+        issued_at: client.issued_at as number,
+        expires_at: client.expires_at as number
       })
       publish(providersPath, { schema_version: 1, role: 'gateway', providers: reviewedEntries }, 1_048_576)
     } else {

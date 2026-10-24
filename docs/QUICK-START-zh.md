@@ -97,6 +97,10 @@ Docker Gateway：在 Compose 目录运行 `docker compose run --rm --service-por
 Connector 在另一台机器时，需设置 Gateway 的 `devices.hostname` 使其监听回环以外的地址；
 跨出可信网络时在前面放 HTTPS/WSS，见[网络访问](CONFIGURATION-zh.md#网络访问)。
 
+**没有第二个终端？全程在管理页配对。** 在 Gateway 终端拒绝配对提示（Gateway 保持
+未配对运行），运行 `rovloom admin create`，登录 `http://127.0.0.1:9445/`，新建配对申请，
+再在设备上运行 `rovloom connector --claim`，在页面批准核对码即可；见[配对](CONFIGURATION-zh.md#配对)。
+
 配对完成后，用 Ctrl-C 停止 Gateway 和 Connector。Docker 用户随后运行 `docker compose up -d`
 并重新启动 `rovloom connector`；配对已保存在卷中。之后用同样的命令启动即可。
 
@@ -120,7 +124,9 @@ Connector 在另一台机器时，需设置 Gateway 的 `devices.hostname` 使�
 
 管理页地址是 `http://127.0.0.1:9445/`，用户名 `admin`，密码为配对时打印的密码；
 也可以用 `rovloom admin create` 重新签发。页面显示每台设备的连接状态，
-可重命名、断开或撤销设备，以及停用 provider。
+可重命名、断开或撤销设备，以及停用 provider。局域网工作站访问时，可在 Gateway 配置
+`management.hostname: "0.0.0.0"` 加 `management.lan: true`（明文 HTTP；见[配置参考](CONFIGURATION-zh.md#每个用户参数)），
+默认仍只监听回环。
 
 ## 5. 日常操作
 
@@ -140,7 +146,7 @@ Connector 在另一台机器时，需设置 Gateway 的 `devices.hostname` 使�
 
 | 现象 | 处理 |
 |---|---|
-| `configuration_required` / `pairing_required` | 完成终端里的提示和批准；仅保存 Gateway 地址不会配对设备。 |
+| `configuration_required` / `pairing_required` | 完成终端里的提示和批准，或从管理页完成配对（见[配对](CONFIGURATION-zh.md#配对)）；仅保存 Gateway 地址不会配对设备。 |
 | 无法连接 / 地址被占用 | 检查端口、Gateway 监听地址和网络可达性。 |
 | HTTP 401 | 检查 `/mcp` 地址、Bearer 及其有效期。 |
 | `native_state_path_too_long` | 配对前换一个更短的 `data.directory`（Unix socket 路径长度限制）。 |

@@ -14,7 +14,8 @@ export function openCallerSource(
   path: string,
   resource: string,
   administrator?: GatewayIdentitySource['administrator'],
-  publicUrl?: string
+  publicUrl?: string,
+  lan = false
 ) {
   const publicHost = publicUrl === undefined ? undefined : new URL(publicUrl).host
   let closed = false
@@ -63,12 +64,20 @@ export function openCallerSource(
     }
   }
   // 经受信反向代理到达时 request.url 的 scheme 是 http，只比较 Host 与固定路径。
-  const publicRequest = /* 公开地址请求须是固定 /mcp 路径且无查询。 */ (value: string): boolean => {
-    if (publicHost === undefined) {
+  // 显式 LAN 明文监听时接受任意 Host 的固定路径；Bearer 摘要与来源无关。
+  const publicRequest = (value: string): boolean => {
+    try {
+      const url = new URL(value)
+      if (url.pathname !== '/mcp' || url.search || url.hash) {
+        return false
+      }
+      if (lan) {
+        return publicHost === undefined ? true : url.host !== new URL(resource).host
+      }
+      return publicHost !== undefined && url.host === publicHost
+    } catch {
       return false
     }
-    const url = new URL(value)
-    return url.host === publicHost && url.pathname === '/mcp' && !url.search && !url.hash
   }
   const active = (entry: CallerEntry, now: number) => now >= entry.issued_at && now < entry.expires_at
   // 打开时必须得到一份有效且资源匹配的注册表；之后文件变化按下一次读取生效。

@@ -66,13 +66,15 @@ Setting an address does not pair the device or install a native provider.
 | `mcp.hostname` | String, required | `127.0.0.1`; also accepts `::1`, `0.0.0.0`, `::`. Wildcard binds are for isolated environments such as containers. They listen on every interface over plain HTTP (the Gateway logs a `wildcard_listener` warning): Host/Origin validation still uses the matching loopback address, but that only stops browser DNS rebinding, not a network client that sends a loopback `Host`. Keep a firewall or TLS reverse proxy in front; any other Host needs `public_url`. |
 | `mcp.port` | Integer 1–65535, required | `9444`. |
 | `mcp.public_url` | String, optional | Trusted external address behind a reverse proxy / TLS terminator, exactly `https://host[:port]/mcp` (no credentials, query or other path). When set, the Gateway also accepts requests whose `Host` is that host (and its CORS origin); every other `Host` is still rejected, and forwarded headers are never trusted. The listener itself stays on loopback; the Bearer is still required. |
+| `mcp.lan` | Literal `true`, optional | Explicit plaintext-LAN opt-in for the MCP listener. Only valid together with a wildcard `mcp.hostname` (`0.0.0.0` or `::`); loopback or proxied configurations reject it. When set, the listener additionally accepts any `Host` on the fixed `/mcp` path over plain HTTP (Bearer still required) and same-origin browser `Origin` values. Host validation otherwise stays loopback-only, so existing container setups behave exactly as before unless they add this field. Never expose the listener beyond a trusted LAN without a firewall or TLS reverse proxy. |
 | Gateway `devices` | Object, required | Contains `hostname`, `port`; WS `/connector`. |
 | `devices.hostname` | String, required | `127.0.0.1`; also `::1`, `0.0.0.0`, `::`. Defaults do not accept remote devices. |
 | `devices.port` | Integer 1–65535, required | `9443`. |
-| Gateway `management` | Object, required | Contains `enabled`, `port` and optional `hostname`; local HTTP management page. |
+| Gateway `management` | Object, required | Contains `enabled`, `port` and optional `hostname`, `lan`; local HTTP management page. |
 | `management.enabled` | Boolean, required | `true`; `false` disables this listener. Enabling it grants no administrator identity. |
 | `management.port` | Integer 1–65535, required even when disabled | `9445`. |
 | `management.hostname` | String, optional | `127.0.0.1`; also accepts `0.0.0.0` for isolated environments such as containers. Session and Host validation still use the `127.0.0.1` origin. |
+| `management.lan` | Literal `true`, optional | Explicit plaintext-LAN opt-in for the management page. Only valid together with `management.hostname: "0.0.0.0"`; loopback configurations reject it. When set, the page additionally accepts any `Host` over plain HTTP (cookies are `HttpOnly`/`SameSite=Strict` but not `Secure`; cross-site requests are still refused by the same-origin checks). Without this field nothing changes: LAN access still returns 403 and the SSH-tunnel guidance below still applies. The Gateway logs the existing `wildcard_listener` warning. Serve the page over a TLS reverse proxy if it leaves a trusted LAN. |
 | Connector `gateway` | Object, required | Contains only `url`. |
 | `gateway.url` | String, required | `""` while setup is pending; otherwise WS/WSS origin, ≤2048 characters, e.g. `ws://192.0.2.10:9443` or `wss://gateway.example`. No credentials/query/fragment/path except optional trailing `/`. Product selects `/connector`. |
 | Connector `allow_terminal_execution` | Boolean, optional | `false`, also when omitted. Only literal `true` enables direct terminal input and custom launch/restore commands through the existing local guard. Edit this single user file and restart Connector; it does not change installation settings or caller/local grants. |
@@ -124,9 +126,15 @@ Its Bearer is shown only on the verified local terminal and kept privately by
 Rovloom. Copy it into the MCP client's secret storage. It expires after 30 days
 by default and is managed with `rovloom token`. Device credentials, MCP Bearers
 and administrator passwords are separate; an MCP Bearer cannot sign in to the
-management page. When first pairing completes, the Gateway terminal creates the
-administrator `admin` and prints its password once next to the MCP Bearer.
-Manage administrators afterwards with `rovloom admin`.
+management page. When first pairing completes through the Gateway terminal, it
+creates the administrator `admin` and prints its password once next to the MCP
+Bearer. Manage administrators afterwards with `rovloom admin`.
+
+You can also create the first administrator **before any pairing**
+(`rovloom admin create` initializes the empty caller registry), sign in to the
+management page, and complete first pairing entirely from the page; see
+[Pairing](#pairing). Declining the terminal pairing prompt keeps the Gateway
+running unpaired and prints this web-first path.
 
 ### Managing the management-page administrator
 
@@ -143,8 +151,9 @@ the administrator ID (default `admin`) and the password is what `create` writes 
 re-issuing an existing ID (the way to recover a lost password) replaces its password and
 invalidates browser sessions signed in with the old one; revoking does the same. An
 administrator can see and manage every device and provider the Gateway knows, including ones paired
-later, but cannot call MCP. Run `rovloom admin create` only after first pairing, because it
-needs the caller registry that pairing creates. In Docker use
+later, but cannot call MCP. `rovloom admin create` also works on a Gateway that has
+not completed first pairing: it initializes the caller registry the login flow needs,
+so the management page is available before the first device exists. In Docker use
 `docker compose exec gateway rovloom admin create`.
 
 ### Managing Bearer tokens
@@ -184,6 +193,20 @@ model reply.
   the same device after its credential is lost or leaked. The old credential
   stops working; native settings and MCP grants stay.
 
+**First pairing online (web-first).** The first Connector can join through the
+management page too, without touching the Gateway terminal:
+
+1. Start the Gateway (`rovloom gateway`). Approving the terminal prompt issues a
+   one-time code as before; **declining it keeps the Gateway running unpaired**
+   and prints the management-page path.
+2. Create the first administrator with `rovloom admin create` (it initializes
+   the caller registry) and sign in to the management page.
+3. Create a pairing application and let the device join with
+   `rovloom connector --claim`, exactly like adding a device online below. The
+   administrator approves the check code, the credential is delivered, and the
+   online native activation publishes the provider and MCP caller state
+   without restarting the Gateway.
+
 **Adding a device online (claim).** A device can also be added while the
 Gateway keeps running, with no Gateway terminal present:
 
@@ -216,6 +239,14 @@ check caller credentials, TLS trust, native binaries or a model connection.
 Gateway uses ordinary HTTP/WS for local/trusted-network access. Public TLS belongs
 to an external standard HTTPS/WSS reverse proxy. Connector WSS always uses system
 certificate validation. There is no custom CA or skip-verification option.
+
+For LAN clients without a proxy, set `mcp.hostname` / `management.hostname` to a
+wildcard address and add the explicit `lan: true` opt-in to those listener
+groups. Both then accept LAN hosts over plain HTTP — the MCP listener requires
+its Bearer, and the management page keeps its cookie, CSRF and same-origin
+checks, but neither has transport encryption or network-layer isolation. The
+Gateway logs a `wildcard_listener` warning; keep a firewall around the LAN and
+put a TLS reverse proxy in front of anything that leaves it.
 
 ## Native installation
 

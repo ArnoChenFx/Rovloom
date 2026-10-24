@@ -8,6 +8,7 @@ import { PassThrough } from 'node:stream'
 import { configDocument, configTemplate } from '../../src/cli/config.js'
 import type { GatewayConfig } from '../../src/cli/config.js'
 import { handleAdminCommand, managementSourceExists, writeAdminFiles } from '../../src/cli/admin-command.js'
+import { isAdminPlaceholder } from '../../src/cli/admin-registry.js'
 import { handleTokenCommand } from '../../src/cli/token-command.js'
 import { ADMIN_POLICY_REVISION, emptyManagement, issueAdmin, revokeAdmin } from '../../src/cli/admin-registry.js'
 import { digestToken, parseRegistry } from '../../src/cli/token-registry.js'
@@ -160,3 +161,51 @@ test('first-setup helper writes both files once; only an absent source file trig
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test(
+  'admin create works before first pairing: an empty caller registry is initialized for the management page',
+  /** 全新 Gateway 先建管理员再在线配对；占位主体没有 MCP 权限，配对激活不会覆盖它。 */ async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rovloom-admin-bootstrap-'))
+    try {
+      const state = join(root, 'gateway')
+      mkdirSync(join(state, 'managed'), { recursive: true, mode: 0o700 })
+      const config = { ...configTemplate('gateway'), state_dir: state } as GatewayConfig
+      const configPath = join(root, 'gateway.json')
+      writeFileSync(configPath, JSON.stringify(configDocument(config)), { mode: 0o600 })
+      const callerPath = join(state, 'managed', 'mcp-callers.json')
+      const run = async (...args: string[]) => {
+        const out = sink()
+        const err = sink()
+        const code = await handleAdminCommand(['admin', ...args, '--config', configPath], {
+          stdout: out.stream,
+          stderr: err.stream
+        })
+        return { code, out: out.text(), err: err.text() }
+      }
+      // 注册表不存在时 create 初始化空来源并签发管理员。
+      const created = await run('create')
+      assert.equal(created.code, 0)
+      assert.match(created.out.trim(), /^[A-Za-z0-9_-]{43}$/)
+      const registry = parseRegistry(JSON.parse(readFileSync(callerPath, 'utf8')))
+      assert.equal(registry.resource, `http://127.0.0.1:${config.mcp_port}/mcp`)
+      assert.equal(registry.local_policy.grants.length, 0)
+      assert.equal(registry.callers.length, 1)
+      assert.equal(registry.callers[0]!.principal.id, 'admin')
+      assert.equal(isAdminPlaceholder(registry.callers[0]!), true)
+      // list 在同一初始化后的注册表上正常工作；revoke 清掉占位主体但不删除注册表文件。
+      const listed = await run('list')
+      assert.equal(listed.code, 0)
+      assert.match(listed.out, /^admin\tactive\t/)
+      const revoked = await run('revoke')
+      assert.equal(revoked.code, 0)
+      const after = parseRegistry(JSON.parse(readFileSync(callerPath, 'utf8')))
+      assert.equal(after.callers.length, 0)
+      // 再次 create 在既有注册表上重新签发。
+      const again = await run('create')
+      assert.equal(again.code, 0)
+      assert.match(again.out.trim(), /^[A-Za-z0-9_-]{43}$/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+)

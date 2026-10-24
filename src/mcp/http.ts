@@ -20,6 +20,8 @@ export type HttpFacadeOptions = {
   allowedOrigins?: readonly string[]
   // 反向代理 / TLS 终止后的对外地址（https://host[:port]/mcp）；除回环地址外只接受这个 Host，且自动加入 CORS 白名单。
   publicUrl?: string
+  // 显式局域网选择：仅在通配明文监听时接纳任意 Host 与同源自 Origin；回环/公开地址校验缺省不变。
+  lan?: boolean
   maxSessions?: number
   idleMs?: number
   requestTimeoutMs?: number
@@ -255,13 +257,23 @@ export function createHttpFacade(options: HttpFacadeOptions & { origin: string }
     }
     const host = request.headers.get('host')
     // 回环地址按完整 origin 匹配；公开地址只比较 Host（TLS 在代理终止，到这里的 scheme 是 http）。
-    const loopback = url.origin === origin.origin && host === origin.host
+    // 显式 LAN 明文监听按本次 Host 推导同源地址；跨站 Origin 仍由下方白名单拒绝。
+    const lanOrigin =
+      options.lan === true &&
+      host !== null &&
+      Buffer.byteLength(host) <= 2048 &&
+      url.protocol === 'http:' &&
+      host.toLowerCase() !== origin.host.toLowerCase() &&
+      host.toLowerCase() !== publicUrl?.host.toLowerCase()
+        ? 'http://' + host.toLowerCase()
+        : undefined
+    const loopback = url.origin === origin.origin && host !== null && host.toLowerCase() === origin.host.toLowerCase()
     const proxied = publicUrl !== undefined && host === publicUrl.host && url.host === publicUrl.host
-    if ((!loopback && !proxied) || url.pathname !== '/mcp' || url.search || url.hash) {
+    if ((!loopback && !proxied && lanOrigin === undefined) || url.pathname !== '/mcp' || url.search || url.hash) {
       return denied(403)
     }
     const requestOrigin = request.headers.get('origin')
-    if (requestOrigin !== null && !allowedOrigins.has(requestOrigin)) {
+    if (requestOrigin !== null && !allowedOrigins.has(requestOrigin) && requestOrigin !== lanOrigin) {
       return denied(403)
     }
     if (!['GET', 'POST', 'DELETE'].includes(request.method)) {

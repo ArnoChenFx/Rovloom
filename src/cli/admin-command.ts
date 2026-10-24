@@ -1,6 +1,7 @@
 // rovloom admin：管理页管理员的签发、列表与撤销；口令原值只在 create 时写入 stdout 一次，Gateway 热读，无需重启。
 import type { Writable } from 'node:stream'
 import { boundedJson, fields, object } from '../wire/index.js'
+import { canonicalLoopbackHost } from '../mcp/listen.js'
 import { CLI_ERROR_CODES, CliError, readConfig, type GatewayConfig } from './config.js'
 import { resolveRoleConfigPath, type ConfigPathEnvironment } from './config-path.js'
 import { readRuntimeJson, runtimeReference } from './runtime-files.js'
@@ -24,7 +25,8 @@ export const ADMIN_HELP = `用法：
 口令原值只在 create 时写到 stdout 一次（Gateway 只保存 SHA-256 摘要）；其余信息写到 stderr。丢失口令就再 create 一次：
 同名管理员被重新签发，旧口令与已登录的浏览器会话立即失效。revoke 删除管理员，同样立即生效。修改无需重启 Gateway。
 管理员不能调用 MCP，也与 MCP 令牌、设备凭据互不通用；有效期默认 ${DEFAULT_ADMIN_TTL_DAYS} 天（1-365）。
-需要先完成 Gateway 首次配对（此时才存在 MCP 调用方注册表）。
+可在首次配对前创建：全新 Gateway 会自行初始化空的 MCP 调用方注册表，随后即可在管理页
+在线配对首台 Connector（新建申请，设备运行 rovloom connector --claim）。
 `
 
 type Flags = { sub: string; config?: string; principal?: string; days?: number }
@@ -83,6 +85,35 @@ function loadManagement(path: string, port: number): { file: ManagementFile; exi
   return { file: value as unknown as ManagementFile, exists: true }
 }
 
+/** 本机 caller 的资源地址用规范回环地址；与首次配对发布及认证门禁使用同一 URL。 */
+export function callerResource(config: GatewayConfig): string {
+  const hostname = canonicalLoopbackHost(config.mcp_hostname)
+  return new URL('http://' + hostname + ':' + config.mcp_port + '/mcp').href
+}
+
+/** 全新 Gateway 的空调用方注册表：只含空本机策略，不含任何 MCP 主体或令牌摘要。 */
+export function emptyCallerRegistry(resource: string): import('./token-registry.js').CallerRegistry {
+  return {
+    schema_version: 1,
+    kind: 'mcp-caller-source',
+    resource,
+    local_policy: { revision: 'rovloom_unpaired', grants: [] },
+    callers: []
+  }
+}
+
+/** 已有调用方注册表时返回其字节代次；尚未配对时不存在，首次发布用 link 排他写入。 */
+function callersStamp(path: string): string | undefined {
+  try {
+    return setupFileStamp(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined
+    }
+    throw error
+  }
+}
+
 /** 在 Gateway 状态目录签发（或重新签发）一个管理员：先写调用方注册表再写来源文件；返回口令原值仅此一次。 */
 export function writeAdminFiles(
   config: GatewayConfig,
@@ -92,14 +123,20 @@ export function writeAdminFiles(
 ): { secret: string; expires_at: number } {
   const callersPath = runtimeReference(config.state_dir, 'mcp-callers')
   const managementPath = runtimeReference(config.state_dir, 'management')
-  const callersStamp = setupFileStamp(callersPath)
-  const callers = parseRegistry(readRuntimeJson(callersPath, REGISTRY_MAX_BYTES))
+  const stamp = callersStamp(callersPath)
+  // 首次配对前也允许签发管理员：缺失的注册表按空来源初始化，随后管理页即可完成在线配对。
+  const callers = parseRegistry(readSetupJson(callersPath) ?? emptyCallerRegistry(callerResource(config)))
   const { file, exists } = loadManagement(managementPath, config.management_port)
-  const stamp = exists ? setupFileStamp(managementPath) : undefined
+  const managementStamp = exists ? setupFileStamp(managementPath) : undefined
   const issued = issueAdmin(callers, file, principal, at, days)
   // 先写注册表再写来源：中途失败至多留下无权限的占位主体，重跑 create 会替换它。
-  writeSetupFile(callersPath, boundedJson(issued.callers, REGISTRY_MAX_BYTES), true, callersStamp)
-  writeSetupFile(managementPath, boundedJson(issued.management, 65_536), exists, stamp)
+  // 注册表缺失时首次发布；已存在时按原代次替换，与配对后行为一致。
+  if (stamp === undefined) {
+    writeSetupFile(callersPath, boundedJson(issued.callers, REGISTRY_MAX_BYTES), false)
+  } else {
+    writeSetupFile(callersPath, boundedJson(issued.callers, REGISTRY_MAX_BYTES), true, stamp)
+  }
+  writeSetupFile(managementPath, boundedJson(issued.management, 65_536), exists, managementStamp)
   return { secret: issued.secret, expires_at: issued.expires_at }
 }
 

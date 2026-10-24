@@ -21,6 +21,8 @@ export type ManagementSessionAdapterOptions = Readonly<{
   sessions: ManagementSessionSource
   cookie_name: string
   origin: string
+  /** 显式局域网选择：仅在通配明文监听时接纳本次请求 Host 的同源访问；缺省只接受回环。 */
+  lan?: boolean
   /** 可注入同Store可信时钟；测试时钟不构成生产认证。 */
   now?: () => number
 }>
@@ -72,7 +74,7 @@ export function createManagementSessionAdapter(options: ManagementSessionAdapter
   if (
     origin.origin !== options.origin ||
     origin.protocol !== 'http:' ||
-    origin.hostname !== '127.0.0.1' ||
+    !['127.0.0.1', '[::1]'].includes(origin.hostname) ||
     origin.username ||
     origin.password
   ) {
@@ -83,13 +85,38 @@ export function createManagementSessionAdapter(options: ManagementSessionAdapter
   const now = options.now ?? Date.now
   let observed = 0
 
+  /** 本次请求的受信 origin：回环固定；显式 LAN 时按 Host 推导，推导失败一律拒绝。 */
+  function expected(request: Request): string | null {
+    const raw = request.headers.get('host')
+    if (!raw || Buffer.byteLength(raw) > 2048) {
+      return null
+    }
+    const host = raw.toLowerCase()
+    if (host === origin.host.toLowerCase()) {
+      return origin.origin
+    }
+    if (!options.lan) {
+      return null
+    }
+    try {
+      const url = new URL(request.url)
+      const candidate = 'http://' + host
+      return new URL(candidate).origin === candidate && url.host.toLowerCase() === host && url.protocol === 'http:'
+        ? candidate
+        : null
+    } catch {
+      return null
+    }
+  }
+
   /** cookie只作为宿主查询键，不从其正文、Authorization、URL或请求JSON推导principal。 */
   function cookie(request: Request): string | null {
     const url = new URL(request.url)
+    const trusted = expected(request)
     if (
-      url.origin !== origin.origin ||
-      request.headers.get('host') !== origin.host ||
-      (request.headers.has('origin') && request.headers.get('origin') !== origin.origin)
+      trusted === null ||
+      url.origin !== trusted ||
+      (request.headers.has('origin') && request.headers.get('origin') !== trusted)
     ) {
       return null
     }
@@ -205,7 +232,7 @@ export function createManagementSessionAdapter(options: ManagementSessionAdapter
         return false
       }
       if (
-        request.headers.get('origin') !== origin.origin ||
+        request.headers.get('origin') !== expected(request) ||
         (request.headers.has('sec-fetch-site') && request.headers.get('sec-fetch-site') !== 'same-origin')
       ) {
         return false

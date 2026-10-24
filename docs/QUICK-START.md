@@ -105,6 +105,12 @@ For a Connector on another machine, set the Gateway's `devices.hostname` so it l
 loopback, and put HTTPS/WSS in front of anything outside a trusted network; see
 [network access](CONFIGURATION.md#network-access).
 
+**No second terminal? Pair entirely from the management page.** Decline the Gateway's
+pairing prompt (it keeps running unpaired), run `rovloom admin create`, sign in to
+`http://127.0.0.1:9445/`, create a pairing application, and run
+`rovloom connector --claim` on the device; approve the check code on the page. See
+[Pairing](CONFIGURATION.md#pairing).
+
 Adding another device later does not require stopping the Gateway: an
 administrator can create a pairing application on the management page and the
 new device joins online with `rovloom connector --claim`; see
@@ -133,7 +139,10 @@ automatically. Tool details are in the [MCP reference](protocol/MCP-HTTP.md).
 
 The management page is at `http://127.0.0.1:9445/`. Sign in as `admin` with the password printed
 at pairing, or issue a new one with `rovloom admin create`. It shows each device's connection and
-lets you rename, disconnect or revoke devices and disable providers.
+lets you rename, disconnect or revoke devices and disable providers. From a LAN workstation you can
+reach it by setting `management.hostname: "0.0.0.0"` plus `management.lan: true` on the Gateway
+(plain HTTP; see the [configuration reference](CONFIGURATION.md#every-user-parameter)); by default it
+stays loopback-only.
 
 ## 5. Everyday tasks
 
@@ -153,7 +162,7 @@ Each role keeps one configuration file, created on first run and never reset:
 
 | Symptom | What to do |
 |---|---|
-| `configuration_required` / `pairing_required` | Finish the terminal prompts and approvals; a saved Gateway address alone does not pair the device. |
+| `configuration_required` / `pairing_required` | Finish the terminal prompts and approvals, or pair from the management page ([Pairing](CONFIGURATION.md#pairing)); a saved Gateway address alone does not pair the device. |
 | Cannot connect / address in use | Check ports, the Gateway listener address and network reachability. |
 | HTTP 401 | Check the `/mcp` URL, the Bearer and its expiry. |
 | `native_state_path_too_long` | Choose a shorter `data.directory` before pairing (Unix socket path limit). |
