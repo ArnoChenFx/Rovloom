@@ -1,30 +1,59 @@
-# Architecture / 架构
+# Architecture artwork / 架构图片
 
-Sources: [English](architecture.en.mmd) · [中文](architecture.zh.mmd).
-The matching Mermaid fences are embedded in the [English README](../../../README.md#how-it-works)
-and the [中文 README](../../../README-zh.md#工作方式). Update each source and its README
-fence together, and keep node IDs, roles and edges consistent across languages.
+The [English README](../../../README.md#how-it-works) and
+[中文 README](../../../README-zh.md#工作方式) display hand-designed, bilingual
+architecture images. These are ordinary committed images; GitHub does not need
+Mermaid or JavaScript to display them.
 
-源文件与双语 README 中的 Mermaid 代码块同步维护；两种语言的节点 ID、职责与连线须一致。
+- [English PNG](architecture.en.png) · [SVG](architecture.en.svg)
+- [中文 PNG](architecture.zh.png) · [SVG](architecture.zh.svg)
 
-The layout has three tiers: AI Agent / AI Bot and CLI at the top, one Gateway in the middle,
-and separate devices below. Each device has one identity and one outbound
-Connector, with provider adapters bound to local Luvus or Herdr instances.
+The 2880 × 2680 PNGs preserve the exact typography on any viewer. Each links to a
+1440 × 1340 self-contained SVG for zooming; SVGs have a title and text description,
+and embed the original brand mark without external resource requests. The pale
+canvas deliberately stays consistent in light and dark README themes.
 
-图分三层：上方 AI Agent / AI Bot 与 CLI、中间一个 Gateway、下方多台设备。每台设备一套身份、一个主动出站
-Connector；Provider Adapter 分别绑定本地 Luvus 或 Herdr 实例。
+双语 README 直接显示高清 PNG，点击可查看 SVG 矢量图；无需 Mermaid 插件或客户端脚本。
+PNG 保留完整中文字体，SVG 提供标题和文字描述，品牌图标内嵌，所有图片均使用浅色画布。
 
-- Dashed arrows show **outbound connection initiation**, from Connector to Gateway.
-- Solid bidirectional arrows show **application traffic**, not who opens a socket.
-  Requests go Gateway → Connector → adapter → local runtime; results and events
-  return along that path.
-- Provider adapters preserve each runtime's native contract. Luvus exposes Host/session;
-  Herdr uses session runtimes. The management UI belongs to the Gateway.
+## Source and regeneration / 源文件与生成
 
-- 虚线箭头表示 **出站连接发起方向**：Connector → Gateway。
-- 实线双向箭头表示 **业务流向**：请求向下，结果/事件沿原路返回；不表示 socket 发起方向。
-- Provider Adapter 分别保留原生契约：Luvus 使用 Host/session，Herdr 使用 session runtime。
-  管理 UI 属于 Gateway。
+The source of truth is [render-architecture.py](../../../scripts/maintenance/render-architecture.py).
+It draws both languages from a shared layout and localized copy. The former Mermaid
+files have been replaced so there is only one diagram source to maintain.
+
+From the repository root:
+
+```sh
+# Generate the two SVGs with the Python standard library only.
+python3 scripts/maintenance/render-architecture.py
+
+# Also generate the two 2x PNGs. Requires Playwright, Chromium and Noto Sans CJK SC.
+python3 scripts/maintenance/render-architecture.py --png
+# Use --chromium /path/to/chromium when needed.
+```
+
+Commit all four generated assets after changing the script. Inspect both languages
+at README width and full size; check labels, arrow endpoints and device boundaries.
+The generator makes no network requests and never starts Gateway or Connector.
+
+布局和双语文案统一维护在生成脚本中。修改后重新生成并提交四张图片，检查双语文字、箭头方向和设备边界。
+图片导出需 Python Playwright、Chromium 和 Noto Sans CJK SC；只生成 SVG 不依赖这些工具。
+
+## Architecture semantics / 架构含义
+
+- The three tiers are clients, one self-hosted Gateway, and separate devices.
+- Every device has one identity and one outbound Connector. Provider adapters
+  bind separately to local Luvus Host/session and Herdr session runtimes.
+- Solid bidirectional arrows show application traffic: requests travel downward;
+  results/events return. They do not describe who opens the socket.
+- Dashed orange arrows show Connector → Gateway outbound WSS initiation.
+- The management UI, call ledger and result storage belong to Gateway.
+- Workspaces, sessions and Agent logins stay on the original devices.
+
+三层结构依次为客户端、一个自部署 Gateway 和各台设备。每台设备一套身份、一个 Connector，
+Adapter 独立绑定各原生实例。实线双向表示业务通信，橙色虚线表示主动出站连接；
+管理页、调用账本和结果存储属于 Gateway，工作区与 Agent 登录留在原设备。
 
 References: [DESIGN](../../DESIGN.md), [ADR 0004](../../adr/0004-multi-runtime-provider.md),
 [Gateway Web UI](../../GATEWAY-WEBUI.md).
