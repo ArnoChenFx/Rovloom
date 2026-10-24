@@ -52,6 +52,11 @@ def main():
                 for selector in ['.map-local-stack', '.flow-local']:
                     region = page.locator(selector)
                     assert region.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, selector)
+                    for icon in region.locator('.agent-names img').all():
+                        assert icon.get_attribute('src').startswith('./assets/agents/')
+                    more = region.locator('.agent-names li').last
+                    expect(more.locator('[aria-hidden=true]')).to_have_text('…')
+                    expect(more.locator('.visually-hidden')).to_have_text('更多 Agent' if language == 'zh' else 'More Agents')
                     for label in region.locator('.agent-names li').all():
                         assert label.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, label.inner_text())
                 for selector in ['.site-header .brand img', 'footer .brand img']:
@@ -203,7 +208,7 @@ def main():
                        'localized topology labels and keyboard route selection',
                        'six selected call flows, deselection and live language changes', 'smooth highlights without layout shifts', 'keyboard tabs',
                        'clipboard', 'language persistence', 'FAQ', 'mobile navigation', 'reduced motion',
-                       'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests', 'local runtime and Agent hierarchy fits all widths'],
+                       'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests', 'local runtime and Agent hierarchy fits all widths', 'local Agent icons and localized more indicator'],
             'pageErrors': errors
         }
         (out / 'browser-verification.json').write_text(json.dumps(report, indent=2) + '\n')

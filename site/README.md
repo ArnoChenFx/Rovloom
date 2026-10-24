@@ -19,6 +19,10 @@ Relative assets work at both the domain root and the project path. The header an
 use `docs/assets/brand/rovloom-logo.png` as the full wordmark; the favicon and diagram
 nodes use the standalone mark. Both assets are copied byte-for-byte from the brand directory.
 
+Agent examples use local icons from `assets/agents`; upstream sources and notices are
+recorded in [assets/agents/README.md](assets/agents/README.md). The final ellipsis has a
+localized screen-reader label and indicates additional Agents.
+
 ## Release metadata
 
 Offline builds read the version from `package.json`. In CI, the Pages workflow fetches

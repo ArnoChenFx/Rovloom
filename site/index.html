@@ -96,7 +96,7 @@
                 <div class="map-native-link" aria-hidden="true"><svg viewBox="0 0 16 28"><path d="M8 2v24m-4-4 4 4 4-4"></path></svg></div>
                 <div class="map-runtime">
                   <div class="map-runtime-heading"><span class="map-runtime-icon"><svg aria-hidden="true"><use href="#server-icon"></use></svg></span><strong>Luvus / Herdr</strong><span data-i18n="map.runtimeRole">{{map.runtimeRole}}</span></div>
-                  <div class="map-agent-layer"><p data-i18n="map.sessionAgents">{{map.sessionAgents}}</p><ul class="agent-names" aria-label="Agents"><li>Claude Code</li><li>Codex</li><li>Pi</li><li>OpenCode</li><li>Fx</li></ul></div>
+                  <div class="map-agent-layer"><p data-i18n="map.sessionAgents">{{map.sessionAgents}}</p><ul class="agent-names" aria-label="Agents"><li><img src="./assets/agents/claude-code.svg" width="16" height="16" alt="" aria-hidden="true" /><span>Claude Code</span></li><li><img src="./assets/agents/codex.svg" width="16" height="16" alt="" aria-hidden="true" /><span>Codex</span></li><li><img src="./assets/agents/opencode.svg" width="16" height="16" alt="" aria-hidden="true" /><span>OpenCode</span></li><li><img src="./assets/agents/pi.svg" width="16" height="16" alt="" aria-hidden="true" /><span>Pi</span></li><li><img src="./assets/agents/fx.png" width="16" height="16" alt="" aria-hidden="true" /><span>Fx</span></li><li class="agent-more"><span aria-hidden="true">…</span><span class="visually-hidden" data-i18n="agents.more">{{agents.more}}</span></li></ul></div>
                 </div>
               </div>
               <p class="map-local-note" data-i18n="map.localNote">{{map.localNote}}</p>
@@ -204,8 +204,14 @@
             <svg class="flow-arrow flow-transport" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg>
             <div class="flow-local">
               <p class="flow-local-label" data-i18n="how.localLabel">{{how.localLabel}}</p>
-              <div class="flow-local-stages"><strong>CONNECTOR</strong><svg class="flow-arrow" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg><strong>LUVUS / HERDR</strong><svg class="flow-arrow" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg><strong>AGENTS</strong></div>
-              <ul class="agent-names" aria-label="Agents"><li>Claude Code</li><li>Codex</li><li>Pi</li><li>OpenCode</li><li>Fx</li></ul>
+              <div class="flow-device-stack">
+                <div class="map-connector flow-connector"><svg aria-hidden="true"><use href="#route-icon"></use></svg><strong>Connector</strong><span data-i18n="map.oneConnector">{{map.oneConnector}}</span></div>
+                <svg class="flow-arrow" viewBox="0 0 24 16" aria-hidden="true"><path d="M2 8h20M6 4 2 8l4 4m12-8 4 4-4 4"></path></svg>
+                <div class="map-runtime flow-runtime">
+                  <div class="map-runtime-heading"><span class="map-runtime-icon"><svg aria-hidden="true"><use href="#server-icon"></use></svg></span><strong>Luvus / Herdr</strong><span data-i18n="map.runtimeRole">{{map.runtimeRole}}</span></div>
+                  <div class="map-agent-layer"><p data-i18n="map.sessionAgents">{{map.sessionAgents}}</p><ul class="agent-names" aria-label="Agents"><li><img src="./assets/agents/claude-code.svg" width="16" height="16" alt="" aria-hidden="true" /><span>Claude Code</span></li><li><img src="./assets/agents/codex.svg" width="16" height="16" alt="" aria-hidden="true" /><span>Codex</span></li><li><img src="./assets/agents/opencode.svg" width="16" height="16" alt="" aria-hidden="true" /><span>OpenCode</span></li><li><img src="./assets/agents/pi.svg" width="16" height="16" alt="" aria-hidden="true" /><span>Pi</span></li><li><img src="./assets/agents/fx.png" width="16" height="16" alt="" aria-hidden="true" /><span>Fx</span></li><li class="agent-more"><span aria-hidden="true">…</span><span class="visually-hidden" data-i18n="agents.more">{{agents.more}}</span></li></ul></div>
+                </div>
+              </div>
               <p class="flow-agent-note" data-i18n="how.agentNote">{{how.agentNote}}</p>
             </div>
           </div>

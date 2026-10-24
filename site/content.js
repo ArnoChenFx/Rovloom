@@ -1,6 +1,7 @@
 // Project copy is kept together so both languages describe the same capabilities.
 export const copy = {
   zh: {
+    'agents.more': '更多 Agent',
     'map.localNote': '工作区、会话与 Agent 登录，都留在这台设备。',
     'map.sessionAgents': '运行在会话中的 Agents',
     'map.runtimeRole': '本地 Runtime',
@@ -139,6 +140,7 @@ export const copy = {
       'Rovloom 为 Luvus 与 Herdr 提供跨设备 MCP 入口。自部署 Gateway，连接多台机器上的本地工作区、会话与 Agent。'
   },
   en: {
+    'agents.more': 'More Agents',
     'map.localNote': 'Workspaces, sessions and Agent logins stay on this device.',
     'map.sessionAgents': 'AGENTS IN YOUR SESSIONS',
     'map.runtimeRole': 'Local runtime',
