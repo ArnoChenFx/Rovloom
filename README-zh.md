@@ -25,45 +25,13 @@ Rovloom 为 AI Agent 和 Bot 提供统一的 MCP 入口，让它们操作你所�
 AI Agent 与 CLI 通过 MCP 访问 Gateway。每台设备运行一个 Connector 和本地 provider 适配层，
 可管理多个 runtime 实例。
 
-```mermaid
-flowchart TB
-  subgraph ACCESS["接入层"]
-    direction LR
-    AI["AI Agent / AI Bot"]
-    CLI["CLI"]
-  end
+<p align="center">
+  <a href="docs/assets/architecture/architecture.zh.svg">
+    <img src="docs/assets/architecture/architecture.zh.png" alt="Rovloom 架构：MCP 客户端接入 Gateway；每台设备一个主动出站的 Connector，通过 Provider Adapter 访问本地 Luvus 与 Herdr。" width="1200">
+  </a>
+</p>
 
-  GW["Gateway<br/>MCP 入口 · 注册 · 路由 · 策略<br/>调用账本 · 结果存储 · 管理 UI"]
-
-  subgraph DEVICE_A["设备 A"]
-    direction TB
-    CA["一个 Connector<br/>一套设备身份 · 本地策略"]
-    PA["Provider Adapter 适配层<br/>各实例独立可信绑定"]
-    LA["本地 Luvus<br/>Host / session"]
-    HA["本地 Herdr<br/>session runtime"]
-    CA <--> PA
-    PA <--> LA
-    PA <--> HA
-  end
-
-  subgraph DEVICE_B["设备 B"]
-    direction TB
-    CB["一个 Connector<br/>一套设备身份 · 本地策略"]
-    PB["Provider Adapter 适配层<br/>各实例独立可信绑定"]
-    LB["本地 Luvus<br/>Host / session"]
-    HB["本地 Herdr<br/>session runtime"]
-    CB <--> PB
-    PB <--> LB
-    PB <--> HB
-  end
-
-  AI <-->|"MCP 请求 / 结果"| GW
-  CLI <-->|"命令 / 结果"| GW
-  GW <-->|"请求 ↓ · 结果 / 事件 ↑"| CA
-  GW <-->|"请求 ↓ · 结果 / 事件 ↑"| CB
-  CA -.->|"主动发起出站 WSS"| GW
-  CB -.->|"主动发起出站 WSS"| GW
-```
+实线表示请求与返回的结果/事件，虚线表示 Connector 主动建立出站 WSS 连接。点击图片可查看矢量大图。
 
 ## 典型用法：两台机器，一个 Agent
 

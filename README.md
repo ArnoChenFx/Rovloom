@@ -29,45 +29,13 @@ port is opened on the machines that run them.
 AI Agents and CLIs talk to the Gateway over MCP. Each device runs one Connector with local provider
 adapters, which can manage several runtime instances.
 
-```mermaid
-flowchart TB
-  subgraph ACCESS["Access layer"]
-    direction LR
-    AI["AI Agent / AI Bot"]
-    CLI["CLI"]
-  end
+<p align="center">
+  <a href="docs/assets/architecture/architecture.en.svg">
+    <img src="docs/assets/architecture/architecture.en.png" alt="Rovloom architecture: MCP clients access a Gateway; one outbound Connector per device routes calls through provider adapters to local Luvus and Herdr runtimes." width="1200">
+  </a>
+</p>
 
-  GW["Gateway<br/>MCP facade · registry · routing · policy<br/>call ledger · result storage · management UI"]
-
-  subgraph DEVICE_A["Device A"]
-    direction TB
-    CA["One Connector<br/>one device identity · local policy"]
-    PA["Provider adapters<br/>trusted binding per instance"]
-    LA["Local Luvus<br/>Host / session"]
-    HA["Local Herdr<br/>session runtime"]
-    CA <--> PA
-    PA <--> LA
-    PA <--> HA
-  end
-
-  subgraph DEVICE_B["Device B"]
-    direction TB
-    CB["One Connector<br/>one device identity · local policy"]
-    PB["Provider adapters<br/>trusted binding per instance"]
-    LB["Local Luvus<br/>Host / session"]
-    HB["Local Herdr<br/>session runtime"]
-    CB <--> PB
-    PB <--> LB
-    PB <--> HB
-  end
-
-  AI <-->|"MCP requests / results"| GW
-  CLI <-->|"commands / results"| GW
-  GW <-->|"requests ↓ · results / events ↑"| CA
-  GW <-->|"requests ↓ · results / events ↑"| CB
-  CA -.->|"initiates outbound WSS"| GW
-  CB -.->|"initiates outbound WSS"| GW
-```
+Solid arrows show requests and returned results/events; dashed arrows show Connector-initiated outbound WSS. Click the image for the scalable SVG.
 
 ## Typical setup: two machines, one Agent
 
