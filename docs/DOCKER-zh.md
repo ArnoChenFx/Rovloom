@@ -36,10 +36,18 @@ docker compose ps
 
 `healthy` 只说明 MCP 认证监听已响应，不表示设备已配对、管理员已存在或 Agent 已就绪。日志中的 `pairing_required` 表示等待配对。
 
-`config init gateway --container` 把容器内部的三个监听设为 `0.0.0.0`。已有配置不会覆盖；旧版回环配置若返回 `config_exists`，请按下文的配置编辑步骤核对并修改。Compose 的发布范围是：
+`config init gateway --container` 把容器内部的三个监听设为 `0.0.0.0`，并默认设置
+`management.lan: true`，允许管理页接受通过宿主机 IP 或 HTTP 代理传入的 Host；登录与同源校验仍然生效。
+已有配置不会覆盖；旧配置的监听或管理页 LAN 设置不一致时返回 `config_exists`，请按下文的配置编辑步骤修改。
+MCP 的 LAN / `public_url` 设置仍需按实际客户端地址单独配置。Compose 的发布范围是：
 
 - `9443`（Connector 设备通道）发布到宿主机所有网卡，其它机器上的 Connector 才能连接。跨出可信网络时请前置 TLS 反向代理，并用宿主机防火墙收口。
-- `9444`（MCP）与 `9445`（管理页）**只发布到宿主机回环**（`127.0.0.1`）。远程 MCP 客户端通过宿主机上转发到 `127.0.0.1:9444` 的反向代理访问，并设置 `mcp.public_url`（见[网络访问](CONFIGURATION-zh.md#网络访问)）。不要放宽这两个映射：监听是明文 HTTP，Host/Origin 校验只防浏览器 DNS 重绑定——网络上的客户端手工带回环 `Host` 头仍能走到 Bearer 或管理员密码这一步。
+- `9444`（MCP）与 `9445`（管理页）**只发布到宿主机回环**（`127.0.0.1`）。远程 MCP 客户端通过宿主机上转发到 `127.0.0.1:9444` 的反向代理访问，并设置 `mcp.public_url`（见[网络访问](CONFIGURATION-zh.md#网络访问)）。管理页可使用下文的 SSH 隧道。
+
+如果要在可信局域网中直接用宿主机 IP 打开管理页，将 Compose 的管理端口映射改为例如
+`"192.168.11.200:9445:9445"`（替换为你的宿主机局域网 IP），再运行 `docker compose up -d`。
+随后访问 `http://192.168.11.200:9445/`。旧配置还需补上 `management.lan: true` 并重启 Gateway；
+仅更新镜像不会修改已有配置。该入口为明文 HTTP，应通过宿主机防火墙限制到可信网络。
 
 ## 管理页登录与在线配对
 

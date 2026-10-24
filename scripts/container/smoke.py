@@ -159,6 +159,7 @@ def compose_smoke(image, compose_path):
             check_gateway(container)
             parsed = json.loads(command('exec', container, 'cat', '/home/rovloom/.config/rovloom/gateway.json'))
             assert all(parsed[part]['hostname'] == '0.0.0.0' for part in ['mcp', 'devices', 'management'])
+            assert parsed['management']['lan'] is True
             # bridge验收的落点在宿主机侧：发布端口必须经端口映射真实可达。
             assert host_status('http://127.0.0.1:9444/mcp') == 401
             assert host_status('http://127.0.0.1:9445/') == 200

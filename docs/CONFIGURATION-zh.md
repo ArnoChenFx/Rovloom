@@ -15,7 +15,7 @@ rovloom config init connector --provider herdr
 rovloom config init gateway --container
 ```
 
-`--provider` 只适用于 Connector，可选 `luvus`、`herdr`、`mixed`。`--container` 只适用于 Gateway，显式将 MCP、设备和管理监听设为 `0.0.0.0`；维护的 Compose 文件仍把 MCP / 管理端口只发布到宿主回环。不带该参数时，Gateway 保持普通回环默认值。`--config` 只选择配置文件，默认状态路径仍属于当前用户 home。
+`--provider` 只适用于 Connector，可选 `luvus`、`herdr`、`mixed`。`--container` 只适用于 Gateway，显式将 MCP、设备和管理监听设为 `0.0.0.0`，并设置 `management.lan: true`；维护的 Compose 文件仍把 MCP / 管理端口只发布到宿主回环。MCP LAN / `public_url` 需单独配置。不带该参数时，Gateway 保持普通回环默认值。`--config` 只选择配置文件，默认状态路径仍属于当前用户 home。
 
 初始化不启动服务、不创建设备身份、不批准 native 访问，沿用角色首次启动的独占文件发布机制。已有文件不覆盖；显式 provider / 监听请求与已有内容冲突时返回 `config_exists`。已有部署应先核对配置和配对状态，编辑后用 `config check` 校验再重启。
 
@@ -71,7 +71,7 @@ Connector，通常为 `~/.config/rovloom/connector.json`：
 | `management.enabled` | boolean，必填 | `true`；`false` 关闭该监听。启用不授予管理员身份。 |
 | `management.port` | integer 1–65535，关闭时也必填 | `9445`。 |
 | `management.hostname` | string，可选 | `127.0.0.1`，也接受 `0.0.0.0`（容器等隔离环境）。会话与 Host 校验仍按 `127.0.0.1` 来源。 |
-| `management.lan` | 字面量 `true`，可选 | 管理页的明文局域网显式选择。只能与 `management.hostname: "0.0.0.0"` 同时使用；回环配置一律拒绝。设置后管理页额为接受任意 Host 的明文 HTTP 访问（Cookie 仍为 `HttpOnly`/`SameSite=Strict`，但不是 `Secure`；跨站请求仍被同源检查拒绝）。不添加该字段时行为完全不变：局域网访问仍返回 403，下文的 SSH 端口转发指引继续适用。Gateway 会输出既有 `wildcard_listener` 告警。页面离开受信局域网时请用 TLS 反向代理收口。 |
+| `management.lan` | 字面量 `true`，可选 | 管理页的明文局域网选择；`config init gateway --container` 默认写入，普通初始化省略。只能与 `management.hostname: "0.0.0.0"` 同时使用；回环配置一律拒绝。设置后管理页额为接受任意 Host 的明文 HTTP 访问（Cookie 仍为 `HttpOnly`/`SameSite=Strict`，但不是 `Secure`；跨站请求仍被同源检查拒绝）。不添加该字段时局域网访问仍返回 403，下文的 SSH 端口转发指引继续适用。Gateway 会输出既有 `wildcard_listener` 告警。页面离开受信局域网时请用 TLS 反向代理收口。 |
 | Connector `gateway` | object，必填 | 仅含 `url`。 |
 | `gateway.url` | string，必填 | 初始化前为 `""`；其余为 ≤2048 字符的 WS/WSS origin，如 `ws://192.0.2.10:9443` 或 `wss://gateway.example`。不带凭据/查询/片段/路径，可带末尾 `/`；产品固定使用 `/connector`。 |
 | Connector `allow_terminal_execution` | boolean，可选 | `false`；省略也关闭。只有字面量 `true` 开启直接终端输入及自定义启动/恢复命令。修改这一份用户文件并重启 Connector，不改变安装设置或 caller/local grants。 |
