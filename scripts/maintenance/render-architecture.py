@@ -88,7 +88,6 @@ def draw(language):
             'agent': '<path d="m12 2 2.8 7.2L22 12l-7.2 2.8L12 22l-2.8-7.2L2 12l7.2-2.8Z"/>',
             'cli': '<rect x="2" y="3" width="20" height="18" rx="3"/><path d="m6 8 4 4-4 4m7 0h5"/>',
             'device': '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/>',
-            'link': '<path d="m9 15 6-6m-7 3-2 2a4 4 0 0 0 6 6l2-2m-4-12 2-2a4 4 0 0 1 6 6l-2 2"/>',
             'layers': '<path d="m12 2 10 5-10 5L2 7Zm-9 10 9 5 9-5M3 17l9 5 9-5"/>',
             'runtime': '<rect x="4" y="2" width="16" height="20" rx="3"/><path d="M4 9h16M4 16h16m-12-11h1m-1 7h1m-1 7h1"/>',
         }
@@ -158,7 +157,7 @@ def draw(language):
         inner=x+32
         rect(inner,864,568,72,'#fffefa',radius=12)
         rect(inner+16,880,40,40,'#edf1e6',stroke='none',radius=9)
-        icon(inner+24,888,'link',size=24)
+        add(f'<image x="{inner+24}" y="888" width="24" height="24" href="data:image/png;base64,{logo}"/>')
         text(inner+74,895,c['connector'],23,weight=600)
         text(inner+74,920,c['connectorSub'],16,MUTED)
         path(f'M{x+316} 936V976',both=True)

@@ -2341,7 +2341,7 @@ footer .brand img {
   padding: 12px 13px;
   background: #f8faf4;
 }
-.map-connector > svg { width: 18px; height: 18px; color: #718563; }
+.map-connector > img { width: 20px; height: 20px; flex-shrink: 0; object-fit: contain; }
 .map-connector > strong { font: 11px var(--mono); }
 .map-connector > span { margin-left: auto; font-size: 9px; color: var(--quiet); }
 .map-native-link { height: 28px; text-align: center; }
