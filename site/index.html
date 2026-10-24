@@ -81,29 +81,29 @@
           <div class="map-heading"><span class="map-heading-mark" aria-hidden="true">R /</span><span data-i18n="map.heading">{{map.heading}}</span><span class="map-protocol">MCP → WSS</span></div>
           <div class="topology" role="group" data-i18n-aria="map.aria" aria-label="{{map.aria}}">
             <svg class="connections" viewBox="0 0 560 480" preserveAspectRatio="none" aria-hidden="true">
-              <path class="wire" data-route="agent" d="M280 116V170"></path>
-              <path class="wire" data-route="pc" d="M280 234V258H14V322H25"></path>
-              <path class="wire" data-route="docker" d="M280 234V258H14V410H25"></path>
-              <path class="wire" data-route="vps" d="M280 234V258H546V322H535"></path>
-              <path class="wire" data-route="sandbox" d="M280 234V258H546V410H535"></path>
-              <path class="active-route" data-highlight-route="agent" pathLength="1" d="M280 116V170"></path>
-              <path class="active-route" data-highlight-route="pc" pathLength="1" d="M280 234V258H14V322H25"></path>
-              <path class="active-route" data-highlight-route="docker" pathLength="1" d="M280 234V258H14V410H25"></path>
-              <path class="active-route" data-highlight-route="vps" pathLength="1" d="M280 234V258H546V322H535"></path>
+              <path class="wire" data-route="agent" d="M280 92V140"></path>
+              <path class="wire" data-route="pc" d="M280 204V234Q280 244 270 244H160Q150 244 150 254V274"></path>
+              <path class="wire" data-route="docker" d="M280 204V360Q280 370 270 370H160Q150 370 150 380V386"></path>
+              <path class="wire" data-route="vps" d="M280 204V234Q280 244 290 244H400Q410 244 410 254V274"></path>
+              <path class="wire" data-route="sandbox" d="M280 204V360Q280 370 290 370H400Q410 370 410 380V386"></path>
+              <path class="active-route" data-highlight-route="agent" pathLength="1" d="M280 92V140"></path>
+              <path class="active-route" data-highlight-route="pc" pathLength="1" d="M280 204V234Q280 244 270 244H160Q150 244 150 254V274"></path>
+              <path class="active-route" data-highlight-route="docker" pathLength="1" d="M280 204V360Q280 370 270 370H160Q150 370 150 380V386"></path>
+              <path class="active-route" data-highlight-route="vps" pathLength="1" d="M280 204V234Q280 244 290 244H400Q410 244 410 254V274"></path>
               <path
                 class="active-route"
                 data-highlight-route="sandbox"
                 pathLength="1"
-                d="M280 234V258H546V410H535"
+                d="M280 204V360Q280 370 290 370H400Q410 370 410 380V386"
               ></path>
               <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="5s" repeatCount="indefinite" path="M280 116V170"></animateMotion>
+                <animateMotion dur="5s" repeatCount="indefinite" path="M280 92V140"></animateMotion>
               </circle>
               <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="9s" repeatCount="indefinite" path="M25 410H14V258H280V234"></animateMotion>
+                <animateMotion dur="9s" repeatCount="indefinite" path="M150 386V380Q150 370 160 370H270Q280 370 280 360V204"></animateMotion>
               </circle>
               <circle class="packet" r="3" fill="currentColor">
-                <animateMotion dur="7s" repeatCount="indefinite" path="M535 322H546V258H280V234"></animateMotion>
+                <animateMotion dur="7s" repeatCount="indefinite" path="M410 274V254Q410 244 400 244H290Q280 244 280 234V204"></animateMotion>
               </circle>
             </svg>
             <button
