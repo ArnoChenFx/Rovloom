@@ -37,6 +37,19 @@ export function buildSite({ output = resolve(root, 'dist/site'), release } = {})
     copyFileSync(resolve(root, 'site', name), resolve(output, name))
   }
   copyFileSync(resolve(root, 'docs/assets/brand/rovloom-mark-transparent.png'), resolve(output, 'assets/mark.png'))
+  copyFileSync(resolve(root, 'docs/assets/brand/rovloom-logo.png'), resolve(output, 'assets/logo.png'))
+  mkdirSync(resolve(output, 'assets/agents'), { recursive: true })
+  for (const name of [
+    'claude-code.svg',
+    'codex.svg',
+    'opencode.svg',
+    'pi.svg',
+    'fx.png',
+    'LICENSE-lobe-icons.txt',
+    'README.md'
+  ]) {
+    copyFileSync(resolve(root, 'site/assets/agents', name), resolve(output, 'assets/agents', name))
+  }
   writeFileSync(resolve(output, '.nojekyll'), '')
   writeFileSync(
     resolve(output, 'robots.txt'),

@@ -14,6 +14,12 @@ const copyStatus = document.querySelector('#copy-status')
 const nodeFlow = document.querySelector('#node-flow')
 
 function updateNodeFlow() {
+  const environment = ['pc', 'vps', 'docker', 'sandbox'].includes(selectedNode) ? selectedNode : null
+  document.querySelector('#workspace-title').textContent =
+    copy[language][environment ? `map.${environment}` : 'map.workspaceTitle']
+  document
+    .querySelector('.map-workspace')
+    .classList.toggle('is-selected', Boolean(environment || selectedNode === 'gateway'))
   const text = selectedNode ? copy[language][`map.${selectedNode}Flow`] : ''
   if (nodeFlow.textContent === text) {
     return
@@ -110,9 +116,7 @@ for (const button of topologyNodes) {
     const node = button.dataset.node
     selectedNode = selected ? node : null
     for (const route of topologyRoutes) {
-      const active =
-        selected &&
-        (node === 'gateway' || route.dataset.highlightRoute === 'agent' || route.dataset.highlightRoute === node)
+      const active = selected && (route.dataset.highlightRoute === 'agent' || node !== 'agent')
       route.classList.toggle('is-active', active)
     }
     updateNodeFlow()

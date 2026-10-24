@@ -51,6 +51,12 @@ test('the site builds without Gateway state and all relative assets work under a
     for (const [, sprite] of html.matchAll(/<use href="#([^"]+)"/g)) {
       assert(ids.includes(sprite), `Missing SVG symbol: ${sprite}`)
     }
+    assert.equal(
+      readFileSync(join(output, 'assets/logo.png')).compare(
+        readFileSync(new URL('docs/assets/brand/rovloom-logo.png', root))
+      ),
+      0
+    )
     assert(existsSync(join(output, '.nojekyll')))
     assert(existsSync(join(output, '404.html')))
     assert(existsSync(join(output, 'sitemap.xml')))

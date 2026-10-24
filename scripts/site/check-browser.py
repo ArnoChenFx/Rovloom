@@ -48,6 +48,21 @@ def main():
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (language, width)
                 for element in page.locator('img').all():
                     assert element.evaluate('(image) => image.complete && image.naturalWidth > 0')
+                # The local hierarchy and Agent labels must fit at the narrowest widths.
+                for selector in ['.map-local-stack', '.flow-local']:
+                    region = page.locator(selector)
+                    assert region.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, selector)
+                    for icon in region.locator('.agent-names img').all():
+                        assert icon.get_attribute('src').startswith('./assets/agents/')
+                    more = region.locator('.agent-names li').last
+                    expect(more.locator('[aria-hidden=true]')).to_have_text('…')
+                    expect(more.locator('.visually-hidden')).to_have_text('更多 Agent' if language == 'zh' else 'More Agents')
+                    for label in region.locator('.agent-names li').all():
+                        assert label.evaluate('(element) => element.scrollWidth <= element.clientWidth'), (language, width, label.inner_text())
+                for selector in ['.site-header .brand img', 'footer .brand img']:
+                    logo = page.locator(selector)
+                    assert logo.get_attribute('src') == './assets/logo.png'
+                    assert logo.evaluate('(image) => Math.abs(image.width / image.height - image.naturalWidth / image.naturalHeight) < 0.05'), (language, width, selector)
                 nodes = page.locator('.map-node')
                 assert nodes.count() == 6
                 for element in nodes.all():
@@ -65,12 +80,15 @@ def main():
                 strip_top = page.locator('.tool-strip').evaluate('(element) => element.getBoundingClientRect().top + scrollY')
                 page.locator('[data-node=pc]').click()
                 expect(page.locator('#node-flow')).to_contain_text('Gateway')
+                expect(page.locator('#workspace-title')).to_have_text('个人电脑' if language == 'zh' else 'Personal computer')
+                assert page.locator('.map-workspace').evaluate('(element) => element.contains(document.querySelector(".map-local-stack"))')
                 after_top = page.locator('.tool-strip').evaluate('(element) => element.getBoundingClientRect().top + scrollY')
                 assert abs(strip_top - after_top) < 1, (language, width, 'selection moves layout')
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (language, width, 'flow')
                 page.locator('[data-node=pc]').click()
                 expect(page.locator('#node-flow')).to_be_empty()
             assert page.locator('.topology').get_attribute('role') == 'group'
+            page.locator('.flow-track').screenshot(path=str(out / f'agent-flow-{language}.png'))
             flows = set()
             for node in ['pc', 'vps', 'docker', 'sandbox', 'agent', 'gateway']:
                 button = page.locator(f'[data-node={node}]')
@@ -83,8 +101,10 @@ def main():
                 assert len(flow) > 20 and 'Gateway' in flow
                 flows.add(flow)
                 assert button.get_attribute('aria-controls') == 'node-flow'
+                if node in ['pc', 'vps', 'docker', 'sandbox']:
+                    assert page.locator('#workspace-title').inner_text() == button.locator('strong').inner_text()
                 routes = page.locator('.active-route.is-active').evaluate_all('(routes) => routes.map(route => route.dataset.highlightRoute)')
-                expected_routes = ['agent', 'pc', 'docker', 'vps', 'sandbox'] if node == 'gateway' else ['agent'] if node == 'agent' else ['agent', node]
+                expected_routes = ['agent'] if node == 'agent' else ['agent', 'workspace']
                 assert set(routes) == set(expected_routes), (node, routes)
                 for route in page.locator('.active-route.is-active').all():
                     assert 'stroke-dashoffset' in route.evaluate('(element) => getComputedStyle(element).transitionProperty')
@@ -160,7 +180,7 @@ def main():
         assert page.locator('.active-route.is-active').first.evaluate('(element) => getComputedStyle(element).transitionDuration') == '0s'
         assert page.locator('#node-flow').evaluate('(element) => element.getAnimations().length') == 0
         page.locator('[data-node=pc]').click()
-        assert page.locator('.packet').first.evaluate('(element) => getComputedStyle(element).display') == 'none'
+        assert page.locator('.topology').evaluate('(element) => element.getAnimations({subtree: true}).length') == 0
         blocked = context.new_page()
         blocked.add_init_script('''
             Object.defineProperty(window, 'localStorage', {get() {throw new Error('blocked')}});
@@ -179,6 +199,7 @@ def main():
         fallback.goto(base, wait_until='networkidle')
         assert '一个 MCP 入口' in fallback.locator('h1').inner_text()
         assert 'rovloom gateway' in fallback.locator('#command').inner_text()
+        assert 'Claude Code' in fallback.locator('.flow-local').inner_text()
         assert not errors, errors
         assert all(request.startswith(base) for request in requests), requests
         report = {
@@ -187,7 +208,7 @@ def main():
                        'localized topology labels and keyboard route selection',
                        'six selected call flows, deselection and live language changes', 'smooth highlights without layout shifts', 'keyboard tabs',
                        'clipboard', 'language persistence', 'FAQ', 'mobile navigation', 'reduced motion',
-                       'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests'],
+                       'blocked storage and clipboard', 'no-JS fallback', 'no remote runtime requests', 'local runtime and Agent hierarchy fits all widths', 'local Agent icons and localized more indicator'],
             'pageErrors': errors
         }
         (out / 'browser-verification.json').write_text(json.dumps(report, indent=2) + '\n')
