@@ -1830,3 +1830,278 @@ html[lang='en'] .feature h3 {
     padding-inline: 10px;
   }
 }
+
+/* Release homepage: quiet paper, orange brand, and a dark routing canvas. */
+:root {
+  --paper: #f7f7f2;
+  --ink: #202a29;
+  --muted: #606e69;
+  --quiet: #5e7067;
+  --line: #dce2d9;
+  --wash: #edf1e9;
+  --dark: #172c29;
+}
+.site-header {
+  min-height: 90px;
+}
+.brand {
+  font-size: 26px;
+  letter-spacing: -1.1px;
+}
+.github-button {
+  border-radius: 24px;
+  padding-inline: 20px;
+}
+.hero {
+  grid-template-columns: 1.08fr 1fr;
+  gap: 64px;
+  padding-top: 76px;
+  padding-bottom: 68px;
+}
+.hero h1 {
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -2.6px;
+  font-size: clamp(38px, 4.1vw, 59px);
+}
+.hero-description {
+  max-width: 455px;
+  font-size: 15px;
+  line-height: 2;
+}
+.hero .eyebrow {
+  letter-spacing: 1.8px;
+}
+.button {
+  border-radius: 7px;
+}
+.hero-proof {
+  display: flex;
+  gap: 16px;
+  padding: 0;
+  margin: 27px 0 0;
+  list-style: none;
+  font-size: 10px;
+  color: var(--quiet);
+  flex-wrap: wrap;
+}
+.hero-proof li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.hero-proof li::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #627e6e;
+}
+.topology-block {
+  position: relative;
+  padding: 18px 18px 0;
+  border: 1px solid #29413b;
+  border-radius: 14px;
+  background: #172c29;
+  box-shadow: 0 24px 55px -35px #10292388;
+}
+.map-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #cfdbd2;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  padding: 2px 2px 18px;
+}
+.map-heading-mark {
+  color: #ff8964;
+  font-family: var(--mono);
+  font-size: 14px;
+}
+.map-protocol {
+  margin-left: auto;
+  color: #a8bbb0;
+  font: 8px var(--mono);
+}
+.topology {
+  height: 420px;
+  border-radius: 6px;
+  border-color: #38524a;
+  background: radial-gradient(#52736588 0.7px, transparent 0.7px) 0 0 / 18px 18px #1c332e;
+}
+.map-node {
+  background: #233e36;
+  color: #ecf0e6;
+  border-color: #5c7768;
+  border-radius: 7px;
+  box-shadow: 0 4px 12px #10252144;
+}
+.map-node:hover {
+  background: #304d41;
+  border-color: #b7ccb4;
+}
+.map-node.selected {
+  background: #583a29;
+  border-color: #ff926c;
+}
+.gateway-node {
+  background: #ed623a;
+  border-color: #ff9772;
+  color: #fff;
+}
+.gateway-node:hover,
+.gateway-node.selected {
+  background: #ca4d28;
+}
+.map-node small {
+  color: #bed0bb;
+}
+.node-icon {
+  background: #365144;
+  color: #d4e2c7;
+}
+.gateway-mark {
+  background: #fff6ec;
+  border-radius: 5px;
+}
+.connections {
+  stroke: #7e9c82;
+}
+.active-route,
+.packet {
+  color: #ff9a70;
+  stroke: #ff9a70;
+}
+.map-caption {
+  margin: 14px 2px 0;
+  color: #becfc0;
+  font-size: 10px;
+  line-height: 1.8;
+}
+.node-flow {
+  min-height: 5.1em;
+  color: #d0ddce;
+  font-size: 11px;
+  margin-top: 6px;
+}
+.tool-strip {
+  padding-block: 25px;
+}
+.tool-strip > a {
+  letter-spacing: -0.5px;
+}
+.manage-section {
+  padding-block: 76px;
+  border-bottom: 1px solid var(--line);
+}
+.manage-heading {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr;
+  gap: 80px;
+  align-items: end;
+}
+.manage-heading h2 {
+  margin-bottom: 0;
+  font-size: 35px;
+}
+.manage-heading .eyebrow {
+  margin-bottom: 18px;
+  color: var(--orange);
+}
+.manage-track {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f0f2eb;
+  overflow: hidden;
+}
+.manage-track article {
+  padding: 27px 28px;
+  min-width: 0;
+}
+.manage-track article + article {
+  border-left: 1px solid var(--line);
+}
+.manage-index {
+  font: 10px var(--mono);
+  color: #657b6c;
+  letter-spacing: 1px;
+}
+.manage-track h3 {
+  font-size: 17px;
+  margin: 19px 0 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.manage-track p {
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--muted);
+  margin: 0;
+}
+.manage-section > .text-link {
+  margin-top: 20px;
+}
+.why-section {
+  gap: 65px;
+}
+.feature {
+  background: transparent;
+  border-color: var(--line);
+}
+.feature-icon {
+  color: var(--orange);
+}
+.how-section {
+  background-image: radial-gradient(ellipse at top right, #294b3d, transparent 70%);
+}
+.closing {
+  background: #e9eedf;
+}
+html[lang='en'] .hero h1 {
+  font-size: clamp(40px, 4.4vw, 64px);
+  line-height: 1.12;
+}
+@media (max-width: 1150px) {
+  .hero { gap: 32px; }
+  .topology-block { padding-inline: 12px; }
+  .map-protocol { display: none; }
+  .manage-heading { gap: 40px; }
+  .manage-track article { padding: 24px 20px; }
+}
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; gap: 38px; padding-top: 50px; }
+  .hero-copy { max-width: 600px; }
+  .hero h1 { font-size: 52px; }
+  .hero-description { max-width: 530px; }
+  .topology-block { max-width: 600px; width: 100%; justify-self: center; }
+  .map-protocol { display: block; }
+  .manage-heading { gap: 28px; }
+  .manage-track h3 { font-size: 15px; }
+  .manage-track p { font-size: 12px; }
+  html[lang='en'] .hero h1 { font-size: 62px; }
+}
+@media (max-width: 700px) {
+  .hero { padding-top: 42px; padding-bottom: 38px; gap: 34px; }
+  .hero h1 { font-size: clamp(29px, 7.3vw, 48px); letter-spacing: -1.5px; }
+  .hero-description { font-size: 14px; }
+  .hero-proof { gap: 13px; font-size: 9px; margin-top: 22px; }
+  .topology-block { padding-top: 15px; }
+  .map-heading { font-size: 9px; padding-bottom: 15px; gap: 7px; }
+  .map-protocol { font-size: 7px; }
+  .map-caption { font-size: 9px; }
+  .node-flow { font-size: 10px; }
+  .manage-section { padding-block: 48px; }
+  .manage-heading { grid-template-columns: 1fr; gap: 14px; }
+  .manage-track { grid-template-columns: 1fr; margin-top: 26px; }
+  .manage-track article { padding: 23px; }
+  .manage-track article + article { border-left: 0; border-top: 1px solid var(--line); }
+  .manage-track h3 { font-size: 17px; margin-top: 13px; }
+  .manage-track p { font-size: 13px; }
+  .why-section { gap: 29px; }
+  .github-button { padding-inline: 12px; }
+  html[lang='en'] .hero h1 { font-size: clamp(35px, 10vw, 60px); }
+}
