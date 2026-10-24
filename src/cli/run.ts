@@ -365,6 +365,7 @@ export async function runCli(
           hostname: config.mcp_hostname,
           port: config.mcp_port,
           ...(config.mcp_public_url ? { publicUrl: config.mcp_public_url } : {}),
+          ...(config.mcp_lan ? { lan: true } : {}),
           diagnostic: /* 只把受限诊断码写入stderr，不输出凭据、URL或协议正文。 */ (code) => io.stderr.write(code + '\n')
         })
         try {

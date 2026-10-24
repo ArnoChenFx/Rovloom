@@ -395,7 +395,9 @@ export function createManagementReadHandler(options: ManagementHttpOptions & { o
   return prepare(
     options,
     /** 使用宿主固定来源，绝不从请求 Host 自动扩大信任范围。 */
-    () => options.origin
+    () => options.origin,
+    /** 组合器交付的显式 LAN 选择同样作用于只读 handler，不能只由独立 listener 路径生效。 */
+    () => options.lan === true
   )
 }
 
