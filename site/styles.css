@@ -391,22 +391,6 @@ h2 {
 .section-intro .section-description {
   max-width: 340px;
 }
-.woven-motif {
-  display: flex;
-  gap: 8px;
-  margin-top: 50px;
-  transform: skewY(-16deg);
-  opacity: 0.7;
-  width: 130px;
-  overflow: hidden;
-}
-.woven-motif span {
-  width: 18px;
-  height: 85px;
-  border: 1px solid #a6b196;
-  background: var(--paper);
-  transform: rotate(-42deg);
-}
 .features {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1372,9 +1356,6 @@ html[lang='en'] .feature h3 {
   .section-description {
     font-size: 13px;
     max-width: 500px !important;
-  }
-  .woven-motif {
-    display: none;
   }
   .features {
     gap: 12px;
